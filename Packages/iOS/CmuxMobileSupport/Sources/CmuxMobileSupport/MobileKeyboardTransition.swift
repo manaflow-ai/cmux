@@ -97,6 +97,8 @@ public struct MobileKeyboardTransition: Sendable {
             completion?(true)
             return
         }
+        // The content follows the system keyboard with its own curve. The keyboard moves under Reduce Motion too,
+        // so a jump here would open a gap or cover the composer. motion: allow follows the system keyboard
         UIView.animate(
             withDuration: animationDuration,
             delay: 0,

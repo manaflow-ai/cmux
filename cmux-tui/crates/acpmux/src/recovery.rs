@@ -24,6 +24,40 @@ use serde_json::{Map, Value, json};
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
 
+/// Build the reply while the failed write still has its typed I/O cause.
+pub(crate) fn write_error(
+    operation: &str,
+    cause: anyhow::Error,
+    fallback_reason: Option<&str>,
+) -> RpcError {
+    let message = format!("{operation}: {cause:#}");
+    if is_out_of_space(&cause) {
+        return RpcError::new(crate::rpc::BUSY_CODE, message)
+            .with_data(json!({"reason": "disk_full", "retryable": true}));
+    }
+    let error = RpcError::internal(message);
+    match fallback_reason {
+        Some(reason) => error.with_data(json!({"reason": reason, "retryable": true})),
+        None => error,
+    }
+}
+
+/// A full disk or quota anywhere in the error's chain.
+pub(crate) fn is_out_of_space(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.downcast_ref::<std::io::Error>().is_some_and(io_out_of_space))
+}
+
+fn io_out_of_space(error: &std::io::Error) -> bool {
+    if matches!(error.kind(), std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded) {
+        return true;
+    }
+    #[cfg(unix)]
+    if matches!(error.raw_os_error(), Some(code) if code == libc::ENOSPC || code == libc::EDQUOT) {
+        return true;
+    }
+    false
+}
+
 /// The `errorKind` names. Clients match on these; never rename one.
 pub mod kind {
     /// A write failed because the disk (or the user's quota) is full.
@@ -34,6 +68,9 @@ pub mod kind {
     pub const PEER_UNREACHABLE: &str = "peer.unreachable";
     /// The daemon is restarting or shutting down.
     pub const DAEMON_RESTARTING: &str = "daemon.restarting";
+    /// The two ends of a connection share no wire ABI revision (`protocol/range.rs`): `details`
+    /// names both ranges and which side (`update`: `self` or `peer`) to update.
+    pub const VERSION_INCOMPATIBLE: &str = "version.incompatible";
     /// The agent's program could not be started.
     pub const SPAWN_FAILED: &str = "spawn.failed";
     /// The agent's process ended in the middle of a turn.
@@ -42,6 +79,34 @@ pub mod kind {
     pub const AUTH_SIGNED_OUT: &str = "auth.signed_out";
     /// The agent's sign-in expired: an expired OAuth token or credential ([`super::auth_kind`]).
     pub const AUTH_EXPIRED: &str = "auth.expired";
+    /// A Cloud machine's model call found the owner's own gateway (their Mac) not connected:
+    /// the Mac is asleep, offline or not running cmux (`inference.gateway_offline`, `_gone`).
+    pub const GATEWAY_OFFLINE: &str = "gateway.offline";
+    /// The owner's gateway answered, but the agent's sign-in on their Mac is missing or expired
+    /// (`inference.gateway_login`).
+    pub const GATEWAY_LOGIN: &str = "gateway.login";
+    /// The agent does not know the model it was asked to run (Claude Code's
+    /// `unrecognized_model`, an API's `model_not_found`; `model_catalog::is_model_error`). acpmux
+    /// retries such a turn once under the model's catalog id when it has one
+    /// (`hub/auto_resume/model_reroute.rs`); a sweeper reads this kind for the rest.
+    pub const MODEL_UNRECOGNIZED: &str = "model.unrecognized";
+    /// The agent's account used up a usage limit that resets later (Claude Code's "You've hit
+    /// your weekly limit · resets ..."; `usage_limit.rs`): a retry fails the same way until then.
+    pub const USAGE_LIMIT: &str = "usage.limit";
+    /// The agent's provider disabled or suspended its account (`usage_limit.rs`).
+    pub const ACCOUNT_DISABLED: &str = "account.disabled";
+}
+
+/// The `errorKind` of a model call the owner's own gateway could not answer, by the code the
+/// Cloud service or the gateway put in the agent's error text.
+pub fn gateway_kind(message: &str) -> Option<&'static str> {
+    if message.contains("inference.gateway_offline") || message.contains("inference.gateway_gone") {
+        Some(kind::GATEWAY_OFFLINE)
+    } else if message.contains("inference.gateway_login") {
+        Some(kind::GATEWAY_LOGIN)
+    } else {
+        None
+    }
 }
 
 /// What an agent's error says about its sign-in: `auth.expired` when it says a credential
@@ -51,17 +116,39 @@ pub mod kind {
 /// (`turn_errors::says_unreachable`) is never a sign-in state, whatever words
 /// about a sign-in it also carries ("HTTP 503: authentication_failed").
 pub fn auth_kind(message: &str) -> Option<&'static str> {
-    if crate::hub::turn_errors::says_unreachable(message) {
+    if crate::turn_errors::says_unreachable(message) {
         return None;
     }
     if crate::claude_auth::is_expired_credential(message) {
         Some(kind::AUTH_EXPIRED)
-    } else if crate::claude_auth::is_sign_in_failure(message) {
+    } else if crate::claude_auth::is_sign_in_failure(message) || says_missing_openai_key(message) {
         Some(kind::AUTH_SIGNED_OUT)
     } else {
         None
     }
 }
+
+/// Whether a sign-in failure's `message` is about an API key a provider issued, not the agent's
+/// own login: it names an API key ("This API key has expired", `api_key_expired`, "Invalid API
+/// key · Fix external API key") and does not send the person to a login ("Invalid API key ·
+/// Please run /login" is Claude Code's own sign-in). A new key fixes it; signing in does not.
+pub fn says_api_key(message: &str) -> bool {
+    let m = message.to_lowercase();
+    let key = ["api key", "api_key", "apikey", "x-api-key"].iter().any(|k| m.contains(k));
+    let login =
+        ["/login", "auth login", "please log in", "run login"].iter().any(|k| m.contains(k));
+    key && !login
+}
+
+/// Whether `message` is codex's "Missing environment variable: `OPENAI_API_KEY`.": its provider
+/// has no key, so a Codex with no sign-in of its own (own mode with no login, or team mode with
+/// no placeholder) is signed out ([`auth_kind`]), and the chat shows Codex's Sign in card.
+pub fn says_missing_openai_key(message: &str) -> bool {
+    message.to_lowercase().contains("missing environment variable: `openai_api_key`")
+}
+
+/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
+pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
 
 /// Free space under this is `disk.low` unless the config sets `diskLowBytes`.
 pub const DISK_LOW_DEFAULT_BYTES: u64 = 1 << 30;
@@ -80,15 +167,8 @@ pub fn annotate_peer(e: &mut RpcError, peer: &str) {
     if !is_disk_full(&e.message) {
         return;
     }
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return };
-            data
-        }
-    };
+    object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return };
     if data.contains_key("errorKind") {
         return;
     }
@@ -117,15 +197,8 @@ pub fn dead_process(e: &RpcError) -> bool {
 /// message (a full disk) still wins.
 pub fn annotate_as(e: &mut RpcError, near: Option<&Path>, dead: bool) {
     let dead = dead || e.message.starts_with("agent process closed");
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return };
-            data
-        }
-    };
+    let wrapped = object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return };
     if data.contains_key("errorKind") {
         return;
     }
@@ -136,6 +209,35 @@ pub fn annotate_as(e: &mut RpcError, near: Option<&Path>, dead: bool) {
     }
     if data.is_empty() {
         e.data = None;
+    } else if wrapped && data.len() == 1 {
+        // Nothing typed it: the agent's own data goes back as it sent it.
+        e.data = data.remove(AGENT_DATA);
+    }
+}
+
+/// The key an agent's own error `data` moves under when it is not an object ([`object_data`]).
+pub const AGENT_DATA: &str = "agentData";
+
+/// Make `e.data` an object this module can type: none (or null) becomes empty, and an agent's
+/// own data that is not an object (grok 1.0.77 answers `session/new` with "Authentication
+/// required" and the string data "no auth method id provided") moves under [`AGENT_DATA`], so
+/// typing never fails for the shape of what the agent sent. Returns whether it moved it.
+pub(crate) fn object_data(e: &mut RpcError) -> bool {
+    match e.data.take() {
+        Some(Value::Object(data)) => {
+            e.data = Some(Value::Object(data));
+            false
+        }
+        None | Some(Value::Null) => {
+            e.data = Some(Value::Object(Map::new()));
+            false
+        }
+        Some(other) => {
+            let mut data = Map::new();
+            data.insert(AGENT_DATA.into(), other);
+            e.data = Some(Value::Object(data));
+            true
+        }
     }
 }
 
@@ -167,7 +269,7 @@ fn classify(
         let mut details = Map::new();
         details.insert("peer".into(), json!(peer));
         if let Some(at) = data.get("lastSeen").and_then(Value::as_u64) {
-            details.insert("lastSeenAt".into(), json!(crate::server::iso(at)));
+            details.insert("lastSeenAt".into(), json!(crate::clock_text::iso(at)));
         }
         let recovery = format!(
             "Check that {peer} is on and online in `tailscale status`; `acpmux machine doctor \
@@ -176,10 +278,32 @@ fn classify(
         );
         return Some((kind::PEER_UNREACHABLE, recovery, details));
     }
+    // Before the sign-in kinds: the fix is on the owner's Mac, not a login on this machine.
+    if let Some(kind) = gateway_kind(message) {
+        let recovery = if kind == kind::GATEWAY_OFFLINE {
+            "Your Mac answers this chat's model calls, and it isn't reachable right now: it may be \
+             asleep, offline, or not running cmux. Wake your Mac and open cmux on it, then send \
+             the message again."
+        } else {
+            "The agent's sign-in on your Mac is missing or expired. Open the agent on your Mac once \
+             so it signs in or renews its sign-in, then send the message again."
+        };
+        return Some((kind, recovery.into(), Map::new()));
+    }
+    // Before the sign-in kinds: an account out of usage, or one its provider turned off, is not
+    // signed out (another account or agent goes on; cmux#55066).
+    if let Some(limit) = crate::usage_limit::account_limit(message) {
+        return Some((limit.error_kind(), limit.sentence(None), limit.details()));
+    }
     // Before `agent.exited`: an agent that died saying it is not signed in needs a sign-in, and
     // sending again would fail the same way.
     if let Some(kind) = auth_kind(message) {
-        let recovery = if kind == kind::AUTH_EXPIRED {
+        let recovery = if says_api_key(message) {
+            "The provider refused the agent's API key (expired or no longer valid), and signing in \
+             again does not renew it. Create a new key with that provider and enter it where the \
+             agent reads it (`cmux harness login <harness>`, or the harness's own login in a \
+             terminal on this machine), then send the message again."
+        } else if kind == kind::AUTH_EXPIRED {
             "The agent's sign-in expired. Sign in again with its login command (`cmux harness \
              login <harness>`, or the harness's own login in a terminal on this machine), then \
              send the message again."
@@ -189,6 +313,16 @@ fn classify(
              the message again."
         };
         return Some((kind, recovery.into(), Map::new()));
+    }
+    if crate::model_catalog::is_model_error(message) {
+        return Some((
+            kind::MODEL_UNRECOGNIZED,
+            "The agent does not know this chat's model. Pick one it lists in the chat's model \
+             picker, or set it with `acpmux session set <session> model=<id>`, then send the \
+             message again."
+                .into(),
+            Map::new(),
+        ));
     }
     if dead {
         return Some((
@@ -208,7 +342,7 @@ fn classify(
             Map::new(),
         ));
     }
-    if message == crate::hub::SHUTTING_DOWN {
+    if message == SHUTTING_DOWN {
         return Some((
             kind::DAEMON_RESTARTING,
             "The daemon is restarting. Run the command again in a few seconds; a send with the \
@@ -291,7 +425,7 @@ fn disk_full(near: Option<&Path>) -> (String, Map<String, Value>) {
 }
 
 /// `Free space on the disk that holds P: 0.9 GB free of 252 GB. acpmux's chats in H use 3.0 GB;
-/// `acpmux session stop NAME --purge` removes a chat you no longer need.` The chats' size is
+/// `acpmux session stop NAME --purge --now` removes a chat you no longer need.` The chats' size is
 /// measured only when `measure` (a blocking walk: `daemon status`, off the async workers);
 /// otherwise a size measured in the last minute is used, or none.
 pub fn free_space_sentence(space: &Space, measure: bool) -> String {
@@ -308,8 +442,8 @@ pub fn free_space_sentence(space: &Space, measure: bool) -> String {
         && size >= 100 << 20
     {
         text.push_str(&format!(
-            " acpmux's chats in {} use {}; `acpmux session stop <session> --purge` removes a \
-             chat you no longer need.",
+            " acpmux's chats in {} use {}; `acpmux session stop <session> --purge --now` removes \
+             a chat you no longer need.",
             chats.display(),
             gb(size)
         ));
@@ -407,6 +541,53 @@ fn dir_size(dir: &Path) -> Option<u64> {
     Some(total)
 }
 
+/// The `data.reason` of a start whose agent answered `session/new` that it is not signed in.
+/// cmux-tui passes it on as `agent_session.sign_in_required`, so a client names the agent and
+/// offers its sign-in instead of a bare refusal (hq#11225). Never rename it.
+pub const SIGN_IN_REQUIRED: &str = "agent.sign_in_required";
+
+/// ACP's `auth_required` error code: an agent answers `session/new` with it when it has no
+/// usable sign-in (cursor-agent's "Authentication required").
+pub const ACP_AUTH_REQUIRED: i64 = -32000;
+
+/// Type `e`, the agent's own answer to `session/new` for `harness`, as a missing or expired
+/// sign-in when it is one: ACP's `auth_required`, a sign-in failure [`auth_kind`] knows, or an
+/// agent's own "API key missing" or "Authentication required". It gains `reason`
+/// [`SIGN_IN_REQUIRED`], `errorKind`, a `recovery` naming the harness's login, and
+/// `details.harness`. Only the agent's own answer is typed here: acpmux's own -32000 refusals
+/// never reach this. Returns whether it was typed.
+pub fn start_sign_in(e: &mut RpcError, harness: &str) -> bool {
+    let lower = e.message.to_ascii_lowercase();
+    let kind = match auth_kind(&e.message) {
+        Some(kind) => kind,
+        None if crate::turn_errors::says_unreachable(&e.message) => return false,
+        // -32000 is also JSON-RPC's generic server error, so the code alone is never a sign-in:
+        // only with the agent's own words for one (an adapter's quota error stays as it is).
+        None if lower.contains("authentication required")
+            || lower.contains("api key missing")
+            || lower.contains("api key is missing")
+            || (e.code == ACP_AUTH_REQUIRED && lower.contains("not authenticated")) =>
+        {
+            kind::AUTH_SIGNED_OUT
+        }
+        None => return false,
+    };
+    object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return false };
+    data.insert("reason".into(), json!(SIGN_IN_REQUIRED));
+    data.insert("errorKind".into(), json!(kind));
+    data.insert(
+        "recovery".into(),
+        json!(format!(
+            "{harness} is not signed in on this machine. Sign in with `cmux harness login \
+             {harness}` (or the harness's own login in a terminal on this machine), then start \
+             the chat again."
+        )),
+    );
+    data.insert("details".into(), json!({"harness": harness}));
+    true
+}
+
 /// A harness whose process could not start: `spawn.failed` naming the program and folder,
 /// when the cause is the OS refusing the start (a missing program or folder, a permission). Any
 /// other start error (a terminal harness, an empty command) stays as it was.
@@ -452,164 +633,5 @@ pub fn spawn_failed(e: &anyhow::Error, harness: &str, program: &str, cwd: &Path)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// An error path never walks the chats folder (a request task must not block on it);
-    /// a size `daemon status` measured is reused.
-    #[test]
-    fn only_a_measure_walks_the_chats_folder() {
-        let dir = std::env::temp_dir().join(format!("acpmux-chats-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a"), vec![0u8; 4096]).unwrap();
-        assert_eq!(chats_size(&dir, false), None, "an error path must not walk");
-        let measured = chats_size(&dir, true);
-        assert!(measured.is_some_and(|n| n >= 4096));
-        assert_eq!(chats_size(&dir, false), measured, "then it reuses the measure");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    fn kind_of(e: &RpcError) -> Option<&str> {
-        e.data.as_ref()?.get("errorKind")?.as_str()
-    }
-
-    /// Every form the turn finalizer treats as a dead process is `agent.exited`: the bare ACP
-    /// closes, "Internal error" and a short -32603. A long -32603 is the agent's own answer.
-    #[test]
-    fn the_finalizers_dead_process_forms_are_agent_exited() {
-        for e in [
-            RpcError::internal("agent process closed"),
-            RpcError::new(-32603, "Internal error"),
-            RpcError::new(-32000, "Internal error"),
-            RpcError::new(-32603, "simulated internal error"),
-        ] {
-            let mut typed = e.clone();
-            annotate_as(&mut typed, None, dead_process(&e));
-            assert_eq!(kind_of(&typed), Some(kind::AGENT_EXITED), "{e:?}");
-        }
-        let answer = RpcError::new(
-            -32603,
-            "stream disconnected before completion: error sending request for url",
-        );
-        let mut typed = answer.clone();
-        annotate_as(&mut typed, None, dead_process(&answer));
-        assert_eq!(kind_of(&typed), None);
-    }
-
-    /// A request's reply is not a turn: a short internal error there is the daemon's own
-    /// failure, not a dead agent, and keeps no kind.
-    #[test]
-    fn a_short_request_error_is_not_agent_exited() {
-        for e in [
-            RpcError::internal("no agent session"),
-            RpcError::internal("session/new returned no sessionId"),
-            RpcError::new(-32603, "Internal error"),
-        ] {
-            let mut typed = e.clone();
-            annotate(&mut typed, None);
-            assert_eq!(kind_of(&typed), None, "{e:?}");
-        }
-        let mut closed = RpcError::internal("agent process closed");
-        annotate(&mut closed, None);
-        assert_eq!(kind_of(&closed), Some(kind::AGENT_EXITED));
-    }
-
-    /// An agent that cannot start because the disk is full says to free space, with the
-    /// disk's details; any other start failure is still `spawn.failed`.
-    #[test]
-    fn a_full_disk_at_spawn_is_disk_full() {
-        let cwd = std::env::temp_dir();
-        let errors = [std::io::ErrorKind::StorageFull, std::io::ErrorKind::QuotaExceeded]
-            .map(std::io::Error::from);
-        #[cfg(unix)]
-        let errors = errors
-            .into_iter()
-            .chain([libc::ENOSPC, libc::EDQUOT].map(std::io::Error::from_raw_os_error));
-        for error in errors {
-            let e = anyhow::Error::from(error);
-            let typed = spawn_failed(&e, "claude", "claude", &cwd);
-            assert_eq!(kind_of(&typed), Some(kind::DISK_FULL), "{typed:?}");
-            let data = typed.data.as_ref().unwrap();
-            assert!(data["recovery"].as_str().unwrap().starts_with("The disk is full."), "{data}");
-            assert!(data["details"]["freeBytes"].is_u64(), "{data}");
-        }
-        let e = anyhow::Error::from(std::io::Error::from_raw_os_error(libc::ENOENT));
-        let typed = spawn_failed(&e, "claude", "claude", &cwd);
-        assert_eq!(kind_of(&typed), Some(kind::SPAWN_FAILED), "{typed:?}");
-    }
-
-    /// A full disk a peer reported names that peer, never this machine's disk.
-    #[test]
-    fn a_peers_full_disk_names_the_peer_not_this_disk() {
-        let mut e = RpcError::internal("write chat log: No space left on device (os error 28)");
-        annotate_peer(&mut e, "big-blue");
-        annotate(&mut e, None);
-        assert_eq!(kind_of(&e), Some(kind::DISK_FULL));
-        let data = e.data.as_ref().unwrap();
-        assert_eq!(data["details"], json!({"peer": "big-blue"}), "{data}");
-        assert!(data["recovery"].as_str().unwrap().contains("big-blue"), "{data}");
-        let mut other = RpcError::internal("no agent session");
-        annotate_peer(&mut other, "big-blue");
-        assert!(other.data.is_none(), "{other:?}");
-    }
-
-    /// The finalizer adds the agent's last stderr line before typing: a dead process stays
-    /// `agent.exited` under its longer message, and a full disk in that line wins.
-    #[test]
-    fn a_dead_process_with_its_stderr_line_is_still_typed() {
-        let mut e = RpcError::new(-32603, "Internal error (claude): model client crashed");
-        annotate_as(&mut e, None, true);
-        assert_eq!(kind_of(&e), Some(kind::AGENT_EXITED));
-        let mut e =
-            RpcError::new(-32603, "Internal error (claude): write: No space left on device");
-        annotate_as(&mut e, None, true);
-        assert_eq!(kind_of(&e), Some(kind::DISK_FULL));
-    }
-
-    /// A turn whose agent says it is not signed in is `auth.signed_out`, one whose credential
-    /// expired `auth.expired`, before `agent.exited` when the agent died of it. A connection
-    /// or capacity error is never an auth kind, whatever word about a token it carries.
-    #[test]
-    fn a_sign_in_failure_is_typed_and_a_transport_error_is_not() {
-        for (message, dead, want) in [
-            ("Not logged in · Please run /login", false, Some(kind::AUTH_SIGNED_OUT)),
-            ("Invalid API key · Fix external API key", false, Some(kind::AUTH_SIGNED_OUT)),
-            (
-                "agent process closed (claude): Not logged in · Please run /login",
-                true,
-                Some(kind::AUTH_SIGNED_OUT),
-            ),
-            (
-                "API Error: 401 OAuth token has expired. Please obtain a new token.",
-                false,
-                Some(kind::AUTH_EXPIRED),
-            ),
-            (
-                "Provided authentication token is expired. Please try signing in again.",
-                false,
-                Some(kind::AUTH_EXPIRED),
-            ),
-            ("API Error: Connection error.", false, None),
-            ("HTTP 503: authentication_failed", false, None),
-            ("HTTP 502: authentication_failed", false, None),
-            ("HTTP 504: credential expired", false, None),
-            ("Not logged in · Please run /login (connection error)", false, None),
-            ("HTTP 400: invalid token expiry value", false, None),
-            ("stream disconnected before completion: the token stream expired", false, None),
-            (
-                "API Error: 503 no non-exhausted claude accounts; the login pool expires soon",
-                false,
-                None,
-            ),
-            ("agent process closed", true, Some(kind::AGENT_EXITED)),
-        ] {
-            let mut e = RpcError::new(-32000, message);
-            annotate_as(&mut e, None, dead);
-            assert_eq!(kind_of(&e), want, "{message}");
-            if want.is_some_and(|k| k.starts_with("auth.")) {
-                let recovery = e.data.as_ref().unwrap()["recovery"].as_str().unwrap().to_owned();
-                assert!(recovery.contains("cmux harness login"), "{recovery}");
-            }
-        }
-    }
-}
+#[path = "recovery_tests.rs"]
+mod tests;

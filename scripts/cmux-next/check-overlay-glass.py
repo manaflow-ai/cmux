@@ -48,6 +48,10 @@ Rules (Packages/macOS/CmuxNext/Sources, Swift; comment lines are ignored):
                    that subclasses NSPanel or NSWindow) whose file builds no shared glass
                    (Glass.makeOverlayPanel, Glass.makePanel, OverlaySurfaceView, CardSurfaceView or
                    GlassPanelView). One whose glass another file builds is in SURFACE_GLASS_FROM.
+  menu-hosting     in a file that builds a menu panel (Glass.makeMenuPanel), a plain NSHostingView or
+                   NSHostingController: SwiftUI on a menu's glass is hosted in ThemedHostingView, whose
+                   content draws the theme's inks fit to the glass from its first frame. A plain host
+                   draws AppKit's label grays (Chief 2026-11-23: every SwiftUI control on menu glass).
   dense-fill       in a file that builds a floating surface's glass, a backgroundColor, fillColor or
                    .background(...) at 90% or more (withAlphaComponent, withAlpha, opacity): a
                    near-opaque veil laid over the glass reads as a solid card (cmux#22670 did this to
@@ -63,6 +67,21 @@ on that glass and nothing else:
   hover-body-fill  a body's backgroundColor / fillColor / .background(...) that is not glass-safe:
                    only Palette.hoverFill, clear, nil, or a color at an alpha under 0.6 (a pill's
                    tint), so no body lays a solid card over the panel's glass.
+
+One stroke from the theme (rule R6; Leo 2026-11-21 on the tab hover card: "has a black border... no
+bueno. no cohesiveness/theme synchronizing! bad."). A floating surface's edge is the theme's edge only:
+the theme stroke (Palette.separator, CardMaterial's rim, ThemeTokens) or the shared material's rim
+(Glass.makeOverlayPanel's GlassRimView / ThemeEdgeView):
+  hard-edge        in a floating surface's file (one that builds glass, a hover card body, or a file
+                   named for a popover, popup, preview, tooltip, hover card, peek, menu, picker, toast,
+                   dialog, sheet, bubble, banner or notice), an edge drawn in a hard-coded color: a
+                   layer's borderColor, the strokeColor of a layer named for a rim, edge, border,
+                   outline or ring, or a SwiftUI .stroke / .strokeBorder / .border, set to NSColor.black
+                   or .white, an NSColor(red:|white:|srgbRed:|calibrated*|device*|displayP3Red:)
+                   literal, a CGColor(red:|gray:|srgbRed:) literal, CGColor.black/.white, Color.black/.white,
+                   Color(red:|white:) or a #colorLiteral. A deliberate one says
+                   `// one-material-allow: <reason>` on the line or in the comment block above it; those
+                   are counted against EDGE_ALLOWED_MAX, a shrink-only pin.
 
 A hit passes when the file and rule are in ALLOWED below (with the reason the surface stays solid),
 or the line, or the comment block right above it, says `// glass-opaque-allow: <reason>`. Reduce
@@ -107,6 +126,9 @@ SURFACE_WINDOW = re.compile(
 ANY_GLASS = re.compile(
     r"\bGlass\.make((Overlay|Menu)?Panel|Surface)\(|\b(OverlaySurfaceView|CardSurfaceView|GlassPanelView)\("
 )
+# A menu panel, and a plain SwiftUI host (a construction, a subclass or a stored type) in the same file.
+MENU_PANEL = re.compile(r"\bmakeMenuPanel\(")
+PLAIN_HOSTING = re.compile(r"\bNSHosting(View|Controller)\s*[(<]")
 # A fill at 90% or more, in a file that builds a floating surface's glass.
 DENSE_FILL = re.compile(
     r"(backgroundColor|fillColor|\.background\()[^\n]*"
@@ -114,10 +136,6 @@ DENSE_FILL = re.compile(
 )
 # path -> (the file that builds its window's glass, why it lives there).
 SURFACE_GLASS_FROM: dict[str, tuple[str, str]] = {
-    SOURCES + "/CmuxNextServer/Views/AddServerCardPanel.swift": (
-        SOURCES + "/CmuxNextServer/ServerHostView.swift",
-        "the card's content view, ServerHostView, is the server surfaces' OverlaySurfaceView",
-    ),
 }
 # A teammate's surfaces this check never flags (their call, not this check's): path -> whose and why.
 # Lawrence R48 (CmuxNextDesignTokens/Windows/ThemeTokens+Surface.swift): the window's one surface
@@ -171,6 +189,39 @@ def hover_fill_unsafe(line: str) -> bool:
     return any(not HOVER_SAFE.match(branch) for branch in branches if branch)
 
 
+# Rule R6, one stroke from the theme (see the docstring).
+FLOATING_FILE = re.compile(
+    r"(Popover|Popup|Preview|Tooltip|ToolTip|HoverCard|Peek|Menu|Picker|Toast|Dialog|Sheet|Bubble|Banner|Notice)\w*\.swift$"
+)
+HARD_COLOR = (
+    r"(?:NSColor\.(?:black|white)\b|(?<![\w.])\.(?:black|white)\b(?!\s*\()|"
+    r"NSColor\(\s*(?:red|white|srgbRed|calibratedRed|calibratedWhite|deviceRed|deviceWhite|displayP3Red|genericGamma22White)\s*:|"
+    r"CGColor\(\s*(?:red|gray|srgbRed|genericGrayGamma2_2Gray)\s*:|CGColor\.(?:black|white)\b|"
+    r"Color\.(?:black|white)\b|Color\(\s*(?:red|white)\s*:|#colorLiteral)"
+)
+HARD_EDGE = re.compile(
+    r"\bborderColor\s*=\s*[^\n]*" + HARD_COLOR
+    + r"|\b\w*(?:rim|Rim|edge|Edge|border|Border|outline|Outline|ring|Ring)\w*\.strokeColor\s*=\s*[^\n]*" + HARD_COLOR
+    + r"|\.(?:stroke|strokeBorder|border)\(\s*" + HARD_COLOR
+)
+EDGE_ESCAPE = re.compile(r"//\s*one-material-allow:\s*\S")
+# The shrink-only count of `one-material-allow:` hard edges on floating surfaces (none today). Lower it when one
+# goes; never raise it.
+EDGE_ALLOWED_MAX = 0
+
+
+def edge_escaped(lines: list[str], index: int) -> bool:
+    """The line, or the comment block right above it, says `one-material-allow: <reason>`."""
+    if EDGE_ESCAPE.search(lines[index]):
+        return True
+    above = index - 1
+    while above >= 0 and COMMENT.match(lines[above]):
+        if EDGE_ESCAPE.search(lines[above]):
+            return True
+        above -= 1
+    return False
+
+
 ESCAPE = re.compile(r"//\s*glass-opaque-allow:\s*\S")
 COMMENT = re.compile(r"^\s*(//|\*|/\*)")
 
@@ -201,9 +252,6 @@ ALLOWED: dict[str, dict[str, str]] = {
     P + "CmuxNextDesign/ShortcutHintChipView.swift": {"popup-surface": "the chip's .opaque material path (Reduce Transparency)"},
     P + "CmuxNextDesign/CardSurfaceView.swift": {"elevated-fill": "Reduce Transparency's sidebar card"},
     # Not a floating surface: content and in-pane chrome that sits on its own page.
-    P + "CmuxNextAgentQuestion/AgentQuestionCardView.swift": {
-        "elevated-fill": "a pending question card inline in the conversation, set apart from answered ones",
-    },
     P + "CmuxNextTerminal/TerminalCopyModeBadge.swift": {"elevated-fill": "an in-pane badge over terminal text that must stay readable"},
     P + "CmuxNextTerminal/TerminalSizedForChip.swift": {"elevated-fill": "an in-pane chip over terminal text that must stay readable"},
     P + "CmuxNextTerminal/TerminalStatusBanner.swift": {"elevated-fill": "an in-pane banner over terminal text that must stay readable"},
@@ -261,7 +309,7 @@ NOT_POPUP_HOST: dict[tuple[str, str], str] = {
     (P + "CmuxNextPopups/BrowserPopupWindow.swift", "BrowserPopupWindow"): (
         "a site's window.open popup: a browser window, not a menu"
     ),
-    (P + "CmuxNextApp/Server/ServerMenuBarController.swift", "ServerMenuBarController"): (
+    (P + "CmuxNextServer/ServerPage/ServerPanelPopover.swift", "ServerPanelPopover"): (
         "the menu bar status item's system NSPopover (the system's own glass), outside any themed window"
     ),
 }
@@ -526,6 +574,7 @@ def scan_popup_hosts(root: str) -> list[str]:
 def scan(root: str) -> list[str]:
     findings: list[str] = []
     used: set[tuple[str, str]] = set()
+    edge_allowed: list[str] = []
     base = os.path.join(root, SOURCES)
     for directory, dirs, files in os.walk(base):
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
@@ -542,9 +591,11 @@ def scan(root: str) -> list[str]:
             code_only = [line.split("//", 1)[0] for line in lines if not COMMENT.match(line)]
             makes_glass = any(SHARED_GLASS.search(code) for code in code_only)
             builds_glass = any(ANY_GLASS.search(code) for code in code_only)
+            builds_menu = any(MENU_PANEL.search(code) for code in code_only)
             glass_from = SURFACE_GLASS_FROM.get(rel)
             glass_elsewhere = bool(glass_from) and file_builds_glass(os.path.join(root, glass_from[0]))
             hover = rel not in HOVER_HOSTS and any(HOVER_BODY.search(text) for text in lines)
+            floating = builds_glass or hover or bool(FLOATING_FILE.search(name))
             for index, line in enumerate(lines):
                 if (
                     not COMMENT.match(line)
@@ -565,6 +616,11 @@ def scan(root: str) -> list[str]:
                 if COMMENT.match(line):
                     continue
                 code = line.split("//", 1)[0]
+                if floating and HARD_EDGE.search(code):
+                    if edge_escaped(lines, index):
+                        edge_allowed.append(f"{rel}:{index + 1}")
+                    else:
+                        findings.append(f"{rel}:{index + 1}: [hard-edge] {line.strip()}")
                 if hover:
                     hits = [rule for rule, pattern in HOVER_RULES.items() if pattern.search(code)]
                     if hover_fill_unsafe(code):
@@ -577,6 +633,8 @@ def scan(root: str) -> list[str]:
                 hits = [rule for rule, pattern in RULES.items() if pattern.search(code)]
                 if builds_glass and DENSE_FILL.search(code):
                     hits.append("dense-fill")
+                if builds_menu and PLAIN_HOSTING.search(code):
+                    hits.append("menu-hosting")
                 for rule in hits:
                     if rule in allowed:
                         used.add((rel, rule))
@@ -584,6 +642,18 @@ def scan(root: str) -> list[str]:
                     if escaped(lines, index):
                         continue
                     findings.append(f"{rel}:{index + 1}: [{rule}] {line.strip()}")
+    # The allowed hard edges only shrink: more than the pin fails; fewer in the whole repo asks for a lower pin.
+    whole = os.path.exists(os.path.join(root, "scripts/cmux-next/check-overlay-glass.py"))
+    if len(edge_allowed) > EDGE_ALLOWED_MAX:
+        findings.append(
+            f"{SOURCES}:1: [hard-edge] {len(edge_allowed)} `one-material-allow:` hard edges, more than EDGE_ALLOWED_MAX"
+            f" ({EDGE_ALLOWED_MAX}): draw the edge in the theme's stroke instead ({', '.join(edge_allowed)})"
+        )
+    elif whole and len(edge_allowed) < EDGE_ALLOWED_MAX:
+        findings.append(
+            f"{SOURCES}:1: [hard-edge] stale pin: {len(edge_allowed)} allowed hard edges, below EDGE_ALLOWED_MAX"
+            f" ({EDGE_ALLOWED_MAX}); lower it in scripts/cmux-next/check-overlay-glass.py"
+        )
     # An allowance with nothing left to allow is stale: drop it, so it cannot cover a new fill.
     for rel, rules in sorted(ALLOWED.items()):
         for rule in sorted(rules):
@@ -638,6 +708,9 @@ def main() -> int:
         print("  entry in this script (design/overlay-surfaces.md in leo-workspace has the policy).")
         print("  [popup-host]: a menu, picker, popover or web popup host builds its surface with")
         print("  Glass.makeOverlayPanel in its own body, or names the file that does in GLASS_FROM.")
+        print("  [hard-edge]: a floating surface's edge is the theme's stroke (Palette.separator, CardMaterial's")
+        print("  rim) or the shared material's rim, never a black, white or literal color (rule R6).")
+        print("  [menu-hosting]: SwiftUI on a menu panel is hosted in ThemedHostingView, not NSHostingView.")
         for finding in findings:
             print(finding)
         return 1

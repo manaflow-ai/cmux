@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "classicImport.toast.settingsComplete": {
+      "comment": "Shown when the accepted Classic import finishes with settings and no saved workspaces.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic settings import complete."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Import der Classic-Einstellungen ist abgeschlossen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importation des réglages de cmux classique terminée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتمل استيراد إعدادات cmux الكلاسيكي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se ha completado la importación de los ajustes de cmux clásico."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已完成匯入 Classic 設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic 设置导入完成。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic 설정 가져오기가 완료되었습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic の設定の読み込みが完了しました。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvoz postavki iz klasičnog cmux-a je završen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importen af indstillinger fra cmux Classic er fuldført."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importazione delle impostazioni di cmux Classic completata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការនាំចូលការកំណត់ពី cmux Classic បានបញ្ចប់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importen av innstillinger fra cmux Classic er fullført."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakończono import ustawień z cmux Classic."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A importação dos ajustes do cmux Classic foi concluída."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт настроек cmux Classic завершён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้าการตั้งค่าจาก cmux Classic เสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Classic ayarlarının içe aktarılması tamamlandı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпорт налаштувань cmux Classic завершено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã hoàn tất nhập cài đặt từ cmux Classic."
+          }
+        }
+      }
+    },
     "classicImport.toast.sshScrollbackStays": {
       "comment": "Added to the Import Workspaces from Classic cmux toast when SSH terminals of classic cmux (the older app) had saved scrollback: they open on their host without it.",
       "extractionState": "manual",
@@ -1053,138 +1185,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "代理"
-          }
-        }
-      }
-    },
-    "menu.debug": {
-      "comment": "Menu bar menu, DEV and NIGHTLY builds only: debug actions.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Debug"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تصحيح الأخطاء"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otklanjanje grešaka"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fejlfinding"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Debug"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Depuración"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Débogage"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Debug"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "デバッグ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បំបាត់កំហុស"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "디버그"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Feilsøking"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Debugowanie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Depuração"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Отладка"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ดีบัก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hata Ayıklama"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Налагодження"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gỡ lỗi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "调试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "除錯"
           }
         }
       }
@@ -4603,91 +4603,91 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux restarted after a problem. Your windows and terminals are back."
+            "value": "cmux restarted after a problem."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "問題が発生したため cmux を再起動しました。ウインドウとターミナルは元に戻っています。"
+            "value": "問題が発生したため cmux を再起動しました。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أُعيد تشغيل cmux بعد حدوث مشكلة. عادت نوافذك ومحطاتك الطرفية."
+            "value": "أُعيد تشغيل cmux بعد حدوث مشكلة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux je ponovo pokrenut nakon problema. Vaši prozori i terminali su vraćeni."
+            "value": "cmux je ponovo pokrenut nakon problema."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux blev genstartet efter et problem. Dine vinduer og terminaler er tilbage."
+            "value": "cmux blev genstartet efter et problem."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux wurde nach einem Problem neu gestartet. Ihre Fenster und Terminals sind wieder da."
+            "value": "cmux wurde nach einem Problem neu gestartet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux se ha reiniciado tras un problema. Tus ventanas y terminales se han restaurado."
+            "value": "cmux se ha reiniciado tras un problema."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux a redémarré après un problème. Vos fenêtres et terminaux sont de retour."
+            "value": "cmux a redémarré après un problème."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux è stato riavviato dopo un problema. Le finestre e i terminali sono stati ripristinati."
+            "value": "cmux è stato riavviato dopo un problema."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux បានចាប់ផ្ដើមឡើងវិញបន្ទាប់ពីមានបញ្ហា។ បង្អួច និងទែមីណាល់របស់អ្នកបានត្រឡប់មកវិញ។"
+            "value": "cmux បានចាប់ផ្ដើមឡើងវិញបន្ទាប់ពីមានបញ្ហា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "문제가 발생하여 cmux가 다시 시작되었습니다. 창과 터미널이 복원되었습니다."
+            "value": "문제가 발생하여 cmux가 다시 시작되었습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ble startet på nytt etter et problem. Vinduene og terminalene dine er tilbake."
+            "value": "cmux ble startet på nytt etter et problem."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux uruchomił się ponownie po problemie. Okna i terminale zostały przywrócone."
+            "value": "cmux uruchomił się ponownie po problemie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux foi reiniciado após um problema. Suas janelas e terminais estão de volta."
+            "value": "O cmux foi reiniciado após um problema."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux перезапущен после сбоя. Окна и терминалы восстановлены."
+            "value": "cmux перезапущен после сбоя."
           }
         },
         "th": {
@@ -4699,31 +4699,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux bir sorundan sonra yeniden başlatıldı. Pencereleriniz ve terminalleriniz geri geldi."
+            "value": "cmux bir sorundan sonra yeniden başlatıldı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux перезапущено після збою. Вікна й термінали відновлено."
+            "value": "cmux перезапущено після збою."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux đã khởi động lại sau khi gặp sự cố. Cửa sổ và terminal của bạn đã được khôi phục."
+            "value": "cmux đã khởi động lại sau khi gặp sự cố."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 在出现问题后已重新启动。你的窗口和终端已恢复。"
+            "value": "cmux 在出现问题后已重新启动。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 在發生問題後已重新啟動。你的視窗和終端機已恢復。"
+            "value": "cmux 在發生問題後已重新啟動。"
           }
         }
       }
@@ -4855,137 +4855,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "顯示當機記錄"
-          }
-        }
-      }
-    },
-    "app.restart.dismiss": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dismiss"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "閉じる"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إغلاق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odbaci"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Luk"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Schließen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Descartar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ignorer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiudi"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "닫기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lukk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zamknij"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dispensar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрыть"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đóng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉"
           }
         }
       }
@@ -5515,138 +5384,6 @@
         }
       }
     },
-    "menu.debug.sidebarToggleIcon": {
-      "comment": "Debug menu submenu, DEV and NIGHTLY builds only: choose the glyph of the sidebar toggle button.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sidebar Toggle Icon"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "أيقونة زر الشريط الجانبي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikona prekidača bočne trake"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikon for sidepanelknap"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Symbol der Seitenleistentaste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Icono del botón de barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Icône du bouton de barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Icona del pulsante barra laterale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバー切り替えアイコン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រូបតំណាងប៊ូតុងរបារចំហៀង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "사이드바 전환 아이콘"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikon for sidefeltknapp"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikona przełącznika paska bocznego"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ícone do botão da barra lateral"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Значок кнопки боковой панели"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไอคอนปุ่มแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kenar çubuğu düğmesi simgesi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Значок кнопки бічної панелі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Biểu tượng nút thanh bên"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "边栏切换图标"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "側邊欄切換圖示"
-          }
-        }
-      }
-    },
     "sidebarToggleIcon.chevronPanel": {
       "comment": "Sidebar toggle icon candidate (Debug menu): a panel with a chevron pointing to the sidebar edge.",
       "extractionState": "manual",
@@ -6171,6 +5908,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "帶列的側欄"
+          }
+        }
+      }
+    },
+    "sidebarToggleIcon.panel": {
+      "comment": "Sidebar toggle icon (Debug menu), the default: a rounded panel whose inner bar slides between a divider (sidebar shown) and a short bar at the left edge (hidden).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel with Sliding Bar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لوحة بشريط منزلق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel s kliznom trakom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel med glidende bjælke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereich mit gleitendem Balken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel con barra deslizante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panneau à barre coulissante"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pannello con barra scorrevole"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スライドするバー付きパネル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងដែលមានរបាររអិល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "슬라이드 막대가 있는 패널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel med glidende stolpe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel z przesuwanym paskiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Painel com barra deslizante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель со скользящей полосой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แผงที่มีแถบเลื่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kayan çubuklu panel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель із ковзною смугою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bảng có thanh trượt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "带滑动条的面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "帶滑動條的面板"
           }
         }
       }
@@ -7227,138 +7096,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "原因：%@"
-          }
-        }
-      }
-    },
-    "menu.debug.statusIcons": {
-      "comment": "Debug menu submenu, DEV and NIGHTLY builds only: choose the icon set for agent and program status marks.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Status Icons"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "أيقونات الحالة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikone statusa"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Statusikoner"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Statussymbole"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Iconos de estado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Icônes d’état"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Icone di stato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ステータスアイコン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រូបតំណាងស្ថានភាព"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "상태 아이콘"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Statusikoner"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikony stanu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ícones de status"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Значки статуса"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไอคอนสถานะ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Durum Simgeleri"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Значки стану"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Biểu tượng trạng thái"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "状态图标"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "狀態圖示"
           }
         }
       }
@@ -9599,138 +9336,6 @@
         }
       }
     },
-    "paneToolbar.showInTabBar": {
-      "comment": "Pane tab bar More menu: submenu that pins actions as buttons next to More (tabs.toolbarButtons).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show in Tab Bar"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار في شريط علامات التبويب"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži na traci kartica"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis på fanelinjen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In der Tableiste anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar en la barra de pestañas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher dans la barre d’onglets"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra nella barra dei pannelli"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タブバーに表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញក្នុងរបារផ្ទាំង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "탭 막대에 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis i fanelinjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż na pasku kart"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar na barra de abas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать на панели вкладок"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงในแถบแท็บ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sekme Çubuğunda Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати на панелі вкладок"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiển thị trên thanh tab"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在标签栏中显示"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在標籤列中顯示"
-          }
-        }
-      }
-    },
     "menu.help": {
       "comment": "The Help menu in the menu bar; macOS adds its help search field to it.",
       "extractionState": "manual",
@@ -11447,526 +11052,266 @@
         }
       }
     },
-    "classicImport.preview.button": {
+    "classicImport.toast.classicOpen": {
+      "comment": "A toast on the first launch when a classic cmux app (%@, its name) is open, so its workspaces were not imported.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استيراد"
+            "value": "%@ (الكلاسيكي) مفتوح، لذا لم تُستورد مساحات عمله. أغلقه وأعد فتح هذا التطبيق، أو استوردها من الإعدادات › الاستيراد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uvezi"
+            "value": "%@ (klasični) je otvoren, pa njegovi radni prostori nisu uvezeni. Zatvorite ga i ponovo otvorite ovu aplikaciju ili ih uvezite iz Postavke › Uvoz."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importér"
+            "value": "%@ (klassisk) er åben, så dens arbejdsområder blev ikke importeret. Afslut den og åbn denne app igen, eller importér dem fra Indstillinger › Import."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importieren"
+            "value": "%@ (klassisch) ist geöffnet, daher wurden seine Arbeitsbereiche nicht importiert. Beende es und öffne diese App erneut oder importiere sie unter Einstellungen › Import."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import"
+            "value": "%@ (classic) is open, so its workspaces weren’t imported. Quit it and reopen this app, or import them from Settings › Import."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importar"
+            "value": "%@ (clásico) está abierto, así que sus espacios de trabajo no se importaron. Ciérralo y vuelve a abrir esta app, o impórtalos desde Ajustes › Importar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importer"
+            "value": "%@ (classique) est ouvert, ses espaces de travail n’ont donc pas été importés. Quittez-le et rouvrez cette app, ou importez-les depuis Réglages › Importer."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importa"
+            "value": "%@ (classico) è aperto, quindi i suoi spazi di lavoro non sono stati importati. Chiudilo e riapri questa app, oppure importali da Impostazioni › Importa."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インポート"
+            "value": "%@（クラシック）が開いているため、ワークスペースは読み込まれませんでした。終了してこのアプリを開き直すか、設定 › 読み込みから読み込んでください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "នាំចូល"
+            "value": "%@ (បុរាណ) កំពុងបើក ដូច្នេះកន្លែងធ្វើការរបស់វាមិនត្រូវបាននាំចូលទេ។ សូមបិទវា ហើយបើកកម្មវិធីនេះឡើងវិញ ឬនាំចូលពី ការកំណត់ › នាំចូល។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "가져오기"
+            "value": "%@(클래식)이 열려 있어 작업 공간을 가져오지 않았습니다. 종료한 뒤 이 앱을 다시 열거나 설정 › 가져오기에서 가져오세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importer"
+            "value": "%@ (klassisk) er åpen, så arbeidsområdene ble ikke importert. Avslutt den og åpne denne appen på nytt, eller importer dem fra Innstillinger › Import."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importuj"
+            "value": "%@ (klasyczny) jest otwarty, więc jego obszary robocze nie zostały zaimportowane. Zamknij go i otwórz ponownie tę aplikację albo zaimportuj je w Ustawienia › Import."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importar"
+            "value": "%@ (clássico) está aberto, então os espaços de trabalho não foram importados. Encerre-o e reabra este app, ou importe-os em Ajustes › Importar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Импортировать"
+            "value": "%@ (классический) открыт, поэтому его рабочие пространства не импортированы. Закройте его и снова откройте это приложение или импортируйте их в разделе Настройки › Импорт."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "นำเข้า"
+            "value": "%@ (คลาสสิก) เปิดอยู่ จึงไม่ได้นำเข้าพื้นที่ทำงาน ให้ออกจากแอปแล้วเปิดแอปนี้อีกครั้ง หรือนำเข้าจาก การตั้งค่า › นำเข้า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "İçe Aktar"
+            "value": "%@ (klasik) açık olduğu için çalışma alanları içe aktarılmadı. Kapatıp bu uygulamayı yeniden açın veya Ayarlar › İçe Aktar bölümünden aktarın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Імпортувати"
+            "value": "%@ (класичний) відкритий, тому його робочі простори не імпортовано. Закрийте його й знову відкрийте цей застосунок або імпортуйте їх у Параметри › Імпорт."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nhập"
+            "value": "%@ (cổ điển) đang mở nên không gian làm việc của nó chưa được nhập. Hãy thoát nó rồi mở lại ứng dụng này, hoặc nhập từ Cài đặt › Nhập."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "导入"
+            "value": "%@（经典版）正在运行，因此未导入其工作区。请退出它并重新打开此应用，或在 设置 › 导入 中导入。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "匯入"
+            "value": "%@（經典版）正在執行，因此未匯入其工作區。請結束它並重新開啟此 App，或在 設定 › 匯入 中匯入。"
           }
         }
       }
     },
-    "classicImport.preview.cleanup": {
+    "classicImport.toast.inUseBefore": {
+      "comment": "A toast on the first launch when this app already had workspaces, so classic cmux's workspaces were recorded but not imported.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مساحات العمل المتوقفة التي سيتم استبدالها (سيتم إنهاء محطاتها الطرفية): %1$@"
+            "value": "لم تُستورد مساحات عمل cmux الكلاسيكي لأن هذا التطبيق يحتوي بالفعل على مساحات عمل خاصة به. استوردها في أي وقت من الإعدادات › الاستيراد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prekinuti radni prostori za zamjenu (njihovi terminali će se završiti): %1$@"
+            "value": "Klasični cmux radni prostori nisu uvezeni jer ova aplikacija već ima svoje. Uvezite ih bilo kada iz Postavke › Uvoz."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afbrudte arbejdsområder, der erstattes (deres terminaler afsluttes): %1$@"
+            "value": "Arbejdsområder fra klassisk cmux blev ikke importeret, fordi denne app allerede havde sine egne. Importér dem når som helst fra Indstillinger › Import."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zu ersetzende unterbrochene Arbeitsbereiche (ihre Terminals werden beendet): %1$@"
+            "value": "Arbeitsbereiche aus dem klassischen cmux wurden nicht importiert, weil diese App bereits eigene hatte. Importiere sie jederzeit unter Einstellungen › Import."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Interrupted workspaces to replace (their terminals will end): %1$@"
+            "value": "Classic cmux workspaces weren’t imported because this app already had its own. Import them any time from Settings › Import."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Espacios de trabajo interrumpidos que se reemplazarán (sus terminales finalizarán): %1$@"
+            "value": "Los espacios de trabajo de cmux clásico no se importaron porque esta app ya tenía los suyos. Impórtalos cuando quieras desde Ajustes › Importar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Espaces de travail interrompus à remplacer (leurs terminaux seront arrêtés) : %1$@"
+            "value": "Les espaces de travail de cmux classique n’ont pas été importés, car cette app avait déjà les siens. Importez-les à tout moment depuis Réglages › Importer."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spazi di lavoro interrotti da sostituire (i relativi terminali verranno terminati): %1$@"
+            "value": "Gli spazi di lavoro di cmux classico non sono stati importati perché questa app ne aveva già di propri. Importali quando vuoi da Impostazioni › Importa."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "置き換える中断済みワークスペース（そのターミナルは終了します）：%1$@"
+            "value": "このアプリにはすでに独自のワークスペースがあるため、クラシック cmux のワークスペースは読み込まれませんでした。設定 › 読み込みからいつでも読み込めます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កន្លែងធ្វើការដែលបានផ្អាក និងត្រូវជំនួស (ស្ថានីយរបស់វានឹងបញ្ចប់)៖ %1$@"
+            "value": "កន្លែងធ្វើការ cmux បុរាណមិនត្រូវបាននាំចូលទេ ព្រោះកម្មវិធីនេះមានកន្លែងធ្វើការផ្ទាល់ខ្លួនរួចហើយ។ នាំចូលពេលណាក៏បានពី ការកំណត់ › នាំចូល។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "교체할 중단된 작업 공간(해당 터미널이 종료됨): %1$@"
+            "value": "이 앱에 이미 자체 작업 공간이 있어 클래식 cmux 작업 공간을 가져오지 않았습니다. 언제든지 설정 › 가져오기에서 가져올 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Avbrutte arbeidsområder som erstattes (terminalene deres avsluttes): %1$@"
+            "value": "Arbeidsområder fra klassisk cmux ble ikke importert fordi denne appen allerede hadde sine egne. Importer dem når som helst fra Innstillinger › Import."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przerwane obszary robocze do zastąpienia (ich terminale zostaną zakończone): %1$@"
+            "value": "Obszary robocze klasycznego cmux nie zostały zaimportowane, ponieważ ta aplikacja miała już własne. Zaimportuj je w dowolnej chwili w Ustawienia › Import."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Espaços de trabalho interrompidos a substituir (os terminais serão encerrados): %1$@"
+            "value": "Os espaços de trabalho do cmux clássico não foram importados porque este app já tinha os seus. Importe-os quando quiser em Ajustes › Importar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Прерванные рабочие пространства для замены (их терминалы будут завершены): %1$@"
+            "value": "Рабочие пространства классического cmux не импортированы, так как в этом приложении уже были свои. Импортируйте их в любое время в разделе Настройки › Импорт."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "พื้นที่ทำงานที่หยุดชะงักซึ่งจะแทนที่ (เทอร์มินัลของพื้นที่เหล่านี้จะสิ้นสุด): %1$@"
+            "value": "ไม่ได้นำเข้าพื้นที่ทำงานจาก cmux คลาสสิก เพราะแอปนี้มีพื้นที่ทำงานของตัวเองอยู่แล้ว นำเข้าได้ทุกเมื่อจาก การตั้งค่า › นำเข้า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Değiştirilecek kesintiye uğramış çalışma alanları (terminalleri sonlandırılacak): %1$@"
+            "value": "Bu uygulamanın zaten kendi çalışma alanları olduğu için klasik cmux çalışma alanları içe aktarılmadı. İstediğiniz zaman Ayarlar › İçe Aktar bölümünden aktarabilirsiniz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перервані робочі простори для заміни (їхні термінали буде завершено): %1$@"
+            "value": "Робочі простори класичного cmux не імпортовано, бо цей застосунок уже мав власні. Імпортуйте їх будь-коли в Параметри › Імпорт."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không gian làm việc bị gián đoạn sẽ được thay thế (các terminal của chúng sẽ kết thúc): %1$@"
+            "value": "Không gian làm việc từ cmux cổ điển chưa được nhập vì ứng dụng này đã có không gian làm việc riêng. Nhập bất cứ lúc nào từ Cài đặt › Nhập."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "要替换的中断工作区（其终端将结束）：%1$@"
+            "value": "此应用已有自己的工作区，因此未导入经典版 cmux 的工作区。可随时在 设置 › 导入 中导入。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "要取代的中斷工作區（其終端將結束）：%1$@"
-          }
-        }
-      }
-    },
-    "classicImport.preview.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هل تريد استيراد مساحات العمل هذه من الإصدار الكلاسيكي؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uvesti ove klasične radne prostore?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importér disse klassiske arbejdsområder?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese Arbeitsbereiche aus Classic importieren?"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import these classic workspaces?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Importar estos espacios de trabajo de la versión clásica?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importer ces espaces de travail de la version classique ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importare questi spazi di lavoro della versione classica?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "これらのクラシック版ワークスペースをインポートしますか？"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "នាំចូលកន្លែងធ្វើការបែបចាស់ទាំងនេះ?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 클래식 작업 공간을 가져오시겠습니까?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importere disse klassiske arbeidsområdene?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zaimportować te klasyczne obszary robocze?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importar estes espaços de trabalho do cmux clássico?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Импортировать эти рабочие пространства из классической версии?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "นำเข้าพื้นที่ทำงานแบบคลาสสิกเหล่านี้หรือไม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu klasik çalışma alanları içe aktarılsın mı?"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Імпортувати ці робочі простори з класичної версії?"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nhập các không gian làm việc cổ điển này?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要导入这些经典版工作区吗？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要匯入這些經典版工作區嗎？"
-          }
-        }
-      }
-    },
-    "classicImport.preview.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المصدر: %1$@\nمساحات العمل: %2$@\nعلامات تبويب المتصفح: %3$@\nصفحات الملفات المحلية: %4$@\nمساحات عمل SSH: %5$@\nمحادثات الوكلاء: %6$@\nمساحات عمل الأجهزة الافتراضية السحابية التي تم تخطيها: %7$@\nيؤدي الاستيراد إلى تحميل صفحات المتصفح المحفوظة والاتصال بمضيفي SSH المحفوظين واستئناف محادثات الوكلاء المحفوظة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Izvor: %1$@\nRadni prostori: %2$@\nKartice preglednika: %3$@\nStranice lokalnih datoteka: %4$@\nSSH radni prostori: %5$@\nRazgovori agenata: %6$@\nPreskočeni Cloud VM radni prostori: %7$@\nUvoz učitava sačuvane stranice preglednika, povezuje se sa sačuvanim SSH hostovima i nastavlja sačuvane razgovore agenata."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kilde: %1$@\nArbejdsområder: %2$@\nBrowserfaner: %3$@\nLokale filsider: %4$@\nSSH-arbejdsområder: %5$@\nAgentchats: %6$@\nOversprungne Cloud VM-arbejdsområder: %7$@\nImporten indlæser gemte browsersider, opretter forbindelse til gemte SSH-værter og genoptager gemte agentchats."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quelle: %1$@\nArbeitsbereiche: %2$@\nBrowser-Tabs: %3$@\nLokale Dateiseiten: %4$@\nSSH-Arbeitsbereiche: %5$@\nAgent-Chats: %6$@\nÜbersprungene Cloud-VM-Arbeitsbereiche: %7$@\nBeim Importieren werden gespeicherte Browserseiten geladen, Verbindungen zu gespeicherten SSH-Hosts hergestellt und gespeicherte Agent-Chats fortgesetzt."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Source: %1$@\nWorkspaces: %2$@\nBrowser tabs: %3$@\nLocal file pages: %4$@\nSSH workspaces: %5$@\nAgent chats: %6$@\nCloud VM workspaces skipped: %7$@\nImporting loads saved browser pages, connects to saved SSH hosts, and resumes saved agent chats."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Origen: %1$@\nEspacios de trabajo: %2$@\nPestañas del navegador: %3$@\nPáginas de archivos locales: %4$@\nEspacios de trabajo SSH: %5$@\nChats de agentes: %6$@\nEspacios de trabajo de VM en la nube omitidos: %7$@\nAl importar, se cargan las páginas guardadas del navegador, se conectan los hosts SSH guardados y se reanudan los chats de agentes guardados."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Source : %1$@\nEspaces de travail : %2$@\nOnglets du navigateur : %3$@\nPages de fichiers locaux : %4$@\nEspaces de travail SSH : %5$@\nDiscussions avec des agents : %6$@\nEspaces de travail de VM cloud ignorés : %7$@\nL’importation charge les pages de navigateur enregistrées, se connecte aux hôtes SSH enregistrés et reprend les discussions enregistrées avec les agents."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Origine: %1$@\nSpazi di lavoro: %2$@\nSchede del browser: %3$@\nPagine di file locali: %4$@\nSpazi di lavoro SSH: %5$@\nChat degli agenti: %6$@\nSpazi di lavoro VM cloud ignorati: %7$@\nL’importazione carica le pagine del browser salvate, si connette agli host SSH salvati e riprende le chat degli agenti salvate."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ソース：%1$@\nワークスペース：%2$@\nブラウザタブ：%3$@\nローカルファイルページ：%4$@\nSSH ワークスペース：%5$@\nエージェントチャット：%6$@\nスキップするクラウド VM ワークスペース：%7$@\nインポートすると、保存されたブラウザページを読み込み、保存された SSH ホストに接続し、保存されたエージェントチャットを再開します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ប្រភព៖ %1$@\nកន្លែងធ្វើការ៖ %2$@\nផ្ទាំងកម្មវិធីរុករក៖ %3$@\nទំព័រឯកសារមូលដ្ឋាន៖ %4$@\nកន្លែងធ្វើការ SSH៖ %5$@\nការជជែករបស់ភ្នាក់ងារ៖ %6$@\nកន្លែងធ្វើការ Cloud VM ដែលបានរំលង៖ %7$@\nការនាំចូលនឹងផ្ទុកទំព័រកម្មវិធីរុករកដែលបានរក្សាទុក ភ្ជាប់ទៅម៉ាស៊ីន SSH ដែលបានរក្សាទុក និងបន្តការជជែករបស់ភ្នាក់ងារដែលបានរក្សាទុក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "소스: %1$@\n작업 공간: %2$@\n브라우저 탭: %3$@\n로컬 파일 페이지: %4$@\nSSH 작업 공간: %5$@\n에이전트 채팅: %6$@\n건너뛴 클라우드 VM 작업 공간: %7$@\n가져오면 저장된 브라우저 페이지를 불러오고, 저장된 SSH 호스트에 연결하고, 저장된 에이전트 채팅을 재개합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kilde: %1$@\nArbeidsområder: %2$@\nNettleserfaner: %3$@\nLokale filsider: %4$@\nSSH-arbeidsområder: %5$@\nAgentchatter: %6$@\nCloud VM-arbeidsområder som hoppes over: %7$@\nImportering laster inn lagrede nettlesersider, kobler til lagrede SSH-verter og gjenopptar lagrede agentchatter."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Źródło: %1$@\nObszary robocze: %2$@\nKarty przeglądarki: %3$@\nLokalne strony plików: %4$@\nObszary robocze SSH: %5$@\nCzaty agentów: %6$@\nPominięte obszary robocze maszyn wirtualnych w chmurze: %7$@\nImportowanie wczytuje zapisane strony przeglądarki, łączy się z zapisanymi hostami SSH i wznawia zapisane czaty agentów."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Origem: %1$@\nEspaços de trabalho: %2$@\nAbas do navegador: %3$@\nPáginas de arquivos locais: %4$@\nEspaços de trabalho SSH: %5$@\nChats de agentes: %6$@\nEspaços de trabalho de VM na nuvem ignorados: %7$@\nA importação carrega páginas salvas do navegador, conecta-se a hosts SSH salvos e retoma chats de agentes salvos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Источник: %1$@\nРабочие пространства: %2$@\nВкладки браузера: %3$@\nСтраницы локальных файлов: %4$@\nРабочие пространства SSH: %5$@\nЧаты агентов: %6$@\nПропущенные рабочие пространства облачных ВМ: %7$@\nПри импорте загружаются сохранённые страницы браузера, устанавливаются соединения с сохранёнными хостами SSH и возобновляются сохранённые чаты агентов."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แหล่งที่มา: %1$@\nพื้นที่ทำงาน: %2$@\nแท็บเบราว์เซอร์: %3$@\nหน้าไฟล์ในเครื่อง: %4$@\nพื้นที่ทำงาน SSH: %5$@\nแชทตัวแทน: %6$@\nพื้นที่ทำงาน Cloud VM ที่ข้าม: %7$@\nการนำเข้าจะโหลดหน้าเบราว์เซอร์ที่บันทึกไว้ เชื่อมต่อกับโฮสต์ SSH ที่บันทึกไว้ และทำงานต่อในแชทตัวแทนที่บันทึกไว้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kaynak: %1$@\nÇalışma alanları: %2$@\nTarayıcı sekmeleri: %3$@\nYerel dosya sayfaları: %4$@\nSSH çalışma alanları: %5$@\nAracı sohbetleri: %6$@\nAtlanan Bulut VM çalışma alanları: %7$@\nİçe aktarma kayıtlı tarayıcı sayfalarını yükler, kayıtlı SSH ana bilgisayarlarına bağlanır ve kayıtlı aracı sohbetlerini sürdürür."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Джерело: %1$@\nРобочі простори: %2$@\nВкладки браузера: %3$@\nСторінки локальних файлів: %4$@\nРобочі простори SSH: %5$@\nЧати агентів: %6$@\nПропущені робочі простори хмарних ВМ: %7$@\nІмпорт завантажує збережені сторінки браузера, підключається до збережених хостів SSH і відновлює збережені чати агентів."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nguồn: %1$@\nKhông gian làm việc: %2$@\nThẻ trình duyệt: %3$@\nTrang tệp cục bộ: %4$@\nKhông gian làm việc SSH: %5$@\nCuộc trò chuyện của tác nhân: %6$@\nKhông gian làm việc máy ảo đám mây bị bỏ qua: %7$@\nViệc nhập sẽ tải các trang trình duyệt đã lưu, kết nối với các máy chủ SSH đã lưu và tiếp tục các cuộc trò chuyện của tác nhân đã lưu."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "来源：%1$@\n工作区：%2$@\n浏览器标签页：%3$@\n本地文件页面：%4$@\nSSH 工作区：%5$@\n智能体聊天：%6$@\n已跳过的云虚拟机工作区：%7$@\n导入会加载已保存的浏览器页面、连接到已保存的 SSH 主机，并恢复已保存的智能体聊天。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "來源：%1$@\n工作區：%2$@\n瀏覽器分頁：%3$@\n本機檔案頁面：%4$@\nSSH 工作區：%5$@\n代理程式聊天：%6$@\n略過的雲端 VM 工作區：%7$@\n匯入會載入已儲存的瀏覽器頁面、連線至已儲存的 SSH 主機，並繼續已儲存的代理程式聊天。"
+            "value": "此 App 已有自己的工作區，因此未匯入經典版 cmux 的工作區。可隨時在 設定 › 匯入 中匯入。"
           }
         }
       }
@@ -12763,6 +12108,138 @@
         }
       }
     },
+    "home.stopAll.stoppedSome": {
+      "comment": "Toast after Stop All Agents when some subagents could not be stopped (so not \"all\"). %@ is the list of subagent ids that did stop, e.g. \"a1 and a3\".",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavljeno: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stoppet: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestoppt: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se detuvieron: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêtés : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrotti: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を停止しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបញ្ឈប់ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 중지했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stoppet: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymano: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parados: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановлены: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุด %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durduruldu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зупинено: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã dừng %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止 %@"
+          }
+        }
+      }
+    },
     "home.stopAll.chiefStopped": {
       "comment": "First line of the toast after Stop All Agents when the Chief's turn stopped, no subagent stopped, and some subagents could not be stopped.",
       "extractionState": "manual",
@@ -13365,6 +12842,138 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "terminalHistory.tab": {
+      "comment": "Title of the internal tab that shows a terminal agent's earlier transcript history.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier history"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السجل السابق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ranija istorija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidligere historik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frühere Historie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historial anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historique antérieur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia precedente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "以前の履歴"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전 기록"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidligere historikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wcześniejsza historia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Histórico anterior"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предыдущая история"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติก่อนหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önceki geçmiş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередня історія"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử trước đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更早的历史记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "較早的歷史記錄"
           }
         }
       }

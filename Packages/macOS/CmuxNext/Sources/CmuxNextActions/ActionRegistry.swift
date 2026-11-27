@@ -1,5 +1,6 @@
 public import AppKit
 public import Observation
+import os
 
 /// A catalog descriptor joined with its bound handler, if any. The palette
 /// and shortcut settings list entries; unbound entries have no handler yet.
@@ -37,6 +38,11 @@ public final class ActionRegistry {
     /// does not depend on what the person focuses. Published by the App.
     @ObservationIgnored public var targetContext: (@MainActor (ActionInvocation) -> ActionContext)?
 
+    /// `app.shortcutLayout` is Keep QWERTY Positions: Command and Control shortcuts
+    /// match by US QWERTY key position (``shortcuts(for:)``). Observable so
+    /// global hot keys re-register. `SettingsApplier` sets it.
+    public var matchesQwertyPositions = false
+
     /// User shortcut overrides (from `cmux.json` `shortcuts`). A stored nil
     /// removes the default shortcut.
     public internal(set) var shortcutOverrides: [ActionID: Shortcut?] = [:] {
@@ -63,20 +69,31 @@ public final class ActionRegistry {
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
     /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
+    /// `experiments.menuStyleV2` (prototype; off is today's menus): `makeContextMenu` applies the v2
+    /// content rules (ActionRegistry+ContextMenuStyle). The NSMenu stays a real NSMenu.
+    @ObservationIgnored public var contextMenuStyleV2 = false
     /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
-    /// person's own choice, not `DisabledFeatures`). The App installs it.
+    /// person's own choice, not `DisabledFeatures`). Owners add theirs with `addSettingOffReason` (docks, hang reports too).
     @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
+    /// Debug-only actions: offered to the person only while Internal Developer Mode is on, to scripts
+    /// wherever developer tools exist (`DebugActionGate`). The App installs the setting's read.
+    @ObservationIgnored public var debugActions = DebugActionGate()
     /// The person's arrangement of each right-click menu (cmux.json `contextMenus.layouts`,
     /// ``ContextMenuLayout``); a menu without one is drawn as generated.
     public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
     /// Whether a whole right-click menu ends with Customize Menu… (cmux.json `contextMenus.showCustomizeItem`).
     public var showsCustomizeMenuItem = true
+    /// Settings > Menus' menus as last built (``contextMenuEditorState()``).
+    @ObservationIgnored var editorMenus: ContextMenuEditorMenu.Built?
     /// Called when a bound toggle's `paletteState` changes after its run returned (a cmux.json write that
     /// lands later): the open palette reads its rows again. The palette installs it.
     @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?
     /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
     @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
+    /// The rows apps add to a whole right-click menu on `target` (`contributes.menus`): drawn
+    /// after the built-in rows, before Customize Menu…, and read again at each open. The App installs it.
+    @ObservationIgnored public var contributedMenuItems: (@MainActor (ActionMenuContext, ActionTargetRef) -> [NSMenuItem])?
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
@@ -120,15 +137,22 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// A suggested argument's choices submenu items when the App lists them live (the installed editors of
+    /// Open In ▸) instead of the catalog's `pinned`; nil for a source it does not list, which keeps `pinned`.
+    @ObservationIgnored public var menuChoices: (@MainActor (String) -> [ActionEnumCase]?)?
+    /// A suggested argument whose values are not read yet (a list the daemon has not answered):
+    /// the load that answers them, which the palette's step awaits under its loading state instead
+    /// of opening on an empty list. Nil, or a nil load, when ``argumentSuggestions`` already has them.
+    @ObservationIgnored public var argumentSuggestionsLoad: (@MainActor (String) -> (@MainActor () async -> [ActionEnumCase])?)?
     /// Shortcut recorders open now (`ShortcutRecorder`); any open one sets `.recordingShortcut`.
     @ObservationIgnored var openShortcutRecorders: Set<ObjectIdentifier> = []
     /// Whether free text is a valid value of a suggested argument (a theme
     /// Ghostty accepts); nil accepts any non-empty text.
     @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
-    /// The current value of a choices submenu's argument for a target, shown
-    /// with a checkmark.
+    /// The current value of a choices submenu's argument for a target, shown with a checkmark.
     @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
     @ObservationIgnored public var targetChoices: (@MainActor (_ action: ActionID, _ kind: ActionTargetKind, _ target: ActionTargetRef?) -> ActionTargetChoices?)?
+    @ObservationIgnored public let rowSubmenus = ActionRowSubmenus() // Screen Sharing ▸ (ActionRowSubmenus.swift)
 
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
@@ -136,6 +160,13 @@ public final class ActionRegistry {
     /// Ways past an unavailable reason that a person's own gesture may take (``ActionRecovery``),
     /// asked in order with the action and its current reason; the first non-nil answer wins.
     @ObservationIgnored public var unavailableRecoveries: [@MainActor (_ action: ActionID, _ reason: String) -> ActionRecovery?] = []
+    /// Ways to hold a person's run whose handler refused for a reason that passes by itself (cmux still
+    /// starting), asked in order with the run's action, invocation and reason. One that returns true
+    /// keeps the run to perform later, and the refusal is not shown (`refuse(_:quiet:)`). The CLI,
+    /// MCP, scripts and pages are refused as before.
+    @ObservationIgnored public var refusalDeferrals: [@MainActor (_ action: ActionID, _ invocation: ActionInvocation, _ reason: String) -> Bool] = []
+    /// The person's innermost run whose handler runs now, while any ``refusalDeferrals`` is set.
+    @ObservationIgnored var personRun: PersonRun?
     /// Writes a Copy row's text (the App's `AppActionContext.copy`): to the general pasteboard; a test,
     /// whose host may reach no pasteboard, records it instead.
     @ObservationIgnored public var copyText: @MainActor (String) -> Void = { NSPasteboard.general.clearContents(); NSPasteboard.general.setString($0, forType: .string) }
@@ -178,6 +209,8 @@ public final class ActionRegistry {
     @ObservationIgnored var capturedResults: [ActionResultWork]?
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
+    /// Keycaps read with no kept answer (``shortcutKeycaps(for:)``), for the cache tests.
+    @ObservationIgnored internal(set) var keycapsBuilds = 0
     @ObservationIgnored var shortcutIndex: ShortcutIndex? {
         didSet { if shortcutIndex == nil { askToWarmBindingTable() } }
     }
@@ -189,6 +222,10 @@ public final class ActionRegistry {
         // A new hook drops the old one's queued work: ask again through the new one.
         didSet { bindingTableWarmQueued = false; if shortcutIndex?.bindingTable == nil { askToWarmBindingTable() } }
     }
+    /// The icon pack's drawing that stands in for an SF Symbol at a point size, or nil to draw the symbol: catalog
+    /// rows (``rowIcon(_:)``) then draw the glyph the palette and hand-built menus draw (Leo 2026-11-09, of the fork:
+    /// "and this fork symbol is so bad"). The App passes `NSImage.packOverride`; this core target cannot read the pack.
+    @ObservationIgnored public var symbolOverride: (@MainActor (String, CGFloat) -> NSImage?)?
     /// A warm is queued and has not run yet: further changes need no second one.
     @ObservationIgnored private var bindingTableWarmQueued = false
 
@@ -279,11 +316,47 @@ public final class ActionRegistry {
     /// ``bindUnavailable(_:reason:)`` placeholder is no duplicate; anything else bound twice is.
     public private(set) var duplicateBindings: [ActionID] = []
     private var placeholders: Set<ActionID> = []
+    /// Inside ``bindingFallbacks(_:_:)``: each bind is a fallback a later bind replaces, as a placeholder.
+    @ObservationIgnored private var bindsFallbacks = false
+
+    /// Runs `binds`; when `fallback`, each binding it makes is one a later bind replaces with no duplicate (the
+    /// catalog request rows at launch, before the binders the App runs after its first frame).
+    public func bindingFallbacks(_ fallback: Bool, _ binds: () -> Void) {
+        bindsFallbacks = fallback
+        defer { bindsFallbacks = false }
+        binds()
+    }
+
+    /// Ids a handler tried to bind that the catalog does not have, in bind order: a typo, or an
+    /// action the Rust source has that the pinned app FFI release does not carry yet (a Swift
+    /// step B landed before its re-pin, docs/ci/app-ffi-release.md). The bind returns false and
+    /// the action stays unbound. Checked by the `everyBoundActionIsInTheCatalog` test, never
+    /// trapped: a Debug build must still launch on a catalog that lags its Swift; the app logs a
+    /// fault.
+    public private(set) var uncataloguedBindings: [ActionID] = []
+
+    /// One owner per action, and every bound id in the catalog: tests check both (`noActionIsBoundTwice`,
+    /// `everyBoundActionIsInTheCatalog`); at runtime a Debug dogfood build must not crash, so only a fault.
+    public func logBindingProblems() {
+        for (problem, ids) in [("bound twice", duplicateBindings), ("not in the catalog, left unbound", uncataloguedBindings)] where !ids.isEmpty {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions \(problem, privacy: .public): \(ids.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+        }
+    }
+
+    /// The descriptor a bind takes for `id`, or nil (noting `id` in ``uncataloguedBindings``)
+    /// when the catalog does not have it.
+    func bindingDescriptor(for id: ActionID) -> ActionDescriptor? {
+        guard let descriptor = descriptor(for: id) else {
+            uncataloguedBindings.append(id)
+            return nil
+        }
+        return descriptor
+    }
 
     func noteBinding(_ id: ActionID, placeholder: Bool) {
         let canonical = canonicalID(for: id)
         if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }
-        if placeholder { placeholders.insert(canonical) } else { placeholders.remove(canonical) }
+        if placeholder || bindsFallbacks { placeholders.insert(canonical) } else { placeholders.remove(canonical) }
     }
 
     /// Registers `action`, replacing any action with the same ID. Legacy IDs
@@ -332,7 +405,7 @@ public final class ActionRegistry {
         invoke: (@MainActor (ActionInvocation) -> Void)?,
         handler: @escaping @MainActor () -> Void
     ) -> Bool {
-        guard let descriptor = descriptor(for: id) else { return false }
+        guard let descriptor = bindingDescriptor(for: id) else { return false }
         noteBinding(descriptor.id, placeholder: false)
         register(Action(
             id: descriptor.id,
@@ -368,20 +441,29 @@ public final class ActionRegistry {
 
     /// Whether the action applies in `context` (default: the current one): policy allows it, its
     /// required context is present, and it is not debug-only without developer tools (`DevTools`).
+    /// A debug-only action is offered to the person only while Internal Developer Mode is on (`debugActions`).
     public func isAvailable(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
+        isAvailable(id, in: context, debugActionsOffered: debugActions.offeredToPerson)
+    }
+
+    /// `isAvailable(_:in:)`, with whether debug-only actions are offered to this run decided by the caller.
+    private func isAvailable(_ id: ActionID, in context: ActionContext?, debugActionsOffered: Bool) -> Bool {
         guard let descriptor = descriptor(for: id) else { return isBound(id) }
         return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && settingOffReason(descriptor.id) == nil
-            && Self.isAvailable(descriptor, in: context ?? self.context)
+            && Self.isAvailable(descriptor, in: context ?? self.context, debugActionsOffered: debugActionsOffered)
     }
 
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
     /// implies (`ActionContext.implied(by:)`).
+    /// A run through the control socket (the CLI, MCP) reaches a debug-only action wherever developer
+    /// tools exist; Internal Developer Mode only decides what the person is offered (`DebugActionGate`).
     public func isAvailable(_ id: ActionID, for invocation: ActionInvocation) -> Bool {
+        let debug = invocation.viaControlSocket ? debugActions.devTools : debugActions.offeredToPerson
         let base = (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation))
         // Asked only when the target is explicit and the run lacks a required fact.
         guard invocation.target != nil, let required = descriptor(for: id)?.requires, !base.isSuperset(of: required),
-              let facts = targetContext?(invocation) else { return isAvailable(id, in: base) }
-        return isAvailable(id, in: base.union(facts))
+              let facts = targetContext?(invocation) else { return isAvailable(id, in: base, debugActionsOffered: debug) }
+        return isAvailable(id, in: base.union(facts), debugActionsOffered: debug)
     }
 
     /// `isAvailable(_:for:)` for a run from outside the app (the CLI, MCP): a `pane:` or `tab:`
@@ -396,11 +478,14 @@ public final class ActionRegistry {
               let targetContext else { return isAvailable(id, for: invocation) }
         let base = (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation))
             .subtracting(.decidedByPaneOrTabTarget)
-        return isAvailable(id, in: base.union(targetContext(invocation).intersection(.decidedByPaneOrTabTarget)))
+        let debug = invocation.viaControlSocket ? debugActions.devTools : debugActions.offeredToPerson
+        return isAvailable(id, in: base.union(targetContext(invocation).intersection(.decidedByPaneOrTabTarget)),
+                           debugActionsOffered: debug)
     }
 
-    public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {
-        if descriptor.isDebugOnly && !DevTools.isEnabled { return false }
+    /// `debugActionsOffered`: whether this run may reach a debug-only action (`DebugActionGate`).
+    public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext, debugActionsOffered: Bool) -> Bool {
+        if descriptor.isDebugOnly && !debugActionsOffered { return false }
         return context.isSuperset(of: descriptor.requires)
     }
 
@@ -437,7 +522,7 @@ public final class ActionRegistry {
     /// while Merge Workspace Into… (which acts on a workspace) still asks
     /// for the other workspace, unless the argument names the target itself
     /// (`isSuppliedByTarget`: New Workspace in Space… on a right-clicked Space).
-    static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
+    public static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
         guard case .target(let kind) = argument.kind, let target = invocation.target else { return false }
         return target.kind == kind && (argument.isSuppliedByTarget || !descriptor.targets.contains(kind))
     }

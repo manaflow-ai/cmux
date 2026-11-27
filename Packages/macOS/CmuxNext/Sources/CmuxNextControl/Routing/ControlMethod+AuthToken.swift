@@ -22,15 +22,25 @@ public struct AuthTokenGrant: Sendable, Equatable {
 }
 
 /// Why the mint gave no token: `code` is the socket error's code (`not_signed_in`, `no_team`,
-/// `invalid_params`, `forbidden`, `managed`, `client_too_old`, `unavailable`, `bad_reply`) and `detail`
-/// the owner's refusal code or the minimum app version.
+/// `invalid_params`, `forbidden`, `managed`, `client_too_old`, `unavailable`, `bad_reply`, `local_failure`) and `detail`
+/// the owner's refusal code, the minimum app version, or what went wrong (`keychain(-25244: …)`). `team` is the backend team the mint was for, when known:
+/// with no `--team` it is the app's own team, which the refusal names (never "-").
 public struct AuthTokenRefusal: Error, Sendable, Equatable {
     public var code: String
     public var detail: String?
+    public var team: String?
 
-    public init(code: String, detail: String? = nil) {
+    public init(code: String, detail: String? = nil, team: String? = nil) {
         self.code = code
         self.detail = detail
+        self.team = team
+    }
+
+    /// A `forbidden` refusal that is about membership (no owner code, `auth.forbidden`, `team.not_member`). Any
+    /// other owner code (`owner.state_full`, `owner.migrating`, ...) is not, and its text says the code instead.
+    var isMembership: Bool {
+        guard let detail else { return true }
+        return detail == "auth.forbidden" || detail == "team.not_member"
     }
 }
 
@@ -88,7 +98,8 @@ extension ControlMethod {
         return .object(fields)
     }
 
-    /// A refusal as this socket's error, with its message in the person's language.
+    /// A refusal as this socket's error, with its message in the person's language. It names the team the mint
+    /// was for: the refusal's own, else the asked `team`.
     static func authTokenError(_ refusal: AuthTokenRefusal, team: String?) -> ControlError {
         let detail: JSONValue? = refusal.detail.map { ["detail": .string($0)] }
         let message: String = switch refusal.code {
@@ -98,17 +109,29 @@ extension ControlMethod {
             ControlStrings.text("control.authToken.noTeam", "Choose a cmux team in the cmux app first, or pass --team.")
         case "invalid_params":
             ControlStrings.text("control.authToken.invalidTeam", "--team takes a cmux team id: team_ and 20 hex digits.")
+        case "forbidden" where refusal.isMembership:
+            ControlStrings.format("control.authToken.refused", "cmux Cloud refused a token for team %@. Check that your account belongs to it.", refusal.team ?? team ?? "-")
         case "forbidden":
-            ControlStrings.format("control.authToken.refused", "cmux Cloud refused a token for team %@. Check that your account belongs to it.", team ?? "-")
+            // Any other owner code is the account's or the service's trouble, not membership: the probe account's full
+            // head (`owner.state_full`, 2026-11-24 and 11-25) read as "check that your account belongs to it" for a day.
+            ControlStrings.format("control.authToken.refusedCode", "cmux Cloud refused a token for team %1$@ (%2$@). Run cmux auth token again; if it keeps happening, this account needs a fix on the cmux side.", refusal.team ?? team ?? "-", refusal.detail ?? "-")
         case "client_too_old":
             ControlStrings.text("control.authToken.clientTooOld", "This team needs a newer cmux. Install the newest cmux, then run cmux auth token again.")
         case "managed":
             ControlStrings.text("control.authToken.managed", "Your organization limits cmux on this Mac to its managed team, so a token for another team isn't available.")
         case "unavailable":
+            // retry-prompt-ok: a socket API reply to a script, which owns its own retry
             ControlStrings.text("control.authToken.unreachable", "cmux Cloud didn't answer. Try again in a moment.")
+        case "local_failure":
+            ControlStrings.text("control.authToken.localFailure", "cmux on this Mac couldn't make a token. Run cmux auth token again.")
         default:
             ControlStrings.text("control.authToken.badReply", "cmux Cloud sent an answer cmux can't use. Run cmux auth token again.")
         }
-        return ControlError(code: refusal.code == "bad_reply" ? "unavailable" : refusal.code, message: message, data: detail)
+        // What went wrong rides in the text too, as the system said it (a terminal prints only the message): the
+        // probe's "answer cmux can't use" was a Keychain refusal no one could see (2026-11-15).
+        // A forbidden refusal's owner code is already in its text (or is plain membership), so it is not repeated.
+        let cause = refusal.code == "forbidden" || refusal.code == "client_too_old" ? nil : refusal.detail
+        return ControlError(code: refusal.code == "bad_reply" ? "unavailable" : refusal.code,
+                            message: cause.map { "\(message) (\($0))" } ?? message, data: detail)
     }
 }

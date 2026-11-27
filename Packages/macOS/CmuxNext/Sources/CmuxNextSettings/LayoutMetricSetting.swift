@@ -4,7 +4,7 @@ import CoreGraphics
 /// The `appearance.metrics.<name>` keys the schema lists besides the interface size (which has its
 /// own `InterfaceSizeSetting`): sizes in points whose default is the density's. cmux-next and
 /// cmux-browser both read them. Each `range` must equal `DesignSettings.allowedRange` and each
-/// default its `MetricTunables` preset, or for `tabFontSize` the density's body size (kept by hand:
+/// default its `MetricTunables` preset, or for `tabFontSize` Chrome's 12 pt at every density (kept by hand:
 /// this module reads no main-actor state).
 public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     /// The `MetricKey` raw value.
@@ -25,6 +25,13 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
                                                             comfortable: 7)
     public static let titlebarHeight = LayoutMetricSetting(name: "titlebarHeight", range: titlebarHeightRange, compact: titlebarHeightPlaceholder,
                                                            comfortable: 40)
+    /// Center-to-center spacing for the Space buttons in either sidebar placement.
+    public static let spaceButtonSpacing = LayoutMetricSetting(name: "spaceButtonSpacing", range: spaceButtonSpacingRange,
+                                                               compact: spaceButtonSpacingPlaceholder, comfortable: 32)
+    /// The workspace row height, shared with tabs and browser controls through `Metrics.chromeRowHeight`.
+    /// Unset, the app density supplies it. Explicit tab sizing still takes precedence for tabs.
+    public static let sidebarRowHeight = LayoutMetricSetting(name: "sidebarRowHeight", range: sidebarRowHeightRange, compact: sidebarRowHeightPlaceholder,
+                                                             comfortable: 32)
 
     /// The tab bar rows' ranges and compact values (their Settings placeholders) come from
     /// schemas/settings/source/tabs.json (SettingsSchema+Tabs.generated.swift).
@@ -43,10 +50,40 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     /// from the interface size (https://github.com/manaflow-ai/cmux/issues/26493). Unset, the title follows
     /// the interface size; the defaults here are the density's body size.
     public static let tabStripHeight = LayoutMetricSetting(name: "tabStripHeight", range: tabStripHeightRange, compact: tabStripHeightPlaceholder, comfortable: 36)
-    public static let tabFontSize = LayoutMetricSetting(name: "tabFontSize", range: tabFontSizeRange, compact: tabFontSizePlaceholder, comfortable: 13)
+    public static let tabFontSize = LayoutMetricSetting(name: "tabFontSize", range: tabFontSizeRange, compact: tabFontSizePlaceholder, comfortable: 12)
     public static let tabBar: [LayoutMetricSetting] = [tabStripHeight, tabFontSize]
 
-    public static let all: [LayoutMetricSetting] = [sidebarWidth, columnGap, dividerThickness, dividerHitWidth, titlebarHeight] + tabBar + tabWidths
+    /// A look's proportions (Leo 2026-11-19: "the layout and proportions as well"): the sidebar row's inset, padding
+    /// and gap, the toolbar buttons' size, gap and corner, the spacing grid's multiplier and the chat composer's padding
+    /// and height. Unset, each is the density's, so the defaults draw today's layout.
+    public static let sidebarRowInset = LayoutMetricSetting(name: "sidebarRowInset", range: sidebarRowInsetRange, compact: sidebarRowInsetPlaceholder, comfortable: 8)
+    public static let sidebarRowPadding = LayoutMetricSetting(name: "sidebarRowPadding", range: sidebarRowPaddingRange, compact: sidebarRowPaddingPlaceholder,
+                                                              comfortable: 8)
+    public static let sidebarRowGap = LayoutMetricSetting(name: "sidebarRowGap", range: sidebarRowGapRange, compact: sidebarRowGapPlaceholder, comfortable: 2)
+    public static let sidebarRowHeightWithSubtitle = LayoutMetricSetting(
+        name: "sidebarRowHeightWithSubtitle", range: sidebarRowHeightWithSubtitleRange, compact: sidebarRowHeightWithSubtitlePlaceholder, comfortable: 45)
+    /// Shares, not points: the active toolbar button's fill and the header divider's strength.
+    public static let toolbarButtonActiveFill = LayoutMetricSetting(name: "toolbarButtonActiveFill", range: toolbarButtonActiveFillRange,
+                                                                    compact: toolbarButtonActiveFillPlaceholder, comfortable: 0.14)
+    public static let headerDivider = LayoutMetricSetting(name: "headerDivider", range: headerDividerRange, compact: headerDividerPlaceholder, comfortable: 0)
+    public static let toolbarButtonSize = LayoutMetricSetting(name: "toolbarButtonSize", range: toolbarButtonSizeRange, compact: toolbarButtonSizePlaceholder,
+                                                              comfortable: 26)
+    public static let toolbarButtonGap = LayoutMetricSetting(name: "toolbarButtonGap", range: toolbarButtonGapRange, compact: toolbarButtonGapPlaceholder, comfortable: 8)
+    public static let toolbarButtonCornerRadius = LayoutMetricSetting(name: "toolbarButtonCornerRadius", range: toolbarButtonCornerRadiusRange,
+                                                                      compact: toolbarButtonCornerRadiusPlaceholder, comfortable: 8)
+    /// A multiplier, not points: 1 keeps the density's spacing grid.
+    public static let spacingScale = LayoutMetricSetting(name: "spacingScale", range: spacingScaleRange, compact: spacingScalePlaceholder, comfortable: 1)
+    public static let composerPadding = LayoutMetricSetting(name: "composerPadding", range: composerPaddingRange, compact: composerPaddingPlaceholder, comfortable: 10)
+    public static let composerMinHeight = LayoutMetricSetting(name: "composerMinHeight", range: composerMinHeightRange, compact: composerMinHeightPlaceholder,
+                                                              comfortable: 52)
+    public static let proportions: [LayoutMetricSetting] = [sidebarRowInset, sidebarRowPadding, sidebarRowGap, sidebarRowHeightWithSubtitle,
+                                                            toolbarButtonSize, toolbarButtonGap, toolbarButtonCornerRadius, toolbarButtonActiveFill,
+                                                            headerDivider, spacingScale, composerPadding, composerMinHeight]
+
+    public static let all: [LayoutMetricSetting] = [
+        sidebarWidth, sidebarRowHeight, spaceButtonSpacing, columnGap, dividerThickness, dividerHitWidth, titlebarHeight,
+    ] + tabBar + tabWidths
+        + proportions
 
     /// A tab strip width whose comfortable value is the shared token's; its range and compact value (the
     /// Settings placeholder) are the source's (schemas/settings/source/tabs.json).

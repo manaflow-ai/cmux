@@ -6,6 +6,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
+import { factsCardText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
 let saved: Array<readonly [string, boolean, unknown]> = [];
@@ -39,12 +41,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("the shortcut search navigates rows and starts recording without losing focus", async () => {
@@ -159,8 +158,8 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
     provider.calls.filter(({ op }) => op === KeybindingOps.set || op === KeybindingOps.remove).length;
   // Before a key comes, the recorder shows the row's own keys and how to delete them.
   expect(recorderKeys()?.textContent).toBe("⌘P");
-  expect(recorder()?.textContent).toContain("⌫");
-  expect(close()?.textContent).toContain("Esc");
+  expect(recorder()?.textContent).toContain("Press delete to delete");
+  expect(close()?.textContent).toContain("esc");
   expect(recorder()?.querySelector(".keys-recorder-command")?.textContent).toBe("Go to File");
 
   // Each modifier shows the moment it goes down, before a key makes the stroke.
@@ -544,7 +543,9 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(field()?.getAttribute("aria-label")).toBe(strings.t("keybindings.page.recordingKeys"));
   const badge = () => doc.querySelector<HTMLElement>(".keys-search-badge");
   expect(badge()?.textContent).toBe(strings.t("keybindings.page.recordingKeys"));
-  expect(badge()?.title).toBe(strings.t("keybindings.page.recordingExit"));
+  expect(badge()?.title).toBe("");
+  // How to stop shows on the badge's hover card, also once recorded keys hide the placeholder.
+  expect(await factsCardText(badge()!)).toBe(strings.t("keybindings.page.recordingExit"));
   await keys("cmd+shift+p");
   expect(provider.recording).toBe(true);
   expect(doc.querySelector(".keys-record.on")).toBeTruthy();
@@ -660,5 +661,5 @@ test("keys another action has: the recorder says who has them and offers Overwri
   await settle();
   expect(provider.calls.filter(({ op }) => op === KeybindingOps.remove)).toHaveLength(removesBefore);
   expect(sets().at(-1)?.params).toMatchObject({ command: "find.open", key: "ctrl+tab" });
-  expect(row("Next Tab")?.querySelector(".keys-key-button")?.textContent).toBe("⌃⇥");
+  expect(row("Next Tab")?.querySelector(".keys-key-button")?.textContent).toBe("⌃tab");
 });

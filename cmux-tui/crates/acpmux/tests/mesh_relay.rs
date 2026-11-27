@@ -4,7 +4,7 @@
 //! a relayed message runs as a peer's and reads none of this host's peers; control messages go to
 //! the hook; a message for another host or daemon never runs here; the heartbeat lists the
 //! sessions here; with no hub nothing changes; no loop calls a failing or impatient hub in a busy
-//! loop, and the relay ends when the daemon stops or the mesh hub refuses it.
+//! loop, and the relay ends when the daemon stops; a refusal from the mesh hub only pauses it.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -14,15 +14,17 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
-    Ack, AckState, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub,
-    Mode, OutMessage, Receipt, RefuseControl, Sender, SessionRow, Target,
+    Ack, AckState, Capacity, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub, Mode,
+    OutMessage, Receipt, Sender, SessionRow, Target,
 };
 use acpmux::mesh_control::{
     Command as ControlCommand, ControlRequest, MeshControlRelay, Recipient, submit,
 };
 use acpmux::mesh_http::MeshControlFrom;
 use acpmux::rpc::Message;
-use acpmux::server::mesh_relay::{MeshControlHook, MeshRelay, RelayOptions, relay_connection};
+use acpmux::server::mesh_relay::{
+    ControlHook, MeshControlHook, MeshRelay, RefuseControl, RelayOptions, relay_connection,
+};
 use acpmux::server::{Origin, serve_connection_with};
 use acpmux::store::{EventRecord, MemoryStore, SessionStatus, Store};
 use futures::future::BoxFuture;
@@ -61,7 +63,10 @@ fn quick() -> RelayOptions {
         min_poll_gap: Duration::from_millis(100),
         backoff_first: Duration::from_millis(100),
         backoff_cap: Duration::from_millis(400),
+        refused_retry: Duration::from_millis(300),
         max_in_flight: 4,
+        on_reconnect: None,
+        capacity_every: None,
     }
 }
 
@@ -93,11 +98,15 @@ struct State {
     acks: Vec<(String, Ack)>,
     inbox_calls: usize,
     heartbeats: Vec<Heartbeat>,
+    /// When each heartbeat came, on tokio's clock.
+    beat_at: Vec<tokio::time::Instant>,
     /// Idempotency key to message id.
     keys: HashMap<String, String>,
     receipts: HashMap<String, Receipt>,
     /// Every message posted, as the hub got it.
     sent: Vec<OutMessage>,
+    /// Every capacity report, and when it came on tokio's clock.
+    capacities: Vec<(Capacity, tokio::time::Instant)>,
 }
 
 impl State {
@@ -114,12 +123,18 @@ struct FakeHub {
     down: bool,
     /// The inbox answers at once, never long-polling.
     impatient: bool,
-    /// Every call is refused for good (a bad credential).
+    /// Every call is refused (a bad credential).
     refusing: bool,
-    /// Only inbox calls are refused for good; heartbeats are taken.
+    /// Only inbox calls are refused; heartbeats are taken.
     refusing_inbox: bool,
+    /// The heartbeats refused before the hub takes this daemon (a hub deploy, a proxy's 403).
+    refused_beats: std::sync::atomic::AtomicUsize,
     /// The inbox long-polls for a minute, far past the test's wait.
     long: bool,
+    /// The row TTL a heartbeat reply names (90 s, the hub's old TTL, when unset).
+    ttl_seconds: Option<u64>,
+    /// Capacity reports are refused (an older hub with no such route).
+    refusing_capacity: bool,
 }
 
 impl FakeHub {
@@ -135,7 +150,12 @@ impl FakeHub {
 
     /// Waits up to 30 s for `done` to hold.
     async fn until(&self, what: &str, done: impl Fn(&State) -> bool) {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        self.until_within(Duration::from_secs(30), what, done).await;
+    }
+
+    /// Waits up to `limit` for `done` to hold.
+    async fn until_within(&self, limit: Duration, what: &str, done: impl Fn(&State) -> bool) {
+        let deadline = tokio::time::Instant::now() + limit;
         loop {
             let changed = self.changed.notified();
             if done(&self.state.lock().unwrap()) {
@@ -196,11 +216,21 @@ impl MeshHub for FakeHub {
         beat: &'a Heartbeat,
     ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
         Box::pin(async move {
-            self.with(|s| s.heartbeats.push(beat.clone()));
+            self.with(|s| {
+                s.heartbeats.push(beat.clone());
+                s.beat_at.push(tokio::time::Instant::now());
+            });
             if self.refusing {
                 return Err(HubError::refused("401 mesh.unauthorized"));
             }
-            Ok(HeartbeatReply { daemon_id: "inst_b".into(), ttl_seconds: 90 })
+            let left = std::sync::atomic::Ordering::SeqCst;
+            if self.refused_beats.fetch_update(left, left, |n| n.checked_sub(1)).is_ok() {
+                return Err(HubError { status: Some(403), ..HubError::refused("403 forbidden") });
+            }
+            Ok(HeartbeatReply {
+                daemon_id: "inst_b".into(),
+                ttl_seconds: self.ttl_seconds.unwrap_or(90),
+            })
         })
     }
 
@@ -281,6 +311,16 @@ impl MeshHub for FakeHub {
             }
             let receipts = &self.state.lock().unwrap().receipts;
             receipts.get(id).cloned().ok_or_else(|| HubError::refused("no such message"))
+        })
+    }
+
+    fn capacity<'a>(&'a self, report: &'a Capacity) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async move {
+            self.with(|s| s.capacities.push((report.clone(), tokio::time::Instant::now())));
+            if self.refusing_capacity {
+                return Err(HubError { status: Some(404), ..HubError::refused("404") });
+            }
+            Ok(())
         })
     }
 }
@@ -388,6 +428,236 @@ async fn a_relayed_message_names_its_sending_session_for_display() {
     relay.stop().await;
 }
 
+/// The provenance of `prompt_id` in `session`, once it is recorded: as the turn's user message,
+/// or as an inbox entry, where a relay's message to a chat that did not delegate to it waits
+/// (`hub/inbox.rs`), as it does over a peer link.
+async fn delivered_provenance(local: &mut Client, session: &str, prompt_id: &str) -> Value {
+    for _ in 0..600 {
+        let page = local
+            .call(
+                "_acpmux/events",
+                json!({"sessionId": session, "kinds": ["user_message", "inbox"]}),
+            )
+            .await;
+        let events = page.pointer("/result/events").and_then(Value::as_array).cloned();
+        if let Some(e) = events.into_iter().flatten().find(|e| e["msg"]["promptId"] == prompt_id) {
+            return e["msg"]["_meta"]["provenance"].clone();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{prompt_id} never reached {session}");
+}
+
+/// A relayed message's first lease did not wait for this machine: the relay marks it `resend` for
+/// its prompt id alone, and before that mark counted as waited, so every relayed FYI woke its
+/// idle chat (`prompt_provenance::resend_waited`). A lease after the first did wait and still
+/// wakes it.
+#[tokio::test]
+async fn only_a_relayed_message_leased_again_waited() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.lease(message("msg-first", "dep-land", Kind::Prompt));
+    fake.until("the first ack", |s| !s.acked("msg-first").is_empty()).await;
+    let first = delivered_provenance(&mut local, &session, "msg-first").await;
+    assert!(first.get(acpmux::prompt_provenance::WAITED).is_none(), "{first}");
+    let mut again = message("msg-again", "dep-land", Kind::Prompt);
+    again.attempt = 2;
+    fake.lease(again);
+    fake.until("the second ack", |s| !s.acked("msg-again").is_empty()).await;
+    let again = delivered_provenance(&mut local, &session, "msg-again").await;
+    assert_eq!(again[acpmux::prompt_provenance::WAITED], true, "{again}");
+    relay.stop().await;
+}
+
+/// A message no session sent (the lane-gh broker's `acpmux send`, a shell outside acpmux) names
+/// the machine the hub proved, verified: it read "a session on HOST (self-declared,
+/// unauthenticated)" though the hub had authenticated HOST's daemon, and every receiver asked the
+/// sender to confirm. The sending daemon's relay record names the session when it names the same
+/// machine; one that names another machine is not believed.
+#[tokio::test]
+async fn a_relayed_message_no_session_sent_names_the_machine_the_hub_proved_as_verified() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let sessionless = |id: &str, relay: Option<Value>| {
+        let mut m = message(id, "dep-land", Kind::Prompt);
+        m.from.name = None;
+        m.from.relay = relay;
+        m
+    };
+    fake.lease(sessionless("msg-bare", None));
+    fake.lease(sessionless(
+        "msg-relay",
+        Some(json!({"by": "lane-gh", "machine": "gcp-lane", "session": "coord"})),
+    ));
+    fake.lease(sessionless(
+        "msg-other",
+        Some(json!({"by": "lane-gh", "machine": "elsewhere", "session": "coord"})),
+    ));
+    for (id, shown) in
+        [("msg-bare", "gcp-lane"), ("msg-relay", "gcp-lane/coord"), ("msg-other", "gcp-lane")]
+    {
+        fake.until("the ack", |s| !s.acked(id).is_empty()).await;
+        assert_eq!(fake.with(|s| s.acked(id)), vec![Ack::delivered(id, None)], "{id}");
+        let p = delivered_provenance(&mut local, &session, id).await;
+        assert_eq!(p["fromName"], shown, "{id}: {p}");
+        let record = acpmux::prompt_provenance::sender_record(Some(&p), None, None);
+        assert_eq!(record["verification"], "verified", "{id}: {record}");
+        assert_eq!(record["authenticated"], true, "{id}: {record}");
+        assert_eq!(record["relay"]["machine"], "gcp-lane", "{id}: {record}");
+    }
+    relay.stop().await;
+}
+
+/// The turn count of `session` once no turn runs and it has reached `at_least`, or what it read
+/// last after 30 s.
+async fn settled_turns(local: &mut Client, session: &str, at_least: u64) -> Value {
+    let mut info = Value::Null;
+    for _ in 0..600 {
+        info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+        let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
+        let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
+        if idle && count >= at_least {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    info
+}
+
+/// A plain send that names no sender (a shell's or a probe's `acpmux send HOST/ID` to a chat a
+/// hub move took there) runs a turn in the idle chat, as a peer link's plain prompt does. It
+/// filed as an unclassed agent's FYI, which since #58035 no first lease wakes, so the chat never
+/// answered (the offload round-trip probe's "no reply with the probe word within 90 s").
+#[tokio::test]
+async fn a_relayed_send_that_names_no_sender_runs_in_an_idle_chat() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut seed = message("msg-seed", "dep-land", Kind::Prompt);
+    seed.body = "[question]\n\nseed the chat".into();
+    fake.lease(seed);
+    fake.until("the seed's ack", |s| !s.acked("msg-seed").is_empty()).await;
+    let info = settled_turns(&mut local, &session, 1).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(1)), "{info}");
+    let mut bare = message("msg-bare", "dep-land", Kind::Prompt);
+    bare.from.name = None;
+    bare.body = "offload probe count msg-000001".into();
+    fake.lease(bare);
+    fake.until("the ack", |s| !s.acked("msg-bare").is_empty()).await;
+    assert_eq!(fake.with(|s| s.acked("msg-bare")), vec![Ack::delivered("msg-bare", None)]);
+    let info = settled_turns(&mut local, &session, 2).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(2)), "never ran: {info}");
+    let p = delivered_provenance(&mut local, &session, "msg-bare").await;
+    assert_eq!(p["fromName"], "gcp-lane", "{p}");
+    relay.stop().await;
+}
+
+/// A send from no session (a relay on this machine's unix socket) carries its relay record to the
+/// hub, so the receiving machine can name the session it came from; a proven session's send
+/// carries none, whatever it wrote.
+#[tokio::test]
+async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
+    let a = hub();
+    let lane = Client::local(&a).new_session("lane-a").await;
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+        cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
+        handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
+        updated_at: None,
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let relayed = |id: &str| {
+        let mut request = send_queue("dep-land", id);
+        request["request"]["_meta"]["acpmux"]["fromRelay"] =
+            json!({"by": "lane-gh", "machine": "vm-1", "session": "coord"});
+        request
+    };
+    let mut broker = Client::local(&a);
+    broker.call("initialize", json!({"protocolVersion": 1})).await;
+    let queued = broker.call("_acpmux/send_queue", relayed("prompt-relay-1")).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    assert_eq!(from.session_id, None, "{from:?}");
+    assert_eq!(
+        from.relay,
+        Some(json!({"by": "lane-gh", "machine": "vm-1", "session": "coord"})),
+        "{from:?}"
+    );
+
+    let mut as_lane = Client::local(&a);
+    let token = acpmux::hub::person::caller_token(&lane);
+    let caller = json!({"callerSession": {"sessionId": lane, "token": token}});
+    as_lane.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    let queued = as_lane.call("_acpmux/send_queue", relayed("prompt-relay-2")).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
+    assert_eq!(from.relay, None, "{from:?}");
+}
+
+/// A relayed message's sender claim reaches the chat as the sender's own word: a `checked` it
+/// carries is the sending daemon's, which this one cannot confirm, so it is dropped.
+#[tokio::test]
+async fn a_relayed_message_keeps_its_senders_claim_as_self_reported() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut sent = message("msg-claim", "dep-land", Kind::Prompt);
+    sent.from.claim = Some(json!({
+        "harness": "claude-code", "entrypoint": "claude-desktop",
+        "checked": {"harness": "claude-code", "app": "Claude.app"},
+    }));
+    fake.lease(sent);
+    fake.until("the ack", |s| !s.acked("msg-claim").is_empty()).await;
+    let mut claim = Value::Null;
+    for _ in 0..600 {
+        let events = hub.events(&session, 0, 1000).unwrap();
+        if let Some(e) = events.iter().find(|e| e.kind == "sender_claim") {
+            claim = e.msg.clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(claim["promptId"], "msg-claim", "{claim}");
+    assert_eq!(claim["claimed"]["harness"], "claude-code", "{claim}");
+    assert_eq!(claim["claimed"]["entrypoint"], "claude-desktop", "{claim}");
+    assert_eq!(claim["claimed"]["selfReported"], true, "{claim}");
+    assert!(claim.get("checked").is_none(), "{claim}");
+    relay.stop().await;
+}
+
 #[tokio::test]
 async fn a_relayed_message_reads_no_peer_here_and_is_never_forwarded_to_one() {
     let hub = hub();
@@ -441,10 +711,26 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
     assert!(hub.mesh_for_here(&mine, Some("inst_me")).is_ok());
     assert!(hub.mesh_for_here(&mine, Some("inst_other")).is_err());
     assert!(hub.mesh_for_here(&mine, None).is_err());
+    // The prompt ids in the chat's records: a turn's or an inbox item's. Another agent's message
+    // to a chat that already ran a turn goes to its inbox, not a turn of its own (`hub/inbox.rs`),
+    // so the chat's turn count says nothing about what reached it.
+    async fn held(local: &mut Client, session: &str) -> Vec<String> {
+        let page = local.call("_acpmux/events", json!({"sessionId": session})).await;
+        let mut ids: Vec<String> = page
+            .pointer("/result/events")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e["msg"]["promptId"].as_str().map(str::to_owned))
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
     let own = acpmux::pairing::machine_name();
-    let mut ran = 0;
+    let mut ran: Vec<String> = Vec::new();
     if own != "host" {
-        // Its own host, as a field and as a prefix, is this one: those run.
+        // Its own host, as a field and as a prefix, is this one: those reach the chat.
         let mine = [
             ("own-host", named(Some(&own.to_uppercase()), None)),
             ("own-prefix", Target { name: Some(format!("{own}/dep-land")), ..Target::default() }),
@@ -453,20 +739,19 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
             fake.lease(InMessage { message_id: id.into(), ..to(target) });
             fake.until(id, |s| !s.acked(id).is_empty()).await;
             assert_eq!(fake.with(|s| s.acked(id)[0].clone()), Ack::delivered(id, None), "{id}");
-            ran += 1;
+            ran.push(id.to_owned());
         }
     }
-    let mut info = Value::Null;
+    ran.sort();
+    let mut got = Vec::new();
     for _ in 0..600 {
-        info = local.call("_acpmux/info", json!({"sessionId": session})).await;
-        let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
-        if idle && info.pointer("/result/turnCount").and_then(Value::as_u64) >= Some(ran) {
+        got = held(&mut local, &session).await;
+        if got.len() >= ran.len() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
-    assert_eq!(count, ran, "a message for elsewhere ran here: {info}");
+    assert_eq!(got, ran, "a message for elsewhere reached the chat here, or one for here did not");
     relay.stop().await;
 }
 
@@ -482,7 +767,7 @@ async fn ends(relay: &MeshRelay, what: &str) {
 }
 
 #[tokio::test]
-async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
+async fn the_relay_ends_when_the_daemon_stops_and_a_refusal_only_pauses_it() {
     // The daemon stops (as `_acpmux/shutdown` does) while the inbox is long-polling an empty
     // inbox: both loops end at once instead of polling on, the heartbeat with an empty one.
     let stopping = hub();
@@ -497,26 +782,57 @@ async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), calls);
 
-    // A refused heartbeat (a bad credential) is not retried, and the inbox, which waits for the
-    // hub to name this daemon, never polls: one call in all, then the relay is off.
+    // A refused heartbeat (a bad credential) is tried again, never sooner than the heartbeat
+    // floor (2.5 s, above the test's `refused_retry`), and the inbox, which waits for the hub to
+    // name this daemon, never polls; the relay keeps running.
     let refused = hub();
     let fake = Arc::new(FakeHub { refusing: true, ..FakeHub::default() });
     let relay = MeshRelay::start(&refused, fake.clone(), Arc::new(RefuseControl), quick());
-    ends(&relay, "a refused heartbeat").await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), (0, 1));
+    fake.until_within(Duration::from_secs(10), "a second refused heartbeat", |s| {
+        s.heartbeats.len() >= 2
+    })
+    .await;
+    assert!(!relay.is_finished(), "a refused heartbeat ended the relay");
+    let (inbox_calls, gap) = fake.with(|s| (s.inbox_calls, s.beat_at[1] - s.beat_at[0]));
+    assert_eq!(inbox_calls, 0);
+    assert!(gap >= Duration::from_millis(2400), "refused heartbeats {gap:?} apart");
     relay.stop().await;
 
-    // The hub takes heartbeats but refuses the inbox: both loops end, the heartbeat with an
-    // empty one, so the address book does not list sessions no message can reach.
+    // The hub takes heartbeats but refuses the inbox: the heartbeat lists no session, so the
+    // address book does not list sessions no message can reach, and the inbox is tried again
+    // every `refused_retry`.
     let refused = hub();
     let fake = Arc::new(FakeHub { refusing_inbox: true, ..FakeHub::default() });
     let relay = MeshRelay::start(&refused, fake.clone(), Arc::new(RefuseControl), quick());
-    ends(&relay, "a refused inbox").await;
-    let beats = fake.with(|s| s.heartbeats.len());
+    fake.until("a second refused inbox", |s| s.inbox_calls >= 2).await;
+    assert!(!relay.is_finished(), "a refused inbox ended the relay");
     assert!(fake.with(|s| s.heartbeats.last().is_some_and(|b| b.sessions.is_empty())));
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), (1, beats));
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let calls = fake.with(|s| s.inbox_calls);
+    assert!((3..=8).contains(&calls), "{calls} refused inbox calls");
+    relay.stop().await;
+}
+
+/// The coordinator chats that stopped hearing from other machines: a hub that refused this
+/// daemon's heartbeats for a while (a deploy, a proxy's 403) switched its relay off until the
+/// daemon restarted. Once the hub takes it again, the sessions here are listed and a message
+/// waiting for one is delivered.
+#[tokio::test]
+async fn a_daemon_the_hub_refused_for_a_while_is_listed_and_delivered_to_again() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    local.new_session("coordinator").await;
+    let fake = Arc::new(FakeHub { refused_beats: 3.into(), ..FakeHub::default() });
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.lease(message("msg-after-refusal", "coordinator", Kind::Prompt));
+    fake.until("the message after the refusals", |s| !s.acked("msg-after-refusal").is_empty())
+        .await;
+    assert_eq!(
+        fake.with(|s| s.acked("msg-after-refusal")),
+        vec![Ack::delivered("msg-after-refusal", None)]
+    );
+    assert!(fake.with(|s| s.heartbeats.iter().any(|b| !b.sessions.is_empty())));
+    assert!(!relay.is_finished());
     relay.stop().await;
 }
 
@@ -863,6 +1179,7 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
             host: "worker".into(),
             sessions: hub.mesh_rows().await,
             leaving: false,
+            health: None,
         })
         .await
         .unwrap();
@@ -891,7 +1208,8 @@ async fn mesh_control_resume_releases_held_queue_by_id_and_name() {
     let config = seed.config.read().await.clone();
     seed.shutdown_all().await;
     meta.status = SessionStatus::Idle;
-    for by_name in [false, true] {
+    for (by_name, owner_boundary) in [(false, false), (true, false), (false, true), (true, true)] {
+        meta.vm_boundary = owner_boundary;
         let store = MemoryStore::default();
         store.save(&meta).unwrap();
         for (seq, kind, msg) in [
@@ -933,8 +1251,14 @@ async fn mesh_control_resume_releases_held_queue_by_id_and_name() {
             Some(ledger_dir.path().join("mesh-controls.json")),
         );
         let ack = hook.control(&receiver, &resume).await.unwrap();
-        assert_eq!(ack.state, AckState::Delivered, "{ack:?}");
-        assert!(!receiver.resolve(&id).unwrap().queue_paused());
+        // This hook has an explicit daemon grant, not a same-person grant. Its read may
+        // inspect a boundary session, but the subsequent queue write must retain that mark.
+        assert_eq!(
+            ack.state,
+            if owner_boundary { AckState::Refused } else { AckState::Delivered },
+            "{ack:?}"
+        );
+        assert_eq!(receiver.resolve(&id).unwrap().queue_paused(), owner_boundary);
         receiver.shutdown_all().await;
     }
 }
@@ -1060,25 +1384,44 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     );
     let to = fake.with(|s| s.sent.last().unwrap().to.clone());
     assert_eq!((to.host.as_deref(), to.name.as_deref()), (Some("fs-peer-1"), Some("dep-land")));
+    // `HOST/ID` the same way, by the session's id (a chat just moved there is named so): never
+    // looked up here as a name and refused as "no session HOST/ID on this machine".
+    let by_id = format!("fs-peer-1/{session}");
+    let far = sender.call("_acpmux/send_queue", send_queue(&by_id, "prompt-0006")).await;
+    assert!(
+        far.pointer("/result/deliveryId")
+            .and_then(Value::as_str)
+            .is_some_and(|d| d.starts_with("mesh:")),
+        "{far}"
+    );
+    let to = fake.with(|s| s.sent.last().unwrap().to.clone());
+    assert_eq!(
+        (to.host.as_deref(), to.session_id.as_deref(), to.name.as_deref()),
+        (Some("fs-peer-1"), Some(session.as_str()), None),
+        "{to:?}"
+    );
 
-    // A supersede key cannot cross the hub: the send is refused, not sent without it.
+    // A supersede key cannot cross the hub: the send goes without it and says so, as the
+    // sender would have sent it again anyway (cmuxterm-hq
+    // docs/findings/2026-11-23-mcp-tool-error-census.md).
     let posted = fake.with(|s| s.sent.len());
     let mut keyed = send_queue("dep-land", "prompt-0004");
     keyed["request"]["_meta"]["acpmux"]["supersede"] = json!("status");
     let keyed = sender.call("_acpmux/send_queue", keyed).await;
-    assert_eq!(keyed.pointer("/error/data/reason"), Some(&json!("mesh.no_supersede")), "{keyed}");
-    // `acpmux send` reads "no session" in an error as not found and drops the rest of it.
-    let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
-    assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
-    assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
-    // Nor a class but result, the default the target reads: refused, not sent as a result.
+    assert_eq!(keyed.pointer("/result/supersedeDropped"), Some(&json!(true)), "{keyed}");
+    let said = keyed.pointer("/result/note").and_then(Value::as_str).unwrap_or_default();
+    assert!(said.contains("no supersede key"), "{keyed}");
+    assert_eq!(fake.with(|s| s.sent.len()), posted + 1, "a keyed send did not reach the hub");
+    let posted = posted + 1;
+    // A class but result has no field on the hub's message: it goes as the text's first line,
+    // and the sender's row says so (`server/mesh_send.rs`, #49350), never as a plain result.
     let mut block = send_queue("dep-land", "prompt-0005");
     block["request"]["_meta"]["acpmux"]["class"] = json!("block");
     let block = sender.call("_acpmux/send_queue", block).await;
-    assert_eq!(block.pointer("/error/data/reason"), Some(&json!("mesh.no_class")), "{block}");
-    let said = block.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
-    assert!(said.contains("--class") && !said.contains("no session"), "{block}");
-    assert_eq!(fake.with(|s| s.sent.len()), posted, "a classified send reached the hub");
+    assert_eq!(block.pointer("/result/classInline"), Some(&json!("block")), "{block}");
+    let body = fake.with(|s| s.sent.last().unwrap().body.clone());
+    assert_eq!(body, "[block]\n\nfrom another machine");
+    assert_eq!(fake.with(|s| s.sent.len()), posted + 1, "a classified send did not reach the hub");
     relay.stop().await;
 }
 
@@ -1104,6 +1447,90 @@ async fn the_heartbeat_lists_the_sessions_here_and_a_stop_empties_them() {
     assert!(serde_json::to_value(&earlier).unwrap().get("leaving").is_none(), "omitted when false");
 }
 
+/// The heartbeat comes every third of the TTL the hub's reply names, so the hub tunes its liveness
+/// window without a daemon release: a 30 s TTL beats every 10 s, a 90 s one every 30 s (capped at
+/// `heartbeat_every`), and a reply with no TTL falls back to `heartbeat_every`.
+#[tokio::test(start_paused = true)]
+async fn the_heartbeat_comes_every_third_of_the_hubs_ttl() {
+    for (ttl, every) in [(30, 10), (90, 30), (0, 30)] {
+        let hub = hub();
+        let fake = Arc::new(FakeHub { ttl_seconds: Some(ttl), ..FakeHub::default() });
+        let options = RelayOptions { heartbeat_every: Duration::from_secs(30), ..quick() };
+        let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), options);
+        fake.until_within(Duration::from_secs(120), "three heartbeats", |s| s.beat_at.len() >= 3)
+            .await;
+        relay.stop().await;
+        let at = fake.with(|s| s.beat_at.clone());
+        for gap in at[..3].windows(2).map(|w| w[1] - w[0]) {
+            assert!(
+                gap >= Duration::from_secs(every)
+                    && gap < Duration::from_secs(every) + Duration::from_millis(500),
+                "ttl {ttl}: heartbeats {gap:?} apart, not every {every} s"
+            );
+        }
+    }
+}
+
+/// A joined machine reports its free capacity to its team's placement (RFD 0004 step 3): every
+/// `capacity_every`, with this daemon's live sessions and no fleet token; a refusal is asked again only after ten
+/// minutes and never stops the relay's heartbeat; a relay that is not a joined one reports none.
+#[tokio::test(start_paused = true)]
+async fn a_joined_relay_reports_its_capacity_and_any_other_reports_none() {
+    let hub = hub();
+    let fake = Arc::new(FakeHub::default());
+    let options = RelayOptions { capacity_every: Some(Duration::from_secs(40)), ..quick() };
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), options);
+    fake.until_within(Duration::from_secs(200), "three capacity reports", |s| {
+        s.capacities.len() >= 3
+    })
+    .await;
+    relay.stop().await;
+    let reports = fake.with(|s| s.capacities.clone());
+    for gap in reports[..3].windows(2).map(|w| w[1].1 - w[0].1) {
+        assert!(
+            gap >= Duration::from_secs(40) && gap < Duration::from_secs(41),
+            "reports {gap:?} apart"
+        );
+    }
+    let report = serde_json::to_value(&reports[0].0).unwrap();
+    assert_eq!(report["region"], "joined");
+    assert_eq!(report["state"], "ready");
+    assert_eq!(report["sessions_running"], hub.live_session_count() as u64);
+    assert!(report.get("machine_token").is_none());
+    assert!(!report["host_id"].as_str().unwrap().is_empty());
+    let limits = &report["capabilities"];
+    assert!(limits["maxVcpu"].as_f64().unwrap() >= 1.0, "{limits}");
+    assert!(["linux", "macos"].contains(&limits["os"].as_str().unwrap()), "{limits}");
+    assert!(report["free_vcpu"].as_f64().unwrap() <= limits["maxVcpu"].as_f64().unwrap());
+    let after = fake.with(|s| s.capacities.len());
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    assert_eq!(fake.with(|s| s.capacities.len()), after, "a stopped relay reports nothing");
+
+    // Refused: asked again after ten minutes, not every 40 s; the heartbeat goes on.
+    let hub = self::hub();
+    let fake = Arc::new(FakeHub { refusing_capacity: true, ..FakeHub::default() });
+    let options = RelayOptions { capacity_every: Some(Duration::from_secs(40)), ..quick() };
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), options);
+    fake.until_within(Duration::from_secs(1300), "two refused reports", |s| {
+        s.capacities.len() >= 2
+    })
+    .await;
+    let (gap, beats) = fake.with(|s| (s.capacities[1].1 - s.capacities[0].1, s.heartbeats.len()));
+    assert!(gap >= Duration::from_secs(600), "refused reports {gap:?} apart");
+    assert!(beats > 100, "the heartbeat went on: {beats}");
+    assert!(!relay.is_finished());
+    relay.stop().await;
+
+    // Not joined: no report.
+    let hub = self::hub();
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.until_within(Duration::from_secs(10), "a heartbeat", |s| !s.heartbeats.is_empty()).await;
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    relay.stop().await;
+    assert!(fake.with(|s| s.capacities.is_empty()));
+}
+
 /// A session's send through the hub names that session as its sender, whatever `fromAgent` the
 /// request claims.
 #[tokio::test]
@@ -1118,9 +1545,25 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         state: "ready".into(),
         stuck_reason: None,
         team_address: None,
+        cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
+        handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
+        updated_at: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let mut as_lane = Client::local(&a);
@@ -1134,6 +1577,128 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
     let from = fake.with(|s| s.sent.last().unwrap().from.clone());
     assert_eq!(from.name.as_deref(), Some("lane-a"), "{from:?}");
     assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
+}
+
+/// The sender of a direct `HOST/NAME` send through the hub reads its own status, though the hub
+/// stamps `startWork` on every receipt and team messaging is off; another session does not
+/// (2026-11-19: `acpmux send --status mesh:msg_…` answered "team message is not addressed to
+/// this session" to the session that sent it).
+#[tokio::test]
+async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_other_session_does() {
+    let a = hub();
+    let lane = Client::local(&a).new_session("lane-a").await;
+    let other = Client::local(&a).new_session("lane-c").await;
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+        cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
+        handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
+        updated_at: None,
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let proven = |session: &str| {
+        let token = acpmux::hub::person::caller_token(session);
+        json!({"protocolVersion": 1,
+               "_meta": {"acpmux": {"callerSession": {"sessionId": session, "token": token}}}})
+    };
+    // As the hub answers every receipt: with its start-work decision.
+    let stamp = |delivery: &str| {
+        let message = delivery.trim_start_matches("mesh:").to_owned();
+        fake.with(|s| {
+            s.receipts.get_mut(&message).unwrap().start_work =
+                Some(acpmux::mesh::StartWork::Information)
+        });
+    };
+    let mut as_lane = Client::local(&a);
+    as_lane.call("initialize", proven(&lane)).await;
+    let queued = as_lane.call("_acpmux/send_queue", send_queue("b/dep-land", "prompt-own-1")).await;
+    let delivery = queued.pointer("/result/deliveryId").and_then(Value::as_str).unwrap().to_owned();
+    stamp(&delivery);
+    let status = as_lane.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert_eq!(status.pointer("/result/status"), Some(&json!("queued")), "{status}");
+    assert_eq!(status.pointer("/result/target"), Some(&json!("b/dep-land")), "{status}");
+    let mut as_other = Client::local(&a);
+    as_other.call("initialize", proven(&other)).await;
+    let refused = as_other.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert!(refused.get("error").is_some(), "another session read it: {refused}");
+
+    // A send from the person's own terminal, no session proven: its status reads the same.
+    let mut terminal = Client::local(&a);
+    let queued =
+        terminal.call("_acpmux/send_queue", send_queue("b/dep-land", "prompt-own-2")).await;
+    let delivery = queued.pointer("/result/deliveryId").and_then(Value::as_str).unwrap().to_owned();
+    stamp(&delivery);
+    let status = terminal.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert_eq!(status.pointer("/result/status"), Some(&json!("queued")), "{status}");
+}
+
+/// A send through the hub carries its sender claim on the wire, so the receiving machine can
+/// show where it came from.
+#[tokio::test]
+async fn a_send_through_the_hub_carries_its_sender_claim() {
+    let a = hub();
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+        cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
+        handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
+        updated_at: None,
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let mut client = Client::local(&a);
+    client.call("initialize", json!({"protocolVersion": 1})).await;
+    let mut request = send_queue("dep-land", "prompt-claim-2");
+    request["request"]["_meta"]["acpmux"]["senderHarness"] =
+        json!({"harness": "claude-code", "entrypoint": "claude-desktop", "bogus": "x"});
+    let queued = client.call("_acpmux/send_queue", request).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    let claim = from.claim.unwrap_or_default();
+    assert_eq!(claim["harness"], "claude-code", "{claim}");
+    assert_eq!(claim["entrypoint"], "claude-desktop", "{claim}");
+    assert!(claim.get("bogus").is_none() && claim.get("checked").is_none(), "{claim}");
 }
 
 #[tokio::test]
@@ -1158,6 +1723,7 @@ async fn team_delivery_refuses_when_disabled_and_only_allowed_starts_an_idle_tur
         team_messaging: true,
         credential: None,
         control_from: Vec::new(),
+        direct_send: false,
     });
     // Missing startWork is information even if mode asks to steer.
     assert_eq!(
@@ -1248,4 +1814,99 @@ async fn a_send_right_after_a_start_through_the_hub_reaches_the_new_session() {
     fake.until("delivered", |s| s.receipts[&message].state == "delivered").await;
     relay.stop().await;
     b.shutdown_all().await;
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn only_a_same_person_mesh_start_gets_the_full_access_host_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "webRoots": [dir.path()], "defaultHarness": "fake", "webAskingModes": {"fake": ["normal", "strict"]},
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    for (name, same_person, policy, boundary, mixed_grant, user) in [
+        ("own-full", true, "approve-all", None, false, Some("person-1")),
+        ("own-asking", true, "ask", None, false, Some("person-1")),
+        ("own-opt-out", true, "approve-all", Some(false), false, Some("person-1")),
+        ("team-forged", false, "approve-all", Some(true), false, Some("person-2")),
+        ("mixed-other", false, "approve-all", Some(true), true, Some("person-2")),
+        ("mixed-missing", false, "approve-all", Some(true), true, None),
+        ("mixed-empty", false, "approve-all", Some(true), true, Some("")),
+        ("mixed-own", true, "approve-all", None, true, Some("person-1")),
+    ] {
+        let grant: MeshControlFrom = serde_json::from_value(if mixed_grant {
+            json!({"sameUser": true, "daemonId": "inst_a", "ops": ["start"]})
+        } else if same_person {
+            json!({"sameUser": true})
+        } else {
+            json!({"daemonId": "inst_a", "ops": ["start"]})
+        })
+        .unwrap();
+        let hook = MeshControlHook::new(vec![grant], Some(dir.path().join(format!("{name}.json"))))
+            .with_own_user(Arc::new(|| Some("person-1".into())));
+        let mut request = message(name, "", Kind::Control);
+        request.from.user = user.map(str::to_owned);
+        let mut body = json!({"version": 1, "params": {"cwd": dir.path(), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": name, "policy": policy,
+                "via": "peer"}}}});
+        if let Some(boundary) = boundary {
+            body["params"]["_meta"]["acpmux"]["vmBoundary"] = json!(boundary);
+        }
+        request.body = body.to_string();
+        let ack = hook.control(&hub, &request).await.unwrap();
+        assert_eq!(ack.state, AckState::Delivered, "{name}: {ack:?}");
+        let session = hub.resolve(ack.detail.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            session.meta().vm_boundary,
+            same_person && policy == "approve-all" && boundary != Some(false),
+            "{name}"
+        );
+    }
+    hub.shutdown_all().await;
+}
+
+/// A relayed start runs under the owner's grant for its sender (`maxPolicy`): an entry without one
+/// holds an approve-all start to `ask` as a remote chain, and only an entry granting approve-all
+/// (what `host join` writes for the person's own machines) starts this machine's own chat in the
+/// policy it names (cmux#50026).
+#[tokio::test]
+async fn a_relayed_start_runs_under_the_senders_max_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let cwd = root.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    let mut config = config();
+    config.harnesses.get_mut("fake").unwrap().family = None;
+    config.web_roots = vec![root.to_string_lossy().into_owned()];
+    config.web_asking_modes.insert("fake".into(), vec!["normal".into(), "strict".into()]);
+    let hub = Hub::new(config, Box::new(MemoryStore::default()));
+    let start = |id: &str| {
+        let mut request = message(id, "", Kind::Control);
+        request.body = json!({"version": 1, "params": {"cwd": cwd, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": id, "policy": "approve-all"}}}})
+        .to_string();
+        request
+    };
+    let entry = |extra: Value| {
+        let mut entry = json!({"daemonId": "inst_a"});
+        entry.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        serde_json::from_value::<MeshControlFrom>(entry).unwrap()
+    };
+    for (id, extra, policy, remote) in [
+        ("capped-default", json!({}), "ask", true),
+        ("capped-edits", json!({"maxPolicy": "approve-edits"}), "approve-edits", true),
+        ("owner-grant", json!({"maxPolicy": "approve-all"}), "approve-all", false),
+    ] {
+        let hook =
+            MeshControlHook::new(vec![entry(extra)], Some(dir.path().join(format!("{id}.json"))));
+        let ack = hook.control(&hub, &start(id)).await.unwrap();
+        assert_eq!(ack.state, AckState::Delivered, "{id}: {ack:?}");
+        let meta = hub.resolve(id).unwrap().meta();
+        assert_eq!(meta.permission_policy.as_deref(), Some(policy), "{id}");
+        assert_eq!(meta.remote_origin, remote, "{id}");
+    }
+    hub.shutdown_all().await;
 }

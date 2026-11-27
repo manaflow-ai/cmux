@@ -10,6 +10,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import { DEFAULT_CHAT_DISPLAY, MINIMAL_MODE_KEY, resolveChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -54,11 +55,8 @@ afterEach(() => {
   root = undefined;
   setChatDisplay({});
 });
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const t = translatorFor("en");
@@ -77,7 +75,7 @@ async function line(id: string) {
       />,
     ),
   );
-  const toggle = () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!;
+  const toggle = () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!;
   // The sender's name opens its chat (Leo, 2026-10-29: "Just click the left name thing"); no Open chat.
   return { opened, toggle, open: host.querySelector<HTMLButtonElement>("button.cv-received__from--open")! };
 }
@@ -98,7 +96,7 @@ for (const minimal of [false, true])
     expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
     expect(host.textContent).not.toContain("Received message from");
     expect(host.querySelector(".cv-received__text")).toBeNull();
-    expect(host.querySelector(".cv-disclosure__panel")).toBeNull();
+    expect(host.querySelector(".cv-agentmsg__card")).toBeNull();
     expect(toggle().tagName).toBe("BUTTON");
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
     expect(toggle().getAttribute("aria-label")).toBe(
@@ -116,8 +114,8 @@ for (const minimal of [false, true])
     expect(host.querySelector(".cv-received__text")?.textContent).toContain("The retry tests pass.");
     expect(host.querySelector(".cv-received__text")?.textContent).toContain("CI is green.");
     expect(host.querySelector(".cv-received__body, [data-cut], .cv-received__show")).toBeNull();
-    const panel = host.querySelector(".cv-disclosure__panel")!;
-    expect(toggle().getAttribute("aria-controls")).toBe(panel.parentElement!.id);
+    const panel = host.querySelector(".cv-agentmsg__card")!;
+    expect(toggle().getAttribute("aria-controls")).toBe(panel.id);
     // And closes it again (a page with no Web Animations closes at once); the line stays as it was.
     await act(async () => toggle().click());
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
@@ -134,7 +132,7 @@ test("switching Minimal Mode leaves a closed message its one line", async () => 
   expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
 });
 
-test("the reader's toggle plays the fold: the panel's height grows on open and closing fades out", async () => {
+test("the reader's toggle opens the panel at full ink in one frame and fades it out on close, never animating its height", async () => {
   const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
   const motion = { ...foldMotion };
   const proto = dom.window.HTMLElement.prototype as unknown as { animate?: unknown };
@@ -147,10 +145,11 @@ test("the reader's toggle plays the fold: the panel's height grows on open and c
   try {
     const { toggle } = await line("fold-1");
     await act(async () => toggle().click());
-    expect(frames.length).toBeGreaterThan(0);
-    expect(frames.at(-1)!.some((frame) => frame.height !== undefined)).toBe(true);
+    // The card opens its panel with no fade (`fadeIn={false}`): the open plays nothing.
+    expect(frames).toEqual([]);
     await act(async () => toggle().click());
     expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 0]);
+    expect(frames.flat().some((frame) => frame.height !== undefined || frame.maxHeight !== undefined)).toBe(false);
   } finally {
     delete proto.animate;
     Object.assign(foldMotion, motion);

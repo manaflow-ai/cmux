@@ -12,6 +12,7 @@ import type { Root } from "react-dom/client";
 import type { IncomingRelation } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -51,11 +52,8 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
 });
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const { createRoot } = await import("react-dom/client");
@@ -98,7 +96,7 @@ async function line(
     // identifier like it was before and you can click it to go to that session"); no Open chat.
     open: host.querySelector<HTMLButtonElement>("button.cv-received__from--open"),
     from: host.querySelector<HTMLElement>(".cv-received__from"),
-    toggle: host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!,
+    toggle: host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!,
     opened,
   };
 }
@@ -109,7 +107,7 @@ test("a peer lane, found by its bare name, opens from its name; no Open chat, th
   expect(host.textContent).not.toContain(t("subsession.openChat"));
   expect(from?.textContent).toBe("chief-ui");
   expect(from).toBe(open);
-  expect(from?.closest("button.cv-disclosure__toggle")).toBeNull();
+  expect(from?.closest("button.cv-agentmsg__toggle")).toBeNull();
   await act(async () => open!.click());
   expect(opened).toEqual(["mux-chief-ui"]);
   // The name leaves the message closed.
@@ -228,6 +226,10 @@ for (const [kind, provenance] of Object.entries(chiefMessages)) {
 test("a mounted agent identity takes a late profile icon without a parent render", async () => {
   const { AgentIdentity } = await import("../src/agent-session/acpmux/subagents/AgentIdentity");
   const { rememberHarnessIcons } = await import("../src/agent-session/shared/harnessIcons");
+  // Sender Badge: None, the mark alone as before the badge (SenderIcon.test.tsx covers the badge).
+  const { configureSenderIconLook, SENDER_ICON_BADGE_KEY } =
+    await import("../src/agent-session/acpmux/subagents/senderIconLook");
+  configureSenderIconLook({ [SENDER_ICON_BADGE_KEY]: "none" });
   root = createRoot(host);
   await act(async () =>
     root!.render(
@@ -255,12 +257,17 @@ test("a mounted agent identity takes a late profile icon without a parent render
   expect(unknown.textContent).toBe("🦊");
   expect(known.textContent).toBe("🦉");
   expect(unknown.querySelector("[data-agent-tone]")).toBeNull();
+  configureSenderIconLook({});
 });
 
 // Leo, 2026-10-28 (ask-4e32bae782): "when you hover over the button, it should be able to tell you,
 // like, a bit more metadata. Like, at the very least tell you what model did it, what effort level."
-// The name's tooltip and the mark's name the sender's harness, model and effort: a listed chat's own,
-// else the ones its message names (`fromHarness`, `fromModel`, `fromEffort`).
+// The name's facts card (its accessible description) and the mark's tooltip name the sender's harness,
+// model and effort: a listed chat's own, else the ones its message names (`fromHarness`, `fromModel`,
+// `fromEffort`). The name shows its own text, so it has no tooltip (c0ecbb88).
+const described = (element: Element) =>
+  element.ownerDocument.getElementById(element.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
+
 test("a listed sender's hover names its harness, model and effort", async () => {
   const listed = entry({
     sessionId: "mux-lane",
@@ -286,7 +293,8 @@ test("a listed sender's hover names its harness, model and effort", async () => 
     ),
   );
   const open = host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!;
-  expect(open.getAttribute("title")).toBe(`${t("subagents.open", { name: "gcp-lane" })}\nCodex · gpt-6.1-sol high`);
+  expect(open.getAttribute("title")).toBeNull();
+  expect(described(open)).toBe("Codex · gpt-6.1-sol high");
   expect(open.getAttribute("aria-label")).toBe(t("subagents.open", { name: "gcp-lane" }));
   expect(host.querySelector(".cv-received__mark")?.getAttribute("title")).toBe("Codex · gpt-6.1-sol high");
 });
@@ -308,7 +316,8 @@ test("an unlisted sender's hover reads the harness, model and effort its message
   expect(message).toMatchObject({ harness: "codex", model: "gpt-6-astra", effort: "xhigh" });
   await line({ ...message!, sessionId: undefined });
   const from = host.querySelector<HTMLElement>(".cv-received__from")!;
-  expect(from.getAttribute("title")).toBe("Codex · gpt-6-astra xhigh");
+  expect(from.getAttribute("title")).toBeNull();
+  expect(described(from)).toBe("Codex · gpt-6-astra xhigh");
 });
 
 test("a sender nothing describes keeps no tooltip", async () => {

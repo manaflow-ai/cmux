@@ -5,8 +5,8 @@ The workflow holds the repo's dev stack account and the team's Claude subscripti
 user and opens ssh to it, so these hold for good: manual dispatch only; feat-cmux-next only; top-level
 `permissions: contents: read` and nothing else; the three secrets reach exactly one step, through `env`;
 no Anthropic API key at all, and the Claude login never goes to the vault (only to the user's ssh stdin);
-no `set -x`; the platform origin is development's; the runner is an ephemeral Blacksmith macOS VM read
-from RUNNER_POOLS (never a runner variable that can name a persistent Mac); the channel must contain the
+no `set -x`; the platform origin is development's; the runner is an ephemeral Blacksmith macOS VM named
+as a literal label (never a runner variable or a RUNNER_POOLS pool, which can name a persistent Mac); the channel must contain the
 vault's merge before any secret is in reach; the user, its keychain and its ssh key are made before the
 secrets and removed under `always()`; the evidence check and upload run under `always()`, the upload only
 when the check found the evidence clean; nothing else is uploaded.
@@ -22,10 +22,13 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 WORKFLOW = ROOT / ".github/workflows/machine-vault-e2e.yml"
 SCRIPT = ROOT / "scripts/cmux-next/machine-vault-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
-RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}"
+RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}"
 RUN_STEP = "Vault, join, agent and cleanup"
 VAULT_MERGE = "4cfaaa8d3891d43b3e237c70b0dbf701feb92de2"
 MACHINE_ADD_MERGE = "657906ec79ebd3704cdf6be709e3a206be438754"
@@ -61,7 +64,7 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
     def test_feat_cmux_next_only(self) -> None:
         job = load()["jobs"]["e2e"]
         self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next'")
-        self.assertEqual(job["environment"], "cmux-next-vm-image-dev")
+        self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "cmux-next-vm-image-dev", "deployment": "false"})
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
         self.assertIn("exit 1", steps()[0]["run"])
 
@@ -90,7 +93,12 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
     def test_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\bsecrets\.[A-Z]", text)), 3)
-        holders = [s for s in steps() if re.search(r"\$\{\{\s*secrets\.", str(s))]
+        self.assertEqual(workflow_jobs.secret_names(text),
+                         {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CLAUDE_CODE_OAUTH_TOKEN"})
+        for name, job in load()["jobs"].items():
+            outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
+            self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
+        holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], [RUN_STEP])
         run = holders[0]
         self.assertEqual(run["env"]["CMUX_UITEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}")
@@ -133,16 +141,17 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
             self.assertNotRegex(s.get("run", ""), r"set -[a-z]*x|set -o xtrace|bash -x")
 
     def test_development_origin_only(self) -> None:
-        job = load()["jobs"]["e2e"]
-        self.assertEqual(job["env"]["HUB_ORIGIN"], DEV)
+        document = load()
+        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"]["e2e"])["HUB_ORIGIN"], DEV)
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn(f'export const DEV_PLATFORM = "{DEV}"', script)
         self.assertIn("if (opts.origin !== DEV_PLATFORM)", script)
 
     def test_ephemeral_macos_runner(self) -> None:
         job = load()["jobs"]["e2e"]
-        self.assertEqual(job["runs-on"], RUNS_ON)
-        self.assertNotRegex(job["runs-on"], r"vars\.(?!RUNNER_POOLS)")
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertEqual(cells, [RUNS_ON])
+        self.assertNotRegex("\n".join(cells), r"vars\.")
         self.assertIn("timeout-minutes", job)
 
     def test_channel_must_carry_the_vault_before_secrets(self) -> None:

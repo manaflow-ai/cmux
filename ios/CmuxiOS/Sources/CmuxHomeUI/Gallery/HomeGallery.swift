@@ -76,6 +76,35 @@ public enum HomeGallery {
         chiefForm.focusesOnAppear = false
         try await shot.install(sheetNavigation(chiefForm), name: "newchief-light")
 
+        // The Hosted Chief that does not answer (Home's Chief card): Turn On, its
+        // progress, Try Again and the account that may not run it in light, then dark, the largest accessibility
+        // text size, and under the update-required card. The mock's brain is
+        // off, so Home's own read on install keeps each card shown.
+        if let mock = store.source as? MockHomeSource {
+            await mock.setHostedChiefBrain(enabled: false)
+            let chiefBrain = HomeChiefBrainModel(control: mock)
+            let chiefHome = HomeViewController(store: store, options: HomeUIOptions(), chiefBrain: chiefBrain)
+            let chiefNavigation = largeTitleNavigation(chiefHome)
+            try await shot.install(chiefNavigation, name: nil)
+            await chiefBrain.refresh()
+            let cards: [(HomeChiefBanner, String)] = [(.off, "chief-off"), (.turningOn, "chief-turning-on"),
+                                                      (.failed, "chief-turn-on-failed"), (.unavailable, "chief-unavailable")]
+            for (banner, name) in cards {
+                chiefBrain.debugShow(banner)
+                try await shot.capture("home-\(name)-light")
+            }
+            chiefBrain.debugShow(.off)
+            window.overrideUserInterfaceStyle = .dark
+            try await shot.capture("home-chief-off-dark")
+            window.overrideUserInterfaceStyle = .light
+            chiefNavigation.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraLarge
+            try await shot.capture("home-chief-off-axxl-light")
+            chiefNavigation.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
+            chiefHome.updateRequired = HomeUpdateRequired(minimumVersion: "1.2.0")
+            try await shot.capture("home-chief-off-update-required-light")
+            await mock.setHostedChiefBrain(enabled: nil)
+        }
+
         // Offline: only with the mock owner, which can drop its connection.
         if let mock = store.source as? MockHomeSource {
             await mock.setOnline(false)

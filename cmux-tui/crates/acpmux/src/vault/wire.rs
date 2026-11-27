@@ -135,6 +135,10 @@ fn env_item(item: &Value) -> Option<EnvItem> {
     if !crate::login_env::machine_env_name_allowed(name) || super::REFUSED_NAMES.contains(&name) {
         return None;
     }
+    if super::rerouting(name) {
+        tracing::warn!(name, "vault entry not delivered: a base URL would reroute agents");
+        return None;
+    }
     // `withheld` (a proxy entry for a machine that did not ask for them) and
     // any other state are not delivered.
     let value = match item.get("state")?.as_str()? {

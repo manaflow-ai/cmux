@@ -49,7 +49,7 @@ struct ChiefPetSettingTests {
         let row = SettingsSchema.descriptor(for: HomeChiefPetSetting.mascotPath)
         #expect(row?.defaultValue == .string("orb"))
         if case .choice(let choices) = row?.kind {
-            #expect(choices.map(\.value) == HomeChiefPetSetting.mascots)
+            #expect(choices.map(\.value) == HomeChiefPetSetting.mascotValues)
         } else {
             Issue.record("the character row is a choice")
         }

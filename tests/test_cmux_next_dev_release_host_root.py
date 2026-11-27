@@ -31,7 +31,18 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
+import sys as _step_sys  # noqa: E402
+from pathlib import Path as _StepPath  # noqa: E402
+_step_sys.path.insert(0, str(_StepPath(__file__).resolve().parent))  # tests/cmux_next_step_text.py
+from cmux_next_step_text import inline_steps  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 LOCK_TOOL = ROOT / "scripts/cmux-next/host_build_lock.py"
 REAL = {
@@ -42,6 +53,7 @@ REAL = {
     "scripts/ci/apfs_clone.py": ROOT / "scripts/ci/apfs_clone.py",
     "scripts/cmux-next/dev_cas_seed.py": ROOT / "scripts/cmux-next/dev_cas_seed.py",
     "scripts/ci/dev_release_product_reuse.py": ROOT / "scripts/ci/dev_release_product_reuse.py",
+    "scripts/ci/deadline_http.py": ROOT / "scripts/ci/deadline_http.py",
 }
 # A real one on macOS, where /usr/bin/git and /usr/bin/python3 resolve through it; only hashed here.
 DEVELOPER_DIR = os.environ.get("DEVELOPER_DIR") or (
@@ -145,12 +157,12 @@ class HostRootTests(unittest.TestCase):
         self.jobs += 1
         job = self.root / f"job-{self.jobs}"
         job.mkdir()
-        env = {
+        env = git_fixture_env.fixture_env({
             "PATH": f"{self.bin}:/usr/bin:/bin", "HOME": str(self.home), "RUNNER_TEMP": str(job),
             "RUNNER_NAME": runner, "GITHUB_WORKSPACE": str(ws), "TEST_LOG": str(job / "seen.json"),
             "CMUX_NEXT_RUNNER": "glaeda-side-std-xcode-26.6", "CMUX_NEXT_COMPILATION_CACHE": "1",
             "DEVELOPER_DIR": DEVELOPER_DIR,
-        }
+        })
         env.update(overrides)
         proc = subprocess.Popen(["/bin/bash", str(ws / "scripts/cmux-next/compile-dev-release.sh"),
                                  str(job / "app.zip")], cwd=ws, env=env, text=True,
@@ -405,7 +417,7 @@ class LockTests(unittest.TestCase):
 
 class WorkflowTests(unittest.TestCase):
     def test_the_dev_step_compiles_through_the_host_root(self):
-        text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        text = inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text())
         step = text[text.index("id: compile-cmux-next-dev-release\n"):text.index("      - name: Upload DEV daily compile timing")]
         self.assertIn('scripts/cmux-next/compile-dev-release.sh "$archive"', step)
         self.assertNotIn("check-cmux-scheme-compile.sh", step, "the step builds around the host root")

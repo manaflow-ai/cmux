@@ -65,6 +65,55 @@ tags: [release, notes]
 - **Fixed** a crash when a tab closed during a drag.
 `;
 
+// A plan with front matter and a heading outline (frontmatter.ts, OutlineRail.tsx): the metadata
+// table at the top, the dash rail at the left (test/markdown-outline.test.ts).
+const PLAN = `---
+title: Search rollout plan
+status: in review
+owners: [ada, grace]
+tags:
+  - search
+  - rollout
+review:
+  due: 2026-12-01
+  reviewer: linus
+---
+
+# Search rollout plan
+
+${"The new search index ships behind a flag, one region at a time. ".repeat(3)}
+
+## Goals
+
+- Answers under 100 ms at p95.
+- No missed documents after a reindex.
+
+## Rollout
+
+${"Each region turns on for staff first, then for everyone a day later. ".repeat(4)}
+
+### Staff week
+
+Staff use it for a week and file what they find.
+
+### Everyone
+
+The flag turns on region by region.
+
+## Risks
+
+${"A cold index answers slowly for its first minutes. ".repeat(4)}
+
+### Rollback
+
+Turning the flag off goes back to the old index at once.
+
+## Open questions
+
+${Array.from({ length: 12 }, (_, index) => `Question ${index + 1}: what the team still has to decide.`).join("\n\n")}
+`;
+const PLAN_PATH = "/Users/you/src/atlas-web/docs/SEARCH-ROLLOUT.md";
+
 // A table and a code line far wider than the column (MARKDOWN-TABLE-SCROLL): each scrolls sideways
 // in its own box while the page scrolls only up and down (test/markdown-wide-table-scroll.test.ts).
 const WIDE_TABLE = `# Release matrix
@@ -169,6 +218,45 @@ const TASK_NESTED =
   "- [x] Release checklist\n  - [ ] Update the changelog\n  - [x] Run the focused tests\n    - [ ] Ask for review\n";
 const TASK_LONG = `- [ ] This task has a deliberately long title that wraps across several lines in a narrow markdown column so the checkbox stays aligned with the first line of the item rather than drifting into the line box.`;
 
+// A deploy runbook (runbook.ts): every shell block gets Run, Run all in the toolbar hands the whole
+// doc to an agent chat, and the destructive cleanup asks first (test/markdown-run-buttons.test.ts).
+const RUNBOOK = `# Deploy the web app
+
+Before you start, install the dependencies.
+
+\`\`\`bash
+npm ci
+\`\`\`
+
+## Build
+
+Build the bundle. It should print \`built in\`.
+
+\`\`\`sh
+npm run build
+\`\`\`
+
+## Ship
+
+If the build printed warnings, fix them first; otherwise deploy.
+
+\`\`\`bash
+wrangler deploy --env production
+\`\`\`
+
+## Clean up
+
+\`\`\`console
+$ rm -rf dist .wrangler
+\`\`\`
+`;
+const RUNBOOK_PATH = "/Users/you/src/atlas-web/docs/DEPLOY.md";
+// The Run control's placements the runbook variants compare: the chosen one (on the left of the
+// language row, always shown) is the page's own CSS; these restyle it through theme.css.
+const RUN_ON_HOVER = `.md-code .md-run { opacity: 0; } .md-code:hover .md-run, .md-run:focus-within, .md-run[data-state] { opacity: 1; }`;
+const RUN_AS_PILL = `.md-run { left: auto; right: 5.5em; } .md-run-button { margin: 0; padding: 0 8px; border-radius: 999px; background: var(--cmux-md-accent-background); color: var(--cmux-md-text-color); }`;
+const RUN_ICON_ONLY = `.md-run-button { font-size: 0; } .md-run-button::before { font-size: var(--cmux-md-toolbar-font-size); margin: 0; } .md-run[data-state] .md-run-button { font-size: inherit; }`;
+
 const SHOWCASE_DIR = "/Users/you/src/markdown-showcase";
 
 /// The showcase split at its level-2 headings (outside code fences), one variant per section,
@@ -220,6 +308,8 @@ export default markdownPageEntry({
     // The toolbar's Aa button opens it on every variant; its text width row is WidthField.
     "pages/markdown/ReadingSettings.tsx",
     "pages/markdown/WidthField.tsx",
+    "pages/markdown/runButtons.ts",
+    "pages/markdown/OutlineRail.tsx",
     "viewer-empty/MarkdownEmptyState.tsx",
   ],
   variants: {
@@ -236,6 +326,45 @@ export default markdownPageEntry({
       text: README,
       githubRepository: "manaflow-ai/cmux",
       files: { "/Users/you/src/atlas-web/notes.md": "# Notes\n\nPorts: 5173, 8080.\n" },
+    },
+    runbook: {
+      note: "Chosen version: a runbook. Each shell block shows Run on the left of its language row; Run all in the toolbar hands the steps to an agent chat.",
+      path: RUNBOOK_PATH,
+      text: RUNBOOK,
+    },
+    "runbook-ask": {
+      note: "A destructive block (rm -rf) asks in its own row before it runs: Run or Cancel, and the code does not move.",
+      path: RUNBOOK_PATH,
+      text: RUNBOOK,
+      play: async (ctx) => {
+        await ctx.click({ selector: ".md-code:last-of-type .md-run-button" });
+      },
+    },
+    "runbook-sent": {
+      note: "After a click: the block's Run reads Sent to terminal until the pointer leaves it.",
+      path: RUNBOOK_PATH,
+      text: RUNBOOK,
+      play: async (ctx) => {
+        await ctx.click({ selector: ".md-run-button" });
+      },
+    },
+    "runbook-hover": {
+      note: "Comparison version: Run shows only while the pointer is over the block. Not chosen: a reader cannot see which blocks run.",
+      path: RUNBOOK_PATH,
+      text: RUNBOOK,
+      themeCSS: RUN_ON_HOVER,
+    },
+    "runbook-pill": {
+      note: "Comparison version: a filled Run pill beside the language. Not chosen: it competes with the code for attention in a long runbook.",
+      path: RUNBOOK_PATH,
+      text: RUNBOOK,
+      themeCSS: RUN_AS_PILL,
+    },
+    "runbook-icon": {
+      note: "Comparison version: the play glyph alone. Not chosen: the action has no words, so it reads as decoration.",
+      path: RUNBOOK_PATH,
+      text: RUNBOOK,
+      themeCSS: RUN_ICON_ONLY,
     },
     find: {
       note: "Cmd-F: the find pill over the document, every match highlighted, the active one apart.",
@@ -303,6 +432,43 @@ export default markdownPageEntry({
       path: "/Users/you/src/atlas-web/RELEASE.md",
       text: FRONTMATTER,
     },
+    "frontmatter-outline": {
+      note: "Front matter as a key and value table, and the outline rail at the left: a dash per heading, the current section darker.",
+      path: PLAN_PATH,
+      text: PLAN,
+    },
+    "outline-open": {
+      note: "Pointing at (or clicking) the outline rail opens the table of contents: the headings by name, a click scrolls there.",
+      path: PLAN_PATH,
+      text: PLAN,
+      play: async (ctx) => {
+        await ctx.click({ selector: ".md-outline-rail" });
+      },
+    },
+    "outline-source": {
+      note: "Source mode: the front matter as written, no rail; Rich text and Source switch in the toolbar.",
+      path: PLAN_PATH,
+      text: PLAN,
+      settings: { defaultMode: "source" },
+    },
+    "outline-narrow": {
+      note: "A narrow pane: the rail sits in the page margin and the open contents fit the pane.",
+      path: PLAN_PATH,
+      text: PLAN,
+      play: async (ctx) => {
+        await ctx.resize(380);
+        await ctx.click({ selector: ".md-outline-rail" });
+      },
+    },
+    "outline-dark": {
+      note: "The dark theme: the metadata table and the open contents.",
+      path: PLAN_PATH,
+      text: PLAN,
+      settings: { theme: "dark" },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".md-outline-rail" });
+      },
+    },
     "wide-table": {
       note: "A table and a code line wider than the column: each scrolls sideways on its own.",
       path: "/Users/you/src/atlas-web/MATRIX.md",
@@ -337,6 +503,12 @@ export default markdownPageEntry({
       note: "A long document (40 sections).",
       path: "/Users/you/src/atlas-web/GUIDE.md",
       text: LONG,
+    },
+    "still-trying": {
+      note: "The link to cmux stays down: the page reads again on its own and, past the deadline, says so in one quiet line with no button.",
+      path: "/Users/you/src/atlas-web/README.md",
+      text: README,
+      disconnected: true,
     },
     empty: {
       note: "No file: the empty state with recent files.",

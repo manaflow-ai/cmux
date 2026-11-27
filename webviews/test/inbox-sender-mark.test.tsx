@@ -11,6 +11,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import type { InboxNotice, InboxThread } from "../src/agent-session/acpmux/conversation/inboxNotice";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -51,11 +52,8 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
 });
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const { createRoot } = await import("react-dom/client");

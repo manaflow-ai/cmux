@@ -28,8 +28,9 @@
 .acpmux-toasts > .ui-notice-stack {
   --ui-notice-stack-bottom: var(--ds-space-2, 8px);
   /* Jump to latest's band over this same line (conversation.css .acpmux-jump-latest): its 12px foot
-     gap, then its tallest form, the 34px Needs your input pill (needsYou.css). */
-  --acpmux-toasts-jump-room: calc(12px + 34px);
+     gap, then its tallest form: the 32px circle, and the Needs your input pill at
+     --ds-control-primary (32px, needsYou.css). */
+  --acpmux-toasts-jump-room: calc(12px + 32px);
   top: auto;
   height: 0;
   padding-inline: 0;

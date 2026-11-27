@@ -1,9 +1,8 @@
 // The transcript never draws under the open Session Info (session-info/SessionInfo.tsx, sessionInfo.css;
 // Leo 2026-10-21: his message's bubble sat on Background tasks, and a message's Retry and Edit sat on
-// "5 finished"). Wherever the column fits beside the whole panel it pushes, and the column, its width
-// kept, centers beside the panel (Lucas, 2026-11-06): every row ends at least the chat's page edge
-// (--cv-edge, read live from the page) clear of it, and in the narrowest pane that still pushes, exactly
-// that edge. Where the column cannot fit, it lies over the chat (session-info-placement.test.ts).
+// "5 finished"). Where the gutter holds it, it floats there and no row moves (Leo, 2026-11-09); where it
+// pushes, the column moves left, its width kept: every row ends at least the chat's page edge (--cv-edge,
+// read live from the page) clear of it, and in the narrowest pane that still pushes, exactly that edge. Where the column cannot fit, it lies over the chat (session-info-placement.test.ts).
 // Closed, the rows take the column's centered place again.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
@@ -14,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -75,8 +75,9 @@ await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => 
 
   for (const name of browsers.keys())
     for (const { width, placement, setting } of [
-      // 1600px, the default setting: the column centered beside the whole panel, far clear of it.
-      { width: 1600, placement: "push", setting: "overlay" },
+      // 1600px, the default setting: the gutter holds the panel, so it floats there, clear of the rows,
+      // and the chat does not move (Leo, 2026-11-09).
+      { width: 1600, placement: "overlay", setting: "overlay" },
       // 1160px, Push always: Chat Text Width's 800px column centered in the 832px left beside the panel,
       // so the rows end the chat's page edge (--cv-edge) clear of it, exactly.
       { width: 1160, placement: "push", setting: "push" },
@@ -91,8 +92,8 @@ await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => 
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
           });
-          const panel = page.locator("aside.acpmux-session-info");
-          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const panel = page.locator(SESSION_INFO);
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
           await toggle.waitFor({ timeout: 10_000 });
           await page.locator(".acpmux-scroll .acpmux-row .cv-user__bubble").first().waitFor({ timeout: 10_000 });
           if ((await panel.count()) > 0) {
@@ -140,8 +141,10 @@ await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => 
           });
           const closed = await rowEdges(page);
           expect(closed.rows).toEqual(before.rows);
-          // Pushed, the rows moved left: closed, they reach past where they ended while it was open.
-          expect(Math.max(...closed.rows)).toBeGreaterThan(Math.max(...open.rows) + 100);
+          // Pushed, the rows moved left: closed, they reach past where they ended while it was open. Floating
+          // in a gutter that holds it, they never moved (Leo, 2026-11-09).
+          if (placement === "push") expect(Math.max(...closed.rows)).toBeGreaterThan(Math.max(...open.rows) + 100);
+          else expect(open.rows).toEqual(before.rows);
         } finally {
           await page.close();
         }

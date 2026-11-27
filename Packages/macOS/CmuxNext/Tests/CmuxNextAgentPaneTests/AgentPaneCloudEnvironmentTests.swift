@@ -33,6 +33,43 @@ struct AgentPaneCloudEnvironmentTests {
         #expect(calls.count == 1)
     }
 
+    /// New environment… (the composer's Environment chip) creates one only on the person's click.
+    @Test func createForwardsOnlyWithAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var actions: [String] = []
+        model.onCloudEnvironment = { request in actions.append(request.action); return AgentPaneReply.success(["id": "env_new"]) }
+        #expect(AgentPageOps.methods["cloud.environment.create"] == "cloud.environment.create")
+        let request = AgentPaneRequest(body: ["method": "cloud.environment.create", "params": ["environment": ["name": "cmux"]]])
+        #expect(await model.respond(to: request)["ok"] as? Bool == false)
+        #expect(actions.isEmpty)
+        model.transport.gestures.record(click: true)
+        #expect(await model.respond(to: request)["ok"] as? Bool == true)
+        #expect(actions == ["create"])
+    }
+
+    /// A posted Save click saves only on a Mac whose administrator's profile holds "Computer use can act as me".
+    @Test func aPostedSaveForwardsOnlyUnderAManagedGrant() async {
+        let model = AgentPaneModel(host: NoHost())
+        var actions: [String] = []
+        model.onCloudEnvironment = { request in actions.append(request.action); return AgentPaneReply.success(["id": "env_new"]) }
+        let request = AgentPaneRequest(body: ["method": "cloud.environment.update", "params": ["id": "env_1", "environment": ["name": "cmux"]]])
+        let driver = AgentPaneActAsMe.Driver(pid: 4242, path: "/Applications/cmux.app/Contents/Helpers/cua-driver")
+        let person = AgentPaneActAsMe()
+        person.turnOn(.init())
+        model.transport.gestures.actAsMe = person
+        model.transport.gestures.recordPosted(driver: driver)
+        #expect(await model.respond(to: request)["ok"] as? Bool == false)
+        #expect(actions.isEmpty, "the person's grant let a posted click save")
+        let managed = AgentPaneActAsMe()
+        managed.setManaged(true)
+        model.transport.gestures.actAsMe = managed
+        model.transport.gestures.recordPosted(driver: driver)
+        #expect(await model.respond(to: request)["ok"] as? Bool == true)
+        #expect(actions == ["update"])
+        #expect(await model.respond(to: request)["ok"] as? Bool == false, "one posted click saved twice")
+        #expect(actions == ["update"])
+    }
+
     @Test func readMethodsForwardWithoutSpendingAGesture() async {
         let model = AgentPaneModel(host: NoHost())
         var actions: [String] = []

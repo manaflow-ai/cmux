@@ -42,6 +42,21 @@ struct FakeHub {
     acknowledgements: Mutex<Vec<String>>,
     session_only_receipt: std::sync::atomic::AtomicBool,
     omit_start_work: std::sync::atomic::AtomicBool,
+    /// Failures the next browses answer, one each, before the page.
+    browse_failures: Mutex<std::collections::VecDeque<HubError>>,
+    /// Every mark-read try waits out the HTTP client's 30 s and then fails, as a hub that holds
+    /// the request and never answers.
+    stalled_reads: std::sync::atomic::AtomicBool,
+    /// Every listen call, in order: `open ADDRESS TTL`, `ls`, `close ID`.
+    listen_calls: Mutex<Vec<String>>,
+}
+
+const LISTEN: &str = "lsn_0123456789abcdef0123456789abcdef";
+
+fn listens() -> crate::mesh::Listens {
+    serde_json::from_value(json!({"listening": [{"id": LISTEN, "teamAddress": "@sam/coordinator",
+        "listener": "me", "openedBy": "me", "openedAt": 1, "expiresAt": 2}], "listeners": []}))
+    .unwrap()
 }
 
 impl MeshHub for FakeHub {
@@ -56,7 +71,11 @@ impl MeshHub for FakeHub {
         before: Option<u64>,
     ) -> BoxFuture<'a, Result<TeamPage, HubError>> {
         self.browsed.lock().unwrap().push((unread, address.map(str::to_owned), before));
-        Box::pin(async {
+        let failure = self.browse_failures.lock().unwrap().pop_front();
+        Box::pin(async move {
+            if let Some(e) = failure {
+                return Err(e);
+            }
             Ok(TeamPage {
                 messages: vec![message(OWN_MESSAGE, OWN), message(OTHER_MESSAGE, OTHER)],
                 next: None,
@@ -91,7 +110,14 @@ impl MeshHub for FakeHub {
 
     fn read<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.reads.lock().unwrap().push(id.to_owned());
-        Box::pin(async move { Ok(receipt(id, "read")) })
+        let stalled = self.stalled_reads.load(std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move {
+            if stalled {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                return Err(HubError::unavailable("the hub: operation timed out"));
+            }
+            Ok(receipt(id, "read"))
+        })
     }
 
     fn acknowledge<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
@@ -101,6 +127,28 @@ impl MeshHub for FakeHub {
 
     fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
         panic!("recipient acknowledgement must not send a delivery ack")
+    }
+
+    fn listen_open<'a>(
+        &'a self,
+        address: &'a str,
+        ttl: Option<u64>,
+    ) -> BoxFuture<'a, Result<crate::mesh::Listen, HubError>> {
+        self.listen_calls.lock().unwrap().push(format!("open {address} {ttl:?}"));
+        Box::pin(async { Ok(listens().listening.remove(0)) })
+    }
+
+    fn listens(&self) -> BoxFuture<'_, Result<crate::mesh::Listens, HubError>> {
+        self.listen_calls.lock().unwrap().push("ls".into());
+        Box::pin(async { Ok(listens()) })
+    }
+
+    fn listen_close<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<crate::mesh::Listens, HubError>> {
+        self.listen_calls.lock().unwrap().push(format!("close {id}"));
+        Box::pin(async { Ok(crate::mesh::Listens::default()) })
     }
 }
 
@@ -123,7 +171,7 @@ fn setup(enabled: bool) -> (Arc<Hub>, Arc<FakeHub>) {
     let hub = Hub::new(config, store);
     assert!(hub.resolve(OWN).is_ok());
     let fake = Arc::new(FakeHub::default());
-    assert!(hub.mesh.set(fake.clone()).is_ok());
+    hub.mesh.set(fake.clone());
     (hub, fake)
 }
 
@@ -151,10 +199,15 @@ impl Rpc {
     }
 
     async fn call(&mut self, method: &str, params: Value) -> Value {
+        self.call_within(method, params, Duration::from_secs(5)).await
+    }
+
+    /// [`Rpc::call`], waiting up to `wait` for the answer.
+    async fn call_within(&mut self, method: &str, params: Value, wait: Duration) -> Value {
         self.2 += 1;
         let id = self.2;
         self.0.send(Message::request(id, method, params).to_line()).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::time::timeout(wait, async {
             loop {
                 let response: Value = serde_json::from_str(&self.1.recv().await.unwrap()).unwrap();
                 if response["id"] == id {
@@ -459,25 +512,38 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
     fake.omit_start_work.store(true, std::sync::atomic::Ordering::SeqCst);
     let (restarted, restarted_fake) = setup(true);
     assert!(restarted.outbox.open(&path).is_empty(), "receipt metadata never resumes as a prompt");
-    let origin = restarted.outbox.team_receipt(OWN_MESSAGE).unwrap();
+    let origin = restarted.outbox.mesh_origin(OWN_MESSAGE).unwrap();
+    assert!(origin.team_origin(), "a team send is recorded as a team origin");
     assert_eq!(origin.target, "@team/reviewer");
     assert!(origin.caller.is_none());
     assert!(restarted.outbox.get(&format!("mesh:{OWN_MESSAGE}")).is_none());
     // Prompt retry ids are caller-controlled and must never resolve to receipt metadata.
-    let delivery = restarted.outbox.add(crate::hub::outbox::Delivery {
-        id: "ordinary-delivery".into(),
-        target: OTHER.into(),
-        request: json!({"_meta": {"acpmux": {"promptId": format!("mesh:{OWN_MESSAGE}")}}}),
-        caller: Some(OTHER.into()),
-        state: crate::hub::outbox::State::Delivered,
-        attempts: 0,
-        never_sent: false,
-        relay_post: None,
-        error: None,
-        accepted: None,
-        created_at: crate::store::now_ms(),
-        updated_at: crate::store::now_ms(),
-    });
+    let delivery = restarted
+        .outbox
+        .add(crate::hub::outbox::Delivery {
+            id: "ordinary-delivery".into(),
+            target: OTHER.into(),
+            request: json!({"_meta": {"acpmux": {"promptId": format!("mesh:{OWN_MESSAGE}")}}}),
+            caller: Some(OTHER.into()),
+            unproven_caller: None,
+            not_terminal: false,
+            state: crate::hub::outbox::State::Delivered,
+            attempts: 0,
+            never_sent: false,
+            resends: 0,
+            resent_at: 0,
+            relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
+            error: None,
+            accepted: None,
+            created_at: crate::store::now_ms(),
+            updated_at: crate::store::now_ms(),
+        })
+        .unwrap();
     assert_eq!(delivery.id, "ordinary-delivery");
     assert_eq!(delivery.target, OTHER);
     restarted_fake.session_only_receipt.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -517,3 +583,209 @@ async fn cloud_repo_initialize_reports_only_the_verified_local_caller() {
         .await;
     assert_eq!(reply["result"]["_meta"]["acpmux"]["callerSessionId"], OWN);
 }
+
+/// A hub answer with `status` and `code`, as `mesh_http::answer` makes it.
+fn hub_status(status: u16, code: &str) -> HubError {
+    let mut e = HubError::refused(format!("the hub answered {status} {code}"));
+    e.refused = !(status == 408 || status == 429 || status >= 500);
+    e.status = Some(status);
+    e.code = Some(code.into());
+    e
+}
+
+/// `acpmux inbox` through a hub that blips once reads the page; one that keeps failing says
+/// which way it failed: a hub that is down is unavailable, a dropped connection did not answer,
+/// a refusal is the hub's, and a refusal this daemon made itself (no token command) is not.
+#[tokio::test(start_paused = true)]
+async fn an_inbox_read_tries_a_blip_again_and_names_how_it_failed() {
+    let (_hub, fake) = setup(true);
+    let mesh: Arc<dyn MeshHub> = fake.clone();
+    fake.browse_failures.lock().unwrap().push_back(hub_status(503, "mesh.unavailable"));
+    let page = team_page(&mesh, true, None).await.unwrap();
+    assert_eq!(page.messages.len(), 2);
+    assert_eq!(fake.browsed.lock().unwrap().len(), 2);
+
+    let cases = [
+        (hub_status(503, "mesh.unavailable"), "the mesh hub is unavailable", "mesh.unavailable"),
+        (
+            HubError::unavailable("the hub: error sending request"),
+            "the mesh hub did not answer",
+            "mesh.unavailable",
+        ),
+        (
+            hub_status(403, "mesh.forbidden"),
+            "the mesh hub refused the inbox read",
+            "mesh.forbidden",
+        ),
+        (
+            HubError::refused("no token command"),
+            "this daemon could not ask the mesh hub",
+            "mesh.unavailable",
+        ),
+    ];
+    for (e, words, reason) in cases {
+        *fake.browse_failures.lock().unwrap() =
+            std::iter::repeat_n(e, crate::mesh_retry::ATTEMPTS).collect();
+        let e = team_page(&mesh, true, None).await.unwrap_err();
+        assert!(e.message.starts_with(words), "{words}: {e:?}");
+        assert_eq!(e.data.unwrap()["reason"], json!(reason), "{words}");
+    }
+}
+
+/// A stand-in hub over real HTTP that answers every request `status` with `body`, for as many
+/// requests as come; the task ends when the test drops the handle's runtime.
+async fn http_hub_answering(status: u16, body: &'static str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else { return };
+            let mut bytes = Vec::new();
+            while !bytes.windows(4).any(|s| s == b"\r\n\r\n") {
+                let mut chunk = [0; 1024];
+                match stream.read(&mut chunk).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => bytes.extend_from_slice(&chunk[..n]),
+                }
+            }
+            let answer = format!(
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(answer.as_bytes()).await;
+        }
+    });
+    url
+}
+
+fn http_hub(url: &str, token_command: &[&str]) -> Arc<dyn MeshHub> {
+    Arc::new(
+        crate::mesh_http::HttpHub::new(&crate::mesh_http::MeshRelayConfig {
+            url: url.into(),
+            token_command: token_command.iter().map(|s| (*s).to_owned()).collect(),
+            team_messaging: true,
+            credential: None,
+            control_from: Vec::new(),
+            direct_send: false,
+        })
+        .unwrap(),
+    )
+}
+
+/// Review of #49453 (follow-ups 1 and 2): `acpmux inbox` through the real HTTP client says where
+/// its failure came from. An answer of the hub's with no status of its own (one not the shape of
+/// the contract) is the hub's refusal, not this daemon failing to ask; a 401 is the hub's refusal
+/// too; a token command that cannot run is this daemon's own; no connection is a hub that did not
+/// answer. Reason and retryable stay as they were.
+#[tokio::test]
+async fn an_inbox_failure_says_whether_the_hub_refused_or_this_daemon_could_not_ask() {
+    let mint = ["sh", "-c", "echo test-fixture-token"];
+    let refusing = http_hub_answering(401, "{}").await;
+    let malformed = http_hub_answering(200, r#"{"messages": 5}"#).await;
+    let cases = [
+        (http_hub(&malformed, &mint), "the mesh hub refused the inbox read", true),
+        (http_hub(&refusing, &mint), "the mesh hub refused the inbox read", false),
+        (
+            http_hub(&refusing, &["/nonexistent/mesh-token-command"]),
+            "this daemon could not ask the mesh hub for the inbox",
+            true,
+        ),
+        (http_hub("http://127.0.0.1:9", &mint), "the mesh hub did not answer", true),
+    ];
+    for (mesh, words, retryable) in cases {
+        let e = team_page(&mesh, true, None).await.unwrap_err();
+        assert!(e.message.starts_with(words), "{words}: {e:?}");
+        let data = e.data.unwrap();
+        assert_eq!(data["reason"], "mesh.unavailable", "{words}");
+        assert_eq!(data["retryable"], retryable, "{words}");
+    }
+}
+
+/// Review of #49453 (follow-up 5): `acpmux inbox read ID` (`mux/team/read`) marks the message
+/// read within one bound, not three tries of the HTTP client's 30 s and their backoff. Past it the
+/// read is retryable and worded as a read through the hub that was not answered.
+#[tokio::test(start_paused = true)]
+async fn a_team_read_the_hub_never_answers_ends_within_its_bound() {
+    let (hub, fake) = setup(true);
+    fake.stalled_reads.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut caller = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    let started = tokio::time::Instant::now();
+    let read = caller
+        .call_within(method::MUX_TEAM_READ, json!({"id": OWN_MESSAGE}), Duration::from_secs(600))
+        .await;
+    let waited = started.elapsed();
+    assert!(waited <= crate::server::mesh_relay::read::READ_WAIT, "waited {waited:?}: {read}");
+    assert_eq!(read["error"]["data"]["reason"], "mesh.read_unanswered", "{read}");
+    assert_eq!(read["error"]["data"]["retryable"], true, "{read}");
+    assert!(read["error"]["message"].as_str().unwrap().contains("did not answer"), "{read}");
+}
+
+#[tokio::test]
+async fn listen_passes_open_ls_close_and_read_through_to_the_hub() {
+    let (hub, fake) = setup(true);
+    let mut caller = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    let opened = caller
+        .call(
+            method::MUX_TEAM_LISTEN,
+            json!({"op": "open", "to": "sam/coordinator", "ttlSeconds": 3600}),
+        )
+        .await;
+    assert_eq!(opened["result"]["id"], LISTEN, "{opened}");
+    let listed = caller.call(method::MUX_TEAM_LISTEN, json!({"op": "ls"})).await;
+    assert_eq!(listed["result"], serde_json::to_value(listens()).unwrap(), "{listed}");
+    let closed = caller.call(method::MUX_TEAM_LISTEN, json!({"op": "close", "id": LISTEN})).await;
+    assert_eq!(closed["result"], json!({"listening": [], "listeners": []}), "{closed}");
+    assert_eq!(
+        *fake.listen_calls.lock().unwrap(),
+        vec![
+            "open @sam/coordinator Some(3600)".to_owned(),
+            "ls".to_owned(),
+            format!("close {LISTEN}")
+        ]
+    );
+    // Another member's messages, passed on whole: not scoped to this session's own address.
+    let read = caller
+        .call(method::MUX_TEAM_LISTEN, json!({"op": "read", "to": "@sam/coordinator", "before": 7}))
+        .await;
+    assert_eq!(read["result"]["messages"].as_array().map(Vec::len), Some(2), "{read}");
+    assert_eq!(
+        *fake.browsed.lock().unwrap(),
+        vec![(false, Some("@sam/coordinator".to_owned()), Some(7))]
+    );
+}
+
+#[tokio::test]
+async fn listen_refuses_remote_callers_bad_addresses_and_bad_ids_before_the_hub() {
+    let (hub, fake) = setup(true);
+    for (origin, caller) in [(Origin::Peer, None), (Origin::Local, Some((OWN, false)))] {
+        let mut denied = Rpc::connect(&hub, origin, caller).await;
+        for op in ["open", "ls", "close", "read"] {
+            let reply = denied
+                .call(
+                    method::MUX_TEAM_LISTEN,
+                    json!({"op": op, "to": "@sam/coordinator", "id": LISTEN}),
+                )
+                .await;
+            assert!(reply.get("error").is_some(), "{op}: {reply}");
+        }
+    }
+    let mut caller = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    for params in [
+        json!({"op": "open", "to": "nobody"}),
+        json!({"op": "open", "to": "@sam/co ordinator"}),
+        json!({"op": "read"}),
+        json!({"op": "close", "id": "lsn_../../messages"}),
+        json!({"op": "close", "id": "lsn_0123456789ABCDEF0123456789ABCDEF"}),
+        json!({"op": "close"}),
+        json!({"op": "watch"}),
+    ] {
+        let reply = caller.call(method::MUX_TEAM_LISTEN, params.clone()).await;
+        assert_eq!(reply["error"]["code"], -32602, "{params}: {reply}");
+    }
+    assert!(fake.listen_calls.lock().unwrap().is_empty());
+    assert!(fake.browsed.lock().unwrap().is_empty());
+}
+
+#[path = "team_directory_tests.rs"]
+mod directory;

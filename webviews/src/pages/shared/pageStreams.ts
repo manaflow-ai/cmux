@@ -2,6 +2,7 @@
 // pages): `cmux.page.connection {connected}`, the owner link, and `cmux.page.command {command,
 // text?}`, the app key dispatcher's page commands. A page never reads Cmd/Ctrl chords itself.
 import { isPageError, type PageClient } from "./pageClient";
+import { dismissFocusRing } from "../../ui/focusModality";
 
 export const PAGE_COMMAND = "cmux.page.command";
 export const PAGE_CONNECTION = "cmux.page.connection";
@@ -72,7 +73,14 @@ export async function subscribePageStreams(client: PageClient, handlers: PageStr
   }
   if (handlers.onCommand) {
     const onCommand = handlers.onCommand;
-    await tolerate(() => client.subscribe<PageCommand>(PAGE_COMMAND, (data) => onCommand(data)));
+    await tolerate(() =>
+      client.subscribe<PageCommand>(PAGE_COMMAND, (data) => {
+        // FOCUS-RING: the app's key router took the key (Cmd-F is `find`), so the page never saw it;
+        // the focus the command moves is code focus and earns no ring, even right after a Tab.
+        dismissFocusRing();
+        onCommand(data);
+      }),
+    );
   }
   return () => stops.forEach((stop) => stop());
 }

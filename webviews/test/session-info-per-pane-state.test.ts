@@ -6,9 +6,12 @@
 // pane after a relaunch is a fresh copy over the same storage.
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { fileURLToPath } from "node:url";
+import { settleReact } from "./support/domTeardown";
 
 type Module = typeof import("../src/agent-session/acpmux/session-info/sessionInfoState");
-const MODULE = new URL("../src/agent-session/acpmux/session-info/sessionInfoState.ts", import.meta.url).pathname;
+// A file path, not the URL's: a checkout under a folder with a space reads "%20" in `pathname`.
+const MODULE = fileURLToPath(new URL("../src/agent-session/acpmux/session-info/sessionInfoState.ts", import.meta.url));
 let loads = 0;
 /// A chat pane's page showing chat `sessionId`: its own copy of the module.
 async function page(sessionId: string): Promise<Module> {
@@ -33,8 +36,9 @@ beforeEach(() => {
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
 });
-afterEach(() => {
+afterEach(async () => {
   setSystemTime();
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -306,6 +310,22 @@ for (const [name, savedByB] of [
     // X is listed again, so a later save still prunes it in turn.
     expect(localStorage.getItem(SESSION_INFO_INDEX_KEY)).toContain('"chat-x"');
   });
+
+test("a chat saved with Also working here's fold (removed 2026-11-25) keeps its other folds", async () => {
+  localStorage.setItem(
+    `${PREFIX}chat-also`,
+    JSON.stringify({
+      open: true,
+      width: 340,
+      sections: { tasks: false, outputs: false, alsoHere: false, v: 5 },
+      at: Date.now(),
+    }),
+  );
+  const state = (await page("chat-also")).sessionInfoState();
+  expect(state.width).toBe(340);
+  expect(state.sections).toMatchObject({ tasks: false, outputs: false });
+  expect("alsoHere" in state.sections).toBe(false);
+});
 
 test("Context starts folded to its line, even in a chat saved open before that, and an unfold made since stays", async () => {
   // Lucas, 2026-11-06: Context is one line, its meter and tokens; a click unfolds the breakdown. Every

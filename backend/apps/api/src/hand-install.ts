@@ -157,6 +157,8 @@ WantedBy=default.target
 UNIT
   systemctl --user daemon-reload
   systemctl --user enable --now "$SERVICE_NAME.service"
+  # A configured hand runs again so it reads a hand.json its machine's move to a new VM replaced.
+  [ "$CONFIGURED" != 1 ] || systemctl --user restart "$SERVICE_NAME.service"
   echo "cmux-hand: running (systemd --user $SERVICE_NAME.service)"
 else
   # Not the person's agent daemon: an app terminal's ACPMUX_HOME / ACPMUX_SOCKET stay out.

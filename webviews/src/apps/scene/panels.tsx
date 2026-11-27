@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
-import { pageHostClient } from "../../agent-session/acpmux/pageHost";
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { pageHostClient } from "../../agent-session/acpmux/pageHostClient";
 import { SessionInfoSection } from "../../agent-session/acpmux/session-info/SessionInfoSection";
 import type { SessionInfoSectionId } from "../../agent-session/acpmux/session-info/sessionInfoState";
 import type { PageClient } from "../../pages/shared/pageClient";
+import { SceneFailure } from "./SceneFailure";
 import { SceneRenderer } from "./SceneRenderer";
 import { appSceneIcon } from "./SceneSymbol";
-import { AppPanelsClient, appPanelsDevClient, panelId, type MountContext } from "./panelsClient";
+import { AppPanelsClient, appPanelsDevClient, panelId, type MountContext, type MountedPanel } from "./panelsClient";
 export type { AppPanel, MountContext } from "./panelsClient";
 export type AppPanelSection = { id: SessionInfoSectionId; title: string; symbol?: string; node: ReactNode };
 
@@ -47,16 +48,62 @@ export function useAppPanelSections(
   }, [owner]);
   return useMemo(
     () =>
-      panels.map(({ panel, store, dispatch }) => {
-        const id = panelId(panel);
+      panels.map((mounted) => {
+        const id = panelId(mounted.panel);
         return {
           id,
-          title: panel.title,
-          symbol: panel.symbol,
-          node: <SceneRenderer key={id} store={store} dispatch={dispatch} />,
+          title: mounted.panel.title,
+          symbol: mounted.panel.symbol,
+          node: <SceneMount key={id} mounted={mounted} />,
         };
       }),
     [panels],
+  );
+}
+
+const noSlice = () => null;
+const noSliceStream = () => () => {};
+
+/** One mounted scene as the host's model draws it: nothing while loading, the scene once ready, and
+ * the failure row (Reload, Copy Error, Details) or the disconnected line in its place. Reports its
+ * drawn height to the host (`layout`) whenever it changes. The host scrolls the panel outside the page,
+ * so the scene draws whole; a long LazyVStack windows against the host's visible slice once it sends one. */
+export function SceneMount({ mounted }: { mounted: MountedPanel }) {
+  const { store, dispatch, reload, layout, resolveAsset, visibleSlice } = mounted;
+  const status = useSyncExternalStore(store.subscribeStatus, store.getStatus, store.getStatus);
+  const slice = useSyncExternalStore(
+    visibleSlice?.subscribe ?? noSliceStream,
+    visibleSlice?.get ?? noSlice,
+    visibleSlice?.get ?? noSlice,
+  );
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    layout(element.getBoundingClientRect().height);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[entries.length - 1];
+      if (entry) layout(entry.target.getBoundingClientRect().height);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [layout]);
+  return (
+    <div ref={box} className="cmux-app-scene-mount" data-status={status.state}>
+      {status.state === "failed" || status.state === "disconnected" ? (
+        // retry-prompt-ok: Reload runs the app's script again, only from the person's click.
+        <SceneFailure status={status} onReload={reload} />
+      ) : (
+        <SceneRenderer
+          store={store}
+          dispatch={dispatch}
+          resolveAsset={resolveAsset}
+          hostScrolled
+          visibleSlice={slice}
+        />
+      )}
+    </div>
   );
 }
 

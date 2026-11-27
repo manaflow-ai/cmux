@@ -21,7 +21,7 @@ struct SpareSessionAdoptionTests {
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
         tabs.localHost = thisMac
         let tree = DaemonStore()
-        tabs.lookup = { key in records[key].map { ($0, tree) } }
+        tabs.lookupScoped = { key in records[key.key].map { ($0, tree) } }
         return tabs
     }
 

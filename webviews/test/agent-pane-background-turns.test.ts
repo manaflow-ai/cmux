@@ -4,7 +4,7 @@
 // (Leo, on a chat message that said only "Nothing new for you yet.": "why do you guys keep sending
 // me this/get pinged to send this"). The person's own turns, and a log from before acpmux wrote
 // these records, draw exactly as before.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BackgroundTurnLine } from "../src/agent-session/acpmux/conversation/BackgroundTurnLine";
@@ -14,28 +14,56 @@ import {
   backgroundTurnRowId,
 } from "../src/agent-session/acpmux/conversation/backgroundTurns";
 import {
+  BACKGROUND_END,
   messageRevealTarget,
   turnFoldFor,
   turnView,
   turnViewFrom,
+  WORKED,
 } from "../src/agent-session/acpmux/conversation/turns";
+import { backgroundRunRowId } from "../src/agent-session/acpmux/conversation/backgroundRuns";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { gridMark, layoutConversation, type AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { TRANSCRIPT_TURN_GAP, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
 
-const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
+// These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
+// turn's calls inline, with no line (backgroundTurnInline.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = {
+    ...globalThis.cmuxExperiments,
+    "background-turn-look": "line",
+  };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = undefined;
+});
+
+const update = (update: Record<string, unknown>) => ({
+  method: "session/update",
+  params: { update },
+});
 const say = (text: string): Step => [
   "in",
   "agent_message_chunk",
-  update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }),
+  update({
+    sessionUpdate: "agent_message_chunk",
+    content: { type: "text", text },
+  }),
 ];
 const ran = (id: string): Step => [
   "in",
   "tool_call",
-  update({ sessionUpdate: "tool_call", toolCallId: id, title: `ls ${id}`, kind: "execute", status: "completed" }),
+  update({
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title: `ls ${id}`,
+    kind: "execute",
+    status: "completed",
+  }),
 ];
 const personTurn = (text: string, reply: string, turnId: string): Step[] => [
   ["mux", "user_message", { text, turnId }],
@@ -90,8 +118,9 @@ test("a quiet background turn is one line that opens to its rows", async () => {
     expect(closed.filter((row) => row.kind === BACKGROUND_TURN)).toHaveLength(1);
     expect(closed.at(-1)?.kind).toBe(BACKGROUND_TURN);
     // The person's turn draws as it always has: its reply and its footer.
-    expect(texts(closed).slice(0, 3)).toEqual([
+    expect(texts(closed).slice(0, 4)).toEqual([
       "user:Run the tests in the background",
+      "worked:",
       "assistant:Started them.",
       expect.stringMatching(/^turnSummary:/),
     ]);
@@ -119,14 +148,15 @@ test("a background turn with something to say draws its rows as today, with no l
     const view = drawn(rows());
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
     expect(view.at(-2)?.text).toBe("The deploy failed: see https://example.com/run/1. Should I roll back?");
-    // No "Worked for"; acpmux sends it no turn_result, yet its reply ends on its own footer (copy,
+    // acpmux sends it no turn_result, yet its reply ends on its own footer (copy,
     // fork, read aloud), as the turn before it does (conversation/backgroundTurnFooter.test.ts).
     expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(2);
     expect(view.at(-1)).toMatchObject({
       kind: "turnSummary",
       text: "The deploy failed: see https://example.com/run/1. Should I roll back?",
     });
-    expect(view.some((row) => row.kind === "worked")).toBe(false);
+    // The reply holds its heading, closed over nothing (turns.ts `holdsHeader`).
+    expect(view.filter((row) => row.kind === "worked").every((row) => row.foldOpen === false)).toBe(true);
   } finally {
     client.close();
   }
@@ -141,12 +171,20 @@ test("a running background turn is the compact line, marked running", async () =
     const view = drawn(rows());
     const line = view.at(-1)!;
     expect(line.kind).toBe(BACKGROUND_TURN);
-    expect(line.background).toEqual({ id: "bg3", trigger: "scheduled", running: true, hasRows: true });
+    expect(line.background).toEqual({
+      id: "bg3",
+      trigger: "scheduled",
+      running: true,
+      hasRows: true,
+    });
     expect(view.some((row) => row.kind === "activity")).toBe(false);
     // It ends quiet: the same line, no longer running.
     daemon.push(record([say("Queue empty."), ended("bg3", true, "result", "scheduled")], 7));
     const after = drawn(rows());
-    expect(after.at(-1)?.background).toMatchObject({ running: false, quiet: true });
+    expect(after.at(-1)?.background).toMatchObject({
+      running: false,
+      quiet: true,
+    });
     expect(after.some((row) => row.text === "Queue empty.")).toBe(false);
   } finally {
     client.close();
@@ -176,6 +214,7 @@ test("a prompt that interrupts a background turn starts a normal turn after it",
     expect(texts(view.slice(line))).toEqual([
       "line:task_notification",
       "user:What's the status?",
+      "worked:",
       "assistant:The build passed.",
       expect.stringMatching(/^turnSummary:/),
     ]);
@@ -229,7 +268,12 @@ test("an older page's started record takes the rows its turn already made", () =
   };
   // The newer page was read first: the turn's rows and its ended record, then a later row.
   make(5, "inside");
-  rows.closeBackground(7, { id: "bg6", trigger: "scheduled", running: false, quiet: true });
+  rows.closeBackground(7, {
+    id: "bg6",
+    trigger: "scheduled",
+    running: false,
+    quiet: true,
+  });
   make(8, "after");
   // The older page brings the started record.
   rows.current = 3;
@@ -250,7 +294,11 @@ const spawned = (id: string, state = "running"): Step => [
     method: "session/update",
     params: {
       update: { sessionUpdate: "subagent_spawned" },
-      _meta: { acpmux: { subagents: [{ id, parent: null, name: id, state, toolCallId: `${id}-call` }] } },
+      _meta: {
+        acpmux: {
+          subagents: [{ id, parent: null, name: id, state, toolCallId: `${id}-call` }],
+        },
+      },
     },
   },
 ];
@@ -304,7 +352,10 @@ test("a subagent's done line folds with its quiet background turn", async () => 
     const done = tray.find((row) => row.kind === SUBAGENT_DONE)!;
     expect(done.inBackground).toBe("bg9");
     expect(drawn([...tray]).some((row) => row.kind === SUBAGENT_DONE)).toBe(false);
-    expect(drawn([...tray], [backgroundTurnRowId("bg9")]).some((row) => row.kind === SUBAGENT_DONE)).toBe(true);
+    // The done line is a member of the run with its quiet background turn (a subagent's end counts as a
+    // tool call's end, steeredHarnessEvents.test.tsx): opening the run and its line shows it.
+    const run = backgroundRunRowId(backgroundTurnRowId("bg9"));
+    expect(drawn([...tray], [run, backgroundTurnRowId("bg9")]).some((row) => row.kind === SUBAGENT_DONE)).toBe(true);
   } finally {
     client.close();
   }
@@ -358,7 +409,12 @@ test("a subagent done after the next user prompt stays folded with its owner bac
     row("answer-1", 2, "assistant", { text: "Watching." }),
     row("summary-1", 3, "turnSummary", { status: "completed" }),
     row(owner, 4, BACKGROUND_TURN, {
-      background: { id: "bg-cross", trigger: "scheduled", running: false, quiet: true },
+      background: {
+        id: "bg-cross",
+        trigger: "scheduled",
+        running: false,
+        quiet: true,
+      },
     }),
     row("group", 5, "subagents", {
       inBackground: "bg-cross",
@@ -413,11 +469,17 @@ test("an earlier background owner update invalidates every later reused turn", (
     row(owner, 3, BACKGROUND_TURN, {
       background: { id: "bg-reuse", trigger: "scheduled", running: true },
     }),
-    row("owned", 4, "assistant", { text: "Still watching.", inBackground: "bg-reuse" }),
+    row("owned", 4, "assistant", {
+      text: "Still watching.",
+      inBackground: "bg-reuse",
+    }),
     row("summary-1", 5, "turnSummary", { status: "completed" }),
     row("prompt-2", 6, "user", { text: "Status?" }),
     row("answer-2", 7, "assistant", { text: "Still green." }),
-    row("late", 8, "assistant", { text: "Background done.", inBackground: "bg-reuse" }),
+    row("late", 8, "assistant", {
+      text: "Background done.",
+      inBackground: "bg-reuse",
+    }),
     row("summary-2", 9, "turnSummary", { status: "completed" }),
     row("prompt-3", 10, "user", { text: "Ship it" }),
     row("answer-3", 11, "assistant", { text: "Shipped." }),
@@ -429,7 +491,12 @@ test("an earlier background owner update invalidates every later reused turn", (
     item.id === owner
       ? {
           ...item,
-          background: { id: "bg-reuse", trigger: "scheduled", running: false, quiet: false },
+          background: {
+            id: "bg-reuse",
+            trigger: "scheduled",
+            running: false,
+            quiet: false,
+          },
         }
       : item,
   );
@@ -455,7 +522,12 @@ test("a late subagent done line follows its line's toggles across reused turn vi
     row("answer-1", 2, "assistant", { text: "Watching." }),
     row("summary-1", 3, "turnSummary", { status: "completed" }),
     row(owner, 4, BACKGROUND_TURN, {
-      background: { id: "bg-reuse", trigger: "scheduled", running: false, quiet: true },
+      background: {
+        id: "bg-reuse",
+        trigger: "scheduled",
+        running: false,
+        quiet: true,
+      },
     }),
     row("group", 5, "subagents", {
       inBackground: "bg-reuse",
@@ -521,9 +593,17 @@ test("a fold change after the reused turns draws the turns before it again", () 
   });
   const line = (quiet: boolean) =>
     row("backgroundTurn-bg-late", 12, BACKGROUND_TURN, {
-      background: { id: "bg-late", trigger: "scheduled", running: false, quiet },
+      background: {
+        id: "bg-late",
+        trigger: "scheduled",
+        running: false,
+        quiet,
+      },
     });
-  const lateOwned = row("late-note", 6, "assistant", { text: "Background note.", inBackground: "bg-late" });
+  const lateOwned = row("late-note", 6, "assistant", {
+    text: "Background note.",
+    inBackground: "bg-late",
+  });
   const head: AcpmuxRow[] = [
     row("prompt-1", 1, "user", { text: "One" }),
     row("answer-1", 2, "assistant", { text: "First." }),
@@ -550,16 +630,32 @@ test("a fold change after the reused turns draws the turns before it again", () 
 // are even for". A background turn whose only events update rows that are not its own (a call an
 // earlier turn started, a subagent's work) has nothing to open to.
 const lineHtml = (row: AcpmuxRow) =>
-  renderToStaticMarkup(createElement(BackgroundTurnLine, { row, expanded: false, onToggle: () => {} }));
+  renderToStaticMarkup(
+    createElement(BackgroundTurnLine, {
+      row,
+      expanded: false,
+      onToggle: () => {},
+    }),
+  );
 const calling = (id: string): Step => [
   "in",
   "tool_call",
-  update({ sessionUpdate: "tool_call", toolCallId: id, title: `ls ${id}`, kind: "execute", status: "in_progress" }),
+  update({
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title: `ls ${id}`,
+    kind: "execute",
+    status: "in_progress",
+  }),
 ];
 const finished = (id: string): Step => [
   "in",
   "tool_call_update",
-  update({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed" }),
+  update({
+    sessionUpdate: "tool_call_update",
+    toolCallId: id,
+    status: "completed",
+  }),
 ];
 
 test("a quiet background turn with no rows of its own draws no line", async () => {
@@ -624,7 +720,11 @@ test("a running background turn with no rows yet is a plain line, no chevron and
 const dotSay = (messageId: string): Step => [
   "in",
   "agent_message_chunk",
-  update({ sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text: "·" } }),
+  update({
+    sessionUpdate: "agent_message_chunk",
+    messageId,
+    content: { type: "text", text: "·" },
+  }),
 ];
 const quietTask = (id: string, work: boolean, cause?: Record<string, unknown>): Step[] => [
   ["in", "config_option_update", update({ sessionUpdate: "config_option_update", configOptions: [] })],
@@ -635,7 +735,12 @@ const quietTask = (id: string, work: boolean, cause?: Record<string, unknown>): 
 ];
 
 test("a subagent's steps answered with a lone dot draw no line and no dot", async () => {
-  const step = { kind: "subagent_step", status: "completed", weight: "silent", origin: "toolu_step" };
+  const step = {
+    kind: "subagent_step",
+    status: "completed",
+    weight: "silent",
+    origin: "toolu_step",
+  };
   const daemon = fakeDaemon(
     record([
       ...personTurn("Run the four suites in the background", "Started them.", "t1"),
@@ -649,6 +754,51 @@ test("a subagent's steps answered with a lone dot draw no line and no dot", asyn
     const view = drawn(rows());
     expect(view.some((row) => row.text === "·")).toBe(false);
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+// Review on #39849: a reply that says nothing ("·", ".", "…") is never the agent's own turn, even
+// when its task's call is known: the call keeps its mark, and no dot or footer draws.
+test("a lone dot answering a known call or subagent draws no row and no footer", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the suite and review it", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      shellCall("sh-dot"),
+      spawned("rev-dot"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      spawned("rev-dot", "completed"),
+      ...quietTask("bg-d1", false, {
+        kind: "shell",
+        status: "interim",
+        weight: "silent",
+        origin: "sh-dot",
+      }),
+      ...quietTask("bg-d2", false, {
+        kind: "subagent_step",
+        status: "completed",
+        weight: "silent",
+        origin: "rev-dot-call",
+      }),
+      ...quietTask("bg-d3", false, {
+        kind: "subagent",
+        status: "completed",
+        weight: "result",
+        origin: "rev-dot-call",
+      }),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(callOf(rows(), "sh-dot")?.reaction).toMatchObject({ turn: "bg-d1" });
+    const view = drawn([...withSubagentLines(rows(), new Map())]);
+    expect(view.some((row) => row.text === "·")).toBe(false);
+    expect(view.some((row) => row.id.startsWith(BACKGROUND_END))).toBe(false);
+    expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    for (const id of ["bg-d1", "bg-d2", "bg-d3"])
+      expect(rows().find((row) => row.id === backgroundTurnRowId(id))?.background?.ownTurn).toBeUndefined();
   } finally {
     client.close();
   }
@@ -698,14 +848,22 @@ const weighed = (id: string, cause: Record<string, unknown>): Step => [
 const callOf = (rows: AcpmuxRow[], id: string) =>
   rows.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === id)?.tool;
 
-test("an interim stop goes onto its call: no line, no new mark, its reply inside the call", async () => {
+// Leo, 2026-11-09 20:33Z, on the agent's reply drawn inside a "Subagent finished" row: "your response
+// was weirdly folded into the rende?". A task's end goes onto its call (its mark), but the turn's own
+// words never do: they draw as the agent's own message, however short and quiet.
+test("an interim stop goes onto its call: no line, no new mark; its reply is the agent's own message", async () => {
   const daemon = fakeDaemon(
     record([
       ["mux", "user_message", { text: "Run the suite", turnId: "t1" }],
       ["mux", "turn_started", { turnId: "t1" }],
       shellCall("sh1"),
       ["mux", "turn_result", { turnId: "t1", status: "completed" }],
-      weighed("bg-i", { kind: "shell", status: "interim", weight: "silent", origin: "sh1" }),
+      weighed("bg-i", {
+        kind: "shell",
+        status: "interim",
+        weight: "silent",
+        origin: "sh1",
+      }),
       say("Still waiting on the suite."),
       ended("bg-i", true),
     ]),
@@ -714,26 +872,31 @@ test("an interim stop goes onto its call: no line, no new mark, its reply inside
   try {
     const view = drawn(rows());
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    expect(view.some((row) => row.text === "Still waiting on the suite.")).toBe(false);
+    expect(view.some((row) => row.kind === "assistant" && row.text === "Still waiting on the suite.")).toBe(true);
     expect(callOf(rows(), "sh1")?.reaction).toEqual({
       turn: "bg-i",
       weight: "silent",
-      text: "Still waiting on the suite.",
       // An interim cause: its call is still waiting on its own background work.
       interim: true,
     });
-    // A second end of the same call keeps the first one's words before its own.
+    // A second end of the same call: its words are the agent's own message too.
     daemon.push(
       record(
         [
-          weighed("bg-i2", { kind: "shell", status: "interim", weight: "silent", origin: "sh1" }),
+          weighed("bg-i2", {
+            kind: "shell",
+            status: "interim",
+            weight: "silent",
+            origin: "sh1",
+          }),
           say("Still waiting."),
           ended("bg-i2", true),
         ],
         20,
       ),
     );
-    expect(callOf(rows(), "sh1")?.reaction?.text).toBe("Still waiting on the suite.\n\nStill waiting.");
+    expect(callOf(rows(), "sh1")?.reaction).not.toHaveProperty("text");
+    expect(drawn(rows()).some((row) => row.kind === "assistant" && row.text === "Still waiting.")).toBe(true);
   } finally {
     client.close();
   }
@@ -746,10 +909,20 @@ test("a final result marks its call new until the next prompt; a reply with some
       ["mux", "turn_started", { turnId: "t1" }],
       shellCall("sh2"),
       ["mux", "turn_result", { turnId: "t1", status: "completed" }],
-      weighed("bg-r", { kind: "shell", status: "completed", weight: "result", origin: "sh2" }),
+      weighed("bg-r", {
+        kind: "shell",
+        status: "completed",
+        weight: "result",
+        origin: "sh2",
+      }),
       say("All 412 tests passed."),
       ended("bg-r", true),
-      weighed("bg-r2", { kind: "shell", status: "completed", weight: "result", origin: "sh2" }),
+      weighed("bg-r2", {
+        kind: "shell",
+        status: "completed",
+        weight: "result",
+        origin: "sh2",
+      }),
       say("The suite passed, but the bench regressed 12%:\n\nShould I bisect it?"),
       ended("bg-r2", false),
     ]),
@@ -758,10 +931,13 @@ test("a final result marks its call new until the next prompt; a reply with some
   try {
     const view = drawn(rows());
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    // The quiet reply is on the call; the one with something to say draws as a message.
-    expect(view.some((row) => row.text === "All 412 tests passed.")).toBe(false);
+    // Both replies draw as the agent's own messages; only the call's mark is on the call.
+    expect(view.some((row) => row.kind === "assistant" && row.text === "All 412 tests passed.")).toBe(true);
     expect(view.at(-1)?.text).toContain("Should I bisect it?");
-    expect(callOf(rows(), "sh2")?.reaction).toMatchObject({ weight: "result", fresh: true });
+    expect(callOf(rows(), "sh2")?.reaction).toMatchObject({
+      weight: "result",
+      fresh: true,
+    });
     daemon.push(record(personTurn("Yes, bisect", "Bisecting.", "t2"), 30));
     expect(callOf(rows(), "sh2")?.reaction?.fresh).toBeUndefined();
   } finally {
@@ -802,10 +978,20 @@ test("a silent turn no call took still keeps a line when it had something to say
   const daemon = fakeDaemon(
     record([
       ...personTurn("Watch it", "Watching.", "t1"),
-      weighed("bg-m", { kind: "monitor", status: "completed", weight: "silent", origin: "gone" }),
+      weighed("bg-m", {
+        kind: "monitor",
+        status: "completed",
+        weight: "silent",
+        origin: "gone",
+      }),
       say("CI moved to step 3 of 5.\n\nNothing to do yet."),
       ended("bg-m", false),
-      weighed("bg-q", { kind: "monitor", status: "completed", weight: "silent", origin: "gone" }),
+      weighed("bg-q", {
+        kind: "monitor",
+        status: "completed",
+        weight: "silent",
+        origin: "gone",
+      }),
       say("Tick."),
       ended("bg-q", true),
     ]),
@@ -829,22 +1015,44 @@ test("a record's cause is read whole or not at all", () => {
       state: "started",
       id: "b",
       trigger: "task_notification",
-      cause: { kind: "subagent", status: "completed", weight: "result", origin: "c", summary: "Done" },
+      cause: {
+        kind: "subagent",
+        status: "completed",
+        weight: "result",
+        origin: "c",
+        summary: "Done",
+      },
     })?.cause,
-  ).toEqual({ kind: "subagent", status: "completed", weight: "result", origin: "c", summary: "Done" });
+  ).toEqual({
+    kind: "subagent",
+    status: "completed",
+    weight: "result",
+    origin: "c",
+    summary: "Done",
+  });
   for (const cause of [undefined, "x", { kind: "shell", status: "completed", weight: "loud" }, { weight: "silent" }])
     expect(
-      backgroundTurnRecord({ state: "started", id: "b", trigger: "task_notification", cause })?.cause,
+      backgroundTurnRecord({
+        state: "started",
+        id: "b",
+        trigger: "task_notification",
+        cause,
+      })?.cause,
     ).toBeUndefined();
 });
 
-test("a subagent's final report marks its done line new; its quiet reply goes with it", async () => {
+test("a subagent's final report marks its done line new; its quiet reply is the agent's own message", async () => {
   const daemon = fakeDaemon(
     record([
       ...personTurn("Review the PR in the background", "Started a reviewer.", "t1"),
       spawned("reviewer"),
       spawned("reviewer", "completed"),
-      weighed("bg-s", { kind: "subagent", status: "completed", weight: "result", origin: "reviewer-call" }),
+      weighed("bg-s", {
+        kind: "subagent",
+        status: "completed",
+        weight: "result",
+        origin: "reviewer-call",
+      }),
       say("Reviewer says SHIP."),
       ended("bg-s", true),
     ]),
@@ -854,10 +1062,14 @@ test("a subagent's final report marks its done line new; its quiet reply goes wi
     const agent = rows()
       .flatMap((row) => row.subagents ?? [])
       .find((entry) => entry.id === "reviewer");
-    expect(agent?.reaction).toMatchObject({ weight: "result", fresh: true, text: "Reviewer says SHIP." });
-    const view = drawn(rows());
+    expect(agent?.reaction).toMatchObject({ weight: "result", fresh: true });
+    expect(agent?.reaction).not.toHaveProperty("text");
+    const view = drawn([...withSubagentLines(rows(), new Map())]);
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    expect(view.some((row) => row.text === "Reviewer says SHIP.")).toBe(false);
+    const at = view.findIndex((row) => row.kind === "assistant" && row.text === "Reviewer says SHIP.");
+    expect(at).toBeGreaterThan(0);
+    // After the subagent's row, never inside it.
+    expect(view.findIndex((row) => row.kind === SUBAGENT_DONE)).toBeLessThan(at);
   } finally {
     client.close();
   }
@@ -878,7 +1090,12 @@ test("a subagent's done line draws its reaction's mark as it comes and goes", as
     daemon.push(
       record(
         [
-          weighed("bg-rev", { kind: "subagent", status: "completed", weight: "result", origin: "rev-call" }),
+          weighed("bg-rev", {
+            kind: "subagent",
+            status: "completed",
+            weight: "result",
+            origin: "rev-call",
+          }),
           say("Reviewer says SHIP."),
           ended("bg-rev", true),
         ],
@@ -887,7 +1104,8 @@ test("a subagent's done line draws its reaction's mark as it comes and goes", as
     );
     const marked = done();
     expect(marked.version).not.toBe(before.version);
-    expect(marked.subagents?.[0]?.reaction).toMatchObject({ fresh: true, text: "Reviewer says SHIP." });
+    expect(marked.subagents?.[0]?.reaction).toMatchObject({ fresh: true });
+    expect(marked.subagents?.[0]?.reaction).not.toHaveProperty("text");
     daemon.push(record(personTurn("Merge it", "Merging.", "t2"), 40));
     expect(done().subagents?.[0]?.reaction?.fresh).toBeUndefined();
   } finally {
@@ -905,23 +1123,75 @@ test("a background reaction survives the call's later updates and a newer prompt
       shellCall("sh9"),
       ["mux", "turn_result", { turnId: "t1", status: "completed" }],
       ...personTurn("Meanwhile, what's next?", "The bench.", "t2"),
-      weighed("bg-late", { kind: "shell", status: "completed", weight: "result", origin: "sh9" }),
+      weighed("bg-late", {
+        kind: "shell",
+        status: "completed",
+        weight: "result",
+        origin: "sh9",
+      }),
       say("All 412 tests passed."),
       ended("bg-late", true),
-      ["in", "tool_call_update", update({ sessionUpdate: "tool_call_update", toolCallId: "sh9", status: "completed" })],
+      [
+        "in",
+        "tool_call_update",
+        update({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "sh9",
+          status: "completed",
+        }),
+      ],
     ]),
   );
   const { client, rows } = await connect(daemon);
   try {
-    expect(callOf(rows(), "sh9")?.reaction).toMatchObject({ weight: "result", text: "All 412 tests passed." });
+    expect(callOf(rows(), "sh9")?.reaction).toMatchObject({ weight: "result" });
     expect(drawn(rows()).some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
   } finally {
     client.close();
   }
 });
 
+// Leo, 2026-11-09 20:33Z: "your response was weirdly folded into the rende?". A quiet failure's
+// short reply is the agent's own words too: the failure keeps its named line, its reply draws under
+// it as a message, never only inside the line's fold.
+test("a quiet failure's short reply draws under its named line, never folded inside it", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the suite", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      shellCall("sh5"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      weighed("bg-fq", {
+        kind: "shell",
+        status: "failed",
+        weight: "failure",
+        origin: "sh5",
+        summary: "Background command failed (exit code 1)",
+      }),
+      say("The suite failed on one flaky test; rerunning it."),
+      ended("bg-fq", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const view = drawn(rows());
+    const at = view.findIndex((row) => row.kind === BACKGROUND_TURN);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(lineHtml(view[at]!)).toContain("Background command failed (exit code 1)");
+    // It opens to its task (backgroundTurnTask.ts), never folds the reply under it.
+    expect(lineHtml(view[at]!)).toContain('data-opens="task"');
+    expect(view[at + 1]).toMatchObject({
+      kind: "assistant",
+      text: "The suite failed on one flaky test; rerunning it.",
+    });
+  } finally {
+    client.close();
+  }
+});
+
 // #33319: a failure that ended with something to say keeps its named line over its rows, so a long
-// reply never hides what failed. The line heads rows that already show, so it opens nothing.
+// reply never hides what failed. The line heads rows that already show, so it opens only to its task
+// (Leo, 2026-11-21: "background tasks not expandable"), never to them.
 test("a failure with a long reply keeps its named line over the reply", async () => {
   const daemon = fakeDaemon(
     record([
@@ -947,7 +1217,7 @@ test("a failure with a long reply keeps its named line over the reply", async ()
     expect(at).toBeGreaterThanOrEqual(0);
     const line = view[at]!;
     expect(lineHtml(line)).toContain("Background command failed (exit code 101)");
-    expect(lineHtml(line)).not.toContain("aria-expanded");
+    expect(lineHtml(line)).toContain('data-opens="task"');
     expect(lineHtml(line)).toContain('data-background-turn="failed"');
     expect(view.slice(at + 1).some((row) => row.text?.includes("Here is what broke"))).toBe(true);
   } finally {
@@ -955,15 +1225,21 @@ test("a failure with a long reply keeps its named line over the reply", async ()
   }
 });
 
-// #33538: a subagent's quiet reply to its end is text under its done line, which Find reads, not
-// only its tooltip.
-test("a subagent done line's reply is text under the line, not only a tooltip", async () => {
+// #33538 kept a subagent's quiet reply as text under its done line; Leo, 2026-11-09 20:33Z ("your
+// response was weirdly folded into the rende?"): the line never draws the chat's words at all, in
+// its text or its tooltip. They are the agent's own message after it, which Find reads.
+test("a subagent done line never draws the chat's reply, in its text or its tooltip", async () => {
   const daemon = fakeDaemon(
     record([
       ...personTurn("Review it", "Started a reviewer.", "t1"),
       spawned("rev2"),
       spawned("rev2", "completed"),
-      weighed("bg-rev2", { kind: "subagent", status: "completed", weight: "result", origin: "rev2-call" }),
+      weighed("bg-rev2", {
+        kind: "subagent",
+        status: "completed",
+        weight: "result",
+        origin: "rev2-call",
+      }),
       say("Reviewer says SHIP at the head."),
       ended("bg-rev2", true),
     ]),
@@ -972,8 +1248,210 @@ test("a subagent done line's reply is text under the line, not only a tooltip", 
   try {
     const row = withSubagentLines(rows(), new Map()).find((row) => row.kind === SUBAGENT_DONE)!;
     const html = renderToStaticMarkup(createElement(SubagentDoneLine, { row }));
-    expect(html).toContain('<p class="cv-reaction-reply">Reviewer says SHIP at the head.</p>');
-    expect(html).not.toMatch(/title="[^"]*Reviewer says SHIP/);
+    expect(html).not.toContain("Reviewer says SHIP");
+    expect(html).not.toContain("cv-reaction-reply");
+    expect(
+      drawn(rows()).some((row) => row.kind === "assistant" && row.text === "Reviewer says SHIP at the head."),
+    ).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+// Leo, 2026-11-08: "idk what happened here like the text in this situation isn't from the
+// subagent?". A subagent's interim end and its later steps (acpmux weighs them silent, each with the
+// subagent's call as origin) started three turns of the chat's own: each reply went onto the
+// subagent's done line, joined into one block under "Subagent finished". Only a short note goes
+// there; a reply with more to say is the main agent's own turn: its rows draw at the reply column,
+// each turn with its own footer, and the first row of each stands the turn gap from the row above.
+test("a background turn's long reply is the agent's own turn, never the subagent's words", async () => {
+  const silent = (id: string, kind: string): Step =>
+    weighed(id, {
+      kind,
+      status: kind === "subagent" ? "interim" : "completed",
+      weight: "silent",
+      origin: "fixer-call",
+    });
+  const replies = [
+    "I started a re-review of #38357 at eb367413 and told the lane I'll send them the verdict.\n\nThis head fixes the BLOCK: the direct-link race starts right away.",
+    "Hourly pass done. Every unmet goal now has a live owner.\n\n19 lanes are running. One shows as stuck, and its PR has already merged.",
+    "#38812 got a BLOCK. Its export now includes an action the Rust catalog doesn't have yet, which breaks the catalog's count check.",
+  ];
+  const daemon = fakeDaemon(
+    record([
+      [
+        "mux",
+        "user_message",
+        {
+          text: "Fix the nightly macOS build red with a subagent",
+          turnId: "t1",
+        },
+      ],
+      ["mux", "turn_started", { turnId: "t1" }],
+      spawned("fixer"),
+      say("Started a subagent on it."),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      spawned("fixer", "completed"),
+      silent("bg-1", "subagent"),
+      say(replies[0]!),
+      ended("bg-1", false),
+      silent("bg-2", "subagent_step"),
+      say(replies[1]!),
+      ended("bg-2", false),
+      silent("bg-3", "subagent_step"),
+      say(replies[2]!),
+      ended("bg-3", false),
+      silent("bg-4", "subagent_step"),
+      say("Still waiting on the fleet."),
+      ended("bg-4", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const agent = rows()
+      .flatMap((row) => row.subagents ?? [])
+      .find((entry) => entry.id === "fixer");
+    // The subagent's line keeps none of the chat's words, the short note included.
+    expect(agent?.reaction).not.toHaveProperty("text");
+    const view = drawn([...withSubagentLines(rows(), new Map())]);
+    expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    const own = view.flatMap((row, at) =>
+      row.kind === "assistant" && row.inBackground?.startsWith("bg-") ? [{ row, at }] : [],
+    );
+    expect(own.map(({ row }) => row.text)).toEqual([...replies, "Still waiting on the fleet."]);
+    for (const [index, { row, at }] of own.entries()) {
+      // Its own footer right under it, the turn's end, as a prompt's turn ends.
+      expect(view[at + 1]).toMatchObject({ kind: "turnSummary", id: `${BACKGROUND_END}-bg-${index + 1}` });
+      // It opens a turn: the turn gap over it, from whatever row is above. The first turn opens on its
+      // "Worked for" instead, which stands a "Worked for"'s own gap under the turn before's footer.
+      if (index === 0) {
+        const head = view[at - 1]!;
+        expect(transcriptGap(gridMark(view[at - 2]!, view[at - 3]), gridMark(head, view[at - 2]))).toBeGreaterThan(0);
+        continue;
+      }
+      const prev = view[at - 1]!;
+      expect(transcriptGap(gridMark(prev, view[at - 2]), gridMark(row, prev))).toBe(TRANSCRIPT_TURN_GAP);
+    }
+    // The subagent's end is the first turn's work, a tool call's end: it folds under that turn's
+    // "Worked for" (Leo, 2026-11-24: "we can indeed treat them as tool calls"), and opens to it.
+    const worked = view[own[0]!.at - 1]!;
+    expect(worked.kind).toBe(WORKED);
+    expect(view.some((entry) => entry.kind === SUBAGENT_DONE)).toBe(false);
+    const opened = drawn([...withSubagentLines(rows(), new Map())], [worked.id]);
+    expect(opened.some((entry) => entry.kind === SUBAGENT_DONE)).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+// Leo, 2026-11-10: "too much space in between here", on "Worked for 1m 6s · 1 tool call" with an
+// empty band between its rule and the fold's first row. "Worked for" is its turn's header and
+// keeps its own room under its rule (transcriptGrid.ts MARK_WORKED), so the row right under it is
+// inside the turn the header opened, whoever started the work: it never takes a turn gap of its
+// own on top (model.ts `opensBackgroundTurn`).
+const think = (text: string): Step => [
+  "in",
+  "agent_thought_chunk",
+  update({
+    sessionUpdate: "agent_thought_chunk",
+    content: { type: "text", text },
+  }),
+];
+const gateWork: Step[] = [
+  think("I'm checking whether the gate accepts the marker."),
+  ran("gate"),
+  think("The gate accepts the result, so I'm waiting on the waiter."),
+  say("The gate accepts it. Landed."),
+];
+const workedShapes: Record<string, Step[]> = {
+  "a prompt's own work": [
+    ["mux", "user_message", { text: "Land it", turnId: "t2" }],
+    ["mux", "turn_started", { turnId: "t2" }],
+    ...gateWork,
+    ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+  ],
+  "a background task's turn": [
+    started("bg"),
+    [
+      "mux",
+      "user_message",
+      {
+        text: "<task-notification><summary>Done</summary></task-notification>",
+        turnId: "t2",
+      },
+    ],
+    ["mux", "turn_started", { turnId: "t2" }],
+    ...gateWork,
+    ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+    ended("bg", false),
+  ],
+  "background work inside a prompt's turn": [
+    ["mux", "user_message", { text: "Land it", turnId: "t2" }],
+    ["mux", "turn_started", { turnId: "t2" }],
+    say("Waiting."),
+    started("bg"),
+    ...gateWork,
+    ended("bg", false),
+    ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+  ],
+};
+for (const [shape, steps] of Object.entries(workedShapes))
+  for (const open of [false, true])
+    test(`no gap follows "Worked for" over ${shape} (${open ? "open" : "closed"})`, async () => {
+      const daemon = fakeDaemon(record([...personTurn("Hi", "Landing.", "t1"), ...steps]));
+      const { client, rows } = await connect(daemon);
+      try {
+        const closed = drawn(rows());
+        const view = open
+          ? drawn(
+              rows(),
+              closed.filter((row) => row.kind === "worked").map((row) => row.id),
+            )
+          : closed;
+        const header = view.findIndex((row) => row.kind === "worked");
+        expect(header).toBeGreaterThan(0);
+        expect(view.length).toBeGreaterThan(header + 1);
+        expect(
+          transcriptGap(gridMark(view[header]!, view[header - 1]), gridMark(view[header + 1]!, view[header])),
+        ).toBe(0);
+        const layout = layoutConversation(view as never, 720);
+        expect(layout.tops[header + 1]! - layout.tops[header]! - layout.heights[header]!).toBe(0);
+      } finally {
+        client.close();
+      }
+    });
+
+// A background task's notice that comes in during a turn is what the agent answers with the work
+// under it: the run under it opens nothing, so it sits flush on the 22 pitch, never the 32 turn gap
+// (Leo, 2026-11-16: "why is the background task space after so big").
+test("the run under a background task's notice sits flush under it", async () => {
+  const notification = "<task-notification><summary>Background command finished (exit 0)</summary></task-notification>";
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Hi", "Landing.", "t1"),
+      ["mux", "user_message", { text: "Push it", turnId: "t2" }],
+      ["mux", "turn_started", { turnId: "t2" }],
+      ran("push"),
+      started("bg"),
+      ["mux", "user_message", { text: notification, client: "adopt" }],
+      ran("after"),
+      ended("bg", false),
+      say("Pushed."),
+      ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const closed = drawn(rows());
+    const view = drawn(
+      rows(),
+      closed.filter((row) => row.kind === "worked" || row.kind === BACKGROUND_TURN).map((row) => row.id),
+    );
+    const notice = view.findIndex((row) => row.kind === "user" && row.incoming?.kind === "notice");
+    expect(notice).toBeGreaterThan(0);
+    const next = view[notice + 1]!;
+    expect(next.kind).toBe("activity");
+    expect(transcriptGap(gridMark(view[notice]!, view[notice - 1]), gridMark(next, view[notice]))).toBe(0);
   } finally {
     client.close();
   }

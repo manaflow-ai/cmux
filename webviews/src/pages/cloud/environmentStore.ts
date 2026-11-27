@@ -1,9 +1,14 @@
 import {
   environmentDraft,
+  droppedRoutes,
   environmentPatch,
   scriptFits,
+  secretNeedsValue,
+  secretRoutesSupported,
   SETUP_SCRIPT_BYTES,
+  storedEnvironment,
   validateEnvironment,
+  withRowIds,
   type CloudEnvironment,
   type EnvironmentClient,
   type EnvironmentDraft,
@@ -20,8 +25,55 @@ export type EnvironmentState = {
   draft?: EnvironmentDraft;
   derivedScript?: string;
   deriving?: boolean;
+  /** The suggested script's read failed; stays set across the re-reads until one answers. */
   deriveFailed?: boolean;
-  error?: "load" | "save" | "missing" | "name" | "names" | "script" | "file" | "copy" | "secret";
+  error?:
+    | "load"
+    | "save"
+    | "missing"
+    | "name"
+    | "names"
+    | "script"
+    | "file"
+    | "copy"
+    | "secret"
+    | "retype"
+    | "hosts"
+    | "hostless"
+    | "value"
+    | "header"
+    | "route"
+    | "dropped"
+    | "vaultDown"
+    | "vaultHost"
+    | "vaultText"
+    | "vaultUnreadable"
+    | "vaultRefused"
+    | "click";
+};
+
+/** The platform's secret refusals (cmux-platform#1008), shown as the same sentence the editor's own check shows.
+ *  `secret_value_required`: a value-less entry for a secret removed elsewhere since the sheet opened.
+ *  `invalid_secret_route`: a header the request itself needs, a header without hosts, or a host given twice.
+ *  `invalid_value`: a value or header format with a line break, control or non-ASCII character. */
+const refusals: Record<string, EnvironmentState["error"]> = {
+  "cloud_environment.secret_value_required": "secret",
+  "cloud_environment.invalid_secret_route": "route",
+  "cloud_environment.invalid_value": "value",
+  // Saving a secret sent to hosts writes it to the secret store; its refusals (cmux-platform#1046). Another
+  // vault.* code (one only a machine's start gives) stays the generic save error.
+  "vault.unavailable": "vaultDown",
+  "vault.unreachable": "vaultDown",
+  "vault.upstream_failed": "vaultDown",
+  "vault.not_configured": "vaultDown",
+  "vault.pin_public_suffix": "vaultHost",
+  "vault.secret_not_ascii": "vaultText",
+  "vault.secret_unreadable": "vaultUnreadable",
+  "vault.grant_refused": "vaultRefused",
+  "vault.request_rejected": "vaultRefused",
+  // The app saves an environment only on the person's own click (AgentPaneModel's cloud.environment gate);
+  // a click another process posted is refused. Say so, instead of the generic "try again" that hides why.
+  "transport.gesture_required": "click",
 };
 
 /** One draft for every entry point; stale reads never resurrect a closed or different editor. */
@@ -39,28 +91,61 @@ export class EnvironmentStore {
     return () => this.listeners.delete(listener);
   };
   private set(patch: Partial<EnvironmentState>) {
+    // A secret value a server sends by mistake is dropped here, whichever read brought it.
+    if (patch.original) patch = { ...patch, original: storedEnvironment(patch.original) };
     this.state = { ...this.state, ...patch };
     for (const listener of this.listeners) listener();
   }
-  async open(options: EnvironmentOpen = {}) {
+  /**
+   * Opens the editor and reads the environment. `again` (a re-read after a failed one) keeps the
+   * failure until the read answers, so the sheet's quiet stretch spans its re-reads (EnvironmentSheet).
+   */
+  async open(options: EnvironmentOpen = {}, again = false) {
     if (this.state.saving) return;
     this.options = options;
     const generation = ++this.generation;
-    this.state = { open: true, section: options.section ?? "overview", loading: true, saving: false };
+    const failed = again ? this.state.error : undefined;
+    this.state = {
+      open: true,
+      section: options.section ?? "overview",
+      loading: true,
+      saving: false,
+      ...(failed ? { error: failed } : {}),
+    };
     this.set({});
     try {
-      const environment = options.environmentId
-        ? await this.client.get(options.environmentId)
-        : (await this.client.list()).find((item) => item.scope === "personal" && item.is_default);
+      const created =
+        options.create && this.client.create
+          ? await this.client.create({ name: options.create.name, setup_script: null })
+          : undefined;
+      if (created) {
+        // Made once: a retry or a later open edits it, never makes another.
+        const { create: _made, ...rest } = options;
+        this.options = { ...rest, environmentId: created.id };
+        options.onCreated?.(created);
+      }
+      const environment =
+        created ??
+        (options.environmentId
+          ? await this.client.get(options.environmentId)
+          : (await this.client.list()).find((item) => item.scope === "personal" && item.is_default));
       if (generation !== this.generation) return;
       if (!environment) return this.set({ loading: false, error: "missing" });
-      this.set({ original: environment, draft: environmentDraft(environment), loading: false });
+      this.set({ original: environment, draft: environmentDraft(environment), loading: false, error: undefined });
       if (environment.setup_script === null && options.repo) void this.derive();
     } catch {
       if (generation === this.generation) this.set({ loading: false, error: "load" });
     }
   }
-  retry = () => this.open(this.options);
+  /**
+   * Reads the environment again after a failed open. A read is asked again on its own by the sheet;
+   * only a failed `create` waits for the person (`retryCreates`): asking again makes an environment.
+   */
+  retry = () => this.open(this.options, true);
+  /** The failed open was making a new environment (`create`): its retry makes one, so the person chooses it. */
+  get retryCreates(): boolean {
+    return !!this.options.create && !!this.client.create;
+  }
   close = () => {
     if (this.state.saving) return;
     ++this.generation;
@@ -70,16 +155,19 @@ export class EnvironmentStore {
   };
   section = (section: EnvironmentSection) => this.set({ section });
   edit = (patch: Partial<EnvironmentDraft>) => {
-    if (!this.state.draft || this.state.saving) return;
+    const { draft } = this.state;
+    if (!draft || this.state.saving) return;
     ++this.draftRevision;
-    this.set({ draft: { ...this.state.draft, ...patch }, error: undefined });
+    if (patch.secrets) patch = { ...patch, secrets: withRowIds(patch.secrets, draft.secrets) };
+    if (patch.variables) patch = { ...patch, variables: withRowIds(patch.variables, draft.variables) };
+    this.set({ draft: { ...draft, ...patch }, error: undefined });
   };
   error = (error: EnvironmentState["error"]) => this.set({ error });
   async derive() {
     const { original } = this.state;
     if (!original || !this.options.repo || this.state.deriving) return;
     const generation = this.generation;
-    this.set({ deriving: true, deriveFailed: false });
+    this.set({ deriving: true });
     try {
       const result = await this.client.derive({
         repo: this.options.repo,
@@ -88,7 +176,7 @@ export class EnvironmentStore {
       });
       if (generation !== this.generation) return;
       if (!scriptFits(result.setup.script)) throw new Error("script size");
-      this.set({ derivedScript: result.setup.script, deriving: false });
+      this.set({ derivedScript: result.setup.script, deriving: false, deriveFailed: false });
     } catch {
       if (generation === this.generation) this.set({ deriving: false, deriveFailed: true });
     }
@@ -112,19 +200,38 @@ export class EnvironmentStore {
   async save() {
     const { original, draft, saving } = this.state;
     if (!original || !draft || saving) return;
-    const invalid = validateEnvironment(draft);
+    const invalid = validateEnvironment(draft, { routes: secretRoutesSupported(original) });
     if (invalid) return this.error(invalid);
     if (draft.secrets.some((row) => !row.value && !original.secrets.some((secret) => secret.name === row.name)))
       return this.error("secret");
+    if (
+      draft.secrets.some((row) =>
+        secretNeedsValue(
+          row,
+          original.secrets.find((secret) => secret.name === row.name),
+        ),
+      )
+    )
+      return this.error("retype");
     const patch = environmentPatch(original, draft);
     if (!Object.keys(patch).length) return this.close();
     this.set({ saving: true, error: undefined });
     try {
-      await this.client.update(original.id, patch);
+      const reply = await this.client.update(original.id, patch);
+      if (droppedRoutes(patch, reply).length) {
+        // The service saved the value but not where it goes: it is a plain variable on the machine now. Keep
+        // the sheet open on what is stored, so the person sees it and can remove it; never report success.
+        // No automatic removal: a second write to a service that just misread the first is no safer.
+        return this.set({ saving: false, original: reply, draft: environmentDraft(reply), error: "dropped" });
+      }
       this.set({ saving: false });
       this.close();
-    } catch {
-      this.set({ saving: false, error: "save" });
+    } catch (error) {
+      const code = error instanceof Object && "code" in error ? error.code : undefined;
+      this.set({
+        saving: false,
+        error: (typeof code === "string" && Object.hasOwn(refusals, code) && refusals[code]) || "save",
+      });
     }
   }
 }

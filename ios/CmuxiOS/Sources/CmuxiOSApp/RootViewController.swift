@@ -84,7 +84,7 @@ final class RootViewController: UIViewController {
 
     private func showHome(account: SignedInAccount) {
         let store = container.homeStore(for: account)
-        let home = HomeViewController(store: store, options: container.devOptions.options)
+        let home = HomeViewController(store: store, options: container.devOptions.options, chiefBrain: container.chiefBrain)
         home.updateRequired = container.updateRequired
         home.onOpenSettings = { [weak self] in self?.presentChatServerSettings(account: account) }
         self.home = home

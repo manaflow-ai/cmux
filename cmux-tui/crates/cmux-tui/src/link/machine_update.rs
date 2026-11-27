@@ -38,7 +38,14 @@
 //!    which leaves every terminal
 //!    host and chat running. The supervisor starts the new binary, which
 //!    adopts them. A new daemon that does not serve within 10 minutes is
-//!    rolled back to `cmux-tui.prev`.
+//!    rolled back to `cmux-tui.prev`. On a self-updating image (the daemon runs
+//!    from the store) the step hands the build to the machine's updater
+//!    instead ([`install_target`]). That updater refuses a build older than
+//!    one it applied (`older`); for `--to-bundled` without `--if-older` the
+//!    step then renames the build over the work user's store link and restarts
+//!    the daemon and acpmux on it, which turns the machine's updater off for
+//!    that machine ([`route_args`]); otherwise the machine is left as it is
+//!    (`machine_update_foreign_daemon`).
 //! 4. This command waits for the outcome the apply step records next to the
 //!    binary and answers one JSON line: `{"ok":true,"updated":true,"build":..,
 //!    "previous_build":..}`, `{"ok":true,"updated":false,..}` for a machine
@@ -61,10 +68,11 @@ const USAGE: &str =
 /// Every Cloud image bakes an x86_64 machine (images/cmux-vm inputs.lock.json).
 const CLOUD_ARCH: &str = "x86_64";
 /// The verbs whose absence makes a machine worth updating.
-const NEEDED: [&str; 3] = [
+const NEEDED: [&str; 4] = [
     cmux_tui_core::fs_ops::FS_CAPABILITY,
     cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CAPABILITY,
     cmux_tui_core::server::agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY,
+    cmux_tui_core::server::agent_transfer::chat_folders::CHAT_FOLDER_CAPABILITY,
 ];
 /// What the old daemon must serve for the update to reach it.
 const REACHES: [&str; 2] = [cmux_tui_core::fs_ops::FS_CAPABILITY, "detached-terminals-v1"];
@@ -103,7 +111,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
-    match update(&request) {
+    match update_when_free(&request, BUSY_PATIENCE) {
         Ok(mut line) => {
             line.set("ok", json!(true));
             println!("{line}");
@@ -118,6 +126,31 @@ pub(super) fn run(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// How long a `busy` machine (another update of it runs, or its daemon
+/// restarted since it was read) is waited for: the update starts over by
+/// itself, and a machine the other update already moved to this build ends
+/// as `updated: false`.
+const BUSY_PATIENCE: Duration = Duration::from_secs(120);
+
+/// [`update`], started over while the machine answers `busy`.
+fn update_when_free(request: &Request, patience: Duration) -> Result<Value, Failed> {
+    retry_busy(patience, || update(request))
+}
+
+fn retry_busy<T>(
+    patience: Duration,
+    mut attempt: impl FnMut() -> Result<T, Failed>,
+) -> Result<T, Failed> {
+    use cmux_tui_core::retry::{Attempt, Patience};
+    Patience::new("the machine's other update to finish", patience)
+        .spaced(Duration::from_secs(2), Duration::from_secs(15))
+        .run(|| match attempt() {
+            Err(failed) if failed.code == "machine_update_busy" => Err(Attempt::Retry(failed)),
+            Err(failed) => Err(Attempt::Fail(failed)),
+            Ok(value) => Ok(value),
+        })
 }
 
 /// One `link machine update`'s arguments.
@@ -169,8 +202,8 @@ pub(super) fn machine_is_older(remote: Option<u64>, local: u64) -> bool {
 
 fn update(request: &Request) -> Result<Value, Failed> {
     let socket = request.socket.as_path();
-    let before = machine_gate::identify(socket)
-        .ok_or_else(|| Failed::new("machine_unreachable", "the machine daemon did not answer"))?;
+    let before = machine_gate::reach(socket)
+        .map_err(|unreached| Failed::new("machine_unreachable", unreached.to_string()))?;
     let previous = machine_gate::build_id(&before).map(str::to_owned);
     let current = if request.to_bundled {
         previous.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY)
@@ -205,7 +238,7 @@ fn update(request: &Request) -> Result<Value, Failed> {
         )
         .about(&before));
     }
-    let install = install_path(&before).ok_or_else(|| {
+    let (install, route) = install_target(&before).ok_or_else(|| {
         Failed::new(
             "machine_update_unsupported",
             "the machine's daemon does not run from ~/.cmux/bin/cmux-tui; recreate the machine",
@@ -231,7 +264,8 @@ fn update(request: &Request) -> Result<Value, Failed> {
         let _ = super::sync_cli::delete_remote(socket, &staged);
         return Err(failed);
     }
-    let argv = apply::argv(&staged, &sha256, &install, daemon_pid, &result);
+    let mut argv = apply::argv(&staged, &sha256, &install, daemon_pid, &result);
+    argv.extend(route_args(route, request));
     let terminal = match start(socket, &argv, &folder, &staged, &result, daemon_pid) {
         Ok(terminal) => terminal,
         Err(failed) => {
@@ -254,6 +288,21 @@ fn update(request: &Request) -> Result<Value, Failed> {
     }
     let build = outcome?;
     Ok(json!({"updated": true, "build": build, "previous_build": previous}))
+}
+
+/// The apply step's flags past [`apply::argv`] for `route`: `--route store`, and with it
+/// [`apply::IN_PLACE_FLAG`] for the explicit ask (`--to-bundled` without `--if-older`), so
+/// a store that refuses this build as older than one it applied gets it in place. The
+/// automatic update (`--if-older`) never moves a machine back.
+fn route_args(route: apply::Route, request: &Request) -> Vec<String> {
+    if route != apply::Route::Store {
+        return Vec::new();
+    }
+    let mut args = vec!["--route".to_owned(), "store".to_owned()];
+    if request.to_bundled && !request.if_older {
+        args.push(apply::IN_PLACE_FLAG.to_owned());
+    }
+    args
 }
 
 /// How long to wait before each look at a machine whose answer to the start
@@ -339,15 +388,29 @@ fn lost_start_began(seen: &AfterLostStart, old_pid: u64) -> bool {
     seen.apply_seen || !seen.staged_present || seen.daemon_pid != Some(Some(old_pid))
 }
 
-/// The daemon's binary, `<home>/.cmux/bin/cmux-tui`, from `identify`'s
-/// `cli_path`; None for any other place.
-fn install_path(identity: &Value) -> Option<String> {
+/// Where the new build goes and how, from `identify`'s `cli_path` (the daemon's own
+/// binary, its symlinks resolved): a daemon run from `<home>/.cmux/bin/cmux-tui` gets
+/// the build renamed over that file ([`apply::Route::Work`]). A Cloud machine of the
+/// self-updating image runs it from its store (`/opt/cmux/store/<sha>/cmux-tui`, which
+/// the work user's `~/.cmux/bin/cmux-tui` links to through `/opt/cmux/current`): there
+/// the build goes into the store as the machine's next profile, so the session host,
+/// acpmux (which starts every agent) and `cmux host` all run it
+/// ([`apply::Route::Store`], `cmux host update install`). None for any other place.
+fn install_target(identity: &Value) -> Option<(String, apply::Route)> {
     let path = identity["cli_path"].as_str()?;
-    let plain = path.starts_with('/')
-        && path.ends_with("/.cmux/bin/cmux-tui")
-        && path.split('/').all(|part| part != ".." && part != ".");
-    plain.then(|| path.to_owned())
+    let plain = path.starts_with('/') && path.split('/').all(|part| part != ".." && part != ".");
+    if plain && path.ends_with("/.cmux/bin/cmux-tui") {
+        return Some((path.to_owned(), apply::Route::Work));
+    }
+    let entry = path.strip_prefix(STORE_PREFIX)?.strip_suffix("/cmux-tui")?;
+    (plain && apply::is_sha256(entry)).then(|| (CLOUD_WORK_LINK.to_owned(), apply::Route::Store))
 }
+
+/// The self-updating image's store (cmux-host `updater::store::STORE_DIR`).
+const STORE_PREFIX: &str = "/opt/cmux/store/";
+/// The Cloud work user's cmux-tui, a link into the store's current profile
+/// (cmux-host `updater::WORK_CMUX_TUI_LINK`).
+const CLOUD_WORK_LINK: &str = "/home/cmux/.cmux/bin/cmux-tui";
 
 /// This client's pinned Linux build, its SHA-256 and the commit that built it.
 fn pinned_payload() -> Result<(PathBuf, String, String), Failed> {
@@ -454,10 +517,12 @@ fn ended(outcome: &Value, own: &str) -> Result<String, Failed> {
         )),
         Some("busy") => Err(Failed::new(
             "machine_update_busy",
-            format!("not now: {}; try again", detail(outcome)),
+            format!("the machine stayed busy: {}", detail(outcome)),
         )),
-        // The daemon runs someone's own build from another path: left as it
-        // is, and no failure (the app shows nothing for it).
+        // The daemon runs someone's own build from another path, or the
+        // machine's updater kept its build (off, this build rolled back
+        // before, or a newer one applied for `--if-older`): left as it is,
+        // and no failure (the app shows nothing for it).
         Some("foreign") => Err(Failed::new("machine_update_foreign_daemon", detail(outcome))),
         Some("rolled_back") => Err(Failed::new(
             "machine_update_rolled_back",

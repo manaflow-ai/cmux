@@ -61,7 +61,7 @@ struct SidebarFoldFadeTests {
         for (name, view) in members {
             let fade = try #require(view.layer?.animation(forKey: "opacity") as? CABasicAnimation, "\(name) does not fade on its layer")
             #expect(!(fade is CASpringAnimation), "\(name) fades on a spring, over the slot's whole close")
-            #expect(abs(fade.duration - fadeOut) < 0.001, "\(name) fades for \(fade.duration) s, fadeOut is \(fadeOut) s")
+            #expect(fade.duration == fadeOut, "\(name) fades for \(fade.duration) s, fadeOut is \(fadeOut) s")
             #expect((fade.toValue as? Float) == 0)
             #expect(view.alphaValue == 0, "\(name)'s opacity does not end at 0")
         }
@@ -96,7 +96,7 @@ struct SidebarFoldFadeTests {
         for (name, view) in inner {
             try #require(list.rowViews[view.key] == nil, "\(name) still shows under the collapsed group")
             let fade = try #require(view.layer?.animation(forKey: "opacity") as? CABasicAnimation, "\(name) does not fade on its layer")
-            #expect(abs(fade.duration - fadeOut) < 0.001, "\(name) fades for \(fade.duration) s, fadeOut is \(fadeOut) s")
+            #expect(fade.duration == fadeOut, "\(name) fades for \(fade.duration) s, fadeOut is \(fadeOut) s")
         }
     }
 }

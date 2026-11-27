@@ -28,10 +28,17 @@ own paths, when the inputs that change build lines have no capture yet.
       them, cloned while the build still held its host lock (compile-dev-release.sh). It
       writes DIR/manifest.json: names, sizes and sha256 only, never file contents, since the
       manifest goes to this public repository's Actions artifacts.
+      With --upload it runs inside the job's time (job_budget): it starts only while the job is
+      under LATEST_START_S old, and stops packing or uploading at its deadline. The manifest
+      is written before the packs and again after each stage, "complete": false until every
+      part is in the store, so a step killed or stopped mid-way still leaves a manifest the
+      workflow uploads as hybrid-ref-capture-incomplete-KEY. The uploads run CMUX_CI_NO_UPDATE=1
+      (no client self-update inside the step) and each has its own timeout.
 
   hybrid_ref_capture.py have --key KEY --repo OWNER/NAME [--budget SECONDS]
       Prints complete=N, the hybrid-ref-capture-KEY artifacts that are unexpired and under 13
-      days old (a capture counts while its packs are readable in the store), and
+      days old (a capture counts while its packs are readable in the store; the manifest
+      expires after 7 days, the bound on every upload, so that is the window in practice), and
       recent_incomplete=M, the hybrid-ref-capture-incomplete-KEY ones under a day old (a key
       whose capture comes out incomplete is compiled for it again once a day, not on every
       landing). A rate limit (403 or 429 that says so) waits for its Retry-After or reset,
@@ -83,6 +90,20 @@ WS_EXCLUDE = re.compile(r"(^|/)(\.git|target|node_modules|\.build|DerivedData)(/
 DD_EXCLUDE = re.compile(r"(^|/)(\.git|CompilationCache\.noindex|Logs|SourcePackages/repositories)(/|$)"
                         r"|\.(o|app|dSYM)(/|$)|(^|/)Chromium Embedded Framework\.framework(/|$)")
 DRIVER = re.compile(r"^SwiftDriver (\S+) normal (\S+) ")
+# The capture's time, inside cmux-scheme-compile's 60-minute limit (docs/ci/cmux-next-workflow-notes/
+# 2026-11-26-ref-capture-bound.md). Run 45845663445 reached the capture at job minute 21.5, packed in under
+# 2 minutes and was still uploading when the old 8-minute step limit killed it (the job's own artifact upload
+# on that runner moved 236 MB in 80 s, about 3 MB/s).
+JOB_LIMIT_S = 60 * 60
+# A capture starts only while the job is younger than this ...
+LATEST_START_S = 30 * 60
+# ... and stops by STEP_BUDGET_S after it starts: the step's timeout-minutes (18) less 2 minutes to write
+# the manifest; LATEST_START_S + 18 + the manifest upload (2) leaves the job 10 minutes.
+STEP_BUDGET_S = 16 * 60
+UPLOAD_WORKERS = 3
+# The jobs read is only a fallback for the job's start (the runner's worker process and the decide step come
+# first); one try, this long, so an exhausted API quota costs seconds, not the capture.
+JOBS_READ_TIMEOUT_S = 15
 
 
 def settings(environ=os.environ) -> dict[str, str]:
@@ -107,6 +128,76 @@ def xcode_version(text: str) -> str:
 
 def run(argv: list[str]) -> str:
     return subprocess.run(argv, capture_output=True, text=True, check=True).stdout
+
+
+def etime_seconds(text: str) -> int:
+    """ps's etime ([[dd-]hh:]mm:ss) in seconds."""
+    days, _, rest = text.strip().rpartition("-")
+    seconds = 0
+    for field in rest.split(":"):
+        seconds = seconds * 60 + int(field)
+    return seconds + int(days or 0) * 86400
+
+
+def worker_started(now: float, pid: int | None = None, ps=None) -> float | None:
+    """When this job's Runner.Worker (the runner starts one per job) started, from ps: no API call."""
+    ps = ps or (lambda p: run(["ps", "-o", "ppid=", "-o", "etime=", "-o", "comm=", "-p", str(p)]))
+    pid = pid or os.getpid()
+    for _ in range(32):
+        try:
+            ppid, etime, comm = ps(pid).strip().split(None, 2)
+            if os.path.basename(comm) == "Runner.Worker":
+                return now - etime_seconds(etime)
+            pid = int(ppid)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return None
+        if pid <= 1:
+            return None
+    return None
+
+
+def jobs_read_started(environ, opener=urllib.request.urlopen) -> float | None:
+    """The job's started_at from the run's jobs list: one GitHub API call, one try, JOBS_READ_TIMEOUT_S."""
+    try:
+        url = (f"https://api.github.com/repos/{environ['GITHUB_REPOSITORY']}/actions/runs/{environ['GITHUB_RUN_ID']}"
+               f"/attempts/{environ.get('GITHUB_RUN_ATTEMPT', '1')}/jobs?per_page=100")
+        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {environ['GH_TOKEN']}",
+                                                       "User-Agent": "cmux-hybrid-ref", "Accept": "application/vnd.github+json"})
+        with opener(request, timeout=JOBS_READ_TIMEOUT_S) as response:
+            jobs = json.load(response)["jobs"]
+        started = next(j["started_at"] for j in jobs
+                       if j.get("runner_name") == environ.get("RUNNER_NAME") and j.get("status") == "in_progress")
+        return datetime.strptime(started, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except Exception as e:  # a rate limit, a timeout, no such job: the start stays unknown
+        print(f"hybrid-ref capture: the jobs read for the job's start failed: {str(e)[:200]}", file=sys.stderr)
+        return None
+
+
+def job_started(environ, now: float, worker=worker_started, jobs_read=jobs_read_started) -> tuple[float | None, str]:
+    """The job's start and where it came from. The runner's worker process and the decide step's
+    DECIDE_STARTED need no API call; the earlier of them stands (the decide step runs after checkout, which
+    can retry for many minutes). The jobs read is the fallback when neither is known."""
+    known = []
+    started = worker(now)
+    if started is not None:
+        known.append((started, "the runner's worker process"))
+    if (environ.get("DECIDE_STARTED") or "").isdigit():
+        known.append((float(environ["DECIDE_STARTED"]), "the decide step"))
+    if known:
+        return min(known)
+    started = jobs_read(environ)
+    return (started, "the jobs read") if started is not None else (None, "nothing")
+
+
+def job_budget(environ, now: float, **sources) -> tuple[float | None, str]:
+    """(deadline, why): the capture's deadline, or None and why it is skipped."""
+    started, source = job_started(environ, now, **sources)
+    if started is None:
+        return None, "the job's start is unknown"
+    age = now - started
+    if age > LATEST_START_S:
+        return None, f"the job started {age / 60:.0f} minutes ago ({source}); a capture starts by minute {LATEST_START_S // 60}"
+    return now + STEP_BUDGET_S, f"the job started {age / 60:.0f} minutes ago ({source})"
 
 
 def key(repo: Path, environ=os.environ, toolchain: str | None = None) -> str:
@@ -222,8 +313,59 @@ def split(path: Path) -> list[Path]:
     return parts
 
 
-def capture(a: argparse.Namespace, environ=os.environ) -> int:
+def write_manifest(out: Path, manifest: dict, environ) -> None:
+    """DIR/manifest.json, replaced whole (a step killed mid-write leaves the last one), and the step outputs."""
+    tmp = out / "manifest.json.tmp"
+    tmp.write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
+    os.replace(tmp, out / "manifest.json")
+    if environ.get("GITHUB_OUTPUT"):
+        with open(environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"manifest={out / 'manifest.json'}\ncomplete={str(manifest['complete']).lower()}\n")
+
+
+def upload_parts(parts: list[Path], lane: str, deadline: float, environ, clock=time.time) -> dict[str, str]:
+    """Puts every part in the store, UPLOAD_WORKERS at a time, each bounded by the deadline; returns the parts
+    that did not get there and why. The client does not self-update here (CMUX_CI_NO_UPDATE=1): an update
+    mid-capture spent 106 s of run 45845663445's 8 minutes, and a capture is no place to test a new client."""
+    from concurrent.futures import ThreadPoolExecutor
+    client = environ.get("CMUX_CI_CLIENT") or str(Path.home() / ".local/bin/cmux-ci")
+    env = {**os.environ, **environ, "CMUX_CI_NO_UPDATE": "1"}
+
+    def put(part: Path) -> str | None:
+        left = deadline - clock()
+        if left <= 0:
+            return "not started: the capture's time ran out"
+        try:
+            # Its own process group: the deadline stops the wrapper and the client under it together.
+            proc = subprocess.Popen([client, "artifact-put", str(part), "--sha256", sha256_file(part), "--lane", lane],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, env=env,
+                                    start_new_session=True)
+        except OSError as e:
+            return f"the client did not start: {e}"
+        try:
+            _, err = proc.communicate(timeout=left)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, 9)
+            proc.communicate()
+            return f"stopped at the capture's deadline after {left:.0f} s"
+        if proc.returncode:
+            return f"cmux-ci artifact-put exited {proc.returncode}: {(err or '').strip()[-300:]}"
+        return None
+
+    with ThreadPoolExecutor(UPLOAD_WORKERS) as pool:
+        results = list(pool.map(put, parts))
+    return {p.name: why for p, why in zip(parts, results) if why}
+
+
+def capture(a: argparse.Namespace, environ=os.environ, clock=time.time, budget=job_budget) -> int:
     out = Path(a.out)
+    deadline = None
+    if a.upload:
+        deadline, why = budget(environ, clock())
+        if deadline is None:
+            print(f"::notice::REF capture skipped: {why}")
+            return 0
+        print(f"hybrid-ref capture: {why}; packing and uploading until {deadline - clock():.0f} s from now")
     out.mkdir(parents=True, exist_ok=True)
     # The build's paths go in the manifest; the files are read from the snapshot of them.
     ws, dd, log = Path(a.workspace), Path(a.derived_data), Path(a.log)
@@ -245,7 +387,11 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
         "settings": settings(environ),
         "blobs": {},
     }
-    if manifest["complete"]:
+    covered = manifest["complete"]
+    if covered:
+        # Written now, so a step that dies packing or uploading still leaves an incomplete manifest.
+        manifest.update(complete=False, stage="packing")
+        write_manifest(out, manifest, environ)
         replace = {}
         if settings(environ)["CMUX_NEXT_BROWSER_DATA_IMPORT"] == "compiled-out":
             replace[BROWSER_SOURCES] = (read_ws / BROWSER_SOURCES_COMPILED_OUT).read_bytes()
@@ -259,26 +405,36 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
         write_tar(read_dd, packs / "build-noobj.tgz", DD_EXCLUDE)
         write_tar(read_ws, packs / "ws-src.tgz", WS_EXCLUDE, replace)
         shutil.copyfile(read_ws / RESOLVED, packs / "Package.resolved")
+        uploads = []
         for pack in sorted(packs.iterdir()):
             whole = {"sha256": sha256_file(pack), "size": pack.stat().st_size}
             parts = split(pack)
             whole["parts"] = [{"name": p.name, "sha256": sha256_file(p) if len(parts) > 1 else whole["sha256"],
                                "size": p.stat().st_size} for p in parts]
             manifest["blobs"][pack.name] = whole
-            for p in whole["parts"]:
-                if a.upload:
-                    client = environ.get("CMUX_CI_CLIENT") or str(Path.home() / ".local/bin/cmux-ci")
-                    subprocess.run([client, "artifact-put", str(packs / p["name"]), "--sha256", p["sha256"],
-                                    "--lane", a.lane], check=True, stdout=subprocess.DEVNULL)
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
-    if environ.get("GITHUB_OUTPUT"):
-        with open(environ["GITHUB_OUTPUT"], "a") as f:
-            f.write(f"manifest={out / 'manifest.json'}\ncomplete={str(manifest['complete']).lower()}\n")
+            uploads += parts
+        unfinished = {}
+        if a.upload:
+            manifest["stage"] = "uploading"
+            write_manifest(out, manifest, environ)
+            started = clock()
+            unfinished = upload_parts(uploads, a.lane, deadline, environ, clock)
+            manifest["upload_s"] = round(clock() - started)
+        if unfinished:
+            manifest.update(stage="upload unfinished", unfinished=unfinished)
+        else:
+            manifest.pop("stage")
+            manifest["complete"] = True
+    write_manifest(out, manifest, environ)
     sizes = sum(b["size"] for b in manifest["blobs"].values())
-    print(f"hybrid-ref capture {a.key[:12]}: {'complete' if manifest['complete'] else 'INCOMPLETE'}, "
+    state = "complete" if manifest["complete"] else "INCOMPLETE" + (f" ({manifest['stage']})" if "stage" in manifest else "")
+    print(f"hybrid-ref capture {a.key[:12]}: {state}, "
           f"{manifest['modules']} modules, {len(missing)} without a frontend line, {sizes >> 20} MiB packed"
+          + (f", uploaded in {manifest['upload_s']} s" if "upload_s" in manifest else "")
           + ("" if not missing else ": " + ", ".join(missing[:20])))
-    return 0
+    for name, why in sorted(manifest.get("unfinished", {}).items()):
+        print(f"::warning title=REF capture upload unfinished::{name}: {why}")
+    return 1 if manifest.get("unfinished") else 0
 
 
 class LookupFailed(Exception):

@@ -49,6 +49,8 @@ pub struct Approver<'a> {
 }
 
 /// The most prompts one person has waiting for the owner at once.
+/// Measured: a guest's prompts sit in the owner's queue, each one card the owner must read; 16 keeps
+/// one untrusted guest from burying it. The owner's own prompts are not counted.
 const MAX_HELD_PER_AUTHOR: usize = 16;
 
 /// `queue.too_many_held` when the prompt's author already has [`MAX_HELD_PER_AUTHOR`] prompts
@@ -104,7 +106,7 @@ impl Hub {
         by: &Approver<'_>,
     ) -> Result<(), RpcError> {
         if session.moving().is_some() {
-            return Err(moving_error());
+            return Err(moving_error(session));
         }
         {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -133,6 +135,8 @@ impl Hub {
             // Logged under the lock that approved it: the author's removal, which takes this lock
             // too, is logged after it, so the log's order is the queue's (`not_waiting`, restore).
             self.append(session, "mux", "queue_approved", msg);
+            let text = super::session::prompt_text(&q.run.blocks);
+            self.audit_queued(session, prompt_id, &text, true, Some(by.control));
         }
         session.queue_moved.notify_waiters();
         Ok(())
@@ -142,7 +146,7 @@ impl Hub {
     /// `remove_queued` does; its `session/prompt` answers `queue.declined`.
     pub fn decline_queued(&self, session: &Arc<Session>, prompt_id: &str) -> Result<(), RpcError> {
         if session.moving().is_some() {
-            return Err(moving_error());
+            return Err(moving_error(session));
         }
         let (removed, mut ledger) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -160,6 +164,8 @@ impl Hub {
             let msg = json!({"promptId": prompt_id, "turnId": removed.turn_id,
                              "revision": removed.revision, "declinedAt": now_ms()});
             self.append(session, "mux", "queue_declined", msg);
+            let text = super::session::prompt_text(&removed.run.blocks);
+            self.audit_queued(session, prompt_id, &text, false, None);
             (removed, ledger)
         };
         self.settle_removed(session, removed, &mut ledger, json!({"reason": "declined"}));
@@ -174,9 +180,54 @@ impl Hub {
     /// approved rules: those are returned, for the move to name in its manifest
     /// (`approvedWaiting`, `transfer_out.rs`), so that only a receiver whose own `initialize`
     /// listed [`crate::author::QUEUE_APPROVAL_FEATURE`] takes the bundle (review of #28859).
+    #[cfg(test)]
     pub(in crate::hub) fn held_prompts(&self, bundle: &Path) -> Result<Vec<String>, RpcError> {
+        self.held_prompts_with(None, bundle)
+    }
+
+    /// [`Self::held_prompts`] of a pre-copied move's log (`transfer_precopy.rs`): the records of
+    /// chat `prefix.0` through seq `prefix.1`, read from its log's kind index (the prefix is
+    /// checked to be the log's head under the freeze), then the bundle's.
+    pub(in crate::hub) fn held_prompts_with(
+        &self,
+        prefix: Option<(&str, u64)>,
+        bundle: &Path,
+    ) -> Result<Vec<String>, RpcError> {
+        let fold = match prefix {
+            Some((id, through)) => self.held_fold_through(id, through),
+            None => Ok(HeldFold::default()),
+        };
+        let fold =
+            fold.map_err(|e| RpcError::internal(format!("transfer: read approval snapshot: {e}")))?;
+        self.held_prompts_from(fold, bundle)
+    }
+
+    /// The fold of chat `id`'s records through seq `through`, read from its log's kind index.
+    pub(in crate::hub) fn held_fold_through(
+        &self,
+        id: &str,
+        through: u64,
+    ) -> anyhow::Result<HeldFold> {
+        let mut fold = HeldFold::default();
+        self.store.scan_kinds(id, &HeldFold::KINDS, &mut |e| {
+            let within = e.seq <= through;
+            if within {
+                fold.feed(e);
+            }
+            within
+        })?;
+        Ok(fold)
+    }
+
+    /// [`Self::held_prompts`] from `fold`, the log's records before the bundle's, then the
+    /// bundle's.
+    pub(in crate::hub) fn held_prompts_from(
+        &self,
+        mut fold: HeldFold,
+        bundle: &Path,
+    ) -> Result<Vec<String>, RpcError> {
         use std::io::BufRead;
-        let check = || -> anyhow::Result<(Vec<String>, Vec<String>)> {
+        let mut check = || -> anyhow::Result<(Vec<String>, Vec<String>)> {
             // Every segment, in name order, as import restores them (`copy_bundle_events`).
             let mut segments = Vec::new();
             for entry in std::fs::read_dir(bundle.join("events"))? {
@@ -186,48 +237,16 @@ impl Hub {
                 }
             }
             segments.sort();
-            let mut waiting = queue_waiting::Waiting::default();
-            let mut approved: HashMap<String, u64> = HashMap::new();
             for segment in segments {
                 let file = std::fs::File::open(segment)?;
                 for line in std::io::BufReader::new(file).lines() {
                     let line = line?;
-                    if line.trim().is_empty() {
-                        continue;
-                    }
-                    let e: EventRecord = serde_json::from_str(&line)?;
-                    let turn = e.msg.get("turnId");
-                    if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
-                        && let Some(id) = e.msg.get("promptId")
-                    {
-                        waiting.remove_other_turns(id, turn);
-                    }
-                    match e.kind.as_str() {
-                        "queued" => waiting.push(e),
-                        // Older daemons do not understand queue_declined. Until the subsequent
-                        // legacy queue_removed is in this snapshot, they would still run it.
-                        "queue_removed" | "user_message" | "turn_started" => {
-                            waiting.remove_turn(turn)
-                        }
-                        "queue_updated" => {
-                            if let Some(q) = waiting.first_of_turn(turn) {
-                                for k in ["revision", "awaitingOwner"] {
-                                    q.msg.set(k, e.msg.get(k).cloned().unwrap_or(Value::Null));
-                                }
-                            }
-                        }
-                        "queue_approved" => {
-                            if let (Some(turn), Some(revision)) = (
-                                turn.and_then(Value::as_str),
-                                e.msg.get("revision").and_then(Value::as_u64),
-                            ) {
-                                approved.insert(turn.to_owned(), revision);
-                            }
-                        }
-                        _ => {}
+                    if !line.trim().is_empty() {
+                        fold.feed(serde_json::from_str(&line)?);
                     }
                 }
             }
+            let HeldFold { waiting, approved } = std::mem::take(&mut fold);
             // Waiting for the owner, and approved at the revision it waits with.
             let (mut held, mut approved_waiting) = (Vec::new(), Vec::new());
             for q in waiting.into_records() {
@@ -326,3 +345,72 @@ impl Hub {
 #[cfg(test)]
 #[path = "queue_approve_tests.rs"]
 mod tests;
+
+/// The queue records a move checks for prompts waiting for the owner ([`Hub::held_prompts`]),
+/// folded in log order: the `queued` records still waiting, and each turn's approved revision.
+/// A history-later prepare keeps its fold through the prefix (`transfer_precopy.rs`), so the
+/// begin folds only the records past it.
+#[derive(Default)]
+pub(in crate::hub) struct HeldFold {
+    waiting: queue_waiting::Waiting,
+    approved: HashMap<String, u64>,
+}
+
+impl HeldFold {
+    pub(in crate::hub) const KINDS: [&'static str; 6] = [
+        "queued",
+        "user_message",
+        "turn_started",
+        "queue_removed",
+        "queue_updated",
+        "queue_approved",
+    ];
+
+    pub(in crate::hub) fn feed(&mut self, e: EventRecord) {
+        let turn = e.msg.get("turnId");
+        if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
+            && let Some(id) = e.msg.get("promptId")
+        {
+            self.waiting.remove_other_turns(id, turn);
+        }
+        match e.kind.as_str() {
+            "queued" => self.waiting.push(e),
+            // Older daemons do not understand queue_declined. Until the subsequent
+            // legacy queue_removed is in this snapshot, they would still run it.
+            "queue_removed" | "user_message" | "turn_started" => self.waiting.remove_turn(turn),
+            "queue_updated" => {
+                if let Some(q) = self.waiting.first_of_turn(turn) {
+                    for k in ["revision", "awaitingOwner"] {
+                        q.msg.set(k, e.msg.get(k).cloned().unwrap_or(Value::Null));
+                    }
+                }
+            }
+            "queue_approved" => {
+                if let (Some(turn), Some(revision)) =
+                    (turn.and_then(Value::as_str), e.msg.get("revision").and_then(Value::as_u64))
+                {
+                    self.approved.insert(turn.to_owned(), revision);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The fold as JSON: the records still waiting, in log order, and the approved revisions.
+    pub(in crate::hub) fn into_json(self) -> Value {
+        json!({"waiting": self.waiting.into_records(), "approved": self.approved})
+    }
+
+    /// The fold [`Self::to_json`] wrote: the waiting records pushed again in their order hold
+    /// the same state for the records that follow.
+    pub(in crate::hub) fn from_json(value: &Value) -> Option<Self> {
+        let records: Vec<EventRecord> =
+            serde_json::from_value(value.get("waiting")?.clone()).ok()?;
+        let approved = serde_json::from_value(value.get("approved")?.clone()).ok()?;
+        let mut fold = HeldFold { waiting: queue_waiting::Waiting::default(), approved };
+        for record in records {
+            fold.waiting.push(record);
+        }
+        Some(fold)
+    }
+}

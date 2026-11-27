@@ -12,6 +12,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { queuePauseReason } from "../src/agent-session/acpmux/queuePause";
 import { mergeQueue } from "../src/agent-session/acpmux/direct";
 import { ownQueue, queuedMessageRows } from "../src/agent-session/acpmux/conversation/queuedMessages";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "ResizeObserver", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -41,12 +42,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const queued = [
@@ -174,4 +172,28 @@ test("a Stop's hold of only agent messages keeps the paused note and its Resume"
   expect(host.querySelector(".acpmux-queue-paused")).not.toBeNull();
   expect(host.querySelectorAll(".acpmux-queue-resume").length).toBe(1);
   expect(host.querySelectorAll(".acpmux-queued").length).toBe(0);
+});
+
+// RFD 0128: once the composer status dot says the paused queue (its reason and Resume), the queue
+// drops its own note and keeps listing the prompts it holds.
+test("a pause the dot says draws no queue note, and the prompts still list", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
+  root ??= createRoot(host);
+  await act(async () =>
+    root!.render(
+      <ComposerQueue
+        queue={queued as never}
+        paused
+        pauseSaid
+        pauseReason="429 rate limited"
+        t={translatorFor("en")}
+        onRemove={async () => true}
+        onChange={async () => true}
+      />,
+    ),
+  );
+  expect(host.querySelector(".acpmux-queue-paused")).toBeNull();
+  expect(host.querySelectorAll(".acpmux-queue-resume").length).toBe(0);
+  expect(host.querySelectorAll(".acpmux-queued").length).toBe(2);
 });

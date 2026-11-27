@@ -19,7 +19,47 @@ impl Hub {
             .filter(|s| matches!(s.status(), SessionStatus::Running | SessionStatus::Waiting))
             .map(|s| s.id.clone())
             .collect();
-        crate::stats::summarize(&*self.store, options, &live)
+        // The profiles that run Claude Code over its stream (`HarnessKind::ClaudeStdio`), whatever
+        // they are named: their records' input was always the fresh part alone. Read once, so the
+        // pass holds no config lock.
+        let claude_stdio: HashSet<String> = match self.config.try_read() {
+            Ok(cfg) => cfg
+                .harnesses
+                .iter()
+                .filter(|(_, p)| p.kind == crate::config::HarnessKind::ClaudeStdio)
+                .map(|(name, _)| name.clone())
+                .collect(),
+            Err(_) => HashSet::new(),
+        };
+        crate::stats::summarize_with(&*self.store, options, &live, &|meta| {
+            claude_stdio.contains(&meta.harness) || meta.input_excludes_cache()
+        })
+    }
+
+    /// RFD 0161's replay of the logs `sessions` names (every one when empty) against its
+    /// cache-prefix invariants (`crate::scorecard_replay`): blocking, no model call.
+    pub fn scorecard_replay(&self, sessions: &[String]) -> Result<crate::scorecard_replay::Replay> {
+        crate::scorecard_replay::replay(&*self.store, sessions)
+    }
+
+    /// The harness-magic scorecard over every session log (`crate::scorecard`): blocking, one
+    /// pass over the store, reading the input of each harness as `stats` does.
+    pub fn scorecard(
+        &self,
+        options: &crate::scorecard::ScorecardOptions,
+    ) -> Result<crate::scorecard::Scorecard> {
+        let claude_stdio: HashSet<String> = match self.config.try_read() {
+            Ok(cfg) => cfg
+                .harnesses
+                .iter()
+                .filter(|(_, p)| p.kind == crate::config::HarnessKind::ClaudeStdio)
+                .map(|(name, _)| name.clone())
+                .collect(),
+            Err(_) => HashSet::new(),
+        };
+        crate::scorecard::summarize_with(&*self.store, options, &|meta| {
+            claude_stdio.contains(&meta.harness) || meta.input_excludes_cache()
+        })
     }
 
     /// After a restart: a session the dead daemon left waiting (a turn's

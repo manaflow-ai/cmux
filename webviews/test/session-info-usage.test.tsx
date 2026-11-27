@@ -28,6 +28,7 @@ import {
   usageStatsOf,
 } from "../src/agent-session/acpmux/usageStats";
 import { SessionPager, withUsage } from "../src/agent-session/acpmux/sessionPages";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -63,6 +64,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setSessionInfoMore(true);
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -425,6 +427,78 @@ test("the usage read asks _acpmux/sessions for usage on every page, as the cmux 
     for (const key of Object.keys(ask.params)) expect(policy.known_params["_acpmux/sessions"]!.params).toContain(key);
   }
   expect([...usage.keys()]).toEqual(["dep-fleet", "dep-land"]);
+});
+
+// At 10,000 chats the pages were 50 requests and every row's bytes on each Session Info show, for the
+// stats of the hundred or so chats of the last day. An acpmux with session-usage-v1 answers them alone
+// (`_acpmux/usage`, acpmux hub/usage_answer.rs), and `unchanged` while the digest the pane holds is current.
+test("with session-usage-v1 the usage read is one _acpmux/usage; shown again it sends its digest and keeps its stats", async () => {
+  const policy = JSON.parse(
+    readFileSync(path.resolve(import.meta.dir, "../../cmux-tui/crates/cmux-agent-pane-policy/policy.json"), "utf8"),
+  ) as { requests: string[]; known_params: Record<string, { params: string[] }> };
+  const asked: Array<{ method: string; params: Record<string, unknown> }> = [];
+  let digest = "run-1";
+  let usage: Record<string, unknown> = { "dep-fleet": stats({ costUsd24h: 1_500 }) };
+  const pager = new SessionPager(async (method, params) => {
+    asked.push({ method, params });
+    if (params.known === digest) return { digest, unchanged: true };
+    return { digest, usage };
+  });
+  pager.usageAlone = true;
+
+  const first = await pager.usage();
+  expect([...first.keys()]).toEqual(["dep-fleet"]);
+  const second = await pager.usage();
+  expect(second).toBe(first);
+  digest = "run-2";
+  usage = { "dep-fleet": stats({ costUsd24h: 1_600 }), "dep-land": stats({ costUsd24h: 10 }) };
+  const third = await pager.usage();
+  expect([...third.keys()]).toEqual(["dep-fleet", "dep-land"]);
+
+  expect(asked).toEqual([
+    { method: "_acpmux/usage", params: {} },
+    { method: "_acpmux/usage", params: { known: "run-1" } },
+    { method: "_acpmux/usage", params: { known: "run-1" } },
+  ]);
+  // The host refuses a method or param its policy lacks (#20644).
+  expect(policy.requests).toContain("_acpmux/usage");
+  for (const ask of asked)
+    for (const key of Object.keys(ask.params)) expect(policy.known_params["_acpmux/usage"]!.params).toContain(key);
+});
+
+test("a _acpmux/usage reply without stats (past a reply page) or a failed one reads the list's pages that time only", async () => {
+  const asked: string[] = [];
+  const replies: Array<() => unknown> = [
+    () => ({ digest: "run-1" }),
+    () => {
+      throw new Error("timed out");
+    },
+    () => ({ digest: "run-1", usage: { "dep-land": stats({ costUsd24h: 2 }) } }),
+  ];
+  const pager = new SessionPager(async (method) => {
+    asked.push(method);
+    if (method === "_acpmux/usage") return replies.shift()!();
+    return { sessions: [{ sessionId: "dep-fleet", usageStats: stats({ costUsd24h: 1 }) }], nextCursor: null };
+  });
+  pager.usageAlone = true;
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-fleet"]);
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-fleet"]);
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-land"]);
+  expect(asked).toEqual(["_acpmux/usage", "_acpmux/sessions", "_acpmux/usage", "_acpmux/sessions", "_acpmux/usage"]);
+  expect(pager.usageAlone).toBe(true);
+});
+
+test("a host that refuses _acpmux/usage (its pane policy predates it) gets the list's pages, now and after", async () => {
+  const asked: string[] = [];
+  const pager = new SessionPager(async (method) => {
+    asked.push(method);
+    if (method === "_acpmux/usage") throw { code: -32601, message: "Refused by the cmux host" };
+    return { sessions: [{ sessionId: "dep-fleet", usageStats: stats({ costUsd24h: 1 }) }], nextCursor: null };
+  });
+  pager.usageAlone = true;
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-fleet"]);
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-fleet"]);
+  expect(asked).toEqual(["_acpmux/usage", "_acpmux/sessions", "_acpmux/sessions"]);
 });
 
 test("withUsage lays newer numbers over the list, keeps a turn's newer ones, and keeps the array when nothing moved", () => {

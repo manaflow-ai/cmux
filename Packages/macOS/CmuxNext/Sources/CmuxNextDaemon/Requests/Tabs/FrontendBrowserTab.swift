@@ -22,6 +22,9 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
     public var url: String
     public var engine: BrowserEngine
     public var pane: PaneID?
+    /// `frontend-browser-tab-workspace-v1`, instead of `pane`: the tab goes in this workspace's pane, or in a
+    /// first pane the daemon makes when it has none, so no terminal is needed to host it.
+    public var workspace: WorkspaceHandle?
     public var title: String?
     public var faviconURL: String?
     public var profileID: String?
@@ -40,12 +43,13 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
     /// one daemon commit and one `pane-added` delta; `pane` never lists it (a link opened to the right).
     public var split: ConversationTabSplit?
 
-    public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, title: String? = nil, faviconURL: String? = nil,
+    public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, workspace: WorkspaceHandle? = nil, title: String? = nil, faviconURL: String? = nil,
                 profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil, after: SurfaceID? = nil,
                 split: ConversationTabSplit? = nil) {
         self.url = url
         self.engine = engine
         self.pane = pane
+        self.workspace = workspace
         self.title = title
         self.faviconURL = faviconURL
         self.profileID = profileID
@@ -59,7 +63,7 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
 
 /// Records navigation of a frontend-rendered browser tab. Emits
 /// `title-changed` (title) and `tab-changed`.
-public struct UpdateFrontendBrowserTabRequest: DaemonRequest {
+extension UpdateFrontendBrowserTabRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var surface: SurfaceID
         public var url: String
@@ -70,28 +74,6 @@ public struct UpdateFrontendBrowserTabRequest: DaemonRequest {
             case surface, url, title, changed
             case faviconURL = "favicon_url"
         }
-    }
-    public static let command = "update-frontend-browser-tab"
-    public static let requiredCapability: String? = DaemonCapability.frontendBrowserTabs.rawValue
-    public var surface: SurfaceID
-    public var url: String?
-    public var title: String?
-    public var faviconURL: FieldUpdate<String>
-
-    public init(surface: SurfaceID, url: String? = nil, title: String? = nil, faviconURL: FieldUpdate<String> = .unchanged) {
-        self.surface = surface
-        self.url = url
-        self.title = title
-        self.faviconURL = faviconURL
-    }
-
-    enum CodingKeys: String, CodingKey { case surface, url, title, faviconURL }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(surface, forKey: .surface)
-        try c.encodeIfPresent(url, forKey: .url)
-        try c.encodeIfPresent(title, forKey: .title)
-        try c.encode(faviconURL, forKey: .faviconURL)
     }
 }
 

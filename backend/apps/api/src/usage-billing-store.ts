@@ -15,6 +15,8 @@ export interface PushInfo {
   readonly sent_micros: number
   /** The event's timestamp (s): the next push of the period is dated after it. */
   readonly event_ts?: number
+  /** The period's pinned model overage markup in basis points (periodMarkupBp); absent = 10000, pass-through. */
+  readonly markup_bp?: number
 }
 
 /** What the sync saw on its last run for a billable subscription, for the console (team.ai_limit.get). */
@@ -23,6 +25,8 @@ export interface BillableInfo {
   readonly mode: IncludedMode
   readonly seats: number
   readonly included_usd: number
+  /** The period's pinned model overage markup in basis points (periodMarkupBp); absent = 10000, pass-through. */
+  readonly markup_bp?: number
 }
 
 const addColumns = (sql: SqlStorage, table: string, cols: ReadonlyArray<[string, string]>) => {
@@ -36,19 +40,24 @@ export const ensureBillingTables = (sql: SqlStorage) => {
   // Billable subscriptions the usage sync saw for this team (the included-amount stop, cx-y79zh S5).
   sql.exec(`CREATE TABLE IF NOT EXISTS usage_billable (subscription TEXT PRIMARY KEY, period_end INTEGER NOT NULL, seen_at INTEGER NOT NULL)`)
   // An object made with the first usage_push shape (no period_end) gets the column; 0 = unknown, never a final push (review P2).
-  addColumns(sql, "usage_push", [["period_end", "INTEGER NOT NULL DEFAULT 0"], ["mode", "TEXT"], ["seats", "INTEGER NOT NULL DEFAULT 1"], ["included_usd", "REAL"], ["sent_micros", "INTEGER"], ["event_ts", "INTEGER"]])
-  addColumns(sql, "usage_billable", [["period_start", "INTEGER"], ["mode", "TEXT"], ["seats", "INTEGER"], ["included_usd", "REAL"]])
+  addColumns(sql, "usage_push", [["period_end", "INTEGER NOT NULL DEFAULT 0"], ["mode", "TEXT"], ["seats", "INTEGER NOT NULL DEFAULT 1"], ["included_usd", "REAL"], ["sent_micros", "INTEGER"], ["event_ts", "INTEGER"], ["markup_bp", "INTEGER"]])
+  addColumns(sql, "usage_billable", [["period_start", "INTEGER"], ["mode", "TEXT"], ["seats", "INTEGER"], ["included_usd", "REAL"], ["markup_bp", "INTEGER"]])
   // The operator's included-mode setting for a Team customer (cx-y79zh.1, Lawrence 2026-10-14), every change kept.
+  // Paid renewal invoices the usage sync saw (the raise lock, billing-catalog.ts teamCapUnpaidMaxPools): one row is enough.
+  sql.exec(`CREATE TABLE IF NOT EXISTS usage_paid_invoice (invoice TEXT PRIMARY KEY, subscription TEXT NOT NULL, amount_paid INTEGER NOT NULL, paid_at INTEGER NOT NULL, seen_at INTEGER NOT NULL)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS usage_mode_setting (seq INTEGER PRIMARY KEY AUTOINCREMENT, mode TEXT NOT NULL, set_at INTEGER NOT NULL, actor TEXT NOT NULL, reason TEXT)`)
 }
 
 /**
  * The team's included mode for a period that starts at `periodStartMs`: the last setting made at or
  * before that start, so a change applies from the next period start, never inside a running period.
- * New teams (no setting) are per team.
+ * A team with no setting gets `fallback`, its plan's default in the price set in force
+ * (billing-catalog.ts defaultIncludedMode: per seat for Team in v2, else per team).
  */
-export const teamModeAt = (sql: SqlStorage, periodStartMs: number): IncludedMode =>
-  modeOf(sql.exec<{ mode: string }>(`SELECT mode FROM usage_mode_setting WHERE set_at <= ? ORDER BY set_at DESC, seq DESC LIMIT 1`, periodStartMs).toArray()[0]?.mode)
+export const teamModeAt = (sql: SqlStorage, periodStartMs: number, fallback: IncludedMode = "per_team"): IncludedMode => {
+  const row = sql.exec<{ mode: string }>(`SELECT mode FROM usage_mode_setting WHERE set_at <= ? ORDER BY set_at DESC, seq DESC LIMIT 1`, periodStartMs).toArray()[0]
+  return row ? modeOf(row.mode) : fallback
+}
 
 export interface ModeChange {
   readonly mode: IncludedMode
@@ -57,15 +66,15 @@ export interface ModeChange {
   readonly reason: string | null
 }
 
-/** The setting history, newest first, and the mode the latest setting asks for. */
-export const teamModeHistory = (sql: SqlStorage, limit = 20): { readonly requested: IncludedMode; readonly changes: ReadonlyArray<ModeChange> } => {
+/** The setting history, newest first, and the mode the latest setting asks for (`fallback` with no setting). */
+export const teamModeHistory = (sql: SqlStorage, limit = 20, fallback: IncludedMode = "per_team"): { readonly requested: IncludedMode; readonly changes: ReadonlyArray<ModeChange> } => {
   const changes = sql.exec<{ mode: string; set_at: number; actor: string; reason: string | null }>(`SELECT mode, set_at, actor, reason FROM usage_mode_setting ORDER BY set_at DESC, seq DESC LIMIT ?`, limit).toArray().map((r) => ({ mode: modeOf(r.mode), set_at: Number(r.set_at), actor: r.actor, reason: r.reason }))
-  return { requested: changes[0]?.mode ?? "per_team", changes }
+  return { requested: changes[0]?.mode ?? fallback, changes }
 }
 
 /** Records an operator's setting (a no-op when the latest setting already asks for `mode`). */
-export const setTeamMode = (sql: SqlStorage, mode: IncludedMode, actor: string, reason: string | null, now: number): { readonly before: IncludedMode; readonly changed: boolean } => {
-  const before = teamModeHistory(sql, 1).requested
+export const setTeamMode = (sql: SqlStorage, mode: IncludedMode, actor: string, reason: string | null, now: number, fallback: IncludedMode = "per_team"): { readonly before: IncludedMode; readonly changed: boolean } => {
+  const before = teamModeHistory(sql, 1, fallback).requested
   const hasAny = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM usage_mode_setting`).one().n > 0
   if (before === mode && hasAny) return { before, changed: false }
   sql.exec(`INSERT INTO usage_mode_setting (mode, set_at, actor, reason) VALUES (?, ?, ?, ?)`, mode, now, actor, reason)
@@ -85,14 +94,14 @@ const modeOf = (v: unknown): IncludedMode => (v === "per_seat" ? "per_seat" : "p
 
 export const markBillable = (sql: SqlStorage, subscription: string, periodEnd: number, now: number, info?: BillableInfo) =>
   sql.exec(
-    `INSERT INTO usage_billable (subscription, period_end, seen_at, period_start, mode, seats, included_usd) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (subscription) DO UPDATE SET period_end = excluded.period_end, seen_at = excluded.seen_at, period_start = excluded.period_start, mode = excluded.mode, seats = excluded.seats, included_usd = excluded.included_usd`,
-    subscription, periodEnd, now, info?.period_start ?? null, info?.mode ?? null, info?.seats ?? null, info?.included_usd ?? null
+    `INSERT INTO usage_billable (subscription, period_end, seen_at, period_start, mode, seats, included_usd, markup_bp) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (subscription) DO UPDATE SET period_end = excluded.period_end, seen_at = excluded.seen_at, period_start = excluded.period_start, mode = excluded.mode, seats = excluded.seats, included_usd = excluded.included_usd, markup_bp = excluded.markup_bp`,
+    subscription, periodEnd, now, info?.period_start ?? null, info?.mode ?? null, info?.seats ?? null, info?.included_usd ?? null, info?.markup_bp ?? null
   )
 
 /** The freshest billable mark that is still in force (BILLABLE_GRACE_MS, usage-user.ts), with what the sync saw. */
 export const currentBillable = (sql: SqlStorage, now: number, graceMs: number): ({ subscription: string; period_end: number } & Partial<BillableInfo>) | null => {
-  const row = sql.exec<{ subscription: string; period_end: number; period_start: number | null; mode: string | null; seats: number | null; included_usd: number | null }>(
-    `SELECT subscription, period_end, period_start, mode, seats, included_usd FROM usage_billable WHERE period_end * 1000 + ? > ? AND seen_at > ? ORDER BY seen_at DESC LIMIT 1`,
+  const row = sql.exec<{ subscription: string; period_end: number; period_start: number | null; mode: string | null; seats: number | null; included_usd: number | null; markup_bp: number | null }>(
+    `SELECT subscription, period_end, period_start, mode, seats, included_usd, markup_bp FROM usage_billable WHERE period_end * 1000 + ? > ? AND seen_at > ? ORDER BY seen_at DESC LIMIT 1`,
     graceMs, now, now - graceMs
   ).toArray()[0]
   if (!row) return null
@@ -102,19 +111,20 @@ export const currentBillable = (sql: SqlStorage, now: number, graceMs: number): 
     ...(row.period_start !== null ? { period_start: Number(row.period_start) } : {}),
     ...(row.mode !== null ? { mode: modeOf(row.mode) } : {}),
     ...(row.seats !== null ? { seats: Number(row.seats) } : {}),
-    ...(row.included_usd !== null ? { included_usd: Number(row.included_usd) } : {})
+    ...(row.included_usd !== null ? { included_usd: Number(row.included_usd) } : {}),
+    ...(row.markup_bp !== null ? { markup_bp: Number(row.markup_bp) } : {})
   }
 }
 
-export const pushState = (sql: SqlStorage, subscription: string, periodStart: number): { identifier: string; mode: IncludedMode; seats: number; event_ts: number | null } | null => {
-  const row = sql.exec<{ identifier: string; mode: string | null; seats: number; event_ts: number | null }>(`SELECT identifier, mode, seats, event_ts FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
-  return row ? { identifier: row.identifier, mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)), event_ts: row.event_ts === null ? null : Number(row.event_ts) } : null
+export const pushState = (sql: SqlStorage, subscription: string, periodStart: number): { identifier: string; mode: IncludedMode; seats: number; event_ts: number | null; included_usd: number | null } | null => {
+  const row = sql.exec<{ identifier: string; mode: string | null; seats: number; event_ts: number | null; included_usd: number | null }>(`SELECT identifier, mode, seats, event_ts, included_usd FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
+  return row ? { identifier: row.identifier, mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)), event_ts: row.event_ts === null ? null : Number(row.event_ts), included_usd: row.included_usd === null ? null : Number(row.included_usd) } : null
 }
 
 export const recordPush = (sql: SqlStorage, subscription: string, periodStart: number, periodEnd: number, identifier: string, micros: number, now: number, info?: PushInfo) =>
   sql.exec(
-    `INSERT INTO usage_push (subscription, period_start, period_end, identifier, micros, pushed_at, mode, seats, included_usd, sent_micros, event_ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (subscription, period_start) DO UPDATE SET period_end = excluded.period_end, identifier = excluded.identifier, micros = excluded.micros, pushed_at = excluded.pushed_at, mode = excluded.mode, seats = excluded.seats, included_usd = excluded.included_usd, sent_micros = excluded.sent_micros, event_ts = excluded.event_ts`,
-    subscription, periodStart, periodEnd, identifier, micros, now, info?.mode ?? "per_team", info?.seats ?? 1, info?.included_usd ?? null, info?.sent_micros ?? micros, info?.event_ts ?? null
+    `INSERT INTO usage_push (subscription, period_start, period_end, identifier, micros, pushed_at, mode, seats, included_usd, sent_micros, event_ts, markup_bp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (subscription, period_start) DO UPDATE SET period_end = excluded.period_end, identifier = excluded.identifier, micros = excluded.micros, pushed_at = excluded.pushed_at, mode = excluded.mode, seats = excluded.seats, included_usd = excluded.included_usd, sent_micros = excluded.sent_micros, event_ts = excluded.event_ts, markup_bp = excluded.markup_bp`,
+    subscription, periodStart, periodEnd, identifier, micros, now, info?.mode ?? "per_team", info?.seats ?? 1, info?.included_usd ?? null, info?.sent_micros ?? micros, info?.event_ts ?? null, info?.markup_bp ?? null
   )
 
 /** The latest period before `beforeStart` that the sync sent for this subscription, with its mode and seats (its final push after renewal). */
@@ -125,3 +135,29 @@ export const previousPush = (sql: SqlStorage, subscription: string, beforeStart:
   ).toArray()[0]
   return row ? { period_start: Number(row.period_start), period_end: Number(row.period_end), mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)), included_usd: row.included_usd === null ? null : Number(row.included_usd) } : null
 }
+
+/** Pass-through, in basis points: the markup of every period from before markups were pinned. */
+export const PASS_THROUGH_BP = 10_000
+
+/**
+ * The model overage markup pinned to the billing period that starts at `periodStart` (s), in basis points, like its
+ * included amount: the first push or billable mark of the period stores the markup of the price set then in force, and
+ * every later read of the period (the sync, the levels read, the console, the team cap) uses it until the period
+ * closes, so a set change applies from the next period and never lowers (or raises) a running period's level. A row
+ * from before markups were pinned has none: pass-through (every level was sent at cost then). A period with no row
+ * yet takes `fallbackBp` (the set in force now).
+ */
+export const periodMarkupBp = (sql: SqlStorage, periodStart: number, fallbackBp: number): number => {
+  const pushed = sql.exec<{ markup_bp: number | null }>(`SELECT markup_bp FROM usage_push WHERE period_start = ? ORDER BY pushed_at DESC LIMIT 1`, periodStart).toArray()[0]
+  if (pushed) return pushed.markup_bp === null ? PASS_THROUGH_BP : Number(pushed.markup_bp)
+  const marked = sql.exec<{ markup_bp: number | null }>(`SELECT markup_bp FROM usage_billable WHERE period_start = ? ORDER BY seen_at DESC LIMIT 1`, periodStart).toArray()[0]
+  if (marked) return marked.markup_bp === null ? PASS_THROUGH_BP : Number(marked.markup_bp)
+  return fallbackBp
+}
+
+/** A paid renewal invoice the usage sync saw (paid_at in s). Idempotent: the first sighting is kept. */
+export const markPaidInvoice = (sql: SqlStorage, invoice: string, subscription: string, amountPaid: number, paidAt: number, now: number) =>
+  sql.exec(`INSERT OR IGNORE INTO usage_paid_invoice (invoice, subscription, amount_paid, paid_at, seen_at) VALUES (?, ?, ?, ?, ?)`, invoice, subscription, Math.round(amountPaid), Math.round(paidAt), now)
+
+/** Whether the account has paid one renewal invoice (the raise lock lifts then, for good). */
+export const hasPaidInvoice = (sql: SqlStorage): boolean => sql.exec(`SELECT 1 FROM usage_paid_invoice LIMIT 1`).toArray().length > 0

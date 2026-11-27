@@ -1,4 +1,14 @@
+import { CLOUD_SETUP_REQUIRED, readCloudSetupNeed, type CloudSetupNeed } from "./cloudSetup";
 import type { CloudStartAnswer } from "./cloudRun";
+import type { CloudStartPick } from "./newtab/draftFolder";
+import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
+import {
+  cloudPlansNamed,
+  cloudSizeLocked,
+  cloudSizeLockedMessage,
+  type CloudPlanId,
+  type CloudSizeLocked,
+} from "./cloudPlans";
 import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { sliceWhole } from "../../ui/wholeChars";
@@ -25,9 +35,18 @@ export type CloudStartProgress = {
   key: string;
   /// The person's message.
   task: string;
+  /// Messages sent with Return while the start ran ("just go", cloudStartJustGo): they show under the
+  /// message and go with the started chat's first prompt (the host joins them, `chat.cloudStartQueue`).
+  queued?: string[];
   state: "starting" | "failed";
+  /// The agent and model the start runs (`harness` id, `model` id): the composer's model chip names them while the
+  /// start shows, so it never reads the picker's default (Opus) for a start that went as GPT-6.1 Sol (cmux#45774).
+  pick?: CloudStartPick;
   /// The folder's name (its last path part).
   folder?: string;
+  /// The folder the start copies, whole (trailing slashes dropped): the composer's folder chip names it while the
+  /// start shows, so it never reads No folder for a start that went with one (cmux#46023).
+  cwd?: string;
   step?: CloudStartStep;
   /// The machine's name, and its size as the host words it ("4 CPU, 16 GB").
   machine?: string;
@@ -40,8 +59,17 @@ export type CloudStartProgress = {
   message?: string;
   /// A stable host refusal code, used to attach recovery to the matching failure.
   code?: string;
+  /// A plan refusal in a team (`cloud_plan_required` with the host's teams): the card says "This team
+  /// has no Cloud plan", names the team and offers the person's own (cloudPlanTeams.ts).
+  planTeam?: CloudPlanTeamRefusal;
+  /// The plans a `cloud_plan_required` refusal named for the pricing card (cloudPlans.ts `cloudPlansNamed`); none
+  /// named: the card offers cmux NEXT's own.
+  plans?: CloudPlanId[];
   /// The start waits on the person's browser sign-in (`cloud.signIn`): the card says so, not "starting".
   signingIn?: true;
+  /// No connection serves the picker's model (`cloud_setup_required`): the chat shows Set up Cloud
+  /// (cloudSetup.ts), naming it; with `signingIn`, it waits for the connection a button began.
+  cloudSetup?: CloudSetupNeed;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
   agent?: string;
   /// No project: nothing is copied, so the card shows no copy step.
@@ -51,9 +79,15 @@ export type CloudStartProgress = {
   repository?: string;
   /// The environment whose setup status is being reported by cmux-platform.
   environmentId?: string;
+  /// The environment selected for this start. Kept separately from `environmentId` because a failed
+  /// plan may not have returned the resolved id yet; Retry must still name the same target.
+  environment?: string;
   /// Client-side timing for the machine and harness phases. Milliseconds since epoch.
   machineStartedAt?: number;
   machineFinishedAt?: number;
+  /// The machine step waits out a pause or a resume in flight (the host's `waking`, decided by Rust's
+  /// `cloud_move_settle`, ask-259986a6c4): the card says "Waking machine".
+  waking?: boolean;
   harnessStartedAt?: number;
   harnessFinishedAt?: number;
   /// The git-seed status, forwarded from `git.seed.status`.
@@ -69,7 +103,76 @@ export type CloudStartProgress = {
   /// This Mac's pane refused the start before it reached Cloud (a `transport.*` code: a folder that
   /// is not the tab's own, a Send without a gesture): no step ran, so the checklist marks none failed.
   refusedHere?: boolean;
+  /// The host has said nothing about this start for CLOUD_START_STALL_MS (no push, no answer) while
+  /// nothing waits on the person: the card says so. The composer is open throughout a start and what
+  /// is typed moves to the chat as a draft. It holds until the start ends.
+  stalled?: true;
+  /// When the start last moved (cloudStartPushed): a step, a phase, a count or a byte more. Milliseconds
+  /// since epoch. A push that repeats what the card already shows does not move it, so a copy that keeps
+  /// saying "0 of 46,516 files" four times a second still stalls.
+  advancedAt?: number;
+  /// A folder too big to copy that is not a git repository (`cloud_folder_too_big`, the host's check before
+  /// any machine): the card says why and offers the repositories inside it, another folder or none.
+  tooBig?: CloudFolderTooBig;
+  /// The folder needs a larger machine than the plan includes (`cloud_size_locked`): the card names the size and
+  /// offers the plan that includes it (none: the largest plan already), This Mac and Retry.
+  sizeLocked?: CloudSizeLocked;
 };
+
+/// The host's `cloud_folder_too_big` details (CloudMoveCLI.StartChatPreflightRefusal `details`).
+export type CloudFolderTooBig = {
+  /// The folder as the person reads it (`~/Projects`).
+  folder: string;
+  /// The git working copies right inside it, by name below it (`cmux`, `work/api`), each a one-click start.
+  repos: { name: string; path: string }[];
+  /// More repositories than `repos` names.
+  more: boolean;
+};
+
+/// The most repositories the card offers, as the host bounds them (cmux-tui `preflight::MAX_REPOS`).
+const MAX_TOO_BIG_REPOS = 24;
+
+/// The host's details of a `cloud_folder_too_big`, each field checked; the card's words for it.
+export function cloudFolderTooBig(details: unknown): { tooBig: CloudFolderTooBig; message: string } {
+  const record = asRecord(details) ?? {};
+  const folder = typeof record.folder === "string" && record.folder ? sliceWhole(record.folder, 160) : "";
+  const repos = (Array.isArray(record.repos) ? record.repos : [])
+    .map((repo) => asRecord(repo))
+    .filter(
+      (repo): repo is Record<string, unknown> =>
+        Boolean(repo) &&
+        typeof repo?.name === "string" &&
+        repo.name.length > 0 &&
+        typeof repo.path === "string" &&
+        repo.path.startsWith("/"),
+    )
+    .slice(0, MAX_TOO_BIG_REPOS)
+    .map((repo) => ({ name: sliceWhole(repo.name as string, 120), path: repo.path as string }));
+  const bytes = number(record.bytes);
+  const files = number(record.files);
+  const size =
+    bytes !== undefined && files !== undefined
+      ? translate("cloudStartup.folderSize", { size: folderSizeText(bytes), files: files.toLocaleString() })
+      : bytes !== undefined
+        ? folderSizeText(bytes)
+        : "?";
+  const named = folder || "~";
+  const message = repos.length
+    ? translate("cloudStartup.folderTooBigRepos", { folder: named, size })
+    : translate("cloudStartup.folderTooBig", { folder: named, size });
+  return {
+    tooBig: { folder: named, repos, more: record.more === true },
+    message,
+  };
+}
+
+/// `bytes` as the copy's limit words it (cmux-tui size_cap `size`): GB of 1024³, one decimal under 100 GB; MB under 1 GB.
+export function folderSizeText(bytes: number): string {
+  const gb = 1024 ** 3;
+  if (bytes >= 100 * gb) return `${Math.round(bytes / gb)} GB`;
+  if (bytes >= gb) return `${(Math.round((bytes / gb) * 10) / 10).toString()} GB`;
+  return `${Math.round(bytes / 1024 ** 2)} MB`;
+}
 
 /// What a start asks (AgentPaneCloudAsk): its first Claude login, the one-time login copy consent, Codex's
 /// Mac sign-in consent, Codex's device code. The host words it; the card draws it and answers with the
@@ -131,6 +234,9 @@ export type CloudStartupOperation = {
   fallback?: string;
   /// The cmux GitHub App's install page, when the machine could not read a private repository.
   installUrl?: string;
+  /// A very large folder's first pass: how many files stayed on this Mac (`left_on_mac`), so the card
+  /// does not read a partial copy as complete. Absent when nothing was left.
+  leftOnMac?: number;
   progress?: {
     receivedBytes?: number;
     objects?: number;
@@ -162,17 +268,31 @@ export function cloudStartBegun(
   agent?: string,
   home?: boolean,
   signingIn?: boolean,
+  cloudSetup?: CloudSetupNeed,
+  pick?: CloudStartPick,
+  environment?: string,
 ): CloudStartProgress {
-  const folder = cwd?.replace(/\/+$/, "").split("/").pop();
+  const whole = cwd?.replace(/\/+$/, "");
+  const folder = whole?.split("/").pop();
   return {
     key,
     task,
     state: "starting",
-    ...(folder ? { folder } : {}),
+    ...(folder ? { folder, cwd: whole } : {}),
     ...(agent ? { agent } : {}),
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),
+    ...(cloudSetup ? { cloudSetup } : {}),
+    ...(environment ? { environment } : {}),
+    ...(pick ? { pick } : {}),
   };
+}
+
+/// A Cloud send the page held back because the account has no Cloud plan (`cloudMachine.list` `plan.state` `none`):
+/// nothing went to the host, and the card shows the plans in the start's place (CloudStartView), as for the
+/// platform's own `cloud_plan_required`.
+export function cloudStartPlanHeld(key: string, task: string, cwd: string | undefined): CloudStartProgress {
+  return { ...cloudStartBegun(key, task, cwd), state: "failed", code: "cloud_plan_required", refusedHere: true };
 }
 
 /// Start `key`'s sign-in came back signed in and the start goes on: the card leaves its waiting for
@@ -182,7 +302,7 @@ export function cloudStartSignedIn(
   key: string,
 ): CloudStartProgress | undefined {
   if (current?.key !== key || !current.signingIn) return current;
-  const { signingIn: _signedIn, ...started } = current;
+  const { signingIn: _signedIn, cloudSetup: _cloudSetup, ...started } = current;
   return started;
 }
 
@@ -204,10 +324,61 @@ function logLine(value: unknown, max: number): string | undefined {
 export function cloudStartPushed(
   current: CloudStartProgress | undefined,
   push: unknown,
+  now: number = Date.now(),
 ): CloudStartProgress | undefined {
+  const pushed = pushedFields(current, push);
+  if (!current || !pushed || pushed === current) return pushed;
+  const next = stepTimes(current, pushed, now);
+  // Only a push that moved the start counts as word from the host (watchCloudStartStall).
+  const moved = current.advancedAt === undefined || cloudStartMark(next) !== cloudStartMark(current);
+  return { ...next, advancedAt: moved ? now : current.advancedAt };
+}
+
+/// The client-side times of `next`'s steps, from when this page saw each begin, where the host sent none:
+/// the machine from its `machine` step, its end (and so the copy's start) at the next step, the agent's
+/// start at `opening`. The host's own times win. A running copy's later lines keep its start time, so its
+/// step line's clock never resets to zero mid-copy (Austin, 2026-11-24: "show the seconds").
+function stepTimes(current: CloudStartProgress, next: CloudStartProgress, now: number): CloudStartProgress {
+  const stamped = { ...next };
+  if (next.step !== current.step) {
+    if (next.step === "machine") stamped.machineStartedAt ??= now;
+    if (next.step === "folder" || next.step === "opening") stamped.machineFinishedAt ??= now;
+    if (next.step === "opening") stamped.harnessStartedAt ??= now;
+  }
+  const kept = current.clone?.startedAt;
+  if (stamped.clone && stamped.clone.startedAt === undefined && kept !== undefined)
+    stamped.clone = { ...stamped.clone, startedAt: kept };
+  return stamped;
+}
+
+/// What of a start shows that it moves: its step, each step's state and phase, and the clone's counts.
+/// Times, words and repeats are not in it.
+function cloudStartMark(start: CloudStartProgress): string {
+  const clone = start.clone;
+  const setup = start.setup;
+  return JSON.stringify([
+    start.step,
+    start.initialized,
+    Boolean(start.ask),
+    Boolean(start.signingIn),
+    start.machineFinishedAt,
+    start.harnessStartedAt,
+    clone?.state,
+    clone?.phase,
+    clone?.progress?.filesDone,
+    clone?.progress?.receivedBytes,
+    clone?.progress?.objects,
+    setup?.state,
+    setup?.status,
+    setup?.logTail?.length,
+  ]);
+}
+
+function pushedFields(current: CloudStartProgress | undefined, push: unknown): CloudStartProgress | undefined {
   if (!current || current.state !== "starting" || typeof push !== "object" || push === null) return current;
   const fields = push as Record<string, unknown>;
   if (fields.key !== current.key) return current;
+  // A stalled start stays stalled until it ends; the steps still move.
   const next = { ...current };
   const step = CLOUD_START_STEPS.indexOf(fields.step as CloudStartStep);
   if (step >= 0 && step >= (current.step ? CLOUD_START_STEPS.indexOf(current.step) : -1))
@@ -229,6 +400,8 @@ export function cloudStartPushed(
   const directMachineFinished = number(fields.machineFinishedAt ?? fields.machine_finished_at);
   const directHarnessStarted = number(fields.harnessStartedAt ?? fields.harness_started_at);
   const directHarnessFinished = number(fields.harnessFinishedAt ?? fields.harness_finished_at);
+  if (fields.waking === true) next.waking = true;
+  if (fields.waking === false) delete next.waking;
   if (directMachineStarted !== undefined) next.machineStartedAt = directMachineStarted;
   if (directMachineFinished !== undefined) next.machineFinishedAt = directMachineFinished;
   if (directHarnessStarted !== undefined) next.harnessStartedAt = directHarnessStarted;
@@ -249,10 +422,16 @@ export function cloudStartPushed(
     if (machineTiming) Object.assign(next, prefixedTiming("machine", machineTiming));
     if (harnessTiming) Object.assign(next, prefixedTiming("harness", harnessTiming));
   }
-  const clone = operation(fields.clone ?? fields.gitSeed ?? fields.seed ?? fields["git.seed"]);
+  const cloneFields = fields.clone ?? fields.gitSeed ?? fields.seed ?? fields["git.seed"];
+  const clone = operation(cloneFields);
   // The copy's final answer does not repeat why a seed copied: its live lines said so, and it stays.
   const ended = clone?.state === "done" || clone?.state === "failed";
-  if (clone) next.clone = ended ? { ...pick(next.clone, ["fallback", "installUrl"]), ...clone } : clone;
+  if (clone) next.clone = ended ? { ...pick(next.clone, ["fallback", "installUrl", "leftOnMac"]), ...clone } : clone;
+  else {
+    // A plain copy's end reports no seed state, only the files its first pass left here: the copy is over.
+    const leftOnMac = filesLeftOnMac(asRecord(cloneFields));
+    if (leftOnMac !== undefined) next.clone = { ...(next.clone ?? { state: "done" }), leftOnMac };
+  }
   const setup = setupStatus(fields.setup ?? fields.environment);
   if (setup) next.setup = setup;
   // The host's question: `null` takes it away (answered, or the wait ended); a malformed one changes nothing.
@@ -311,6 +490,12 @@ function pick<T extends object, K extends keyof T>(value: T | undefined, keys: r
   return picked;
 }
 
+/** A first pass's count of files left on this Mac (`left_on_mac`): a positive whole number, else undefined. */
+function filesLeftOnMac(record: Record<string, unknown> | undefined): number | undefined {
+  const left = number(record?.leftOnMac ?? record?.left_on_mac);
+  return left !== undefined && Number.isSafeInteger(left) && left > 0 ? left : undefined;
+}
+
 function operation(value: unknown): CloudStartupOperation | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
@@ -349,6 +534,7 @@ function operation(value: unknown): CloudStartupOperation | undefined {
     : undefined;
   const fallback = line(record.fallback, 80);
   const installUrl = httpsUrl(record.installUrl ?? record.install_url);
+  const leftOnMac = filesLeftOnMac(record);
   return {
     state,
     ...(startedAt !== undefined && { startedAt }),
@@ -357,6 +543,7 @@ function operation(value: unknown): CloudStartupOperation | undefined {
     ...(phase && { phase }),
     ...(fallback && { fallback }),
     ...(installUrl && { installUrl }),
+    ...(leftOnMac !== undefined && { leftOnMac }),
     ...(progress && Object.keys(progress).length > 0 && { progress }),
   };
 }
@@ -414,9 +601,58 @@ export function cloudStartEnded(
   // The pane's own refusal (AgentPaneCloudStart: the folder check, the gesture) is worded by its
   // code, never the host's generic "The app refused the agent connection." (cloudRefusalText).
   const refusedHere = answer.code.startsWith("transport.") || REFUSED_HERE.has(answer.code);
-  const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
+  // The team's spending cap or the member's own budget refused the machine's start (cmux-platform SpendCap.ts):
+  // the host passes the backend's words, which name it; the card says it in the person's language, with
+  // Run on This Mac (CloudStartView), since another try fails the same way until an admin raises it.
+  const spend = refusedHere ? undefined : spendRefusal(answer.code, answer.message);
+  if (spend) {
+    const { signingIn: _s, ask: _a, retryable: _r, ...rest } = current;
+    return { ...rest, state: "failed", code: spend, message: translate(SPEND_WORDS[spend]) };
+  }
+  // The folder needs a larger machine than the plan includes (the platform's size check before any machine): the
+  // size in plain words and the plan that includes it; Retry stays, for after an upgrade.
+  const locked = answer.code === "cloud_size_locked" ? cloudSizeLocked(answer.details) : undefined;
+  if (locked) {
+    const { signingIn: _s, ask: _a, planTeam: _p, plans: _pl, stalled: _st, ...rest } = current;
+    return {
+      ...rest,
+      state: "failed",
+      code: answer.code,
+      message: cloudSizeLockedMessage(locked),
+      sizeLocked: locked,
+      retryable: true,
+    };
+  }
+  // A folder too big to copy (the host's check before any machine): no step ran, no Retry, the folder's way on instead.
+  if (answer.code === "cloud_folder_too_big") {
+    const { signingIn: _s, ask: _a, retryable: _r, planTeam: _p, plans: _pl, stalled: _st, ...rest } = current;
+    const tooBig = cloudFolderTooBig(answer.details);
+    return {
+      ...rest,
+      state: "failed",
+      code: answer.code,
+      message: tooBig.message,
+      tooBig: tooBig.tooBig,
+      refusedHere: true,
+    };
+  }
+  const message = refusedHere
+    ? cloudRefusalText(answer.code, answer.message)
+    : (hostFailureText(answer.code, answer.message) ?? line(answer.message, 240));
   // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
-  const { signingIn: _signingIn, ask: _ask, ...ended } = current;
+  const {
+    signingIn: _signingIn,
+    ask: _ask,
+    planTeam: _planTeam,
+    plans: _plans,
+    stalled: _stalled,
+    cloudSetup: _cloudSetup,
+    sizeLocked: _sizeLocked,
+    ...ended
+  } = current;
+  const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
+  const plans = answer.code === "cloud_plan_required" ? cloudPlansNamed(answer.details) : undefined;
+  const cloudSetup = answer.code === CLOUD_SETUP_REQUIRED ? readCloudSetupNeed(answer.details) : undefined;
   return {
     ...ended,
     state: "failed",
@@ -424,6 +660,9 @@ export function cloudStartEnded(
     ...(message ? { message } : {}),
     ...(refusedHere ? { refusedHere } : {}),
     ...(answer.retryable ? { retryable: true } : {}),
+    ...(planTeam ? { planTeam } : {}),
+    ...(plans ? { plans } : {}),
+    ...(cloudSetup ? { cloudSetup } : {}),
   };
 }
 
@@ -438,11 +677,78 @@ export function cloudRefusalText(code: string, hostWords?: string): string {
   if (code === "cloud_folder_home") return translate("cloudStartup.folderHome");
   if (code === "cloud_folder_secret")
     return translate("cloudStartup.folderSecret", { folder: line(hostWords, 120) ?? "~" });
+  if (code === "cloud_team_switching") return translate("cloudStart.planTeam.switching");
+  // The host's "not now": a chat is starting or opening in this tab (AgentPaneHandOff), said as such.
+  if (code === "unavailable_now") return translate("cloudStart.chatStartingHere");
   if (code.startsWith("transport.")) return errorMessage({ code });
   // The attachment refusal's words are the host's own sentence; the others carry only their code.
   if (code === "cloud_attachments")
     return line(hostWords, 240) ?? translate("composer.offloadNotRun", { action: translate("composer.cloud") });
   return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+}
+
+/// A host failure whose words are only its code (`cloud_disabled`: the app's Cloud services are off, or Cloud is not
+/// allowed here) or none at all, said as a sentence; undefined keeps the host's own words.
+function hostFailureText(code: string, hostWords?: string): string | undefined {
+  const words = line(hostWords, 240);
+  if (code === "cloud_disabled" && (!words || words === code)) return translate("cloudStart.cloudDisabled");
+  if (words === code) return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+  return undefined;
+}
+
+/// The way on a failed start's card offers when no recovery of its own does (CloudStartView): a folder refusal picks
+/// another folder or none, a chat already starting in this tab opens a new Cloud chat with the same prompt, a refusal
+/// a click or a moment fixes retries, a start that failed on its way (`cloud_start_failed`, whose host words say to
+/// try again) retries or runs here, and anything else runs the prompt on this Mac. Empty for a start still on its way,
+/// one the host marked retryable (its own Retry), and the refusals whose card words their own way on (sign in, the
+/// plan, a cap, a folder too big).
+export type CloudStartWayOn = "retry" | "pick-folder" | "no-folder" | "new-cloud-chat" | "run-here" | "dismiss";
+const OWN_RECOVERY = new Set([
+  "not_signed_in",
+  "cloud_plan_required",
+  "cloud_spend_cap",
+  "cloud_member_budget",
+  "cloud_folder_too_big",
+  "cloud_size_locked",
+]);
+const FOLDER_REFUSALS = new Set([
+  "cloud_folder_missing",
+  "cloud_folder_home",
+  "cloud_folder_secret",
+  "transport.path_outside_roots",
+]);
+/// Refused for want of a click (the gesture), a moment (a team switch under way) or the prompt as it now reads (edited
+/// while signing in): another try goes on.
+const RETRY_REFUSALS = new Set(["transport.gesture_required", "cloud_team_switching", "cloud_prompt_changed"]);
+
+export function cloudStartWayOn(start: CloudStartProgress): readonly CloudStartWayOn[] {
+  const code = start.code ?? "";
+  if (start.state !== "failed" || start.retryable || OWN_RECOVERY.has(code)) return [];
+  if (FOLDER_REFUSALS.has(code)) return ["pick-folder", "no-folder"];
+  if (code === "unavailable_now") return ["new-cloud-chat"];
+  if (RETRY_REFUSALS.has(code)) return ["retry"];
+  if (code === "cloud_start_failed") return ["retry", "run-here"];
+  return ["run-here", "dismiss"];
+}
+
+/// A Cloud start the team's spending cap (`cloud.spend_cap.reached`) or the member's monthly budget
+/// (`cloud.member_budget.reached`) refused, read from the host's code or the backend's words it passes on
+/// ("this team has spent … of its … spending cap; an admin can raise it").
+const SPEND_CAP =
+  /\bcloud\.spend_cap\.reached\b|\bspend_cap_reached\b|\bspent [^;]*? of its [^;]*? spending cap\b|\breached its spending cap\b/i;
+const MEMBER_BUDGET =
+  /\bcloud\.member_budget\.reached\b|\bmember_budget_reached\b|\bspent [^;]*? of your [^;]*? monthly budget\b/i;
+export type SpendRefusalCode = "cloud_spend_cap" | "cloud_member_budget";
+const SPEND_WORDS = {
+  cloud_spend_cap: "cloudStart.spendCap",
+  cloud_member_budget: "cloudStart.memberBudget",
+} as const;
+
+export function spendRefusal(code: string, message?: string): SpendRefusalCode | undefined {
+  const words = `${code} ${message ?? ""}`;
+  if (SPEND_CAP.test(words)) return "cloud_spend_cap";
+  if (MEMBER_BUDGET.test(words)) return "cloud_member_budget";
+  return undefined;
 }
 
 /// The codes the pane refuses a Cloud start with before it reaches Cloud, besides `transport.*`
@@ -456,4 +762,48 @@ const REFUSED_HERE = new Set([
   "cloud_folder_missing",
   "cloud_folder_home",
   "cloud_folder_secret",
+  "cloud_team_switching",
 ]);
+
+/// How long a start may go with no word from the host (no progress push, no answer) before the card
+/// says it stalled. Nothing on the host bounds a whole start
+/// (CloudStartChat `reply`: a Codex sign-in broker, the approvals prep and a tab open's hand-off wait
+/// have no deadline, and each CLI step may take 30 minutes), so without this a start that never
+/// answers showed "Starting in Cloud" for good.
+/// A folder copy pushes about 4 lines a second; a new machine's boot says nothing for up to its 180 s
+/// link wait (CloudStartSession.connectWait) after its create, so this is longer than that.
+export const CLOUD_START_STALL_MS = 5 * 60_000;
+
+/// Start `key` had no word from the host for CLOUD_START_STALL_MS: stalled, unless it waits on the
+/// person (a question in the card, a browser sign-in), already ended, or is another start.
+export function cloudStartStalled(
+  current: CloudStartProgress | undefined,
+  key: string,
+): CloudStartProgress | undefined {
+  if (!current || current.key !== key || !cloudStartMayStall(current)) return current;
+  return { ...current, stalled: true };
+}
+
+/// Whether `start` is out with nothing waiting on the person, so silence from the host counts.
+function cloudStartMayStall(start: CloudStartProgress): boolean {
+  return start.state === "starting" && !start.stalled && !start.ask && !start.signingIn;
+}
+
+/// Arms the stall timer for `start` as it is now: `stall(key)` runs once `ms` after the start last moved
+/// (`advancedAt`; arming time when it never said), so a push that only repeats itself never puts it off
+/// (each push makes a new `start`, and the caller disarms the old timer). Returns the disarm.
+export function watchCloudStartStall(
+  start: CloudStartProgress | undefined,
+  stall: (key: string) => void,
+  ms: number = CLOUD_START_STALL_MS,
+  schedule: (run: () => void, ms: number) => () => void = (run, after) => {
+    const timer = setTimeout(run, after);
+    return () => clearTimeout(timer);
+  },
+  now: number = Date.now(),
+): () => void {
+  if (!start || !cloudStartMayStall(start)) return () => undefined;
+  const key = start.key;
+  const left = start.advancedAt === undefined ? ms : Math.max(0, start.advancedAt + ms - now);
+  return schedule(() => stall(key), left);
+}

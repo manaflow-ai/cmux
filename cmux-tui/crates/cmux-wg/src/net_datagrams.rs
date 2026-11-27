@@ -35,6 +35,8 @@ pub struct DatagramDrops {
     pub media_full: u64,
     /// Interactive datagrams refused by a full queue.
     pub interactive_full: u64,
+    /// Screen-state datagrams refused by a full queue.
+    pub screen_full: u64,
     /// Bulk datagrams refused by a full queue.
     pub bulk_full: u64,
     /// Received datagrams dropped because the bound socket's reader fell behind.
@@ -86,6 +88,32 @@ impl WgDatagramSocket {
         self.commands.send(command).await.map_err(|_| WgError::Shutdown)
     }
 
+    /// Send one liveness datagram to `peer`: a ping, or (`answer`) the
+    /// answer to one. It leaves at once, ahead of everything queued, as a
+    /// single datagram: Ultra Mode adds no parity or copies (the caller
+    /// resends a ping that went unanswered, and a lone tiny datagram would
+    /// cost its parity two or three times over), and an answer does not
+    /// arm the path's silence watch (nothing answers an answer, so the
+    /// quiet after it says nothing about the path). Before the session
+    /// has keys it waits in the interactive class like any datagram.
+    pub async fn send_liveness(
+        &self,
+        payload: &[u8],
+        peer: SocketAddr,
+        answer: bool,
+    ) -> Result<(), WgError> {
+        if payload.len() > self.max_datagram {
+            return Err(WgError::DatagramTooLarge { len: payload.len(), max: self.max_datagram });
+        }
+        let command = Command::SendLiveness {
+            from_port: self.port,
+            to: peer,
+            payload: payload.to_vec(),
+            answer,
+        };
+        self.commands.send(command).await.map_err(|_| WgError::Shutdown)
+    }
+
     /// The next datagram, or `None` once the tunnel is gone.
     pub async fn recv_from(&mut self) -> Option<Datagram> {
         self.inbound.recv().await
@@ -112,6 +140,7 @@ impl WgNet {
             media_stale: load(&self.drops.media_stale),
             media_full: load(&self.drops.media_full),
             interactive_full: load(&self.drops.interactive_full),
+            screen_full: load(&self.drops.screen_full),
             bulk_full: load(&self.drops.bulk_full),
             inbox_full: load(&self.drops.inbox_full),
         }
@@ -162,6 +191,33 @@ impl Driver {
         let now = Instant::now();
         self.pacer.push_datagram(packet, priority, now);
         self.schedule.on_activity(now);
+    }
+
+    /// A liveness datagram ([`WgDatagramSocket::send_liveness`]): straight
+    /// to the underlay, unrepaired, when the session has keys and the
+    /// carrier has room; otherwise queued as an interactive datagram.
+    pub(super) fn send_liveness(
+        &mut self,
+        from_port: u16,
+        to: SocketAddr,
+        payload: &[u8],
+        answer: bool,
+    ) {
+        if !self.config.routes_contain(to.ip()) {
+            return;
+        }
+        let Some(local) = self.config.local_address_for(to.ip()) else { return };
+        if self.tunn.time_since_last_handshake().is_none() || self.underlay.backlogged() {
+            self.send_datagram(from_port, to, payload, Priority::Interactive);
+            return;
+        }
+        let packet = udp::packet(SocketAddr::new(local, from_port), to, payload);
+        if let TunnResult::WriteToNetwork(encrypted) =
+            self.tunn.encapsulate(&packet, &mut self.scratch)
+        {
+            self.underlay.send_liveness(encrypted, answer);
+        }
+        self.schedule.on_activity(Instant::now());
     }
 
     /// Hand a received datagram (source, destination, payload) to the

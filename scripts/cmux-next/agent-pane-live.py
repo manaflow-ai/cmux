@@ -23,6 +23,7 @@ each with p50/p95/p99/max:
 The HEADLINE is the WORST arm (a missed run first, else the highest p95, then the highest max), printed as
 `HEADLINE agent-pane/switch pick_to_ready_ms = <arm> arm ...`; the warm arm alone never stands for the bench."""
 import glob, json, os, plistlib, re, signal, socket, subprocess, sys, time
+import tempfile
 
 import argparse
 _parser = argparse.ArgumentParser()
@@ -61,9 +62,10 @@ say("app", APP, "bundle", info.get("CFBundleIdentifier"), "acpmux bundled:",
 TAG = _opts.tag
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown, pty_count
+from state_wait import wait_until, wait_stable, StateWaitTimeout
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 HOME_ACP = os.path.join(OUT, "acpmux-home")
-ACP_SOCKET = f"/tmp/hqnt-acp-{os.getpid()}.sock"
+ACP_SOCKET = os.path.join(tempfile.mkdtemp(prefix="hqnt-", dir="/tmp"), "acp.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
 
 def rpc(method, params=None, timeout=60):
     try:
@@ -146,9 +148,11 @@ def descendants(pid):
     return kids
 
 # This tag's own daemon state (tabs and panes of earlier runs): moved aside, so each run starts clean.
-TAG_STATE = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
-if os.environ.get("HQNT_KEEP_STATE") != "1" and os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
-    os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
+# NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that at launch).
+for TAG_STATE in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}"),
+                  os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+    if os.environ.get("HQNT_KEEP_STATE") != "1" and os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
+        os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 os.makedirs(HOME_ACP, exist_ok=True)
@@ -181,6 +185,7 @@ try:
         raise RuntimeError("injected failure (CMUX_LIVE_INJECT_FAILURE)")
     if os.environ.get("CMUX_LIVE_HOLD_SECONDS"):
         say("HOLDING script pid", os.getpid())
+        # sleep-ok: the hold is the point, a teardown test signals the script while it runs
         time.sleep(float(os.environ["CMUX_LIVE_HOLD_SECONDS"]))
     ident = rpc("system.identify")
     say("identify", json.dumps(ident)[:1500])
@@ -282,6 +287,60 @@ try:
 
     def click():
         return rpc("debug.mouse", {"pane": PANE, "action": "click"})
+    def gestures():
+        g = pane("gesture_state", pane=PANE)
+        return g if isinstance(g, dict) and "error" not in g else None
+    def click_took():
+        """A click, then the pane's gesture record showing it (its age no older than the click)."""
+        t0 = time.monotonic()
+        reply = click()
+        def recorded():
+            age = (gestures() or {}).get("age_seconds")
+            return isinstance(age, (int, float)) and age <= time.monotonic() - t0 + 0.05
+        if not wait_until(recorded, "the click in the pane's gesture record", timeout=10, raise_on_timeout=False):
+            say("the click never showed in the pane's gesture record in 10 s")
+        return reply
+    def gesture_expired(what):
+        """Until the pane's last gesture (the click) is past its lifetime (30 s): no gesture is available."""
+        if not wait_until(lambda: (lambda g: g is not None and g.get("available") is False)(gestures()),
+                          what, timeout=60, interval=0.5, raise_on_timeout=False):
+            say(f"{what}: the pane still had a gesture after 60 s")
+    TRUST_ASK = ".acpmux-trust-ask-action"
+    def trust_ask_shown():
+        found = pane("query", pane=PANE, selector=TRUST_ASK)
+        return bool(isinstance(found, dict) and found.get("elements"))
+    def chat_started(old_sid, what):
+        """new_chat's session in the pane (a session id other than old_sid), or the folder's trust ask."""
+        def started():
+            s_ = state()
+            if s_ and s_.get("sessionId") and s_.get("sessionId") != old_sid:
+                return s_
+            return {"trust": True} if trust_ask_shown() else None
+        got = wait_until(started, what, timeout=60, interval=0.25, raise_on_timeout=False)
+        if not got:
+            say(f"{what}: no new session or trust ask in 60 s")
+        return got
+    def model_is(model, what):
+        """set_model's model is the session's current one (the composer's models read)."""
+        def current():
+            cur = (pane("models", pane=PANE) or {}).get("current")
+            return cur is not None and (cur == model or model in str(cur))
+        if not wait_until(current, what, timeout=15, interval=0.25, raise_on_timeout=False):
+            say(f"{what}: the session's model never read {model} in 15 s")
+    def page_settled(what):
+        """The chat page as drawn stops changing (transcript rows, body text, composer, menu animations)."""
+        def read():
+            r = pane("readiness", pane=PANE, wait_animations=True)
+            return json.dumps({k: r.get(k) for k in ("error", "body_text_length", "body_text_head", "transcript_rows",
+                                                     "composer_visible", "animations_pending")} if isinstance(r, dict) else r,
+                              sort_keys=True, default=str)
+        try:
+            wait_stable(read, what, timeout=15, interval=0.25, reads=4)
+        except StateWaitTimeout:
+            say(f"{what}: the page never settled in 15 s")
+    def ask_pending():
+        s_ = state()
+        return json.dumps(s_ and {"permission": s_.get("permission"), "groups": s_.get("permissionGroups")}, sort_keys=True, default=str)
     def pool_entries():
         return (acp("_acpmux/status").get("result", {}).get("pool") or {}).get("entries") or []
     def events(session):
@@ -375,11 +434,12 @@ try:
         for name, body in (("a.txt", "alpha\n"), ("b.txt", "beta\n")):
             with open(os.path.join(WORK, name), "w") as f:
                 f.write(body)
+        old_sid = (state() or {}).get("sessionId")
         say("subagents new_chat", json.dumps(pane("new_chat", pane=PANE, harness=os.environ.get("CMUX_LIVE_HARNESS", "codex"))))
-        time.sleep(5)
+        chat_started(old_sid, "the subagents chat's session")
         if os.environ.get("CMUX_LIVE_MODEL"):
             say("subagents set_model", json.dumps(pane("set_model", pane=PANE, model=os.environ["CMUX_LIVE_MODEL"])))
-            time.sleep(2)
+            model_is(os.environ["CMUX_LIVE_MODEL"], "the subagents chat's model")
         say("subagents send", json.dumps(pane("send_prompt", pane=PANE, text=(
             "Spawn two subagents in parallel with your agent-spawning tool: the first reads a.txt and reports "
             "its contents, the second reads b.txt and reports its contents. Wait for both, then reply with one "
@@ -393,7 +453,7 @@ try:
         say("SUBAGENTS spawned:", text.count("subagent_spawned"), "ended:", text.count("subagent_state_update"),
             "children with own updates:", len(children), "legacy start lines:", text.count("Start subagent"))
         rpc("debug.focus")
-        time.sleep(2)
+        page_settled("the subagents chat before the desktop shot")
         cua = os.path.expanduser("~/.local/bin/cua-driver")
         shot = os.path.join(OUT, "subagents.png")
         r = subprocess.run([cua, "call", "get_desktop_state", json.dumps({"screenshot_out_file": shot})],
@@ -453,15 +513,16 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
             s_ = pane("chat_state", pane=pane_id or PANE)
             return (s_ or {}).get("summaryCard") if isinstance(s_, dict) else None
         harness = os.environ.get("CMUX_LIVE_HARNESS", "claude")
+        old_sid = (state() or {}).get("sessionId")
         made = pane("new_chat", pane=PANE, harness=harness)
         say("sp new_chat", json.dumps(made))
         # The chat's own pane, by id from here on: subagent panes on the same session come next to it.
         PANE = (made or {}).get("pane") or PANE
-        time.sleep(5)
+        chat_started(old_sid, "the subagent-panes chat's session")
         trust()
         if os.environ.get("CMUX_LIVE_MODEL"):
             say("sp set_model", json.dumps(pane("set_model", pane=PANE, model=os.environ["CMUX_LIVE_MODEL"])))
-            time.sleep(2)
+            model_is(os.environ["CMUX_LIVE_MODEL"], "the subagent-panes chat's model")
         before = conversation_panes()
         say("SP panes before", before)
         shot("before")
@@ -469,7 +530,10 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
             "Start two subagents in parallel with your Task tool (subagent_type general-purpose). The first "
             "runs `sleep 40; echo alpha` in Bash and reports the output; the second runs `sleep 40; echo beta` "
             "and reports it. Wait for both, then reply with one line combining their answers."))))
-        time.sleep(4)
+        # The send's turn starts, or the folder's trust ask shows first.
+        if not wait_until(lambda: trust_ask_shown() or (state() or {}).get("isWorking"), "the sent turn or a trust ask",
+                          timeout=30, interval=0.25, raise_on_timeout=False):
+            say("sp: no turn and no trust ask 30 s after the send")
         trust()
         # cx-3hw0i: with CMUX_LIVE_TYPE_KEYS=1 (nx-remote --needs input) real keys go to the window
         # server while the subagent panes open; every one must land in the chat's composer.
@@ -526,14 +590,15 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         children = [p for p in panes_now if p not in before]
         for child in children:
             cs = pane("chat_state", pane=child)
-            say("SP child", child, "subagentOf:", (cs or {}).get("subagentOf"), "card:", json.dumps((cs or {}).get("summaryCard"))[:300])
+            say("SP child", child, "subagentCorner:", (cs or {}).get("subagentCorner"), "card:", json.dumps((cs or {}).get("summaryCard"))[:300])
         live = wait(lambda: (lambda c: c if c and len(c.get("agents", [])) >= 2 else None)(card()), 60, 1)
         say("SP card lists:", json.dumps(live))
         shot("spawned")
         # A click outside the card (the transcript) leaves it.
         say("SP click outside", json.dumps(pane("click", pane=PANE, selector=".acpmux-scroll"))[:300])
-        time.sleep(1)
-        kept = card()
+        # The card as it rests after the click (it should stay): read until it stops changing.
+        kept = wait_stable(card, "the summary card after the outside click", timeout=10, interval=0.25, reads=4,
+                           raise_on_timeout=False)
         say("SP card after outside click:", json.dumps(kept))
         shot("outside-click")
         # A click on the first row focuses that subagent's pane.
@@ -542,7 +607,9 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         if name:
             target = pane("click", pane=PANE, selector=".acpmux-summary-agent")
             say("SP click row", name, json.dumps(target)[:300])
-            time.sleep(2)
+            if not wait_until(lambda: (topo().get("focus") or {}).get("pane") in children, "a subagent pane's focus after the row click",
+                              timeout=10, interval=0.25, raise_on_timeout=False):
+                say("SP no subagent pane took focus 10 s after the row click")
         snap_click = rpc("snapshot.get")
         with open(os.path.join(OUT, "sp-snapshot-after-row.json"), "w") as f:
             json.dump(snap_click, f)
@@ -554,12 +621,15 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
             r2 = rpc("debug.agent_pane", {"action": "click", "pane": PANE, "text": (live or {}).get("agents", [{}, {}])[1].get("name")}, timeout=40)
         except Exception as error:  # noqa: BLE001 - a proof script logs and goes on
             say("SP second row click failed", error)
-        time.sleep(2)
+        if not wait_until(lambda: (lambda f_: f_ != focus_row and f_ in children)((topo().get("focus") or {}).get("pane")),
+                          "the other subagent pane's focus after the second row click", timeout=10, interval=0.25,
+                          raise_on_timeout=False):
+            say("SP the focus never moved to the other subagent pane in 10 s")
         focus_row2 = (topo().get("focus") or {}).get("pane")
         say("SP second row", json.dumps(r2)[:200], "focus:", focus_row2, "first:", focus_row, "distinct:", focus_row2 != focus_row and focus_row2 in children)
         report["rows_focus_distinct"] = focus_row2 != focus_row and focus_row2 in children
         if focused_child:
-            say("SP focused child shows:", (pane("chat_state", pane=focused_child) or {}).get("subagentOf"))
+            say("SP focused child shows:", (pane("chat_state", pane=focused_child) or {}).get("subagentCorner"))
         say("SP focused child after row click:", focused_child)
         shot("row-click")
         done = wait(lambda: (lambda c: c if c and c.get("agents") and all(a.get("status") == "done" for a in c["agents"]) else None)(card()), 240, 2)
@@ -572,21 +642,21 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
                          and report.get("keys_in_chat", not typer) else 1)
     if STAGE == "perm":
         marker = os.path.join(WORK, "perm-marker")
+        old_sid = (state() or {}).get("sessionId")
         say("perm new_chat", json.dumps(pane("new_chat", pane=PANE, harness="claude")))
-        time.sleep(5)
-        say("perm click", json.dumps(click()))
-        time.sleep(0.5)
+        chat_started(old_sid, "the perm chat's session")
+        say("perm click", json.dumps(click_took()))
         say("perm send", json.dumps(pane("send_prompt", pane=PANE, text=f"Use the Bash tool to run exactly: touch {marker}")))
         ask = wait(lambda: (lambda s_: s_ if s_ and (s_.get("permission") or s_.get("permissionGroups")) else None)(state()), 120, 0.5)
         say("perm ask", json.dumps(ask and {"permission": ask.get("permission"), "groups": ask.get("permissionGroups")})[:1200])
         if ask:
-            time.sleep(31)
+            gesture_expired("perm: the click past the gesture lifetime")
             r1 = pane("answer_permission", pane=PANE, allow=True)
-            time.sleep(2)
+            wait_stable(ask_pending, "perm: the ask after an answer with no gesture", timeout=10, interval=0.25, reads=4,
+                        raise_on_timeout=False)
             s1 = state()
             say("PERM no gesture:", json.dumps(r1)[:500], "still pending:", bool(s1 and (s1.get("permission") or s1.get("permissionGroups"))), "marker:", os.path.exists(marker))
-            say("perm click 2", json.dumps(click()))
-            time.sleep(0.5)
+            say("perm click 2", json.dumps(click_took()))
             r2 = pane("answer_permission", pane=PANE, allow=True)
             ok = wait(lambda: os.path.exists(marker), 60, 0.5)
             s2 = state()
@@ -595,15 +665,16 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         raise SystemExit(0)
     if STAGE == "question":
         # A live Claude Code AskUserQuestion answered on the question card by a real click.
+        old_sid = (state() or {}).get("sessionId")
         say("q new_chat", json.dumps(pane("new_chat", pane=PANE, harness="claude")))
-        time.sleep(5)
-        say("q click", json.dumps(click()))
-        time.sleep(0.5)
+        chat_started(old_sid, "the question chat's session")
+        say("q click", json.dumps(click_took()))
         # A fresh folder asks for trust first: answer it with a real click on Trust.
-        say("q trust", json.dumps(pane("click", pane=PANE, selector=".acpmux-trust-ask-action"))[:300])
-        time.sleep(2)
-        say("q click 2", json.dumps(click()))
-        time.sleep(0.5)
+        say("q trust", json.dumps(pane("click", pane=PANE, selector=TRUST_ASK))[:300])
+        if not wait_until(lambda: not trust_ask_shown(), "the trust ask to close", timeout=15, interval=0.25,
+                          raise_on_timeout=False):
+            say("q the trust ask still showed 15 s after its click")
+        say("q click 2", json.dumps(click_took()))
         say("q send", json.dumps(pane("send_prompt", pane=PANE, text=(
             'Use the AskUserQuestion tool exactly once to ask me which color I prefer, with header "Color" '
             'and the options "Red" and "Blue". Use no other tool. After my answer, reply with exactly: CHOSE <answer>.'))))
@@ -611,7 +682,7 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         say("q ask", json.dumps(ask and ask.get("permission"))[:1500])
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "question-pending.png")})
         if ask:
-            time.sleep(1)
+            page_settled("the question card")
             say("q answer click", json.dumps(pane("click", pane=PANE, text="Blue"))[:300])
             done = wait(lambda: "CHOSE" in json.dumps(state() or {}), 180, 1)
             final = state() or {}
@@ -620,10 +691,12 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         wire_dump("question")
         raise SystemExit(0)
     if STAGE == "probe":
-        say("probe click", json.dumps(click()))
-        time.sleep(0.5)
+        say("probe click", json.dumps(click_took()))
         say("probe send", json.dumps(pane("send_prompt", pane=PANE, text="Say hi.")))
-        time.sleep(3)
+        # The send's wire traffic, until the page's wire log stops growing.
+        wait_stable(lambda: (lambda lg_: ((lg_.get("entries") or [{}])[-1] if isinstance(lg_, dict) else {}).get("seq"))(
+                        pane("acp_log", pane=PANE, limit=1)),
+                    "the probe's wire log", timeout=15, interval=0.25, reads=4, raise_on_timeout=False)
         lg = pane("acp_log", pane=PANE, limit=30)
         for e in (lg.get("entries") or []) if isinstance(lg, dict) else []:
             say("WIRE", json.dumps(e)[:900])
@@ -711,20 +784,20 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
 
     # Step 3: a permission prompt.
     marker = os.path.join(OUT, "perm-marker")
-    say("click before prompt", json.dumps(click()))
-    time.sleep(0.5)
+    say("click before prompt", json.dumps(click_took()))
     sent = pane("send_prompt", pane=PANE, text=f"Use your shell tool to run exactly this command and nothing else: touch {marker}")
     say("STEP3 send_prompt", json.dumps(sent)[:400])
     ask = wait(lambda: (lambda s: s if s and (s.get("permission") or s.get("permissionGroups")) else None)(state()), 180, 0.5)
     say("STEP3 pending ask", json.dumps(ask and {"permission": ask.get("permission"), "groups": ask.get("permissionGroups")})[:1200])
-    time.sleep(31)  # the click above is older than the gesture lifetime (30 s) and was used by the prompt
+    # Until the click above is older than the gesture lifetime (30 s); the prompt used it.
+    gesture_expired("STEP3: the click past the gesture lifetime")
     no_gesture = pane("answer_permission", pane=PANE, allow=True)
-    time.sleep(2)
+    wait_stable(ask_pending, "STEP3: the ask after an answer with no gesture", timeout=10, interval=0.25, reads=4,
+                raise_on_timeout=False)
     still = state()
     say("STEP3 allow without a gesture:", json.dumps(no_gesture)[:600], "still pending:",
         bool(still and (still.get("permission") or still.get("permissionGroups"))), "marker exists:", os.path.exists(marker))
-    say("click before answer", json.dumps(click()))
-    time.sleep(0.5)
+    say("click before answer", json.dumps(click_took()))
     with_gesture = pane("answer_permission", pane=PANE, allow=True)
     done = wait(lambda: os.path.exists(marker), 60, 0.5)
     after_ask = state()
@@ -739,7 +812,9 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
     say("quit", json.dumps(quit_reply)[:300])
     exited = wait(lambda: app.poll() is not None, 30, 0.5)
     say("app exited after quit:", bool(exited), "code", app.poll())
-    time.sleep(5)
+    # The check's bound is 5 s after the app exited: done as soon as every recorded process is gone.
+    wait_until(lambda: not any(alive(pid) for pid, _ in helpers), "the recorded processes to exit", timeout=5,
+               interval=0.25, raise_on_timeout=False)
     report["alive_after_quit"] = [(pid, cmd) for pid, cmd in helpers if alive(pid)]
     say("recorded processes alive 5 s after quit:", report["alive_after_quit"])
 finally:

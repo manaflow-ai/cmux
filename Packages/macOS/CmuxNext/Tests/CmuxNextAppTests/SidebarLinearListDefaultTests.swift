@@ -19,7 +19,8 @@ import Testing
     @Test func aFreshSidebarShowsThePlusWithNoChooserDropdown() {
         let sidebar = sidebar()
         #expect(sidebar.newWorkspaceOptionsButton.isHidden, "no workspace dropdown in the titlebar by default")
-        #expect(sidebar.newButton.frame.maxX == sidebar.bounds.width - Metrics.space3,
+        // The + alone centers on the rows' trailing column (Leo 2026-11-07).
+        #expect(abs(sidebar.newButton.frame.midX - (sidebar.bounds.width - SidebarStyle.trailingCenterFromEdge)) <= 0.5,
                 "the + alone takes the trailing slot")
     }
 }

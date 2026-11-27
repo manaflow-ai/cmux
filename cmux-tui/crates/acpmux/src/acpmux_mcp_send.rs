@@ -6,8 +6,8 @@
 //!
 //! Every message goes through this daemon's outbox, as `acpmux send --no-wait` does
 //! (`cli/run/send_async.rs`). A batch sends to each session in turn and to different sessions
-//! side by side ([`in_order`]), inside one [`STATUS_WAIT`]: a batch answers as fast as one
-//! message. A bad recipient is its own row's error; the rest still go.
+//! side by side ([`in_order`]), sharing one [`STATUS_WAIT`] deadline rather than spending that
+//! wait on each message. A bad recipient is its own row's error; the rest still go.
 //!
 //! A message may be a tool's notice (`notice`: `{sender?, host?, severity, title, links?}`, as
 //! `acpmux send --notice`, `cli/send_notice.rs`): the text is its body, the prompt the rendered
@@ -19,44 +19,53 @@
 
 use super::*;
 use cmux_json::JsonSet as _;
-use std::collections::BTreeMap;
+use futures::{FutureExt as _, StreamExt as _};
+use std::collections::{BTreeMap, BTreeSet};
 
-/// Most messages one call carries. A batch is a coordinator's round of orders (a handful of
-/// lanes); a bound keeps one call inside a harness's tool timeout and its result readable.
-pub(super) const MAX_MESSAGES: usize = 32;
-/// Most sessions one tag reaches. Beyond it the item is refused, never cut short: a tag that wide
-/// is a broadcast the sender did not mean (the CLI's `--tag --dry-run` lists it first).
-pub(super) const MAX_TAG_SESSIONS: usize = 32;
-/// Most recipients of one call, tags expanded. Over it nothing is sent.
-pub(super) const MAX_RECIPIENTS: usize = 64;
+/// Work in flight, not a limit on messages or recipients. Large batches keep taking turns in
+/// this window until every target has a result, without flooding the daemon's connection.
+const SEND_CONCURRENCY: usize = 32;
 /// Files past this inline threshold are streamed as attachments, never refused.
 const INLINE_FILE_BYTES: u64 = 256 << 10;
 /// How long a batch gives each session name to resolve to its id ([`aliases`]), before its
 /// own wait for the deliveries.
-const RESOLVE_WAIT: Duration = crate::rpc::ANSWER_WAIT;
+const RESOLVE_WAIT: Duration = Duration::from_secs(10);
+/// The whole `send` call, inside the shortest MCP tool timeout of the harnesses (Codex: 60 s,
+/// `acpmux_mcp.rs` `STATUS_WAIT`). Every step's bound is cut to what is left of it (RFD 0050
+/// rule 5: an inner bound is shorter than the outer that calls it, so the error names the step
+/// that ran out and the harness never times the call out first).
+const CALL_BUDGET: Duration = Duration::from_secs(50);
+const _: () = assert!(
+    RESOLVE_WAIT.as_millis() + STATUS_WAIT.as_millis() + RELAY_WAIT.as_millis()
+        <= CALL_BUDGET.as_millis(),
+    "resolve, settle and relay must fit in the call's budget"
+);
+/// How long a send waits for the next daemon when the one it reached updates or restarts under
+/// it ([`queue`]); it goes to the relay only once that runs out, so the two never add up.
+const RESTART_WAIT: Duration = RELAY_WAIT;
+const _: () = assert!(CALL_BUDGET.as_millis() < 60_000, "the call must end before Codex's 60 s");
 
 pub(super) fn tool() -> Value {
     json!({
         "name": "send",
-        "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell; to message several sessions, batch them in one call with messages instead of a shell loop. It goes through this daemon's outbox, like `acpmux send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply (read one later with last). The receiver's chat shows the message as yours; with notice it shows as a tool's notice (severity, sender, title, links) and text, if any, is its body. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn. With messages or tag, the result has one row per recipient (to, ok, promptId, deliveryId, status, error); one bad recipient does not stop the others.",
+        "description": "Message another agent session (or host/name on a peer): the `cmux agent send` front door, not a shell command; for several, batch them in one call with messages. Returns promptId and deliveryId in seconds (the outbox retries). class question or block: the answer comes back to you as a report, so do not poll; else read replies with last. Steers into a running turn unless steer: false.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
+                "to": {"type": "string", "description": "Session name, id, or host/name (as ls lists them)."},
                 "text": {"type": "string", "description": "The message, self-contained."},
-                "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
-                "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
-                "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
-                "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."},
-                "file": {"type": "string", "description": "Instead of text: a file of yours containing the message. Small UTF-8 text is sent inline; larger files are uploaded automatically as attachments for the receiver to open. Any size. Best an absolute path; a relative one is read from the folder your agent runs in."},
-                "attach": {"type": "array", "items": {"type": "string"}, "description": "Files to send with the message, as absolute paths on this machine (a screenshot, a log), of any size and number, as acpmux send --attach: an image reaches the receiver and its chat as an image (a preview), any other file as a link to its saved copy. Hand over an image this way, never as a provider's own file id (libfile_...), which nobody here can open."},
-                "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as acpmux send --tag), at most 32, not yourself."},
-                "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under the same key is replaced by this one, so a correction is never read after the order it corrects."},
-                "notice": notice_schema("Send it as a tool's or reconciler's notice: the receiver's chat draws a notice row (severity mark, sender, title, links) and the agent reads `[notice from SENDER on HOST · FIRE] TITLE`, the body (text, optional here), then the links."),
+                "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step; false: after it."},
+                "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "block/blocker: you are stuck until it acts; question: you wait on its answer (both wake it). result/action (default): wakes it only if you started it or gave it work. fyi: wakes no one."},
+                "pr": {"type": "integer", "description": "The PR it is about; the receiver's inbox threads by it."},
+                "thread": {"type": "string", "description": "A topic or an inbox_read threadId (default: by the PR its first line names, else all yours)."},
+                "file": {"type": "string", "description": "Instead of text: a file with it, any size."},
+                "attach": {"type": "array", "items": {"type": "string"}, "description": "Absolute file paths, any size: images show inline, others as links. Never a provider file id (libfile_...)."},
+                "tag": {"type": "string", "description": "Instead of to: every live session with this tag (key or key=value), not you."},
+                "supersede": {"type": "string", "description": "A key: replaces your message still queued at the receiver under it."},
+                "notice": notice_schema("Send as a tool's notice (severity, title, links); text is its body."),
                 "messages": {
                     "type": "array",
-                    "maxItems": MAX_MESSAGES,
-                    "description": "A batch: one message per item, sent in order. The fields above are each item's defaults; an item's to or tag replaces the default recipient, its text or file the default message.",
+                    "description": "A batch, sent in order; the fields above are each item's defaults.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -66,11 +75,11 @@ pub(super) fn tool() -> Value {
                             "file": {"type": "string"},
                             "attach": {"type": "array", "items": {"type": "string"}},
                             "steer": {"type": "boolean"},
-                            "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"]},
+                            "class": {"type": "string"},
                             "pr": {"type": "integer"},
                             "thread": {"type": "string"},
                             "supersede": {"type": "string"},
-                            "notice": notice_schema("This item as a tool's notice.")
+                            "notice": {"type": "object"}
                         }
                     }
                 }
@@ -85,8 +94,8 @@ fn notice_schema(description: &str) -> Value {
         "type": "object",
         "description": description,
         "properties": {
-            "sender": {"type": "string", "description": "Who sends it, a tool or role, one line of at most 64 characters (default: this session's name)."},
-            "host": {"type": "string", "description": "The machine it comes from (default: this one)."},
+            "sender": {"type": "string", "description": "A tool or role, at most 64 characters (default: this session)."},
+            "host": {"type": "string"},
             "severity": {"type": "string", "enum": crate::prompt_provenance::NOTICE_SEVERITIES},
             "title": {"type": "string", "description": "One line, at most 200 characters."},
             "links": {
@@ -196,12 +205,14 @@ impl Target {
     }
 }
 
-/// `send`'s entry: the first shape when the call names one session, else the batch.
-pub(super) async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
+/// `send`'s entry: the first shape when the call names one session, else the batch. `sub` is
+/// the Claude Code subagent whose call this is (`subagent_call.rs`): each message names it as
+/// its sender, so the replies that come back as reports reach it, not its lead.
+pub(super) async fn send(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Value {
     if args.get("messages").is_none() && arg(args, "tag").is_none() {
-        return send_one(daemon, args).await;
+        return send_one(daemon, args, sub).await;
     }
-    send_batch(daemon, args).await
+    send_batch(daemon, args, sub).await
 }
 
 /// The items of a call: `messages`, each over the top-level defaults, or the call itself.
@@ -214,9 +225,6 @@ pub(super) fn items(args: &Value) -> Result<Vec<Result<Item, String>>, String> {
     };
     if list.is_empty() {
         return Err("messages is empty".to_owned());
-    }
-    if list.len() > MAX_MESSAGES {
-        return Err(format!("messages has {} items, at most {MAX_MESSAGES}", list.len()));
     }
     Ok(list
         .iter()
@@ -254,7 +262,7 @@ fn item_of(own: &Value, defaults: Option<&Value>) -> Result<Item, String> {
             .map(str::trim)
             .filter(|t| !t.is_empty())
             .map(str::to_owned),
-        notice: notice_arg(field("notice"), |k| std::env::var(k).ok())?,
+        notice: notice_arg(field("notice"), crate::tool_env::var)?,
     };
     match (&item.to, &item.tag) {
         (Some(_), Some(_)) => return Err("give to or tag, not both".to_owned()),
@@ -351,11 +359,16 @@ fn spool_message(text: String) -> Result<(String, Option<Arc<MessageFile>>), Str
         .tempdir()
         .map_err(|e| format!("cannot spool message: {e}"))?;
     let path = spool.path().join("message.txt");
-    let mut open = std::fs::OpenOptions::new();
-    open.read(true).write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
-    let mut file = open.open(&path).map_err(|e| format!("cannot spool message: {e}"))?;
+    // A temporary folder, not the home: `home_fs` opens it by path, as before. The detector
+    // reads the spool's path as the home's (#41462 review F2), and going through `home_fs`
+    // keeps it a rule with no exception.
+    let mut file = crate::home_fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .map_err(|e| format!("cannot spool message: {e}"))?;
     // The MCP parser already owns text. Move it here, without another full copy,
     // then release it as soon as the spool is ready for the chunked uploader.
     for chunk in text.as_bytes().chunks(crate::hub::file_uploads::CHUNK_BYTES) {
@@ -377,6 +390,25 @@ fn spool_message(text: String) -> Result<(String, Option<Arc<MessageFile>>), Str
 /// file is refused even when it is readable: a message goes to other sessions and peers, so it
 /// carries only the sender's own files.
 pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<MessageFile>>), String> {
+    use cmux_tui_util::retry::{Attempt, Patience};
+    // A file still being written (its size moved while it was read) is read again once it
+    // settles, for a couple of seconds, instead of asking the agent to send it again.
+    let changed = changed_while_read(&std::path::Path::new(path).display());
+    Patience::new("the message file to finish writing", std::time::Duration::from_secs(2))
+        .quiet()
+        .run(|| {
+            read_message_file_once(path)
+                .map_err(|e| if e == changed { Attempt::Retry(e) } else { Attempt::Fail(e) })
+        })
+}
+
+/// [`read_message_file`]'s refusal of a file whose size moved while it was read.
+fn changed_while_read(shown: &impl std::fmt::Display) -> String {
+    format!("{shown} kept changing while it was read: another program is still writing it")
+}
+
+/// One read of [`read_message_file`].
+fn read_message_file_once(path: &str) -> Result<(String, Option<Arc<MessageFile>>), String> {
     use std::io::Read;
     let path = std::path::Path::new(path);
     let shown = path.display();
@@ -418,9 +450,7 @@ pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<Messag
         ));
     }
     if bytes.len() as u64 != meta.len() {
-        return Err(format!(
-            "{shown} changed while it was read; send it again once writing finishes"
-        ));
+        return Err(changed_while_read(&shown));
     }
     let text = String::from_utf8(bytes).map_err(|_| {
         format!("{shown} is not UTF-8 text: send a binary file with acpmux send --attach")
@@ -430,7 +460,8 @@ pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<Messag
 
 /// `send` with one session (the first shape): its result fields, text and errors are the ones
 /// this tool always gave; only `file` and `supersede` are new.
-async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
+async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Value {
+    let call_end = tokio::time::Instant::now() + CALL_BUDGET;
     if arg(args, "to").is_none()
         || (args.get("text").and_then(Value::as_str).is_none()
             && arg(args, "file").is_none()
@@ -452,10 +483,10 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
         Err(e) => return refusal(e),
     };
     let target = Target { index: 0, to: to.clone(), key: key.clone(), tag: None, text, file, item };
-    let (prompt, queued) = match queue(daemon, &target).await {
+    let (daemon, prompt, queued) = match queue(daemon, &target, sub, None, call_end).await {
         Ok(sent) => sent,
         Err(e) => {
-            return match relay(&target, &e).await {
+            return match relay(&target, &e, sub, call_end).await {
                 Some(row) if row_ok(&row) => {
                     let text_of = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
                     ok(
@@ -475,7 +506,8 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
             };
         }
     };
-    let row = settle(daemon, &target, &prompt, queued, STATUS_WAIT).await;
+    let left = call_end.saturating_duration_since(tokio::time::Instant::now());
+    let row = settle(&daemon, &target, &prompt, queued, STATUS_WAIT.min(left)).await;
     let field = |k: &str| row.get(k).cloned().unwrap_or(Value::Null);
     let text_of = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
     let delivery = text_of("deliveryId");
@@ -495,7 +527,8 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
 
 /// `send` with `messages` or `tag`: every item's recipients, then the messages, a row per
 /// recipient; an item that names no one is one row with its error.
-async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
+async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Value {
+    let call_end = tokio::time::Instant::now() + CALL_BUDGET;
     let items = match items(args) {
         Ok(items) => items,
         Err(e) => return error_result(e),
@@ -544,27 +577,42 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
             }
         }
     }
-    if targets.len() > MAX_RECIPIENTS {
-        return error_result(format!(
-            "this send reaches {} sessions, at most {MAX_RECIPIENTS}: nothing was sent",
-            targets.len()
-        ));
-    }
     let chains = same_session(&aliases(daemon, &targets).await);
     let now = tokio::time::Instant::now();
     let deadline = now.checked_add(STATUS_WAIT).unwrap_or(now);
-    let sent = futures::future::join_all(chains.into_iter().map(|chain| {
-        in_order(&targets, chain, deadline, move |target, wait| async move {
-            match queue(daemon, target).await {
-                Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
-                Err(e) => match relay(target, &e).await {
-                    Some(row) => row,
-                    None => target.row(false, "failed", Some(format!("{e:#}"))),
-                },
+    let targets: Arc<[Target]> = targets.into();
+    let sub = sub.cloned().map(Arc::new);
+    // Materialize owned, Send futures before buffering: a lazy iterator borrowing the
+    // request makes the enclosing MCP server's Send bound depend on those borrow lifetimes.
+    let deliveries: Vec<_> = chains
+        .into_iter()
+        .map(|chain| {
+            let daemon = Arc::clone(daemon);
+            let targets = Arc::clone(&targets);
+            let sub = sub.clone();
+            async move {
+                let daemon = &daemon;
+                let sub = sub.as_deref();
+                in_order(&targets, chain, deadline, move |target, wait, after| async move {
+                    match queue(daemon, target, sub, after.as_deref(), call_end).await {
+                        Ok((daemon, prompt, queued)) => {
+                            settle(&daemon, target, &prompt, queued, wait).await
+                        }
+                        Err(e) => match relay(target, &e, sub, call_end).await {
+                            Some(row) => row,
+                            None => target.row(false, "failed", Some(format!("{e:#}"))),
+                        },
+                    }
+                })
+                .await
             }
+            .boxed()
         })
-    }))
-    .await;
+        .collect();
+    let sent = futures::stream::iter(deliveries)
+        .buffer_unordered(SEND_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
     for (seat, row) in sent.into_iter().flatten() {
         let index = targets.get(seat).map_or(0, |t| t.index);
         rows.insert((index, seat.saturating_add(1)), row);
@@ -613,32 +661,63 @@ pub(super) fn same_session(aliases: &[Vec<String>]) -> Vec<Vec<usize>> {
 
 /// Every name each target may go by, so a session named two ways (its name, its id,
 /// `host/name`, a tag's `peer/id`) is one chain: its key and name, and for a named target its
-/// session id, resolved (each distinct name once, side by side, within [`RESOLVE_WAIT`]) to the
-/// form a tag's target has (`peer/id` on a peer, as [`crate::cli::resolve::routed_id`] gives).
+/// session id, resolved (each distinct name once, in bounded windows within [`RESOLVE_WAIT`]) to the
+/// form a tag's target has (`peer/id` on a peer, as [`crate::session_identity::routed_id`] gives).
 /// A name that resolves to nothing cannot be told apart from any session it might be: all such
 /// names are one chain, and one on a peer (`host/...`) also joins every target on that host.
 pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec<String>> {
-    let mut names: Vec<&str> =
-        targets.iter().filter(|t| t.tag.is_none()).map(|t| t.key.as_str()).collect();
+    let mut names: Vec<String> =
+        targets.iter().filter(|t| t.tag.is_none()).map(|t| t.key.clone()).collect();
     names.sort_unstable();
     names.dedup();
-    let resolved: BTreeMap<&str, Option<String>> =
-        futures::future::join_all(names.into_iter().map(|name| async move {
-            let id = tokio::time::timeout(RESOLVE_WAIT, crate::cli::run::resolve_id(daemon, name))
+    let deadline = tokio::time::Instant::now() + RESOLVE_WAIT;
+    let lookups: Vec<_> = names
+        .into_iter()
+        .map(|name| {
+            let daemon = Arc::clone(daemon);
+            async move {
+                if tokio::time::Instant::now() >= deadline {
+                    return (name, None, true);
+                }
+                let id = tokio::time::timeout_at(
+                    deadline,
+                    crate::cli::resolve::control_route(&daemon, &name),
+                )
                 .await
                 .ok()
-                .and_then(Result::ok);
-            (name, id)
-        }))
-        .await
-        .into_iter()
+                .and_then(Result::ok)
+                .and_then(|(id, current)| current.then_some(id));
+                (name, id, false)
+            }
+            .boxed()
+        })
         .collect();
+    let looked: Vec<(String, Option<String>, bool)> =
+        futures::stream::iter(lookups).buffer_unordered(SEND_CONCURRENCY).collect::<Vec<_>>().await;
+    // A name never looked up (the shared deadline passed first) could be any session, including
+    // one another name of the batch resolved to: the whole batch is then one chain, so one
+    // session never gets two chains sending at once.
+    let skipped = looked.iter().any(|(_, _, skipped)| *skipped);
+    let resolved: BTreeMap<String, Option<String>> =
+        looked.into_iter().map(|(name, id, _)| (name, id)).collect();
     let unresolved =
         |t: &Target| t.tag.is_none() && !matches!(resolved.get(t.key.as_str()), Some(Some(_)));
+    // An unresolved name can be the same session as another target only when one of the two
+    // names it by id: two names on one host, or a bare name and `host/name` with another last
+    // part, are two sessions. So an unresolved `host/ID` joins every target on its host, an
+    // unresolved bare id joins every target, and any other unresolved name only the targets with
+    // its last part (`lane-q`, `host-b/lane-q`; any target by that last part joins them, since
+    // a bare name may resolve to a session on a peer). Before, every unresolved name was one chain
+    // and joined its whole host, so a batch to 9 lanes on other hosts sent 7 (cmuxterm-hq#17418).
     let host_of = |key: &str| key.split_once('/').map(|(host, _)| format!("\0host:{host}"));
-    // The hosts some unresolved name is on: every target there is in its chain.
-    let dark: Vec<String> =
-        targets.iter().filter(|t| unresolved(t)).filter_map(|t| host_of(&t.key)).collect();
+    let leaf = |key: &str| key.rsplit_once('/').map_or(key, |(_, leaf)| leaf).to_owned();
+    let by_id = |key: &str| uuid::Uuid::try_parse(&leaf(key)).is_ok();
+    let id_hosts: BTreeSet<String> = targets
+        .iter()
+        .filter(|t| unresolved(t) && by_id(&t.key))
+        .filter_map(|t| host_of(&t.key))
+        .collect();
+    let bare_id = targets.iter().any(|t| unresolved(t) && by_id(&t.key) && !t.key.contains('/'));
     targets
         .iter()
         .map(|t| {
@@ -646,25 +725,32 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
             if let Some(Some(id)) = resolved.get(t.key.as_str()).filter(|_| t.tag.is_none()) {
                 names.push(id.clone());
             }
-            if unresolved(t) {
+            if skipped || (bare_id && unresolved(t)) {
                 names.push("\0unresolved".to_owned());
             }
-            if let Some(host) = host_of(&t.key).or_else(|| host_of(&t.to))
-                && dark.contains(&host)
-            {
-                names.push(host);
+            if !by_id(&t.key) {
+                names.push(format!("\0name:{}", leaf(&t.key)));
+            }
+            for key in [&t.key, &t.to] {
+                if let Some(host) = host_of(key)
+                    && id_hosts.contains(&host)
+                {
+                    names.push(host);
+                }
             }
             names
         })
         .collect()
 }
 
-/// One session's messages, in order: each is queued only once the one before it settled (the
-/// receiver took it, or refused it). The outbox runs each delivery on its own and retries it, so
-/// two queued at once can arrive swapped, and a `supersede` correction be replaced by the order
-/// it corrects. A message whose predecessor is still on its way at `deadline` is not sent; its
-/// row says so. Chains to different sessions run side by side, so a batch answers inside one
-/// [`STATUS_WAIT`].
+/// One session's messages, in order: each is queued once the one before it settled (the
+/// receiver took it, or refused it), since the outbox runs each delivery on its own and retries
+/// it, so two queued at once could arrive swapped, and a `supersede` correction be replaced by the
+/// order it corrects. One whose predecessor is still on its way at `deadline` is queued anyway,
+/// held in the outbox behind that delivery (`after`, `server/outbox.rs`) until it settles: its
+/// row is `queued` with `after` naming it, never an error asking the sender to send it again
+/// (before, it was, and one batch took 4 calls, cmuxterm-hq#17418). Chains to different
+/// sessions run in bounded windows with one shared [`STATUS_WAIT`] deadline.
 pub(super) async fn in_order<'t, F, Fut>(
     targets: &'t [Target],
     chain: Vec<usize>,
@@ -672,28 +758,28 @@ pub(super) async fn in_order<'t, F, Fut>(
     send: F,
 ) -> Vec<(usize, Value)>
 where
-    F: Fn(&'t Target, Duration) -> Fut,
+    F: Fn(&'t Target, Duration, Option<String>) -> Fut,
     Fut: std::future::Future<Output = Value>,
 {
     let mut rows = Vec::new();
     let mut before: Option<String> = None;
     for seat in chain {
         let Some(target) = targets.get(seat) else { continue };
-        if let Some(delivery) = &before {
-            let why = format!(
-                "not sent: the message before it to {} (delivery {delivery}) is still on its way, \
-and this one must not arrive first; send it again once info {} shows that one arrived",
-                target.to, target.to
-            );
-            rows.push((seat, target.row(false, "failed", Some(why))));
-            continue;
+        let wait = if before.is_some() {
+            Duration::ZERO
+        } else {
+            deadline.saturating_duration_since(tokio::time::Instant::now())
+        };
+        let mut row = send(target, wait, before.clone()).await;
+        if let (Some(delivery), Some(fields)) = (&before, row.as_object_mut())
+            && fields.get("ok") == Some(&json!(true))
+        {
+            fields.insert("after".into(), json!(delivery));
         }
-        let wait = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let row = send(target, wait).await;
         let status = row.get("status").and_then(Value::as_str).unwrap_or_default();
-        if !matches!(status, "delivered" | "failed" | "held") {
-            before = Some(row.get("deliveryId").and_then(Value::as_str).unwrap_or("?").to_owned());
-        }
+        before = (!matches!(status, "delivered" | "failed" | "held"))
+            .then(|| row.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned())
+            .filter(|id| !id.is_empty());
         rows.push((seat, row));
     }
     rows
@@ -714,22 +800,21 @@ async fn tag_recipients(
             Some(listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default());
     }
     let all = sessions.as_deref().unwrap_or_default();
-    let own = std::env::var(SESSION_ENV).ok();
+    let own = crate::tool_env::var(SESSION_ENV);
     let found = crate::cli::run::fanout::tag_targets(all, tag, own.as_deref());
     if found.is_empty() {
         return Err(format!("no live session carries the tag {tag}"));
     }
-    if found.len() > MAX_TAG_SESSIONS {
-        return Err(format!(
-            "the tag {tag} names {} sessions, at most {MAX_TAG_SESSIONS}: nothing sent to them; narrow it with key=value",
-            found.len()
-        ));
-    }
     Ok(found)
 }
 
-/// How long a relayed send may take (`relay`).
-const RELAY_WAIT: Duration = Duration::from_secs(45);
+/// How long a relayed send may take (`relay`), cut to what is left of [`CALL_BUDGET`].
+const RELAY_WAIT: Duration = Duration::from_secs(25);
+
+/// The deadline of a relayed send started now: [`RELAY_WAIT`], never past the call's end.
+fn relay_deadline(call_end: tokio::time::Instant) -> tokio::time::Instant {
+    (tokio::time::Instant::now() + RELAY_WAIT).min(call_end)
+}
 
 /// A message the outbox refused because its target names no session here and no peer lists it,
 /// handed to the configured send relay as `acpmux send` does (`cli/send_relay.rs`): its row, or
@@ -737,7 +822,12 @@ const RELAY_WAIT: Duration = Duration::from_secs(45);
 /// carries text only). The relay's sender is the session this tool runs for, and the send is a
 /// line in the cross-host audit log. Leo, 2026-11-05, on sends between lane machines: "Just do
 /// what's expected. Just do the magic."
-pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
+pub(super) async fn relay(
+    target: &Target,
+    e: &anyhow::Error,
+    sub: Option<&Value>,
+    call_end: tokio::time::Instant,
+) -> Option<Value> {
     if target.file.is_some() || !format!("{e:#}").to_lowercase().contains("no session") {
         return None;
     }
@@ -749,22 +839,33 @@ pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
     let relay = crate::cli::send_relay::configured()?;
     // The session's name when its environment has one, else its id (an MCP server's environment
     // carries ACPMUX_SESSION_ID alone), so the relay always names the sender.
-    let from = crate::cli::send_relay::sender(None, |k| std::env::var(k).ok()).or_else(|| {
-        std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+    let from = crate::cli::send_relay::sender(None, crate::tool_env::var).or_else(|| {
+        crate::tool_env::var(SESSION_ENV).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
     });
+    // The subagent that made the call (`subagent_call.rs`), named to the relay as a label.
+    // parse_item already validated the explicit class; aliases use the canonical wire value.
+    let class = target.item.class.as_deref().and_then(crate::prompt_class::PromptClass::parse);
+    let from = crate::cli::send_relay::RelayMetadata::new(from, sub, class);
     let (session, text) = (target.key.clone(), target.text.clone());
-    let deadline = tokio::time::Instant::now() + RELAY_WAIT;
+    if call_end <= tokio::time::Instant::now() {
+        let why = format!(
+            "the call's {}s budget ran out before the send relay was tried: {e:#}",
+            CALL_BUDGET.as_secs()
+        );
+        return Some(target.row(false, "failed", Some(why)));
+    }
+    let deadline = relay_deadline(call_end);
     let done = tokio::task::spawn_blocking(move || {
         let done = crate::cli::send_relay::relay_with_deadline(
             &relay,
             &session,
             &text,
-            from.as_deref(),
+            &from,
             true,
             Some(deadline),
         );
         if let Ok(done) = &done {
-            crate::cli::send_relay::audit_sent(&session, &text, from.as_deref(), done);
+            crate::cli::send_relay::audit_sent(&session, &text, &from, done);
         }
         done
     })
@@ -790,9 +891,16 @@ pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
     })
 }
 
-/// Hand one message to the outbox (`_acpmux/send_queue`).
-async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value)> {
+/// Hand one message to the outbox (`_acpmux/send_queue`), from subagent `sub` when one sends it.
+async fn queue(
+    daemon: &Arc<Client>,
+    target: &Target,
+    sub: Option<&Value>,
+    after: Option<&str>,
+    call_end: tokio::time::Instant,
+) -> Result<(Arc<Client>, PromptId, Value)> {
     let mut prompt = PromptId::new(None);
+    prompt.subagent = sub.cloned();
     // Outside an acpmux session, where this server's MCP client or harness says it came from
     // (`sender_harness.rs`): self-reported, shown beside the message.
     prompt.sender_harness = crate::sender_harness::of_this_mcp_server();
@@ -826,9 +934,25 @@ async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value
         .await?;
         prompt.attachments.extend(blocks);
     }
-    let request = prompt.params(&target.key, &target.text, target.item.steer, None);
-    let queued = daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await?;
-    Ok((prompt, queued))
+    // Through a daemon update or restart: the same prompt id again, `resend: true`, to the next
+    // daemon until `call_end` (Leo, 2026-11-27: "ok well we should be able to just hold those
+    // messages"). The outbox runs an id once, so the message lands exactly once.
+    let deadline = call_end.min(tokio::time::Instant::now() + RESTART_WAIT);
+    let (daemon, queued) =
+        crate::cli::output::through_restart(daemon, deadline, |daemon, resend| {
+            let mut prompt = prompt.clone();
+            prompt.resend |= resend;
+            let mut request = prompt.params(&target.key, &target.text, target.item.steer, None);
+            if let Some(after) = after
+                && let Some(mux) =
+                    request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+            {
+                mux.insert(crate::hub::outbox::AFTER_KEY.into(), json!(after));
+            }
+            async move { daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await }
+        })
+        .await?;
+    Ok((daemon, prompt, queued))
 }
 
 /// Wait up to `wait` for a queued message's delivery to settle; its row.
@@ -842,6 +966,12 @@ async fn settle(
     let delivery = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
     let wait_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
     let ask = json!({"deliveryId": delivery, "waitMs": wait_ms});
+    // The mesh relay's note of a class it carried in the text or a supersede key it dropped
+    // (`server/mesh_send.rs`).
+    let notes: Vec<(&str, Value)> = ["classInline", "supersedeDropped", "note"]
+        .into_iter()
+        .filter_map(|key| queued.get(key).map(|v| (key, v.clone())))
+        .collect();
     let status = daemon.request(method::MUX_SEND_STATUS, ask).await.unwrap_or(queued);
     let state = status.get("status").and_then(Value::as_str).unwrap_or("queued").to_owned();
     let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
@@ -853,6 +983,9 @@ async fn settle(
         status.get("error").and_then(Value::as_str).unwrap_or("delivery failed").to_owned()
     });
     let mut row = target.row(!refused, &state, error);
+    for (key, v) in notes {
+        row.set(key, v);
+    }
     row.set("promptId", json!(prompt.id));
     row.set("deliveryId", json!(delivery));
     row.set("sessionId", session_id);
@@ -890,6 +1023,13 @@ fn row_ok(row: &Value) -> bool {
 fn sent_line(row: &Value) -> String {
     let s = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
     let (to, prompt_id, delivery) = (s("to"), s("promptId"), s("deliveryId"));
+    // The target's given name, from its acceptance, first: "Sent to Mango · HOST/NAME".
+    let given = row
+        .pointer("/accepted/displayName")
+        .and_then(Value::as_str)
+        .filter(|n| crate::session_handle::valid(n));
+    let label = crate::prompt_provenance::display_label(given, to);
+    let to = label.as_str();
     if !row_ok(row) {
         if to.is_empty() {
             let index = row.get("index").cloned().unwrap_or(Value::Null);
@@ -930,3 +1070,11 @@ fn batch_result(results: Vec<Value>) -> Value {
     }
     out
 }
+
+#[cfg(test)]
+#[path = "acpmux_mcp_send_sent_line_tests.rs"]
+mod sent_line_tests;
+
+#[cfg(test)]
+#[path = "acpmux_mcp_send_budget_nesting_tests.rs"]
+mod budget_nesting_tests;

@@ -8,8 +8,15 @@ import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
 import { CloudOps } from "./ops";
 import { CLOUD_RESTART_MIN_MS, CloudStore } from "./store";
+import { L } from "./strings";
+import { LASTING_MS } from "../../ui/lasting";
+import { teardownDom } from "../../../test/support/domTeardown";
 
-const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
+// pretendToBeVisual gives the window requestAnimationFrame, which the create sheet's dialog uses.
+const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+});
 const globals = globalThis as Record<string, unknown>;
 const replacements = {
   window: dom.window,
@@ -18,6 +25,8 @@ const replacements = {
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,
   Node: dom.window.Node,
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
@@ -28,13 +37,9 @@ const settle = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
 };
 
-afterAll(() => {
+afterAll(async () => {
   jest.useRealTimers();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 class RetryFailureProvider extends MockCloudProvider {
@@ -68,30 +73,35 @@ async function renderFailure(provider: RetryFailureProvider) {
   return { root, rootElement, store };
 }
 
+// Leo, 2026-11-22: "i dont know what kind of decision a "try again" would be other than "ok i guess ill
+// click this."" An auth read the owner answered with an error is read again on its own, like a lost
+// link: no failed card and no Retry button, and the page comes up once a read succeeds.
 for (const [name, failure] of [
-  ["upstream", { code: "cmux.cloud.upstream_error", message: "Cloud did not answer", retryable: true }],
+  // Final; a retryable one is read again quietly before it shows (CloudPage.blip.test.tsx).
+  ["upstream", { code: "cmux.cloud.upstream_error", message: "Cloud did not answer", retryable: false }],
   ["malformed", { code: "cmux.protocol.invalid_result", message: "Malformed auth reply", retryable: false }],
   ["terminal", { code: "cmux.cloud.auth_required", message: "Sign in to cmux Cloud", retryable: false }],
 ] as const) {
-  test(`renders ${name} auth failure with its error and Retry, then recovers`, async () => {
+  test(`a ${name} auth failure shows nothing, offers no Retry, and recovers on its own`, async () => {
     const provider = new RetryFailureProvider(failure);
     const { root, rootElement, store } = await renderFailure(provider);
     try {
-      expect(store.getSnapshot()).toMatchObject({
-        connection: "failed",
-        loading: false,
-        error: failure.message,
-      });
+      expect(store.getSnapshot()).toMatchObject({ connection: "failed", loading: false, recovering: true });
+      expect(provider.authReads).toBe(2);
       expect(rootElement.querySelector(".cloud-loading")).toBeNull();
-      expect(rootElement.querySelector(".cloud-failed")?.textContent).toContain(failure.message);
-      const retry = rootElement.querySelector<HTMLButtonElement>(".cloud-failed .cloud-retry-button");
-      expect(retry).not.toBeNull();
+      expect(rootElement.querySelector(".cloud-still-trying")).toBeNull();
+      expect(rootElement.querySelector("button")).toBeNull();
+      expect(rootElement.textContent).not.toContain(strings.t(L.retry));
+      // The second failure waits twice as long before the next read.
       await act(async () => {
-        retry!.click();
+        jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS * 2);
         await settle();
       });
+      expect(provider.authReads).toBe(3);
       expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
-      expect(rootElement.querySelector(".cloud-failed")).toBeNull();
+      expect(store.getSnapshot().recovering).toBeUndefined();
+      expect(store.getSnapshot().error).toBeUndefined();
+      expect(rootElement.querySelector(".cloud-still-trying")).toBeNull();
       expect(rootElement.querySelector(".cloud-loading")).toBeNull();
     } finally {
       await act(async () => root.unmount());
@@ -101,13 +111,56 @@ for (const [name, failure] of [
   });
 }
 
+test("an outage that lasts says so in one quiet line with no button, and keeps reading", async () => {
+  class DownProvider extends MockCloudProvider {
+    authReads = 0;
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      if (op === CloudOps.authStatus) {
+        this.authReads += 1;
+        throw pageError("cmux.cloud.upstream_error", "Cloud did not answer", true);
+      }
+      return super.call<R>(op, params);
+    }
+  }
+  jest.useFakeTimers();
+  const provider = new DownProvider();
+  const store = new CloudStore(provider);
+  const rootElement = document.createElement("div");
+  document.body.append(rootElement);
+  const root = createRoot(rootElement);
+  try {
+    await act(async () => {
+      root.render(<CloudPage store={store} strings={strings} />);
+      await settle();
+    });
+    expect(rootElement.querySelector(".cloud-still-trying")).toBeNull();
+    // Past the grace, in steps, so each re-read the timers arm on the way settles.
+    for (let elapsed = 0; elapsed <= LASTING_MS; elapsed += 1_000) {
+      await act(async () => {
+        jest.advanceTimersByTime(1_000);
+        await settle();
+      });
+    }
+    const line = rootElement.querySelector(".cloud-still-trying");
+    expect(line?.textContent).toBe(strings.t(L.stillTrying));
+    expect(rootElement.querySelector("button")).toBeNull();
+    expect(rootElement.querySelector(".cloud-failed")).toBeNull();
+    // 1, 2, 4, 8 s and then every 10 s: the reads went on all along.
+    expect(provider.authReads).toBeGreaterThanOrEqual(5);
+  } finally {
+    await act(async () => root.unmount());
+    rootElement.remove();
+    jest.useRealTimers();
+  }
+});
+
 for (const code of [
   "cmux.protocol.closed",
   "cmux.protocol.transport",
   "cmux.protocol.timeout",
   "cmux.protocol.unavailable",
 ]) {
-  test(`a real bridge ${code} recovers without showing the failed page or clicking Retry`, async () => {
+  test(`a real bridge ${code} recovers on its own without showing anything`, async () => {
     jest.useFakeTimers();
     let reads = 0;
     const client = new BridgePageClient(
@@ -151,3 +204,41 @@ for (const code of [
     }
   });
 }
+
+test("a failed snapshot list is read again on its own in the create sheet, with no Retry", async () => {
+  jest.useFakeTimers();
+  const provider = new MockCloudProvider();
+  const store = new CloudStore(provider);
+  const rootElement = document.createElement("div");
+  document.body.append(rootElement);
+  const root = createRoot(rootElement);
+  const lists = () => provider.calls.filter((call) => call.op === CloudOps.snapshotList).length;
+  try {
+    await act(async () => {
+      root.render(<CloudPage store={store} strings={strings} />);
+      await settle();
+    });
+    provider.failNext = CloudOps.snapshotList;
+    await act(async () => {
+      store.openCreate();
+      await settle();
+    });
+    expect(store.getSnapshot().create?.snapshotsFailed).toBe(true);
+    expect(document.querySelector(".cloud-create-snapshots-failed")).toBeNull();
+    expect(document.body.textContent).not.toContain(strings.t(L.retry));
+    const before = lists();
+    // The first ask comes within the jittered first second.
+    await act(async () => {
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    });
+    expect(lists()).toBe(before + 1);
+    const draft = store.getSnapshot().create!;
+    expect(draft.snapshotsFailed).toBeUndefined();
+    expect(draft.snapshots?.length).toBe(provider.snapshots.length);
+  } finally {
+    await act(async () => root.unmount());
+    rootElement.remove();
+    jest.useRealTimers();
+  }
+});

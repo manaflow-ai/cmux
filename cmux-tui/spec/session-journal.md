@@ -238,6 +238,39 @@ Structured and compiled-regex filters run off the mutation path. Idle
 subscribers wait on the fanout signal instead of polling the database. A hook
 process never runs synchronously inside the journal transaction.
 
+## Session list rows
+
+A session list (the desktop sidebar, the iPhone list, Cloud, another
+machine's catalog) and each session's journal are separate streams. A row can
+reach a viewer before the records it summarizes, so the viewer could show a row
+as new, or notify about it, and then open an empty session. Committing both in
+one transaction on the server does not stop this: the order in which they are
+shown is decided at the viewer.
+
+Every `session.list` and `session.get` row names the journal head of the read
+in `extra.journal_head_sequence`, as a decimal string like every cursor. It is
+in `extra` because `SessionSnapshot` forbids unknown sibling fields, so an
+older SDK would reject a new field. The full `session.snapshot` leaves it out,
+because its cut already names its own cursor.
+
+A viewer compares that head with its own journal cursor for the session, which
+is the last sequence it received or resumed from:
+
+- If the cursor is below the head, the row is **syncing**. It shows as
+  syncing, never as new or unread. The viewer fetches the tail, and holds every
+  notification about the row.
+- When the cursor reaches the head, the row is synced. Held notifications are
+  released in the order they were offered, each exactly once.
+- Heads only move forward. An older list read cannot make a row look synced.
+- A row without the field comes from a daemon that predates it, and is never
+  held.
+
+The rule is one pure Rust value, `cmux::session_list_sync::SessionListSync`,
+with no clock and no I/O. Every list view uses it instead of re-deriving the
+rule. `bindings/rust/tests/session_list_sync.rs` delays one session's journal
+stream by 5 s and asserts that no notification fires and no row shows as new
+while its cursor is behind the head.
+
 ## Producer ingress
 
 A producer installs a versioned manifest before appending namespaced events:
@@ -353,6 +386,17 @@ one registry grew to 41.6 GB. The daemon's output store
 
 Accepted geometry changes and the small `terminal.output.gap` markers
 (`host_reconnect`, `host_respawn`; no bytes) still use the FIFO terminal lane.
+Their producers hold the terminal's geometry and parser locks, so they offer
+the record and never wait for room. A full lane refuses the record and owes
+that terminal generation one `terminal.output.gap` marker: reason
+`journal_queue_full` for a geometry change, the marker's own reason for a
+marker. The owed marker enters the lane ahead of the terminal's next record
+when the lane has drained to half (a marker with its own reason: when it has
+room), ahead of the next coalesced checkpoint, or ahead of the last terminal
+barrier of a shutdown (when the lane is still full there: after the barrier
+that empties it, ahead of one more barrier); records refused in between are
+covered by that one marker. The geometry of a terminal that owes a marker is the snapshot's, not
+the journal's.
 Registries written before this change keep their output records; the readers
 below still understand them. A subscription with `kinds: ["terminal.output"]` or the
 `terminal_output` regex field matches only those older records; a new hook
@@ -384,7 +428,22 @@ CLI, preserves only structural string fields and non-string structure before
 it stores the provider shape under `payload.native`, and stores common session,
 turn, directory, transcript, tool, and agent topology fields under
 `payload.normalized`. Content strings and credential fields are redacted.
-Unknown native events become `agent.state.changed`:
+Unknown native events become `agent.state.changed`.
+
+A hook report that changes no durable state (a tool call inside a turn, a
+notification) is answered from daemon memory and gets no record. So that a
+reader of the journal alone still knows when an agent last worked, the daemon
+writes one coalesced record for the whole session, at most one per 5 minutes
+and one at a clean stop, and none while no agent reports: kind
+`agent.state.changed`, adapter `cmux`, `native_event` `AgentActivityObserved`,
+no terminal subject, and `payload.normalized.activity` as a list of
+`{adapter, agent_session_id, terminal, observed_at_ms}` (the newest report time
+of each terminal that reported since the last such record). A fold applies
+each entry as `last activity = max(last activity, observed_at_ms)` of a session
+it already has; the record makes no session and has no state. A reader in the
+daemon (`history.entries.list`) gets the exact time from memory.
+
+An unknown native event through the CLI:
 
 ```bash
 printf '%s\n' '{"session_id":"abc","message":"done"}' | \
@@ -641,7 +700,9 @@ runtime generation and uses `cmux.terminal-output-gap.v1` with reason
 `detach_fence_failed` or `active_update_timeout`. A live daemon appends the
 same record with reason `host_reconnect` when it reconnects to a terminal host
 after its tap was lost or the host asked it to resync (see `terminal-host.md`,
-"Durability boundary"). A restore preview treats this
+"Durability boundary"), and with reason `journal_queue_full` when the full
+terminal lane refused a geometry change (see "Accepted geometry changes"
+above). A restore preview treats this
 required kind as unsupported, so it cannot report a fully reducible tail that
 can contain missing source bytes. The daemon always attempts the final terminal
 barrier, closes both journal admission lanes, drains accepted records, and joins

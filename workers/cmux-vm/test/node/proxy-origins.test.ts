@@ -1,0 +1,59 @@
+/**
+ * Each deployment's HTTPS proxy origins (VM_HTTPS_PROXY_ORIGINS) hold its platforms' lifelines: the API origin and the
+ * carrier relay (cmux-platform PrivateEgress.ts), so a machine whose public internet is off keeps cmux through them.
+ * Staging's Worker serves the development and staging platforms; production's, production's.
+ */
+import { expect, it } from "vitest";
+import wranglerText from "../../wrangler.jsonc?raw";
+import { parseHttpsProxyOrigins } from "../../src/network-origin.ts";
+
+/** One environment's VM_HTTPS_PROXY_ORIGINS value, read from its line in wrangler.jsonc (the file is JSON with comments). */
+const originsOf = (env: "staging" | "production"): ReadonlyArray<string> => {
+  const start = wranglerText.indexOf(`"${env}": {`);
+  expect(start).toBeGreaterThan(-1);
+  const line = /"VM_HTTPS_PROXY_ORIGINS": ("(?:[^"\\]|\\.)*")/u.exec(wranglerText.slice(start));
+  expect(line).not.toBeNull();
+  const raw: unknown = JSON.parse(line?.[1] ?? "null");
+  if (typeof raw !== "string") throw new Error(`${env}: VM_HTTPS_PROXY_ORIGINS is not a string`);
+  const listed: unknown = JSON.parse(raw);
+  if (!Array.isArray(listed)) throw new Error(`${env}: VM_HTTPS_PROXY_ORIGINS is not a list`);
+  // Every listed value is an exact https origin: one that is not would disable the whole list.
+  expect(parseHttpsProxyOrigins(raw)).toHaveLength(listed.length);
+  return parseHttpsProxyOrigins(raw);
+};
+
+it("lets staging's machines keep the development and staging API and carrier relay", () => {
+  expect(originsOf("staging")).toEqual(expect.arrayContaining([
+    "https://cmux-api-development.debussy.workers.dev",
+    "https://cmux-remote-relay-development.debussy.workers.dev",
+    "https://cloud-api-staging.cmux.dev",
+    "https://cmux-remote-relay-staging.debussy.workers.dev",
+  ]));
+});
+
+// A gateway-mode team's coderouter.cmux.internal rule targets its platform's CLOUD_INFERENCE_GATEWAY_HOST, and a create
+// whose proxy destination is not listed is refused (src/proofs/vm-network.ts): staging's is the inference edge.
+it("lets staging's gateway-mode machines reach each platform's inference gateway host", () => {
+  expect(originsOf("staging")).toEqual(expect.arrayContaining([
+    "https://cmux-platform-development.debussy.workers.dev",
+    "https://cmux-inference-edge-staging.debussy.workers.dev",
+  ]));
+  expect(originsOf("production")).toContain("https://cmux-platform-production.debussy.workers.dev");
+});
+
+it("lets production's machines keep the production API and carrier relay, and only production's", () => {
+  const origins = originsOf("production");
+  expect(origins).toEqual(expect.arrayContaining([
+    "https://cloud-api.cmux.dev",
+    "https://cmux-remote-relay-production.debussy.workers.dev",
+  ]));
+  expect(origins.filter((o) => /development|staging/u.test(o))).toEqual([]);
+});
+
+// The platform edge rule (cmux-platform PlatformEdge.ts) names each platform's edge host as its destination, and a
+// create whose proxy destination is not listed is refused: every edge team's create answered 400 after
+// cmux-platform#2370 moved the destination to these custom domains (production, 2026-11-27 10:29Z).
+it("lets edge teams' machines reach each platform's edge host", () => {
+  expect(originsOf("staging")).toContain("https://platform-edge-dev.cmux.dev");
+  expect(originsOf("production")).toContain("https://platform-edge.cmux.dev");
+});

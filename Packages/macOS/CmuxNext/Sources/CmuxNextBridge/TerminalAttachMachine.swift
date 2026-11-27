@@ -102,16 +102,25 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// in flight: if that attach fails, the next one opens at once instead of after the backoff.
     private var reattachRequested = false
     private let initialSize: CellSize
-    private let restoring: Bool
+    private let untilLive: LinkStatus? // what the view says until its first replay: `restoring`, `starting` or nothing
     private var lastAttempt = 0
 
-    /// `restoring`: the view attaches to a terminal that already runs (a
-    /// relaunch or a reopened tab), so it says `restoring` until its first
-    /// replay instead of nothing.
-    public init(initialSize: CellSize, visible: Bool = true, restoring: Bool = false) {
+    /// `restoring`: the view attaches to a terminal that already runs (a relaunch or a reopened tab);
+    /// `creating`: to one the daemon has not confirmed yet (a new split or tab). It says `restoring` or
+    /// `starting` until its first replay instead of nothing.
+    public init(initialSize: CellSize, visible: Bool = true, restoring: Bool = false, creating: Bool = false) {
         self.initialSize = initialSize
         self.visible = visible
-        self.restoring = restoring
+        untilLive = creating ? .starting : restoring ? .restoring : nil
+    }
+
+    /// Moves the input queued while attaching out of this view, uncounted as dropped: a view that
+    /// is replaced before it went live (its daemon answered with a new generation at launch) hands
+    /// the keys typed meanwhile to its replacement instead of losing them (the launch-TTI round 2).
+    /// A live view has nothing queued.
+    public mutating func takeQueuedInput() -> [Data] {
+        defer { queuedInput = []; queuedInputBytes = 0 }
+        return queuedInput
     }
 
     /// The link input goes to right now, if any.
@@ -148,7 +157,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         guard phase == .detached else { return [] }
         let pending = newPending(failures: 1)
         phase = .attaching(pending)
-        return (restoring ? announce(.restoring) : []) + [.open(attempt: pending.attempt, size: pending.size)]
+        return (untilLive.map { announce($0) } ?? []) + [.open(attempt: pending.attempt, size: pending.size)]
     }
 
     private mutating func opened(_ link: Link, attempt: Int) -> [Effect] {
@@ -345,7 +354,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         }
         if byEvent { autoReconnects = 0 }
         reattachRequested = false
-        let stillRestoring = restoring && !wentLive
+        let stillRestoring = untilLive == .restoring && !wentLive
         var wait = byEvent ? 0 : max(failed, autoReconnects - 1)
         if stillRestoring, autoReconnects <= Self.quietRestoreReconnects { wait = min(wait, Self.restoreBackoffCap) }
         lastAttempt += 1
@@ -360,8 +369,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         let quiet = stillRestoring ? Self.quietRestoreReconnects : Self.quietReconnects
         let status: LinkStatus = if !byEvent, autoReconnects > quiet {
             .disconnected(reason, reconnecting: false)
-        } else if stillRestoring {
-            .restoring
+        } else if let untilLive, !wentLive {
+            untilLive
         } else {
             .disconnected(reason, reconnecting: true)
         }

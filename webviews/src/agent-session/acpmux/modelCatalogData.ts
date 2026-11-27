@@ -1,9 +1,12 @@
 import { isDefaultChoice } from "./defaultChoice";
+import { FEED_PROVIDERS } from "./feedHarnesses";
 import { isModelRouterKind } from "./routerKinds";
+import { CLAUDE_STDIO_KIND } from "./modelPickerModel";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
 import currentFamilies from "../../../../web/data/model-catalog/current-families.json";
 import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
+import { replacedFrom } from "./sessionIndex";
 import { agentKey } from "../shared/agentKey";
 import { agentBrand } from "../shared/agentBrands.generated";
 
@@ -14,7 +17,8 @@ import { agentBrand } from "../shared/agentBrands.generated";
 // reads only `PickerCatalog`; it never matches model ids itself.
 
 export type EffortValue = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
-export type ModelStatus = "preview" | "deprecated";
+/** `disabled`: the catalog withdrew the model; it never shows (see `readModelCatalog`). */
+export type ModelStatus = "preview" | "deprecated" | "disabled";
 
 export type ModelInfo = {
   name: string;
@@ -115,6 +119,7 @@ export type PickerModel = {
   input?: string[];
   status?: ModelStatus;
   unavailable?: string;
+  codexUpdateVersion?: string;
   /** The catalog release an alias row stands for; `id` is the alias the harness offers. */
   release?: string;
   /** What the profile's declaration or the user's override set: the session's options keep it. */
@@ -170,8 +175,20 @@ const EFFORT_ORDER: readonly EffortValue[] = ["none", "minimal", "low", "medium"
 export function readModelCatalog(value: unknown): ModelCatalog | undefined {
   if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.harnesses)) return undefined;
   if (!isRecord(value.models) || !isRecord(value.providers)) return undefined;
-  const harnesses = (value.harnesses as unknown[]).filter(isCatalogHarness);
+  const harnesses = (value.harnesses as unknown[]).filter(isCatalogHarness).map(withoutDisabled);
   return { ...(value as ModelCatalog), harnesses };
+}
+
+/** Drops the models the catalog disabled, and a default model that is one of them. */
+function withoutDisabled(harness: CatalogHarness): CatalogHarness {
+  const disabled = new Set(harness.models.filter((m) => m?.status === "disabled").map((m) => m.id));
+  if (disabled.size === 0) return harness;
+  const { defaultModel, ...rest } = harness;
+  return {
+    ...rest,
+    models: harness.models.filter((m) => !disabled.has(m.id)),
+    ...(defaultModel && !disabled.has(defaultModel) ? { defaultModel } : {}),
+  };
 }
 
 /** Applies cmux.json `agentPane.models` to a catalog. Bad entries are skipped and reported. */
@@ -276,16 +293,54 @@ export type PickerInputs = {
   provisional?: boolean;
 };
 
+type Worked = { harness?: string; updatedAt?: number; worked?: boolean };
+/// Each profile's newest chat whose last turn completed: its time and place in the list.
+type WorkedBest = ReadonlyMap<string, { time: number; at: number }>;
+/// What `workedProfiles` found per list it read, which a list made from one in place (sessionIndex.ts
+/// `noteReplaced`) updates at the replaced entries.
+const workedOf = new WeakMap<readonly Worked[], WorkedBest>();
+
 /** The profiles of the chats whose last turn completed, most recently updated first, each once. */
-export function workedProfiles(sessions: readonly { harness?: string; updatedAt?: number; worked?: boolean }[]) {
-  return [
-    ...new Set(
-      sessions
-        .filter((session) => session.worked && session.harness)
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-        .map((session) => session.harness!),
-    ),
-  ];
+export function workedProfiles(sessions: readonly Worked[]) {
+  // A stable sort of the completed chats, newest first, and each profile's first: each profile at
+  // its newest chat (the first in the list of those as new), ordered by that chat's time, then its
+  // place. Kept per profile, so one chat's change costs that chat, not a sort of every listed chat.
+  let best = workedOf.get(sessions);
+  if (!best) workedOf.set(sessions, (best = workedBest(sessions)));
+  return [...best].sort(([, a], [, b]) => b.time - a.time || a.at - b.at).map(([harness]) => harness);
+}
+
+function workedBest(sessions: readonly Worked[]): WorkedBest {
+  const made = replacedFrom(sessions, (list) => list !== sessions && workedOf.has(list));
+  if (made) {
+    const best = new Map(workedOf.get(made.from)!);
+    let whole = false;
+    for (const at of made.at) {
+      const before = made.from[at];
+      const was = before?.worked && before.harness ? best.get(before.harness) : undefined;
+      const entry = sessions[at]!;
+      const time = entry.updatedAt ?? 0;
+      if (was?.at === at) {
+        // A profile's newest chat changed: it stays so only while still newest (same profile, completed, no older).
+        if (entry.worked && entry.harness === before!.harness && time >= was.time)
+          best.set(entry.harness!, { time, at });
+        else whole = true;
+        continue;
+      }
+      if (!entry.worked || !entry.harness) continue;
+      const now = best.get(entry.harness);
+      if (!now || time > now.time || (time === now.time && at < now.at)) best.set(entry.harness, { time, at });
+    }
+    if (!whole) return best;
+  }
+  const best = new Map<string, { time: number; at: number }>();
+  sessions.forEach((entry, at) => {
+    if (!entry.worked || !entry.harness) return;
+    const time = entry.updatedAt ?? 0;
+    const now = best.get(entry.harness);
+    if (!now || time > now.time) best.set(entry.harness, { time, at });
+  });
+  return best;
 }
 
 /** Joins the catalog with what acpmux reports (CONTRACT section 3, join rules 1-6). */
@@ -301,6 +356,12 @@ export function buildPickerCatalog({
   // folder profile must never stand in for a catalog harness of its family.
   // A router can report the same family as a real launcher. Exclude it before choosing that
   // family's representative, so it cannot replace or hide the actual harness.
+  // A catalog harness whose own profile acpmux lists as no picker choice (`pickerHidden`: the cmux
+  // model router, Claude Code's automatic fallback, whose catalog entry is the router's model list)
+  // is no harness of the picker either: it drew a second Claude Code tab under DeepSeek.
+  const hiddenProfiles = new Set(
+    acpmux.filter((entry) => !entry.folder && entry.pickable === false).map((entry) => entry.id),
+  );
   acpmux = acpmux.filter((entry) => !entry.folder && !isModelRouterKind(entry.kind));
   const layered = applyUserLayer(catalog, user);
   const join: Join = {
@@ -313,10 +374,11 @@ export function buildPickerCatalog({
   };
   const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
-  const harnesses = layered.harnesses.map((harness) => {
+  const harnesses = layered.harnesses.flatMap((harness) => {
     const members = acpmux.filter((entry) => harness.families.includes(familyOf(entry)));
     for (const member of members) covered.add(member.id);
-    return catalogHarness(harness, members, join);
+    if (hiddenProfiles.has(harness.id) && !members.some(entryPickable)) return [];
+    return [catalogHarness(harness, members, join)];
   });
   // A profile whose family a hidden catalog harness covers stays hidden with it.
   for (const harness of catalog.harnesses)
@@ -405,12 +467,29 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
       .find((entry) => entry !== undefined) ??
     members.find((entry) => entry.id === harness.id) ??
     members[0];
-  const probed = chosen?.models ?? [];
+  const probed = chosen?.models ?? (harness.modelSource === "probe" ? feedModels(harness.id, join.catalog) : []);
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
+  // An ACP harness that reported its own menu lists only the catalog models it reported, as acpmux
+  // does (models_view.rs `offered`): Codex names what this account runs, and on a ChatGPT account it
+  // refuses the catalog's gpt-5.6 and gpt-5.5 ("not supported when using Codex with a ChatGPT
+  // account"). Claude Code reports only its current aliases, and its older catalog releases run.
+  const ownMenu =
+    chosen?.topModels !== undefined &&
+    chosen.kind !== CLAUDE_STDIO_KIND &&
+    (harness as CatalogHarness & { runsAnyModel?: boolean }).runsAnyModel !== true
+      ? new Set(probed.map((probe) => probe.id))
+      : undefined;
+  const reportedHere = (model: HarnessModel) =>
+    !ownMenu ||
+    [model.id, ...(model.aliases ?? [])].some((id) => ownMenu.has(id)) ||
+    model.id === runs ||
+    userDeclaresModel(model.id, chosen?.id, harness.id, join);
   const listed =
     harness.modelSource === "catalog"
-      ? harness.models.filter((model) => includeCatalogIdentity(model, chosen, runs, harness.id, join))
+      ? harness.models.filter(
+          (model) => includeCatalogIdentity(model, chosen, runs, harness.id, join) && reportedHere(model),
+        )
       : [];
   const reported = reportedNames(probed, live);
   const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);
@@ -422,7 +501,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     if (hiddenReleases.has(probe.id)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
-  addSessionModels(models, live, harness.id, listed, join, probed, hiddenReleases);
+  addSessionModels(models, live, harness.id, listed, join, probed, runs, hiddenReleases);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
   const offered = foldAliases(models, releases, runs, reported, join, (release, alias) =>
     aliasRow(listed, release, alias, harness.id, probed, join),
@@ -447,6 +526,20 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     topModels: menuModels(chosen?.topModels, live, offered, reported, join),
     models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
+}
+
+/**
+ * What a probe harness this Mac does not have runs, from the model feed, so the picker's search
+ * finds its models before its probe can name them (Lawrence 2026-11-07: "search for any model ...
+ * download the relevant harness"). Deprecated models stay out; once acpmux lists the harness, its
+ * own probe replaces these.
+ */
+function feedModels(harnessId: string, catalog: ModelCatalog): AcpmuxModel[] {
+  const providers = FEED_PROVIDERS[harnessId];
+  if (!providers) return [];
+  return Object.entries(catalog.models)
+    .filter(([id, info]) => providers.includes(id.slice(0, id.indexOf("/"))) && info.status !== "deprecated")
+    .map(([id, info]) => ({ id, name: info.name }));
 }
 
 function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
@@ -477,7 +570,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
       continue;
     if (!models.some((row) => row.id === model.id)) models.push(listedModel(model, entry.id, entry.models, join));
   }
-  addSessionModels(models, live, entry.id, listed, join, entry.models, hiddenReleases, kin?.id);
+  addSessionModels(models, live, entry.id, listed, join, entry.models, runs, hiddenReleases, kin?.id);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
   const offered = kin
     ? foldAliases(models, releases, runs, reported, join, (release, alias) =>
@@ -533,7 +626,12 @@ function menuModels(
  */
 function listedModel(model: HarnessModel, harnessId: string, probed: AcpmuxModel[], join: Join): PickerModel {
   const probe = probed.find((candidate) => candidate.id === model.id);
-  return pickerModel(layeredModel(model, harnessId, probe, join), join.catalog, probe?.unavailable);
+  return pickerModel(
+    layeredModel(model, harnessId, probe, join),
+    join.catalog,
+    probe?.unavailable,
+    probe?.codexUpdateVersion,
+  );
 }
 
 /** The model the session runs: its model option's value, else the model it reports (a session can
@@ -691,18 +789,27 @@ function addSessionModels(
   listed: HarnessModel[],
   join: Join,
   probed: AcpmuxModel[],
+  current: string | undefined,
   hiddenReleases: Set<string> = new Set(),
   identityHarnessId = harnessId,
 ): void {
   const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
-  if (!option) return;
-  const choices: { id: string; name?: string }[] = (option.options ?? []).map((choice) => ({
+  const choices: { id: string; name?: string }[] = (option?.options ?? []).map((choice) => ({
     id: choice.value,
     name: choice.name || undefined,
   }));
-  if (option.currentValue) choices.push({ id: option.currentValue });
+  if (current) choices.push({ id: current });
   for (const choice of choices) {
-    if (!choice.id || models.some((model) => model.id === choice.id)) continue;
+    if (!choice.id) continue;
+    const existing = models.find((model) => model.id === choice.id);
+    if (existing) {
+      // The running session can receive its provider's new list before the background probe.
+      if (existing.codexUpdateVersion) {
+        delete existing.codexUpdateVersion;
+        delete existing.unavailable;
+      }
+      continue;
+    }
     if (isHiddenByUser(harnessId, choice.id, join)) continue;
     if (hiddenReleases.has(choice.id)) continue;
     const pinned = listed.find((model) => model.id === choice.id);
@@ -720,7 +827,12 @@ function addSessionModels(
   }
 }
 
-function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog, unavailable?: string): PickerModel {
+function pickerModel(
+  model: HarnessModel & { own?: Own },
+  catalog: ModelCatalog,
+  unavailable?: string,
+  codexUpdateVersion?: string,
+): PickerModel {
   const info = model.ref ? catalog.models[model.ref] : undefined;
   const providerName = model.provider ? catalog.providers[model.provider]?.name : undefined;
   const contextWindow = model.contextWindow ?? info?.contextWindow;
@@ -742,7 +854,7 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
     ...(info?.reasoning !== undefined ? { reasoning: info.reasoning } : {}),
     ...(info?.input ? { input: info.input } : {}),
     ...(status ? { status } : {}),
-    ...(unavailable ? { unavailable } : {}),
+    ...(unavailable ? { unavailable, codexUpdateVersion } : {}),
     ...(model.own ? { own: model.own } : {}),
     searchText: [model.id, model.name, model.family, providerName, ...(model.aliases ?? [])]
       .filter(Boolean)
@@ -766,7 +878,12 @@ function probedModel(probe: AcpmuxModel, harnessId: string, join: Join, identity
     ...(catalogModel?.family || info?.family ? { family: catalogModel?.family || info?.family } : {}),
     ...(catalogModel?.provider || provider ? { provider: catalogModel?.provider || provider } : {}),
   };
-  return pickerModel(layeredModel(base, harnessId, probe, join), join.catalog, probe.unavailable);
+  return pickerModel(
+    layeredModel(base, harnessId, probe, join),
+    join.catalog,
+    probe.unavailable,
+    probe.codexUpdateVersion,
+  );
 }
 
 /** Once a profile is present, its models own availability. With no profile, the catalog remains
@@ -778,10 +895,16 @@ function includeCatalogIdentity(
   harnessId: string,
   join: Join,
 ): boolean {
-  if (!isIdentityOnlyCurrentModel(model)) return true;
   if (model.id === runs) return true;
   if (userDeclaresModel(model.id, profile?.id, harnessId, join)) return true;
-  return profile === undefined;
+  if (harnessId === "codex" && profile?.topModels !== undefined) {
+    return profile.models.some(
+      (row) =>
+        (row.id === model.id || model.aliases?.includes(row.id)) &&
+        includeReportedIdentity(row, profile, harnessId, runs, join),
+    );
+  }
+  return !isIdentityOnlyCurrentModel(model) || profile === undefined;
 }
 
 /** User overrides also add models; their explicit entries outrank fallback availability. */

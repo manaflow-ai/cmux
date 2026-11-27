@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/agent-cache.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentCache.generated.swift",
+  "type": "AgentCacheSettingsSchema",
+  "lists": {
+    "agentCache": ["descriptors", "AgentCacheSettings"]
+  }
+}

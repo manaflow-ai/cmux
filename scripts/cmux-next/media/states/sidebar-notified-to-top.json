@@ -1,0 +1,125 @@
+{
+  "title": "A notification moves its workspace to the top of the sidebar (notifications.attention.moveToTop, on by default since 2026-11-09). Four workspaces with Delta at the bottom; a cmux notify from Delta's terminal while Alpha shows moves it up to the top of the unpinned rows. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-notified-to-top.json",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Workspace Delta (made first, so new workspaces push it to the bottom)",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Delta"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Workspace Charlie",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Charlie"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Workspace Bravo",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Bravo"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Workspace Alpha",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Alpha"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Before the notification: Delta is the bottom row",
+      "rpc": {
+        "method": "debug.window_snapshot",
+        "params": {
+          "kind": "main",
+          "path": "{collect}"
+        }
+      },
+      "collect": "sidebar-before-notify.png",
+      "wait": 0.5
+    },
+    {
+      "title": "Show Alpha: the user looks at Alpha",
+      "cmux": [
+        "workspace",
+        "name:Alpha",
+        "focus"
+      ],
+      "wait": 1.5
+    },
+    {
+      "title": "Delta's own terminal posts a notification while the user looks at Alpha",
+      "cmux": [
+        "workspace",
+        "name:Delta",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "cmux notify --title 'Build finished' --body 'Delta is ready for review' --desktop false"
+      ],
+      "wait": 0.25,
+      "shot": false
+    },
+    {
+      "title": "Press Return to run cmux notify in Delta",
+      "cmux": [
+        "workspace",
+        "name:Delta",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "keys",
+        "enter"
+      ],
+      "wait": 2.5
+    },
+    {
+      "title": "Sidebar after the notification: Delta moves to the top with its unread mark (on); Delta stays at the bottom (off)",
+      "rpc": {
+        "method": "debug.window_snapshot",
+        "params": {
+          "kind": "main",
+          "path": "{collect}"
+        }
+      },
+      "collect": "sidebar-after-notify.png",
+      "wait": 0.5
+    }
+  ]
+}

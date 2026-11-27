@@ -48,6 +48,12 @@ final class AgentPaneWKWebView: WKWebView {
     /// + button (Leo, 2026-10-21).
     @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
 
+    /// The key's edit renders now, not at the next display refresh (``NSView/renderKeyEditNow()``).
+    override func keyDown(with event: NSEvent) {
+        super.keyDown(with: event)
+        renderKeyEditNow()
+    }
+
     override func mouseDown(with event: NSEvent) {
         menuAutoFill.noteContextClick(event)
         super.mouseDown(with: event)
@@ -61,12 +67,16 @@ final class AgentPaneWKWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         menuAutoFill.menuWillOpen()
         contextMenuEditor?(menu)
+        // The chat's rows are cmux's: no "Ask Siri" field, Services or Writing Tools from AppKit.
+        menu.withoutSystemItems()
+        menu.confineTracking(at: event, in: self)
         super.willOpenMenu(menu, with: event)
     }
 
     override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
         menuAutoFill.menuDidClose()
         super.didCloseMenu(menu, with: event)
+        menu.restoreTrackingDelegate()
     }
 }
 
@@ -97,14 +107,13 @@ final class AgentPaneMenuAction: NSObject {
 
     @objc func run() { handler() }
 
-    /// An item titled `title` with SF Symbol `symbol` (the matching action's catalog symbol: every
-    /// cmux menu row shows one) that runs `handler`.
-    static func item(_ title: String, symbol: String, handler: @escaping () -> Void) -> NSMenuItem {
+    /// An item titled `title` with an optional SF Symbol, running `handler` when selected.
+    static func item(_ title: String, symbol: String?, handler: @escaping () -> Void) -> NSMenuItem {
         let action = AgentPaneMenuAction(handler: handler)
         let item = NSMenuItem(title: title, action: #selector(run), keyEquivalent: "")
         item.target = action
         item.representedObject = action
-        item.image = AgentPaneContextMenu.icon(symbol)
+        item.image = symbol.flatMap(AgentPaneContextMenu.icon)
         return item
     }
 }
@@ -121,23 +130,28 @@ extension AgentPaneView {
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
-            // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the
-            // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
-            // keeps the event that was in dispatch then (`droppedEvent`): the same check of it, against the
-            // pane's table of posting processes (no system call).
-            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
-            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
-            model.transport.gestures.record(click: false)
-            model.droppedPaths.stash(urls, kind: .drop)
+            model.hostTouch.mark("drop") // a posted drop too: the page has the files
+            // Record every native drop before checking gesture credit. Finder invokes
+            // `performDragOperation` without posting a person input event, but the page still
+            // needs these paths to link a recording in place instead of uploading its bytes.
+            model.droppedPaths.stash(urls, kind: .drop, madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
             model.droppedPaths.stashSource(
                 urls, items: drag.pasteboardItems?.count ?? 0, claimed: AttachmentSource.claimed(on: drag), kind: .drop,
                 madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
+            // WebKit: the drop's event is in dispatch. Chromium: the page host keeps the event from
+            // the native drop (`droppedEvent`). A page-window drop has no event and earns no gesture,
+            // while its paths remain linkable from the record above.
+            guard page?.droppedOnPageWindow != true else { return }
+            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
+            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
+            model.transport.gestures.record(click: false)
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
+            self?.model.hostTouch.mark("paste") // a posted paste too: the page has the text
             guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
             let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
             model.droppedPaths.stash(urls, kind: .paste)
@@ -252,7 +266,7 @@ extension AgentPaneView {
         // The display holding the button, not the window's main one: a window across two displays
         // would clamp the menu onto the other display, away from its button.
         let origin = AgentPaneContextMenu.popUpOrigin(
-            button: button, size: menu.size, visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
+            button: button, size: menu.drawnSize, visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
             window: window.convertToScreen(window.contentLayoutRect))
         menu.popUp(positioning: nil, at: view.convert(window.convertPoint(fromScreen: origin), from: nil), in: view)
     }
@@ -268,7 +282,7 @@ extension AgentPaneView {
         // NSMenu.popUp returns on selection or cancellation. Early refusals also release the opener.
         defer { reportMessageMenuClosed(popupID) }
         let view: NSView = page?.focusView ?? webView
-        guard view.window != nil else { return }
+        guard let window = view.window else { return }
         let menu = AgentForkMenu.menu { [weak self] destination in
             var params = ["placement": destination.rawValue]
             if let seq { params["throughSeq"] = String(seq) }
@@ -276,7 +290,7 @@ extension AgentPaneView {
         }
         menu.themeRows(in: themeScope.fullStrength)
         guard let anchor else {
-            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            menu.popUpAtPointer(view.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil), in: view)
             return
         }
         popUp(menu, from: anchor, in: view)
@@ -286,7 +300,8 @@ extension AgentPaneView {
     private func fillContextMenu(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?) {
         lastContextMenu = (NSEvent.mouseLocation, ProcessInfo.processInfo.systemUptime)
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
-        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
+        let developerTools = PageDeveloperTools()
+        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: developerTools.isEnabled(), chatMenu: chatMenu,
                                      scope: themeScope.fullStrength, actions: .init(
             copy: { [weak self] text in
                 guard let self else { return }
@@ -298,6 +313,7 @@ extension AgentPaneView {
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             quoteReply: { [weak self] markdown in self?.runMessageAction("chat.quoteReply", ["markdown": markdown]) },
+            attachSelection: { [weak self] text in self?.runMessageAction("chat.attachSelection", ["text": text]) },
             open: { [weak self] url in self?.openLink(url) },
             linkItems: { [weak self] url in
                 // A pull request link's row opens the GitHub page or github.com beside this chat.
@@ -322,11 +338,18 @@ extension AgentPaneView {
             },
             sessionItems: { [weak self] session in self?.model.sessionMenuItems?(session) ?? [] },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
+            pinChapter: { [weak self] rowId, sessionId in
+                self?.runMessageAction("chat.pinChapter", ["rowId": rowId, "sessionId": sessionId])
+            },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
             pasteTarget: webView,
             inspectElement: AgentPaneTunables.pointerInspector.value ? {
                 NotificationCenter.default.post(name: .cmuxNextInspectUIElement, object: self)
-            } : nil))
+            } : nil,
+            inspectWithDevTools: { [weak self] in
+                guard let self else { return }
+                developerTools.inspect(self.page ?? self.webView)
+            }))
     }
 
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.

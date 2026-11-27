@@ -8,11 +8,9 @@
 
 use std::path::{Path, PathBuf};
 
-use cmux_agent_pane_policy::build_identity::BuildIdentity;
+use cmux_agent_pane_policy::build_identity::{self, BuildIdentity};
 
 const DEBUG_BUNDLE_ID: &str = "com.cmuxterm.app.debug";
-/// `sockaddr_un.sun_path` on macOS (104 bytes) less its terminating NUL.
-const MAX_SOCKET_PATH_BYTES: usize = 103;
 /// `action.list`'s per-action surface plan key (where the app offers the
 /// action: palette, CLI, right-click, MCP). App control vocabulary for UI
 /// surfaces, not a daemon resource word; `cmux mcp` reads its `mcp` entry.
@@ -57,6 +55,14 @@ impl AppIdentity {
                 warn_other_app_once(&own, &from_env);
                 Some(own)
             }
+            // Only `CMUX_SOCKET_PATH` (a Chief brain's turn, a script driving the app) names no
+            // build: the bundle around this `cmux` is the build, listening on that socket. Taking
+            // the bare environment instead resolved NIGHTLY's shared roots from a DEV bundle, so
+            // `cmux setup trust` wrote `~/.acpmux/trust.json` while the app read its own build's
+            // (Cloud workspace matrix runs 43111635938, 43122276238: every start "doesn't trust").
+            Some(own) if from_env.bundle_id.is_none() && from_env.tag.is_none() => {
+                Some(Self { socket_override: from_env.socket_override, ..own })
+            }
             _ => Some(from_env),
         }
     }
@@ -78,7 +84,7 @@ impl AppIdentity {
     }
 
     /// The app bundle around `exe`, if it is a cmux app.
-    fn from_bundle(exe: Option<&Path>) -> Option<Self> {
+    pub(crate) fn from_bundle(exe: Option<&Path>) -> Option<Self> {
         let bundle = exe.and_then(containing_app_bundle)?;
         let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
         let dictionary = info.as_dictionary()?;
@@ -129,22 +135,61 @@ impl AppIdentity {
     }
 
     /// The app control socket (`ControlSocketPath.resolve` of the build:
-    /// [`BuildIdentity::control_socket`], per-build isolation S3) in the
-    /// user's `~/.local/state/cmux`, since a host's /tmp cleaner deleted a
-    /// running app's `/tmp` socket (hq#1870). A path too long for `sun_path`
-    /// keeps its old `/tmp` name, and so does an app from before the move:
-    /// when only the old name exists, that is where it listens.
+    /// [`BuildIdentity::control_socket`], per-build isolation S3) in NEXT's
+    /// own `~/.local/state/cmux-next` ([`build_identity::SOCKET_STATE_DIR`]),
+    /// since a host's /tmp cleaner deleted a running app's `/tmp` socket
+    /// (hq#1870), and never classic cmux's `~/.local/state/cmux`. A path too
+    /// long for `sun_path` keeps its old `/tmp` name. An app from before a
+    /// move listens where it did: when only its older name exists (in
+    /// `~/.local/state/cmux`, else `/tmp`), that is the path. Release's
+    /// `cmux.sock` never falls back to classic's folder, where classic
+    /// cmux's own release socket has that name.
+    ///
+    /// The app terminal's `CMUX_SOCKET_PATH` wins, except one that names this
+    /// build's socket at a name from before the move (`~/.local/state/cmux/…`
+    /// or `/tmp/…`, same file name) that is gone while the build's own socket
+    /// is there: a terminal whose daemon outlived the app's update keeps the
+    /// old app's environment, and every `cmux` in it said "no cmux app is
+    /// running" while NIGHTLY answered at `~/.local/state/cmux-next`
+    /// (2026-11-27, NIGHTLY 1.0.0-nightly.4594117542401).
     pub(crate) fn control_socket(&self, home: &Path) -> PathBuf {
-        if let Some(path) = &self.socket_override {
+        let own = self.own_control_socket(home);
+        let Some(path) = &self.socket_override else {
+            return own;
+        };
+        if path.exists() {
             return path.clone();
         }
+        let pre_move_folder = path.parent().is_some_and(|parent| {
+            parent == home.join(build_identity::SOCKET_STATE_DIR_BEFORE)
+                || parent == Path::new("/tmp")
+        });
+        if pre_move_folder && path.file_name() == own.file_name() && own != *path && own.exists() {
+            return own;
+        }
+        path.clone()
+    }
+
+    /// [`Self::control_socket`] of the build alone, without the app terminal's override.
+    fn own_control_socket(&self, home: &Path) -> PathBuf {
         let old = self
             .build()
             .control_socket(home)
-            .unwrap_or_else(|| home.join(".local/state/cmux/cmux.sock"));
+            .unwrap_or_else(|| build_identity::socket_state_dir(home).join("cmux.sock"));
         let Ok(name) = old.strip_prefix("/tmp") else { return old };
-        let moved = home.join(".local/state/cmux").join(name);
-        if moved.as_os_str().len() > MAX_SOCKET_PATH_BYTES || (!moved.exists() && old.exists()) {
+        let moved = build_identity::socket_state_dir(home).join(name);
+        if moved.as_os_str().len() > cmux_unix_socket::PORTABLE_MAX_PATH_BYTES {
+            return old;
+        }
+        if moved.exists() {
+            return moved;
+        }
+        let before = home.join(build_identity::SOCKET_STATE_DIR_BEFORE).join(name);
+        if before.as_os_str().len() <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES && before.exists()
+        {
+            return before;
+        }
+        if old.exists() {
             return old;
         }
         moved
@@ -172,13 +217,41 @@ impl AppIdentity {
     /// [`Self::daemon_session`] for the user home `home` (tests).
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn daemon_session_in(&self, home: &Path) -> Option<String> {
-        let build = self.build();
-        let session = build.app_session()?;
-        if build.legacy_session_marker(home).is_some_and(|marker| marker.is_file()) {
+        let session = self.build().app_session()?;
+        if self.adopted_legacy_session(home) {
             // `LegacyChannelSession.session`: the old shared daemon session.
             return Some("cmux-app".to_owned());
         }
         Some(session)
+    }
+
+    /// Whether this untagged NIGHTLY, RC or staging app adopted the old
+    /// shared `cmux-app` session, by its record beside its daemon state.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn adopted_legacy_session(&self, home: &Path) -> bool {
+        let build = self.build();
+        // The app moves its folder out of classic's at launch (CmuxNext `StateFolderMove`); a marker not
+        // moved yet (the move kept it, or this CLI runs before the app launched) still counts.
+        [build.legacy_session_marker(home), build.legacy_session_marker_before_move(home)]
+            .into_iter()
+            .flatten()
+            .any(|marker| marker.is_file())
+    }
+
+    /// The app daemon's state directory (`CMUX_TUI_STATE_DIR`, CmuxNext
+    /// `DaemonLauncher.appNames`) for the user home `home`: the build's own
+    /// directory under `~/Library/Application Support/cmux-next`
+    /// ([`BuildIdentity::daemon_state_dir`]), or `None` (cmux-tui's default
+    /// root) for release and for an app that adopted the old shared session.
+    /// The app's daemon and its `cmux link` (whose state directory is
+    /// `<this>/link`) run there.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn daemon_state_dir_in(&self, home: &Path) -> Option<PathBuf> {
+        if self.adopted_legacy_session(home) {
+            return None;
+        }
+        self.build()
+            .daemon_state_dir(&home.join("Library").join("Application Support").join("cmux-next"))
     }
 }
 
@@ -252,12 +325,26 @@ fn warn_other_app_once(own: &AppIdentity, other: &AppIdentity) {
 
 /// The app's session socket: `DaemonLauncher` starts the owner with
 /// `TMPDIR` set to the per-user Darwin temp directory, whatever this
-/// process's `TMPDIR` is.
+/// process's `TMPDIR` is, and in the runtime directory of its HOME's scope
+/// (`cmux_daemon_launch_core::runtime_scope`; none on the account's own HOME).
 #[cfg(target_os = "macos")]
 pub(crate) fn app_daemon_socket(identity: &AppIdentity) -> Option<PathBuf> {
     let session = identity.daemon_session()?;
     let base = darwin_user_temp_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    cmux_tui_core::server::try_default_socket_path_in_base(&session, &base).ok()
+    let scope = app_runtime_scope();
+    cmux_tui_core::server::try_default_socket_path_in_base_scoped(&session, &base, scope.as_deref())
+        .ok()
+}
+
+/// The runtime scope of the app this process belongs to: the app's terminals
+/// carry the app's HOME, so the HOME rule gives the scope its launcher chose.
+#[cfg(target_os = "macos")]
+pub(crate) fn app_runtime_scope() -> Option<String> {
+    let home = std::env::var("HOME").ok();
+    cmux_daemon_launch_core::runtime_scope::scope(
+        home.as_deref(),
+        cmux_daemon_launch_core::runtime_scope::account_home().as_deref(),
+    )
 }
 
 /// `confstr(_CS_DARWIN_USER_TEMP_DIR)`, as the app's `userTemporaryDirectory`.
@@ -283,8 +370,16 @@ pub(crate) fn darwin_user_temp_dir() -> Option<PathBuf> {
 }
 
 /// `…/Foo.app` for an executable at `…/Foo.app/Contents/Resources/bin/cmux`
-/// or `…/Foo.app/Contents/MacOS/cmux`.
+/// or `…/Foo.app/Contents/MacOS/cmux`, or a link to one from outside the
+/// bundle (Homebrew's `/opt/homebrew/bin/cmux`, a PATH shim): macOS's
+/// `current_exe` is the path the process was started by, not the link's
+/// target, so a linked `cmux` lost its app and reached `main.sock`, a session
+/// nothing starts, while the app's daemon ran (cmux#53045).
 pub(crate) fn containing_app_bundle(exe: &Path) -> Option<PathBuf> {
+    lexical_app_bundle(exe).or_else(|| lexical_app_bundle(&std::fs::canonicalize(exe).ok()?))
+}
+
+fn lexical_app_bundle(exe: &Path) -> Option<PathBuf> {
     exe.ancestors()
         .find(|path| path.extension().is_some_and(|extension| extension == "app"))
         .filter(|bundle| exe.starts_with(bundle.join("Contents")))
@@ -324,118 +419,29 @@ pub(crate) fn sanitize(raw: &str) -> Option<String> {
     (!slug.is_empty()).then(|| slug.to_owned())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn identity(bundle: Option<&str>, tag: Option<&str>) -> AppIdentity {
-        AppIdentity::new(bundle.map(str::to_owned), tag, None)
+/// The build the app bundle around `exe` holds on disk (`CFBundleVersion`, and
+/// `CFBundleShortVersionString` for display): the installed build. `None` outside a cmux app.
+#[cfg(unix)]
+pub(crate) fn bundle_build(exe: &Path) -> Option<crate::cli::InstalledApp> {
+    let bundle = containing_app_bundle(exe)?;
+    let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
+    let dictionary = info.as_dictionary()?;
+    if !dictionary.get("CFBundleIdentifier")?.as_string()?.starts_with("com.cmuxterm.app") {
+        return None;
     }
-
-    #[test]
-    fn control_socket_matches_the_app_table() {
-        let home = Path::new("/Users/a");
-        let cases = [
-            // Not the reload.sh form, the untagged DEV build and a tagged RC
-            // build: names of their build key (S3).
-            (
-                Some("com.cmuxterm.app.debug.Feat_X"),
-                None,
-                "/Users/a/.local/state/cmux/cmux-debug--ec0e7410.sock",
-            ),
-            (
-                Some("com.cmuxterm.app.debug"),
-                Some("clic"),
-                "/Users/a/.local/state/cmux/cmux-debug-clic.sock",
-            ),
-            (
-                Some("com.cmuxterm.app.debug"),
-                None,
-                "/Users/a/.local/state/cmux/cmux-debug--650e93e3.sock",
-            ),
-            (None, Some("nx9"), "/Users/a/.local/state/cmux/cmux-debug-nx9.sock"),
-            (
-                Some("com.cmuxterm.app.nightly"),
-                None,
-                "/Users/a/.local/state/cmux/cmux-nightly.sock",
-            ),
-            (
-                Some("com.cmuxterm.app.rc.try2"),
-                None,
-                "/Users/a/.local/state/cmux/cmux-rc--36529c0e.sock",
-            ),
-            (Some("com.cmuxterm.app"), None, "/Users/a/.local/state/cmux/cmux.sock"),
-        ];
-        for (bundle, tag, expected) in cases {
-            assert_eq!(
-                identity(bundle, tag).control_socket(home),
-                PathBuf::from(expected),
-                "{bundle:?} {tag:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn daemon_session_matches_the_app_launcher() {
-        assert_eq!(
-            identity(Some("com.cmuxterm.app"), None).daemon_session().as_deref(),
-            Some("cmux-app")
-        );
-        assert_eq!(
-            identity(Some("com.cmuxterm.app.debug.nx9"), None).daemon_session().as_deref(),
-            Some("cmux-app-nx9")
-        );
-    }
-
-    #[test]
-    fn an_adopted_legacy_session_is_the_channel_apps_daemon() {
-        let root =
-            std::env::temp_dir().join(format!("cmux-adopted-session-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let nightly = identity(Some("com.cmuxterm.app.nightly"), None);
-        assert_eq!(nightly.daemon_session_in(&root).as_deref(), Some("cmux-app-nightly"));
-        let marker = nightly.build().legacy_session_marker(&root).unwrap();
-        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
-        std::fs::write(&marker, br#"{"session":"cmux-app","state_root":"/x"}"#).unwrap();
-        assert_eq!(
-            nightly.daemon_session_in(&root).as_deref(),
-            Some("cmux-app"),
-            "the NIGHTLY app runs the adopted cmux-app session"
-        );
-        assert_eq!(
-            identity(Some("com.cmuxterm.app.rc"), None).daemon_session_in(&root).as_deref(),
-            Some("cmux-app-rc"),
-            "another channel's record is not this one's"
-        );
-        assert_eq!(
-            identity(Some("com.cmuxterm.app.debug.nx9"), None).daemon_session_in(&root).as_deref(),
-            Some("cmux-app-nx9")
-        );
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn terminal_environment_wins_over_the_bundle() {
-        let env = |key: &str| match key {
-            "CMUX_SOCKET_PATH" => Some("/tmp/cmux-debug-own.sock".to_owned()),
-            "CMUX_TAG" => Some("own".to_owned()),
-            _ => None,
-        };
-        let found = AppIdentity::detect(env, None).unwrap();
-        assert_eq!(
-            found.control_socket(Path::new("/h")),
-            PathBuf::from("/tmp/cmux-debug-own.sock")
-        );
-        assert_eq!(found.daemon_session().as_deref(), Some("cmux-app-own"));
-        assert_eq!(AppIdentity::detect(|_| None, None), None);
-    }
-
-    #[test]
-    fn app_bundle_is_found_from_the_bundled_cli() {
-        assert_eq!(
-            containing_app_bundle(Path::new("/A/cmux DEV x.app/Contents/Resources/bin/cmux")),
-            Some(PathBuf::from("/A/cmux DEV x.app"))
-        );
-        assert_eq!(containing_app_bundle(Path::new("/usr/local/bin/cmux")), None);
-    }
+    let text = |key: &str| {
+        dictionary
+            .get(key)
+            .and_then(plist::Value::as_string)
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    };
+    Some(crate::cli::InstalledApp {
+        build: text("CFBundleVersion")?.to_owned(),
+        version: text("CFBundleShortVersionString").map(str::to_owned),
+    })
 }
+
+#[cfg(test)]
+#[path = "app_identity_tests.rs"]
+mod tests;

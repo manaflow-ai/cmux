@@ -4,14 +4,15 @@
 // subagents and started chats (a nested subagent under its parent), past five a "Show more" row, then
 // the ended ones' row ("94 done · 1 failed"), which opens into their lines. The lists, their order and
 // their words come from the page's own helpers, so both panels say the same thing.
-import { formatDuration } from "../../conversation/turns";
 import type { PaneLanguage, Translate } from "../../i18n";
 import { isRepeatedAgentKind } from "../../subagents/agentIdentityModel";
 import { agentTone } from "../../subagents/agentTones";
 import { nestAgents } from "../../subagents/agentsPillModel";
-import { elapsed } from "../../subagents/subagentGroupModel";
+import { subagentTime } from "../../subagents/subagentGroupModel";
 import { subagentProgress } from "../../subagents/subagentProgress";
-import { retrying } from "../../subagents/retryState";
+import { namedAction } from "../../subagents/trayDetail";
+import { retrying, type RetryQuiet } from "../../subagents/retryState";
+import { canResume, subsessionResumeRow, type ResumeRun } from "../../subagents/resumeState";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "../childSessionRowsModel";
 import type { SubsessionLimits } from "../../model";
@@ -41,9 +42,19 @@ export type SubagentsSectionInput = {
   /// without it the limit only reads.
   onSet?: (maxRunning: number | null, from?: number) => Promise<unknown>;
   onOpen?: (id: string) => void;
+  /// Resume on a stopped subagent's row (subagents/ResumeControl.tsx): a row button, disabled while
+  /// acpmux has it, and a refusal's note after the title. The page keeps each run (`useResumeRuns`).
+  resume?: {
+    capabilities?: ReadonlySet<string>;
+    run: (agent: Subagent) => void;
+    shown: (agent: Subagent) => ResumeRun | undefined;
+  };
   onOpenSession?: (sessionId: string) => void;
   /// The clock the elapsed times read (the page's `useNow`).
   now: number;
+  /// Whether a row's retry has waited out the shared bound (the page's `useConnectionQuietKeys`,
+  /// retryState.ts ``retryWords``): until then its line reads running.
+  connectionQuiet: RetryQuiet;
   /// Every running line shows, not only the first five; `onShowAll` flips it.
   showAll?: boolean;
   onShowAll?: (showAll: boolean) => void;
@@ -88,6 +99,8 @@ export function subagentsSection(
     key: string;
     identity: string;
     agent?: Subagent;
+    /// A stopped sub-session's row, for its Resume (resumeState.ts ``subsessionResumeRow``).
+    resumeRow?: Subagent;
     name: string;
     detail?: string;
     status: SubagentStatus;
@@ -116,10 +129,10 @@ export function subagentsSection(
       identity: agent.id,
       agent,
       name: agent.name,
-      detail: working(status) ? agent.action : undefined,
+      detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       status,
-      state: subagentStateText(t, agent, waiting, now),
-      time: formatDuration(elapsed(agent, input.now)),
+      state: subagentStateText(t, agent, waiting, input.connectionQuiet, now),
+      time: subagentTime(agent, input.now),
       progress: subagentProgress(t, input.language ?? "en", agent, { usage: false }).join(" · ") || undefined,
       task: agent.task && agent.task !== agent.name ? agent.task : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
@@ -131,7 +144,7 @@ export function subagentsSection(
     };
   };
   const sessionLine = (child: StartedSession): SubagentLine => {
-    const state = sessionStateText(t, child);
+    const state = sessionStateText(t, child, input.connectionQuiet);
     return {
       key: `session:${child.sessionId}`,
       identity: child.sessionId,
@@ -144,6 +157,7 @@ export function subagentsSection(
       depth: 0,
       at: child.createdAt ?? 0,
       open: input.onOpenSession && (() => input.onOpenSession!(child.sessionId)),
+      resumeRow: subsessionResumeRow(child),
     };
   };
   const runningAgents = nestAgents(
@@ -169,11 +183,36 @@ export function subagentsSection(
       .filter(Boolean)
       .join(" · ");
   };
-  const line = (item: SubagentLine, waveIndex?: number): NativeInfoRow => ({
+  const resume = input.resume;
+  const line = (item: SubagentLine, waveIndex?: number): NativeInfoRow => {
+    const agent = item.agent ?? item.resumeRow;
+    // A stopped one's Resume, as every surface of a stopped helper offers it (Leo, 2026-11-12: "A
+    // Resume button in cmux on a stopped helper's row and tab").
+    const resumable = resume && agent && canResume(agent, resume.capabilities) ? resume : undefined;
+    const run = resumable && agent ? resumable.shown(agent) : undefined;
+    return lineRow(item, waveIndex, resumable && agent ? resumeButton(agent, resumable, run) : undefined, run);
+  };
+  const resumeButton = (
+    agent: Subagent,
+    on: NonNullable<SubagentsSectionInput["resume"]>,
+    run: ResumeRun | undefined,
+  ): NativeInfoButton => ({
+    label: t("subagents.resume"),
+    symbol: "arrow.clockwise",
+    action: actions.add(`subagents.resume:${agent.id}`, () => on.run(agent)),
+    ...(run?.busy ? { disabled: true } : {}),
+  });
+  const lineRow = (
+    item: SubagentLine,
+    waveIndex: number | undefined,
+    button: NativeInfoButton | undefined,
+    run: ResumeRun | undefined,
+  ): NativeInfoRow => ({
     id: item.key,
     symbol: item.agent ? "bubble.left" : "bubble.left.and.bubble.right",
     title: item.name,
-    ...(item.detail && item.detail !== item.name ? { detail: item.detail } : {}),
+    // A refused Resume says why where the row's detail goes.
+    ...(run?.key ? { detail: t(run.key) } : item.detail && item.detail !== item.name ? { detail: item.detail } : {}),
     ...(item.progress ? { progress: item.progress } : {}),
     trailing: [item.time, item.state].filter(Boolean).join(" · "),
     tone: TONE[item.status],
@@ -186,6 +225,7 @@ export function subagentsSection(
       ? { help: [item.kind, item.task].filter(Boolean).join("\n") }
       : {}),
     ...(item.harness ? { harness: item.harness } : {}),
+    ...(button ? { buttons: [button] } : {}),
   });
   const showAll = input.showAll ?? false;
   const shown = showAll ? running : running.slice(0, SUBAGENTS_SHOWN);

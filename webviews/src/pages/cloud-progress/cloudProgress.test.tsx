@@ -6,6 +6,7 @@ import table from "./generated/strings.json";
 import { MockCloudProgressProvider, SAMPLE_ASKS, sampleState } from "./mockProvider";
 import { CloudProgressStore, elapsedClock, stageKey, stepMarks } from "./store";
 import { CloudProgressOps } from "./types";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -26,18 +27,14 @@ const replacements = {
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
 const { createRoot } = await import("react-dom/client");
-const { CloudProgressPage } = await import("./CloudProgressPage");
+const { CloudProgressPage, CLOUD_PROGRESS_SLOW_MS, cloudProgressSlow } = await import("./CloudProgressPage");
 const strings = createStrings(table, ["en"]);
 const settle = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
 };
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 test("each step is done before the current one, the failed one is marked, and paused spins none", () => {
@@ -69,6 +66,7 @@ test("a change event reads the state again, and a reply older than a newer read 
   store.stop();
 });
 
+// retry-prompt-ok: Retry starts a Cloud machine again (a cost), so it stays the person's button.
 test("a failure shows its reason and buttons in the room they kept; Retry goes to the host", async () => {
   const calls: string[] = [];
   const provider = new MockCloudProgressProvider({ state: sampleState("connecting") });
@@ -109,6 +107,63 @@ test("a failure shows its reason and buttons in the room they kept; Retry goes t
   expect(calls).toContain(CloudProgressOps.retry);
   await act(async () => root.unmount());
   store.stop();
+});
+
+test("past the slow bound a machine still on its way says so and offers Retry and Dismiss, no Copy Error", async () => {
+  const calls: string[] = [];
+  const provider = new MockCloudProgressProvider({
+    state: sampleState("booting", { elapsedMs: CLOUD_PROGRESS_SLOW_MS - 10_000 }),
+  });
+  const original = provider.call.bind(provider);
+  provider.call = async <R,>(op: string) => {
+    calls.push(op);
+    return original<R>(op);
+  };
+  const store = new CloudProgressStore(provider, () => Date.now());
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(<CloudProgressPage store={store} strings={strings} />);
+    await store.start();
+  });
+  const actions = host.querySelector(".cloud-progress__actions")!;
+  expect(actions.hasAttribute("data-shown")).toBe(false);
+  expect(host.querySelector(".cloud-progress__detail")!.textContent).not.toContain("longer than usual");
+
+  await act(async () => {
+    (provider as unknown as { update(state: unknown): void }).update(
+      sampleState("booting", { elapsedMs: CLOUD_PROGRESS_SLOW_MS + 1_000 }),
+    );
+    await settle();
+  });
+  // The same element, now shown; the stage and its line stay, the slow line follows.
+  expect(host.querySelector(".cloud-progress__actions")).toBe(actions);
+  expect(actions.hasAttribute("data-shown")).toBe(true);
+  expect(host.querySelector(".cloud-progress")!.getAttribute("data-slow")).toBe("true");
+  expect(host.querySelector(".cloud-progress__detail")!.textContent).toContain("This is taking longer than usual.");
+  // Keys still go nowhere: the typing note stays.
+  expect(host.querySelector(".cloud-progress__note")!.hasAttribute("data-hidden")).toBe(false);
+  const labels = [...actions.querySelectorAll("button")].map((button) => button.textContent);
+  expect(labels).toEqual(["Retry", "Dismiss"]);
+  await act(async () => {
+    actions.querySelectorAll("button")[1]!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    await settle();
+  });
+  expect(calls).toContain(CloudProgressOps.dismiss);
+  await act(async () => root.unmount());
+  store.stop();
+});
+
+test("slow is only for a machine still on its way with no question open", () => {
+  const past = CLOUD_PROGRESS_SLOW_MS + 1;
+  expect(cloudProgressSlow(sampleState("creating"), past)).toBe(true);
+  expect(cloudProgressSlow(sampleState("creating"), CLOUD_PROGRESS_SLOW_MS - 1)).toBe(false);
+  expect(cloudProgressSlow(sampleState("failed", { step: 2 }), past)).toBe(false);
+  expect(cloudProgressSlow(sampleState("paused", { step: 3 }), past)).toBe(false);
+  expect(cloudProgressSlow(sampleState("ready"), past)).toBe(false);
+  expect(cloudProgressSlow(sampleState("deleting", { finished: false }), past)).toBe(false);
+  expect(cloudProgressSlow(sampleState("requesting", { ask: SAMPLE_ASKS.createRequest }), past)).toBe(false);
 });
 
 test("a paused machine offers Resume and no Copy Error", async () => {

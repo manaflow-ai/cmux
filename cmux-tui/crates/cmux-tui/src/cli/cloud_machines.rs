@@ -29,12 +29,22 @@ use super::{GlobalArgs, OutputMode};
 /// most this.
 const CLOUD_READ_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// The daemon's `machine.list` result with the app's Cloud machines added.
-pub(super) fn merge(global: &GlobalArgs, result: Value) -> Value {
+/// The app's Cloud machines for `machine list`; `None` when no cmux app is
+/// around to ask (nothing to add, and no note).
+pub(super) fn read(global: &GlobalArgs) -> Option<Result<Vec<Value>, String>> {
     if global.app_socket.is_none() && !app_found() {
-        return result;
+        return None;
     }
-    let cloud = super::app::socket_path(global).and_then(read_by_deadline);
+    Some(super::app::socket_path(global).and_then(read_by_deadline))
+}
+
+/// The daemon's `machine.list` result with `cloud` (a [`read`]) added, and a
+/// note on stderr when it could not be read.
+pub(super) fn apply(
+    global: &GlobalArgs,
+    result: Value,
+    cloud: Result<Vec<Value>, String>,
+) -> Value {
     let (merged, note) = merge_rows(result, cloud);
     if let Some(reason) = note
         && global.output != OutputMode::Quiet
@@ -141,7 +151,7 @@ fn cloud_row(machine: &Value) -> Option<Value> {
     row.insert("connectable".into(), json!(daemon == "connected"));
     row.insert("deleted".into(), json!(status == "destroyed"));
     row.insert("recoverable".into(), json!(false));
-    row.insert("target".into(), json!(format!("machine:{id}")));
+    row.insert("target".into(), json!(format!("vm:{id}")));
     row.insert("daemon".into(), json!(daemon));
     if let Some(machine_id) = text("machine_id").filter(|machine_id| !machine_id.is_empty()) {
         row.insert("machine_id".into(), json!(machine_id));

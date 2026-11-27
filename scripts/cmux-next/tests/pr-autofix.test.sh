@@ -8,11 +8,13 @@
 # the same export and the operation catalogs) are an autofix repair too, and so
 # are the settings exports a CmuxNextSettings change needs. No network.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 AREAS="$ROOT_DIR/scripts/cmux-next/autofix-areas.sh"
 APPLY="$ROOT_DIR/scripts/cmux-next/pr-autofix-apply.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-pr-autofix.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 
 area() { # changed path -> the actions area's value
@@ -26,6 +28,23 @@ for path in Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.swift 
   [[ "$(area "$path")" == true ]] || fail "a change to $path must regenerate the action exports"
 done
 [[ "$(area webviews/src/main.tsx)" == false ]] || fail "a webviews change must not start the Mac export job"
+# Every daemon ABI checker input must request the SDK repair, for base and PR callers.
+sdk() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^sdk=//p'; }
+for path in cmux-tui/spec/sdk-schema.json cmux-tui/spec/api-compat.json \
+  cmux-tui/spec/api-compat-fixtures.json cmux-tui/spec/api-compat.surface.json \
+  cmux-tui/crates/cmux-api-compat/src/bin/api-compat-check.rs \
+  cmux-tui/crates/cmux-api-compat/src/coverage.rs cmux-tui/crates/cmux-api-compat/Cargo.toml \
+  cmux-tui/Cargo.toml cmux-tui/Cargo.lock cmux-tui/rust-toolchain.toml \
+  cmux-tui/bindings/codegen/generate.py; do
+  [[ "$(sdk "$path")" == true ]] || fail "a change to $path must refresh the daemon ABI surface"
+done
+[[ "$(sdk webviews/src/main.tsx)" == false ]] || fail "an unrelated change must not request SDK repair"
+settings() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^settings=//p'; }
+for path in schemas/settings/source/sidebar.json schemas/settings/generator/sidebar.json schemas/settings/retired-keys.json \
+  scripts/cmux-next/autofix-areas.sh; do
+  [[ "$(settings "$path")" == true ]] || fail "a change to $path must regenerate the settings exports"
+done
+[[ "$(settings webviews/src/main.tsx)" == false ]] || fail "a webviews change must not start the Mac settings export"
 [[ "$(bash "$AREAS" --all | sed -n 's/^actions=//p')" == true ]] || fail "--all must include the action exports"
 capabilities() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^capabilities=//p'; }
 for path in Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift \
@@ -44,9 +63,13 @@ done
 # The settings exports (schemas/settings/settings-schema.json and
 # docs/mdm) follow a CmuxNextSettings change on the same Mac job, so a pull
 # request that adds a setting lands with them instead of a red defaults-snapshot.
+locks() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^locks=//p'; }
+[[ "$(locks cmux-tui/Cargo.toml)" == true ]] || fail "a Cargo.toml change must check every lock"
+[[ "$(locks Native/DiffSidecar/Cargo.lock)" == true ]] || fail "a Cargo.lock change anywhere must check every lock"
+[[ "$(locks cmux-tui/crates/x/src/lib.rs)" == false ]] || fail "a Rust source change alone must not run the lock repair"
 settings() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^settings=//p'; }
 for path in Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigSnapshot.swift \
-  Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings schemas/settings/settings-schema.json; do
+  Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d/settings.demo.title.xcstrings schemas/settings/settings-schema.json; do
   [[ "$(settings "$path")" == true ]] || fail "a change to $path must regenerate the settings exports"
 done
 [[ "$(settings webviews/src/main.tsx)" == false ]] || fail "a webviews change must not regenerate the settings exports"
@@ -132,4 +155,29 @@ bash "$APPLY" "$tmp/bot-only.patch" "$fixture" > "$tmp/out" 2>&1 || fail "a patc
 grep -q '"old"' "$fixture/schemas/defaults/cmux-next.json" || fail "the defaults snapshot is bot-only and must not be applied"
 grep -q 'a = 2' "$fixture/webviews/App.tsx" || fail "the other repairs still apply"
 grep -q 'dropped: schemas/defaults/cmux-next.json' "$tmp/out" || fail "the dropped snapshot is reported"
+# The daemon baseline travels with bindings; its authored rules/fixtures never do.
+abi="$tmp/abi-patch"
+surface=cmux-tui/spec/api-compat.surface.json
+binding=cmux-tui/bindings/python/cmux/raw/_generated/wire.py
+mkdir -p "$abi/$(dirname "$surface")" "$abi/$(dirname "$binding")"
+for file in "$surface" "$binding" cmux-tui/spec/api-compat.json cmux-tui/spec/api-compat-fixtures.json; do
+  echo old > "$abi/$file"
+done
+git -C "$abi" init -q && git -C "$abi" add -A && git -C "$abi" -c user.name=t -c user.email=t@t commit -qm fixture
+for file in "$surface" "$binding"; do echo repaired > "$abi/$file"; done
+git -C "$abi" diff --binary > "$tmp/abi.patch"
+git -C "$abi" checkout -q -- .
+bash "$APPLY" "$tmp/abi.patch" "$abi" > "$tmp/out" 2>&1 || fail "mixed daemon baseline/bindings patch must apply"
+for file in "$surface" "$binding"; do
+  [[ "$(cat "$abi/$file")" == repaired ]] || fail "$file was lost from the mixed patch"
+done
+for authored in cmux-tui/spec/api-compat.json cmux-tui/spec/api-compat-fixtures.json; do
+  git -C "$abi" checkout -q -- .
+  echo repaired > "$abi/$surface"
+  echo edited > "$abi/$authored"
+  git -C "$abi" diff --binary > "$tmp/abi-authored.patch"
+  git -C "$abi" checkout -q -- .
+  if bash "$APPLY" "$tmp/abi-authored.patch" "$abi" > "$tmp/out" 2>&1; then fail "$authored must be refused"; fi
+  [[ "$(cat "$abi/$surface")" == old ]] || fail "refused mixed patch partially applied"
+done
 echo "pr autofix: ok"

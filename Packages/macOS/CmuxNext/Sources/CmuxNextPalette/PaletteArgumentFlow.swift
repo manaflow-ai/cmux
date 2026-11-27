@@ -1,7 +1,8 @@
 import CmuxNextActions
 import Foundation
 
-/// Collects an action's required arguments inline, one page per argument,
+/// Collects an action's required arguments, and the optional ones it asks for
+/// (`ActionArgument.isAskedInPalette`), inline, one page per argument,
 /// straight from its schema: text entry for strings and numbers, a list for
 /// booleans, enumerations, and targets. The last step runs the action with
 /// the full invocation.
@@ -21,17 +22,24 @@ struct PaletteArgumentFlow {
     /// Makes a target from the typed name when the target list has none matching it.
     var creators: [ActionTargetKind: PaletteTargetCreator] = [:]
 
+    /// An internal collection slot, never sent as an action argument.
+    private static let subjectSlot = "palette.subject"
+
     func effect(collected: ActionInvocation) -> PaletteEffect {
         let registry = registry
         let id = descriptor.id
-        guard let argument = descriptor.arguments.first(where: { asks(for: $0) && collected.arguments[$0.name] == nil }) else {
-            return .perform { registry.perform(id, invocation: collected) }
-        }
-        // An input step follows, and the action runs after the palette
-        // closes: pin its target to what was focused when it opened.
         var collected = collected
         if collected.target == nil, let target = capturedTarget {
             collected.target = target
+        }
+        let subject = collected.target == nil ? descriptor.paletteTarget.map {
+            ActionArgument(name: Self.subjectSlot, title: PaletteStrings.target, kind: .target($0))
+        } : nil
+        guard let argument = subject ?? descriptor.arguments.first(where: {
+            asks(for: $0) && collected.arguments[$0.name] == nil && !ActionRegistry.target(of: collected, supplies: $0, for: descriptor)
+        }) else {
+            let invocation = collected
+            return .perform { registry.perform(id, invocation: invocation) }
         }
         switch argument.kind {
         case .string where argument.suggestions?.allowsMultiple == true:
@@ -41,15 +49,19 @@ struct PaletteArgumentFlow {
         case .string, .int:
             return .textInput(textSpec(for: argument, collected: collected))
         case .bool:
-            return .push(listPage(for: argument, options: [
-                PaletteTargetOption(id: "true", title: PaletteStrings.on, symbol: "checkmark.circle"),
-                PaletteTargetOption(id: "false", title: PaletteStrings.off, symbol: "circle"),
-            ], collected: collected))
+            let on = PaletteTargetOption(id: "true", title: PaletteStrings.on, symbol: "checkmark.circle")
+            let off = PaletteTargetOption(id: "false", title: PaletteStrings.off, symbol: "circle")
+            // An optional one the palette asks for opens on Off, its default: Return leaves it.
+            return .push(listPage(for: argument, options: argument.isAskedInPalette ? [off, on] : [on, off], collected: collected))
         case .enumeration(let cases):
             let options = cases.map { PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol) }
             return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
         case .target(let kind):
-            guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
+            guard let targets else {
+                // A missing GUI source never turns a subject into a CLI-id prompt.
+                if argument.name == Self.subjectSlot { return .push(listPage(for: argument, options: [], collected: collected)) }
+                return .textInput(textSpec(for: argument, collected: collected))
+            }
             var page = listPage(for: argument, options: targets.targets(of: kind, for: descriptor.id), collected: collected)
             if let updates = targets.targetUpdates(of: kind, for: descriptor.id) {
                 let flow = self
@@ -77,13 +89,13 @@ struct PaletteArgumentFlow {
                     return await loaded.providers.first?.items() ?? []
                 }]
             }
-            page.noMatchItems = creationRows(for: argument, kind: kind, collected: collected)
+            if argument.name != Self.subjectSlot { page.noMatchItems = creationRows(for: argument, kind: kind, collected: collected) }
             return .push(page)
         }
     }
 
     private func asks(for argument: ActionArgument) -> Bool {
-        argument.isRequired || argument.name == ask?.argument
+        argument.palettePrompts || argument.name == ask?.argument
     }
 
     /// Live preview of the highlighted option (theme pickers).
@@ -101,12 +113,31 @@ struct PaletteArgumentFlow {
     /// A free-text argument with known values: its pinned values, a row for
     /// other text (a light/dark pair), then every known value; typing
     /// searches them.
+    ///
+    /// Values not read yet (``ActionRegistry/argumentSuggestionsLoad``) are awaited under the
+    /// palette's loading state, so the step never opens on an empty list that fills in later.
     private func suggestionPage(for argument: ActionArgument, collected: ActionInvocation) -> PalettePageSpec {
         guard let suggestions = argument.suggestions else { return listPage(for: argument, options: [], collected: collected) }
+        guard let load = registry.argumentSuggestionsLoad?(suggestions.source) else {
+            return suggestionPage(for: argument, suggestions, known: registry.argumentSuggestions?(suggestions.source) ?? [], collected: collected)
+        }
+        var page = suggestionPage(for: argument, suggestions, known: [], collected: collected)
+        let flow = self
+        page.providers = [AsyncPaletteProvider(id: "argument") {
+            let known = await load()
+            guard !Task.isCancelled else { return [] }
+            return await flow.suggestionPage(for: argument, suggestions, known: known, collected: collected).providers.first?.items() ?? []
+        }]
+        return page
+    }
+
+    private func suggestionPage(for argument: ActionArgument, _ suggestions: ActionSuggestions, known: [ActionEnumCase],
+                                collected: ActionInvocation) -> PalettePageSpec {
         let pinned = Set(suggestions.pinned.map(\.value))
-        let known = (registry.argumentSuggestions?(suggestions.source) ?? []).filter { !pinned.contains($0.value) }
+        let known = known.filter { !pinned.contains($0.value) }
         let options = (suggestions.pinned + known).map { suggestion in
-            PaletteTargetOption(id: suggestion.value, title: suggestion.title, symbol: descriptor.symbol,
+            PaletteTargetOption(id: suggestion.value, title: suggestion.title, subtitle: suggestion.subtitle,
+                                symbol: suggestion.symbol ?? descriptor.symbol,
                                 swatches: swatches?(suggestions.source, suggestion.value) ?? [])
         }
         var extra: [PaletteItem] = []
@@ -125,6 +156,15 @@ struct PaletteArgumentFlow {
 
     /// The captured object of the first kind the action targets.
     var capturedTarget: ActionTargetRef? {
+        if let kind = descriptor.paletteTarget {
+            guard let target = captured.first(where: { $0.kind == kind }) else { return nil }
+            // A captured Cloud machine cannot satisfy an SSH-only command.
+            // This runs on selection, never while listing the command rows.
+            if let targets, !targets.targets(of: kind, for: descriptor.id).contains(where: {
+                $0.isEnabled && $0.recovery == nil && (ActionTargetRef(parsing: $0.id) ?? ActionTargetRef(kind: kind, id: $0.id)) == target
+            }) { return nil }
+            return target
+        }
         for kind in descriptor.targets {
             if let ref = captured.first(where: { $0.kind == kind }) { return ref }
         }
@@ -132,6 +172,13 @@ struct PaletteArgumentFlow {
     }
 
     func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
+        if argument.name == Self.subjectSlot, case .target(let target)? = argument.parse(text) {
+            var next = collected
+            // A shared subject source may include another target kind the action accepts
+            // (Hide App accepts either an app item or its section).
+            next.target = ActionTargetRef(parsing: text).flatMap { descriptor.targets.contains($0.kind) ? $0 : nil } ?? target
+            return next
+        }
         guard let value = argument.parse(text) else { return nil }
         var next = collected
         next.arguments[argument.name] = value
@@ -143,13 +190,16 @@ struct PaletteArgumentFlow {
         return PaletteTextInputSpec(
             id: "argument:\(descriptor.id.rawValue):\(argument.name)",
             title: Self.stepTitle(descriptor, argument),
-            placeholder: argument.title,
+            placeholder: argument.isAskedInPalette ? PaletteStrings.optionalArgument(argument.title) : argument.title,
             symbol: descriptor.symbol,
             initialText: askedText(for: argument) ?? currentText(for: argument, of: collected.target) ?? "",
             skipsUnchangedText: argument.isTargetName || argument.isTargetDescription || askedText(for: argument) != nil,
             submitTitle: { text in PaletteStrings.submitText(title: descriptor.title, text: text) },
+            // Only an optional one the palette asks for (`isAskedInPalette`) may be left empty: the run
+            // carries "" and the handler's default applies (the session host names a new worktree).
+            // A handler's own ask (a Rename with no name) stays non-empty, or its run would ask again.
             isValid: { text in
-                !text.trimmingCharacters(in: .whitespaces).isEmpty && argument.parse(text) != nil
+                text.trimmingCharacters(in: .whitespaces).isEmpty ? argument.isAskedInPalette : argument.parse(text) != nil
             },
             next: { text in
                 guard let next = flow.adding(argument, text, to: collected) else { return .performKeepingOpen {} }
@@ -177,18 +227,25 @@ struct PaletteArgumentFlow {
         let section = PaletteSection(id: "argument", title: argument.title, order: 0)
         var items = options.map { option in
             let next = adding(argument, option.id, to: collected)
+            let registry = registry
+            let choose: PaletteEffect = if let recovery = option.recovery {
+                .perform { registry.perform(recovery.action, invocation: ActionInvocation(target: recovery.target)) }
+            } else {
+                next.map { invocation in .deferred { effect(collected: invocation) } } ?? .performKeepingOpen {}
+            }
             var item = PaletteItem(
                 id: "option:\(option.id)",
                 title: option.title,
                 subtitle: option.subtitle,
+                accessory: option.recovery?.title ?? option.accessory,
                 symbol: option.symbol ?? descriptor.symbol,
                 section: section,
                 isEnabled: next != nil && option.isEnabled,
                 primary: PaletteCommand(
                     id: "choose",
-                    title: PaletteStrings.choose,
+                    title: option.recovery?.title ?? option.accessory ?? PaletteStrings.choose,
                     symbol: "return",
-                    effect: next.map { effect(collected: $0) } ?? .performKeepingOpen {}
+                    effect: choose
                 ),
                 frecencyKey: "argument:\(descriptor.id.rawValue):\(argument.name):\(option.id)"
             )
@@ -196,11 +253,12 @@ struct PaletteArgumentFlow {
             item.ball = PaletteGroupColor.ball(action: descriptor.id, argument: argument.name, value: option.id)
             return item
         }
-        // The value in effect (the current team or theme) reads "Current" and is the row the
-        // step opens on, as in the settings pickers.
+        // The value in effect (the current team or theme) carries the checkmark and is the row the
+        // step opens on, as in the settings pickers and the account menu (Leo, 2026-11-09, of a team
+        // list whose active row said only "Current": "what is this?").
         let current = currentValue(of: argument, collected: collected).map { "option:\($0)" }
         if let current, let index = items.firstIndex(where: { $0.id == current }) {
-            items[index].accessory = PaletteStrings.current
+            items[index].accessory = PaletteStrings.chosenMark
         }
         items.insert(contentsOf: extra, at: min(pinnedCount ?? items.count, items.count))
         var page = PalettePageSpec(
@@ -209,8 +267,12 @@ struct PaletteArgumentFlow {
             placeholder: PaletteStrings.chooseArgument(argument.title),
             symbol: descriptor.symbol,
             providers: [StaticPaletteProvider(id: "argument", items: items)],
-            showsRecent: true
+            showsRecent: argument.name != Self.subjectSlot
         )
+        if argument.name == Self.subjectSlot {
+            page.title = Self.baseTitle(descriptor.title)
+            page.placeholder = PaletteStrings.chooseTarget
+        }
         if let current, items.contains(where: { $0.id == current }) { page.emptyQuerySelectionID = current }
         return page
     }
@@ -241,7 +303,7 @@ struct PaletteArgumentFlow {
     /// single-argument actions and "Title › Argument" otherwise.
     static func stepTitle(_ descriptor: ActionDescriptor, _ argument: ActionArgument) -> String {
         let base = baseTitle(descriptor.title)
-        let required = descriptor.arguments.filter(\.isRequired)
+        let required = descriptor.arguments.filter(\.palettePrompts)
         return required.count <= 1 ? base : "\(base) › \(argument.title)"
     }
 }

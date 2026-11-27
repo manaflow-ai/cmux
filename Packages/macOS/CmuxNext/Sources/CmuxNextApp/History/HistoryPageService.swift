@@ -18,7 +18,6 @@ import os
 #if DEBUG
 import CmuxNextRemoteBrowser
 #endif
-
 /// Opens `cmux://history` (plans/cmux-next/history.md 5.1). The page is a
 /// browser tab whose record URL is `cmux://history`, so it survives relaunch
 /// like any tab; the React page reads the daemon's history module itself.
@@ -121,7 +120,7 @@ extension TabContentCache {
     }
 
     static func isAppPage(_ url: URL?) -> Bool {
-        url?.isHistoryPage == true || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+        url?.isHistoryPage == true || url?.isBookmarkPage == true || AgentActivityPageAddress.matches(url)
             || ScreenshotsPageAddress.matches(url) || VaultPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
     }
@@ -172,12 +171,20 @@ extension TabContentCache {
                     guard let self, let tab = tabModel(key) else { return }
                     showAppPage(confirmedURL, in: tab)
                 },
-                cloudTransport: { [weak services] machine in services?.cloudDesktopTransport(machine: machine) },
                 cloudRd: { [weak services] machine in services?.cloudDesktopRdTransport(machine: machine) },
-                displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil }, loginKeychain: services.loginKeychain)
+                displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil },
+                personInput: services.chiefComputerInputReporter(machine: RemoteViewTabRecord(url: url)?.host),
+                connectionTarget: RemoteViewTabRecord(url: url).flatMap { record in record.cloudDesktop ? services.machines.cloudMachineConnectionTarget(machine: record.host) : nil }, loginKeychain: services.loginKeychain)
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
+            }
+            // The toolbar's Quality menu runs the palette's Set Screen Sharing Quality… on this tab; where the
+            // action does not run (Remote Hosts turned off by policy), the menu still sets the quality.
+            page.onPickQuality = { [weak services, weak page] preset in
+                let ran = services?.registry.perform("remote.setQuality", invocation: ActionInvocation(
+                    target: ActionTargetRef(kind: .tab, id: key), arguments: ["quality": .string(preset.rawValue)], origin: .user)) ?? false
+                if !ran { page?.selectQuality(preset) }
             }
             return page
         }
@@ -186,9 +193,10 @@ extension TabContentCache {
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
-        if BookmarkPageAddress.matches(url) {
+        if url?.isBookmarkPage == true {
             let page = services.bookmarkPages.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            page.webPage?.onOpenExternal = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
         let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile,

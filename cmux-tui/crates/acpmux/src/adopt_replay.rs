@@ -17,11 +17,15 @@ use crate::adopt_tools::{PastTool, ToolResult};
 
 #[path = "adopt_replay_page.rs"]
 mod page;
+#[path = "transcript_page.rs"]
+mod transcript_page;
 pub use page::{
     ClaudePage, PAGE_TURNS, claude_page, claude_page_with_turns, newest_claude_page,
     newest_prompt_start,
 };
 pub(crate) use page::{claude_page_with_turns_open, newest_prompt_start_open};
+pub(crate) use transcript_page::transcript_page_from;
+pub use transcript_page::{TranscriptPage, transcript_page};
 
 /// One past exchange: the person's prompt, the tool calls it led to, in order, and the
 /// assistant's answer text.
@@ -36,12 +40,12 @@ pub struct PastTurn {
 }
 
 /// At most this many turns (the newest) and this much text per answer: a long chat stays cheap.
-const MAX_TURNS: usize = 200;
+pub(crate) const MAX_TURNS: usize = 200;
 const MAX_ANSWER: usize = 20_000;
 /// At most this many tool calls per turn (the first).
 const MAX_TOOLS: usize = 400;
 /// A transcript bigger than this is read for its newest part only.
-const MAX_BYTES: u64 = 64 << 20;
+pub(crate) const MAX_BYTES: u64 = 64 << 20;
 
 /// The turns of `file`, a `family` (`claude`, `codex`) transcript; empty when unreadable.
 pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
@@ -55,53 +59,181 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
     // No further than the file was when opened: what the harness appends meanwhile waits for the
     // next read, so one read is bounded however fast the chat grows.
     let f = f.take(len.min(MAX_BYTES));
-    let mut turns: Vec<PastTurn> = Vec::new();
+    let mut fold = Fold::new(family, true);
+    let mut reader = BufReader::new(f);
+    let mut line = Vec::new();
+    let mut first = true;
+    loop {
+        line.clear();
+        if !matches!(reader.read_until(b'\n', &mut line), Ok(n) if n > 0) {
+            break;
+        }
+        if !std::mem::take(&mut first) || !skip_first {
+            fold.line(&line);
+        }
+    }
+    fold.finish()
+}
+
+/// What [`read`] makes of a transcript, one line at a time, so a reader that follows a growing
+/// transcript (`chats/text.rs`) folds its new lines by the same rules.
+#[derive(Debug)]
+pub struct Fold {
+    codex: bool,
+    /// Tool calls are kept (a replay draws them; the chats page's text does not).
+    tools: bool,
+    turns: Vec<PastTurn>,
     // Codex's message items before its rollout turns current (items annotated with their kinds):
     // older Codex also wrote each turn as event messages, which are read instead, so no turn
     // shows twice; a rollout with no event messages at all is read from these.
-    let mut items: Vec<PastTurn> = Vec::new();
+    items: Vec<PastTurn>,
+    /// How many turns and items [`Self::settle`] let go of, oldest first.
+    turns_settled: usize,
+    items_settled: usize,
     // Current Codex writes no event messages: from its first annotated item on (a chat begun on
     // an older Codex and resumed on a current one), items are the turns.
-    let mut current = false;
+    current: bool,
     // Current Codex records each finished tool call as an `item_completed` event; older Codex
     // wrote `exec_command_end` and patch events, read until the first such item.
-    let mut tool_items = false;
-    for (index, line) in BufReader::new(f).lines().map_while(Result::ok).enumerate() {
-        if skip_first && index == 0 {
-            continue;
+    tool_items: bool,
+    answer_limit: usize,
+    /// What the last line folded was, as a reader that starts later sees it ([`ItemLine`]).
+    last: ItemLine,
+}
+
+/// A Codex line, as it decides where a read that starts at a later line folds message items.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemLine {
+    /// Neither below.
+    Other,
+    /// A message item annotated with its kinds: from it on, items are the turns.
+    Annotated,
+    /// A prompt item without kinds, folded as a turn only because an earlier line was
+    /// annotated: a read that starts past every annotated line before it folds it as an item.
+    PlainPrompt,
+}
+
+impl Fold {
+    /// An empty fold of a `family` (`claude`, `codex`) transcript.
+    pub fn new(family: &str, tools: bool) -> Self {
+        Self::with_answer_limit(family, tools, MAX_ANSWER)
+    }
+
+    /// A fold for a terminal page. Terminal pages are searched independently and keep the
+    /// complete answer text up to the page/reply bound rather than the adopted-chat preview cap.
+    pub(crate) fn with_answer_limit(family: &str, tools: bool, answer_limit: usize) -> Self {
+        Self {
+            codex: family == "codex",
+            tools,
+            turns: Vec::new(),
+            items: Vec::new(),
+            turns_settled: 0,
+            items_settled: 0,
+            current: false,
+            tool_items: false,
+            answer_limit,
+            last: ItemLine::Other,
         }
-        let Ok(record) = serde_json::from_str::<Value>(&line) else { continue };
+    }
+
+    /// Folds one line (a record; anything that does not parse is skipped).
+    pub fn line(&mut self, line: &[u8]) {
+        self.last = ItemLine::Other;
+        if let Ok(record) = serde_json::from_slice::<Value>(line) {
+            self.record(&record);
+        }
+    }
+
+    fn record(&mut self, record: &Value) {
+        self.last = ItemLine::Other;
+        let answer_limit = self.answer_limit;
         let at = record.get("timestamp").and_then(Value::as_str).and_then(parse_ms);
-        match family {
-            "codex" => {
-                current = current || has_item_kinds(&record);
-                if let Some((tool, item)) = crate::adopt_tools::codex_tool(&record, at) {
-                    tool_items = tool_items || item;
-                    if item || !tool_items {
-                        // With the turns that are being read: event messages, else items.
-                        let into =
-                            if current || !turns.is_empty() { &mut turns } else { &mut items };
-                        add(into, tool.map_or_else(Step::ToolResult, Step::Tool), at);
-                    }
-                } else if let Some(step) = codex_step(&record) {
-                    add(&mut turns, step, at);
-                } else if let Some(step) = codex_item_step(&record) {
-                    add(if current { &mut turns } else { &mut items }, step, at);
+        if !self.codex {
+            for step in claude_steps(record, at) {
+                if self.tools || matches!(step, Step::Prompt(_) | Step::Answer(_)) {
+                    add_limited(&mut self.turns, step, at, answer_limit);
                 }
             }
-            _ => {
-                for step in claude_steps(&record, at) {
-                    add(&mut turns, step, at);
-                }
+            return;
+        }
+        let kinds = has_item_kinds(record);
+        let was_current = self.current;
+        self.current = self.current || kinds;
+        if kinds {
+            self.last = ItemLine::Annotated;
+        }
+        if let Some(step) = codex_tool_step(record, at, &mut self.tool_items) {
+            if self.tools {
+                let into = if self.current || self.turns_seen() > 0 {
+                    &mut self.turns
+                } else {
+                    &mut self.items
+                };
+                add_limited(into, step, at, answer_limit);
             }
+        } else if let Some(step) = codex_step(record) {
+            add_limited(&mut self.turns, step, at, answer_limit);
+        } else if let Some(step) = codex_item_step(record) {
+            if was_current && !kinds && matches!(step, Step::Prompt(_)) {
+                self.last = ItemLine::PlainPrompt;
+            }
+            add_limited(
+                if self.current { &mut self.turns } else { &mut self.items },
+                step,
+                at,
+                answer_limit,
+            );
         }
     }
-    if turns.is_empty() {
-        turns = items;
+
+    /// A Codex message item annotated with its kinds was folded: items are the turns from it on.
+    pub fn current(&self) -> bool {
+        self.current
     }
-    let skip = turns.len().saturating_sub(MAX_TURNS);
-    turns.drain(..skip);
-    turns
+
+    /// What the last line folded was ([`ItemLine`]).
+    pub fn last_line(&self) -> ItemLine {
+        self.last
+    }
+
+    /// How many turns (event messages, or Claude Code's) and Codex items were folded so far.
+    pub fn turns_seen(&self) -> usize {
+        self.turns_settled + self.turns.len()
+    }
+
+    pub fn items_seen(&self) -> usize {
+        self.items_settled + self.items.len()
+    }
+
+    /// The held turns (`items`: Codex's items) and the number of the first among all folded.
+    pub fn held(&self, items: bool) -> (usize, &[PastTurn]) {
+        if items { (self.items_settled, &self.items) } else { (self.turns_settled, &self.turns) }
+    }
+
+    /// Lets go of every turn and item but the newest `keep` (at least one) of each: a later line
+    /// changes only the newest (an answer, a tool call or its result joins it) or starts another.
+    pub fn settle(&mut self, keep: usize) {
+        let keep = keep.max(1);
+        let turns = self.turns.len().saturating_sub(keep);
+        self.turns.drain(..turns);
+        self.turns_settled += turns;
+        let items = self.items.len().saturating_sub(keep);
+        self.items.drain(..items);
+        self.items_settled += items;
+    }
+
+    /// How many turns and items are held (not let go of by [`Self::settle`]).
+    pub fn held_len(&self) -> usize {
+        self.turns.len().max(self.items.len())
+    }
+
+    /// The turns read, newest [`MAX_TURNS`]: the event-message turns, else Codex's items.
+    pub fn finish(self) -> Vec<PastTurn> {
+        let mut turns = if self.turns.is_empty() { self.items } else { self.turns };
+        let skip = turns.len().saturating_sub(MAX_TURNS);
+        turns.drain(..skip);
+        turns
+    }
 }
 
 /// What one transcript record adds: a person's prompt, or answer text.
@@ -170,6 +302,10 @@ pub fn record_time(record: &Value) -> Option<u64> {
 /// A prompt starts a turn; an answer adds to the last one, capped at MAX_ANSWER; a tool call
 /// joins the last one (once: a call recorded again replaces it), and a result settles its call.
 fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
+    add_limited(turns, step, at, MAX_ANSWER);
+}
+
+fn add_limited(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>, answer_limit: usize) {
     match step {
         Step::Prompt(text) => turns.push(PastTurn {
             prompt: text,
@@ -199,8 +335,8 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
                 turn.answer.push_str("\n\n");
             }
             turn.answer.push_str(&text);
-            if turn.answer.len() > MAX_ANSWER {
-                let mut cut = MAX_ANSWER;
+            if turn.answer.len() > answer_limit {
+                let mut cut = answer_limit;
                 while !turn.answer.is_char_boundary(cut) {
                     cut -= 1;
                 }
@@ -248,21 +384,87 @@ fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
 /// an interruption.
 fn claude_prompt(content: &Value) -> Option<Step> {
     let text = text_of(content)?;
-    let start = text.trim_start();
-    let echo = ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
-        .iter()
-        .any(|prefix| start.starts_with(prefix));
+    let echo = ECHOES.iter().any(|prefix| text.trim_start().starts_with(prefix));
     (!echo).then_some(Step::Prompt(text))
+}
+
+/// What a Claude Code user line starts with when it echoes a command or a hook or marks an
+/// interruption.
+const ECHOES: [&str; 4] = ["<command-", "<local-command-", "<bash-", "[Request interrupted"];
+
+/// What Claude Code queues by itself, not typed by the person: a finished background task or
+/// subagent, another session's message.
+const HARNESS_QUEUED: [&str; 3] =
+    ["<task-notification>", "<agent-message", "<cross-session-message"];
+
+/// What a person types for a slash command or a shell line: it runs as command echoes, never as
+/// a prompt line.
+const COMMANDS: [&str; 2] = ["/", "!"];
+
+/// Whether the text of a Claude Code `queue-operation` `enqueue` line is a prompt the person
+/// typed. The line carries no `origin` (`from_person`), so its text says: Claude Code queues
+/// task notifications and other sessions' messages too, and those are no prompt of the person's.
+/// A slash command or a shell line is not one either: no prompt line takes it out of the queue
+/// (one that was a prompt after all shows when its line runs).
+pub(crate) fn queued_by_person(text: &str) -> bool {
+    let start = text.trim_start();
+    !ECHOES
+        .iter()
+        .chain(HARNESS_QUEUED.iter())
+        .chain(COMMANDS.iter())
+        .any(|prefix| start.starts_with(prefix))
 }
 
 /// Whether a Claude Code line came from the person: it has no `origin`, or its `origin.kind` is
 /// `human`. Claude Code also writes user lines itself (`task-notification` when a background task
 /// or subagent finishes, `peer` for another session's `<cross-session-message>`).
 pub(crate) fn from_person(record: &Value) -> bool {
-    match record.pointer("/origin/kind") {
-        None | Some(Value::Null) => true,
-        Some(kind) => kind.as_str() == Some("human"),
+    line_origin(record) == LineOrigin::Person
+}
+
+/// Who a Claude Code user line is from, decided by its `origin.kind` and never by its text. The one
+/// classification the transcript model shares: a line from the harness (a task notification: a
+/// subagent or background command ended; a peer's message) is a tool-call-like event of the turn it
+/// came in, folded with the turn's work, not a message the person typed (Leo, 2026-11-24: "we can
+/// indeed treat them as tool calls, even though they're bursted at the end/start of turns").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LineOrigin {
+    /// No origin, or `human`: the person's own words, a fixed point that never folds.
+    Person,
+    /// `task-notification`: a subagent or background task ended; work of the turn.
+    TaskNotification,
+    /// `peer`: another session's `<cross-session-message>`.
+    Peer,
+    /// An origin this build does not know: never the person's.
+    Other,
+}
+
+impl LineOrigin {
+    /// Whether the line is harness-injected work the transcript folds like a tool call.
+    #[cfg(test)]
+    pub(crate) fn is_tool_like(self) -> bool {
+        matches!(self, LineOrigin::TaskNotification | LineOrigin::Peer)
     }
+}
+
+/// The origin of a Claude Code user line (`origin.kind`).
+pub(crate) fn line_origin(record: &Value) -> LineOrigin {
+    match record.pointer("/origin/kind") {
+        None | Some(Value::Null) => LineOrigin::Person,
+        Some(kind) => match kind.as_str() {
+            Some("human") => LineOrigin::Person,
+            Some("task-notification") => LineOrigin::TaskNotification,
+            Some("peer") => LineOrigin::Peer,
+            _ => LineOrigin::Other,
+        },
+    }
+}
+
+/// Read legacy tool events until the first current item-completed tool update.
+fn codex_tool_step(record: &Value, at: Option<u64>, tool_items: &mut bool) -> Option<Step> {
+    let (tool, item) = crate::adopt_tools::codex_tool(record, at)?;
+    *tool_items |= item;
+    (item || !*tool_items).then(|| tool.map_or_else(Step::ToolResult, Step::Tool))
 }
 
 /// Codex rollouts: `{"type":"event_msg","payload":{"type":"user_message"|"agent_message","message":...}}`.
@@ -349,7 +551,7 @@ const CODEX_CONTEXT: [&str; 4] = [
 ];
 
 /// The text of a message's content: a string, or the `text` of its text blocks.
-fn text_of(content: &Value) -> Option<String> {
+pub(crate) fn text_of(content: &Value) -> Option<String> {
     let text = match content {
         Value::String(s) => s.clone(),
         Value::Array(blocks) => blocks
@@ -369,3 +571,7 @@ fn text_of(content: &Value) -> Option<String> {
 fn parse_ms(text: &str) -> Option<u64> {
     cmux_chat_index::time::parse_rfc3339_ms(text).and_then(|ms| u64::try_from(ms).ok())
 }
+
+#[cfg(test)]
+#[path = "adopt_replay_line_origin_tests.rs"]
+mod line_origin_tests;

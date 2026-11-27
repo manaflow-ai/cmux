@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture commands and descriptions, not shipped UI.
 // The agent turn as the ChatGPT/Codex app draws it (Leo and Lawrence, 2026-10-20): a finished run
 // that is one group folds to its closed line ("Ran 3 commands") between the paragraphs; a finished
-// call's check and time show only on hover, a failure keeps its red mark; a command reads as what
-// it does (Claude Code's Bash description) and never as the bare tool name "Bash".
+// call draws no check and no time, and its failure word is for screen readers only (Lawrence and
+// Lucas, 2026-11-11 standup: Codex marks no command as passed or failed, no time on hover); a command reads as what it does (Claude
+// Code's Bash description) and never as the bare tool name "Bash".
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -10,7 +11,10 @@ import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow"
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { callDescription } from "../src/agent-session/acpmux/direct";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
+import {
+  resetTranscriptDisclosure,
+  ViewContext,
+} from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const shell = (id: string, extra: Partial<Tool> = {}): AcpmuxActivity => ({
@@ -63,29 +67,67 @@ test("a finished run that is one group folds to its closed line", () => {
   expect(listed).toContain('aria-expanded="true"');
 });
 
-test("a known command reads as what it did without the setup, read off the command, not its description", () => {
-  const html = renderToStaticMarkup(
-    <CommandRow item={shell("x", { command: 'export PATH="/a:$PATH"; bun test', description: "Run the web tests" })} />,
-  );
-  // Leo, 2026-11-07: "you ran a specific thing" (commandActions.ts); the table reads what ran.
-  expect(words(html)).toContain("Ran tests with bun");
-  expect(words(html)).not.toContain("Run the web tests");
-  expect(html).not.toContain("export PATH");
-  const plain = renderToStaticMarkup(<CommandRow item={shell("y")} />);
-  expect(words(plain)).toContain("Ran echo y");
+test("a collapsed shell row shows its description as prose", () => {
+  for (const [title, command, description] of [
+    ["Bash", "timeout 30 acpmux session inbox session-id", "Read the three non-notice inbox threads"],
+    ["exec_command", "git status --short", "Check the worktree before merging"],
+  ] as const) {
+    for (const status of ["in_progress", "completed"]) {
+      const item = shell(title, { title, command, description, status });
+      for (const Row of [CommandRow, ToolRow]) {
+        const collapsed = renderToStaticMarkup(<Row item={item} />);
+        expect(words(collapsed)).toContain(description);
+        expect(words(collapsed)).not.toContain(command);
+        expect(collapsed).not.toMatch(/<code\b/);
+      }
+    }
+  }
 });
 
-test("a lone shell call the table does not know reads as its description, else its command, never the bare tool name", () => {
+test("the command display looks all keep descriptions on collapsed rows", () => {
+  const overrides = globalThis.cmuxExperiments;
+  const description = "Check the working tree";
+  const command = "git status --short";
+  try {
+    for (const look of ["command", "cleaned", "verbs", "description", "verbs-command"]) {
+      globalThis.cmuxExperiments = { ...overrides, "command-label-look": look };
+      const item = shell("status", { command, description });
+      for (const Row of [CommandRow, ToolRow]) {
+        const text = words(renderToStaticMarkup(<Row item={item} />));
+        expect(text).toContain(description);
+        expect(text).not.toContain(command);
+      }
+    }
+  } finally {
+    if (overrides) globalThis.cmuxExperiments = overrides;
+    else delete globalThis.cmuxExperiments;
+  }
+});
+
+test("native read, edit and grep calls draw explicit descriptions as prose", () => {
+  for (const [title, kind, input, description] of [
+    ["Read", "read", { file_path: "foo.ts" }, "Read the request parser"],
+    ["Edit", "edit", { file_path: "foo.ts", old_string: "one", new_string: "two" }, "Fix the request parser"],
+    ["Grep", "search", { pattern: "retry", path: "src" }, "Find retry handling"],
+  ] as const) {
+    const item = shell(title, { title, kind, command: undefined, description, inputSummary: JSON.stringify(input) });
+    const collapsed = renderToStaticMarkup(<ToolRow item={item} />);
+    expect(words(collapsed)).toContain(description);
+    expect(collapsed).not.toMatch(/<code\b/);
+  }
+});
+
+test("a lone shell call the table does not know reads as its description, else its command", () => {
   const described = renderToStaticMarkup(<ToolRow item={shell("x", { description: "List the build folder" })} />);
   expect(words(described)).toContain("List the build folder");
   expect(words(renderToStaticMarkup(<ToolRow item={shell("x")} />))).toContain("Ran echo x");
   const bare = renderToStaticMarkup(<ToolRow item={shell("y", { command: undefined })} />);
   expect(words(bare)).toContain("Ran a command");
-  expect(words(bare)).not.toMatch(/\bBash\b/);
   const running = renderToStaticMarkup(
     <ToolRow item={shell("z", { command: undefined, status: "in_progress", endedAt: undefined })} />,
   );
-  expect(words(running)).toContain("Running a command");
+  expect(words(running)).toContain("Bash");
+  expect(words(running)).not.toContain("Running");
 });
 
 test("Claude Code's Bash description is read from the call's raw input", () => {
@@ -94,18 +136,20 @@ test("Claude Code's Bash description is read from the call's raw input", () => {
   expect(callDescription({ description: 42 })).toBeUndefined();
 });
 
-test("a finished call draws its check and time; a failure its red mark", () => {
+// Codex marks no command as passed or failed, and shows no time on hover (Lawrence and Lucas,
+// 2026-11-11 standup).
+test("a finished call draws no check and no time; a failure keeps its word for screen readers", () => {
   const ok = renderToStaticMarkup(<CommandRow item={shell("ok")} />);
-  expect(ok).toContain("cv-command__ok");
-  expect(ok).toContain('class="cv-command__time">2.5s');
+  expect(ok).not.toContain("cv-command__ok");
+  expect(ok).not.toContain("cv-command__time");
   const failed = renderToStaticMarkup(<CommandRow item={shell("bad", { status: "failed", exitCode: 1 })} />);
   expect(failed).toContain("cv-command__failed");
   expect(failed).not.toContain("cv-command__ok");
   const lone = renderToStaticMarkup(
     <ToolRow item={shell("lone", { command: undefined, title: "Fetch docs", kind: "fetch" })} />,
   );
-  expect(lone).toContain("cv-command__ok");
-  expect(lone).toContain('class="cv-command__time">2.5s');
+  expect(lone).not.toContain("cv-command__ok");
+  expect(lone).not.toContain("cv-command__time");
 });
 
 test("the check and time show only on hover or focus; the failure mark always", async () => {
@@ -120,10 +164,10 @@ test("the check and time show only on hover or focus; the failure mark always", 
   expect(css).not.toMatch(/cv-tool__failed[^{]*\{[^}]*opacity: 0/);
 });
 
-// Leo (2026-10-21): "let's only show the green/red checkmark + time on hover for ours". A failed
-// call that is not a shell still says so in red at rest. A running one shows no spinner (Leo,
+// A failed call that is not a shell keeps its word for screen readers only (conversation.css clips
+// it away; Lawrence and Lucas, 2026-11-11 standup: Codex marks no command as passed or failed). A running one shows no spinner (Leo,
 // 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT").
-test("a failed tool call keeps its red mark at rest; a running one no spinner", () => {
+test("a failed tool call keeps its screen reader word at rest; a running one no spinner", () => {
   const failed = renderToStaticMarkup(
     <ToolRow item={shell("bad", { command: undefined, title: "Fetch docs", kind: "fetch", status: "failed" })} />,
   );
@@ -137,14 +181,18 @@ test("a failed tool call keeps its red mark at rest; a running one no spinner", 
   expect(running).not.toContain("cv-command__time");
 });
 
-test("the hover check and time follow the pointer's dwell as a message's hover row does", async () => {
+// Leo (2026-11-09, on a live turn's recording): "oh im mostly just saying that it lags". A tool
+// row is a list row: its check and time show on the frame the pointer reaches it and leave on the
+// quick step, not the message hover row's dwell (test/agent-pane-hover-follows-row.test.ts).
+test("the hover check and time show at once and leave on the quick step", async () => {
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
   expect(css).toMatch(
-    /\.cv-tool :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-out\)/,
+    /\.cv-tool :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: var\(--cv-row-reveal-out\);/,
   );
   expect(css).toMatch(
-    /\.cv-tool:hover :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-in\) var\(--cv-actions-in-ease\);/,
+    /\.cv-tool:is\(:hover, :focus-visible\) :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: none;/,
   );
+  expect(css).toMatch(/--cv-row-reveal-out: opacity var\(--cmux-motion-quick, 80ms\)/);
 });

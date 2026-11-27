@@ -6,7 +6,6 @@ import CmuxNextDesign
 public import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 public import CmuxNextSettings
-import CmuxNextWakeups
 import Observation
 
 /// The import suggestion cards for the whole app: it scans this Mac off the
@@ -50,11 +49,6 @@ public final class ImportSuggestionsCenter {
     /// A page's start is waiting on the person's answer (one question at a time).
     @ObservationIgnored private var asking = false
     @ObservationIgnored let now: () -> Date
-    /// Set once Conductor Cloud's shutdown passes while cmux runs (``scheduleConductorDeadline()``),
-    /// so a note on screen then is read again and goes, with no other change to wake it.
-    var conductorDeadlinePassed = false
-    /// The one wake at that deadline.
-    @ObservationIgnored let conductorDeadline = DemandTimer(owner: "importSuggestions.conductorDeadline")
 
     init(defaults: UserDefaults = .standard, ledgerURL: URL = ImportSuggestionsCenter.defaultLedgerURL, now: @escaping () -> Date = Date.init) {
         self.defaults = defaults
@@ -65,7 +59,7 @@ public final class ImportSuggestionsCenter {
 
     /// `Application Support/cmux-next/<bundle id>/import-jobs.json`.
     public nonisolated static var defaultLedgerURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        NextSupport.applicationSupportDirectory()
             .appending(path: "cmux-next", directoryHint: .isDirectory)
             .appending(path: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next", directoryHint: .isDirectory)
             .appending(path: "import-jobs.json")
@@ -98,7 +92,6 @@ public final class ImportSuggestionsCenter {
         started = true
         restoreJobs()
         state.expire(now: now())
-        scheduleConductorDeadline()
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
             Task { @MainActor in self?.rescanIfStale() }
@@ -117,8 +110,6 @@ public final class ImportSuggestionsCenter {
     /// The jobs saved before this launch: one a quit cut off is paused for Resume.
     func restoreJobs() {
         var loaded = ImportJobLedger.load(from: ledgerURL)
-        // A Conductor import that finished before the state kept it, read before the prune drops it.
-        if loaded.jobs.contains(where: { $0.kind == .conductor && $0.phase == .done }) { conductorImportFinished() }
         loaded.relaunched(now: now())
         ledger = loaded
         saveLedger()
@@ -160,8 +151,9 @@ public final class ImportSuggestionsCenter {
         let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
         let variables = ProcessInfo.processInfo.environment
         let imported = await host.importedProfiles()
-        // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
-        let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
+        // The daemon checks for Classic files without opening them.
+        let classic = await host.classicAvailability()
+        let offersAutoCloud = host.autoCloud?.offered() ?? false
         // Browser import turned off meanwhile: no other browser's data is read. The scan itself
         // runs detached, so the cancel reaches it through `stop`, checked before each source.
         guard !Task.isCancelled else { return [] }
@@ -169,7 +161,8 @@ public final class ImportSuggestionsCenter {
         return await withTaskCancellationHandler {
             await Task.detached(priority: .utility) {
                 ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
-                              importedProfiles: imported, classicWorkspaces: { classic }, shouldStop: { stop.isSet }).scan()
+                              importedProfiles: imported, classicAvailability: classic, shouldStop: { stop.isSet },
+                              offersAutoCloud: offersAutoCloud).scan()
             }.value
         } onCancel: {
             stop.set()
@@ -240,6 +233,10 @@ public final class ImportSuggestionsCenter {
             case .conductor:
                 put(job)
                 runConductor(id)
+            case .autoCloud:
+                // A fresh plan: `cmux migrate`'s ledger skips projects already moved.
+                put(job)
+                runMoveToAutoCloud(id)
             case .claudeCode, .codex, .ghostty: finish(job)
             }
         case .dismiss:
@@ -293,7 +290,7 @@ public final class ImportSuggestionsCenter {
         }
         guard let card = deck.cards().first(where: { $0.id == id }), card.kind.startReadsAnotherApp else { return nil }
         let confirm = CmuxDialogButton(id: "confirm", title: ImportSuggestionStrings.confirmButton(action), role: .default)
-        return CmuxDialogSpec(title: ImportSuggestionStrings.confirmTitle(card.title), lines: [card.facts, card.benefit].filter { !$0.isEmpty },
+        return CmuxDialogSpec(usesTransientMaterial: true, title: ImportSuggestionStrings.confirmTitle(card.title), lines: [card.facts, card.benefit].filter { !$0.isEmpty },
                               buttons: [.cancel(), confirm], identifier: "cmux.dialog.importCard")
     }
 
@@ -371,6 +368,10 @@ public final class ImportSuggestionsCenter {
         case .conductor:
             put(ImportJob(finding: finding, now: now()))
             runConductor(id)
+        case .autoCloud:
+            // Its own preview asks before anything moves.
+            put(ImportJob(finding: finding, now: now()))
+            runMoveToAutoCloud(id)
         case .iterm2:
             run(id, writingTheme: ImportJob(finding: finding, now: now()))
         case .ghostty:
@@ -389,38 +390,12 @@ public final class ImportSuggestionsCenter {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
                 NSWorkspace.shared.openInBackground(url)
             }
-        case .cmuxClassic, .conductor, nil: break
+        case .cmuxClassic, .conductor, .autoCloud, nil: break
         }
     }
 
     /// Settings › Import.
     public func openSettings() { host?.openSettings("#/settings/import") }
-
-    /// Closes the sidebar's Import from Conductor note for good (``conductorNote``).
-    func closeConductorNote() {
-        state.conductorNoteClosed = true
-        state.save(to: defaults)
-    }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// DEBUG and bench builds: adds a stand-in Conductor finding to the scan's and reopens the note's x, so a
-    /// capture on a Mac with no Conductor shows the sidebar note and its Settings › Import card
-    /// (`debug.import_note`). Nothing is saved; the next scan drops the stand-in.
-    public func showConductorNoteFixture(workspaces: Int = 3) {
-        if !findings.contains(where: { $0.kind == .conductor }) {
-            findings.append(ImportFinding(id: "agents.conductor", kind: .conductor, name: "Conductor", count: workspaces))
-        }
-        state.conductorNoteClosed = nil
-        state.conductorImportRan = nil
-    }
-    #endif
-
-    /// Import from Conductor finished: the note stays gone after its job is pruned.
-    func conductorImportFinished() {
-        guard state.conductorImportRan != true else { return }
-        state.conductorImportRan = true
-        state.save(to: defaults)
-    }
 }
 
 /// A refused card button, for `import.card` and the pages.

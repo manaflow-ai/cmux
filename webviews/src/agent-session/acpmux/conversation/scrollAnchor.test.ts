@@ -102,3 +102,39 @@ test("finds the same anchor after older history is inserted above it", () => {
   });
   expect(next! - newLayout.tops[121]!).toBe(3);
 });
+
+test("a row that left its neighbours is not the anchor: the rows in view stay put", () => {
+  // A far rail jump's page sits below the rows of turns not read yet; once the gap is read, the
+  // row drawn just above the page (in view at the top) moves to the chat's end.
+  const gap = Array.from({ length: 40 }, (_, at) => row(`gap-${at}`, `between ${at}`));
+  const oldRows = [
+    row("head", "top"),
+    row("moved", "drawn above the page"),
+    row("target", "the prompt"),
+    row("after", "next"),
+  ];
+  const newRows = [
+    row("head", "top"),
+    row("target", "the prompt"),
+    row("after", "next"),
+    ...gap,
+    row("moved", "drawn above the page"),
+  ];
+  const oldLayout = layoutConversation(oldRows, 420);
+  const newLayout = layoutConversation(newRows, 420);
+  // The view's top is inside "moved", 4 px above "target".
+  const oldTop = oldLayout.tops[2]! - 4;
+  const next = preserveScrollAnchorTop({ oldLayout, newLayout, oldRows, newRows, liveTop: oldTop, anchorTop: oldTop });
+  expect(next).toBe(newLayout.tops[1]! - 4);
+});
+
+test("rows inserted right after the row in view keep it the anchor", () => {
+  const oldRows = [row("head", "top"), row("anchor", "the row in view"), row("after", "next")];
+  const inserted = Array.from({ length: 6 }, (_, at) => row(`tool-${at}`, `tool ${at}`));
+  const newRows = [oldRows[0], oldRows[1], ...inserted, oldRows[2]];
+  const oldLayout = layoutConversation(oldRows, 420);
+  const newLayout = layoutConversation(newRows, 420);
+  const oldTop = oldLayout.tops[1]! + 5;
+  const next = preserveScrollAnchorTop({ oldLayout, newLayout, oldRows, newRows, liveTop: oldTop, anchorTop: oldTop });
+  expect(next).toBe(newLayout.tops[1]! + 5);
+});

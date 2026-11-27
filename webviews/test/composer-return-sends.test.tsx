@@ -13,8 +13,14 @@ import type { Root } from "react-dom/client";
 import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
+import {
+  cmuxCommandRefusal,
+  type CmuxCommand,
+  type CmuxCommandResult,
+  mergedCommands,
+} from "../src/agent-session/acpmux/cmuxCommands";
 import { translate } from "../src/agent-session/acpmux/i18n";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -35,6 +41,7 @@ const keys = [
   "InputEvent",
   "createImageBitmap",
   "OffscreenCanvas",
+  "cmuxExperiments",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -91,14 +98,11 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
+  delete scope.cmuxExperiments;
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -136,7 +140,7 @@ const PNG = Uint8Array.from([
 ]);
 
 /** A file still being read: its loading tile at its place in the prompt (inline, the default view). */
-const LOADING = '.acpmux-md-inline-chip[data-state="loading"]';
+const LOADING = '.acpmux-md-inline-chip[aria-busy="true"], .acpmux-md-inline-chip [aria-busy="true"]';
 
 /** Renders the composer over `snapshot`, types `typed` into it and returns its field and sends. */
 async function composer(
@@ -234,8 +238,46 @@ const lines = (field: HTMLElement) =>
 
 test("Return sends what is typed", async () => {
   const { field, sent } = await composer(chat(), "What is Spotlight?");
+  expect(host.querySelector(".acpmux-outcome-ask")).toBeNull();
   const proceeded = await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect({ sent, proceeded }).toEqual({ sent: [{ text: "What is Spotlight?", steer: false }], proceeded: false });
+});
+
+async function fillOutcome(value: string) {
+  const field = host.querySelector<HTMLTextAreaElement>(".acpmux-outcome-ask textarea")!;
+  expect(field).not.toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
+    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  return field;
+}
+
+test("opt-in sends the outcome and clears it after the send is accepted", async () => {
+  scope.cmuxExperiments = { "outcome-ask": "on" };
+  const { field, sent } = await composer(chat(), "Fix the parser");
+  const outcome = await fillOutcome("the parser tests pass");
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([{ text: "Fix the parser\n\nDone when:\nthe parser tests pass", steer: false }]);
+  expect(outcome.value).toBe("");
+});
+
+test("an agent command leaves the optional outcome for the next ask", async () => {
+  scope.cmuxExperiments = { "outcome-ask": "on" };
+  const { field, sent } = await composer(chat({ commands: [{ name: "compact", description: "Compact" }] }), "/compact");
+  const outcome = await fillOutcome("the parser tests pass");
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([{ text: "/compact", steer: false }]);
+  expect(outcome.value).toBe("the parser tests pass");
+});
+
+test("Return in the outcome field leaves multiline and IME input to the textarea", async () => {
+  scope.cmuxExperiments = { "outcome-ask": "on" };
+  const { sent } = await composer(chat(), "Fix the parser");
+  const outcome = await fillOutcome("the parser tests pass");
+  expect(await dispatch(outcome, key({ key: "Enter", keyCode: 13 }))).toBe(true);
+  expect(await dispatch(outcome, key({ key: "Enter", keyCode: 229, isComposing: true }))).toBe(true);
+  expect(sent).toEqual([]);
 });
 
 const refuseCommand = (command: CmuxCommand, args?: string) => {
@@ -380,6 +422,33 @@ test("an attachment-only Return waits for a pending image and sends it when read
   expect(page.sent[0]!.steer).toBe(false);
   expect(page.sent[0]!.text).toMatch(/^\uFFFC[^\uFFFC]+\uFFFC$/);
   expect(page.sentAttachments).toEqual([["pending.png"]]);
+});
+
+test("a screenshot sent as a path loads in a file chip at the caret", async () => {
+  const snapshot = chat();
+  snapshot.summary = { ...snapshot.summary!, promptCapabilities: { image: false } };
+  let resolve!: (result: { paths: string[] }) => void;
+  const upload = new Promise<{ paths: string[] }>((done) => {
+    resolve = done;
+  });
+  const page = await composer(snapshot, "", undefined, false, undefined, () => upload);
+  const file = new File([PNG], "screenshot.png", { type: "image/png" });
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [file], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => page.field.dispatchEvent(paste));
+  try {
+    const loading = page.field.querySelector('.acpmux-attachment-file[aria-busy="true"]');
+    expect(loading).not.toBeNull();
+    expect(loading!.textContent).toContain("screenshot.png");
+    expect(loading!.querySelector("img")).toBeNull();
+  } finally {
+    await act(async () => resolve({ paths: ["/tmp/screenshot.png"] }));
+  }
+  expect(page.field.querySelector(".acpmux-attachment-link[data-saved]")).not.toBeNull();
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sentAttachments).toEqual([["screenshot.png"]]);
 });
 
 test("a terminal-only spelling waits for its pending image and sends as an attachment prompt", async () => {
@@ -580,13 +649,90 @@ test("Shift-Return right after an input method's commit Return adds a line and s
   expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
 });
 
-test("a paragraph the input method inserts on its own sends instead", async () => {
+for (const inputType of ["insertParagraph", "insertLineBreak"]) {
+  for (const [reportsComposing, started] of [
+    [true, true],
+    [false, true],
+    [true, false],
+  ]) {
+    test(`${inputType} during composition never sends (event flag ${reportsComposing}, lifecycle ${started})`, async () => {
+      const { field, sent } = await composer(chat(), "日本語");
+      if (started) await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
+      const proceeded = await dispatch(
+        field,
+        new window.InputEvent("beforeinput", {
+          inputType,
+          isComposing: reportsComposing,
+          bubbles: true,
+          cancelable: true,
+        }),
+        1_500,
+      );
+      expect(proceeded).toBe(false);
+      expect(sent).toEqual([]);
+      expect(field.textContent).toBe("日本語");
+      await dispatch(field, new window.CompositionEvent("compositionend", { bubbles: true }), 2_000);
+      await dispatch(field, key({ key: "Enter", keyCode: 229 }), 2_010);
+      await dispatch(field, key({ key: "Enter", keyCode: 13 }), 2_100);
+      expect(sent).toEqual([{ text: "日本語", steer: false }]);
+    });
+  }
+}
+
+// Leo: "wait that message got split up and queued". Dictation's "new paragraph" (or a voice tool
+// typing a message) inserts a paragraph with no Return key behind it; sending there split one
+// spoken message into queued pieces.
+test("a paragraph the input method inserts with no Return key behind it adds a line and sends nothing", async () => {
   const { field, sent } = await composer(working(), "What is Spotlight?");
   const inserted = await dispatch(
     field,
     new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
   );
-  expect({ sent, inserted }).toEqual({ sent: [{ text: "What is Spotlight?", steer: true }], inserted: false });
+  expect({ sent, inserted, lines: lines(field) }).toEqual({ sent: [], inserted: false, lines: 2 });
+});
+
+test("a dictated message with paragraphs stays one draft until Return sends it once", async () => {
+  const { field, sent } = await composer(chat(), "First paragraph");
+  for (const inputType of ["insertParagraph", "insertLineBreak"])
+    await dispatch(field, new window.InputEvent("beforeinput", { inputType, bubbles: true, cancelable: true }));
+  expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 3 });
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent.length).toBe(1);
+  expect(sent[0]!.text.startsWith("First paragraph")).toBe(true);
+});
+
+test("a busy chat sends both screenshots and its words together after a paragraph break", async () => {
+  const page = await composer(working(), "Compare these screenshots");
+  const files = [
+    new File([PNG], "before.png", { type: "image/png" }),
+    new File([PNG, Uint8Array.of(1)], "after.png", { type: "image/png" }),
+  ];
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  await dispatch(page.field, paste);
+  await dispatch(
+    page.field,
+    new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
+  );
+  expect(page.sent).toEqual([]);
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sent).toHaveLength(1);
+  expect(page.sent[0]!.text).toContain("Compare these screenshots");
+  expect(page.sentAttachments).toEqual([["before.png", "after.png"]]);
+});
+
+test("a dictated Return (keyCode 229) still sends, once, with the paragraph input that follows it", async () => {
+  const { field, sent } = await composer(chat(), "日本語");
+  await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
+  await dispatch(field, new window.CompositionEvent("compositionend", { bubbles: true }), 2_000);
+  // Past the commit window this 229 Return is taken and sends; its paragraph input is the same Return.
+  await dispatch(field, key({ key: "Enter", keyCode: 229 }), 6_000);
+  await dispatch(
+    field,
+    new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
+    6_001,
+  );
+  expect(sent).toEqual([{ text: "日本語", steer: false }]);
 });
 
 test("Return with the command menu closed sends the typed /word", async () => {
@@ -598,9 +744,80 @@ test("Return with the command menu closed sends the typed /word", async () => {
   expect({ sent, proceeded }).toEqual({ sent: [{ text: "/rev", steer: false }], proceeded: false });
 });
 
+// Review of #48024 (Return sends the unfinished prompt): a `$word` is often a price or a variable, so
+// Return picks its row only once the arrows chose it (slashCommands.ts returnPicks); the arrows must
+// mark the row chosen, else Return sent the half-typed prompt.
+test("Return picks the $ row the arrows chose instead of sending the half-typed prompt", async () => {
+  const commands = [
+    { name: "browser-use", insert: "@browser-use ", description: "Browser use", source: "extension" as const },
+  ];
+  const { field, sent } = await composer(chat({ commands }), "open it with $brow");
+  expect(host.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await dispatch(field, key({ key: "ArrowDown" }));
+  const proceeded = await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect({ sent, proceeded }).toEqual({ sent: [], proceeded: false });
+  expect(field.textContent).toContain("@browser-use");
+});
+
 test("Shift-Return adds a line and sends nothing", async () => {
   const { field, sent } = await composer(chat(), "first line");
   expect(lines(field)).toBe(1);
   await dispatch(field, key({ key: "Enter", keyCode: 13, shiftKey: true }));
   expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
 });
+
+// A turn can start a moment before the pane hears of it (another agent's message, a trigger, an
+// automatic retry). A Return sent then went without steer, so acpmux queued it behind that turn
+// (Leo, 2026-11-05: "hey what the is my thing auto queuing rn?"). To an agent that steers it goes as
+// a steer, which acpmux runs as a turn of its own when none runs.
+function steeringIdle(fields: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot {
+  const snapshot = chat(fields);
+  return { ...snapshot, summary: { ...snapshot.summary!, steering: true } };
+}
+
+test("Return to an agent that steers goes as a steer even while the chat shows no turn", async () => {
+  const { field, sent } = await composer(steeringIdle(), "Use the cache dir");
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([{ text: "Use the cache dir", steer: true }]);
+});
+
+test("Send to an agent that steers goes as a steer even while the chat shows no turn", async () => {
+  const { sent } = await composer(steeringIdle(), "Use the cache dir");
+  const button = host.querySelector<HTMLButtonElement>("button[type=submit], .acpmux-send");
+  expect(button).not.toBeNull();
+  await act(async () => button!.click());
+  expect(sent).toEqual([{ text: "Use the cache dir", steer: true }]);
+});
+
+test("one of the agent's own commands still waits for the turn while the chat shows none", async () => {
+  const { field, sent } = await composer(
+    steeringIdle({ commands: [{ name: "compact", description: "Compact" }] }),
+    "/compact",
+  );
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([{ text: "/compact", steer: false }]);
+});
+
+// Leo, 2026-11-10: "typing /mcp or /status on its own should NOT queue/steer and wait behind ... they
+// should just... go there. and run. instead of being treated like normal messages".
+for (const name of ["mcp", "status"]) {
+  test(`a bare /${name} mid-turn runs now: no steer, no queued prompt`, async () => {
+    const ran: string[] = [];
+    // The agent lists its own /mcp and /status too (Claude Code's), which would wait for the turn.
+    const snapshot = {
+      ...working(),
+      commands: mergedCommands([
+        { name: "mcp", description: "MCP", source: "agent" },
+        { name: "status", description: "Status", source: "agent" },
+      ]),
+    };
+    const { field, sent } = await composer(snapshot, `/${name}`, (command) => {
+      ran.push(command.action);
+      return true;
+    });
+    // Return with the menu showing the typed name runs it (slashCommands.ts returnPicks).
+    await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+    expect({ sent, ran }).toEqual({ sent: [], ran: [name] });
+    expect(field.textContent).toBe("");
+  });
+}

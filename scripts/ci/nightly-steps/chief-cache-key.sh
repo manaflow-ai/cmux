@@ -9,7 +9,9 @@ rm -rf .nightly-optchat-chief
 [[ "$SOURCE_KEY" =~ ^[0-9a-f]{64}$ ]] || { echo "portable Chief key unavailable; using the local keyed fallback"; exit 0; }
 toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' cmux-tui/rust-toolchain.toml)"
 [[ -n "$toolchain" ]] || { echo "Chief portable key unavailable; using the local keyed fallback"; exit 0; }
-if ! rustup toolchain install "$toolchain" --profile minimal >/dev/null; then
+# shellcheck source=scripts/lib/rust-targets.sh
+source scripts/lib/rust-targets.sh
+if ! ensure_rust_toolchain "$toolchain" --profile minimal >/dev/null; then
   echo "Chief toolchain unavailable; using the local keyed fallback"; exit 0
 fi
 if ! computed_key="$(python3 scripts/cmux-next/optchat-chief-input-key.py --portable --archs "$ARCHS" --toolchain "$toolchain")"; then

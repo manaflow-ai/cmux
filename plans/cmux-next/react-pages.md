@@ -138,7 +138,7 @@ does not apply (the module keeps its own SQLite file, not a projection).
 
 | Op | Kind | Params -> result | Status |
 | --- | --- | --- | --- |
-| `cmux.history.entries.list` | read | `{kinds?, text?, range?, limit? (default 200, max 5000), cursor?}` -> `{entries[HistoryEntry], next_cursor?, revision}` | new (replaces app `history.list`) |
+| `cmux.history.entries.list` | read | `{kinds?, text?, range?, limit? (default 200, max 5000), cursor?}` -> `{entries[HistoryEntry], next_cursor?, revision, pending_kinds?}` (`pending_kinds`: the asked kinds whose entries are not complete yet; the page shows one still-loading line and reads again after 1, 2, 4, then each 8 s) | new (replaces app `history.list`) |
 | `cmux.history.entries.remove` | mutation | `{ids[], idempotency_key}` -> `{removed}` | new |
 | `cmux.history.site.remove` | mutation | `{host, profile?, idempotency_key}` | new |
 | `cmux.history.clear` | mutation | `{kinds?, range, profile?, idempotency_key}` | new |

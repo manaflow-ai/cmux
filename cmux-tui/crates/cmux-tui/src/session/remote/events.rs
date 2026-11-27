@@ -2,12 +2,16 @@
 
 use super::*;
 
+/// Why the connection closed after a stream event this client could not apply.
+const UNREADABLE_STREAM_EVENT: &str = "the daemon sent a terminal event this client cannot apply";
+
 impl RemoteSession {
     pub(super) fn emit(&self, event: MuxEvent) {
         self.subscribers.emit(event);
     }
 
     fn invalidate_tree_once(&self) -> bool {
+        self.held_trees().invalidate();
         !self.tree_stale.swap(true, Ordering::AcqRel)
     }
 
@@ -66,6 +70,7 @@ impl RemoteSession {
         }
         let surface = value.get("surface").and_then(Value::as_u64);
         match event {
+            "client-disconnected-by" => true,
             "client-attached"
             | "client-changed"
             | "client-detached"
@@ -83,7 +88,6 @@ impl RemoteSession {
             | "colors-changed"
             | "browser-state"
             | "frame"
-            | "detached"
             | "surface-exited"
             | "agent-changed"
             | "agent-presence-changed"
@@ -92,6 +96,7 @@ impl RemoteSession {
             | "program-status-changed"
             | "size-state"
             | "scroll-changed" => surface == Some(target),
+            "detached" => surface == Some(target),
             _ => true,
         }
     }
@@ -148,7 +153,7 @@ impl RemoteSession {
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 let Ok(pending_sequence) = parse_pending_sequence(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 self.log_frame(
@@ -156,11 +161,11 @@ impl RemoteSession {
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 let Ok(kitty_state) = parse_kitty_replay_state(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
@@ -176,7 +181,7 @@ impl RemoteSession {
                         )
                         .is_err()
                     {
-                        self.disconnect_transport();
+                        self.fail_transport(UNREADABLE_STREAM_EVENT);
                         return;
                     }
                     surface.dirty.store(true, Ordering::Release);
@@ -241,12 +246,12 @@ impl RemoteSession {
                 let replay = match value.get("replay").or_else(|| value.get("data")) {
                     Some(data) => {
                         let Some(data) = data.as_str() else {
-                            self.disconnect_transport();
+                            self.fail_transport(UNREADABLE_STREAM_EVENT);
                             return;
                         };
                         let Ok(replay) = base64::engine::general_purpose::STANDARD.decode(data)
                         else {
-                            self.disconnect_transport();
+                            self.fail_transport(UNREADABLE_STREAM_EVENT);
                             return;
                         };
                         Some(replay)
@@ -254,16 +259,16 @@ impl RemoteSession {
                     None => None,
                 };
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 let Ok(kitty_state) = parse_kitty_replay_state(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 let Ok(pending_sequence) = parse_pending_sequence(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 self.log_frame(
@@ -286,7 +291,7 @@ impl RemoteSession {
                         )
                         .is_err()
                     {
-                        self.disconnect_transport();
+                        self.fail_transport(UNREADABLE_STREAM_EVENT);
                         return;
                     }
                     surface.dirty.store(true, Ordering::Release);
@@ -318,17 +323,14 @@ impl RemoteSession {
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     let Some((cols, rows)) = remote_terminal_size(&value) else { return };
                     if surface.apply_stream_resize(cols, rows, None, &[]).is_err() {
-                        self.disconnect_transport();
+                        self.fail_transport(UNREADABLE_STREAM_EVENT);
                         return;
                     }
                     surface.update_browser_state(&value);
                     surface.dirty.store(true, Ordering::Release);
                 }
                 if let Some(title) = value.get("title").and_then(Value::as_str) {
-                    self.emit(MuxEvent::TitleChanged {
-                        surface: id,
-                        title: Arc::<str>::from(title),
-                    });
+                    self.emit(MuxEvent::page_title(id, Arc::<str>::from(title)));
                 }
                 self.emit(MuxEvent::SurfaceOutput(id));
             }
@@ -341,7 +343,19 @@ impl RemoteSession {
                     }
                 }
             }
+            Some("client-disconnected-by") => {
+                // A whole-client kick can arrive before any surface attach.
+                self.disconnect_state.record_disconnected_by_peer();
+            }
             Some("detached") => {
+                // cmux-terminal-sizing's detach_reason::DISCONNECTED_BY: a
+                // kick, after which the client must not reconnect by itself.
+                if value.get("reason").and_then(Value::as_str) == Some("disconnected-by")
+                    && value.get("scope").and_then(Value::as_str) != Some("view")
+                    && value.get("view").is_none()
+                {
+                    self.disconnect_state.record_disconnected_by_peer();
+                }
                 if let Some(id) = surface_id() {
                     self.surfaces.lock().unwrap().remove(&id);
                     self.size_states.lock().unwrap().remove(&id);
@@ -349,6 +363,9 @@ impl RemoteSession {
                 }
             }
             Some(cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT) => {
+                self.disconnect_state.record_shutdown_notice(
+                    crate::session::DaemonShutdownNotice::from_event(&value),
+                );
                 let mut state = self.disconnect_state.lock().unwrap();
                 if matches!(&*state, DisconnectState::Active) {
                     *state = DisconnectState::ExpectedRemoteShutdown;
@@ -363,7 +380,7 @@ impl RemoteSession {
                 self.emit(MuxEvent::Empty);
             }
             Some("tree-changed") => {
-                self.tree_stale.store(true, Ordering::Release);
+                self.mark_tree_stale();
                 self.emit(MuxEvent::TreeChanged);
             }
             Some("size-state") => {
@@ -405,6 +422,7 @@ impl RemoteSession {
                 };
                 let event = MuxEvent::AgentChanged {
                     surface,
+                    terminal_id: value.get("terminal_id").and_then(Value::as_str).map(Arc::from),
                     state: Arc::from(agent.state.as_str()),
                     source: Arc::from(agent.source.as_str()),
                     session: agent.session.as_deref().map(Arc::from),
@@ -431,7 +449,7 @@ impl RemoteSession {
                 self.emit(event);
             }
             Some("layout-changed") => {
-                self.tree_stale.store(true, Ordering::Release);
+                self.mark_tree_stale();
                 if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
                     self.emit(MuxEvent::LayoutChanged(screen, None));
                 } else {
@@ -444,7 +462,7 @@ impl RemoteSession {
                     // refresh may lag this event, but input and reattach must
                     // already fail closed for a known-exited surface.
                     self.drop_surface(id);
-                    self.tree_stale.store(true, Ordering::Release);
+                    self.mark_tree_stale();
                     let end = value.get("end").filter(|end| !end.is_null()).cloned();
                     self.emit(MuxEvent::SurfaceExited(id, end.map(Arc::new)));
                 }
@@ -452,13 +470,22 @@ impl RemoteSession {
             Some("title-changed") => {
                 if let Some(id) = surface_id() {
                     if let Some(title) = value.get("title").and_then(Value::as_str) {
-                        let updated = self.tree.lock().unwrap().update_title(id, title.to_string());
+                        // The cache keeps what the tab shows (D2): a raw title
+                        // would bring back a spinner frame on the next tree read.
+                        let (shown, updated) = {
+                            let mut tree = self.tree.lock().unwrap();
+                            let kind = tree.view.surface(id).map(|tab| tab.kind);
+                            let shown = remote_shown_title(title, &value, kind);
+                            let updated = tree.update_title(id, shown.text.to_string());
+                            (shown, updated)
+                        };
                         if !updated && self.invalidate_tree_once() {
                             self.emit(MuxEvent::TreeChanged);
                         }
                         self.emit(MuxEvent::TitleChanged {
                             surface: id,
-                            title: Arc::<str>::from(title),
+                            title: title.into(),
+                            shown,
                         });
                     } else if self.invalidate_tree_once() {
                         self.emit(MuxEvent::TreeChanged);
@@ -547,11 +574,11 @@ impl RemoteSession {
                             self.surface_overflow_reconnect_required.load(Ordering::Acquire);
                         if !reconnect_required || !reconnect_was_required {
                             self.emit(MuxEvent::Status(if reconnect_required {
-                                "surface overflow recovery capacity was exhausted; detach and reconnect to recover"
+                                "surface overflow recovery capacity was exhausted; output resumes once this session is attached again"
                                     .to_string()
                             } else if stopped {
                                 format!(
-                                    "surface {surface_id} event stream repeatedly overflowed; detach and reconnect to recover"
+                                    "surface {surface_id} event stream repeatedly overflowed; its output resumes once this session is attached again"
                                 )
                             } else {
                                 format!(
@@ -563,7 +590,7 @@ impl RemoteSession {
                     }
                     return;
                 }
-                self.tree_stale.store(true, Ordering::Release);
+                self.mark_tree_stale();
                 self.start_subscription_recovery();
             }
             Some("status") => {
@@ -716,4 +743,27 @@ impl RemoteSession {
         }
         self.frame_logs.lock().unwrap().push(surface, line.to_string());
     }
+}
+
+/// What a remote daemon's `title-changed` shows: its `text` and `activity`
+/// when it sends them (D2). A daemon from before them sends only `title`:
+/// the rule of the tab's `kind` then applies, as for a tree tab, so a page's
+/// title keeps its own leading mark. A tab the tree does not hold yet reads
+/// as a terminal; the tree refresh that follows applies its kind.
+fn remote_shown_title(
+    title: &str,
+    value: &Value,
+    kind: Option<SurfaceKind>,
+) -> cmux_tui_core::TabTitle {
+    let Some(text) = value.get("text").and_then(Value::as_str) else {
+        return match kind {
+            Some(SurfaceKind::Browser) => cmux_tui_core::TabTitle::page(title),
+            Some(SurfaceKind::Pty) | None => cmux_tui_core::TabTitle::terminal(title),
+        };
+    };
+    let activity = value
+        .get("activity")
+        .and_then(Value::as_str)
+        .and_then(cmux_tui_core::TitleActivity::from_wire);
+    cmux_tui_core::TabTitle { text: Arc::from(text), activity }
 }

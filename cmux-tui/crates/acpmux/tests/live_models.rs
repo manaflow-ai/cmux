@@ -44,7 +44,10 @@ async fn claude_lists_its_models_with_efforts_and_fast_mode() {
         .unwrap_or_else(|e| panic!("{e:#}"));
     eprintln!("live claude probe (cold): {} ms", started.elapsed().as_millis());
     // No "default" row, no disabled model, no update notice.
-    assert_eq!(ids(&models), ["opus", "sonnet[1m]", "claude-opus-5"]);
+    assert_eq!(
+        ids(&models),
+        ["claude-opus-5-5", "claude-sonnet-5-5[1m]", "claude-opus-5", "claude-fable-5-2"]
+    );
     let opus = &models[0];
     assert_eq!(opus.name, "Opus 5.5", "a description that extends the name wins");
     assert_eq!(opus.efforts, ["low", "medium", "high", "xhigh", "max"]);
@@ -53,6 +56,21 @@ async fn claude_lists_its_models_with_efforts_and_fast_mode() {
     assert_eq!(models[1].efforts, ["low", "medium", "high", "max"]);
     assert_eq!(models[1].name, "Sonnet (1M context)");
     assert_eq!(models[2].fast, Some(false));
+    // A gateway row names the vendor ("Claude Fable 5.2"); the picker's rows do not.
+    assert_eq!(models[3].name, "Fable 5.2");
+}
+
+#[test]
+fn claude_aliases_keep_the_live_resolved_release() {
+    let models = acpmux::live_models::claude::parse(&serde_json::json!({"models": [
+        {"value": "fable", "displayName": "Fable",
+         "description": "Fable 5.2 · Most capable", "resolvedModel": "claude-fable-5-2"},
+        {"value": "claude-fable-5-2", "displayName": "Fable 5.2"},
+        {"value": "sonnet[1m]", "resolvedModel": "claude-sonnet-5-5[1m]"},
+        {"value": "haiku", "displayName": "Haiku"}
+    ]}));
+    assert_eq!(ids(&models), ["claude-fable-5-2", "claude-sonnet-5-5[1m]", "haiku"]);
+    assert_eq!(models[0].name, "Fable 5.2");
 }
 
 #[tokio::test]
@@ -94,6 +112,23 @@ async fn codex_lists_every_page_without_hidden_models_and_the_default_first() {
     let mut catalog = vec![serde_json::json!({"id": "gpt-6-astra"})];
     acpmux::live_models::overlay(&mut catalog, &models);
     assert_eq!(catalog[0]["serviceTiers"], serde_json::json!(astra.service_tiers));
+}
+
+#[test]
+fn empty_and_legacy_speed_tiers_follow_the_running_protocol() {
+    use serde_json::json;
+    let rows = acpmux::live_models::codex::parse(&[
+        json!({"id":"legacy","serviceTiers":[],"additionalSpeedTiers":["fast"]}),
+        json!({"id":"standard","serviceTiers":[]}),
+        json!({"id":"unspecified"}),
+    ]);
+    assert_eq!(rows[0].service_tiers, [json!("fast")]);
+    assert_eq!(rows[0].fast, Some(true));
+    assert_eq!(rows[1].fast, Some(false));
+    assert_eq!(rows[2].fast, None);
+    let mut catalog = [json!({"id":"standard","serviceTiers":["priority"]})];
+    acpmux::live_models::overlay(&mut catalog, &rows);
+    assert_eq!(catalog[0]["serviceTiers"], json!([]));
 }
 
 #[tokio::test]
@@ -164,8 +199,8 @@ fn a_cached_list_lasts_until_its_program_changes() {
     let key = CacheKey::of(&program).unwrap();
     cache.store("claude", &key, &models).unwrap();
     let started = Instant::now();
-    assert_eq!(cache.load("claude", Some(&program)), Some(models.clone()));
-    assert_eq!(cache.load_all().get("claude"), Some(&models));
+    assert_eq!(cache.load("claude", Some(&program)), Some((models.clone(), key.clone())));
+    assert_eq!(cache.load_all().get("claude"), Some(&(models.clone(), key.clone())));
     eprintln!("cached live list read: {} us", started.elapsed().as_micros());
     // A CLI update (another binary) discards it.
     std::fs::write(&program, "version two").unwrap();

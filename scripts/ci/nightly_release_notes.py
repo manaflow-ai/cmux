@@ -27,10 +27,10 @@ MERGED_PR_PAGES = 20
 UPDATED_SLACK = timedelta(hours=1)
 PR_PICK_FIELDS = "number mergedAt baseRefName mergeCommit { oid } updatedAt"
 PR_FIELDS = """number title url mergedAt baseRefName mergeCommit { oid }
-                labels(first: 100) { nodes { name } }
-                files(first: 100) { totalCount nodes { path } }"""
+                labels(first: 20) { pageInfo { hasNextPage endCursor } nodes { name } }
+                files(first: 30) { totalCount nodes { path } }"""
 # PRs whose details one query reads.
-PR_DETAIL_BATCH = 50
+PR_DETAIL_BATCH = 10
 
 
 class TransientGitHubError(RuntimeError):
@@ -148,8 +148,30 @@ def pr_details(github: GitHub, repository: str, numbers: list[int]) -> list[dict
             pr = result.get(f"pr{number}")
             if not pr:
                 raise RuntimeError(f"GitHub returned no details for merged PR #{number}; retry metadata generation")
+            complete_labels(github, repository, pr)
             details.append(pr)
     return details
+
+
+def call_label(name: str) -> bool:
+    return name.lower().replace("-", " ") in {"default call", "needs a call"}
+
+
+def complete_labels(github: GitHub, repository: str, pr: dict) -> None:
+    """category() needs the call labels wherever they sit: page labels until one matches or none are left."""
+    labels = pr.get("labels") or {}
+    for _ in range(50):
+        info = labels.get("pageInfo") or {}
+        if not info.get("hasNextPage") or any(call_label(x["name"]) for x in labels.get("nodes", [])):
+            return
+        cursor = info.get("endCursor")
+        if not cursor:
+            raise RuntimeError("GitHub label pagination returned no cursor; retry metadata generation")
+        page = github.graphql("query { " + repository + f" {{ pr: pullRequest(number: {int(pr['number'])}) {{ "
+                              f"labels(first: 20, after: {json.dumps(cursor)}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ name }} }} }} }} }}")["pr"]["labels"]
+        labels = {"pageInfo": page["pageInfo"], "nodes": labels.get("nodes", []) + page["nodes"]}
+        pr["labels"] = labels
+    raise RuntimeError("A PR has too many labels; inspect its labels before retrying")
 
 
 def infrastructure(pr: dict) -> bool:
@@ -230,7 +252,13 @@ def metadata_fallback(repo: str, base: str | None, head: str) -> tuple[str, str]
 ALL_FEEDS = ("appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml")
 
 
-def update_appcasts(directory: Path, build: str, summary: str, feeds: tuple[str, ...] = ALL_FEEDS) -> None:
+CMUX = "https://cmux.com/xml-namespaces/cmux"
+
+
+def update_appcasts(directory: Path, build: str, summary: str, feeds: tuple[str, ...] = ALL_FEEDS,
+                    since: str | None = None, pull_requests: list[int] | None = None) -> None:
+    """Writes the build's item's <description>, and with `since`, its PR list: <cmux:sinceCommit> (the commit the
+    build's span starts after, the previous feed item's source) and <cmux:pullRequests> (numbers, newest first)."""
     expected = set(feeds)
     found = sorted(directory.glob("appcast*.xml"))
     if {feed.name for feed in found} != expected:
@@ -254,6 +282,15 @@ def update_appcasts(directory: Path, build: str, summary: str, feeds: tuple[str,
         description = doc.createElement("description")
         description.appendChild(doc.createTextNode(summary))
         item.appendChild(description)
+        if since:
+            for tag in ("sinceCommit", "pullRequests"):
+                for old in list(item.getElementsByTagNameNS(CMUX, tag)):
+                    item.removeChild(old)
+            for tag, text in (("sinceCommit", since), ("pullRequests", " ".join(str(n) for n in pull_requests or []))):
+                element = doc.createElementNS(CMUX, f"cmux:{tag}")
+                element.setAttribute("xmlns:cmux", CMUX)  # bound on the item: items move between feeds as bytes
+                element.appendChild(doc.createTextNode(text))
+                item.appendChild(element)
         replacements.append((feed, doc.toxml(encoding="utf-8")))
     for feed, xml in replacements:
         feed.write_bytes(xml)
@@ -270,14 +307,18 @@ def main() -> int:
     parser.add_argument("--appcasts", type=Path, required=True)
     parser.add_argument("--build", required=True)
     parser.add_argument("--feeds", nargs="+", default=list(ALL_FEEDS), help="the appcasts this track publishes")
+    parser.add_argument("--base", default="", help="the previous published commit, from the live feed; the release "
+                        "body's cmux-published-sha marker when empty (a run's tail writes it after the feed)")
     args = parser.parse_args()
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo) or not re.fullmatch(r"[0-9a-f]{40}", args.head):
         raise ValueError("Expected owner/repo and a full built SHA")
+    if args.base and not re.fullmatch(r"[0-9a-f]{40}", args.base):
+        raise ValueError("Expected --base to be a full published SHA")
     github = GitHub(args.repo)
     base = None
     try:
         release = github.rest(f"releases/tags/{quote(args.tag, safe='')}")
-        base = published_sha(release.get("body") or "")
+        base = args.base or published_sha(release.get("body") or "")
         if base is None:
             print(f"::warning::No previous publication marker; restore cmux-published-sha in the release body to recover the change range. Repair: {REPAIR}")
         prs = collect_prs(github, base, args.head, args.branch) if base else []

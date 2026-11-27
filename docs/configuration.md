@@ -104,6 +104,24 @@ Draws windows in the plain theme color.
 
 It changes only what is drawn. Your `appearance.*` values and workspace and pane pictures stay as they are, and turning it off brings them back. Change it in **Settings > Appearance > Window Background** or with `cmux settings set ui.reducedBackgrounds true`.
 
+## `appearance.fontSmoothing`
+
+How text draws in cmux's own controls (tab titles, the sidebar, the command palette, menus, toasts, dialogs) and in its web pages (chat, Settings, New Tab). It follows the CSS `-webkit-font-smoothing` values.
+
+```json
+{
+  "appearance": { "fontSmoothing": "auto" }
+}
+```
+
+- `"auto"` (default): no override. Native controls use the Mac's own font smoothing (or none, if you turned it off for every app with `defaults -currentHost write -g AppleFontSmoothing -int 0`), and each web page keeps its own CSS. This is the look cmux had before the setting existed.
+- `"antialiased"`: thin, grayscale strokes everywhere, the look of `-webkit-font-smoothing: antialiased`. Small or dim text gets lighter: about 15% less ink for dark text on light, about 27% less for light text on dark, more so on a 1x display.
+- `"subpixel"`: the heavier macOS font smoothing everywhere, the look of `-webkit-font-smoothing: subpixel-antialiased`, even if smoothing is off for every app.
+
+`"system"`, the earlier name, still reads as `"auto"`.
+
+Web pages, tab titles and the sidebar change at once. Other native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
@@ -138,21 +156,6 @@ Controls when cmux asks before quitting:
 Default: `always` for stable, nightly, and RC builds. DEV builds always behave as `never`, regardless of the file setting, so tagged development builds can be replaced without a full-screen quit dialog.
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
-
-## `tabs.cmdWClosesPinnedTabs`
-
-What Cmd-W does on a pinned tab.
-
-```json
-{
-  "tabs": { "cmdWClosesPinnedTabs": false }
-}
-```
-
-- `true` (default): Cmd-W closes a pinned tab like any other tab, as in Chrome.
-- `false`: Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
-
-A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
 ## `tabs.swapCmdTAndCmdN`
 
@@ -257,7 +260,7 @@ Option-click on the + (a tab of the selected tab's kind) goes to the same place.
 
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. The template dots under the page switch it in place and save the choice here (on `minimal` they are a widget, see `tabs.newTabWidgets` below).
+The layout of the New Tab page. On `classic`, the template dots under the page switch it in place and save the choice here.
 
 ```json
 {
@@ -265,36 +268,34 @@ The layout of the New Tab page. The template dots under the page switch it in pl
 }
 ```
 
-- `minimal` (the default): a short greeting and the composer. Everything else is a widget you turn on, see `tabs.newTabWidgets`.
-- `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
-- `default`: one field with agent rows, recent chats as cards, and Tools.
-- `composer`: one large prompt field, with nothing else.
-- `threads`: the field and the recent chats as a list.
-- `console`: a monospace field with a `>` prompt and the recent chats as lines.
+- `minimal` (the default): the composer, with its folder and machine, and nothing else.
 - `classic`: the Terminal, Browser and Agent switch.
-- `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
+- `terminal`: the `minimal` page. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
-Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate classic`.
 
-## `tabs.newTabWidgets`
+The Cards, Default, Threads and Console pages no longer ship as templates: each is now a New Tab page you build and edit yourself with [`tabs.newTabApp`](#tabsnewtabapp). Start from its folder in `skills/cmux-customization/templates/` (`newtab-cards`, `newtab-calm`, `newtab-threads`, `newtab-console`): copy it to `~/.config/cmux/customize`, then run `cmux settings set tabs.newTabApp local/customize`. A config that still names `cards`, `default`, `threads`, `console` or the older `composer` shows `minimal`.
 
-The `minimal` template, the default, shows a short greeting and the composer, which keeps its folder and machine. Everything else on it is a widget you turn on; with the project card, the actions or the chats on, the page takes the `default` template's layout around the composer. The other templates ignore these keys and draw what they always drew.
+## `tabs.newTabApp`
+
+An extension that draws over the New Tab composer, by its app id. The extension implements
+`cmux.newtab/1` (see `cmux-tui/crates/cmux-extension-sdk/README.md`). Unset (the default), cmux
+draws its own page, as above.
 
 ```json
 {
-  "tabs": { "newTabWidgets": { "chats": true, "styleDots": true } }
+  "tabs": { "newTabApp": "local/showcase-newtab" }
 }
 ```
 
-| Key | Default | Shows |
-| --- | --- | --- |
-| `greeting` | `true` | A short greeting by the time of day over the composer. |
-| `projects` | `false` | A card of this Mac and its recent projects. |
-| `actions` | `false` | The chats that need you, and New Terminal, New Browser Tab and New Chat. |
-| `chats` | `false` | The recent chats, as rows under the composer. |
-| `styleDots` | `false` | The template dots under the page. |
+- The page shows only the extension's view: its greeting, buttons and lists, in the app's look.
+- If the extension is not installed, is hidden or disabled, or its view fails, cmux draws its own page.
+- Go back to cmux's own page with `cmux settings reset tabs.newTabApp`.
+- The change applies to the next New Tab page. The native New Tab page (`tabs.nativeNewTabPage`)
+  does not use it.
 
-With every widget off the page still does everything: type a URL or a prompt, and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
+Change it in **Settings > General > Tabs**, in the command palette, or with
+`cmux settings set tabs.newTabApp local/showcase-newtab`.
 
 ## `app.forkConversationDefaultDestination`
 
@@ -402,6 +403,18 @@ Off by default: hovering or scrolling over a pane leaves keyboard focus where yo
 - `true`: the pointer entering a pane, the first scroll of a gesture, or a mouse-wheel notch focuses the pane under the pointer.
 
 With it on, focus still stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, while a mouse button is held, within a second of typing, and over a window that is not active. A pointer that stays inside one pane does not undo a keyboard move to another pane. Change it in **Settings > General > Columns**, with **Focus Follows Mouse** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.focusFollowsMouse true`. It replaces `layout.focusPaneOnScroll`, which was on by default.
+
+## `layout.fadeInactivePanes`
+
+Off by default. Turn it on to fade every pane except the one you are working in: when focus moves to another pane, the pane you left fades under a light veil of the pane color, and the pane you moved to fades back to full strength. With one pane on screen nothing fades.
+
+```json
+{
+  "layout": { "fadeInactivePanes": true }
+}
+```
+
+The fade's strength is the theme's inactive-pane dim (Debug Settings: `panes.inactiveDimming`); a Ghostty `unfocused-split-opacity` you set still wins. Change it in **Settings > General > Scrolling and Focus**, with **Fade Inactive Panes** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.fadeInactivePanes true`.
 
 ## `layout.scrollAreas`
 
@@ -648,10 +661,12 @@ A binding you set yourself for either action stays when you pick a choice. Rebin
 
 | Keys | Action | Id |
 | --- | --- | --- |
-| Ctrl+Option+Cmd+Left / Right | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+H / L | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+Left / Right | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
 | Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |
+| Ctrl+Option+Cmd+N | New Space | `space.new` |
 | Shift+Cmd+N | New Window, on a new space | `newWindow` |
 
 Ctrl+Cmd+Left / Right resize the focused pane (Ghostty's `resize_split`) and Ctrl+Cmd+1…9 focus pane 1…9, so the space keys add Option. macOS keeps Ctrl+arrows and Ctrl+digits for Mission Control. Rebinding an action (Settings > Keyboard Shortcuts or `shortcuts.bindings["space.next"]`) replaces all its default keys; `null` removes them. Every space action is also in the command palette (Shift+Cmd+P), the `cmux space …` CLI and MCP: for example `cmux space next`, `cmux space select-1-9 --index 2` and `cmux space open-in-new-window --space <space>`.
@@ -689,19 +704,35 @@ The panel can also open while another app is in front. This system-wide key is o
 
 Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
-## Background mode and `app.hideDockIconWithoutWindows`
+## Capture Screenshot to Chat and `app.captureScreenshotGlobalHotKey`
 
-When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab). The cmux menu bar item (`app.showMenuBarIcon`, below) stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
+Capture Screenshot to Chat (command palette, Ctrl+Option+Cmd+S) runs the system's region picker. The screenshot goes into the focused agent chat's composer as an unsent draft, or into a new agent chat when none is focused. cmux then comes forward with the composer focused. Escape in the picker takes nothing. The picker is macOS's own, so the first capture may ask for the Screen Recording permission.
+
+To use the same key while another app is in front, turn on Settings > General > Capture Screenshot to Chat from Any App. It is off by default, because it takes the key from every other app:
 
 ```json
 {
   "app": {
-    "hideDockIconWithoutWindows": false
+    "captureScreenshotGlobalHotKey": true
   }
 }
 ```
 
-Or turn off Settings > General > Hide Dock Icon When No Windows Are Open.
+Rebind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.captureScreenshotToChat"]`. Scripts can start the same picker with `cmux app call chat.capture.toChat '{}'`, which answers `{"session", "path", "bytes"}` once a person picks a region; `cmux app call chat.composer.get '{}'` reads back what the composer holds. A script cannot name the region itself: the call refuses one, because a picture of the screen needs a person's pick.
+
+## Background mode and `app.hideDockIconWithoutWindows`
+
+When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default its Dock icon stays, so a click on it opens a window again. To have cmux leave the Dock and the app switcher (Cmd-Tab) while no window is open, turn it on:
+
+```json
+{
+  "app": {
+    "hideDockIconWithoutWindows": true
+  }
+}
+```
+
+Or turn on Settings > General > Hide Dock Icon When No Windows Are Open. The cmux menu bar item (`app.showMenuBarIcon`, below) then stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI.
 
 ## The menu bar item and `app.showMenuBarIcon`
 
@@ -731,6 +762,18 @@ Or turn off Settings > General > Show Menu Bar Icon. With the icon off and no cm
 ## Message the Chief from any app
 
 Message the Chief (command palette) shows the floating Chief pet with its reply box open. With the pet off, it shows the pet for that message only and hides it again when the box closes; `home.chiefPetEnabled` stays off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+
+## The Chief's + menu and `home.clipboardHistory`
+
+The + button beside the Chief's message box opens a menu. Attach Files or Images… opens the file picker (files only; to send a folder, attach its files or a ZIP of it). Below it, the Clipboard section lists text and images from your clipboard, newest first: what was on it each time you opened the menu, plus, when cmux may read the clipboard without asking (below), what you copied in other apps before switching back to cmux. Click a text row to type it at the caret, or an image row to attach the image as if you had pasted it.
+
+The history is on by default. It stays in memory on this Mac: it's never written to disk or sent anywhere, and it's gone when cmux quits. cmux reads the clipboard for it only when you open the + menu and, if macOS's clipboard privacy lets cmux read without asking (Always Allow, or a macOS before 15.4), when cmux becomes the active app. It never reads on a timer, so something you copy and replace while you're in another app doesn't show. When the history has nothing to list, the + button opens the file picker directly. It skips anything a password manager or clipboard-aware app marks as concealed, transient or auto-generated (the [nspasteboard.org](http://nspasteboard.org) types), and it skips copied files and text over 256 KB. Images of any size are kept; the oldest entries go first when the history passes its total size, but the newest one always stays. Turn it off in Settings > Privacy and Security > Clipboard History in the + Menu, or:
+
+```json
+{ "home": { "clipboardHistory": false } }
+```
+
+When it's off, cmux doesn't read your clipboard for the menu, and the Clipboard section is gone. The Chief's composer has no @-mentions, slash commands or plan mode yet, so its + menu doesn't show those rows from the agent chat's + menu.
 
 ## `palette.scopes.<scope>.prefix`
 
@@ -939,8 +982,9 @@ cmux also posts a notification when a workspace's status first reaches done, and
 
 ## `mcp.enabled` and agent sessions
 
-Agent sessions that cmux starts through acpmux get the `cmux-cua` Computer Use MCP server
-and, for Claude Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
+Agent sessions that cmux starts through acpmux get the cmux Computer Use MCP server
+(`cmux-computer-use`, [docs/computer-use/README.md](computer-use/README.md)) and, for Claude
+Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
 `"mcp": {"enabled": true}` they also get the `cmux` MCP server with the browser REPL tools.
 To turn all of these off, set the environment variable `ACPMUX_AGENT_TOOLS=0` for the acpmux
 daemon (or in one acpmux profile's `env`). A Claude profile that passes
@@ -1031,7 +1075,7 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Register the server for the agent sessions cmux starts, and let the Agent Memory app's search use the index. Only `true` turns it on; a settings file that cannot be read keeps it off. |
-| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it. |
+| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it, and a chat that moves from here to another of your machines takes the route back with it (this machine's `remoteDaemon` through the hub carrier, `--via-machine`), so its memory still searches this index. |
 | `ownerArgs` | `[]` | Extra `cmux remote rpc` options for that route, such as `--daemon FINGERPRINT` or `--ssh-arg ARG`. |
 | `ownerCommand` | unset | The owner's `optchat-chief`, as argv, when it is not in a cmux app bundle, on its `PATH` or in `~/.local/bin`. |
 | `remember` | `true` | Whether agents may save notes. `false` hides `memory_remember`. |
@@ -1086,7 +1130,7 @@ shows the same keys.
     "omnibar": {
       "remoteSuggestions": true,
       "inlineAutocomplete": true,
-      "maxRows": 8,
+      "maxRows": 6,
       "calculator": true,
       "showFullURLs": false,
       "glass": "off",
@@ -1116,7 +1160,7 @@ shows the same keys.
 - `omnibar.inlineAutocomplete`: complete the typed text to a site's address in the field
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
-- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `6`.
 - `omnibar.showFullURLs`: show the whole address, with `https://` and `www.`, when you are not
   editing it (Chrome's "Always Show Full URLs"; the address bar's right-click menu toggles it).
   Default: `false`.

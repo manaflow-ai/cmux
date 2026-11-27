@@ -98,6 +98,8 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
   let offer: typeof codexOffer | typeof ownOffer = codexOffer;
   /// The daemon refuses a permission mode (a stand-in for a ticket the host turned down).
   let refuseMode = false;
+  /// What `session/new` reports the new chat starts on: its mode and options, when it names them.
+  let startsOn: Record<string, unknown> = {};
   let seq = 0;
   let history: Record_[] = [];
   let calls: { method: string; params: Record<string, any> }[] = [];
@@ -147,7 +149,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       case "_acpmux/events":
         return { result: { events: [], hasMore: false, lastSeq: seq } };
       case "session/new":
-        return { result: { sessionId: CHILD } };
+        return { result: { sessionId: CHILD, ...startsOn } };
       case "session/prompt":
         return { result: { stopReason: "end_turn" } };
       case "session/set_mode":
@@ -207,6 +209,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
   ): Promise<Page> {
     offer = offered;
     refuseMode = false;
+    startsOn = {};
     calls = [];
     seq = 0;
     history = [record("user_message", { text: "Add the upload endpoint" }), record("session_offer", offer)];
@@ -341,6 +344,24 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       expect([effort?.configId, effort?.value]).toEqual(["effort", "high"]);
       expect(at("session/set_mode")).toBeLessThan(at("session/prompt"));
       expect(at("session/set_config_option")).toBeLessThan(at("session/prompt"));
+      await page.close();
+    });
+
+    test("a pick the new chat already starts on is not sent: its prompt does not wait on it", async () => {
+      const page = await openChat("on", false, ownOffer);
+      startsOn = {
+        modes: { availableModes: [{ id: "default" }, { id: "acceptEdits" }], currentModeId: "default" },
+        configOptions: [{ id: "effort", currentValue: "high", options: [{ value: "medium" }, { value: "high" }] }],
+      };
+      await chip(page).getByText(ownOffer.title).waitFor({ timeout: 10_000 });
+      await pickOption(page, "Effort", "High");
+      await pickOption(page, "Permissions", "Ask before edits");
+      await page.keyboard.press("Escape");
+      await chip(page).getByRole("button", { name: "Start", exact: true }).click();
+      await waitUntil(() => calls.some((c) => c.method === "session/prompt" && c.params.sessionId === CHILD));
+      expect(calls.some((c) => c.method === "session/set_mode" || c.method === "session/set_config_option")).toBe(
+        false,
+      );
       await page.close();
     });
 

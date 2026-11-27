@@ -8,20 +8,45 @@ import Testing
 /// Sign In button every such place shows takes its size from the density tokens, so it sits with the
 /// controls around it at every density, and a click runs the sign-in that place passes.
 @Suite @MainActor struct SignInButtonTests {
-    @Test func compactIsAControlsSize() {
-        #expect(SignInButtonMetrics(density: DensityPreset.compact.tokens, cornerRadius: 6)
-            == SignInButtonMetrics(height: 24, paddingX: 10, cornerRadius: 6, textSize: 12))
+    /// Leo: "why is the stuff so weird to log in to dev builds?" The line under a cmux Sign In names the
+    /// backend Rust labelled: cmux.com as it is, a dev or local backend by its localized name and where it is.
+    @Test func backendLineNamesTheBackend() {
+        #expect(SignInButton.backendLine(kind: "production", title: "cmux.com", detail: nil) == "Signs in to cmux.com")
+        #expect(SignInButton.backendLine(kind: "development", title: "Development backend", detail: "dev-abc.cmux.dev")
+            == "Signs in to Development backend · dev-abc.cmux.dev")
+        #expect(SignInButton.backendLine(kind: "local", title: "Local backend", detail: "localhost:3777")
+            == "Signs in to Local backend · localhost:3777")
+        let button = SignInButton {}
+        #expect(button.withBackendLine(nil) === button)
+        let stacked = button.withBackendLine("Signs in to cmux.com")
+        #expect(stacked.subviews.contains { $0.identifier == SignInButton.backendLineIdentifier })
     }
 
-    @Test func comfortableIsAComfortableControlsSize() {
-        #expect(SignInButtonMetrics(density: DensityPreset.comfortable.tokens, cornerRadius: 7)
+    /// Whether two metrics match, the text size to a hundredth of a point: a scaled size is a product of doubles
+    /// (13 x 0.8 is 11.200000000000001).
+    private static func same(_ a: SignInButtonMetrics, _ b: SignInButtonMetrics) -> Bool {
+        a.height == b.height && a.paddingX == b.paddingX && a.cornerRadius == b.cornerRadius
+            && abs(a.textSize - b.textSize) < 0.01
+    }
+
+    /// Every density is Default scaled by one factor (#44449): Compact is 0.9 of Default, its height and room rounded to
+    /// whole points.
+    @Test func compactIsAControlsSize() {
+        let compact = SignInButtonMetrics(density: DensityPreset.compact.tokens, cornerRadius: 6)
+        #expect(Self.same(compact, SignInButtonMetrics(height: 25, paddingX: 9, cornerRadius: 6, textSize: 12.6)), "\(compact)")
+    }
+
+    @Test func levelOneIsAComfortableControlsSize() {
+        #expect(SignInButtonMetrics(density: DensityTokens(id: "comfortable", name: "Comfortable", level: 1), cornerRadius: 7)
             == SignInButtonMetrics(height: 30, paddingX: 10, cornerRadius: 7, textSize: 13))
     }
 
-    @Test func denserAndRoomierDensitiesFollow() {
+    @Test func denserAndRoomierLevelsFollow() {
         let ultra = SignInButtonMetrics(density: DensityPreset.ultraCompact.tokens, cornerRadius: 6)
-        let spacious = SignInButtonMetrics(density: DensityPreset.spacious.tokens, cornerRadius: 8)
-        #expect(ultra == SignInButtonMetrics(height: 21, paddingX: 8, cornerRadius: 6, textSize: 11.5))
+        let spacious = SignInButtonMetrics(density: DensityTokens(id: "roomy", name: "Roomy", level: 1.75, spacing: 1.25),
+                                           cornerRadius: 8)
+        // Ultra-compact is 0.8 of Default (#44449).
+        #expect(Self.same(ultra, SignInButtonMetrics(height: 22, paddingX: 8, cornerRadius: 6, textSize: 11.2)), "\(ultra)")
         #expect(spacious == SignInButtonMetrics(height: 35, paddingX: 13, cornerRadius: 8, textSize: 14))
     }
 

@@ -1,6 +1,7 @@
 //! Compact before the prompt cache expires (`hub/cache_compact.rs`): an idle Claude chat over the
 //! context threshold runs `/compact` once, about 30 s before its cache lapses, only with the
-//! setting on. One test function: the settings file is read from this process's env. The hub's
+//! setting on, and before the idle reaper stops its harness when the reaper comes first. One test
+//! function: the settings file is read from this process's env. The hub's
 //! clock is a `ManualClock`, so the 5 minutes pass at once.
 #![cfg(unix)]
 
@@ -81,11 +82,16 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     let root = std::env::temp_dir().join(format!("acpmux-cache-compact-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(root.join("claude")).unwrap();
     let settings = root.join("cmux-next.json");
-    let set = |on: bool| {
-        let doc = json!({"agents": {"cacheCompact": {"enabled": on, "minContextPercent": 50}}});
+    let set_at = |on: bool, percent: u64| {
+        // The token bar out of reach, so the percent decides.
+        let doc = json!({"agents": {"cacheCompact": {
+            "enabled": on, "minContextPercent": percent, "minContextTokens": 500_000
+        }}});
         std::fs::write(&settings, doc.to_string()).unwrap();
     };
+    let set = |on: bool| set_at(on, 50);
     set(true);
+    let compact_fails = root.join("compact-fails");
     // SAFETY: the only test in this binary; set before any session starts.
     unsafe {
         std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
@@ -95,7 +101,8 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     std::fs::write(root.join("fleet-registry.json"), r#"{"machines": {}}"#).unwrap();
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"claude": {"kind": "claude-stdio", "argv": ["python3", FAKE_CLAUDE],
-            "env": {"CLAUDE_CONFIG_DIR": root.join("claude")}}},
+            "env": {"CLAUDE_CONFIG_DIR": root.join("claude"),
+                "FAKE_CLAUDE_COMPACT_FAIL_IF": compact_fails}}},
         "defaultHarness": "claude",
         "permissionPolicy": "approve-all",
     }))
@@ -105,6 +112,8 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     let hub = Hub::new(cfg, store);
     let clock = ManualClock::new();
     hub.set_clock(clock.clone());
+    // The timer on its own first: no idle stop until the last part turns it on again.
+    hub.set_idle_child(None);
     let mut c = Client::new(&hub).await;
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
     let prompt =
@@ -128,6 +137,77 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     settle_until(Duration::from_millis(500), || false).await;
     assert_eq!(compactions(&hub, &id), 1, "once per idle stretch: {:?}", prompts(&hub, &id));
 
+    // An unsent draft in one surface's composer (`_acpmux/composer_set`), with nobody typing:
+    // the person is mid-message, so nothing is compacted under them.
+    let drafted = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&drafted, "cache-probe")).await;
+    let surface = json!({"id": "pane-1", "name": "Pane"});
+    let draft = json!({"sessionId": drafted, "surface": surface, "text": "half a thought"});
+    c.ok("_acpmux/composer_set", draft).await;
+    clock.advance(Duration::from_secs(3600));
+    settle_until(Duration::from_millis(500), || false).await;
+    assert_eq!(compactions(&hub, &drafted), 0, "{:?}", prompts(&hub, &drafted));
+
+    // Four ways the timer must stay quiet, each recorded, so one run names every one that fails.
+    let mut gaps = Vec::new();
+    let mut quiet = |gap: &str, id: &str| {
+        let n = compactions(&hub, id);
+        if n != 0 {
+            gaps.push(format!("{gap}: {n} compaction(s), {:?}", prompts(&hub, id)));
+        }
+    };
+
+    // The person compacted it before the deadline (`/compact`, which reports no usage after):
+    // the cache it was armed for is gone, so the timer ends with it.
+    let manual = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&manual, "cache-probe")).await;
+    c.ok("session/prompt", prompt(&manual, "/compact")).await;
+    clock.advance(Duration::from_secs(3600));
+    settle_until(Duration::from_millis(500), || false).await;
+    quiet("after a manual /compact", &manual);
+
+    // Armed at 75% with the threshold at 50%, then the person raised it to 90%: the threshold
+    // read at the deadline decides.
+    let raised = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&raised, "cache-probe")).await;
+    set_at(true, 90);
+    clock.advance(Duration::from_secs(3600));
+    settle_until(Duration::from_millis(500), || false).await;
+    set(true);
+    quiet("after the threshold was raised past the context", &raised);
+
+    // A background subagent still at work after the turn: the chat is not idle.
+    let fifo = root.join("bg-agent-gate");
+    assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    let busy = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    let gate = format!("bg-agent-gate: {}", fifo.display());
+    c.ok("session/prompt", prompt(&busy, &gate)).await;
+    c.ok("session/prompt", prompt(&busy, "cache-probe")).await;
+    clock.advance(Duration::from_secs(3600));
+    settle_until(Duration::from_millis(500), || false).await;
+    quiet("while a background subagent works", &busy);
+    let end = fifo.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(end, "done")).await.unwrap().unwrap();
+
+    // The compaction's connection drops: no automatic continuation follows it (a model call
+    // nobody asked for); the next turn's usage arms the timer again.
+    std::fs::write(&compact_fails, "").unwrap();
+    let cut = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&cut, "cache-probe")).await;
+    clock.advance(Duration::from_secs(275));
+    settle_until(Duration::from_secs(20), || compactions(&hub, &cut) == 1).await;
+    assert_eq!(compactions(&hub, &cut), 1, "{:?}", prompts(&hub, &cut));
+    let resumes = |hub: &Hub| {
+        let events = hub.events(&cut, 0, 10_000).unwrap();
+        events.iter().filter(|e| e.kind == "auto_resume_scheduled").count()
+    };
+    settle_until(Duration::from_millis(500), || resumes(&hub) > 0).await;
+    if resumes(&hub) != 0 {
+        gaps.push(format!("a failed cache compaction was auto-resumed: {:?}", prompts(&hub, &cut)));
+    }
+    std::fs::remove_file(&compact_fails).unwrap();
+    assert!(gaps.is_empty(), "{gaps:#?}");
+
     // Under the threshold (usage-probe: 4.2K of 200K, no cache tier): nothing is armed.
     let small = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
     c.ok("session/prompt", prompt(&small, "usage-probe")).await;
@@ -135,13 +215,62 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     settle_until(Duration::from_millis(500), || false).await;
     assert_eq!(compactions(&hub, &small), 0);
 
-    // The setting off (the default): no compaction, however full and idle.
+    // The setting explicitly off (it is on by default): no compaction, however full and idle.
     set(false);
-    let off = c.ok("session/new", new).await["sessionId"].as_str().unwrap().to_owned();
+    let off = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
     c.ok("session/prompt", prompt(&off, "cache-probe")).await;
     clock.advance(Duration::from_secs(3600));
     settle_until(Duration::from_millis(500), || false).await;
     assert_eq!(compactions(&hub, &off), 0, "{:?}", prompts(&hub, &off));
+
+    // The idle reaper at its 2-minute default reaches an idle chat long before the timer's
+    // deadline: the compaction runs then, into the live harness that holds the warm cache, and
+    // the harness sleeps only after it. A compaction into a respawned harness wrote the whole
+    // context (about 131K tokens) and read about 3K.
+    set(true);
+    hub.set_idle_child(Some(Duration::from_secs(120)));
+    let reaped = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&reaped, "cache-probe")).await;
+    let hibernations = |hub: &Hub| -> Vec<usize> {
+        let events = hub.events(&reaped, 0, 10_000).unwrap();
+        let stops = events
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.kind == "stopped" && e.msg.get("hibernated") == Some(&json!(true)));
+        stops.map(|(i, _)| i).collect()
+    };
+    let compact_at = |hub: &Hub| {
+        let events = hub.events(&reaped, 0, 10_000).unwrap();
+        events.iter().position(|e| {
+            e.kind == "user_message"
+                && e.msg.pointer("/_meta/provenance/kind") == Some(&json!("cache_compact"))
+        })
+    };
+    // Each step one idle period: a period that ends while the chat is in use starts again.
+    for _ in 0..2 {
+        if compactions(&hub, &reaped) == 1 {
+            break;
+        }
+        clock.advance(Duration::from_secs(121));
+        settle_until(Duration::from_secs(10), || compactions(&hub, &reaped) == 1).await;
+    }
+    assert_eq!(compactions(&hub, &reaped), 1, "{:?}", prompts(&hub, &reaped));
+    let at = compact_at(&hub).unwrap();
+    assert!(
+        hibernations(&hub).iter().all(|stop| *stop > at),
+        "the harness slept before its compaction: {:?}",
+        hub.events(&reaped, 0, 10_000).unwrap().iter().map(|e| &e.kind).collect::<Vec<_>>()
+    );
+    // Then it sleeps, compacted once: the compacted context arms nothing more.
+    for _ in 0..4 {
+        if !hibernations(&hub).is_empty() {
+            break;
+        }
+        clock.advance(Duration::from_secs(121));
+        settle_until(Duration::from_secs(10), || !hibernations(&hub).is_empty()).await;
+    }
+    assert!(!hibernations(&hub).is_empty(), "it never slept after its compaction");
+    assert_eq!(compactions(&hub, &reaped), 1, "{:?}", prompts(&hub, &reaped));
 
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);

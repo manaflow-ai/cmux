@@ -120,6 +120,18 @@ fn the_tool_list_carries_the_artifact_tools_only_when_offered() {
     assert!(save["description"].as_str().unwrap().contains("artifact_search first"));
 }
 
+/// Each length the calls refuse past is in the schema, so a caller sees it before calling.
+#[test]
+fn the_schemas_carry_the_length_limits_the_calls_enforce() {
+    let tools = definitions();
+    let title = &tools[0]["inputSchema"]["properties"]["title"];
+    assert_eq!(title["maxLength"], MAX_TITLE_CHARS);
+    assert!(title["description"].as_str().unwrap().contains(&format!("at most {MAX_TITLE_CHARS}")));
+    let q = &tools[1]["inputSchema"]["properties"]["q"];
+    assert_eq!(q["maxLength"], MAX_QUERY_CHARS);
+    assert!(q["description"].as_str().unwrap().contains(&format!("at most {MAX_QUERY_CHARS}")));
+}
+
 #[test]
 fn names_paths_and_refs_are_checked() {
     for name in [
@@ -464,9 +476,10 @@ async fn reads_over_16_mib_stream_complete_files_and_keep_unicode_pagination() {
     assert!(!std::path::Path::new(&path).exists(), "downloads follow client lifetime");
 }
 
-#[tokio::test]
-async fn saves_75_mib_and_300_files_as_staged_blobs_before_one_commit() {
-    let size = 256 << 10;
+/// Saves 300 files of `size` bytes each (300 is past the legacy API's 256 files) through
+/// `artifact_save` and checks the requests: one staged blob upload per file, each carrying that
+/// file's bytes, then one commit that names the blobs and holds no file content.
+async fn saves_300_files_as_staged_blobs(size: usize) {
     let count = 300;
     let id = "01J8Z7Q4M6N2K5P8R3T1V9W0X2";
     let mut answers =
@@ -486,6 +499,7 @@ async fn saves_75_mib_and_300_files_as_staged_blobs_before_one_commit() {
     let (base, server) = fixture(answers).await;
     let args = json!({"title": "Large dataset", "kind": "other", "files":
         (0..count).map(|i| json!({"name": format!("data-{i}.txt"), "text": "x".repeat(size)})).collect::<Vec<_>>()});
+    // A hang guard: the save never answering fails here instead of at nextest's limit.
     let result = tokio::time::timeout(
         Duration::from_secs(120),
         call(&client(&base), "artifact_save", &args),
@@ -505,7 +519,27 @@ async fn saves_75_mib_and_300_files_as_staged_blobs_before_one_commit() {
     let body: Value = serde_json::from_slice(&manifest.body).unwrap();
     assert_eq!(body["files"].as_array().unwrap().len(), count);
     assert!(body["files"].as_array().unwrap().iter().all(|f| f.get("contentBase64").is_none()));
-    assert!(manifest.body.len() < 64 << 10, "75 MiB content never enters the commit request");
+    assert!(manifest.body.len() < 64 << 10, "file content never enters the commit request");
+}
+
+/// 300 files of 16 KiB (4.7 MiB): each goes up as its own staged blob, and the commit is under
+/// 64 KiB, less than the base64 of three of the files, so it carries none of their content. The
+/// modern save stages every file whatever its size, so this is the same path as 75 MiB; that
+/// size runs on its own as `saves_75_mib_and_300_files_as_staged_blobs_before_one_commit`.
+#[tokio::test]
+async fn saves_300_files_as_staged_blobs_before_one_commit() {
+    saves_300_files_as_staged_blobs(16 << 10).await;
+}
+
+/// The same at 256 KiB a file, 75 MiB in all, past the legacy API's 24 MiB per request. A debug
+/// build took 54 s alone on an idle 8-core CI runner and ran past nextest's 120 s hang guard
+/// beside other work (3 of 3 loaded lib runs), so it is a check for its own run:
+/// `cargo test -p acpmux --lib acpmux_mcp::artifacts::tests::saves_75_mib_and_300_files_as_staged_blobs_before_one_commit -- --ignored --exact --test-threads=1 --nocapture`.
+/// The default run keeps `saves_300_files_as_staged_blobs_before_one_commit`.
+#[tokio::test]
+#[ignore = "own run, one test at a time: 75 MiB through a debug build, past the hang guard under load"]
+async fn saves_75_mib_and_300_files_as_staged_blobs_before_one_commit() {
+    saves_300_files_as_staged_blobs(256 << 10).await;
 }
 
 #[tokio::test]
@@ -533,6 +567,36 @@ fn legacy_artifact_schema() -> Value {
         "ArtifactFile": {"properties": {"name": {"type": "string"}, "contentBase64": {"type": "string"}},
             "required": ["name", "contentBase64"]}
     }}})
+}
+
+/// Saves that keep landing first are waited out: the save goes again on each new head until it
+/// lands, and the agent never relays "try again" (Leo, 2026-11-22).
+#[tokio::test]
+async fn save_goes_again_while_other_saves_keep_landing_first() {
+    let id = "01J8Z7Q4M6N2K5P8R3T1V9W0X2";
+    let (base, server) = fixture(vec![
+        (200, JSON, json!({"repo": "r", "headSha": "1".repeat(40)}).to_string().into_bytes()),
+        (200, JSON, json!({"sha256": "a".repeat(64), "size": 11}).to_string().into_bytes()),
+        (409, JSON, json!({"currentHeadSha": "2".repeat(40)}).to_string().into_bytes()),
+        (409, JSON, json!({"currentHeadSha": "3".repeat(40)}).to_string().into_bytes()),
+        (409, JSON, json!({"currentHeadSha": "4".repeat(40)}).to_string().into_bytes()),
+        (
+            200,
+            JSON,
+            json!({"id": id, "headSha": "5".repeat(40), "commit": {}}).to_string().into_bytes(),
+        ),
+    ])
+    .await;
+    let result = run(
+        &client(&base),
+        "artifact_save",
+        json!({"title": "Build report", "kind": "html", "html": "<h1>ok</h1>"}),
+    )
+    .await;
+    let seen = server.await.unwrap();
+    assert_eq!(result["isError"], false, "{result}");
+    let last: Value = serde_json::from_slice(&seen[5].body).unwrap();
+    assert_eq!(last["expectedHeadSha"], "4".repeat(40));
 }
 
 #[tokio::test]

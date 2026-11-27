@@ -45,29 +45,23 @@ fn clear_history_failure_status_uses_the_selected_locale() {
         ),
         (
             "terminal host does not support clear-history",
-            "ターミナルホストが clear-history に対応していません。セッションを再接続してください",
+            "ターミナルホストが clear-history に対応していません (古いビルドです)",
         ),
-        (
-            "terminal host has exited",
-            "ターミナルホストが終了しました。セッションを再接続してください",
-        ),
+        ("terminal host has exited", "ターミナルホストが終了しました"),
         (
             "terminal host failed to apply clear-history",
             "ターミナルホストで履歴の消去に失敗しました",
         ),
         (
             "terminal host returned a malformed clear-history response",
-            "ターミナルホストから無効な応答が返されました。セッションを再接続してください",
+            "ターミナルホストから無効な応答が返されました",
         ),
         (
             "terminal host did not acknowledge ClearHistory: timed out waiting on channel",
-            "ターミナルホストから clear-history の応答がありませんでした。セッションを再接続してください",
+            "ターミナルホストから clear-history の応答がありませんでした",
         ),
         ("remote session did not respond", "リモートセッションから応答がありませんでした"),
-        (
-            "remote transport write failed: socket closed",
-            "リモートセッションとの接続が切れました。再接続してください",
-        ),
+        ("remote transport write failed: socket closed", "リモートセッションとの接続が切れました"),
         (
             "remote command rejected: unknown surface",
             "リモートサーバーが clear-history を拒否しました",
@@ -262,9 +256,29 @@ fn transport_loss_empty_event_is_an_error_not_a_clean_quit() {
     let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
 
     let error = result.expect_err("a lost event transport must not report an empty session");
-    assert_eq!(error.to_string(), "session connection lost. Reconnect and retry.");
+    assert_eq!(
+        error.to_string(),
+        "session connection lost: the session daemon closed it without a shutdown notice. Check the session with `cmux daemon status`."
+    );
     assert!(!error.to_string().contains(reason));
     assert!(!app.quit, "a lost transport must not use the clean-quit path");
+}
+
+/// A plain session client whose connection broke with no shutdown notice
+/// (the daemon crashed, the socket dropped) reconnects by itself for the
+/// unannounced window instead of exiting with "reconnect" advice.
+#[test]
+fn transport_loss_reconnects_a_client_that_can_follow_its_daemon() {
+    let mut app = test_app(test_remote_session_with_lost_transport("the daemon crashed"));
+    let reconnector: crate::app::daemon_reconnect::SessionReconnector =
+        Arc::new(|| -> anyhow::Result<Session> { anyhow::bail!("still down") });
+    app.daemon_reconnect = crate::app::daemon_reconnect::DaemonReconnect::new(Some(reconnector));
+
+    let action = app.handle(AppEvent::Mux(MuxEvent::Empty)).expect("a reconnect, not an error");
+
+    assert_eq!(action, RenderAction::Draw);
+    assert!(app.daemon_reconnect.in_progress());
+    assert!(!app.quit);
 }
 
 /// The transport check must run BEFORE any machine-session request: with
@@ -280,7 +294,10 @@ fn transport_loss_outranks_a_machine_session_request() {
     let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
 
     let error = result.expect_err("machine authority must not hide a lost transport");
-    assert_eq!(error.to_string(), "session connection lost. Reconnect and retry.");
+    assert_eq!(
+        error.to_string(),
+        "session connection lost: the session daemon closed it without a shutdown notice. Check the session with `cmux daemon status`."
+    );
     assert!(!error.to_string().contains(reason));
     assert!(!app.quit);
     let machine = app.machine_ui.as_ref().unwrap();
@@ -678,6 +695,41 @@ fn prepared_machine_session_events_stay_paused_until_commit_activation() {
     worker.stop_and_join();
 }
 
+/// A paused worker waits for its activation without waking on a timer.
+#[test]
+fn a_paused_session_worker_does_not_poll_for_its_activation() {
+    let mux = Mux::new("prepared-session-no-poll", SurfaceOptions::default());
+    let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+    let (events, receiver) = crossbeam_channel::bounded(4_096);
+    let (_session, mut worker, _, _) =
+        prepare_ordered_session(Session::Local(mux.clone()), pty_input.sender(), events, 7, None)
+            .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    let wakes = worker.paused_wakes.load(Ordering::Relaxed);
+    // A spurious return from park is allowed; a timer is not.
+    assert!(wakes <= 2, "the paused worker woke {wakes} times in 100 ms");
+
+    mux.new_workspace(None, None).unwrap();
+    worker.activate();
+    assert!(matches!(
+        receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+        AppEvent::SessionScoped { generation: 7, .. }
+    ));
+    worker.stop_and_join();
+}
+
+/// Stopping a worker that was never activated ends it at once.
+#[test]
+fn a_paused_session_worker_stops_without_activation() {
+    let mux = Mux::new("prepared-session-stop", SurfaceOptions::default());
+    let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+    let (events, _receiver) = crossbeam_channel::bounded(4_096);
+    let (_session, mut worker, _, _) =
+        prepare_ordered_session(Session::Local(mux), pty_input.sender(), events, 7, None).unwrap();
+    worker.stop_and_join();
+    assert!(worker.mux.is_none());
+}
+
 #[test]
 fn presented_local_owner_applies_one_reload_for_both_event_paths() {
     let owner = Mux::new("owner-reload-deduplication", SurfaceOptions::default());
@@ -847,6 +899,7 @@ fn remote_tree_refresh_keeps_restored_zoom_and_focus_aligned() {
     second.tabs[0].surface = 12;
     screen.panes.push(second);
     screen.layout = Node::Split {
+        divider_hidden: false,
         id: 9,
         dir: SplitDir::Right,
         ratio: 0.5,

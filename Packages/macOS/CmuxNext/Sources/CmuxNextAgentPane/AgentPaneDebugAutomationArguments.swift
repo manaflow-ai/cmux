@@ -45,15 +45,28 @@ public struct AgentPaneDebugAutomationArguments {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]
+        case "paste_probe":
+            // A screenshot pasted into the composer, timed until its chip shows (pasteProbe.ts).
+            var options: [String: Any] = [:]
+            for key in ["width", "height", "watchMs"] { if let value = params[key]?.intValue { options[key] = value } }
+            if let kind = params["kind"]?.stringValue { options["kind"] = kind }
+            for key in ["send", "read", "real", "edit"] { if let value = params[key]?.boolValue { options[key] = value } }
+            return [options]
         case "idle_probe":
             // What the page asks for while nobody touches it (idleProbe.ts), over `ms`.
             return [params["ms"]?.doubleValue.map { ["ms": $0] as [String: Any] } ?? [:]]
         case "open_menu":
             return [params["label"]?.stringValue ?? ""]
+        case "reset_typing":
+            // `draft`: characters typed at the prompt's end first, so the measured keys go into a long prompt.
+            return [params["draft"]?.intValue ?? 0]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
         case "send_prompt", "compose_send", "toast":
             return [params["text"]?.stringValue ?? ""]
+        case "select_text":
+            // `selector`, and the characters `from` to `to` of its text (debug.ts selectText).
+            return [params["selector"]?.stringValue ?? "", params["from"]?.intValue ?? 0, params["to"]?.intValue ?? 0]
         case "run_mode":
             return [params["mode"]?.stringValue ?? NSNull()]
         case "new_chat":

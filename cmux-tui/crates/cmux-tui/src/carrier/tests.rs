@@ -6,15 +6,21 @@ use cmux_remote::link::LinkError;
 use cmux_remote::provider::ProviderError;
 use serde_json::{Value, json};
 
-use super::answer::{Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply};
-use super::client::{classify, pinned_daemon, resume_outcome};
+use super::answer::{
+    Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply, token_subject,
+};
+use super::client::{
+    Marks, PARK_REDIAL, PEER_JOIN_REDIAL, classify, join_stalled, park_until, peer_join_wait,
+    pinned_daemon, resume_outcome,
+};
 use super::contract::{
-    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, StdinLine, Step, Vmk, answer_line,
-    connected_line, failure_line, parse_deadline, route_line, served_line, serving_line,
+    Failure, Phase, PhaseTimes, PhasesOf, StdinLine, Step, Vmk, answer_line, connected_line,
+    detail_code, failure_line, parse_deadline, phases_line, route_line, served_line, serving_line,
     stdin_line,
 };
 use super::{
-    DialArgs, DialService, ServeArgs, parse, parse_key, parse_serve, public_key_line, with_team_env,
+    DialArgs, DialService, ServeArgs, open_failure, parse, parse_key, parse_serve, public_key_line,
+    with_team_env,
 };
 
 fn words(text: &str) -> Vec<String> {
@@ -70,20 +76,213 @@ fn each_step_has_its_own_code_and_exit() {
 #[test]
 fn the_route_line_is_pinned() {
     assert_eq!(
-        route_line(VM, Phase::Connect, None, Duration::from_millis(1234)),
+        route_line(VM, Phase::Connect, None, None, Duration::from_millis(1234)),
         format!("cloud.connect route=carrier machine={VM} phase=connect outcome=ok ms=1234\n")
     );
     assert_eq!(
-        route_line(VM, Phase::of_attempt(2), Some(Step::Parked), Duration::from_millis(7)),
+        route_line(VM, Phase::of_attempt(2), Some(Step::Parked), None, Duration::from_millis(7)),
         format!(
             "cloud.connect route=carrier machine={VM} phase=reconnect outcome=parked_timeout ms=7\n"
         )
     );
     assert_eq!(
-        route_line(VM, Phase::Resume, Some(Step::Handshake), Duration::ZERO),
+        route_line(VM, Phase::Resume, Some(Step::Handshake), None, Duration::ZERO),
         format!("cloud.connect route=carrier machine={VM} phase=resume outcome=handshake ms=0\n")
     );
     assert_eq!(Phase::of_attempt(1), Phase::Connect);
+}
+
+/// A failed attempt's route line ends in ` detail=<code>` after `ms`, so a
+/// parser of `outcome=(\S+) ms=(\d+)` still reads it; an ok one has none.
+#[test]
+fn a_failed_route_line_names_its_detail_code_after_ms() {
+    let closed = "link transport failed: relay WebSocket closed (close 1013)";
+    assert_eq!(
+        route_line(
+            VM,
+            Phase::of_attempt(2),
+            Some(Step::Relay),
+            Some(closed),
+            Duration::from_millis(541)
+        ),
+        format!(
+            "cloud.connect route=carrier machine={VM} phase=reconnect outcome=relay ms=541 detail=1013\n"
+        )
+    );
+    assert_eq!(
+        route_line(VM, Phase::Connect, None, Some(closed), Duration::from_millis(9)),
+        format!("cloud.connect route=carrier machine={VM} phase=connect outcome=ok ms=9\n")
+    );
+    // No text, no detail field at all.
+    assert_eq!(
+        route_line(VM, Phase::Resume, Some(Step::Relay), Some("  "), Duration::ZERO),
+        format!("cloud.connect route=carrier machine={VM} phase=resume outcome=relay ms=0\n")
+    );
+}
+
+/// Each detail is one short `[a-z0-9_]` code, and none carries the failure
+/// text (a ticket or grant in it stays out).
+#[test]
+fn detail_codes_are_short_tokens_and_never_the_text() {
+    let cases = [
+        ("link transport failed: relay WebSocket closed (close 1013)", "1013"),
+        ("relay WebSocket closed (close 4003)", "4003"),
+        (
+            "link transport failed: relay WebSocket connection failed: HTTP status 409 Conflict",
+            "http_409",
+        ),
+        ("cmux-platform answered 503 carrier.unavailable: no route", "http_503"),
+        ("relay allocation is temporarily unavailable (relay code slot-busy)", "slot_busy"),
+        ("relay circuit is temporarily unavailable (relay code other)", "other"),
+        ("relay allocation is temporarily unavailable (relay code Bad.Code)", "other"),
+        (
+            "relay WebSocket connection failed: I/O error: Connection refused (os error 111)",
+            "connect_refused",
+        ),
+        ("relay WebSocket connection failed: TLS error: invalid peer certificate", "tls"),
+        ("link transport failed: relay allocation timed out", "timeout"),
+        ("relay circuit join timed out", "timeout"),
+        ("the deadline passed", "deadline"),
+        ("link transport failed: relay WebSocket closed", "closed"),
+        ("relay WebSocket read failed", "closed"),
+        ("relay WebSocket authentication was rejected", "rejected"),
+        ("the machine has no daemon key", "daemon_key"),
+        ("SSH connection group is closed", "ssh_group_closed"),
+        ("could not start ssh: No such file or directory", "ssh_spawn"),
+        ("link transport failed: link closed during handshake", "handshake_closed"),
+        ("link is closed", "link_closed"),
+        ("opening lane interactive on ssh://h did not finish within 15000 ms", "open_timeout"),
+        ("network changed", "network_changed"),
+        ("link protocol failed: bad frame", "link_protocol"),
+        ("noise handshake failed: decrypt", "noise"),
+        ("authorization failed: grant expired", "unauthorized"),
+        ("unexpected Bearer eyJhbGciOi.secret-ticket", "other"),
+        ("reconnect deadline expired after 4 attempts", "resume_deadline"),
+        ("reconnect failed after 3 attempts: connection is closed", "closed"),
+        ("stale connection generation 2, current is 3", "stale_generation"),
+        ("connection generation changed from 2 to 3", "generation_changed"),
+        ("connection generation exhausted", "generation_exhausted"),
+        (
+            "daemon no longer has the requested logical session (it expired or was closed)",
+            "session_gone",
+        ),
+        ("too many connected clients: the daemon serves its limit of 256", "daemon_full"),
+        ("interactive replay buffer is full", "replay_full"),
+        ("bulk delivery window is full", "window_full"),
+        ("interactive outbound queue is full", "queue_full"),
+        ("interactive sequence gap: expected 6, got 9", "sequence_gap"),
+        ("frame belongs to another session", "wrong_session"),
+        ("outbound scheduler closed", "scheduler_closed"),
+        ("invalid session frame: short header", "invalid_frame"),
+    ];
+    let token = |code: &str| {
+        (1..=24).contains(&code.len())
+            && code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    };
+    for (text, want) in cases {
+        let code = detail_code(text).unwrap_or_else(|| panic!("no code for {text:?}"));
+        assert_eq!(code, want, "{text:?}");
+        assert!(token(&code), "{code:?} is not ^[a-z0-9_]{{1,24}}$");
+    }
+    assert_eq!(detail_code(""), None);
+    assert_eq!(detail_code(" \n"), None);
+}
+
+#[test]
+fn the_phases_line_is_pinned_and_never_a_route_line() {
+    let ms = Duration::from_millis;
+    let times = PhaseTimes {
+        ticket: ms(310),
+        relay: ms(42),
+        parked: ms(120),
+        handshake: ms(250),
+        mux: ms(30),
+        lanes: 3,
+    };
+    let line = phases_line(VM, PhasesOf::Attempt(Phase::Connect), None, times, ms(760));
+    assert_eq!(
+        line,
+        format!(
+            "carrier.phases machine={VM} phase=connect carrier=relay:0 outcome=ok ticket_ms=310 relay_ms=42 parked_ms=120 handshake_ms=250 mux_ms=30 lanes=3 ms=760\n"
+        )
+    );
+    let stream = phases_line(
+        VM,
+        PhasesOf::Stream,
+        None,
+        PhaseTimes { mux: ms(4), ..PhaseTimes::default() },
+        ms(4),
+    );
+    assert!(stream.contains(" phase=stream "), "{stream}");
+    let failed = phases_line(
+        VM,
+        PhasesOf::Attempt(Phase::of_attempt(2)),
+        Some(Step::Parked),
+        PhaseTimes::default(),
+        ms(9),
+    );
+    assert!(failed.contains(" phase=reconnect ") && failed.contains(" outcome=parked_timeout "));
+    // cmuxterm-hq's start matrix fails a row on any cloud.connect line that
+    // is not exactly a route line.
+    for line in [line, stream, failed] {
+        assert!(!line.contains("cloud.connect"), "{line}");
+    }
+}
+
+#[test]
+fn phase_times_run_mark_to_mark_and_the_open_step_to_now() {
+    let t0 = tokio::time::Instant::now();
+    let at = |ms| Some(t0 + Duration::from_millis(ms));
+    let done = Marks {
+        started: at(0),
+        answered: at(300),
+        relay_up: at(340),
+        first_open: at(341),
+        first_allocated: at(460),
+        connected: at(700),
+        mux_open: at(730),
+        lanes: 3,
+        ..Marks::default()
+    };
+    let now = t0 + Duration::from_millis(5000);
+    let ms = Duration::from_millis;
+    assert_eq!(
+        done.times(now),
+        PhaseTimes {
+            ticket: ms(300),
+            relay: ms(40),
+            parked: ms(119),
+            handshake: ms(240),
+            mux: ms(30),
+            lanes: 3
+        }
+    );
+    // Cut while parked: the park runs to now, later steps are zero.
+    let parked = Marks { first_allocated: None, connected: None, mux_open: None, lanes: 1, ..done };
+    let times = parked.times(now);
+    assert_eq!((times.parked, times.handshake, times.mux), (ms(4659), ms(0), ms(0)));
+    assert_eq!(Marks::default().times(now), PhaseTimes::default());
+}
+
+#[test]
+fn a_credential_s_subject_is_its_jwt_sub_claim_or_none() {
+    use base64::Engine as _;
+    let encode =
+        |value: Value| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value.to_string());
+    let jwt = |claims: Value| format!("{}.{}.sig", encode(json!({"alg": "ES256"})), encode(claims));
+    assert_eq!(token_subject(&jwt(json!({"sub": "user-1", "exp": 1}))), Some("user-1".into()));
+    assert_eq!(token_subject(&jwt(json!({"exp": 1}))), None);
+    assert_eq!(token_subject(&jwt(json!({"sub": ""}))), None);
+    assert_eq!(token_subject(&jwt(json!({"sub": 7}))), None);
+    assert_eq!(token_subject("opaque-token"), None);
+    assert_eq!(token_subject("a.!!!.c"), None);
+    // Only a three-segment credential with a JWT header has a `sub`.
+    let claims = encode(json!({"sub": "user-1"}));
+    let header = encode(json!({"alg": "ES256"}));
+    assert_eq!(token_subject(&format!("opaque.{claims}.sig")), None);
+    assert_eq!(token_subject(&format!("{}.{claims}.sig", encode(json!({"typ": "JWT"})))), None);
+    assert_eq!(token_subject(&format!("{header}.{claims}")), None);
+    assert_eq!(token_subject(&format!("{header}.{claims}.sig.extra")), None);
 }
 
 #[test]
@@ -98,6 +297,7 @@ fn arguments_are_the_machine_and_one_deadline() {
             token_file: None,
             team: None,
             answer_fd: None,
+            wg_hub: None,
         })
     );
     for (fd, want) in [("0", 0), ("3", 3), ("17", 17)] {
@@ -115,6 +315,10 @@ fn arguments_are_the_machine_and_one_deadline() {
         DialService::Desktop
     );
     assert_eq!(
+        parse(&words(&format!("dial --machine {VM} --service acpmux"))).unwrap().service,
+        DialService::Acpmux
+    );
+    assert_eq!(
         parse(&words(&format!("dial --service mux --machine {VM}"))).unwrap().service,
         DialService::Mux
     );
@@ -130,6 +334,7 @@ fn arguments_are_the_machine_and_one_deadline() {
         format!("dial --machine {VM} --host x"),
         format!("dial --machine {VM} --service ssh"),
         format!("dial --machine {VM} --service desktop --service desktop"),
+        format!("dial --machine {VM} --service acpmux --service mux"),
         format!("dial --machine {VM} --team team_0123"),
         format!("dial --machine {VM} --team team_0123456789ABCDEF0123"),
         format!("dial --machine {VM} --team user_0123456789abcdef0123"),
@@ -238,35 +443,78 @@ fn the_grant_vmk_claim_is_the_dial_s_ownership_answer() {
     assert_eq!(parse_answer(&answer_value()).unwrap().vmk, None);
 }
 
+/// A link parked past [`PARK_REDIAL`] is given up for a new one (its allocation times out, a
+/// retry at the park step) instead of holding the whole 180 s deadline; the deadline still bounds it.
 #[test]
-fn backoff_is_full_jitter_doubling_to_a_cap_and_never_past_the_deadline() {
-    let mut backoff = Backoff::default();
-    let mut ceilings = Vec::new();
-    for _ in 0..8 {
-        let delay = backoff
-            .next(Duration::from_secs(600), |ceiling| {
-                ceilings.push(ceiling);
-                ceiling
-            })
-            .unwrap();
-        assert_eq!(Some(&delay), ceilings.last());
-    }
-    assert_eq!(ceilings[0], INITIAL_BACKOFF);
-    assert_eq!(ceilings[1], INITIAL_BACKOFF * 2);
-    assert_eq!(*ceilings.last().unwrap(), MAX_BACKOFF);
-    assert!(ceilings.windows(2).all(|w| w[1] >= w[0]));
+fn a_parked_link_is_redialed_long_before_the_deadline() {
+    let now = tokio::time::Instant::now();
+    let deadline = now + Duration::from_secs(180);
+    assert_eq!(park_until(deadline, now), now + PARK_REDIAL);
+    let nearly = now + Duration::from_secs(3);
+    assert_eq!(park_until(nearly, now), nearly);
+}
 
-    // A draw of zero retries at once; a draw past the ceiling is held to it.
-    let mut backoff = Backoff::default();
-    assert_eq!(backoff.next(Duration::from_secs(1), |_| Duration::ZERO), Some(Duration::ZERO));
-    assert_eq!(
-        backoff.next(Duration::from_secs(10), |_| Duration::from_secs(99)),
-        Some(INITIAL_BACKOFF * 2)
-    );
-    // No attempt starts when the delay would reach the deadline.
-    let mut backoff = Backoff::default();
-    assert_eq!(backoff.next(Duration::from_millis(100), |c| c), None);
-    assert_eq!(Backoff::default().next(Duration::ZERO, |_| Duration::ZERO), None);
+/// A circuit the daemon never joins is given up after [`PEER_JOIN_REDIAL`] on the first
+/// attempt, not the 15 s control timeout; each attempt that stalled at the join doubles the next
+/// one's wait, up to that timeout, so a daemon that is only slow to join still connects.
+#[test]
+fn a_join_the_daemon_never_answers_is_redialed_in_seconds_and_backs_off() {
+    assert_eq!(peer_join_wait(0), PEER_JOIN_REDIAL);
+    assert!(PEER_JOIN_REDIAL <= Duration::from_secs(5), "{PEER_JOIN_REDIAL:?}");
+    assert_eq!(peer_join_wait(1), PEER_JOIN_REDIAL * 2);
+    assert_eq!(peer_join_wait(2), Duration::from_secs(15));
+    assert_eq!(peer_join_wait(40), Duration::from_secs(15));
+    assert!(join_stalled(&Failure::retry(
+        Step::Relay,
+        "link transport failed: relay circuit join timed out"
+    )));
+    assert!(!join_stalled(&Failure::retry(Step::Parked, "relay allocation timed out")));
+}
+
+/// A daemon that never answers a first connect's handshake is given up after
+/// [`HANDSHAKE_REDIAL`], not the 15 s handshake timeout; each attempt that stalled there doubles
+/// the next one's wait, up to that timeout, so a daemon that is only slow to answer still connects.
+#[test]
+fn a_handshake_the_daemon_never_answers_is_redialed_in_seconds_and_backs_off() {
+    use super::client::{HANDSHAKE_REDIAL, handshake_stalled, handshake_wait};
+    assert_eq!(handshake_wait(0), HANDSHAKE_REDIAL);
+    assert!(HANDSHAKE_REDIAL <= Duration::from_secs(5), "{HANDSHAKE_REDIAL:?}");
+    assert_eq!(handshake_wait(1), HANDSHAKE_REDIAL * 2);
+    assert_eq!(handshake_wait(2), Duration::from_secs(15));
+    assert_eq!(handshake_wait(40), Duration::from_secs(15));
+    assert!(!handshake_stalled(&Failure::retry(Step::Handshake, "the handshake timed out")));
+}
+
+/// The watch starts at the first lane's allocation (or the connection's start, when the link was
+/// allocated before it, while the dial asked for the daemon key), never during the park, and its
+/// failure is a retryable handshake failure the dial counts as a stall.
+#[tokio::test(start_paused = true)]
+async fn a_handshake_watch_runs_from_the_first_allocated_lane() {
+    use super::client::{HANDSHAKE_REDIAL, Progress, handshake_stalled, handshake_watch};
+    use tokio::time::{Instant, sleep, timeout};
+    let step = std::sync::Arc::new(Progress::default());
+    let began = Instant::now();
+    let watch = tokio::spawn({
+        let step = step.clone();
+        async move { (handshake_watch(&step, began, HANDSHAKE_REDIAL).await, Instant::now()) }
+    });
+    // Parked for 30 s: nothing fires while the relay has not allocated a lane.
+    sleep(Duration::from_secs(30)).await;
+    assert!(!watch.is_finished());
+    step.allocated_lane();
+    let allocated = Instant::now();
+    step.allocated_lane();
+    let (failure, fired) = watch.await.unwrap();
+    assert_eq!(fired - allocated, HANDSHAKE_REDIAL);
+    assert_eq!(failure.step, Step::Handshake);
+    assert!(failure.retryable && handshake_stalled(&failure), "{failure:?}");
+    assert_eq!(detail_code(&failure.detail).as_deref(), Some("timeout"));
+    // Allocated before the connection began: the wait runs from its start.
+    let since = Instant::now() + Duration::from_secs(6);
+    sleep(Duration::from_secs(6)).await;
+    let late = timeout(HANDSHAKE_REDIAL * 2, handshake_watch(&step, since, HANDSHAKE_REDIAL));
+    late.await.expect("the watch fires");
+    assert_eq!(Instant::now() - since, HANDSHAKE_REDIAL);
 }
 
 #[test]
@@ -419,6 +667,51 @@ fn the_connect_log_is_only_appended_and_stops_at_its_cap() {
 }
 
 #[test]
+fn the_desktop_link_takes_the_answer_s_turn_relays_over_udp() {
+    let mut value = answer_value();
+    value["rd_link"] = json!({
+        "stun": ["stun.example.net:3478"],
+        "turn": [
+            {"addr": "turn.example.net:3478", "username": "u1", "password": "p1"},
+            {"addr": "turn.example.net:53", "username": "u1"},
+            {"addr": "not a server", "username": "u", "password": "p"},
+            {"addr": "turn.example.net:0", "username": "u", "password": "p"},
+            {"addr": "turn.example.net:3479", "username": "", "password": "p"},
+            "turn:turn.example.net:3478",
+        ],
+    });
+    let link = parse_answer(&value).unwrap().rd_link.unwrap();
+    assert_eq!(link.stun, ["stun.example.net:3478"]);
+    let addrs: Vec<&str> = link.turn.iter().map(|t| t.addr.as_str()).collect();
+    assert_eq!(addrs, ["turn.example.net:3478"], "only whole, well-formed relays");
+    assert_eq!((link.turn[0].username.as_str(), link.turn[0].password.as_str()), ("u1", "p1"));
+    let answer = parse_answer(&value).unwrap();
+    assert!(!format!("{answer:?}").contains("p1"), "Debug never shows a relay password");
+
+    // At most four, and an answer without `turn` (the platform before relays) keeps STUN alone.
+    let many: Vec<Value> = (0..6)
+        .map(
+            |i| json!({"addr": format!("t{i}.example.net:3478"), "username": "u", "password": "p"}),
+        )
+        .collect();
+    value["rd_link"] = json!({"stun": [], "turn": many});
+    assert_eq!(parse_answer(&value).unwrap().rd_link.unwrap().turn.len(), 4);
+    value["rd_link"] = json!({"stun": ["stun.example.net:3478"]});
+    assert!(parse_answer(&value).unwrap().rd_link.unwrap().turn.is_empty());
+
+    // A credential of up to 512 bytes is kept; one byte longer drops the relay.
+    let relay = |user: &str, pass: &str| json!({"stun": [], "turn": [{"addr": "turn.example.net:3478", "username": user, "password": pass}]});
+    let long = "x".repeat(512);
+    value["rd_link"] = relay(&long, &long);
+    assert_eq!(parse_answer(&value).unwrap().rd_link.unwrap().turn.len(), 1);
+    let longer = "x".repeat(513);
+    for (user, pass) in [(longer.as_str(), "p"), ("u", longer.as_str())] {
+        value["rd_link"] = relay(user, pass);
+        assert!(parse_answer(&value).unwrap().rd_link.unwrap().turn.is_empty(), "513 bytes");
+    }
+}
+
+#[test]
 fn a_handed_over_answer_is_a_checked_answer_with_a_grant() {
     let line = json!({ "carrier_answer": answer_value() }).to_string();
     match stdin_line(line.as_bytes()) {
@@ -475,4 +768,102 @@ fn key_prints_only_the_public_key_as_one_base64url_line() {
     assert!(text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "{line}");
     assert_eq!(text, key_text(&identity.public_key()), "the platform's noise_key spelling");
     assert_ne!(text, key_text(identity.private_key()), "never the private key");
+}
+
+/// The desktop open's own send (or a heartbeat) can meet the lost session
+/// before the multiplexer's reader marks it: the error itself says
+/// `SessionUnavailable` while `session_unavailable()` is still false. That
+/// is still a session the host lost, so the dial takes a fresh one.
+#[test]
+fn a_carrier_desktop_open_that_its_send_finds_the_session_gone_takes_a_fresh_session() {
+    use cmux_remote::bridge::BridgeError;
+    use cmux_remote::service::ServiceError;
+    let sent = BridgeError::Service(ServiceError::Client(ConnectionError::SessionUnavailable));
+    let failure = open_failure(sent, false, "the desktop");
+    assert!(failure.fresh_session && failure.retryable, "{}", failure.detail);
+    assert_eq!(failure.step, Step::Relay);
+    let typed =
+        open_failure(BridgeError::Service(ServiceError::SessionUnavailable), false, "the desktop");
+    assert!(typed.fresh_session, "{}", typed.detail);
+    // A session that ended any other way is still the carrier's, and fatal.
+    let closed = open_failure(BridgeError::Service(ServiceError::Closed), false, "the desktop");
+    assert!(!closed.fresh_session && !closed.retryable, "{}", closed.detail);
+    // The daemon's refusal is the service's.
+    let refused = open_failure(BridgeError::Rejected("not the owner".into()), false, "the desktop");
+    assert_eq!(refused.step, Step::Service);
+    assert!(!refused.fresh_session);
+}
+
+/// A park whose asks answer, in turn, from `replies` (the last one repeats),
+/// counting them; `None` is an answer without the key.
+fn asks(
+    replies: Vec<Result<Option<[u8; 32]>, Failure>>,
+) -> (
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    impl Fn() -> std::future::Ready<Result<super::answer::CarrierAnswer, Failure>>,
+) {
+    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = count.clone();
+    let ask = move || {
+        let n = counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let reply = replies[n.min(replies.len() - 1)].clone().map(|key| {
+            let mut value = answer_value();
+            value["daemon_key"] = key.map_or(Value::Null, |key| json!(key_text(&key)));
+            parse_answer(&value).unwrap()
+        });
+        std::future::ready(reply)
+    };
+    (count, ask)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_park_ends_at_a_refusal_for_good_not_at_the_deadline() {
+    use super::client::{PARKED_ASK_EVERY, park_for_key};
+    // A machine bound by an image older than the carrier: the ask before its bind
+    // has no key, the next is refused for good, and its daemon never registers.
+    let refused = Failure::fatal(
+        Step::Ticket,
+        "cmux-platform answered 409 cloud.carrier.image_unsupported: this machine runs an image older than the Cloud carrier",
+    );
+    let (count, ask) = asks(vec![Ok(None), Err(refused.clone())]);
+    let started = tokio::time::Instant::now();
+    let parked = tokio::time::timeout(
+        Duration::from_secs(180),
+        park_for_key(std::future::pending::<Result<(), Failure>>(), ask, PARKED_ASK_EVERY),
+    )
+    .await
+    .expect("the park ends before the deadline");
+    assert_eq!(parked.unwrap_err(), refused);
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert!(started.elapsed() <= PARKED_ASK_EVERY, "{:?}", started.elapsed());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_park_keeps_asking_through_retryable_failures_and_stops_once_it_has_the_key() {
+    use super::client::park_for_key;
+    let every = Duration::from_secs(3);
+    let busy = Failure::retry(Step::Ticket, "cmux-platform answered 503 http: ");
+    let (count, ask) = asks(vec![Ok(None), Err(busy), Ok(Some([9; 32]))]);
+    let open = async {
+        tokio::time::sleep(Duration::from_secs(20)).await;
+        Ok::<_, Failure>("link")
+    };
+    let (link, daemon) = park_for_key(open, ask, every).await.unwrap();
+    assert_eq!((link, daemon), ("link", [9; 32]));
+    // At 0, 3 and 6 s; none after the key, nor once the link is allocated.
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 3);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_park_allocated_before_any_key_asks_once_more_and_pins_only_a_key() {
+    use super::client::park_for_key;
+    let every = Duration::from_secs(3);
+    let allocated = || async { Ok::<_, Failure>("link") };
+    let (count, ask) = asks(vec![Ok(None), Ok(Some([5; 32]))]);
+    assert_eq!(park_for_key(allocated(), ask, every).await.unwrap().1, [5; 32]);
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+    // Still no key once allocated: the handshake never runs unpinned.
+    let (_, keyless) = asks(vec![Ok(None)]);
+    let failure = park_for_key(allocated(), keyless, every).await.unwrap_err();
+    assert_eq!(failure, Failure::fatal(Step::Ticket, "the machine has no daemon key"));
 }

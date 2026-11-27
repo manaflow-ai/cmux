@@ -1,0 +1,304 @@
+//! `chat.list`'s rows and `chat.changed` (extensibility-DESIGN.md step 3): the
+//! fields, pinned and unread from acpmux, and one change event per change.
+
+use std::time::Duration;
+
+use serde_json::{Value, json};
+
+use super::*;
+
+/// One acpmux session summary, as `_acpmux/watch` pages and pushes carry it.
+fn summary(id: &str, state: &str) -> Value {
+    json!({
+        "sessionId": id,
+        "name": format!("{id}-name"),
+        "title": null,
+        "harness": "claude",
+        "status": "idle",
+        "cwd": "/src/cmux",
+        "unread": false,
+        "unreadTurns": 0,
+        "tags": {},
+        "parent": null,
+        "updatedAt": 1_000,
+        "createdAt": 500,
+        "pullRequests": [],
+        "lane": {"state": state, "title": format!("{id} title"), "step": null, "error": null,
+                 "since": 900, "stalledSince": null},
+    })
+}
+
+fn with(mut value: Value, patch: Value) -> Value {
+    for (name, field) in patch.as_object().unwrap() {
+        value[name] = field.clone();
+    }
+    value
+}
+
+fn push(session: Value) -> Value {
+    json!({"sessionId": session["sessionId"], "peer": session["peer"], "kind": "changed", "session": session})
+}
+
+#[test]
+fn a_row_has_every_listed_field_with_pinned_and_unread_from_acpmux() {
+    let failed = with(
+        summary("s1", "failed"),
+        json!({
+            "unread": true, "unreadTurns": 2, "tags": {"pinned": "true"}, "peer": "mini",
+            "pullRequests": ["https://github.com/o/r/pull/7"], "gitBranch": "fix/upload",
+            "lane": {"state": "failed", "title": "Fix upload", "step": "Running tests",
+                     "error": "Credit balance too low", "since": 900, "stalledSince": null},
+        }),
+    );
+    let listed = row(&failed).expect("a listed chat");
+    assert_eq!(
+        listed,
+        json!({
+            "id": "s1", "title": "Fix upload", "harness": "claude", "state": "failed",
+            "unread": true, "unread_turns": 2, "pinned": true, "ci_failing": null,
+            "machine": "mini", "cwd": "/src/cmux", "project": "cmux", "parent": null,
+            "step": "Running tests", "error": "Credit balance too low",
+            "since_ms": "900", "updated_ms": "1000", "created_ms": "500",
+            "pull_requests": ["https://github.com/o/r/pull/7"], "branch": "fix/upload",
+            "preview": null,
+        })
+    );
+    // Its last reply, as acpmux keeps it, is the card's message.
+    let replied = with(summary("s4", "idle"), json!({"preview": "Done: tests pass"}));
+    assert_eq!(row(&replied).unwrap()["preview"], "Done: tests pass");
+    // No lane title: the chat's title, then its name.
+    let plain = with(summary("s2", "idle"), json!({"lane": {"state": "idle", "since": null}}));
+    let plain = row(&plain).unwrap();
+    assert_eq!(plain["title"], "s2-name");
+    assert_eq!(plain["pinned"], false);
+    assert_eq!(plain["machine"], Value::Null);
+    assert_eq!(plain["since_ms"], Value::Null);
+    assert_eq!(plain["branch"], Value::Null, "no gitBranch: null");
+    // An unpinned tag value and the other states.
+    let unpinned = with(summary("s3", "input"), json!({"tags": {"pinned": ""}}));
+    assert_eq!(row(&unpinned).unwrap()["pinned"], false);
+    for state in ["working", "input", "idle", "failed", "lost"] {
+        assert_eq!(row(&summary("s", state)).unwrap()["state"], state);
+    }
+}
+
+#[test]
+fn closed_archived_and_laneless_chats_are_off_the_list() {
+    assert!(row(&with(summary("s", "idle"), json!({"status": "closed"}))).is_none());
+    assert!(row(&with(summary("s", "idle"), json!({"tags": {"archived": "1700"}}))).is_none());
+    assert!(row(&with(summary("s", "idle"), json!({"lane": null}))).is_none());
+}
+
+#[test]
+fn only_a_change_of_a_listed_field_is_a_change() {
+    let mut chats = Chats::default();
+    assert!(chats.page(&[summary("a", "working"), summary("b", "idle")]), "a new chat");
+    assert!(!chats.page(&[summary("a", "working")]), "the same row again");
+    // Output alone moves updated_ms: kept fresh, no change.
+    assert!(!chats.push(&push(with(summary("a", "working"), json!({"updatedAt": 5_000})))));
+    assert_eq!(chats.rows[&key(None, "a")]["updated_ms"], "5000");
+    // Unread, a pin and a state are changes.
+    assert!(chats.push(&push(with(summary("b", "idle"), json!({"unread": true})))));
+    assert!(chats.push(&push(with(
+        summary("b", "idle"),
+        json!({"unread": true, "tags": {"pinned": "true"}})
+    ))));
+    assert!(chats.push(&push(with(summary("a", "input"), json!({"updatedAt": 5_000})))));
+    // A purge removes the row; purging again changes nothing.
+    let purged = json!({"sessionId": "a", "peer": null, "kind": "purged"});
+    assert!(chats.push(&purged));
+    assert!(!chats.push(&purged));
+    assert_eq!(chats.rows.len(), 1);
+}
+
+#[test]
+fn a_whole_list_drops_the_rows_it_did_not_name_but_keeps_what_a_push_reached() {
+    let mut chats = Chats::default();
+    chats.page(&[summary("gone", "idle"), summary("kept", "idle"), summary("pushed", "idle")]);
+    chats.begin();
+    // A push during the list wins over an older page of the same chat.
+    assert!(chats.push(&push(summary("pushed", "working"))));
+    assert!(!chats.page(&[summary("kept", "idle"), summary("pushed", "idle")]));
+    assert!(chats.end(), "the chat the list left out is gone");
+    let ids = chats.rows.values().map(|row| row["id"].clone()).collect::<Vec<_>>();
+    assert_eq!(ids, [json!("kept"), json!("pushed")]);
+    assert_eq!(chats.rows[&key(None, "pushed")]["state"], "working");
+    // A peer's chat with this machine's id is its own row.
+    assert!(chats.page(&[with(summary("kept", "input"), json!({"peer": "mini"}))]));
+    assert_eq!(chats.rows.len(), 3);
+    assert_eq!(chats.find("kept"), Some(key(None, "kept")), "this machine's first");
+}
+
+/// A follow (rows changed since the cursor) drops only what it says is `gone`, never a row it
+/// did not name, and not one a push on this connection reached since.
+#[test]
+fn a_follow_drops_only_what_it_says_is_gone() {
+    let mut chats = Chats::default();
+    chats.page(&[summary("a", "idle"), summary("b", "idle"), summary("c", "idle")]);
+    chats.connect();
+    assert!(chats.push(&push(summary("c", "working"))));
+    assert!(chats.page(&[summary("a", "working")]), "a follow's row");
+    let gone = [json!({"sessionId": "b", "peer": null}), json!({"sessionId": "c", "peer": null})];
+    assert!(chats.gone(&gone));
+    assert!(!chats.end(), "a follow is no whole list");
+    let ids = chats.rows.values().map(|row| row["id"].clone()).collect::<Vec<_>>();
+    assert_eq!(ids, [json!("a"), json!("c")], "b is gone; c was pushed since");
+}
+
+/// The red test of step 3: one `ChatsChanged` per change, none for a page or push that
+/// changes nothing, and `chat.list` answers what acpmux said.
+#[test]
+fn chat_changed_fires_once_per_change() {
+    let mux = Mux::new_for_test("chat-index-changed", crate::SurfaceOptions::default());
+    let events = mux.subscribe_matching(|event| matches!(event, MuxEvent::ChatsChanged { .. }));
+    let next = || match events.recv_timeout(Duration::from_millis(200)) {
+        Ok(MuxEvent::ChatsChanged { revision }) => Some(revision),
+        _ => None,
+    };
+
+    mux.change_chats(|chats| chats.page(&[summary("a", "working"), summary("b", "idle")]));
+    assert_eq!(next(), Some(1), "one event for the whole page");
+    assert_eq!(next(), None);
+
+    mux.change_chats(|chats| chats.page(&[summary("a", "working")]));
+    mux.change_chats(|chats| {
+        chats.push(&push(with(summary("a", "working"), json!({"updatedAt": 9}))))
+    });
+    assert_eq!(next(), None, "nothing listed changed");
+
+    mux.change_chats(|chats| {
+        chats.push(&push(with(summary("b", "idle"), json!({"unread": true}))))
+    });
+    assert_eq!(next(), Some(2));
+    assert_eq!(next(), None);
+
+    let rows = mux.chat_rows_matching(&ChatQuery::default());
+    assert_eq!(rows.len(), 2);
+    let b = rows.iter().find(|row| row["id"] == "b").unwrap();
+    assert_eq!(b["unread"], true);
+    assert_eq!(b["workspace"], Value::Null, "no tab shows it");
+
+    // A mark applied ahead of acpmux's push is one change; the push that confirms it is none.
+    let (pinned, revision) = mux
+        .update_chat("b", |row| {
+            row.insert("pinned".into(), Value::Bool(true));
+        })
+        .expect("b is listed");
+    assert_eq!((pinned["pinned"].clone(), revision), (json!(true), 3));
+    assert_eq!(next(), Some(3));
+    mux.change_chats(|chats| {
+        chats.push(&push(with(
+            summary("b", "idle"),
+            json!({"unread": true, "tags": {"pinned": "true"}}),
+        )))
+    });
+    assert_eq!(next(), None, "acpmux's confirming push changes nothing more");
+    assert!(mux.update_chat("missing", |_| {}).is_none());
+    assert!(!mux.chat_listed("missing"));
+}
+
+/// A chat that moved to `ms` (its last output then).
+fn at(id: &str, state: &str, ms: u64) -> Value {
+    with(
+        summary(id, state),
+        json!({"updatedAt": ms, "lane": {"state": state, "title": id, "since": 1}}),
+    )
+}
+
+fn ids(rows: &[Value]) -> Vec<String> {
+    rows.iter().map(|row| row["id"].as_str().unwrap().to_owned()).collect()
+}
+
+fn query(fields: Value) -> ChatQuery {
+    ChatQuery::from_fields(fields.as_object().unwrap()).expect("a valid query")
+}
+
+/// A New Tab page's recent chats (Leo 2026-11-18: no sorting every chat for 3 to 6): every read
+/// comes newest first, `limit` and `state` take that many from the index's order, and a cursor
+/// pages through the rest; an update moves the chat's place, a purge takes it out.
+#[test]
+fn reads_come_newest_first_and_limit_state_and_cursor_take_only_their_rows() {
+    let mut chats = Chats::default();
+    chats.page(&[
+        at("old", "idle", 100),
+        at("mid", "input", 200),
+        at("new", "working", 300),
+        at("ask", "input", 250),
+        with(at("peer", "idle", 300), json!({"peer": "mini"})),
+    ]);
+    assert_eq!(ids(&chats.newest(&ChatQuery::default())), ["new", "peer", "ask", "mid", "old"]);
+    assert_eq!(ids(&chats.newest(&query(json!({"limit": 2})))), ["new", "peer"]);
+    assert_eq!(ids(&chats.newest(&query(json!({"state": "input", "limit": 5})))), ["ask", "mid"]);
+    // The page after "peer" (machine mini), then the page after that.
+    let next = query(
+        json!({"limit": 2, "before_ms": "300", "before_id": "peer", "before_machine": "mini"}),
+    );
+    assert_eq!(ids(&chats.newest(&next)), ["ask", "mid"]);
+    let last = query(json!({"limit": 2, "before_ms": 200, "before_id": "mid"}));
+    assert_eq!(ids(&chats.newest(&last)), ["old"]);
+    // Output moves a chat to the front, a state change moves it between the state sets.
+    chats.push(&push(at("old", "input", 400)));
+    assert_eq!(ids(&chats.newest(&query(json!({"limit": 1})))), ["old"]);
+    assert_eq!(ids(&chats.newest(&query(json!({"state": "input"})))), ["old", "ask", "mid"]);
+    assert_eq!(ids(&chats.newest(&query(json!({"state": "idle"})))), ["peer"]);
+    // A purge and a whole list that leaves a chat out take it out of every order.
+    chats.push(&json!({"sessionId": "ask", "peer": null, "kind": "purged"}));
+    chats.connect();
+    chats.begin();
+    chats.page(&[at("old", "input", 400), at("new", "working", 300)]);
+    assert!(chats.end());
+    assert_eq!(ids(&chats.newest(&ChatQuery::default())), ["old", "new"]);
+    assert_eq!(ids(&chats.newest(&query(json!({"state": "input"})))), ["old"]);
+    let in_states: usize = chats.order.by_state.iter().map(BTreeSet::len).sum();
+    assert_eq!(in_states, chats.rows.len());
+    assert_eq!(chats.order.all.len(), chats.rows.len());
+}
+
+#[test]
+fn a_query_refuses_what_the_catalog_refuses() {
+    let refused =
+        |fields: Value| ChatQuery::from_fields(fields.as_object().unwrap()).unwrap_err().0;
+    assert_eq!(refused(json!({"limit": 0})), "limit");
+    assert_eq!(refused(json!({"limit": 1001})), "limit");
+    assert_eq!(refused(json!({"state": "busy"})), "state");
+    assert_eq!(refused(json!({"before_ms": 1})), "before_id");
+    assert_eq!(refused(json!({"before_id": "a"})), "before_ms");
+    assert_eq!(refused(json!({"before_machine": "mini"})), "before_machine");
+    assert_eq!(refused(json!({"sort": "recent"})), "fields");
+    assert_eq!(query(json!({"limit": null})), ChatQuery::default());
+}
+
+/// Leo's scale: 10K chats, and a read of the 5 newest walks 5 places, not 10K rows. Each update
+/// moves one place, so the order stays whole however many there are.
+#[test]
+fn ten_thousand_chats_read_the_newest_five_from_the_order() {
+    let mut chats = Chats::default();
+    let page = (0..10_000_u64)
+        .map(|n| at(&format!("c{n}"), if n % 100 == 0 { "input" } else { "idle" }, 1_000 + n))
+        .collect::<Vec<_>>();
+    chats.page(&page);
+    assert_eq!(
+        ids(&chats.newest(&query(json!({"limit": 5})))),
+        ["c9999", "c9998", "c9997", "c9996", "c9995"]
+    );
+    assert_eq!(
+        ids(&chats.newest(&query(json!({"state": "input", "limit": 2})))),
+        ["c9900", "c9800"]
+    );
+    chats.push(&push(at("c7", "working", 50_000)));
+    assert_eq!(ids(&chats.newest(&query(json!({"limit": 2})))), ["c7", "c9999"]);
+    assert_eq!(chats.order.all.len(), 10_000);
+    // Paging every chat 1000 at a time visits each once.
+    let mut seen = HashSet::new();
+    let mut cursor = json!({"limit": 1000});
+    loop {
+        let rows = chats.newest(&query(cursor.clone()));
+        if rows.is_empty() {
+            break;
+        }
+        seen.extend(ids(&rows));
+        let last = rows.last().unwrap();
+        cursor = json!({"limit": 1000, "before_ms": last["updated_ms"], "before_id": last["id"]});
+    }
+    assert_eq!(seen.len(), 10_000);
+}

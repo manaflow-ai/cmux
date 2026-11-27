@@ -1,8 +1,8 @@
-//! A send's `sender_claim` (`sender_harness.rs`), read by a chat client through the daemon's
-//! transcript filter (attach and history pages).
+//! A send's `sender_claim` (`sender_harness.rs`): written only once its prompt is kept, and read
+//! by a chat client through the daemon's transcript filter (attach and history pages).
 
 use super::*;
-use crate::sender_harness::RECORD_KIND;
+use crate::sender_harness::{RECORD_KIND, on_kept};
 
 fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
     let cfg: crate::config::Config =
@@ -34,4 +34,63 @@ fn a_sender_claim_reaches_a_chat_client_through_the_transcript_filter() {
         .map(|r| r.msg)
         .collect();
     assert_eq!(claims, vec![claim]);
+}
+
+fn claims(hub: &Hub, id: &str) -> Vec<Value> {
+    let filter = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
+    let page = hub.events_page(id, 0, None, 100, None, false, &filter).unwrap();
+    page.events
+        .into_iter()
+        .filter(|r| r.dir == "mux" && r.kind == RECORD_KIND)
+        .map(|r| r.msg)
+        .collect()
+}
+
+fn accept_with_claim(
+    hub: &Arc<Hub>,
+    s: &Arc<Session>,
+    claim: &Value,
+) -> Box<dyn FnOnce(Value) + Send> {
+    let (hub, s) = (hub.clone(), s.clone());
+    let write = move |claim: Value| {
+        hub.append(&s, "mux", RECORD_KIND, claim);
+    };
+    on_kept(claim.clone(), write, None).unwrap()
+}
+
+#[test]
+fn a_claim_is_written_only_once_its_prompt_is_kept() {
+    let (hub, s) = hub_with_chat("a");
+    let claim = json!({"promptId": "p-1", "claimed": {"harness": "codex", "selfReported": true}});
+    let accept = accept_with_claim(&hub, &s, &claim);
+    assert!(claims(&hub, "a").is_empty(), "nothing is written before the prompt is kept");
+    accept(json!({"sessionId": "a", "promptId": "p-1", "queued": false}));
+    assert_eq!(claims(&hub, "a"), vec![claim]);
+}
+
+#[test]
+fn a_duplicate_or_refused_prompt_writes_no_claim() {
+    let (hub, s) = hub_with_chat("a");
+    let claim = json!({"promptId": "p-1", "claimed": {"harness": "codex", "selfReported": true}});
+    accept_with_claim(&hub, &s, &claim)(json!({"promptId": "p-1", "duplicate": true}));
+    // A refused prompt never calls its acceptance.
+    drop(accept_with_claim(&hub, &s, &claim));
+    assert!(claims(&hub, "a").is_empty());
+}
+
+#[test]
+fn a_withdrawn_or_resent_inbox_message_writes_no_claim() {
+    let (hub, s) = hub_with_chat("a");
+    let claim = json!({"promptId": "p-1", "claimed": {"harness": "codex", "selfReported": true}});
+    // As `inbox_accept` answers a resend of one withdrawn, and a resend of one it holds or a
+    // notice carries: neither is a prompt kept now, so neither writes (or rewrites) a claim.
+    accept_with_claim(&hub, &s, &claim)(
+        json!({"promptId": "p-1", "queued": false, "inbox": true, "withdrawn": true}),
+    );
+    accept_with_claim(&hub, &s, &claim)(
+        json!({"promptId": "p-1", "queued": true, "inbox": true, "resent": true}),
+    );
+    assert!(claims(&hub, "a").is_empty());
+    accept_with_claim(&hub, &s, &claim)(json!({"promptId": "p-1", "queued": true, "inbox": true}));
+    assert_eq!(claims(&hub, "a"), vec![claim]);
 }

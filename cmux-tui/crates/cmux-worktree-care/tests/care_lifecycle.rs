@@ -3,9 +3,9 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 
-use cmux_worktree_care::inventory::{self, Facts, FinishedMemo, Repo};
+use cmux_worktree_care::inventory::{self, Facts, FinishedMemo, Guarded, Repo};
 use cmux_worktree_care::pass::{self, Options};
 use cmux_worktree_care::policy::{Action, Pressure, Settings};
 use cmux_worktree_care::procs::{Open, Uses};
@@ -19,6 +19,17 @@ fn nothing() -> Arc<Uses> {
 
 fn closed() -> Arc<Open> {
     Arc::new(|_| Ok(None))
+}
+
+/// No folder is privacy-protected.
+fn unguarded() -> Arc<Guarded> {
+    Arc::new(|_| false)
+}
+
+/// The folders under `dir` stand in for the Desktop: privacy-protected.
+fn guarded_under(dir: &Path) -> Arc<Guarded> {
+    let dir = dir.to_path_buf();
+    Arc::new(move |path: &Path| path.starts_with(&dir))
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -78,6 +89,20 @@ fn repository(name: &str) -> (PathBuf, PathBuf) {
 static FINISHED: LazyLock<Arc<FinishedMemo>> =
     LazyLock::new(|| Arc::new(FinishedMemo::load(scratch("finished").join("finished.json"))));
 
+/// The library runs one merge-tree at a time in a process and answers
+/// "busy, unknown" (never a remembered "no") when another is running. The
+/// tests of this file are threads of one process and most of them scan,
+/// archive or run a pass, each of which can run a merge-tree: a test that
+/// asserts a squash answer lost the slot to a sibling's merge-tree and read
+/// `None`. Every test holds this for its whole body, so no two of them
+/// scan at once. A test that failed while holding it poisons it; the next
+/// test takes it anyway, as nothing it guards can be left half done.
+static MERGE_TREE_SLOT: Mutex<()> = Mutex::new(());
+
+fn merge_tree_slot() -> MutexGuard<'static, ()> {
+    MERGE_TREE_SLOT.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn scan(main: &Path) -> Repo {
     let common =
         PathBuf::from(git(main, &["rev-parse", "--path-format=absolute", "--git-common-dir"]));
@@ -91,6 +116,7 @@ fn facts_of<'a>(repo: &'a Repo, path: &Path) -> (&'a inventory::Worktree, &'a Fa
 
 #[test]
 fn care_unpushed_and_uncommitted_work_survives_reclaim_and_restore() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("archive");
     let wt = base.join("wt-a");
     git(&main, &["worktree", "add", "-q", "-b", "feat/a", wt.to_str().unwrap()]);
@@ -148,6 +174,7 @@ fn care_unpushed_and_uncommitted_work_survives_reclaim_and_restore() {
 
 #[test]
 fn care_a_restore_takes_the_archive_from_its_bundle_when_the_ref_is_gone() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("bundle");
     let wt = base.join("wt-b");
     git(&main, &["worktree", "add", "-q", "-b", "feat/b", wt.to_str().unwrap()]);
@@ -177,6 +204,7 @@ fn care_a_restore_takes_the_archive_from_its_bundle_when_the_ref_is_gone() {
 
 #[test]
 fn care_a_pushed_clean_worktree_goes_without_an_archive() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("pushed");
     let wt = base.join("wt-c");
     git(&main, &["worktree", "add", "-q", "-b", "feat/c", wt.to_str().unwrap()]);
@@ -206,6 +234,7 @@ fn care_a_pushed_clean_worktree_goes_without_an_archive() {
 
 #[test]
 fn care_a_worktree_a_program_has_open_stays() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("held");
     let wt = base.join("wt-h");
     git(&main, &["worktree", "add", "-q", "-b", "feat/h", wt.to_str().unwrap()]);
@@ -248,25 +277,9 @@ fn care_a_worktree_a_program_has_open_stays() {
     assert_eq!(git(&main, &["for-each-ref", "refs/cmux/archive"]).trim(), "");
 }
 
-/// The host-wide merge-tree lock that scans with no state folder of their
-/// own share (`.merge-tree.lock` in `Store::default_dir()`), held until the
-/// file is dropped. Waits for a merge-tree another process is running.
-fn host_merge_tree_lock() -> std::fs::File {
-    let dir = Store::default_dir().expect("a home folder");
-    std::fs::create_dir_all(&dir).unwrap();
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(dir.join(".merge-tree.lock"))
-        .unwrap();
-    file.lock().unwrap();
-    file
-}
-
 #[test]
 fn care_a_squash_merged_branch_is_finished() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("squash");
     let wt = base.join("wt-d");
     git(&main, &["worktree", "add", "-q", "-b", "feat/d", wt.to_str().unwrap()]);
@@ -282,10 +295,6 @@ fn care_a_squash_merged_branch_is_finished() {
     git(&main, &["commit", "-qam", "later"]);
     git(&main, &["push", "-q", "origin", "HEAD:main"]);
     git(&main, &["fetch", "-q", "origin"]);
-    // A merge-tree elsewhere on this machine (another test process, the
-    // person's own cleanup daemon) holds the host-wide lock through the scan:
-    // what this test reads must not depend on what else runs on the host.
-    let _host_busy = host_merge_tree_lock();
     let repo = scan(&main);
     let (_, facts) = facts_of(&repo, &wt);
     assert_eq!(facts.unpushed, 2);
@@ -307,6 +316,7 @@ fn loose_objects(main: &Path) -> String {
 
 #[test]
 fn care_a_scan_writes_no_object_into_the_repository() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("no-objects");
     let wt = base.join("wt-e");
     git(&main, &["worktree", "add", "-q", "-b", "feat/e", wt.to_str().unwrap()]);
@@ -331,6 +341,7 @@ fn care_a_scan_writes_no_object_into_the_repository() {
 
 #[test]
 fn care_a_nested_repository_is_never_archived() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("nested");
     let wt = base.join("wt-e");
     git(&main, &["worktree", "add", "-q", "-b", "feat/e", wt.to_str().unwrap()]);
@@ -346,6 +357,7 @@ fn care_a_nested_repository_is_never_archived() {
 
 #[test]
 fn care_a_sparse_worktree_comes_back_sparse() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("sparse");
     let wt = base.join("wt-f");
     git(&main, &["worktree", "add", "-q", "-b", "feat/f", wt.to_str().unwrap()]);
@@ -373,6 +385,7 @@ fn care_a_sparse_worktree_comes_back_sparse() {
 
 #[test]
 fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("pass");
     let idle = base.join("wt-idle");
     let open = base.join("wt-open");
@@ -386,7 +399,9 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
             name: "lane".into(),
             cwd: open.clone(),
             open: true,
+            archived_checkout: None,
             updated_ms: 0,
+            ids: Vec::new(),
         }],
         settings: Settings {
             recent_hours: zero,
@@ -397,6 +412,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
         },
         uses: nothing(),
         open: closed(),
+        guarded: unguarded(),
         apply: true,
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
@@ -414,6 +430,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
 
 #[test]
 fn care_a_restore_over_a_branch_that_moved_on_detaches_at_the_archive() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("moved");
     let wt = base.join("wt-g");
     git(&main, &["worktree", "add", "-q", "-b", "feat/g", wt.to_str().unwrap()]);
@@ -452,6 +469,7 @@ fn care_a_restore_over_a_branch_that_moved_on_detaches_at_the_archive() {
 
 #[test]
 fn care_a_restore_that_cannot_find_its_archive_adds_nothing() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("lost");
     let wt = base.join("wt-h");
     git(&main, &["worktree", "add", "-q", "-b", "feat/h", wt.to_str().unwrap()]);
@@ -483,6 +501,7 @@ fn care_a_restore_that_cannot_find_its_archive_adds_nothing() {
 
 #[test]
 fn care_a_file_marked_assume_unchanged_keeps_its_worktree() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("assume");
     let wt = base.join("wt-i");
     git(&main, &["worktree", "add", "-q", "-b", "feat/i", wt.to_str().unwrap()]);
@@ -495,6 +514,7 @@ fn care_a_file_marked_assume_unchanged_keeps_its_worktree() {
 
 #[test]
 fn care_an_archive_goes_after_its_keep_time() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("expire");
     let wt = base.join("wt-j");
     git(&main, &["worktree", "add", "-q", "-b", "feat/j", wt.to_str().unwrap()]);
@@ -524,6 +544,7 @@ fn care_an_archive_goes_after_its_keep_time() {
 
 #[test]
 fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
+    let _slot = merge_tree_slot();
     // An unmounted volume, or a folder moved with mv: its HEAD, index and
     // reflog stay until git gc's own 3 months.
     let (base, main) = repository("missing");
@@ -539,6 +560,7 @@ fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
         settings: Settings::default(),
         uses: nothing(),
         open: closed(),
+        guarded: unguarded(),
         apply: true,
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
@@ -552,6 +574,7 @@ fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
 
 #[test]
 fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
+    let _slot = merge_tree_slot();
     let (base, main) = repository("claude");
     let wt = base.join("wt-l");
     git(&main, &["worktree", "add", "-q", "-b", "feat/l", wt.to_str().unwrap()]);
@@ -583,6 +606,7 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
             )
         }),
         open: closed(),
+        guarded: unguarded(),
         settings: Settings {
             recent_hours: zero,
             idle_pushed_hours: zero,
@@ -600,4 +624,308 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
     let item = report.items.iter().find(|i| i.path == wt).unwrap();
     assert_eq!(item.verdict.action, Action::Keep, "{}", item.verdict.reason);
     assert!(wt.exists());
+}
+
+#[test]
+fn pr_archive_preserves_late_writes_and_restores_the_linked_checkout() {
+    let _slot = merge_tree_slot();
+    let (base, main) = repository("pr-archive");
+    let wt = base.join("pr");
+    git(&main, &["worktree", "add", "-qb", "cmux/pr", wt.to_str().unwrap()]);
+    let store = Store::open(base.join("store")).unwrap();
+    let session = cmux_worktree_care::policy::Session {
+        name: "chat".into(),
+        cwd: wt.clone(),
+        open: true,
+        updated_ms: 0,
+        archived_checkout: Some(cmux_worktree_care::policy::ArchivedCheckout {
+            root: wt.clone(),
+            common_dir: main.join(".git"),
+            branch: "cmux/pr".into(),
+            head: git(&wt, &["rev-parse", "HEAD"]),
+        }),
+        ids: Vec::new(),
+    };
+    let mut options = Options {
+        roots: vec![main],
+        sessions: vec![session.clone()],
+        settings: Settings { recent_hours: [0; 3], ..Settings::default() },
+        uses: nothing(),
+        open: Arc::new(|root| {
+            write(&root.join(".env"), "written after the scan");
+            Ok(None)
+        }),
+        guarded: unguarded(),
+        apply: true,
+        pressure: Some(Pressure::Normal),
+        only: vec![wt.clone()],
+        measure: false,
+    };
+    options.sessions.push(session);
+    assert_eq!(pass::run(&options, &store).unwrap().items[0].verdict.action, Action::Keep);
+    options.sessions.pop();
+    write(&wt.join("node_modules/local"), "user content");
+    assert_eq!(pass::run(&options, &store).unwrap().items[0].verdict.action, Action::Keep);
+    std::fs::remove_file(wt.join("node_modules/local")).unwrap();
+    std::fs::remove_dir(wt.join("node_modules")).unwrap();
+    let report = pass::run(&options, &store).unwrap();
+    let item = &report.items[0];
+    assert_eq!(item.verdict.action, Action::Park, "{:?}", item.verdict);
+    assert!(item.outcome.as_ref().unwrap().ok, "{:?}", item.outcome);
+    assert!(!wt.exists());
+    let manifest = store.find("cmux/pr").unwrap();
+    assert!(archive::expire(&store, u64::MAX, 0).unwrap().is_empty());
+    std::fs::create_dir(&wt).unwrap();
+    assert!(restore(&store, &manifest, None).is_err());
+    std::fs::remove_dir(&wt).unwrap();
+    restore(&store, &manifest, None).unwrap();
+    assert_eq!(std::fs::read_to_string(wt.join(".env")).unwrap(), "written after the scan");
+    assert_eq!(git(&wt, &["branch", "--show-current"]), "cmux/pr");
+}
+
+/// `git` in `dir` as if run `hours` ago: its commits and reflog entries
+/// carry that time.
+#[cfg(unix)]
+fn git_ago(dir: &Path, hours: u64, args: &[&str]) {
+    let then = inventory::now_ms() / 1000 - hours * 3600;
+    let out = Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgSign=false"])
+        .args(["-c", "core.hooksPath=/dev/null"])
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_COMMITTER_DATE", format!("@{then} +0000"))
+        .env("GIT_AUTHOR_DATE", format!("@{then} +0000"))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+/// Every file and folder under `path` (it too) last changed `hours` ago.
+#[cfg(unix)]
+fn age(path: &Path, hours: u64) {
+    let then = std::time::SystemTime::now() - std::time::Duration::from_secs(hours * 3600);
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        let meta = std::fs::symlink_metadata(&path).unwrap();
+        if meta.is_symlink() {
+            continue;
+        }
+        if meta.is_dir() {
+            stack.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+        }
+        std::fs::File::open(&path).unwrap().set_modified(then).unwrap();
+    }
+}
+
+/// A checkout of a bare mirror as `wt new` makes them, everything about
+/// it 25 h old: `<base>/checkouts/lane--x` on branch `lane/x`, one commit
+/// of its own pushed to origin, reflogs on (as the mirrors keep them).
+#[cfg(unix)]
+fn mirror_checkout(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let (base, main) = repository(name);
+    let mirror = base.join("mirror.git");
+    git(&base, &["clone", "-q", "--bare", "origin.git", "mirror.git"]);
+    git(&mirror, &["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]);
+    git(&mirror, &["config", "core.logAllRefUpdates", "true"]);
+    git_ago(&mirror, 25, &["fetch", "-q", "origin"]);
+    let checkout = base.join("checkouts/lane--x");
+    let at = checkout.to_str().unwrap();
+    git_ago(&mirror, 25, &["worktree", "add", "-q", "-b", "lane/x", at, "origin/main"]);
+    write(&checkout.join("src/lib.txt"), "lane\n");
+    git_ago(&base, 25, &["-C", at, "commit", "-qam", "lane"]);
+    git_ago(&base, 25, &["-C", at, "push", "-q", "origin", "HEAD:lane/x"]);
+    git(&main, &["fetch", "-q", "origin"]);
+    age(&base, 25);
+    (base, mirror, checkout)
+}
+
+/// A pass over `<base>/checkouts` with the default waits at high pressure
+/// (pushed work goes after 24 h idle), acting or not.
+#[cfg(unix)]
+fn high_pressure(base: &Path, apply: bool) -> Options {
+    Options {
+        roots: vec![base.join("checkouts")],
+        sessions: Vec::new(),
+        uses: nothing(),
+        open: closed(),
+        settings: Settings::default(),
+        apply,
+        pressure: Some(Pressure::High),
+        only: Vec::new(),
+        measure: false,
+        guarded: unguarded(),
+    }
+}
+
+/// The verdict a pass gave `path`.
+#[cfg(unix)]
+fn verdict_of(report: &pass::Report, path: &Path) -> cmux_worktree_care::Verdict {
+    report.items.iter().find(|i| i.path == path).expect("listed").verdict.clone()
+}
+
+/// hq#13316 (detector `vanished-owned-checkout`): on 2026-11-18 a loop
+/// whose folder was elsewhere used its checkout only through `git -C`,
+/// and the pass removed it as "everything pushed; idle 25 h". The
+/// mirror's refs of its branch count as use: a checkout whose folder,
+/// index and HEAD are 25 h old stays once its owner's work moves
+/// `lane/x` there.
+#[cfg(unix)]
+#[test]
+fn care_a_checkout_its_owner_uses_only_through_git_c_stays_after_25_h_idle() {
+    let _slot = merge_tree_slot();
+    let (base, mirror, checkout) = mirror_checkout("git-c");
+    let store = Store::open(base.join("store")).unwrap();
+    // Untouched for 25 h: it would go.
+    let before = verdict_of(&pass::run(&high_pressure(&base, false), &store).unwrap(), &checkout);
+    assert_eq!(before.action, Action::Reclaim, "{}", before.reason);
+    assert_eq!(before.reason, "everything pushed; idle 25 h");
+
+    // The owner's job pushes more of `lane/x` from elsewhere and fetches
+    // it through `git -C <checkout>`; its own HEAD does not move.
+    let main = base.join("main");
+    git(&main, &["switch", "-q", "-c", "lane/x", "origin/lane/x"]);
+    write(&main.join("src/lib.txt"), "loop\n");
+    git(&main, &["commit", "-qam", "loop"]);
+    git(&main, &["push", "-q", "origin", "lane/x"]);
+    git(&base, &["-C", checkout.to_str().unwrap(), "fetch", "-q", "origin"]);
+    // Only the mirror's refs of `lane/x` show it: the folder and its
+    // private git folder are 25 h old again.
+    age(&checkout, 25);
+    age(&mirror.join("worktrees"), 25);
+    let after = verdict_of(&pass::run(&high_pressure(&base, true), &store).unwrap(), &checkout);
+    assert_eq!(after.action, Action::Keep, "{}", after.reason);
+    assert!(after.reason.starts_with("used "), "{}", after.reason);
+    assert!(checkout.exists());
+}
+
+/// hq#13316: a checkout whose `wt-owner.json` (as `wt new` writes it)
+/// names a process that runs is in use, however idle; one naming a
+/// process that is gone is judged by its other signals.
+#[cfg(unix)]
+#[test]
+fn care_a_checkout_whose_wt_owner_runs_stays_after_25_h_idle() {
+    let _slot = merge_tree_slot();
+    let (base, mirror, checkout) = mirror_checkout("wt-owner");
+    let store = Store::open(base.join("store")).unwrap();
+    let owner_file = mirror.join("worktrees/lane--x/wt-owner.json");
+    let record = |pid: u32| {
+        serde_json::json!({
+            "branch": "lane/x",
+            "created_at": "2026-11-17T02:00:00Z",
+            "owner": {
+                "callsign": null,
+                "harness": "claude",
+                "host": null,
+                "ids": ["01a1e717-2364-7022-b435-b2ba9f4ad05c"],
+                "pid": pid,
+                "proc_start": "217810655",
+                "session_id": "01a1e717-2364-7022-b435-b2ba9f4ad05c",
+                "user": "t"
+            },
+            "repo": "o/r",
+            "sparse": null,
+            "start": "origin/main",
+            "v": 1
+        })
+        .to_string()
+    };
+    // Far above any pid_max: never running, so the other signals decide.
+    write(&owner_file, &record(2_000_000_000));
+    age(&base, 25);
+    let gone = verdict_of(&pass::run(&high_pressure(&base, false), &store).unwrap(), &checkout);
+    assert_eq!(gone.action, Action::Reclaim, "{}", gone.reason);
+
+    write(&owner_file, &record(std::process::id()));
+    age(&base, 25);
+    let kept = verdict_of(&pass::run(&high_pressure(&base, true), &store).unwrap(), &checkout);
+    assert_eq!(kept.action, Action::Keep, "{}", kept.reason);
+    let pid = std::process::id();
+    assert_eq!(
+        kept.reason,
+        format!("owner 01a1e717-2364-7022-b435-b2ba9f4ad05c's process {pid} runs")
+    );
+    assert!(checkout.exists());
+}
+
+/// LAUNCH-NO-TCC-PROMPTS (2026-11-22, air-blue): a daemon's start-up pass ran
+/// `git rev-parse --git-common-dir` in a recorded session's folder on the
+/// Desktop, and a fresh copy of the app got the Desktop privacy prompt with
+/// nobody asking. A guarded session folder is never handed to git.
+#[test]
+fn care_a_session_folder_in_a_guarded_location_is_never_read() {
+    let base = scratch("guarded-session");
+    let desk = base.join("Desktop");
+    let session = desk.join("videos");
+    std::fs::create_dir_all(&session).unwrap();
+    git(&session, &["init", "-q"]);
+    let extra = vec![session];
+    // Unguarded, the session's repository is found (by a git run in it).
+    assert_eq!(inventory::repositories(&[], &extra, &*unguarded()).len(), 1);
+    assert!(
+        inventory::repositories(&[], &extra, &*guarded_under(&desk)).is_empty(),
+        "a guarded session folder reached git"
+    );
+}
+
+/// A worktree under a scanned root whose repository lives in a guarded
+/// folder: its `.git` file is read in the process, and no git runs (git would
+/// read the guarded git folder first).
+#[test]
+fn care_a_worktree_of_a_repository_in_a_guarded_location_is_skipped() {
+    let (base, main) = repository("guarded-repo");
+    let desk = base;
+    let roots = scratch("guarded-repo-roots");
+    let wt = roots.join("wt-g");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/g", wt.to_str().unwrap()]);
+    assert_eq!(inventory::repositories(std::slice::from_ref(&roots), &[], &*unguarded()).len(), 1);
+    assert!(inventory::repositories(&[roots], &[], &*guarded_under(&desk)).is_empty());
+}
+
+/// A linked worktree someone put in a guarded folder is neither read nor
+/// acted on, even by a pass that removes every idle worktree.
+#[test]
+fn care_a_linked_worktree_in_a_guarded_location_is_left_alone() {
+    let _slot = merge_tree_slot();
+    let (base, main) = repository("guarded-wt");
+    let desk = base.join("Desktop");
+    std::fs::create_dir_all(&desk).unwrap();
+    let wt = desk.join("wt-d");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/d", wt.to_str().unwrap()]);
+    let common = std::fs::canonicalize(main.join(".git")).unwrap();
+    let all =
+        inventory::scan_guarded(&common, &[], Arc::new(FinishedMemo::memory()), &*unguarded())
+            .unwrap();
+    assert!(all.worktrees.iter().any(|w| w.path == wt));
+    let repo = inventory::scan_guarded(
+        &common,
+        &[],
+        Arc::new(FinishedMemo::memory()),
+        &*guarded_under(&desk),
+    )
+    .unwrap();
+    assert!(repo.worktrees.iter().all(|w| w.path != wt), "a guarded worktree was read");
+    let zero = [0, 0, 0];
+    let options = Options {
+        roots: vec![base.clone()],
+        sessions: Vec::new(),
+        settings: Settings {
+            recent_hours: zero,
+            idle_pushed_hours: zero,
+            idle_unpushed_hours: zero,
+            trim_hours: zero,
+            ..Settings::default()
+        },
+        uses: nothing(),
+        open: closed(),
+        guarded: guarded_under(&desk),
+        apply: true,
+        pressure: Some(Pressure::Critical),
+        only: Vec::new(),
+        measure: false,
+    };
+    let store = Store::open(base.join("store")).unwrap();
+    let report = pass::run(&options, &store).unwrap();
+    assert!(report.items.iter().all(|i| i.path != wt));
+    assert!(wt.join("README").exists(), "the pass removed a guarded worktree");
 }

@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the bookmark surfaces (Resources/Localizable.xcstrings).
 public nonisolated enum BookmarkStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     public static var barTitle: String { t("root.bar", "Bookmarks Bar") }
@@ -14,7 +14,6 @@ public nonisolated enum BookmarkStrings {
     public static var emptyPageTitle: String { t("page.emptyTitle", "No bookmarks here") }
     public static var emptyPageHint: String { t("page.emptyHint", "Use the More menu to add a bookmark.") }
     public static var emptySearchTitle: String { t("page.emptySearchTitle", "No bookmarks found") }
-    public static var emptySearchHint: String { t("page.emptySearchHint", "Try a different search or clear the search field.") }
     public static var emptyFolder: String { t("folder.empty", "(empty)") }
     public static var moreBookmarks: String { t("bar.more", "More Bookmarks") }
     public static var hideBar: String { t("bar.hide", "Hide Bookmarks Bar") }
@@ -43,6 +42,8 @@ public nonisolated enum BookmarkStrings {
     public static var showInFolder: String { t("verb.showInFolder", "Show in Folder") }
     public static var setIcon: String { t("verb.setIcon", "Set Icon…") }
     public static var removeIcon: String { t("verb.removeIcon", "Remove Icon") }
+    /// The page asked to open a bookmark without the person's click or key in it.
+    static var personOnlyFromPage: String { t("page.personOnly", "Only you can start this, with a click or key in the page.") }
 
     public static func openAll(_ count: Int) -> String {
         String(format: t("verb.openAll", "Open All (%lld)"), count)

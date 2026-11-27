@@ -1,7 +1,11 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextAgentActivity
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextSettings
@@ -10,8 +14,8 @@ import os
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
 /// hands every quit here: it takes the origin (`QuitOriginTracker`), asks
-/// about unsaved documents, decides (`QuitPolicy`; no quit asks how to quit),
-/// then completes (`QuitSteps`, CmuxNextControl): save and close windows, and
+/// about unsaved documents, decides (`QuitPolicy`; no quit asks how to quit, and Cmd-Q, the menu and the Dock
+/// quit the app only, CMUX-630), then completes (`QuitSteps`, CmuxNextControl): save and close windows, and
 /// for End end the local terminals and stop the local daemon. A failed end
 /// step shows `QuitFailureAlert` (Retry or Quit Anyway). Remote sessions are
 /// never ended.
@@ -24,6 +28,12 @@ final class QuitCoordinator {
     private(set) var isQuitting = false
     /// Runs once when the next quit is refused (an update's relaunch behind waits on that quit).
     var onQuitRefused: (() -> Void)?
+    /// Cmd-Q's guard against an accidental quit (`app.warnBeforeQuitShortcut`, https://github.com/manaflow-ai/cmux/issues/48621).
+    let shortcutGuard = QuitShortcutGuard()
+    /// The "Quit cmux?" question's dialog id, while it shows.
+    private var shortcutQuestion: Int?
+    /// Which question the open one is: its answer after it was ended counts for nothing.
+    private var shortcutAsk: UUID?
     private unowned let services: AppServices
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
@@ -36,16 +46,17 @@ final class QuitCoordinator {
     /// Holds each quit step to its limit and marks its end in the launch marks.
     let steps = QuitStepLimiter(mark: { DebugTimings.markLaunch($0) })
     /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
-    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave). The windows
-    /// go away before CefShutdown blocks the main thread (2 to 3.4 s under load, cmuxterm-hq#6338),
-    /// so a decided quit looks done instead of a frozen window; the deadline ends the process after.
+    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave), then `engineWillStop`.
     lazy var closeEngines: @MainActor () async -> Void = { [weak self] in
-        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: QuitCoordinator.hideWindowsForEngineStop)
+        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, stopsEngine: self?.services.updater.relaunchingForUpdate != true, beforeEngineStop: { await self?.engineWillStop() }) // an update's relaunch skips CefShutdown (ask-ad4a68e740)
     }
 
-    /// Orders out every visible window: the quit is decided and its saves ran (`stopBrowserEngines`).
-    static func hideWindowsForEngineStop() {
-        for window in NSApp?.windows ?? [] where window.isVisible { window.orderOut(nil) }
+    /// Right before CefShutdown, which never returned before the 4 s deadline in the quit hang files (cmuxterm-hq#8608, #11994): the windows
+    /// go (a decided quit looks done), the drafts the closing pages queued reach disk, and the process ends `engineShutdownLimit` later.
+    func engineWillStop(hide: () -> Void = { for window in NSApp?.windows ?? [] where window.isVisible { window.orderOut(nil) } }) async {
+        hide()
+        await services.stateFilesDrained()
+        deadline.endSooner(after: QuitDeadline.engineShutdownLimit, reason: "CefShutdown began")
     }
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
@@ -58,6 +69,50 @@ final class QuitCoordinator {
         self.services = services
         unsaved = services.quitUnsaved
         deadline = QuitDeadline(reason: "its quit deadline was armed (a keep quit decided, or an End quit's engines began to stop)", end: services.quitDeadlineEnd())
+        shortcutGuard.onDisarm = { [weak self] in self?.endShortcutQuestion() }
+        shortcutGuard.onHeldQuit = { [weak self] in self?.requestQuit(.interactive) }
+    }
+
+    /// Whether this run of Quit waits instead (`QuitShortcutGuard.holds`): the shortcut's first press
+    /// asks "Quit cmux?" in the active window (Quit, Cancel, "Don't ask again").
+    func holdsShortcutQuit(_ invocation: ActionInvocation) -> Bool {
+        let enabled = !isQuitting && (services.settings?.snapshot.warnBeforeQuitShortcut ?? CmuxConfigSnapshot.warnBeforeQuitShortcutDefault)
+        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled,
+                                    qwerty: services.registry.matchesQwertyPositions) { [weak self] in self?.askShortcutQuit($0) ?? false }
+    }
+
+    /// The question; its "Don't ask again" with Quit turns `app.warnBeforeQuitShortcut` off.
+    private func askShortcutQuit(_ shortcut: String) -> Bool {
+        guard let window = sheetWindow() ?? services.windows.active?.window, window.isVisible else { return false }
+        let prompt = Self.shortcutPrompt(shortcut)
+        let asked = UUID()
+        shortcutAsk = asked
+        // A dialog the window already shows would queue the question out of sight: it opens in the app's own panel then.
+        let busy = CmuxDialogCenter.shared.dialogBlockingKeys(in: window) != nil
+        shortcutQuestion = DestructiveConfirmation.present(prompt, in: window, settings: services.settings, scope: busy ? .app : nil) { [weak self] quit in
+            // A question ended by a second press or a held shortcut (`endShortcutQuestion`) has nothing left to do.
+            guard let self, shortcutAsk == asked else { return }
+            shortcutAsk = nil
+            shortcutQuestion = nil
+            shortcutGuard.disarm()
+            if quit { requestQuit(.interactive) }
+        }
+        return true
+    }
+
+    /// "Quit cmux?": Cancel, Quit (Return), and "Don't ask again" for `app.warnBeforeQuitShortcut`.
+    static func shortcutPrompt(_ shortcut: String) -> DestructiveConfirmation.Prompt {
+        DestructiveConfirmation.Prompt(title: QuitStrings.shortcutQuestionTitle, body: QuitStrings.shortcutQuestionBody(shortcut),
+                                       button: QuitStrings.shortcutQuestionQuit, suppresses: CmuxConfigSnapshot.warnBeforeQuitShortcutPath)
+    }
+
+    /// The guard disarmed while asking: only a quit does that (a second or held Cmd-Q, a quit the guard
+    /// lets through), so the question ends as Quit and a checked "Don't ask again" still counts.
+    private func endShortcutQuestion() {
+        let id = shortcutQuestion
+        shortcutAsk = nil
+        shortcutQuestion = nil
+        if let id { CmuxDialogCenter.shared.press(id, button: DestructiveConfirmation.confirmID) }
     }
 
     /// Records the origin, then starts AppKit's termination. A quit already
@@ -88,19 +143,22 @@ final class QuitCoordinator {
         DebugTimings.markLaunch("quit.requested")
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
-        let origin = origins.consume(appleEventReason: Self.quitReason())
+        let origin = origins.consume(appleEventReason: NSAppleEventManager.shared().quitReason)
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
+        let reply = QuitReplyWatchdog.started { sender.reply(toApplicationShouldTerminate: $0) } // replies if the Task below cannot
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
-            // Unsaved documents are the quit's one question (R96 quit hook).
-            guard await resolveUnsaved(origin) else {
+            services.windows.recordSaver.layoutCache.flushNow() // the layout as seen, before anything leaves the screen
+            let choice = QuitPolicy.decide(origin, behavior: behavior)
+            // Unsaved documents (R96 quit hook) are the only question a quit can ask.
+            guard await reply.holding({ await resolveUnsaved(origin) }) else { // the person may be asked
                 isQuitting = false
-                sender.reply(toApplicationShouldTerminate: false)
+                reply.send(false)
                 quitRefused()
                 return
             }
-            await complete(QuitPolicy.decide(origin, behavior: behavior), sender)
+            await complete(choice, reply)
         }
         return .terminateLater
     }
@@ -119,42 +177,42 @@ final class QuitCoordinator {
                                              writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
     }
 
-    private func complete(_ choice: QuitSessionsChoice, _ sender: NSApplication) async {
+    private func complete(_ choice: QuitSessionsChoice, _ reply: QuitReplyWatchdog) async {
         logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
         let services = services
+        // Sparkle installs a staged update as the app exits unless `updates.installOnQuit` is off
+        // (then it is cancelled now), once the keep for rollback its staging started ends (bounded).
+        await services.updater.prepareForQuitAfterKeep()
         // A keep quit ends within `keepQuitLimit` from here, whatever any step
         // below does (slow quit, 2026-10-20). An End quit arms its deadline
         // once its sessions ended (the end steps show their failures).
-        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) }
-        // Sparkle installs a staged update as the app exits unless
-        // `updates.installOnQuit` is off (then its installer is cancelled now).
-        services.updater.prepareForQuit()
-        // From here the quit is decided: an end before AppKit's reply (a
-        // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
-        // a quit the user asked for, not a crash.
+        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) } else { reply.hold() } // End's failure alert waits on the person
+        // From here the quit is decided: an end before AppKit's reply (a SIGKILL after a bounded wait,
+        // a slow Chromium shutdown) is still a quit the user asked for, not a crash.
         // Awaited (bounded, 500 ms) so `quitting` is on disk before the quit
         // can end the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
         await quitSteps(choice).run(ends: choice.ends)
         DebugTimings.markLaunch("quit.replied")
-        sender.reply(toApplicationShouldTerminate: true)
+        reply.send(true)
     }
 
     /// The quit's steps after the decision `choice` (`QuitSteps.run`).
     func quitSteps(_ choice: QuitSessionsChoice) -> QuitSteps {
-        let services = services
+        let services = services, steps = steps
         return QuitSteps(
             prepareWindows: { [steps] in
-                let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: services.cache.browserTabs.isIncognitoTab)
+                let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
-                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: incognito.contains)) },
-                    agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: incognito.contains)) },
+                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })) },
+                    agentImages: { services.launchImages.pictures?.stop(); if let saved = services.updater.savedForRelaunch { await saved.value } else { await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.contains(incognito, $0) } } }, // a relaunch saved them while its windows were on screen (UpdateWindowHandoff.savesBeforeLeaving)
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
+                        if services.updater.savedForRelaunch == nil { await services.cache.savePageFramesForQuit() } // and browser pages' (`BrowserPageFrames`); a relaunch saved them on screen
                     },
                     browserRecords: { await services.cache.browserTabs.flushRecords() },
                     windows: {
@@ -162,7 +220,7 @@ final class QuitCoordinator {
                         // the step waits for them: every quit, Keep included, waits for a step past its limit.
                         services.incognitoChats.closingForQuit(services)
                         await services.windows.prepareForTermination()
-                        await services.incognitoChats.drain()
+                        await services.incognitoChats.drain(); await services.daemon.connection?.flushLaunchSnapshot()
                     },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
@@ -180,7 +238,7 @@ final class QuitCoordinator {
                 await services.home.brain.stop()
                 let acpmux = QuitAgents.environment(services)
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
-                if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
+                if acpmux?.isAttached(to: services.home.chief.home.acpmuxHome) != true {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
                                                          bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
                 }
@@ -194,11 +252,11 @@ final class QuitCoordinator {
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
+                await services.windows.recordSaver.launchRecord.flush()
+                await services.windows.recordSaver.layoutCache.flush()
                 guard let self else { return }
-                // CefShutdown runs on the main thread and can block it for
-                // good: from here the quit ends by a deadline whatever it
-                // does (a keep quit's deadline is armed already and stays),
-                // and a debug build reports that hang, never asserts it.
+                // CefShutdown runs on the main thread and can block it for good: from here the quit ends by a deadline whatever it
+                // does (a keep quit's deadline is armed already and stays), and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 watchdog?.endHangAssertions()
                 #if DEBUG || CMUX_BENCH_HOOKS
@@ -234,14 +292,5 @@ final class QuitCoordinator {
     private func sheetWindow() -> NSWindow? {
         let candidates = [services.windows.active?.window, NSApp?.mainWindow] + services.windows.controllers.map(\.window)
         return candidates.compactMap { $0 }.first { $0.isVisible && !$0.isMiniaturized && $0.attachedSheet == nil }
-    }
-
-    /// `kAEQuitReason` of the quit Apple event being handled, if any.
-    private static func quitReason() -> OSType? {
-        guard let event = NSAppleEventManager.shared().currentAppleEvent,
-              event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEQuitApplication),
-              let reason = event.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) ?? event.paramDescriptor(forKeyword: AEKeyword(kAEQuitReason))
-        else { return nil }
-        return reason.enumCodeValue
     }
 }

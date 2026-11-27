@@ -15,25 +15,38 @@ use std::time::Duration;
 
 pub const SERVER_NAME: &str = "cmux-cloud-repos";
 pub const SESSION_ENV: &str = "ACPMUX_CLOUD_REPO_SESSION";
+/// Its acpmux command word: its own stdio process, where the daemon's gateway does not serve it.
+pub const COMMAND: &str = "repo-mcp";
 /// The daemon action names are deliberately shared with `cmux mcp` and the
 /// webview action bridge (rather than a second agent-only protocol).
 pub const REPO_LIST_ACTION: &str = "cloud.repo.list";
 pub const REPO_ADD_ACTION: &str = "cloud.repo.add";
 pub const REPO_WAIT_GITHUB_ACTION: &str = "cloud.repo.wait_github";
 
-/// What the agent tells a person who asks where it runs: the machine, how long its files last,
-/// and how to bring a repository in. A Cloud chat can start with no repository, so the agent says
-/// so plainly instead of guessing (Leo, 2026-11-02, on Claude Code's cloud session that does:
+/// What the agent tells a person who asks where it runs: the machine, where its working folder
+/// comes from, and how work leaves it. A Cloud chat can start with no repository, so the agent
+/// says so plainly instead of guessing (Leo, 2026-11-02, on Claude Code's cloud session that does:
 /// "i want us to be able to do this too"). Facts, not policy: the machine is a cmux Cloud Linux VM
 /// (`/etc/cmux/vm-kind`), its disk stays until it is deleted, and an idle machine may be paused
-/// (cmux-platform CloudIdle) and resumes with its files.
+/// (cmux-platform CloudIdle) and resumes with its files. A chat started on a folder from the
+/// person's Mac works in that folder projected (RFD 0007), empty or not, git or not, and its edits
+/// reach the Mac on Bring Back; the text says both cases and `this_folder` tells which, since the
+/// same text opens every chat (the cached prompt prefix, `tools_mcp::INSTRUCTIONS_IN_PROMPT_ENV`).
+/// Leo, 2026-11-25, on an empty folder's chat that said nothing comes back to the Mac: "and then
+/// like on an empty folder cloud whatever im not sure".
 pub const INSTRUCTIONS: &str = "This chat runs on a cmux Cloud machine: a Linux virtual machine \
-in cmux Cloud, not the person's Mac. Its files stay on the machine between chats, even while it \
-is paused when idle, until the machine is deleted. Nothing on it is copied back to the Mac: push \
-work to GitHub to keep it anywhere else. A chat can start with no repository; then the working \
-folder may be empty. Attach one at any time with add_repo (list_repos finds names); Session Info \
-may also offer the person Add repository. A needs_github result is retried automatically after Connect \
-GitHub finishes. When asked what this environment is, say these things plainly.";
+in cmux Cloud, not the person's Mac. When the person started it on a folder from their Mac, the \
+working folder is that folder projected (empty or not, a git repository or not): its files read \
+from the Mac on first use, and what you write stays on this machine over them until the person \
+brings it back (Bring Back), which applies it to that same Mac folder. Otherwise the working \
+folder is the machine's own (a repository cloned here, or empty when the chat started with none): \
+its files stay on the machine between chats, even while it is paused when idle, until the machine \
+is deleted, and nothing in it is copied to the Mac, so push work to GitHub to keep it anywhere \
+else. Before saying which case this is, call this_folder with your working folder: it names the \
+Mac folder a projection mirrors, how edits reach it, and whether it is a git repository. Attach \
+a repository at any time with add_repo (list_repos finds names); Session Info may also offer the \
+person Add repository. A needs_github result is retried automatically after Connect GitHub \
+finishes. When asked what this environment is, say these things plainly.";
 
 /// Cloud machines carry the same image marker used by acpmux host updates.
 pub fn is_cloud_machine() -> bool {
@@ -42,6 +55,15 @@ pub fn is_cloud_machine() -> bool {
 
 fn tools() -> Value {
     json!([
+        {
+            "name": "this_folder",
+            "description": "Say what a folder on this Cloud machine is: a projection of a folder on the person's Mac (which one, and that edits reach it on Bring Back) or the machine's own folder, and whether it is a git repository. Call it with your working folder before describing where files live or whether they sync to the Mac.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "An absolute folder path, usually your working folder (pwd)."}},
+                "required": ["path"]
+            }
+        },
         {
             "name": "list_repos",
             "description": "List repositories you can attach to this Cloud chat. A bare name is resolved from local projects, recently used Cloud repositories, and the GitHub App installation. If GitHub is not connected, follow the connect action in the result.",
@@ -63,6 +85,20 @@ fn tools() -> Value {
             }
         }
     ])
+}
+
+/// The server for the session in the env, as one of acpmux's own
+/// ([`crate::tools_mcp::SERVERS`]): the daemon's gateway, or the chat's one `acpmux tools-mcp`,
+/// answers it, so a chat runs no `acpmux repo-mcp` process of its own.
+pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
+        SERVER_NAME,
+        SESSION_ENV,
+        tools(),
+        Some(INSTRUCTIONS.to_owned()),
+        daemon,
+        |daemon, session, params| async move { call(&daemon, &session, &params).await },
+    )
 }
 
 pub async fn run() -> Result<()> {
@@ -107,7 +143,7 @@ fn result_text(result: &Value) -> String {
     }
     if let Some(repos) = result.get("repos").and_then(Value::as_array) {
         return if repos.is_empty() {
-            "No repositories match. Connect GitHub or use a local project and try again.".to_owned()
+            "No repositories match. Connect GitHub, or use a local project.".to_owned()
         } else {
             format!(
                 "Found {} {}.",
@@ -131,8 +167,10 @@ fn result_text(result: &Value) -> String {
 /// (never interpolated into a command string), and makes this bridge work with
 /// the same socket as `cmux cloud repo`.
 async fn run_cli(action: &'static str, request: Value) -> Result<Value, String> {
-    let binary = std::env::var_os("CMUX_BIN").unwrap_or_else(|| "cmux".into());
-    run_cli_with(&binary, std::env::var_os("CMUX_SOCKET_PATH").as_deref(), action, request).await
+    // The chat's env where the daemon's gateway serves it, else this process's.
+    let binary = crate::login_env::cmux_cli_or(crate::tool_env::var("CMUX_BIN"));
+    let socket = crate::tool_env::var("CMUX_SOCKET_PATH").map(std::ffi::OsString::from);
+    run_cli_with(&binary, socket.as_deref(), action, request).await
 }
 
 async fn run_cli_with(
@@ -170,9 +208,10 @@ async fn run_cli_with(
     )
     .await
     .map_err(|_| {
-        "Repository action timed out; reconnect to the Cloud machine and retry.".to_owned()
+        "The Cloud machine did not finish the repository action in time; it is slow or unreachable."
+            .to_owned()
     })?
-    .map_err(|e| format!("Could not reach the Cloud machine; reconnect and retry ({e})."))?;
+    .map_err(|e| format!("Could not run cmux to reach the Cloud machine ({e})."))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     if let Some(line) = stdout.lines().rev().find(|line| line.trim_start().starts_with('{'))
         && let Ok(value) = serde_json::from_str::<Value>(line)
@@ -191,15 +230,15 @@ async fn run_cli_with(
         if value.get("error_code").is_some() {
             return Ok(json!({
                 "code": value.get("error_code").and_then(Value::as_str).unwrap_or("repo.unavailable"),
-                "message": value.get("error").and_then(Value::as_str).unwrap_or("Reconnect to the Cloud machine and retry.")
+                "message": value.get("error").and_then(Value::as_str).unwrap_or("The Cloud machine refused the repository action.")
             }));
         }
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     Err(if stderr.trim().is_empty() {
-        "The Cloud machine returned no repository result; reconnect and retry.".to_owned()
+        "The Cloud machine returned no repository result.".to_owned()
     } else {
-        format!("Repository action failed; reconnect and retry: {}", stderr.trim())
+        format!("Repository action failed: {}", stderr.trim())
     })
 }
 
@@ -228,7 +267,8 @@ where
 {
     if caller != Some(session) {
         return error_result(
-            "Repository tools could not verify this chat. Restart the chat session, then retry Add repository.".to_owned(),
+            "Repository tools could not verify this chat. Restart the chat session to use them."
+                .to_owned(),
         );
     }
     let args = match args_object(params) {
@@ -237,6 +277,19 @@ where
     };
     let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
     match name {
+        "this_folder" => {
+            let Some(path) = args
+                .get("path")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|path| path.starts_with('/'))
+            else {
+                return error_result("path is required: an absolute folder path".to_owned());
+            };
+            let answer = crate::cloud_folder::describe(path);
+            let text = answer["summary"].as_str().unwrap_or_default().to_owned();
+            json!({"content":[{"type":"text","text":text}],"structuredContent":answer,"isError":false})
+        }
         "list_repos" => {
             let mut req = json!({"session": session});
             if let Some(query) =
@@ -244,7 +297,26 @@ where
             {
                 req.set("query", json!(query));
             }
-            match run(REPO_LIST_ACTION, req).await {
+            // A list only reads: one the Cloud machine did not answer is asked again for a few
+            // seconds (a reconnect in progress), never handed to the agent as "retry".
+            let listed = cmux_tui_util::retry::Patience::new("the Cloud machine", LIST_PATIENCE)
+                .quiet()
+                .run_async(
+                    || "The Cloud machine did not return the repository list in time.".to_owned(),
+                    {
+                        let run = &run;
+                        move || {
+                            let req = req.clone();
+                            async move {
+                                run(REPO_LIST_ACTION, req)
+                                    .await
+                                    .map_err(cmux_tui_util::retry::Attempt::Retry)
+                            }
+                        }
+                    },
+                )
+                .await;
+            match listed {
                 Ok(result) => ok(result),
                 Err(e) => error_result(e),
             }
@@ -275,6 +347,9 @@ where
     }
 }
 
+/// How long `list_repos` asks the Cloud machine again while it does not answer.
+const LIST_PATIENCE: Duration = Duration::from_secs(10);
+
 /// Keep retry information in the agent result even if an older daemon only
 /// returns the typed error. The UI uses this exact payload to retry silently.
 fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option<&Value>) {
@@ -285,22 +360,59 @@ fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option
     } else {
         return;
     };
-    if error.get("code").and_then(Value::as_str) != Some("repo.needs_github") {
+    let code = error.get("code").and_then(Value::as_str);
+    if code != Some("repo.needs_github") && code != Some("repo.no_access") {
         return;
     }
     let mut args = json!({"session": session, "repo": repo});
     if let Some(reference) = reference.and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
         args.set("ref", json!(reference));
     }
-    error.set(
-        "retry",
-        json!({"action": REPO_ADD_ACTION, "args": args, "wait_action": REPO_WAIT_GITHUB_ACTION}),
-    );
+    // No access is granted on GitHub (an install on the organization, its owner's yes), never by a
+    // connect to wait on: its retry is the same add, with no wait.
+    let retry = if code == Some("repo.needs_github") {
+        json!({"action": REPO_ADD_ACTION, "args": args, "wait_action": REPO_WAIT_GITHUB_ACTION})
+    } else {
+        json!({"action": REPO_ADD_ACTION, "args": args})
+    };
+    error.set("retry", retry);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn this_folder_answers_from_the_machine_without_the_cli() {
+        let folder = std::env::temp_dir();
+        let result = call_for_caller(
+            Some("own-chat"),
+            "own-chat",
+            &json!({"name": "this_folder", "arguments": {"path": folder}}),
+            |_, _| async { panic!("this_folder reached the CLI") },
+        )
+        .await;
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(result["structuredContent"]["projected"], false, "{result}");
+        let relative = call_for_caller(
+            Some("own-chat"),
+            "own-chat",
+            &json!({"name": "this_folder", "arguments": {"path": "work"}}),
+            |_, _| async { panic!("this_folder reached the CLI") },
+        )
+        .await;
+        assert_eq!(relative["isError"], true, "{relative}");
+    }
+
+    /// Leo, 2026-11-25: an empty folder's Cloud chat told him nothing comes back to the Mac.
+    #[test]
+    fn the_instructions_say_a_mac_folder_is_projected_and_comes_back() {
+        assert!(INSTRUCTIONS.contains("projected (empty or not, a git repository or not)"));
+        assert!(INSTRUCTIONS.contains("Bring Back"));
+        assert!(INSTRUCTIONS.contains("call this_folder"));
+        assert!(!INSTRUCTIONS.contains("Nothing on it is copied back to the Mac"));
+        assert!(tools().as_array().unwrap().iter().any(|tool| tool["name"] == "this_folder"));
+    }
     #[tokio::test]
     async fn cloud_repo_missing_or_foreign_caller_never_invokes_cli() {
         for caller in [None, Some("other-chat")] {
@@ -339,13 +451,38 @@ mod tests {
         assert_eq!(result["isError"], false);
     }
 
+    /// A list the Cloud machine did not answer is asked again, and the agent gets the list.
+    #[tokio::test]
+    async fn an_unanswered_list_is_asked_again() {
+        let tries = std::sync::atomic::AtomicU32::new(0);
+        let result = call_for_caller(
+            Some("own-chat"),
+            "own-chat",
+            &json!({"name":"list_repos","arguments":{}}),
+            |_, _| {
+                let n = tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async move {
+                    if n == 0 {
+                        Err("The Cloud machine returned no repository result.".to_owned())
+                    } else {
+                        Ok(json!({"repos": [{"name": "org/repo"}]}))
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
     #[test]
     fn instructions_state_the_machine_and_its_lifetime() {
         for fact in [
             "Linux virtual machine",
             "until the machine is deleted",
             "push work",
-            "no repository",
+            // A chat started with no repository (Leo, 2026-11-02), said apart from a Mac folder's.
+            "empty when the chat started with none",
             "add_repo",
         ] {
             assert!(INSTRUCTIONS.contains(fact), "instructions lack {fact:?}");
@@ -360,6 +497,15 @@ mod tests {
         assert_eq!(
             result["retry"]["args"],
             json!({"session":"chat-1","repo":"cmux-platform","ref":"main"})
+        );
+    }
+    #[test]
+    fn no_access_retries_the_add_with_no_wait() {
+        let mut result = json!({"code":"repo.no_access","org":"acme"});
+        enrich_retry(&mut result, "chat-1", "acme/tool", None);
+        assert_eq!(
+            result["retry"],
+            json!({"action": REPO_ADD_ACTION, "args": {"session":"chat-1","repo":"acme/tool"}})
         );
     }
     #[test]

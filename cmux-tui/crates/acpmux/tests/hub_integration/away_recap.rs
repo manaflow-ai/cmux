@@ -14,6 +14,8 @@ struct Away {
     id: String,
     clock: Arc<acpmux::clock::ManualClock>,
     log: std::path::PathBuf,
+    /// What Claude Code answers the next recap ask with, once written (`ANSWER` before).
+    answer: std::path::PathBuf,
 }
 
 /// A Claude chat with `turns` finished turns, shown by its client, on a manual clock.
@@ -31,6 +33,9 @@ async fn chat_viewed(turns: usize, env: &[(&str, &str)], viewed: bool) -> Away {
     let mut env: Vec<(&str, &str)> = env.to_vec();
     env.push(("FAKE_CLAUDE_CONTROL_LOG", &log_s));
     env.push(("FAKE_CLAUDE_SIDE_ANSWER", ANSWER));
+    let answer = root.join("answer");
+    let answer_s = answer.to_string_lossy().into_owned();
+    env.push(("FAKE_CLAUDE_SIDE_ANSWER_FILE", &answer_s));
     let (hub, mut c) = claude_setup(&claude, &env).await;
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());
@@ -49,7 +54,7 @@ async fn chat_viewed(turns: usize, env: &[(&str, &str)], viewed: bool) -> Away {
         .await
         .unwrap();
     }
-    Away { hub, c, id, clock, log }
+    Away { hub, c, id, clock, log, answer }
 }
 
 impl Away {
@@ -108,8 +113,11 @@ async fn coming_back_after_five_minutes_shows_the_recap_made_while_away() {
     a.show(false).await;
     a.advance(Duration::from_secs(3 * 60), 1).await;
     assert_eq!(a.asked(), 1, "asked once, 3 minutes after the person left");
-    assert!(a.recaps().is_empty(), "nothing shows while the person is away");
+    assert!(a.recaps().is_empty(), "nothing is logged before 5 minutes away");
     a.advance(Duration::from_secs(2 * 60), 1).await;
+    // Logged at 5 minutes, still away: the person's return draws it in place instead of the
+    // transcript moving up a card's height as it lands (Leo: no shift or jump, c-b966807d26).
+    assert_eq!(a.recaps().len(), 1, "in the chat before the person looks");
     a.show(true).await;
     let recaps = a.recaps();
     assert_eq!(recaps.len(), 1, "{recaps:?}");
@@ -122,6 +130,20 @@ async fn coming_back_after_five_minutes_shows_the_recap_made_while_away() {
     a.show(true).await;
     assert_eq!(a.recaps().len(), 1);
     assert_eq!(a.asked(), 1, "no turn since the last recap: not asked again");
+}
+
+#[tokio::test]
+async fn a_recap_answered_after_five_minutes_is_logged_then_while_still_away() {
+    let mut a = chat(3, &[]).await;
+    a.show(false).await;
+    // The person left, then a turn ended 2.5 minutes in: the ask waits 3 minutes from that end.
+    a.advance(Duration::from_secs(150), 0).await;
+    a.prompt("step 3").await;
+    a.advance(Duration::from_secs(3 * 60), 1).await;
+    assert_eq!(a.asked(), 1);
+    assert_eq!(a.recaps().len(), 1, "logged as it was answered, 5.5 minutes away");
+    a.show(true).await;
+    assert_eq!(a.recaps().len(), 1, "the return logs no second one");
 }
 
 #[tokio::test]
@@ -254,4 +276,168 @@ async fn a_chat_only_an_agent_drove_gets_no_recap() {
     assert_eq!(a.asked(), 0, "never asked");
     a.c.request("_acpmux/attach", json!({"sessionId": a.id})).await.unwrap();
     assert!(a.recaps().is_empty());
+}
+
+impl Away {
+    /// One more turn.
+    async fn prompt(&mut self, text: &str) {
+        self.c
+            .request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": self.id, "prompt": [{"type": "text", "text": text}]}),
+            )
+            .await
+            .unwrap();
+    }
+
+    /// The person leaves for 5 minutes and comes back; the recap is asked 3 minutes in.
+    async fn away_and_back(&mut self) {
+        let asked = self.asked() + 1;
+        self.show(true).await;
+        self.show(false).await;
+        self.advance(Duration::from_secs(3 * 60), asked).await;
+        self.advance(Duration::from_secs(2 * 60), asked).await;
+        self.show(true).await;
+    }
+
+    fn recap_records(&self) -> Vec<(u64, Value)> {
+        self.hub
+            .events(&self.id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .filter(|e| e.dir == "mux" && e.kind == "recap")
+            .map(|e| (e.seq, e.msg.clone()))
+            .collect()
+    }
+
+    fn kept(&self) -> Option<acpmux::store::AwayRecap> {
+        self.hub.resolve(&self.id).unwrap().meta().away_recap
+    }
+}
+
+/// The same facts each time in other words, as Claude Code words each recap afresh (the eight
+/// cards Leo saw on 2026-11-11).
+const SAME_FACTS: [&str; 4] = [
+    "The Chief CSS design-system batch is finished and merged (cmux#34338, #34349, leo-workspace#2996). The leo1024rd resume can't start because `/tmp/cx-lanes/leo1024rd` doesn't exist on this VM.",
+    "The goal was moving the Chief pages' CSS onto the design system; that's done and merged (#34338, #34349, leo-workspace#2996). Next: find out where the leo1024rd lane lives.",
+    "Chief CSS batch is landed: cmux#34338 and #34349 are merged. The restart message points to a leo1024rd lane folder this VM doesn't have.",
+    "The Chief CSS design-system batch is done and merged (#34338). The /tmp/cx-lanes/leo1024rd folder isn't on this VM, so it needs re-creating.",
+];
+
+#[tokio::test]
+async fn n_wakes_with_no_change_give_one_recap() {
+    let mut a = chat(3, &[]).await;
+    std::fs::write(&a.answer, SAME_FACTS[0]).unwrap();
+    a.away_and_back().await;
+    assert_eq!(a.recap_records().len(), 1);
+    for (n, words) in SAME_FACTS.iter().cycle().skip(1).take(6).enumerate() {
+        // A wake that sends the chat a turn or two, and every other one a daemon restart.
+        if n % 2 == 1 {
+            a.hub.recap_forget_run(&a.id);
+        }
+        a.prompt(&format!("resume {n}")).await;
+        a.prompt(&format!("again {n}")).await;
+        std::fs::write(&a.answer, words).unwrap();
+        a.away_and_back().await;
+    }
+    assert!(a.asked() >= 4, "recaps were asked for: {}", a.asked());
+    let records = a.recap_records();
+    assert_eq!(records.len(), 1, "nothing new: no second recap {records:?}");
+    let kept = a.kept().unwrap();
+    assert_eq!(kept.seq, records[0].0);
+    assert_eq!(
+        kept.turns,
+        a.hub.resolve(&a.id).unwrap().meta().turn_count,
+        "the next waits from here"
+    );
+}
+
+#[tokio::test]
+async fn a_changed_recap_replaces_the_old_one() {
+    let mut a = chat(3, &[]).await;
+    std::fs::write(&a.answer, SAME_FACTS[0]).unwrap();
+    a.away_and_back().await;
+    a.prompt("go on").await;
+    a.prompt("and on").await;
+    std::fs::write(&a.answer, "The leo1024rd lane is restored; #41622 is open with CI green.")
+        .unwrap();
+    a.away_and_back().await;
+    let records = a.recap_records();
+    assert_eq!(records.len(), 2, "{records:?}");
+    let (first, _) = &records[0];
+    let (second, msg) = &records[1];
+    assert_eq!(msg["replaces"], json!(first), "the new recap names the one it replaces: {msg}");
+    assert!(records[0].1.get("replaces").is_none(), "the first replaces none");
+    assert_ne!(records[0].1["digest"], msg["digest"]);
+    assert_eq!(a.kept().unwrap().seq, *second, "the chat's one recap is the newest");
+}
+
+#[tokio::test]
+async fn dismissed_stays_dismissed_after_reload() {
+    let mut a = chat(3, &[]).await;
+    std::fs::write(&a.answer, SAME_FACTS[0]).unwrap();
+    a.away_and_back().await;
+    let (seq, _) = a.recap_records()[0].clone();
+    a.hub.dismiss_recap(&a.id, seq).unwrap();
+    assert!(a.kept().unwrap().dismissed);
+    // The chat's metadata as a restarted daemon reads it back from disk.
+    let meta = a.hub.resolve(&a.id).unwrap().meta();
+    let reloaded: acpmux::store::SessionMeta =
+        serde_json::from_value(serde_json::to_value(&meta).unwrap()).unwrap();
+    assert_eq!(reloaded.away_recap, meta.away_recap, "kept across a reload");
+    assert!(reloaded.away_recap.unwrap().dismissed);
+    a.hub.recap_forget_run(&a.id);
+    a.prompt("resume").await;
+    a.prompt("resume again").await;
+    std::fs::write(&a.answer, SAME_FACTS[2]).unwrap();
+    a.away_and_back().await;
+    assert_eq!(a.recap_records().len(), 1, "a dismissed recap does not come back in other words");
+    assert!(a.kept().unwrap().dismissed);
+}
+
+impl Away {
+    /// Another agent's question (`acpmux send --from --class question`) as one more turn, waited
+    /// until it ended. The first is the chat's first work; the next go in as its inbox's notice,
+    /// due 2 s after they came by the chat's clock (`hub/inbox.rs` `WAKE_DEBOUNCE_MS`).
+    async fn agent_turn(&mut self, n: usize) {
+        let before = self.hub.resolve(&self.id).unwrap().meta().turn_count;
+        self.c
+            .send(
+                method::SESSION_PROMPT,
+                json!({"sessionId": self.id, "prompt": [{"type": "text", "text": format!("task {n}")}],
+                       "_meta": {"acpmux": {"promptId": format!("a-{n}"), "fromAgent": "lane-a", "class": "question"}}}),
+            )
+            .await;
+        self.clock.advance(Duration::from_secs(3));
+        for _ in 0..400 {
+            let session = self.hub.resolve(&self.id).unwrap();
+            if session.meta().turn_count > before && session.turn().is_none() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("the agent's turn {n} never ended");
+    }
+}
+
+#[tokio::test]
+async fn a_shown_chat_only_other_agents_prompted_gets_no_recap() {
+    // A person has shown it, but each turn is another agent's message, as a Chief's subagent's
+    // are: the person reads that agent's report, not a recap of this chat. These were 87% of all
+    // recaps on the team gateway (sr2 audit 2026-11-20).
+    let mut a = chat_viewed(0, &[], false).await;
+    for n in 0..3 {
+        a.agent_turn(n).await;
+    }
+    a.show(true).await;
+    a.show(false).await;
+    a.advance(Duration::from_secs(6 * 60), 1).await;
+    a.show(true).await;
+    assert_eq!(a.asked(), 0, "never asked");
+    assert!(a.recaps().is_empty());
+    // The person's own prompt makes the next one worth asking for.
+    a.prompt("my own question").await;
+    a.away_and_back().await;
+    assert_eq!(a.asked(), 1);
+    assert_eq!(a.recaps().len(), 1);
 }

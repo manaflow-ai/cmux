@@ -5,6 +5,7 @@
 // a reconnect; typing is said once; a message over 32 KiB cannot be sent.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -54,19 +55,15 @@ const { joinFrames, memoryStorage, workingRecords } = await import("../src/agent
 const { PROMPT_MAX_BYTES } = await import("../src/agent-session/guest/guestPrompts");
 type Socket = import("../src/agent-session/guest/shareSocket").ShareSocketLike;
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const SHARE = "c2hhcmUtMTIzNDU2Nzg";
 
 /** A room whose sockets the test drives: each records what the page sends. */
 function room() {
-  const sockets: (Socket & { sent: Record<string, unknown>[] })[] = [];
+  const sockets: (Socket & { url: string; sent: Record<string, unknown>[] })[] = [];
   // Waits on what the page does (a socket opened, a frame sent), never on a fixed time.
   const waiters = new Set<() => void>();
   const changed = () => {
@@ -85,8 +82,9 @@ function room() {
           check();
         }),
     );
-  const open = () => {
+  const open = (url: string) => {
     const socket = {
+      url,
       sent: [] as Record<string, unknown>[],
       send(data: string) {
         socket.sent.push(JSON.parse(data));
@@ -112,7 +110,11 @@ function room() {
   return { sockets, open, last, frame, join, until, prompts: () => last().sent.filter((each) => each.t === "prompt") };
 }
 
-async function mount(fake: ReturnType<typeof room>, storage = memoryStorage()) {
+async function mount(
+  fake: ReturnType<typeof room>,
+  storage = memoryStorage(),
+  role: "view" | "talk" | "drive" = "talk",
+) {
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
   const root = createRoot(host);
@@ -121,8 +123,7 @@ async function mount(fake: ReturnType<typeof room>, storage = memoryStorage()) {
       <GuestPage
         shareId={SHARE}
         guestId="g1"
-        // A talk guest (a plain `role` prop reads as an ARIA role to the linter).
-        {...{ role: "talk" as const }}
+        {...{ role }}
         name="Ana"
         storage={storage}
         redeem={() => new Promise(() => undefined)}
@@ -151,10 +152,31 @@ const enter = (host: HTMLElement) =>
   });
 const mine = (host: HTMLElement) => host.querySelector(".guest-mine")?.textContent ?? "";
 
+test("a named driver can stop a live turn and sees an unheld message as sent", async () => {
+  const fake = room();
+  const page = await mount(fake, memoryStorage(), "drive");
+  expect(new URL(fake.last().url).searchParams.get("guest_id")).toBe("g1");
+  const stop = () => page.host.querySelector<HTMLButtonElement>(".guest-composer button[type=button]");
+  expect(stop()).toBeNull();
+  await fake.join();
+  expect(stop()?.textContent).toBe(translate("composer.stop"));
+  await act(async () => stop()!.click());
+  expect(fake.last().sent).toContainEqual({ v: 1, t: "cancel" });
+  await type(page.host, "Run the tests");
+  await enter(page.host);
+  const id = fake.prompts()[0]?.client_id;
+  await fake.frame({ v: 1, t: "prompt_state", guest_id: "g1", client_id: id, state: "sent" });
+  expect(mine(page.host)).toBe(translate("guest.prompt.sent", { text: "Run the tests" }));
+  await act(async () => fake.last().onclose?.());
+  expect(stop()).toBeNull();
+  await page.unmount();
+});
+
 test("a message goes as prompt {client_id, text}, waits for the owner, then reads as decided", async () => {
   const fake = room();
   const page = await mount(fake);
   await fake.join();
+  expect(page.host.querySelector(".guest-composer button[type=button]")).toBeNull();
   await type(page.host, "Use a fake clock");
   expect(fake.last().sent.filter((each) => each.t === "typing")).toEqual([{ v: 1, t: "typing", on: true }]);
   await enter(page.host);
@@ -202,8 +224,37 @@ test("declined and refused messages read as one quiet line, the reason said", as
   });
   expect(mine(page.host)).toBe(
     translate("guest.prompt.declined", { text: "Skip the test" }) +
-      translate("guest.prompt.tooManyHeld", { text: "Bump the timeout" }),
+      translate("guest.prompt.tooManyHeld", { text: "Bump the timeout" }) +
+      translate("guest.prompt.tryAgain"),
   );
+  await page.unmount();
+});
+
+test("Try again on a refused message sends it again with its own client id, and the line goes back to waiting", async () => {
+  const fake = room();
+  const page = await mount(fake);
+  await fake.join();
+  await type(page.host, "Bump the timeout");
+  await enter(page.host);
+  await fake.until(() => fake.prompts().length === 1);
+  const [sent] = fake.prompts();
+  await fake.frame({
+    v: 1,
+    t: "prompt_state",
+    client_id: sent!.client_id,
+    state: "refused",
+    reason: "share.too_many_held",
+  });
+  const retry = page.host.querySelector(".guest-mine__retry") as HTMLButtonElement;
+  expect(retry.textContent).toBe(translate("guest.prompt.tryAgain"));
+  // A declined line has none: only a message the room never held may go again.
+  await act(async () => retry.click());
+  await fake.until(() => fake.prompts().length === 2);
+  expect(fake.prompts()[1]).toEqual(sent!);
+  expect(page.host.querySelector(".guest-mine__retry")).toBeNull();
+  expect(mine(page.host)).toContain(translate("guest.prompt.sending"));
+  await fake.frame({ v: 1, t: "prompt_state", client_id: sent!.client_id, state: "declined" });
+  expect(page.host.querySelector(".guest-mine__retry")).toBeNull();
   await page.unmount();
 });
 

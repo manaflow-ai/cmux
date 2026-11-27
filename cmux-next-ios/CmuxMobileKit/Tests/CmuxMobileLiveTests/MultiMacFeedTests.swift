@@ -13,7 +13,7 @@ import Testing
 /// Codex "Needs permission" card from the second Mac said "Not connected to
 /// your Mac. Nothing was sent." while both Macs read "Connected").
 @MainActor
-@Suite(.serialized) struct MultiMacFeedTests {
+@Suite(.serialized, .timeLimit(.minutes(2))) struct MultiMacFeedTests {
     let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
     static let teamKey = "cmuxMobile.live.mac.t-multimac-feed"
@@ -51,6 +51,10 @@ import Testing
         }
     }
 
+    /// The coordinator's clock: its links' heartbeats and probe bounds, the idle close and its
+    /// other timers move only when a test moves it, never because the runner was slow.
+    let clock = LinkTestClock()
+
     func coordinator(store: AppStore, feed: FeedStore, dialer: PerMacDialer) -> LiveCoordinator {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-multimac-feed-\(UUID().uuidString)")
         let snapshots = LiveSnapshotStore(directory: directory)
@@ -68,7 +72,7 @@ import Testing
             api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
             identity: DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString),
             userID: userID, deviceName: "iPhone", transport: .wireGuard, dialer: dialer,
-            feedStore: feed, snapshots: snapshots
+            feedStore: feed, snapshots: snapshots, clock: clock
         )
     }
 
@@ -76,8 +80,16 @@ import Testing
         AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
     }
 
+    /// Ends a test: its coordinator stopped, the clock lets every timer still waiting go.
+    func end(_ live: LiveCoordinator) {
+        live.stop()
+        clock.stop()
+    }
+
     func settle(_ done: () -> Bool) async {
-        for _ in 0..<3000 where !done() { try? await Task.sleep(for: .milliseconds(1)) }
+        // No deadline of its own: 3000 sleeps ended before a busy kit run's main actor had
+        // applied the state waited for (cmux#40635). The suite's time limit bounds a hang.
+        while !done(), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
     }
 
     func deny(_ feed: FeedStore, _ id: String) throws {
@@ -98,7 +110,7 @@ import Testing
         defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
         let feed = FeedStore(items: [])
         let live = coordinator(store: emptyStore(), feed: feed, dialer: PerMacDialer())
-        defer { live.stop() }
+        defer { end(live) }
         #expect(feed.actions != nil)
     }
 
@@ -108,9 +120,10 @@ import Testing
         let feed = FeedStore(items: [])
         let live = coordinator(store: emptyStore(), feed: feed,
                                dialer: PerMacDialer(acpmux: Self.acpmux(Answers()), silentNotifications: true))
-        defer { live.stop() }
+        defer { end(live) }
         live.showing(macIDs: ["m1"])
-        #expect(await live.waitUntil(within: .seconds(3)) { live.sessions["m1"]?.acpmux.isReady == true })
+        await settle { live.sessions["m1"]?.acpmux.isReady == true }
+        #expect(live.sessions["m1"]?.acpmux.isReady == true)
         let session = try #require(live.sessions["m1"])
         session.terminalFeed.requestDeadline = .milliseconds(20)
         let request = try #require(session.terminalFeed.request)
@@ -130,13 +143,14 @@ import Testing
         defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
         let store = emptyStore()
         let live = coordinator(store: store, feed: FeedStore(items: []), dialer: PerMacDialer())
-        defer { live.stop() }
+        defer { end(live) }
         store.teams[0].macs.append(MacDevice(id: "sleeping", name: "Demo sleeping Mac", isOnline: false))
         let (entered, record) = AsyncStream<String>.makeStream()
         let (release, resume) = AsyncStream<Void>.makeStream()
         var started = Set<String>()
         let deadline = Task {
-            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            // A watchdog only: it ends the streams if the two calls never both enter.
+            do { try await Task.sleep(for: .seconds(60)) } catch { return }
             record.finish()
             resume.finish()
         }
@@ -166,9 +180,10 @@ import Testing
         let store = emptyStore()
         let dialer = PerMacDialer(acpmux: Self.acpmux(Answers()))
         let live = coordinator(store: store, feed: feed, dialer: dialer)
-        defer { live.stop() }
+        defer { end(live) }
         live.showing(macIDs: ["m1"])
-        #expect(await live.waitUntil(within: .seconds(3)) { live.sessions["m1"]?.acpmux.isReady == true })
+        await settle { live.sessions["m1"]?.acpmux.isReady == true }
+        #expect(live.sessions["m1"]?.acpmux.isReady == true)
         let session = try #require(live.sessions["m1"])
         let link = try #require(session.currentLink)
         let dials = dialer.dialCount("m1")
@@ -178,7 +193,8 @@ import Testing
         // End the channel's receive stream while its Mac link stays connected.
         // Do not reset the hub or inject a diagnostic: teardown must do that.
         await channel.close(code: "eof", reason: "remote closed")
-        #expect(await live.waitUntil(within: .seconds(3)) { !session.acpmux.isReady })
+        await settle { !session.acpmux.isReady }
+        #expect(!session.acpmux.isReady)
         #expect(session.acpmux.lastError != nil)
         await feed.refresh()
         #expect(feed.refreshError != nil)
@@ -193,6 +209,36 @@ import Testing
         #expect(feed.item(id: "ask-perm-m1") != nil)
     }
 
+    /// Leo 2026-11-21: "i keep seeing "the mac didnt answer in time" i dont want to see that".
+    /// A read that stalls or loses its channel asks the hub's `onStall`, which the coordinator
+    /// answers with a fresh channel on the same link: no redial, no prompt, ready again.
+    @Test func aStalledChannelIsRebuiltOnTheSameLinkWithoutARedial() async throws {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let store = emptyStore()
+        let dialer = PerMacDialer(acpmux: Self.acpmux(Answers()))
+        let live = coordinator(store: store, feed: FeedStore(items: []), dialer: dialer)
+        defer { end(live) }
+        live.showing(macIDs: ["m1"])
+        await settle { live.sessions["m1"]?.acpmux.isReady == true }
+        let session = try #require(live.sessions["m1"])
+        let link = try #require(session.currentLink)
+        let dials = dialer.dialCount("m1")
+        let channel = try await link.openChannel(service: "acpmux", args: [:])
+        await session.acpmux.bind(channel)
+        await channel.close(code: "eof", reason: "remote closed")
+        await settle { !session.acpmux.isReady }
+        #expect(!session.acpmux.isReady)
+
+        let onStall = try #require(session.acpmux.onStall, "the coordinator wires the hub's recovery")
+        await onStall()
+
+        #expect(session.currentLink === link)
+        #expect(dialer.dialCount("m1") == dials)
+        #expect(session.acpmux.isReady)
+        #expect(session.chatsError == nil)
+    }
+
     /// The user's report: the second Mac's agent asks, the first Mac is the
     /// chosen one, and both are connected. Deny reaches the second Mac only.
     @Test func anAskFromTheOtherMacIsAnsweredOnThatMac() async throws {
@@ -202,7 +248,7 @@ import Testing
         let feed = FeedStore(items: [])
         let store = emptyStore()
         let live = coordinator(store: store, feed: feed, dialer: PerMacDialer(acpmux: Self.acpmux(answers)))
-        defer { live.stop() }
+        defer { end(live) }
         // The Feed shows every Mac.
         live.showing(macIDs: nil)
         await settle { feed.item(id: "ask-perm-m1") != nil && feed.item(id: "ask-perm-m2") != nil }
@@ -225,7 +271,7 @@ import Testing
         let store = emptyStore()
         let dialer = PerMacDialer(acpmux: Self.acpmux(answers))
         let live = coordinator(store: store, feed: feed, dialer: dialer)
-        defer { live.stop() }
+        defer { end(live) }
         live.showing(macIDs: ["m1"])
         await settle { feed.item(id: "ask-perm-m1") != nil }
         #expect(dialer.dialCount("m2") == 0)
@@ -255,12 +301,17 @@ import Testing
         let store = emptyStore()
         let dialer = PerMacDialer(acpmux: Self.acpmux(answers))
         let live = coordinator(store: store, feed: feed, dialer: dialer)
-        defer { live.stop() }
+        defer { end(live) }
         live.linkPolicy = MacLinkPolicy(idleAfter: .milliseconds(200))
         live.showing(macIDs: nil)
         await settle { feed.item(id: "ask-perm-m2") != nil }
-        // Only the first Mac is on screen now: the second Mac's link closes.
+        // Only the first Mac is on screen now: the second Mac's link closes once it was idle
+        // for `idleAfter` on the coordinator's clock.
         live.showing(macIDs: ["m1"])
+        #expect(store.macConnection["m2"] != nil, "closed before it was idle")
+        let idle = clock.now.advanced(by: .milliseconds(200))
+        await settle { clock.isSleeping(until: idle) }
+        clock.advance(by: .milliseconds(200))
         await settle { store.macConnection["m2"] == nil }
         #expect(store.macConnection["m2"] == nil)
         #expect(dialer.dialCount("m2") == 1)
@@ -270,6 +321,42 @@ import Testing
         #expect(answers.of("m2") == ["sess-m2 perm-m2 deny"])
         #expect(dialer.dialCount("m2") == 2)
         #expect(answers.of("m1").isEmpty)
+    }
+
+    /// A failed chats bind on a link that stays up binds again by itself, on the coordinator's
+    /// clock (no-hangs 2026-11-24: before, the chats stayed down until the Feed's Retry or a new link).
+    @Test func aFailedChatsBindOnAHealthyLinkBindsAgainByItself() async throws {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let inits = Answers()
+        let normal = Self.acpmux(Answers())
+        let acpmux: @Sendable (String, Data) -> [Data] = { mac, data in
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               object["method"] as? String == "initialize", mac == "m1" {
+                inits.append(mac, "initialize")
+                if inits.of(mac).count == 1 {
+                    let id = object["id"].map { "\($0)" } ?? "null"
+                    return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"busy"}}"#.utf8)]
+                }
+            }
+            return normal(mac, data)
+        }
+        let store = emptyStore()
+        let dialer = PerMacDialer(acpmux: acpmux)
+        let live = coordinator(store: store, feed: FeedStore(items: []), dialer: dialer)
+        defer { end(live) }
+        live.showing(macIDs: ["m1"])
+        await settle { live.sessions["m1"]?.chatsError != nil }
+        let session = try #require(live.sessions["m1"])
+        #expect(!session.acpmux.isReady)
+        let rebind = clock.now.advanced(by: .seconds(1))
+        await settle { clock.isSleeping(until: rebind) }
+        clock.advance(by: .seconds(1))
+        await settle { session.acpmux.isReady }
+        #expect(session.acpmux.isReady)
+        #expect(session.chatsError == nil)
+        #expect(inits.of("m1").count == 2)
+        #expect(dialer.dialCount("m1") == 1)
     }
 }
 #endif

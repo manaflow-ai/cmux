@@ -7,13 +7,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
-import { sendEntries, toolGroups } from "./toolGroups";
-import { AcpmuxSendLine } from "./SentMessageLine";
+import { sendEntries, toolGroups, type SentEntry } from "./toolGroups";
+import { AcpmuxSendLine, sentPageMatches } from "./SentMessageLine";
+import { ToolRows } from "./TurnRows";
 import { configureSentLook } from "./sentMessageLineModel";
 import { configureMessageLineLook } from "./messageLineLook";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import { settleReact } from "../../../../test/support/domTeardown";
+import { shownText } from "../../../../test/support/factsCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -32,7 +35,7 @@ function installDom(): HTMLElement {
     "localStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -50,6 +53,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -96,18 +100,52 @@ const listed = (...entries: Partial<AcpmuxSessionEntry>[]) => {
 };
 
 /// A sent row's parts: its root (`data-send-state`), the line's words as read (the sender's
-/// sentence, the first line, the status), its toggle, and a click on the line.
+/// sentence, the first line, the status), its toggle, and a click on the line. The row is the one
+/// message row (AgentMessageRow.tsx): its toggle, in the sentence, says whether it is open.
 const rowOf = (container: ParentNode, at = 0) => [...container.querySelectorAll<HTMLElement>(".cv-sent-msg")][at]!;
 const lineText = (row: HTMLElement) =>
-  [...row.querySelector(":scope > .cv-disclosure__line")!.children]
-    .map((part) => part.textContent!.trim())
+  [...row.querySelector(":scope > .cv-agentmsg__line")!.children]
+    .map((part) => shownText(part).trim())
     .filter(Boolean)
     .join(" ");
 const toggleOf = (row: HTMLElement) =>
-  row.querySelector<HTMLButtonElement>(":scope > .cv-disclosure__line > .cv-disclosure__toggle")!;
+  row.querySelector<HTMLButtonElement>(":scope > .cv-agentmsg__line .cv-agentmsg__toggle")!;
 const expanded = (row: HTMLElement) => toggleOf(row).getAttribute("aria-expanded");
 const rawButton = (container: ParentNode) =>
   container.querySelector<HTMLButtonElement>(".cv-sent__raw > .cv-received__more");
+
+test("a sent message uses its call date for inline timestamp hover", async () => {
+  const container = await line(
+    bash("acpmux send --no-wait coord-deputy 'Finished at 10:20 UTC.'", {
+      startedAt: Date.UTC(2026, 10, 19, 10, 30),
+      output: "queued",
+    }),
+  );
+  await act(async () => toggleOf(rowOf(container)).click());
+  expect(container.querySelector(".cv-received__text time.cv-time-hover")?.getAttribute("datetime")).toBe(
+    "2026-11-19T10:20:00.000Z",
+  );
+});
+
+test("a historical sent message falls back to its stored row date", async () => {
+  const tool = bash("acpmux send --no-wait coord-deputy 'Finished at 10:20 UTC.'", { output: "queued" });
+  const container = await render(
+    <ToolRows
+      row={{
+        id: "historical-send",
+        kind: "activity",
+        version: 1,
+        at: Date.UTC(2026, 10, 19, 10, 30),
+        settled: true,
+        items: [{ kind: "tool", text: tool.title, tool }],
+      }}
+    />,
+  );
+  await act(async () => toggleOf(rowOf(container)).click());
+  expect(container.querySelector(".cv-received__text time.cv-time-hover")?.getAttribute("datetime")).toBe(
+    "2026-11-19T10:20:00.000Z",
+  );
+});
 
 test("a sent message reads its target, how it was taken and its first line, and opens to all of it", async () => {
   const container = await line(
@@ -302,6 +340,10 @@ test("a batch's message names its recipient and the file its words came from; op
   // (Leo 2026-10-26: "I EXPAND THEN ALL I SEE IS ... RAW").
   expect(rawButton(container)).toBeNull();
   expect(container.querySelector(".cv-sent__call [data-tool-id]")?.textContent).toContain("s(){ acpmux send --no-wait");
+  // The call is a row, so it opens bare at the child step, never a row inside the message card
+  // (design/chat-row-anatomy.md; frame 03 of Leo's 2026-11-21 05:30Z video).
+  expect(container.querySelector(".cv-agentmsg__card .cv-sent__call")).toBeNull();
+  expect(container.querySelector(".cv-agentmsg__bare > .cv-sent__call")).not.toBeNull();
 });
 
 test("a send of a file the agent wrote with Write opens to that message rendered, its command behind Raw", async () => {
@@ -339,13 +381,25 @@ test("the default keeps the chip, the count and the first line on one line; stac
   const inline = await line(tell);
   const row = rowOf(inline);
   expect(lineText(row)).toBe("Sent to coord-deputy Restore base, then report. queued");
-  expect(inline.querySelector(".cv-disclosure__below")).toBeNull();
+  expect(inline.querySelector(".cv-agentmsg__below")).toBeNull();
   configureMessageLineLook("stacked");
   try {
     const stacked = await line(tell);
     expect(lineText(rowOf(stacked))).toBe("Sent to coord-deputy queued");
-    expect(stacked.querySelector(".cv-disclosure__below")?.textContent).toBe("Restore base, then report.");
+    expect(stacked.querySelector(".cv-agentmsg__below")?.textContent).toBe("Restore base, then report.");
   } finally {
     await act(async () => configureMessageLineLook("single"));
   }
+});
+
+test("Find in a paged tag send mounts one row for the text every recipient shares, and a recipient's own row for its name", () => {
+  const item = { id: "tag-send", tool: bash("acpmux send --tag crew -") } as unknown as AcpmuxActivity;
+  const sent = (target: string, text: string) =>
+    ({ type: "send", item, send: { target, text, state: "sent" } }) as unknown as SentEntry;
+  const tag = Array.from({ length: 1025 }, (_, at) => sent(`peer-${at}`, "hello crew"));
+  expect(sentPageMatches(tag, { needle: "hello" })).toEqual([0]);
+  expect(sentPageMatches(tag, { needle: "peer-1024" })).toEqual([1024]);
+  // A batch whose messages say different things still finds each one.
+  const batch = [sent("a", "hello one"), sent("b", "hello two"), sent("c", "bye")];
+  expect(sentPageMatches(batch, { needle: "hello" })).toEqual([0, 1]);
 });

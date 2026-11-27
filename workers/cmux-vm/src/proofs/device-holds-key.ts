@@ -59,13 +59,22 @@ export const deviceHoldsKey = <C, T>(
   request: Omit<SignedFields, "target">,
   signature: string,
   expectedInstallKey: string | null,
+  /**
+   * An enroll keyed by an intent: the message is bound to that intent, and a repeat of the exact message with the same
+   * intent is accepted again (the caller decides, under the intent's own rules, whether it may create anything).
+   */
+  intent?: { readonly meshId: string; readonly intentId: string },
 ): Effect.Effect<HoldsKeyResult<C, T>, StoreError, MeshStore> =>
   Effect.gen(function* () {
     if (expectedInstallKey !== null && expectedInstallKey !== request.installPublicKey) return { _tag: "invalid" } as const;
     const now = yield* Clock.currentTimeMillis;
     const checked = yield* checkSignature({ ...request, target: target.value }, signature, now);
     if (!checked.ok) return checked.reason === "stale" ? ({ _tag: "stale" } as const) : ({ _tag: "invalid" } as const);
-    const claimed = yield* (yield* MeshStore).claimSignedRequest(caller.value.tenantId, checked.messageSha256, request.purpose, checked.expiresAt, new Date(now));
+    const store = yield* MeshStore;
+    const claimed =
+      intent === undefined
+        ? yield* store.claimSignedRequest(caller.value.tenantId, checked.messageSha256, request.purpose, checked.expiresAt, new Date(now))
+        : (yield* store.claimSignedRequestForIntent(caller.value.tenantId, checked.messageSha256, request.purpose, checked.expiresAt, new Date(now), intent)) !== "replayed";
     if (!claimed) return { _tag: "replayed" } as const;
     const proof: DeviceHoldsKey<C, T> = Object.freeze({ ...DeviceHoldsKeyProof.prove(caller, target), purpose: request.purpose });
     evidence.set(proof, Object.freeze({ wgPublicKey: request.wgPublicKey, installPublicKey: request.installPublicKey }));

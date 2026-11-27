@@ -94,69 +94,10 @@ use cmux_json::JsonSet as _;
 mod index;
 pub use index::Index;
 
-/// The settings keys (schemas/settings/source/subsessions.json).
-pub const SETTING_ENABLED: &str = "agents.subsessions.enabled";
-pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
-pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
-pub const SETTING_MAX_RUNNING: &str = "agents.subsessions.maxRunning";
-/// `maxRunning`'s default and ceiling until the catalog has its row.
-const MAX_RUNNING_FALLBACK: NumberSetting = NumberSetting { default: 1000, max: 1000 };
-pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
-/// The settings catalog source of those keys: their defaults and ranges have
-/// one definition, shared with the app's Settings.
-const CATALOG_SOURCE: &str =
-    include_str!("../../../../../schemas/settings/source/subsessions.json");
-
-/// One number setting of the catalog: its default and the largest value.
-#[derive(Clone, Copy)]
-pub struct NumberSetting {
-    pub default: u32,
-    pub max: u32,
-}
-
-/// The catalog rows the daemon reads.
-pub struct Catalog {
-    pub enabled: bool,
-    pub answer_questions: bool,
-    pub max_children: NumberSetting,
-    pub max_depth: NumberSetting,
-    pub max_running: NumberSetting,
-}
-
-/// The catalog, parsed once from the embedded source.
-pub fn catalog() -> &'static Catalog {
-    static CATALOG: std::sync::OnceLock<Catalog> = std::sync::OnceLock::new();
-    CATALOG.get_or_init(|| {
-        // crash-allow: the source is a checked-in file embedded with include_str!, so a bad row fails every daemon start in tests/subsessions.rs before it can ship
-        parse_catalog(CATALOG_SOURCE).expect("subsessions.json rows")
-    })
-}
-
-/// The agents.subsessions rows of a settings source file, or None when one is missing.
-fn parse_catalog(source: &str) -> Option<Catalog> {
-    let doc: Value = serde_json::from_str(source).ok()?;
-    let row = |key: &str| -> Option<Value> {
-        doc["lists"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .flat_map(|l| l["rows"].as_array().into_iter().flatten())
-            .find(|r| r["key"] == key)
-            .cloned()
-    };
-    let get = |v: &Value| v.as_u64().and_then(|n| u32::try_from(n).ok());
-    let number = |key: &str| -> Option<NumberSetting> {
-        let r = row(key)?;
-        Some(NumberSetting { default: get(&r["default"])?, max: get(&r["range"]["max"])? })
-    };
-    Some(Catalog {
-        enabled: row(SETTING_ENABLED)?["default"].as_bool()?,
-        answer_questions: row(SETTING_ANSWER_QUESTIONS)?["default"].as_bool()?,
-        max_children: number(SETTING_MAX_CHILDREN)?,
-        max_depth: number(SETTING_MAX_DEPTH)?,
-        max_running: number(SETTING_MAX_RUNNING).unwrap_or(MAX_RUNNING_FALLBACK),
-    })
-}
+pub use crate::subsession_settings::{
+    Catalog, NumberSetting, SETTING_ANSWER_QUESTIONS, SETTING_ENABLED, SETTING_MAX_CHILDREN,
+    SETTING_MAX_DEPTH, SETTING_MAX_RUNNING, catalog, enabled,
+};
 
 /// Longest short name, in characters.
 const MAX_SHORT_NAME: usize = 40;
@@ -167,19 +108,6 @@ pub const PROVENANCE_KIND: &str = "subsession_message";
 /// The mux record on a parent when a child starts or closes.
 pub const RECORD_KIND: &str = "subsession";
 
-/// Whether sub-session tools are on (settings `agents.subsessions.enabled`,
-/// else the catalog default).
-pub fn enabled() -> bool {
-    match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => {
-            crate::user_settings::value(&doc, SETTING_ENABLED)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(catalog().enabled)
-        }
-        _ => catalog().enabled,
-    }
-}
-
 /// One limit as the settings give it, clamped to 1..=`max` the way the app's
 /// Settings reads it (a fraction rounds down).
 fn setting(key: &str, max: u32) -> Option<u32> {
@@ -188,6 +116,11 @@ fn setting(key: &str, max: u32) -> Option<u32> {
     };
     let n = crate::user_settings::value(&doc, key)?.as_f64().filter(|n| n.is_finite())?;
     Some(n.floor().clamp(1.0, f64::from(max)) as u32)
+}
+
+/// [`setting`] for another module's key (`lane_fanout.rs`).
+pub(super) fn setting_u32(key: &str, max: u32) -> Option<u32> {
+    setting(key, max)
 }
 
 /// Where a limit value came from.
@@ -246,6 +179,12 @@ pub struct StartRequest {
     /// Work in a new git worktree of the folder's repository
     /// (`subsession_worktree.rs`) instead of the folder itself.
     pub worktree: bool,
+    /// Internal race capability, derived from the owning person's authenticated request.
+    /// Never populated from ordinary sub-session RPC fields. A peer-origin parent still
+    /// owns a real folder on this daemon; its owner may explicitly race there.
+    pub(crate) owner_authorized_race: bool,
+    /// Internal durable race identity; never populated from an RPC request.
+    pub(crate) race_id: Option<String>,
     /// Start it as a fork of the parent's chat as it is now (`hub/fork.rs`), the way Fork
     /// Conversation forks one: it has the parent's history, runs its harness, model and
     /// folder, and shows it was forked from the parent. No harness, model, effort, folder
@@ -257,6 +196,21 @@ pub struct StartRequest {
     /// A refusal may name this host and its paths: false for a Web client, here or
     /// through a peer (`server/requests.rs`).
     pub local: bool,
+}
+
+impl StartRequest {
+    /// Options that require starting a separate harness or checkout.
+    pub(crate) fn own_launch_option(&self) -> Option<&'static str> {
+        [
+            ("harness", self.harness.is_some()),
+            ("model", self.model.is_some()),
+            ("effort", self.effort.is_some()),
+            ("cwd", self.cwd.is_some()),
+            ("worktree", self.worktree),
+        ]
+        .into_iter()
+        .find_map(|(field, given)| given.then_some(field))
+    }
 }
 
 /// A sub-session's new worktree (and the folder it was made from) until its
@@ -415,6 +369,12 @@ impl Hub {
         })
     }
 
+    /// How many of `parent`'s child slots are in use now, counted as a start's reservation
+    /// counts them (`races.rs` checks a race fits before it starts).
+    pub(super) fn subsession_slots_used(&self, parent: &str) -> u32 {
+        self.subsessions.used(parent, &self.waking_children(parent))
+    }
+
     /// `parent`'s open children with a prompt on its way to a turn: queued (for the turn lock or
     /// a run slot), or holding the turn lock while their harness starts. The index counts the
     /// ones among them that are not live (`Index::reserve`), so a wake never lets a start take
@@ -497,6 +457,20 @@ impl Hub {
             .collect()
     }
 
+    fn race_active(parent: &Session, race_id: Option<&str>) -> bool {
+        let Some(race_id) = race_id else { return true };
+        parent.read_meta(|m| {
+            m.races.iter().any(|race| {
+                race.id == race_id && matches!(race.state.as_str(), "running" | "reviewing")
+            })
+        })
+    }
+
+    fn race_cancelled() -> RpcError {
+        RpcError::invalid_params("race was cancelled before its sub-session prompt was accepted")
+            .with_data(json!({"reason": "race.cancelled"}))
+    }
+
     /// `_acpmux/subsession/start`: `parent`'s agent starts a child with a
     /// first prompt. Answers once the prompt is accepted.
     pub async fn start_subsession(
@@ -514,23 +488,19 @@ impl Hub {
         if req.prompt.trim().is_empty() {
             return Err(RpcError::invalid_params("prompt must not be empty"));
         }
-        if req.fork {
-            let own = [
-                ("harness", req.harness.is_some()),
-                ("model", req.model.is_some()),
-                ("effort", req.effort.is_some()),
-                ("cwd", req.cwd.is_some()),
-                ("worktree", req.worktree),
-            ];
-            if let Some((field, _)) = own.iter().find(|(_, given)| *given) {
-                return Err(RpcError::invalid_params(format!(
-                    "a fork runs your harness, model and folder: start_session with fork takes no {field}"
-                )));
-            }
+        if req.fork
+            && let Some(field) = req.own_launch_option()
+        {
+            return Err(RpcError::invalid_params(format!(
+                "a fork runs your harness, model and folder: start_session with fork takes no {field}"
+            )));
         }
         let pm = parent.meta();
         if pm.status == SessionStatus::Closed {
             return Err(RpcError::invalid_params("a closed session starts no sub-session"));
+        }
+        if !Self::race_active(parent, req.race_id.as_deref()) {
+            return Err(Self::race_cancelled());
         }
         let limits = self.subsession_effective(&pm);
         // One depth for every way a session starts another (`lineage.rs`).
@@ -569,7 +539,9 @@ impl Hub {
         // was in flight did not see the child: close it now, not orphaned
         // (and its worktree, dropped unkept, is removed).
         if parent.meta().status == SessionStatus::Closed {
-            let _ = self.kill(&child, false).await;
+            let why =
+                crate::close_why::CloseWhy::by("daemon", "its parent closed while it started");
+            let _ = self.kill_why(&child, false, why).await;
             return Err(RpcError::invalid_params(
                 "the session closed while its sub-session started",
             ));
@@ -622,12 +594,20 @@ impl Hub {
                 peers: req.local,
                 // A child's name is made unique before this (`unique_name`).
                 name: None,
+                // A family lives on one daemon: a child starts beside its parent.
+                redirect: false,
+                auto: false,
+                waiting: None,
+                harness: Some(harness.clone()),
+                // The parent's lane holds this child (`lane_fanout.rs`).
+                caller: Some(parent.id.as_str()),
             })
             .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.
         let (cwd, worktree) = if req.worktree {
             folder.still_here()?;
-            let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
+            let mut kept =
+                self.subsession_worktree(pm, &folder, &short, req.owner_authorized_race).await?;
             kept.source_decided = decided;
             let start = super::subsession_guard::CheckedFolder::resolve(&kept.made.cwd)?;
             // The folder resolved is in the worktree just made, not one that took its place.
@@ -665,6 +645,8 @@ impl Hub {
                     None,
                     false,
                     Some(sub),
+                    None,
+                    Default::default(),
                 ))
                 .await?;
             return self.started_reply(parent, pm, fork, &req, &cwd, short, depth, None).await;
@@ -686,6 +668,8 @@ impl Hub {
             subsession: Some(link),
             created_by: Some(super::created_by::agent(&parent.id, pm)),
             lineage: Some(lineage),
+            // The answer of the Mac that started a remote chain (`cmux_tools_answer.rs`).
+            env: super::cmux_tools_answer::inherited(Default::default(), &pm.session_env),
             ..Default::default()
         };
         let probe = admitted.run(self.new_session(request)).await?;
@@ -710,6 +694,11 @@ impl Hub {
         if let Err(e) = self.settle_subsession(parent, pm, &probe, cwd, req.name.as_deref()).await {
             return Err(self.close_refused(&probe, e).await);
         }
+        if !Self::race_active(parent, req.race_id.as_deref()) {
+            let why = crate::close_why::CloseWhy::by("daemon", "its race ended while it started");
+            let _ = self.kill_why(&probe, false, why).await;
+            return Err(Self::race_cancelled());
+        }
         let cm = probe.meta();
         // At its prompt's acceptance: the parent's log has `started` only for a child that runs,
         // and before that turn's `turn_ended`.
@@ -718,7 +707,7 @@ impl Hub {
         let started: Box<dyn FnOnce() + Send> =
             Box::new(move || hub.subsession_started(&to, &child, &prompt, asked));
         let accepted = self
-            .send_family_prompt(
+            .send_family_prompt_inner(
                 parent,
                 &probe,
                 text_block(&req.prompt),
@@ -727,6 +716,17 @@ impl Hub {
                 false,
                 Some(started),
                 None,
+                req.race_id.as_deref().map(|race_id| {
+                    let parent = parent.clone();
+                    let race_id = race_id.to_owned();
+                    Arc::new(move || {
+                        if Self::race_active(&parent, Some(&race_id)) {
+                            Ok(())
+                        } else {
+                            Err(Self::race_cancelled())
+                        }
+                    }) as Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>
+                }),
             )
             .await;
         let accepted = match accepted {
@@ -763,12 +763,14 @@ impl Hub {
 
     /// A new worktree of `folder`'s repository for a sub-session named
     /// `name` (`subsession_worktree.rs`), made off the async runtime. Only
-    /// on this machine: a remote parent's folder is not here.
+    /// on this machine. A peer-created session's remote origin remains restricted unless
+    /// the owning person explicitly authorized this race on the daemon that owns it.
     async fn subsession_worktree(
         &self,
         pm: &SessionMeta,
         checked: &super::subsession_guard::CheckedFolder,
         name: &str,
+        owner_authorized_race: bool,
     ) -> Result<KeptWorktree, RpcError> {
         let folder: &Path = checked;
         let refuse = |why: String| {
@@ -778,7 +780,7 @@ impl Hub {
                 json!({"cwd": folder}),
             )
         };
-        if pm.remote_origin {
+        if pm.remote_origin && !owner_authorized_race {
             return Err(refuse("this session runs on another machine".into()));
         }
         let (folder2, held, name2) = (folder.to_path_buf(), checked.held(), name.to_owned());
@@ -817,6 +819,25 @@ impl Hub {
         accepted: Option<Box<dyn FnOnce() + Send>>,
         saved: Option<crate::attach::Saved>,
     ) -> Result<Value, RpcError> {
+        self.send_family_prompt_inner(
+            from, to, blocks, prompt_id, steer, interrupt, accepted, saved, None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn send_family_prompt_inner(
+        self: &Arc<Self>,
+        from: &Arc<Session>,
+        to: &Arc<Session>,
+        blocks: Vec<Value>,
+        prompt_id: Option<String>,
+        steer: bool,
+        interrupt: bool,
+        accepted: Option<Box<dyn FnOnce() + Send>>,
+        saved: Option<crate::attach::Saved>,
+        race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
+    ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let mut provenance = json!({
             "kind": PROVENANCE_KIND,
@@ -852,6 +873,7 @@ impl Hub {
                 None => on_accepted,
             },
             provenance: Some(provenance),
+            race_guard,
             ..PromptOptions::default()
         };
         let (hub, to2) = (self.clone(), to.clone());
@@ -864,6 +886,12 @@ impl Hub {
             answer
         });
         match rx.await {
+            Ok(v) if v.get("raceCancelled") == Some(&Value::Bool(true)) => {
+                Err(RpcError::invalid_params(
+                    v.get("error").and_then(Value::as_str).unwrap_or("race was cancelled"),
+                )
+                .with_data(json!({"reason": "race.cancelled"})))
+            }
             Ok(v) => Ok(v),
             // Dropped before acceptance: the prompt was refused.
             Err(_) => match turn.await {
@@ -928,7 +956,7 @@ impl Hub {
         // The last turn's text, and the running turn's again (a turn that changed between the
         // two reads above): a parent may have pasted a key into it, and what it does now is a
         // tool call's title, often a command with its arguments.
-        let turn_text = ["/turn/prompt", "/turn/activity", "/turn/planStep"];
+        let turn_text = ["/turn/prompt", "/turn/activity"];
         for pointer in ["/lastTurn/errorText", "/lastTurn/prompt"].into_iter().chain(turn_text) {
             if let Some(slot) = row.pointer_mut(pointer)
                 && let Some(text) = slot.as_str()
@@ -1049,6 +1077,18 @@ impl Hub {
         target: &Arc<Session>,
         close: bool,
     ) -> Result<Value, RpcError> {
+        let why = crate::close_why::CloseWhy::by("daemon", "a race or review it ran ended");
+        self.subsession_stop_why(target, close, why).await
+    }
+
+    /// `subsession_stop`, recording who closed each session and why (`close_why.rs`): the
+    /// target takes `why`; each session under it is recorded as closed with its ancestor.
+    pub async fn subsession_stop_why(
+        self: &Arc<Self>,
+        target: &Arc<Session>,
+        close: bool,
+        why: crate::close_why::CloseWhy,
+    ) -> Result<Value, RpcError> {
         if !close {
             // A start or message still waiting for a run slot is stopped too: it never runs.
             if self.waits_for_slot(&target.meta()) {
@@ -1075,7 +1115,15 @@ impl Hub {
             // A family prompt still queued would take a run slot later and open it again.
             self.withdraw_family_prompts(s, "closed");
             if s.meta().status != SessionStatus::Closed {
-                self.kill(s, false).await?;
+                let mut why = why.clone();
+                if s.id != target.id {
+                    why.reason = Some(format!(
+                        "closed with its ancestor {}: {}",
+                        target.id,
+                        why.reason.as_deref().unwrap_or("unrecorded")
+                    ));
+                }
+                self.kill_why(s, false, why).await?;
                 closed.push(Value::String(s.id.clone()));
             }
         }
@@ -1160,56 +1208,121 @@ impl Hub {
         self.reply_between(s, last.saturating_sub(4000), last)
     }
 
+    /// The session's last agent message for a model race. Races send the full
+    /// reviewer response to the verdict parser, so it is masked but never
+    /// truncated.
+    pub(crate) fn last_reply_unbounded(&self, s: &Session) -> Option<String> {
+        let last = s.meta().last_seq;
+        // Read backwards in pages until this turn's start. A turn can emit more
+        // than 4,000 update records, so the summary path's fixed tail is not
+        // sufficient for a race verdict.
+        let mut before = last.saturating_add(1);
+        let mut pages = Vec::new();
+        loop {
+            let page = self
+                .events_page(
+                    &s.id,
+                    0,
+                    Some(before),
+                    512,
+                    None,
+                    true,
+                    &crate::hub::EventFilter::all(),
+                )
+                .ok()?;
+            if page.events.is_empty() {
+                break;
+            }
+            let starts_turn = page.events.iter().any(|e| e.kind == "turn_started");
+            before = page.events.first().map(|e| e.seq)?;
+            pages.push(page.events);
+            if starts_turn || !page.has_more {
+                break;
+            }
+        }
+        pages.reverse();
+        let events = pages.into_iter().flatten().collect::<Vec<_>>();
+        masked_reply(&events, last, None)
+    }
+
     /// [`Hub::last_reply`] among the records after `after` up to `upto` only (the last 4000 of
     /// them): one turn's reply, read after later turns began (the Cloud hand-off reports,
     /// `daemon/cloud_handoff.rs`).
     pub fn reply_between(&self, s: &Session, after: u64, upto: u64) -> Option<String> {
+        self.reply_between_with_limit(s, after, upto, Some(MAX_REPLY_CHARS))
+    }
+
+    fn reply_between_with_limit(
+        &self,
+        s: &Session,
+        after: u64,
+        upto: u64,
+        max_chars: Option<usize>,
+    ) -> Option<String> {
         let after = after.max(upto.saturating_sub(4000));
         let count = usize::try_from(upto.saturating_sub(after)).unwrap_or(4000);
         let events = self.events(&s.id, after, count).ok()?;
-        let mut reply = String::new();
-        let mut open = false;
-        for e in events.into_iter().take_while(|e| e.seq <= upto) {
-            if e.dir == "mux" && matches!(e.kind.as_str(), "turn_started" | "user_message") {
-                open = false;
-                continue;
-            }
-            let update = e.dir == "in"
-                && !e.kind.ends_with(".replay")
-                && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
-                && e.msg.pointer("/params/_meta/acpmux/subagent").is_none();
-            if !update {
-                continue;
-            }
-            match e.kind.as_str() {
-                "agent_message_chunk" => {
-                    if !open {
-                        reply.clear();
-                        open = true;
-                    }
-                    let chunk = e.msg.pointer("/params/update/content/text");
-                    reply.push_str(chunk.and_then(Value::as_str).unwrap_or_default());
+        masked_reply(&events, upto, max_chars)
+    }
+}
+
+/// Extract and mask one turn's agent reply. `max_chars` is only applied to the
+/// normal session summary path; race callers pass `None` so a reviewer result
+/// remains valid JSON even when it is longer than the summary cap.
+fn masked_reply(
+    events: &[crate::store::EventRecord],
+    upto: u64,
+    max_chars: Option<usize>,
+) -> Option<String> {
+    let mut reply = String::new();
+    let mut open = false;
+    for e in events.iter().take_while(|e| e.seq <= upto) {
+        if e.dir == "mux" && matches!(e.kind.as_str(), "turn_started" | "user_message") {
+            open = false;
+            continue;
+        }
+        let update = e.dir == "in"
+            && !e.kind.ends_with(".replay")
+            && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+            && e.msg.pointer("/params/_meta/acpmux/subagent").is_none();
+        if !update {
+            continue;
+        }
+        match e.kind.as_str() {
+            "agent_message_chunk" => {
+                if !open {
+                    reply.clear();
+                    open = true;
                 }
-                "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => open = false,
-                _ => {}
+                let chunk = e.msg.pointer("/params/update/content/text");
+                reply.push_str(chunk.and_then(Value::as_str).unwrap_or_default());
             }
+            "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => open = false,
+            _ => {}
         }
-        let reply = reply.trim();
-        if reply.is_empty() {
-            return None;
-        }
-        // Mask before the cut: a cut through a secret leaves a head the
-        // scanner no longer recognizes, and that head would go out unmasked.
-        let masked = crate::secret_scan::mask(reply);
-        let mut cut: String = masked.chars().take(MAX_REPLY_CHARS).collect();
-        if masked.chars().count() > MAX_REPLY_CHARS {
+    }
+    let reply = reply.trim();
+    if reply.is_empty() {
+        return None;
+    }
+    // Mask before the cut: a cut through a secret leaves a head the
+    // scanner no longer recognizes, and that head would go out unmasked.
+    let masked = crate::secret_scan::mask(reply);
+    if let Some(max_chars) = max_chars {
+        let mut cut: String = masked.chars().take(max_chars).collect();
+        if masked.chars().count() > max_chars {
             cut.push('…');
         }
-        Some(cut)
+        return Some(cut);
     }
+    Some(masked)
 }
 
 /// A prompt of `text` alone.
 fn text_block(text: &str) -> Vec<Value> {
     vec![json!({"type": "text", "text": text})]
 }
+
+#[cfg(test)]
+#[path = "subsessions_reply_tests.rs"]
+mod reply_tests;

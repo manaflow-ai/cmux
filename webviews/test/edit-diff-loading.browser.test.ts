@@ -22,7 +22,10 @@ await requireBrowserLane("edit-diff-loading.browser.test.ts", async () => {
     });
     await server.listen();
     base = `http://127.0.0.1:${(server.httpServer!.address() as { port: number }).port}`;
-    browser = await chromium.launch({ headless: true });
+    // Scrollbars drawn, as the app's WebKit draws Pierre's sideways lane: Playwright's default
+    // --hide-scrollbars takes that lane out of the rendered diff but not the placeholder's bottom
+    // padding that stands in for it (#49716), so the two would differ by the lane.
+    browser = await chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] });
     await warmGalleryFrame(server, "agent-pane.inline-diff-loading", { browser, params: { variant: "loaded" } });
     await warmGalleryFrame(server, "agent-pane.transcript", { browser, params: { variant: "edit-long-line-code" } });
   });
@@ -133,8 +136,10 @@ await requireBrowserLane("edit-diff-loading.browser.test.ts", async () => {
         const moves = await page.evaluate(
           () =>
             (
-              window as unknown as { cmuxGalleryPlayReport?: { steps: { boxMoves: unknown[] }[] } }
-            ).cmuxGalleryPlayReport?.steps.flatMap((step) => step.boxMoves) ?? null,
+              window as unknown as { cmuxGalleryPlayReport?: { steps: { action: string; boxMoves: unknown[] }[] } }
+            ).cmuxGalleryPlayReport?.steps
+              .filter((step) => step.action === "click")
+              .map((step) => step.boxMoves) ?? null,
         );
         release();
         await page.locator("diffs-container [data-line]").first().waitFor();
@@ -142,7 +147,8 @@ await requireBrowserLane("edit-diff-loading.browser.test.ts", async () => {
         await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
         const painted = await userTop();
         console.log({ variant, moves, opened, painted });
-        expect(moves).toEqual([]);
+        // Preparing the raw-tool view opens Worked for first. Only the edit click is under test.
+        expect(moves).toEqual([[]]);
         // Still where it was drawn once the rendered lines replaced the placeholder.
         expect(painted).toBe(opened);
       } finally {

@@ -19,6 +19,11 @@ import { agentPaneTheme } from "../src/gallery/theme/web";
 import { deriveTokens, GHOSTTY_DEFAULT, rgbHex } from "../src/gallery/theme/tokens";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 type Moved = { name: string; dx: number; dy: number; dw: number; dh: number };
 type Probe = Window & {
@@ -136,8 +141,8 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
         trailingInset: 40,
       }),
     );
-  const panel = (page: Page) => page.locator("aside.acpmux-session-info");
-  const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
+  const panel = (page: Page) => page.locator(SESSION_INFO);
+  const toggle = (page: Page) => page.locator(SESSION_INFO_TOGGLE);
   const close = async (page: Page) => {
     if ((await panel(page).count()) === 0) return;
     // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it
@@ -190,7 +195,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
 
             await mark(page);
             await toggle(page).click({ force: true });
-            await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+            await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
             await settle(page);
             const opening = await moved(page);
 
@@ -211,10 +216,11 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             await settle(page);
             const closing = await moved(page);
             // Where it lies over the chat (560, 900 and 1100px: Chat Text Width's 800px column does not fit
-            // beside the whole panel; SessionInfo.tsx sessionInfoStage), nothing else moves at all. Where
-            // the column fits (1200 and 1600px) it pushes: the column moves left as it opens and back as it closes, the
-            // chat centered beside it (Lucas, 2026-11-06), only sideways, nothing resized or moved up or
-            // down; its content changing still moves nothing.
+            // beside the whole panel; SessionInfo.tsx sessionInfoStage) or floats in a gutter that holds it
+            // (1600px; Leo, 2026-11-09: "if it has enough space, then don't push the layout"), nothing else
+            // moves at all. Where the gutter lacks room and the column fits (1200px) it pushes: the column
+            // moves left as it opens and back as it closes, by what the gutter lacks, only sideways,
+            // nothing resized or moved up or down; its content changing still moves nothing.
             // The thread rail on the left fits the gutter the column leaves it: where the moved column
             // takes part of that gutter (1200px), the rail narrows with it (useRailPlacement.ts); that it
             // stays pinned is thread-minimap-left-rail-stays.test.ts's check, so it is left out here.
@@ -222,7 +228,8 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             // What moved other than sideways, named, so a red says what it was.
             const offSideways = (list: Moved[]) =>
               list.filter((one) => !rail(one) && (one.dy !== 0 || one.dw !== 0 || one.dh !== 0)).map((one) => one.name);
-            if (width < 1160) expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
+            if (width < 1160 || width >= 1600)
+              expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
             else
               expect({
                 pushed: opening.length > 0,
@@ -264,7 +271,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
           await settle(page);
           await page.screenshot({ path: path.join(out, "stills", `session-info-closed-${colorScheme}.png`) });
           await toggle(page).click({ force: true });
-          await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+          await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
           await settle(page);
           await page.screenshot({ path: path.join(out, "stills", `session-info-open-${colorScheme}.png`) });
         } finally {

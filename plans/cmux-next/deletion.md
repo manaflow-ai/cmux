@@ -28,7 +28,7 @@ Xcode target `cmux-next` (`CE7A00000000000000000005`, scheme `cmux`):
 | Not embedded (legacy has them) | Sparkle.framework, cmuxTunnel system extension, CmuxDockTilePlugin, `cmux-diff-sidecar`, Nucleo FFI, markdown-viewer assets, plain-text paste worker, extension point, Sentry, PostHog, MarkdownUI |
 | Settings | `MACOSX_DEPLOYMENT_TARGET = 26.0` (legacy 14.0), Release bundle id `com.cmuxterm.app` (same as legacy, Keychain kept), `ENABLE_HARDENED_RUNTIME = NO` (signing script adds `--options runtime`) |
 
-SwiftPM closure of `Packages/macOS/CmuxNext` (13 nodes):
+SwiftPM closure of `Packages/macOS/CmuxNext` (11 nodes; CmuxIrxTransport and CmuxIrohTransport, once listed here, had no consumer, classic's iOS app included (`ios/CmuxiOS/Package.swift` and `ios/cmux-ios.xcodeproj` name neither), and were deleted on 2026-11-27):
 
 | Package | Lines | Why |
 | --- | --- | --- |
@@ -38,8 +38,6 @@ SwiftPM closure of `Packages/macOS/CmuxNext` (13 nodes):
 | Packages/Shared/CmuxAuthRuntime | 17,432 | CmuxNextCloud |
 | vendor/stack-auth-swift-sdk-prerelease | 7,875 | via CmuxAuthRuntime |
 | Packages/Shared/CMUXMobileCore | 55,218 | CmuxNextMobile |
-| Packages/Shared/CmuxIrxTransport | 21,577 | CmuxNextMobile (+ remote `iroh-ffi`) |
-| Packages/Shared/CmuxIrohTransport | 62,472 | via CmuxIrxTransport |
 | Packages/iOS/CmuxMobileRPC | test only | CmuxNextMobileTests |
 | Packages/iOS/CmuxMobileSSH, CmuxMobileTunnel, CmuxMobileShellModel, CmuxMobileSupport | test only | CmuxNextMobileTests (swift-nio-ssh etc.) |
 
@@ -50,7 +48,7 @@ SwiftPM closure of `Packages/macOS/CmuxNext` (13 nodes):
 | `cmux-cli` target (`CLI/`, 103,002 lines) | CmuxSurfaceCatalogModel, CMUXAgentLaunch, CmuxAgentJournal, CmuxControlSocket, CmuxTerminalCore, CmuxTerminalImport, CMUXDebugLog, CmuxCore, CmuxSwiftRender, CmuxSwiftRenderUI, CmuxSudoBroker, CmuxSidebarInterpreterService, CmuxSimulator, CmuxSettings, CmuxFoundation, CmuxSentryTelemetry, CMUXMobileCore, CmuxGhosttyKit | Also compiles 19 files from `Sources/` (3,845 lines): `Automation*` (8), `JSONC*` (3), `Remote*Bootstrap*` / `RemoteRelayZshBootstrap` / `RemoteSessionBundledResourceLoader` (5), `SSHPTYAttachStartupCommandBuilder`, `AgentProcessBindingResolution`, `AgentHibernation/AgentHibernationLifecycleState`, `Surfaces/CmuxTuiRemoteRouting`. CLI code imports none of CmuxSwiftRender, CmuxSwiftRenderUI, CmuxSidebarInterpreterClient: dead links. |
 | `cmuxCLITests` (scheme `cmux-cli-tests`, host-free) | CMUXAgentLaunch, CmuxAgentJournal, CmuxFoundation, CmuxSettings, CmuxCore | `cmuxCLITests/` 11,114 + `cmuxCLITestSupport/` 2,463 |
 | `cmuxTunnelExtension` (`TunnelExtension/`) | vendor/WireGuardKit, CmuxCloudTunnelCore | Embedded only by legacy. cmux-next uses userspace `cmux-tui wg hub` (`CmuxNextCloud/Tunnel/CloudTunnelHub.swift`), so this target becomes optional (decision X2). |
-| iOS app (`ios/cmuxPackage`, CmuxMobileShellUI, CmuxMobileTerminal) | 36 nodes: every `Packages/iOS/*`, Shared: CMUXAuthCore, CmuxAuthRuntime, CMUXMobileCore, CmuxAgentChat, CmuxClientConfig, CmuxGhosttyKit, CmuxIrohTransport, CmuxIrxTransport, CmuxSentryTelemetry, CmuxSimulatorStreamKit, CmuxWorkspacePresence, **Packages/macOS/CmuxPhonePush** | CmuxPhonePush is a macOS-path package the iOS app links. Keep. |
+| iOS app (`ios/cmuxPackage`, CmuxMobileShellUI, CmuxMobileTerminal) | 34 nodes: every `Packages/iOS/*`, Shared: CMUXAuthCore, CmuxAuthRuntime, CMUXMobileCore, CmuxAgentChat, CmuxClientConfig, CmuxGhosttyKit, CmuxSentryTelemetry, CmuxSimulatorStreamKit, CmuxWorkspacePresence, **Packages/macOS/CmuxPhonePush** | CmuxPhonePush is a macOS-path package the iOS app links. Keep. |
 | web/ | `web/tests/account-me-orpc.test.ts:14` reads `Packages/Shared/CmuxAPIClient/Sources/CmuxAPIClient/openapi.json` | Keep CmuxAPIClient (or move the JSON). |
 | cmux-tui/ | nothing in Packages | one comment in `crates/cmux-tui-core/src/layout.rs:83`; leave |
 | test-ios.yml | tests `Packages/Shared/CmuxSyncStore` | Nobody links CmuxSyncStore. Orphan; ask the iOS owner. |

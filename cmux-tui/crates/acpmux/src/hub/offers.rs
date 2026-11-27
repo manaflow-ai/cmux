@@ -20,8 +20,8 @@
 //!
 //! - The records are the state: an offer is open until its decision is
 //!   recorded, across daemon restarts. The daemon reads a chat's records
-//!   once, at its first offer call, and keeps its open offers from then on.
-//!   A chat holds at most [`OPEN_LIMIT`] open offers.
+//!   once, at its first offer call, and keeps its open offers from then on:
+//!   an id and a time each, so a chat holds any number.
 //! - Only a chat started after the offer takes it, and only one without a
 //!   parent. A chat a remote device started offers none.
 //! - Title, prompt and folder are the agent's text: the chip shows them as
@@ -37,8 +37,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use crate::offer_mcp::{MAX_PROMPT_CHARS, MAX_TITLE_CHARS};
-pub(super) const OPEN_LIMIT: usize = 8;
 const MAX_NAME_CHARS: usize = 120;
+/// The records of a chat's offers: each offer, then its decision.
+const OFFER_KINDS: &[&str] = &["session_offer", "session_offer_decision"];
 /// Longest `groupId`, in bytes.
 const MAX_GROUP_BYTES: usize = 64;
 
@@ -134,11 +135,6 @@ impl Hub {
         let record = offer_record(session, params)?;
         let offer_id = record["offerId"].as_str().unwrap_or_default().to_owned();
         self.with_open_offers(session, |open| {
-            if open.len() >= OPEN_LIMIT {
-                return Err(RpcError::invalid_params(format!(
-                    "this chat already has {OPEN_LIMIT} open offers; wait for the user to answer them"
-                )));
-            }
             open.insert(offer_id.clone(), crate::store::now_ms());
             Ok(())
         })?;
@@ -245,25 +241,26 @@ impl Hub {
     /// The title of the chat's recorded offer `offer_id`.
     fn offer_title(&self, session: &Session, offer_id: &str) -> Option<String> {
         let mut title = None;
-        let _ = self.store.scan(&session.id, 0, &mut |event: EventRecord| {
-            if event.dir == "mux"
-                && event.kind == "session_offer"
-                && event.msg.get("offerId").and_then(Value::as_str) == Some(offer_id)
-            {
-                title = event.msg.get("title").and_then(Value::as_str).map(str::to_owned);
-                return false;
-            }
-            true
-        });
+        let _ =
+            self.store.scan_kinds(&session.id, &["session_offer"], &mut |event: EventRecord| {
+                if event.dir == "mux"
+                    && event.kind == "session_offer"
+                    && event.msg.get("offerId").and_then(Value::as_str) == Some(offer_id)
+                {
+                    title = event.msg.get("title").and_then(Value::as_str).map(str::to_owned);
+                    return false;
+                }
+                true
+            });
         title
     }
 
     /// The ids of the chat's recorded offers without a recorded decision.
     fn recorded_open_offers(&self, session: &Session) -> Result<HashMap<String, u64>, RpcError> {
-        // Streamed, not collected: a long chat's log stays on disk.
+        // Streamed, not collected, from the log's copies of its offers (`store/kind_index.rs`).
         let mut open = HashMap::new();
         self.store
-            .scan(&session.id, 0, &mut |event: EventRecord| {
+            .scan_kinds(&session.id, OFFER_KINDS, &mut |event: EventRecord| {
                 if event.dir == "mux"
                     && let Some(id) = event.msg.get("offerId").and_then(Value::as_str)
                 {

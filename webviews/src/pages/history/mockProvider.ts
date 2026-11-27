@@ -75,6 +75,8 @@ export class MockHistoryProvider implements PageClient {
   private readonly handlers = new Map<string, PageHandler>();
   /** Set to make every call reject as if the host went away. */
   offline = false;
+  /** The kinds the owner has not finished listing: every list reply names them (`pending_kinds`). */
+  pendingKinds: HistoryKind[] = [];
   /** The host's page streams (connection, dispatcher commands). */
   readonly page = new MockPageStreams();
   /** The app's cookie backups; `confirmDelete` is the person's answer to its dialog. */
@@ -166,11 +168,22 @@ export class MockHistoryProvider implements PageClient {
       .filter((entry) => kinds.size === 0 || kinds.has(entry.kind))
       .filter((entry) => start === undefined || entry.at_ms >= start)
       .filter((entry) => {
+        // RFD 0125 D5: agent page visits sit one filter away from the person's.
+        if (entry.kind !== "page") return true;
+        const actor = params.actor ?? "mine";
+        if (actor === "all") return true;
+        return (entry.actor === "agent") === (actor === "agents");
+      })
+      .filter((entry) => {
         const haystack = fold(searchText(entry));
         return tokens.every((token) => haystack.includes(token));
       })
       .sort((a, b) => b.at_ms - a.at_ms || (a.id < b.id ? 1 : -1));
-    return { entries: matched.slice(0, params.limit ?? 200), revision: this.revision };
+    return {
+      entries: matched.slice(0, params.limit ?? 200),
+      revision: this.revision,
+      ...(this.pendingKinds.length ? { pending_kinds: [...this.pendingKinds] } : {}),
+    };
   }
 
   private mutate(keep: (entry: HistoryEntry) => boolean, kinds: HistoryChanged["kinds"]): { removed: number } {

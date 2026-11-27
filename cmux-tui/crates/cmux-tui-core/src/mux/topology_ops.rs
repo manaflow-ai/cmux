@@ -4,6 +4,18 @@
 
 use super::*;
 
+/// The `pane.split` `direction` field of a split along `dir`: `right` or
+/// `down`, or `left` or `up` when the new pane goes before the target
+/// (`split-before-v1`).
+pub(crate) fn split_direction_field(dir: SplitDir, before: bool) -> &'static str {
+    match (dir, before) {
+        (SplitDir::Right, false) => "right",
+        (SplitDir::Right, true) => "left",
+        (SplitDir::Down, false) => "down",
+        (SplitDir::Down, true) => "up",
+    }
+}
+
 impl Mux {
     pub(crate) fn create_terminal_result_in_workspace_as(
         self: &Arc<Self>,
@@ -120,6 +132,7 @@ impl Mux {
         let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
         fields.extend(extra_fields);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
+        tab_strip::tab_place::insert_fields(&mut fields);
         tab_strip::reopen_identity::insert_field(&mut fields);
         if let Some((cols, rows)) = size {
             let (cell_width, cell_height) = self.cell_pixel_size();
@@ -134,6 +147,28 @@ impl Mux {
             fields,
         )?;
         self.emit_resource_topology_legacy_events(ResourceOperation::TabCreateBrowser, &commit);
+        self.ordinary_created_surface(&commit)
+    }
+
+    /// A browser tab at `url` in `workspace`'s active pane, or in a new first
+    /// pane of an empty workspace (its first tab), in one commit. The target
+    /// is the workspace named, never the active one.
+    pub(crate) fn new_browser_tab_in_workspace_with_fields_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        url: String,
+        workspace: WorkspaceId,
+        extra_fields: Map<String, Value>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let selectors = self
+            .ordinary_workspace_selectors(workspace)
+            .with_context(|| format!("unknown workspace {workspace}"))?;
+        let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
+        fields.extend(extra_fields);
+        let operation = ResourceOperation::TabCreateBrowser;
+        let commit =
+            self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?;
+        self.emit_resource_topology_legacy_events(operation, &commit);
         self.ordinary_created_surface(&commit)
     }
 
@@ -319,6 +354,7 @@ impl Mux {
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
+        tab_strip::tab_place::insert_fields(&mut fields);
         tab_strip::reopen_identity::insert_field(&mut fields);
         let commit = self.commit_ordinary_topology_operation_by(
             actor,
@@ -453,15 +489,42 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
+        self.split_placed_with_options_as(actor, target, dir, false, spawn, size)
+    }
+
+    /// [`Self::split_with_options_as`] with the new pane before the target
+    /// on the split axis when `before` (`split-before-v1`: Split Left, Split
+    /// Up), in the same one commit: the split's layout is final, with no
+    /// `swap-pane` after it.
+    pub fn split_placed_with_options_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        target: PaneId,
+        dir: SplitDir,
+        before: bool,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<PaneSurfaceCreation> {
+        let direction = split_direction_field(dir, before);
+        let fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
+        self.split_with_fields_as(actor, target, fields, spawn, size)
+    }
+
+    /// A split of `target` with the `pane.split` fields of the caller, which
+    /// name the direction. The size and the spawn options go into the fields
+    /// here.
+    pub(in crate::mux) fn split_with_fields_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        target: PaneId,
+        mut fields: Map<String, Value>,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<PaneSurfaceCreation> {
         let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
-        let direction = match dir {
-            SplitDir::Right => "right",
-            SplitDir::Down => "down",
-        };
-        let mut fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
         self.commit_pane_creation_by(actor, ResourceOperation::PaneSplit, selectors, fields)

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextPages
 import ImageIO
 import Foundation
 import os
@@ -27,19 +28,22 @@ final class CEFRuntime {
     /// Whether first-party pages serve the live web loop (``setLivePages(_:)``), kept until the shim loads.
     var livePages = false
     /// The answer for a first-party page file of a tab that is not a page host while ``livePages`` (``CEFPageSchemes/liveFallback``).
-    var liveFallback: (@MainActor (URL, String?) async -> CEFPageResponse)?
+    var liveFallback: (@MainActor (URL, String?, Bool) async -> CEFPageResponse)?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     var pump: CEFMessagePump?
     /// The pump's gate for requests from Chromium threads (read off the main thread).
     nonisolated let pumpGate = CEFPumpCrossThreadGate()
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
+    /// This turn's window resize fences (fork API 32), one set for every hosted page of the process.
+    let resizeFences = CEFResizeFences()
 
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
     let extensionActionReads = CEFExtensionActionReads()
     /// Profiles Chromium opened in this process (their files stay open until shutdown, so a deleted one's directory waits for the next launch).
+    /// The startup profile is one from `CefInitialize` on (`noteStartupProfile`), before any pane uses it.
     var usedProfiles: Set<BrowserProfileID> = []
     /// Each proxied browser profile's proxy (#24432); a profile not here is direct.
     var profileProxies: [BrowserProfileID: BrowserProfileProxy] = [:]
@@ -53,6 +57,50 @@ final class CEFRuntime {
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
     /// The spare window and the page made ahead in it (`CEFSpareWindow`): this runtime's own.
     private(set) lazy var spareWindow = CEFSpareWindow()
+    /// The cmux pages' spare window (`CEFSpareWindow`, the pages' off-the-record store), from the first
+    /// page on (`usePageSpareWindow`); nil before.
+    private(set) var pageSpareWindow: CEFSpareWindow?
+    /// Agent chat pages draw a key's frame at once (fork API 35, Debug Settings; `CEFDrawOnInput`). Made at the first
+    /// browser, once the shim is loaded.
+    ///
+    /// Kept only once the shim is there: it binds the fork's calls at init, so one built before the library loaded
+    /// would hold no call and, cached, would leave the mode inert for the whole process however the setting reads —
+    /// the trap this PR is about. A read before then (an early `debug.cef`, which the typing bench does make) gets an
+    /// unbound one that is not kept, so the real one is still built when CEF starts.
+    var drawOnInput: CEFDrawOnInput {
+        if let made = madeDrawOnInput { return made }
+        let made = CEFDrawOnInput(shim: shim, apiVersion: forkAPIVersion)
+        if shim != nil { madeDrawOnInput = made }
+        return made
+    }
+
+    private var madeDrawOnInput: CEFDrawOnInput?
+    /// Collects the garbage closed cmux pages leave in the renderer they shared (`CEFPageRendererGC`).
+    private(set) lazy var pageRendererGC = CEFPageRendererGC(
+        pages: { [weak self] in
+            guard let self else { return [] }
+            return tabsByBrowser.map { browser, tab in
+                let clients: [Int32] = if case .chromiumRendererClients(let ids) = tab.contentProcesses { ids } else { [] }
+                return CEFPageRendererGC.Page(browser: browser, isCmuxPage: CEFPageRendererGC.isCmuxPage(tab.state.url), rendererClients: clients)
+            }
+        },
+        heapUsed: { [weak self] browser in await self?.rendererHeapUsed(browser) },
+        collect: { [weak self] browser in
+            guard let tab = self?.tabsByBrowser[browser] else { return }
+            _ = try? await tab.devTools(method: "HeapProfiler.collectGarbage", params: [:], timeout: .seconds(10))
+        })
+    /// Chromium's memory purge once hidden cmux pages freeze (`CEFHiddenPageTrim`).
+    private(set) lazy var hiddenPageTrim = CEFHiddenPageTrim(
+        hiddenPages: { [weak self] in
+            self?.tabsByBrowser.values.filter { !$0.isClosed && $0.isContentHidden && CEFPageRendererGC.isCmuxPage($0.state.url) } ?? []
+        },
+        notify: { await CEFHiddenPageTrim.notice($0) })
+    /// The focused agent chat's own renderer (`CEFOwnChatRenderer`).
+    private(set) lazy var ownChatRenderer = CEFOwnChatRenderer(name: { [weak self] browser in
+        self?.shim?.pageOwnRenderer?(browser)
+    })
+    /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
+    let arriving = CEFArrivingPages()
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
@@ -62,8 +110,6 @@ final class CEFRuntime {
     private(set) lazy var accessibility = CEFAccessibility(
         apply: { [weak self] browser, enabled in self?.shim?.setAccessibility(browser, enabled ? 1 : 0) },
         browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
-    /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
-    private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
     var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)?
@@ -79,6 +125,9 @@ final class CEFRuntime {
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?
+    /// The last shown pane of a regular profile's web tabs (`CEFPaneHost.hostsExtensionWindows`): an
+    /// extension's popup window opens over it (`popupWindowOpener`).
+    weak var lastShownWebHost: CEFPaneHost?
     /// Off-the-record context keys created this launch, by profile.
     var offTheRecordContexts: [BrowserProfileID: Set<String>] = [:]
     /// Extension mirrors by profile.
@@ -87,6 +136,8 @@ final class CEFRuntime {
     private(set) lazy var extensionPrompts = CEFExtensionPrompts(runtime: self)
     /// chrome.omnibox keyword sessions (fork API 12).
     let omniboxKeywords = CEFOmniboxKeywords()
+    /// Holds a cmux page's Cmd-V while a TIFF-only picture on the pasteboard gets its PNG (#41016).
+    let pastedImagePNG = PastedImagePNGHold()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The new Chromium tab bench's marks (`CEFBenchMarks`, DEBUG builds).
     let benchMarks = CEFBenchMarks()
@@ -105,6 +156,9 @@ final class CEFRuntime {
     /// asked for in one turn and awaited in a later one), with the answer when it came first. Dropped when the
     /// browser closes or quit begins (the caller then gets `closed`).
     var unawaitedDevTools: [CEFDevToolsKey: Result<String, any Error>?] = [:]
+    /// The DevTools sends whose shim call held the main thread past ``CEFRuntime/slowDevToolsSend`` (newest last, at
+    /// most ``CEFRuntime/slowDevToolsSendLimit``).
+    var slowDevToolsSends: [CEFDevToolsSlowSend] = []
     let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
     /// `cmux_shim_tab_evaluate` calls waiting for their answer (fork API 29, `CEFRuntime+Evaluate`).
     let evaluations = CEFReplyWaiters<Int32, CEFEvaluationResult>()
@@ -131,11 +185,18 @@ final class CEFRuntime {
     /// Runs when a start fails. `CefInitialize` resets the signal actions
     /// before it can fail, so the App re-installs its handlers here too.
     var onStartFailed: (() -> Void)?
+    /// The first window frame (`AppDelegate.firstFrame`): `start` runs `CefInitialize` (about 360 ms on the
+    /// main thread) only once it is open, so a framework mapped early never delays that frame (CMUX-571).
+    /// The gate always opens (its 3 s backstop), so a start waits at most until then; nil waits for nothing.
+    weak var initializeAfter: FirstFrameGate?
     /// Hides or closes top-level Chromium windows that slip through (see
     /// `ChromiumWindowGuard`).
-    private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
-        self?.isPlacedDevToolsWindow(window) ?? false
-    }
+    private(set) lazy var windowGuard: ChromiumWindowGuard = {
+        let guard_ = ChromiumWindowGuard(logger: logger) { [weak self] window in self?.isPlacedDevToolsWindow(window) ?? false }
+        guard_.onBecameKey = { [weak self] window in self?.keyReturn.windowBecameKey(window) }
+        guard_.onOcclusionChanged = { window in ChromiumPageWindowVisibility.parentOcclusionChanged(window) }
+        return guard_
+    }()
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
     private var displayObservation: MainActorObservation?
     /// True when `--load-extension` is in use (development, verification).
@@ -151,6 +212,13 @@ final class CEFRuntime {
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
+    /// The keychain step of the first start (``CEFKeychainMigration``), off the main thread beside the framework load.
+    private var keychainTask: Task<CEFKeychainMigration.Outcome?, Never>?
+    /// What the keychain step found, read when Chromium's switches are made (``applyNoKeychain(_:to:)``).
+    private var keychainOutcome: CEFKeychainMigration.Outcome?
+    /// Whether the running Chromium keeps its key in the mock keychain (a public constant): set when it starts,
+    /// after the keychain item step, so it says what Chromium uses, not what the bundle suggests. Nil before.
+    private(set) var chromiumUsesMockKeychain: Bool?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -162,10 +230,104 @@ final class CEFRuntime {
     /// The App's browser stores, handed over by the engine before it starts or makes a tab
     /// (`adopt`); in memory until then (a spy runtime in tests).
     private(set) var stores = BrowserSharedStores.inMemory()
+    /// Gives the keys back from a parked agent page's window (``AgentRenderKeyReturn``), told by ``windowGuard``.
+    let keyReturn = AgentRenderKeyReturn()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
+    /// Omnibox edits each profile's predictor could not learn yet (its database loads after start-up).
+    var omniboxPendingLearns: [BrowserProfileID: OmniboxPendingLearns] = [:]
 
-    private init() {}
+    /// Maps the shim and the framework (``loadLibrary(_:signatureChecker:)``). Called only from the detached
+    /// load task of ``start(layout:environment:trigger:)`` and ``preload(layout:)``, never on the main thread:
+    /// the map holds dyld's loader lock, and a main-thread `dlopen` or `dladdr` meanwhile waits on it.
+    /// Tests inject a spy (which thread maps, and when).
+    typealias LibraryLoader = @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError>
+    private let libraryLoader: LibraryLoader
+    /// A load begun from any thread before any page asked (`CEFEngine.beginEarlyLoad`, handed over by the engine with
+    /// its stores, `adopt(earlyLoad:)`); the first start or preload of its layout takes it instead of loading again.
+    private(set) var earlyLoad: CEFEarlyLoad?
+    /// Runs this runtime's deadlines (an extension popup window no panel attached, `CEFPaneHost+PopupWindows`);
+    /// tests pass a manual clock.
+    let clock: any Clock<Duration>
+
+    private init() {
+        libraryLoader = { CEFRuntime.loadLibrary($0) }
+        clock = ContinuousClock()
+    }
+
+    /// An idle runtime whose framework load is `libraryLoader`, its profiles under `storage` (tests).
+    init(libraryLoader: @escaping LibraryLoader, storage: CEFProfileStorage? = nil) {
+        self.libraryLoader = libraryLoader
+        if let storage { self.storage = storage }
+        clock = ContinuousClock()
+    }
+
+    /// The disk work `CefInitialize` needs done first, read off the main thread once the first window frame has
+    /// committed (``initializeAfter``; at once when no gate is set), so the main thread's start does none of it
+    /// and nothing of it competes with the window's build: a profiled A/B with this prep running during the build
+    /// put the first frame 17 ms later. Once the gate opens it runs at user-initiated priority: every Chromium start
+    /// awaits it, and at utility priority its file reads were throttled behind the framework's map, which put
+    /// `cef.initialize_start` ~1.4 s after the first frame in Leo's NIGHTLY (~230 ms before #45010).
+    /// ``start(layout:environment:trigger:)`` awaits it before `CefInitialize`:
+    /// the profile root exists, the last run's log is kept (``CEFProfileStorage/prepareForLaunch()``), and the
+    /// person's own uBlock Origin is looked up (``CEFBuiltInExtensions/personAdBlocker(profiles:fileManager:)``
+    /// reads and parses each profile's preference files), and so is the built-in one's manifest (``CEFLaunchPrep``).
+    /// Once per runtime.
+    /// task-owner: launchPrepTask (start awaits it); ends when the reads end.
+    @discardableResult
+    func beginLaunchPrep() -> Task<CEFLaunchPrep, Never> {
+        if let launchPrepTask { return launchPrepTask }
+        let storage = storage
+        let gate = initializeAfter
+        let resources = Bundle.main.resourceURL
+        let task = Task.detached(priority: .userInitiated) { () -> CEFLaunchPrep in
+            _ = await CEFRuntime.waitForInitializeGate(gate)
+            return CEFLaunchPrep(preparing: storage, resources: resources)
+        }
+        launchPrepTask = task
+        return task
+    }
+
+    /// The launch prep (``beginLaunchPrep()``).
+    private(set) var launchPrepTask: Task<CEFLaunchPrep, Never>?
+
+    /// Takes the engine's early load (`CEFEngine.beginEarlyLoad`).
+    func adopt(earlyLoad: CEFEarlyLoad) {
+        self.earlyLoad = earlyLoad
+    }
+
+    /// Prepares cmux's own Safe Storage item before `CefInitialize` (``CEFKeychainMigration``): never a prompt, and
+    /// nothing at all in a build on the mock keychain or with memory-only stores.
+    private func beginKeychainStep(environment: [String: String]) -> Task<CEFKeychainMigration.Outcome?, Never> {
+        let bundle = Bundle.main.bundleIdentifier
+        let item = CEFKeychainItem.forApplication(bundleIdentifier: bundle)
+        let mock = CEFSwitches.current(forkAPIVersion: 0, bundleIdentifier: bundle, environment: environment).useMockKeychain
+        let root = storage.root
+        let loginKeychain = stores.loginKeychain
+        let task = Task.detached(priority: .userInitiated) { () -> CEFKeychainMigration.Outcome? in
+            guard !mock, let loginKeychain else { return nil }
+            return CEFKeychainMigration.prepare(item: item, profileRoot: root, keychain: CEFLoginKeychainAccess(loginKeychain: loginKeychain))
+        }
+        keychainTask = task
+        return task
+    }
+
+    /// The load to await for `candidate`: the early load of that layout when one began, else a new load at `priority`.
+    ///
+    /// The new load reads the framework binary into the file cache at once (no lock), then maps it only once
+    /// ``initializeAfter`` is open. The map holds dyld's loader lock for seconds on a loaded Mac, and while the
+    /// first window builds the main thread takes that lock for each AppKit class it makes first
+    /// (`+[NSView clipsToBounds]` asks dyld for the linked SDK): Leo's NIGHTLY held the main thread 3.5 s in
+    /// `SidebarRailCardView.init`'s first `NSStackView` while launch's preload mapped (hq#12524).
+    private func newLoadTask(_ candidate: CEFRuntimeLayout?, priority: TaskPriority) -> CEFEarlyLoad.LoadTask {
+        if let early = earlyLoad?.task(for: candidate) { return early }
+        let gate = initializeAfter
+        return Task.detached(priority: priority) { [libraryLoader] in
+            if let candidate { CEFFrameworkPrefetch.readBinary(candidate) }
+            if await CEFRuntime.waitForInitializeGate(gate) { await CEFStartSteps.shared.point("map_waited_first_frame") }
+            return libraryLoader(candidate)
+        }
+    }
 
     /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
     /// engine hands them over before its first start or tab). Idempotent for the same stores.
@@ -184,9 +346,11 @@ final class CEFRuntime {
 
     /// A runtime over `shim` that never loads or starts Chromium, its profiles under `storage`
     /// (tests drive panes against a spy shim).
-    init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
+    init(shim: CEFShimLibrary, storage: CEFProfileStorage, clock: any Clock<Duration> = ContinuousClock()) {
         self.shim = shim
         self.storage = storage
+        self.clock = clock
+        libraryLoader = { _ in .failure(.notEmbedded) }
         state = .ready
     }
 
@@ -219,8 +383,13 @@ final class CEFRuntime {
         case .shutDown: "shutDown"
         }
         return CEFStartReport(state: name, preloaded: preloaded, trigger: trigger, loadDuration: loadDuration,
-                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch)
+                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch,
+                              launchSwitches: launchSwitches)
     }
+
+    /// The setting-decided switches this process passed Chromium, recorded where they were built
+    /// (`startCEF`), so `debug.cef` reports what the launch used and not a later store read.
+    private(set) var launchSwitches: [String] = []
 
     var forkAPIVersion: Int32 { shim?.forkAPIVersion() ?? 0 }
 
@@ -249,16 +418,35 @@ final class CEFRuntime {
             task = loadTask
         } else {
             state = .loading
-            task = Task.detached(priority: .userInitiated) { CEFRuntime.loadLibrary(candidate) }
+            task = newLoadTask(candidate, priority: .userInitiated)
             loadTask = task
         }
+        CEFStartSteps.shared.point("start_called")
+        let keychain = keychainTask ?? beginKeychainStep(environment: environment)
+        let prep = beginLaunchPrep()
         // A utility-priority preload may still be running; the await below
         // raises its priority to this task's.
         let loaded = await task.value
+        CEFStartSteps.shared.point("map_done")
+        if let outcome = await keychain.value {
+            keychainOutcome = outcome
+            logger.notice("keychain item: \(String(describing: outcome), privacy: .public)")
+        }
+        CEFStartSteps.shared.point("keychain_done")
+        let read = await prep.value
+        CEFStartSteps.shared.point("launch_prep_read")
+        if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
         if state == .ready { return }
-        try finishStart(loaded, environment: environment, trigger: trigger)
+        try finishStart(loaded, prep: read, environment: environment, trigger: trigger)
+    }
+
+    /// Returns once `gate` is open (at once when it is nil or already open); true when it waited.
+    static func waitForInitializeGate(_ gate: FirstFrameGate?) async -> Bool {
+        guard let gate, !gate.isOpen else { return false }
+        await gate.opened()
+        return true
     }
 
     /// Starts mapping the shim and the framework in the background without
@@ -268,8 +456,11 @@ final class CEFRuntime {
         guard state == .idle, loadTask == nil else { return }
         state = .loading
         preloaded = true
-        let task = Task.detached(priority: .utility) { CEFRuntime.loadLibrary(candidate) }
+        let task = newLoadTask(candidate, priority: .utility)
         loadTask = task
+        // The reads before CefInitialize (profile root, the kept log, the person's ad blocker) start when the first
+        // frame commits, off the main thread, before any page's start needs them (CMUX-571).
+        beginLaunchPrep()
         Task { [weak self] in
             _ = await task.value
             self?.libraryLoaded = true
@@ -283,7 +474,18 @@ final class CEFRuntime {
     ) throws(BrowserEngineError) {
         if let error = startError() { throw error }
         if state == .ready { return }
-        try finishStart(Self.loadLibrary(candidate), environment: environment, trigger: "debugWindow")
+        // With no preload, no prep ran (``beginLaunchPrep()``): this start does it on the spot and records it as the
+        // prep, so a later start does not rotate the log a second time. After a preload it only reads; a prep still
+        // waiting on the first frame would rotate the log under Chromium (the debug window has no caller today).
+        let prep: CEFLaunchPrep
+        if launchPrepTask == nil {
+            let read = CEFLaunchPrep(preparing: storage, resources: Bundle.main.resourceURL)
+            launchPrepTask = Task { read }
+            prep = read
+        } else {
+            prep = CEFLaunchPrep(reading: storage, resources: Bundle.main.resourceURL)
+        }
+        try finishStart(Self.loadLibrary(candidate), prep: prep, environment: environment, trigger: "debugWindow")
     }
 
     private func startError() -> BrowserEngineError? {
@@ -296,6 +498,7 @@ final class CEFRuntime {
 
     private func finishStart(
         _ loaded: Result<CEFLoadedLibrary, BootError>,
+        prep: CEFLaunchPrep,
         environment: [String: String],
         trigger: String
     ) throws(BrowserEngineError) {
@@ -303,7 +506,7 @@ final class CEFRuntime {
             let library = try loaded.get()
             let clock = ContinuousClock()
             let started = clock.now
-            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
+            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, prep: prep, environment: environment) }
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
@@ -390,7 +593,10 @@ final class CEFRuntime {
         CEFFrameworkPrefetch.noteMapped(clock.now - mapStarted)
         CEFFrameworkPrefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
-        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
+        // Downloaded Chromium paks (CMUX-570) are listed with them, and Chromium reads that folder first.
+        let downloaded = Bundle.main.bundleIdentifier.map { ChromiumLocalePaks.directory(bundleID: $0) }
+        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory, downloadedDirectory: downloaded)
+        if let downloaded { downloaded.path.withCString { shim.setLocalesDir($0) } }
         return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
     }
 
@@ -406,8 +612,33 @@ final class CEFRuntime {
         }
     }
 
+    /// Gives Chromium cmux's own keychain item (`setKeychainItem`, the shim's `cmux_shim_set_keychain_item`) and
+    /// returns whether it took it. Chromium never reads the real keychain without it: when the shim or fork has no
+    /// such call, or refuses the item, `switches` turns to the mock keychain, because the shared default item is
+    /// another app's whenever another Chromium made it first, and reading it shows macOS's keychain prompt. A build
+    /// already on the mock keychain (development bundles) sets nothing.
+    nonisolated static func applyKeychainItem(
+        _ item: CEFKeychainItem, to switches: inout CEFSwitches,
+        set: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
+    ) -> Bool {
+        guard !switches.useMockKeychain else { return false }
+        let accepted = !CEFKeychainItem.isShared(service: item.service, account: item.account)
+            && set.map { set in item.service.withCString { service in item.account.withCString { set(service, $0) } } } == 1
+        if !accepted { switches.useMockKeychain = true }
+        return accepted
+    }
+
+    /// Turns `switches` to the mock keychain when the keychain step found no keychain (``CEFKeychainMigration/Outcome/noKeychain``)
+    /// and returns whether it did. Chromium's first `SecItemAdd` there shows "Keychain Not Found" (Cancel, Help, Reset To
+    /// Defaults) and waits for a person: on a fleet Mac running a throwaway copy in a fresh `HOME`, nobody ever answers.
+    nonisolated static func applyNoKeychain(_ outcome: CEFKeychainMigration.Outcome?, to switches: inout CEFSwitches) -> Bool {
+        guard outcome == .noKeychain, !switches.useMockKeychain else { return false }
+        switches.useMockKeychain = true
+        return true
+    }
+
     /// The main-thread part: NSApp check, message pump, `CefInitialize`.
-    private func initialize(_ library: CEFLoadedLibrary, environment: [String: String]) throws(BootError) {
+    private func initialize(_ library: CEFLoadedLibrary, prep: CEFLaunchPrep, environment: [String: String]) throws(BootError) {
         let shim = library.shim
         let layout = library.layout
         // The app's NSApplication subclass must conform (CmuxApplication);
@@ -424,18 +655,36 @@ final class CEFRuntime {
         self.pump = pump
         pump.start()
 
-        storage.prepareForLaunch()
-        let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
-            .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
-        let switchSet = CEFSwitches.current(
+        // The profile root, the kept log, the person's ad blocker and the built-in manifest were read ahead off the
+        // main thread (`prep`): no disk read here.
+        let builtInPlan = prep.plan(CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting()),
+                                    resources: Bundle.main.resourceURL)
+        var switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
             // Debug Settings (DEV and NIGHTLY), read when Chromium starts: on the first page, well after
             // the override file loaded; Release keeps the default.
-            asyncLiveResize: true
+            asyncLiveResize: true,
+            initialProfileDirectory: storage.initialProfileDirectory
         )
+        // Chromium's key in cmux's own keychain item, never the shared "Chromium Safe Storage" one (CEFKeychainItem).
+        let keychainItem = CEFKeychainItem.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
+        if Self.applyNoKeychain(keychainOutcome, to: &switchSet) {
+            logger.error("no default keychain: Chromium uses the mock keychain, so nothing asks; cookies are not kept in the keychain")
+        }
+        if !Self.applyKeychainItem(keychainItem, to: &switchSet, set: shim.setKeychainItem), !switchSet.useMockKeychain {
+            logger.error("keychain item refused")
+        }
+        chromiumUsesMockKeychain = switchSet.useMockKeychain
+        // What this launch actually used, for `debug.cef` (a bench arm reads it to prove its switch landed).
+        launchSwitches = (switchSet.noFrameRateLimit ? CEFFramePacing.switches.sorted() : [])
+            + (switchSet.forcesRendererAccessibility ? [CEFSwitches.forceRendererAccessibility] : [])
+        if switchSet.forcesRendererAccessibility {
+            logger.notice("page accessibility forced on from launch (\(AssistiveClientRequests.environmentKey, privacy: .public)=1)")
+        }
+        noteStartupProfile(switchSet)
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
@@ -451,6 +700,9 @@ final class CEFRuntime {
         ThemeScope.app.store.addResponder(self)
         // Extension popup windows keep their window id (CEFPopupWindows).
         if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
+        // The omnibar's direct-URL-input prerender (fork API 33; CEF keeps Prerender2 off otherwise). Chromium's
+        // own checks still decide each one: "Preload pages", Battery Saver, Data Saver, memory (CEFTab+OmniboxPreload).
+        shim.setOmniboxPrerender(1)
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).
@@ -509,6 +761,15 @@ final class CEFRuntime {
         }
     }
 
+    /// The used heap of the renderer behind `browser`, for ``pageRendererGC``: one `Runtime.getHeapUsage` call,
+    /// its reply decoded off the main actor (`CEFPageRendererGC.usedSize`). A method, not code in the lazy
+    /// initializer, which may not reference both main-actor and nonisolated declarations.
+    private func rendererHeapUsed(_ browser: Int32) async -> Int? {
+        guard let tab = tabsByBrowser[browser],
+              let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
+        return await CEFPageRendererGC.usedSize(reply)
+    }
+
     /// The request context key of a pane's store (`CEFProfileStorage.contextKey`).
     func contextKey(for key: CEFPaneKey) -> String {
         storage.contextKey(for: key.profile, machineKey: key.machineKey, offTheRecord: key.offTheRecord)
@@ -516,17 +777,56 @@ final class CEFRuntime {
 
     /// Off-the-record context keys the shim holds, by profile.
     func releaseOffTheRecordContexts(of profile: BrowserProfileID) {
+        // A spare window of that store would outlive its context: it closes first.
+        if let pages = pageSpareWindow, pages.profile == profile { pages.drop(runtime: self) }
         let keys = offTheRecordContexts.removeValue(forKey: profile) ?? []
         for key in keys { _ = key.withCString { shim?.releaseContext($0) } }
         hosts = hosts.filter { $0.key.profile != profile || !$0.value.tabs.isEmpty }
     }
 
+    /// Chromium opens the `profile-directory` profile (the default cmux profile) during
+    /// `CefInitialize`, before any pane or the spare window exists, so it counts as opened from
+    /// here on: Clear Browsing Data must never move a live profile's cache directories aside.
+    /// Called before `CefInitialize`, so a start that fails partway still counts it.
+    func noteStartupProfile(_ switches: CEFSwitches) {
+        guard let directory = switches.initialProfileDirectory, !directory.isEmpty,
+              directory == storage.initialProfileDirectory else { return }
+        usedProfiles.insert(storage.startupProfile)
+    }
+
+    /// True when Chromium opened `profile` in this process (`CEFEngine.hasOpened`).
+    func hasOpened(_ profile: BrowserProfileID) -> Bool {
+        usedProfiles.contains(profile) || extensionStores.hasStore(for: profile)
+    }
+
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
-        if let host = hosts[key] ?? spareWindow.take(for: key, runtime: self) { return host }
+        if let host = hosts[key] ?? spareWindowServing(key)?.take(for: key, runtime: self) { return host }
         usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host
         return host
+    }
+
+    /// From now on the cmux pages' store (`profile`, off the record) keeps a spare window
+    /// (`pageSpareWindow`), which asks for its next window as the web tabs' spare does (`onNeeded`).
+    /// A later call with another profile changes nothing.
+    func usePageSpareWindow(profile: BrowserProfileID) {
+        guard pageSpareWindow == nil else { return }
+        let pages = CEFSpareWindow(profile: profile, offTheRecord: true)
+        pages.onNeeded = { [weak self] in self?.spareWindow.onNeeded?() }
+        pageSpareWindow = pages
+    }
+
+    /// The spare window of `key`'s store, if it has one: the web tabs' or the cmux pages'.
+    func spareWindowServing(_ key: CEFPaneKey) -> CEFSpareWindow? {
+        if spareWindow.serves(key) { return spareWindow }
+        return pageSpareWindow.flatMap { $0.serves(key) ? $0 : nil }
+    }
+
+    /// The spare window whose untaken window `host` is, if any.
+    func spareWindowHolding(_ host: CEFPaneHost) -> CEFSpareWindow? {
+        if spareWindow.isSpare(host) { return spareWindow }
+        return pageSpareWindow.flatMap { $0.isSpare(host) ? $0 : nil }
     }
 
     func makeRequestToken() -> Int32 {

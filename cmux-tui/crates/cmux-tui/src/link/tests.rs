@@ -112,23 +112,6 @@ impl Overlay for FakeOverlay {
     async fn sync_peers(&self, _pairings: &Pairings) -> std::io::Result<()> {
         Ok(())
     }
-
-    async fn set_cloud_peer(
-        &self,
-        _host: &str,
-        _key: [u8; 32],
-        _info: &cmux_link::connect_info::ConnectInfo,
-    ) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    async fn forget_cloud_peer(&self, _host: &str) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    async fn path_state(&self, _key: &[u8; 32]) -> cmux_link::dial::PathState {
-        cmux_link::dial::PathState::Direct
-    }
 }
 
 async fn reply_line(caller: &mut DuplexStream) -> String {
@@ -434,12 +417,14 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
                 [2; 32],
                 peer_addr("inst_b"),
                 &pairings(),
-                &session_socket,
+                Some(session_socket.as_path()),
                 Some(&config),
+                &super::acpmux::AcpmuxTarget::Off,
                 Some(super::inbound::Revocations {
                     view: receiver,
                     open: std::sync::Arc::default(),
                 }),
+                None,
             )
             .await
         })
@@ -499,4 +484,91 @@ fn link_show_names_the_pairing_file() {
     let shown = super::show_json(&state).unwrap();
     assert_eq!(shown["peers_file"].as_str(), state.peers_path().to_str());
     assert_eq!(shown["install"].as_str(), Some("inst_show"));
+}
+
+/// `cmux link <action> --help` prints that action's own lines and exits 0 (the Cloud and remote
+/// command matrix); before, `--help` was an unknown option.
+#[test]
+fn each_link_action_has_its_own_help() {
+    let help = include_str!("../localization/link_help.en.txt");
+    let enrollment =
+        "Use an existing paired server identity:\n  init --server-identity FILE [--port PORT]\n";
+    for action in super::OWN_ACTIONS {
+        let text = super::verb_help_from(action, help, enrollment)
+            .unwrap_or_else(|| panic!("{action} has no help"));
+        assert!(text.starts_with(&format!("USAGE: cmux link {action} [OPTIONS]\n")), "{text}");
+        assert!(text.contains(&format!("\n  {action}")), "{text}");
+        assert!(text.trim_end().ends_with("(default: <daemon state dir>/link)."), "{text}");
+        assert_ne!(text, help);
+    }
+    let peer = super::verb_help_from("peer", help, enrollment).unwrap();
+    assert!(
+        peer.contains("peer add") && peer.contains("peer remove") && peer.contains("peer list")
+    );
+    assert!(!peer.contains("  serve"));
+    let serve = super::verb_help_from("serve", help, enrollment).unwrap();
+    assert!(serve.contains("--server-config PATH"), "{serve}");
+    assert!(!serve.contains("ensure"), "{serve}");
+    let init = super::verb_help_from("init", help, enrollment).unwrap();
+    assert!(init.contains("--server-identity FILE"), "{init}");
+    assert!(super::verb_help_from("dial", help, enrollment).is_none());
+    let japanese = include_str!("../localization/link_help.ja.txt");
+    for action in super::OWN_ACTIONS {
+        let text = super::verb_help_from(action, japanese, "").unwrap();
+        assert!(text.starts_with(&format!("使用方法: cmux link {action} ")), "{text}");
+    }
+    assert!(super::asks_help(&["--install".into(), "x".into(), "-h".into()]));
+    assert!(!super::asks_help(&["--".into(), "--help".into()]));
+}
+
+/// The link reads the `server.json` the server's own layout writes: macOS's
+/// `~/.config/cmux-next` for a new install, `~/.config/cmux` while an older
+/// install keeps it (and only until cmux-next has one), Linux's `cmux`.
+#[test]
+fn server_config_path_follows_the_server_layout() {
+    use super::server_config_path_in;
+    use cmux_server_core::layout::{LayoutEnv, layout};
+    use cmux_server_core::{InstallMode, Platform};
+    let home = std::env::temp_dir().join(format!("cmux-link-server-config-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let server = || {
+        let env = LayoutEnv {
+            home: Some(home.to_str().unwrap().to_owned()),
+            uid: Some(501),
+            ..LayoutEnv::default()
+        };
+        std::path::PathBuf::from(
+            layout(InstallMode::User, Platform::MacOs, &env).unwrap().config_file.as_str(),
+        )
+    };
+    let link = || server_config_path_in(None, Some(&home), true).unwrap();
+
+    assert_eq!(link(), home.join(".config/cmux-next/server.json"));
+    assert_eq!(link(), server());
+
+    std::fs::create_dir_all(home.join(".config/cmux")).unwrap();
+    std::fs::write(home.join(".config/cmux/server.json"), "{}").unwrap();
+    assert_eq!(link(), home.join(".config/cmux/server.json"), "an older install keeps its file");
+    assert_eq!(link(), server());
+
+    std::fs::create_dir_all(home.join(".config/cmux-next")).unwrap();
+    std::fs::write(home.join(".config/cmux-next/server.json"), "{}").unwrap();
+    assert_eq!(
+        link(),
+        home.join(".config/cmux-next/server.json"),
+        "cmux-next's file wins once there"
+    );
+    assert_eq!(link(), server());
+
+    assert_eq!(
+        server_config_path_in(None, Some(&home), false).unwrap(),
+        home.join(".config/cmux/server.json")
+    );
+    assert_eq!(
+        server_config_path_in(Some("/x/server.json"), Some(&home), true).unwrap(),
+        std::path::PathBuf::from("/x/server.json")
+    );
+    assert_eq!(server_config_path_in(None, None, true), None);
+    std::fs::remove_dir_all(&home).unwrap();
 }

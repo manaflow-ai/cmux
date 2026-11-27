@@ -1,0 +1,146 @@
+name: cmux web layer (fork)
+
+# A fork's web layer, built and published by the fork itself, so anyone can
+# try a fork's branch in their cmux with
+#   cmux customize use OWNER/REPO@BRANCH
+# manaflow-ai/cmux never builds a fork's code (its CI holds secrets): this
+# workflow does nothing there. In a fork, run it on a branch (Actions, "Run
+# workflow"). It takes the branch's own change (from where it branched off
+# upstream feat-cmux-next), applies it onto upstream feat-cmux-next (or `base`),
+# builds the web bundles and publishes them as the release
+# `cmux-web-layer-<branch, / as -->` of the fork, with two assets:
+#   web-bundles.tar.gz  the archive (web-bundle-archive.py pack)
+#   layer.json          head, base, title, the web ABI, what live_apply.py says
+#                       the change touches, and key = the archive's sha256
+# The cmux CLI reads layer.json, checks the archive against key and the ABI
+# against the app's, the same checks as a pull request's layer.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "The upstream commit the change is applied onto (default: the manaflow-ai/cmux feat-cmux-next tip)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-web-layer-fork-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  layer:
+    if: github.repository != 'manaflow-ai/cmux' && startsWith(github.ref, 'refs/heads/')
+    name: build and publish this branch's web layer
+    # Only forks run it, on their own GitHub-hosted runners.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: holds signing material
+    timeout-minutes: 30
+    permissions:
+      # The release that holds the layer, in this fork.
+      contents: write
+    env:
+      CMUX_WEB_NODE_VERSION: "24.22.1"
+      UPSTREAM: https://github.com/manaflow-ai/cmux.git
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+
+      - name: Apply this branch's change onto upstream
+        env:
+          BASE: ${{ inputs.base }}
+        run: |
+          set -euo pipefail
+          [[ -z "$BASE" || "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::base must be a full commit sha"; exit 1; }
+          head="$(git rev-parse HEAD)"
+          git fetch -q --filter=blob:none "$UPSTREAM" "+refs/heads/feat-cmux-next:refs/remotes/upstream/feat-cmux-next"
+          base="${BASE:-$(git rev-parse refs/remotes/upstream/feat-cmux-next)}"
+          git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --filter=blob:none "$UPSTREAM" "$base"
+          fork="$(git merge-base refs/remotes/upstream/feat-cmux-next "$head")"
+          git -c advice.detachedHead=false checkout -q --detach "$base"
+          if ! git diff --binary "$fork" "$head" | git apply -q --3way --index; then
+            echo "::error::$GITHUB_REF_NAME (${head:0:12}) does not apply onto upstream ${base:0:12}; rebase it"
+            exit 1
+          fi
+          git -c user.name=cmux-ci -c user.email=ci@cmux.invalid -c commit.gpgsign=false commit -q --allow-empty -m "$GITHUB_REF_NAME ${head:0:12} on ${base:0:12}"
+          classify="$(python3 scripts/cmux-next/live_apply.py --json "$fork" "$head")"
+          mkdir -p "$RUNNER_TEMP/layer"
+          python3 - "$RUNNER_TEMP/layer/layer.json" "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$head" "$base" "$(git rev-parse HEAD)" "$(git log -1 --format=%s "$head")" "$classify" <<'PY'
+          import json, sys
+          path, repo, ref, head, base, merge, title, classify = sys.argv[1:]
+          json.dump({"schema": 1, "repo": repo, "kind": "fork", "ref": ref, "title": title,
+                     "head": head, "base": base, "merge": merge, "classify": json.loads(classify)},
+                    open(path, "w"), indent=1, sort_keys=True)
+          PY
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
+
+      - name: Restore pinned Node ${{ env.CMUX_WEB_NODE_VERSION }} from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node ${{ env.CMUX_WEB_NODE_VERSION }} || true
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.CMUX_WEB_NODE_VERSION }}
+
+      - name: Build the web bundles
+        run: scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web-bundles-out"
+
+      - name: Pack the archive and finish layer.json
+        run: |
+          set -euo pipefail
+          sha="$(python3 scripts/cmux-next/web-bundle-archive.py pack "$RUNNER_TEMP/web-bundles-out" "$RUNNER_TEMP/layer/web-bundles.tar.gz")"
+          [[ "$sha" =~ ^[0-9a-f]{64}$ ]]
+          python3 - "$RUNNER_TEMP/layer/layer.json" "$sha" <<'PY'
+          import json, os, sys
+          path, sha = sys.argv[1:]
+          layer = json.load(open(path))
+          layer["key"] = sha
+          layer["abi"] = int(json.load(open("webviews/src/web-abi.json"))["abi"])
+          layer["run_id"] = int(os.environ["GITHUB_RUN_ID"])
+          json.dump(layer, open(path, "w"), indent=1, sort_keys=True)
+          PY
+          cat "$RUNNER_TEMP/layer/layer.json"
+
+      # The archive first and layer.json last, so a reader never sees a key
+      # whose archive is not there yet.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="cmux-web-layer-${GITHUB_REF_NAME//\//--}"
+          if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+              --title "cmux web layer: $GITHUB_REF_NAME" \
+              --notes "Try it: cmux customize use $GITHUB_REPOSITORY@$GITHUB_REF_NAME (it runs this fork's code in your cmux)"
+          fi
+          gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber "$RUNNER_TEMP/layer/web-bundles.tar.gz"
+          gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber "$RUNNER_TEMP/layer/layer.json"
+          echo "cmux customize use $GITHUB_REPOSITORY@$GITHUB_REF_NAME" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -12,9 +12,6 @@ public struct TerminalSnapshotFrame: Sendable, Hashable {
     public enum Phase: String, Sendable, Hashable {
         case ready
         case history
-        /// The Kitty image replay of the READY's cut (S3k), applied on the
-        /// surface's trusted replay path after the history.
-        case images
     }
 
     public var phase: Phase
@@ -32,13 +29,11 @@ public struct TerminalSnapshotFrame: Sendable, Hashable {
     /// `terminal-snapshot-local-history-v1`): the view reflows its own
     /// history and checks it against this. nil: history follows as chunks.
     public var localHistory: TerminalLocalHistoryCheck?
-    /// Images the host left out of an images phase (its per-READY cap).
-    public var skippedImages: Int?
     public var data: Data
 
     public init(phase: Phase, generation: UInt64, offset: UInt64, version: UInt16,
                 cols: Int? = nil, rows: Int? = nil, colors: TerminalColors? = nil,
-                localHistory: TerminalLocalHistoryCheck? = nil, skippedImages: Int? = nil, data: Data) {
+                localHistory: TerminalLocalHistoryCheck? = nil, data: Data) {
         self.phase = phase
         self.generation = generation
         self.offset = offset
@@ -47,7 +42,6 @@ public struct TerminalSnapshotFrame: Sendable, Hashable {
         self.rows = rows
         self.colors = colors
         self.localHistory = localHistory
-        self.skippedImages = skippedImages
         self.data = data
     }
 }
@@ -57,6 +51,9 @@ public struct TerminalSnapshotFrame: Sendable, Hashable {
 struct DecodedAttachLine: Sendable, Equatable {
     var event: TerminalChannelEvent
     var generation: UInt64?
+    /// An `attach-frames-v1` OUTPUT frame's stream offset of its first byte (frames carry no
+    /// generation; the offset places them against the READY's cut instead).
+    var frameOffset: UInt64?
 }
 
 /// The one owner of snapshot order on an attach stream (runs on the reader
@@ -66,6 +63,8 @@ struct DecodedAttachLine: Sendable, Equatable {
 ///   screen that READY replaced: dropped.
 /// - History continues only the READY with the same cut (generation and
 ///   offset); pages of a replaced READY would land above the wrong screen.
+/// - An OUTPUT frame (untagged, `attach-frames-v1`) keeps only its bytes at or
+///   after the last READY's cut offset.
 /// - Everything else passes unchanged, so a byte-replay attach (no
 ///   snapshot, untagged output) is unaffected.
 struct TerminalSnapshotSequencer: Sendable {
@@ -81,8 +80,14 @@ struct TerminalSnapshotSequencer: Sendable {
         case .snapshot(let frame):
             guard let cut, cut.generation == frame.generation, cut.offset == frame.offset else { return nil }
             return line.event
-        case .output:
+        case .output(let data, let colors):
             if let generation, let tagged = line.generation, tagged < generation { return nil }
+            // A frame's bytes before the last READY's cut are already in that READY's screen.
+            if let start = line.frameOffset, let cut, start < cut.offset {
+                let skip = cut.offset - start
+                guard skip < UInt64(truncatingIfNeeded: data.count) else { return nil }
+                return .output(Data(data.dropFirst(Int(truncatingIfNeeded: skip))), colors: colors)
+            }
             return line.event
         default:
             return line.event

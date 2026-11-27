@@ -23,17 +23,46 @@
 #   - the daemon-test job runs its suites with `swift test --skip-build` AFTER this step, so the
 #     base export's own `swift build` would leave them testing base settings binaries;
 #   - a base export that fails must not skip the restore either.
-# So the restore re-exports from HEAD's sources, which rewrites every export and rebuilds the
-# package, it runs from a trap as well as in line, and if it cannot run it falls back to the
+# So when the calling job built HEAD's package itself (CMUX_NEXT_JOB_BUILT=plain, the three CI
+# jobs that run this), the script keeps HEAD's built package aside before the base export: a clone
+# of the package's .build (`cp -c` on macOS, APFS copy-on-write: seconds, and only what the base
+# build rewrites takes disk) and HEAD's fresh exports. The base export builds in place on the
+# original, so it rebuilds only what the base's settings sources change. The restore puts HEAD's
+# sources, exports and .build back without building anything (cmuxterm-hq#9678: re-exporting from
+# HEAD's sources was one more build, and with the job's cold build it ran past the 40 min cap). It
+# runs from a trap as well as in line. Without that, or when the clone cannot be made or put back,
+# the restore re-exports from HEAD's sources, which rewrites every export and rebuilds the
+# package, and if that cannot run it falls back to the
 # committed exports: collecting nothing is right, collecting the base's bytes is not. When even a
 # plain build cannot put HEAD's products back, it removes the built products, so a later
 # `--skip-build` suite fails instead of passing against the base export's binaries.
 set -euo pipefail
+# With CMUX_SETTINGS_EXPORTS_REGEN (the Linux generated-files job), an export that cannot decide (exit 2 or more:
+# a Swift shape or a catalog key the Linux export does not know) is no verdict: the step passes with
+# undecided=true and the committed exports back, and the Mac fallback job decides.
+if [[ -n "${CMUX_SETTINGS_EXPORTS_REGEN:-}" && -z "${CMUX_SETTINGS_EXPORTS_INNER:-}" ]]; then
+  rc=0
+  CMUX_SETTINGS_EXPORTS_INNER=1 bash "${BASH_SOURCE[0]}" "$@" || rc=$?
+  if (( rc >= 2 )); then
+    echo "undecided=true" >> "${GITHUB_OUTPUT:-/dev/null}"
+    echo "::warning::the Linux settings export could not decide (exit $rc); the Mac job decides"
+    git checkout -q HEAD -- docs/mdm schemas/settings
+    exit 0
+  fi
+  exit "$rc"
+fi
 temp="${RUNNER_TEMP:-$(mktemp -d)}"
 root="$(git rev-parse --show-toplevel)"
 list="$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt"
 exports=()
 while IFS= read -r path; do exports+=("$path"); done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$list")
+# The export (OUT, "regenerated: PATH" lines): regenerate-settings-exports.sh's Swift tests, or the command
+# CMUX_SETTINGS_EXPORTS_REGEN names (the Linux generated-files job: regenerate-settings-exports-linux.sh,
+# which builds nothing, so the restore has no package build to put back).
+regen_settings() {
+  if [[ -n "${CMUX_SETTINGS_EXPORTS_REGEN:-}" ]]; then "$CMUX_SETTINGS_EXPORTS_REGEN" "$1"
+  else scripts/cmux-next/regenerate-settings-exports.sh "$1"; fi
+}
 (( ${#exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
 
 base_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref "$(git rev-parse HEAD^1)")"
@@ -44,7 +73,7 @@ if [[ "$base_stamp" == "$head_stamp" ]] && git diff --quiet HEAD^1 HEAD -- docs/
   echo "The settings sources and exports did not change; any stale export is the base's (the base autofix regenerates it)."
   exit 0
 fi
-scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-exports" | tee "$temp/settings-exported.txt"
+regen_settings "$temp/settings-exports" | tee "$temp/settings-exported.txt"
 stale=()
 while IFS= read -r file; do stale+=("$file"); done < <(sed -n 's/^regenerated: //p' "$temp/settings-exported.txt")
 # Nothing stale: the exports are HEAD's own fresh export and the build is HEAD's. Nothing to put back.
@@ -77,6 +106,10 @@ restore_absent() {
   git reset -q HEAD -- "$1" 2>/dev/null || true
 }
 
+pkg_build="$root/Packages/macOS/CmuxNext/.build"
+head_build="$root/Packages/macOS/CmuxNext/.build-cmux-settings-head"
+head_exports="$temp/settings-head-fresh"
+kept=0
 restored=0
 restore() {
   (( restored )) && return 0
@@ -87,14 +120,28 @@ restore() {
   for path in "${inputs[@]}"; do
     if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
   done
+  # HEAD's own build and fresh exports, kept before the base export: nothing to rebuild. The
+  # sources' new mtimes only make a later build recompile what they feed, which is correct.
+  if (( kept )); then
+    local ok=1
+    for file in "${exports[@]}"; do
+      if [[ -f "$head_exports/$file" ]]; then cp -p "$head_exports/$file" "$file" || ok=0; fi
+    done
+    if (( ok )) && rm -rf "$pkg_build" && mv "$head_build" "$pkg_build"; then
+      return 0
+    fi
+    echo "::warning::HEAD's kept build could not be put back; re-exporting from HEAD's sources instead" >&2
+    rm -rf "$head_build"
+  fi
   # From HEAD's sources again: this rewrites every export and rebuilds the package's test
   # products, so both the checkout and the built binaries are HEAD's.
-  if scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-head-exports" > "$temp/settings-head-exported.txt" 2>&1; then
+  if regen_settings "$temp/settings-head-exports" > "$temp/settings-head-exported.txt" 2>&1; then
     return 0
   fi
   cat "$temp/settings-head-exported.txt" >&2
   echo "::error::the settings export could not be redone from HEAD's sources; restoring the committed exports instead" >&2
   git checkout -q HEAD -- "${exports[@]}"
+  [[ -z "${CMUX_SETTINGS_EXPORTS_REGEN:-}" ]] || return 1  # nothing was built: nothing to put back
   # The exports are HEAD's committed bytes, so nothing base-derived is collected. The BUILT products
   # are still the base export's, though: the sources above are HEAD's again, so a plain build of the
   # package puts them back. The export failing does not mean the build does (it also fails on an
@@ -113,13 +160,32 @@ restore() {
 }
 trap 'restore || true' EXIT
 
+# HEAD's fresh exports (the export above left them in the checkout) and a clone of HEAD's build,
+# for the restore. No clone (kept=0): the restore rebuilds instead.
+for file in "${exports[@]}"; do
+  [[ -f "$file" ]] || continue
+  mkdir -p "$head_exports/${file%/*}" && cp -p "$file" "$head_exports/$file"
+done
+clone_build() {
+  if [[ "$(uname -s)" == Darwin ]]; then cp -c -R -p "$1" "$2"; else cp -a --reflink=auto "$1" "$2"; fi
+}
+rm -rf "$head_build"
+if [[ "${CMUX_NEXT_JOB_BUILT:-}" == plain && -d "$pkg_build" ]]; then
+  if clone_build "$pkg_build" "$head_build" 2>"$temp/settings-head-clone.txt"; then
+    kept=1
+  else
+    echo "::notice::HEAD's package build could not be cloned ($(head -c 300 "$temp/settings-head-clone.txt" 2>/dev/null)); the restore rebuilds from HEAD's sources"
+    rm -rf "$head_build"
+  fi
+fi
+
 for path in "${inputs[@]}"; do
   if git cat-file -e "HEAD^1:$path" 2>/dev/null; then git checkout -q HEAD^1 -- "$path"; else rm -f "$path"; fi
 done
 # The base parent's own list: these sources write what the base listed, and HEAD's list would refuse
 # an export the pull request removed as unlisted, failing the check on the removal (review of #23915).
 CMUX_SETTINGS_EXPORTS_LIST="$base_list" \
-  scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-base-exports" > "$temp/settings-base-exported.txt"
+  regen_settings "$temp/settings-base-exports" > "$temp/settings-base-exported.txt"
 based="$temp/settings-based"
 for file in "${stale[@]}"; do mkdir -p "$based/${file%/*}" && cp "$file" "$based/$file"; done
 

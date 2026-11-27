@@ -94,6 +94,19 @@ pub(super) fn append_with_receipt(
     outcome
 }
 
+/// The plugin's single delivery worker keeps its connection across events.
+pub(super) fn send_plugin_queue(socket: &Path, queued: std::sync::mpsc::Receiver<Spool>) {
+    let mut sender = Sender::new(socket);
+    for spool in queued {
+        if let Ok(Some(lock)) = spool.try_drain() {
+            let _ = drain(&spool, lock, &mut sender, "");
+        }
+        if sender.gone {
+            sender = Sender::new(socket);
+        }
+    }
+}
+
 /// Sends every queue of the session on `socket` that no child sends: what
 /// its new owner runs once it attaches, so events a restart left queued go
 /// out without waiting for some agent's next hook.
@@ -226,6 +239,7 @@ impl Sender {
         };
         // A daemon from before `live_prompt` refuses unknown parameters: the event goes once more
         // without the prompt, so a version skew never loses a turn start (the prompt is optional).
+        // Newer daemons ignore an unknown param instead; this stays for the older ones that refuse.
         let mut current = Cow::Borrowed(line);
         let mut unanswered = 0_u32;
         loop {
@@ -404,11 +418,11 @@ fn check_receipt(reply: &[u8], request_id: &str) -> Result<(), Try> {
 }
 
 /// `encoded` (one request line) without its memory-only fields (`live_prompt`, `live_reply`,
-/// `live_question`); nil when it has none.
+/// `live_question`, `live_approval`); nil when it has none.
 fn without_live_prompt(encoded: &[u8]) -> Option<Vec<u8>> {
     let mut request: Value = serde_json::from_slice(encoded).ok()?;
     let params = request.get_mut("params")?.as_object_mut()?;
-    let removed = ["live_prompt", "live_reply", "live_question"]
+    let removed = ["live_prompt", "live_reply", "live_question", "live_approval"]
         .into_iter()
         .filter(|field| params.remove(*field).is_some())
         .count();
@@ -556,11 +570,12 @@ pub(super) fn write_before(
     }
 }
 
+/// Reads one response line from `reader`, which keeps what follows the line
+/// for the next read on the same connection.
 pub(super) fn read_before(
-    stream: Box<dyn transport::Stream>,
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
     deadline: Instant,
 ) -> Result<Vec<u8>, AppendAttemptError> {
-    let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
     loop {
         // Shrink the bound toward the deadline. A refusal means the server

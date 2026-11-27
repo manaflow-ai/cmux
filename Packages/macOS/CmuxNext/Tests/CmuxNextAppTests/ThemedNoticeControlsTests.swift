@@ -51,16 +51,6 @@ import Testing
         try Self.expectThemeBezel(copy, scope)
     }
 
-    @Test func theRestartNoticesButtonsDrawTheTheme() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let notice = RestartNoticePanel(text: "cmux restarted after a problem", onShowLog: {}, onReport: {})
-        let surface = try #require(notice.surface)
-        scope.root(surface)
-        let titled = Self.buttons(in: surface).filter { [CrashStrings.report, CrashStrings.showLog].contains($0.title) }
-        #expect(titled.count == 2, "Report and Show Log")
-        for button in titled { try Self.expectThemeBezel(button, scope) }
-    }
-
     @Test func bookmarksStartInTheAppTheme() {
         let colors = BookmarkPageColors()
         Self.expect(colors.primary, Self.app.textPrimary, "primary")

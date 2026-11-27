@@ -1,16 +1,18 @@
 // l10n-allow-file: the status copy is supplied by the pane's string table.
 // The first streamed answer token turns the live line to "Writing" in the same frame, before that
 // frame paints, so "Thinking" never flashes under the answer. The line never hides mid-turn.
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { Thinking } from "./Thinking";
+import { LINE_DWELL_MS, Thinking } from "./Thinking";
 import { WorkingFor } from "./WorkingFor";
 import { StatusVerbContext } from "../statusVerbs";
 import { WaitingOnContext } from "./waitingOn";
 import { setChatDisplay } from "../chatDisplay";
+import { WRITING_MS } from "./thinkingModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -35,10 +37,11 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   setChatDisplay({});
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -146,7 +149,9 @@ test("unreachable and subagent states remain factual with custom verbs", () => {
       "agentPane.display.statusVerbs.custom": "Imagining",
     }),
   );
-  act(() => root!.render(<Thinking retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} />));
+  act(() =>
+    root!.render(<Thinking retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} retryAt={Date.now() - 60_000} />),
+  );
   expect(container.querySelector("[data-retrying]")).not.toBeNull();
   expect(container.textContent).not.toContain("Imagining");
   act(() => root!.render(<Thinking liveState="subagents" liveAgents={2} />));
@@ -154,7 +159,34 @@ test("unreachable and subagent states remain factual with custom verbs", () => {
   expect(container.textContent).not.toContain("Imagining");
 });
 
+test("waiting on a subagent times the wait, not the whole turn (Leo, 2026-11-20: '... for seven minutes and 39 seconds?')", () => {
+  const T0 = 1_800_000_000_000;
+  // The turn began 7m 39s ago; it worked 5m 39s, then has waited 2m on its subagent.
+  const now = () => T0 + 459_000;
+  act(() =>
+    root!.render(
+      <Thinking since={T0} now={now} liveState="subagents" liveAgents={1} waitAt={T0 + 339_000} turnTotal />,
+    ),
+  );
+  const line = container.querySelector(".cv-worked")!;
+  expect(line.textContent).toContain("Waiting on 1 subagent");
+  // The default look shows one clock: the wait's, never the turn's 7m 39s.
+  expect(line.textContent).not.toContain("7m 39s");
+  expect(container.querySelector(".cv-worked__time")?.textContent).toBe("2m");
+  // A wait from the turn's very start has the turn's clock, which is already the wait's.
+  act(() =>
+    root!.render(<Thinking since={T0} now={now} liveState="subagents" liveAgents={1} waitAt={T0 + 200} turnTotal />),
+  );
+  expect(container.querySelector(".cv-worked__time")?.textContent).toBe("7m 39s");
+});
+
+/// The roll on its own, each change shown at once: the line's dwell has its own test below.
+const rollAlone = () => {
+  document.documentElement.dataset.liveDwell = "off";
+};
+
 test("a new call rolls the live line's words: the old rise out above, the new restart their roll in", () => {
+  rollAlone();
   const output = () => container.querySelector("output.cv-thinking")!;
   act(() => root!.render(<Thinking since={0} now={() => 1_000} />));
   // The first words roll nothing in.
@@ -185,6 +217,40 @@ test("a new call rolls the live line's words: the old rise out above, the new re
   expect(first.getAttribute("data-roll")).toBe("even");
 });
 
+// Leo, 2026-11-25: "the sending messages in rapid succession is really bad looking. it's just your tool
+// call/thinking glimmer text rapidly flickering up". Words that change within the dwell wait for its end
+// and roll once to the latest; words back to what the line shows roll nothing.
+test("words that change within the line's dwell roll once, to the latest, at its end", async () => {
+  jest.useFakeTimers();
+  let clock = 1_000;
+  const now = () => clock;
+  const line = () => container.querySelector("output.cv-thinking")!;
+  const wait = async (ms: number) => {
+    clock += ms;
+    await act(async () => void jest.advanceTimersByTime(ms));
+  };
+  try {
+    act(() => root!.render(<Thinking since={0} now={now} />));
+    act(() => root!.render(<Thinking since={0} now={now} doing="SendMessage" sendTo="tests" />));
+    act(() => root!.render(<Thinking since={0} now={now} />));
+    act(() => root!.render(<Thinking since={0} now={now} doing="SendMessage" sendTo="docs" />));
+    // Held: the line still says Thinking and has rolled nothing.
+    expect(line().textContent).toContain("Thinking");
+    expect(line().hasAttribute("data-roll")).toBe(false);
+    await wait(LINE_DWELL_MS);
+    expect(line().textContent).toContain("docs");
+    expect(line().getAttribute("data-roll")).toBe("odd");
+    // Back to Thinking and away again within the next dwell: the line stays on docs, rolling nothing.
+    act(() => root!.render(<Thinking since={0} now={now} />));
+    act(() => root!.render(<Thinking since={0} now={now} doing="SendMessage" sendTo="docs" />));
+    await wait(LINE_DWELL_MS);
+    expect(line().textContent).toContain("docs");
+    expect(line().getAttribute("data-roll")).toBe("odd");
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test("the playful verb's own rotation does not roll the live line", () => {
   act(() =>
     setChatDisplay({
@@ -199,13 +265,101 @@ test("the playful verb's own rotation does not roll the live line", () => {
 });
 
 test("the words back after a retry roll nothing in, and no old words rise again", () => {
+  rollAlone();
   act(() => root!.render(<Thinking since={0} now={() => 1_000} />));
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
   expect(container.querySelector(".cv-roll-out")).not.toBeNull();
   act(() =>
-    root!.render(<Thinking since={0} now={() => 1_000} retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} />),
+    root!.render(
+      <Thinking
+        since={0}
+        now={() => 1_000}
+        retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }}
+        retryAt={-60_000}
+      />,
+    ),
   );
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
   expect(container.querySelector(".cv-roll-out")).toBeNull();
   expect(container.querySelector("output.cv-thinking")?.hasAttribute("data-roll")).toBe(false);
+});
+
+test("the needs-input dot grows in only when an ask opens under a drawn line, and shrinks out once answered", () => {
+  const at = (waiting?: "permission") =>
+    act(() =>
+      root!.render(
+        <WaitingOnContext.Provider value={waiting}>
+          <Thinking since={0} now={() => 1_000} />
+        </WaitingOnContext.Provider>,
+      ),
+    );
+  at("permission");
+  expect(container.querySelector(".cv-needs-input-glyph")).not.toBeNull();
+  expect(container.querySelector(".cv-needs-input-glyph.is-asked")).toBeNull();
+  at();
+  expect(container.querySelector(".cv-needs-input-glyph.is-answered")).not.toBeNull();
+  at("permission");
+  expect(container.querySelector(".cv-needs-input-glyph.is-asked")).not.toBeNull();
+  expect(container.querySelector(".cv-needs-input-glyph.is-answered")).toBeNull();
+});
+
+/// A transcript's live line pulse (liveLinePulse.ts) driven by hand: `emit` stands for a chunk the line
+/// hears with no draw of its own.
+function handPulse(line: Partial<AcpmuxRow>, heard?: number) {
+  const listeners = new Set<() => void>();
+  let current = { id: "thinking-live", version: 1, at: 0, kind: "thinking", ...line } as AcpmuxRow;
+  return {
+    line: () => current,
+    heard: () => heard,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    emit(next: Partial<AcpmuxRow>, at?: number) {
+      current = { ...current, ...next };
+      heard = at ?? heard;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+// Review of the live line's pulse: the line's frame draws again for its place, long after a chunk the
+// pulse already brought; that draw is no new event, so a silent line still reads Waiting.
+test("a late draw bringing a key the pulse already heard keeps the time it was heard", () => {
+  const T0 = 1_000_000;
+  const now = () => T0 + 11_000;
+  const pulse = handPulse({ heardKey: "h:2" }, T0 + 1_000);
+  const line = (heardKey: string) => (
+    <Thinking since={T0 - 60_000} now={now} heardAt={T0} heardKey={heardKey} turnTotal pulse={pulse} />
+  );
+  act(() => root!.render(line("h:1")));
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Waiting");
+  act(() => root!.render(line("h:2")));
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Waiting");
+});
+
+test("a late draw bringing a key the pulse already heard does not start its Writing window again", () => {
+  jest.useFakeTimers();
+  try {
+    let clock = 1_000_000;
+    const now = () => clock;
+    const quietAt = clock - 6_000;
+    const pulse = handPulse({ quietKey: "a:1" });
+    const line = (quietKey: string) => (
+      <Thinking liveState="writing" quietKey={quietKey} quietAt={quietAt} now={now} pulse={pulse} />
+    );
+    act(() => root!.render(line("a:1")));
+    expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
+    act(() => pulse.emit({ quietKey: "a:2" }));
+    expect(container.querySelector(".cv-worked")?.textContent).toContain("Writing");
+    act(() => {
+      clock += WRITING_MS + 300;
+      jest.advanceTimersByTime(WRITING_MS + 300);
+    });
+    expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
+    act(() => root!.render(line("a:2")));
+    expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
+  } finally {
+    jest.useRealTimers();
+  }
 });

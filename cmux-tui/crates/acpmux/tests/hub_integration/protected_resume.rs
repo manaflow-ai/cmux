@@ -218,6 +218,78 @@ async fn a_hidden_attach_keeps_the_hold_and_a_persons_prompt_lifts_it() {
     let _ = std::fs::remove_dir_all(&guarded);
 }
 
+/// `_acpmux/info` names a daemon start's hold for a person (`personHold`: the folder and why), so
+/// `session resume` and NOW say why a queue does not drain; opening the chat ends it.
+#[tokio::test]
+async fn info_names_the_hold_for_a_person_until_the_chat_is_opened() {
+    let dir = std::env::temp_dir().join(format!("acpmux-protected-info-{}", uuid::Uuid::now_v7()));
+    let (plain, guarded) = folders(&dir);
+    let store = dir.join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    let hub = durable_hub(&store);
+    let mut c = Client::open(&hub);
+    let open = c.new_session(&plain).await;
+    let held = c.new_session(&guarded).await;
+    c.busy_with_queued(&held, "p-held").await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&store);
+    hub.resume_queues();
+    let mut c = Client::open(&hub);
+    let info = c.call("_acpmux/info", json!({"sessionId": held})).await;
+    let hold = &info["personHold"];
+    assert_eq!(hold["folder"], json!(guarded), "{info}");
+    let reason = hold["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("privacy-protected"), "{reason}");
+    let plain_info = c.call("_acpmux/info", json!({"sessionId": open})).await;
+    assert!(plain_info.get("personHold").is_none(), "{plain_info}");
+
+    c.call("_acpmux/attach", json!({"sessionId": held, "visible": true})).await;
+    c.wait_ran(&held, "p-held").await;
+    let info = c.call("_acpmux/info", json!({"sessionId": held})).await;
+    assert!(info.get("personHold").is_none(), "{info}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&guarded);
+}
+
+/// A fleet machine runs every chat in its home folder, and no person opens them there. Off macOS
+/// no privacy prompt guards that folder, so a restart goes on with what its chats queued: before,
+/// an update's restart left every such queue waiting for a person who never came (Codex lanes held
+/// 14, 7, 4, 2, 1 and 1 prompts that `session resume` called not held). On macOS it still waits.
+#[tokio::test]
+async fn a_restart_resumes_a_queue_in_the_home_folder_off_macos_only() {
+    let dir = std::env::temp_dir().join(format!("acpmux-protected-home-{}", uuid::Uuid::now_v7()));
+    let home = dirs::home_dir().expect("a home folder");
+    assert!(acpmux::protected_folders::unasked_refusal(&home).is_some(), "HOME {}", home.display());
+    let store = dir.join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    let hub = durable_hub(&store);
+    let mut c = Client::open(&hub);
+    let chat = c.new_session(&home).await;
+    c.busy_with_queued(&chat, "p-home").await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&store);
+    hub.resume_queues();
+    let mut c = Client::open(&hub);
+    if cfg!(target_os = "macos") {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(
+            !c.ran(&chat, "p-home").await,
+            "a restart started an agent in the Mac's home folder"
+        );
+        c.call("_acpmux/attach", json!({"sessionId": chat, "visible": true})).await;
+    }
+    c.wait_ran(&chat, "p-home").await;
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The test process's own folders (its HOME, Cargo's target tmp where it keeps them) are ordinary
 /// folders to the daemon: a test chat there resumes at once. A fleet Mac builds on a second volume
 /// (`/Volumes/ephemeral0`), which the daemon guards; there a chat under HOME waited for a person

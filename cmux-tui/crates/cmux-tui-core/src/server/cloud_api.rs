@@ -12,7 +12,9 @@
 //!
 //! A read answers the call's body; a mutation answers it as a mutation result (revision `0`,
 //! never replayed: the daemon keeps no ledger of Cloud calls, and a call that must not run twice
-//! carries the Cloud API's own idempotency key in `args`, as `cloud.runs.create` does). A refusal
+//! carries its own idempotency key in `args`, as `cloud.runs.create` does). `cloud.runs.*` are the
+//! daemon's own sandboxed Runs (`cloud_runs.rs`): a Cloud chat on a machine made for the task,
+//! never a classic call (an incognito send's create is refused: `run_incognito_unavailable`). A refusal
 //! is `operation.failed` with `reason` the failure's kind (`timed_out`, `transport`, `no_backend`,
 //! `http`, `plan_required`, `decoding`) and `extra.failure` the library's failure object; neither
 //! credential is ever in it. Each call runs on a worker thread (32 at most).
@@ -30,13 +32,7 @@ pub(super) const CAPABILITY: &str = "cloud-api-v1";
 pub(super) const fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
-        Op::CloudVmResize
-            | Op::CloudVmSnapshot
-            | Op::CloudVmSnapshots
-            | Op::CloudVmDeleteSnapshot
-            | Op::CloudVmRestore
-            | Op::CloudVmFork
-            | Op::CloudVmScpEndpoint
+        Op::CloudVmScpEndpoint
             | Op::CloudVmTunnelEnroll
             | Op::CloudVmTunnelRevoke
             | Op::CloudVmTunnelAttach
@@ -66,10 +62,27 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudOwnerHandoffBeginTurn
             | Op::CloudOwnerHarnessLoginCopy
             | Op::CloudOwnerGithubApp
+            | Op::CloudOwnerGithubRepos
+            | Op::CloudOwnerGithubConnect
+            | Op::CloudOwnerOp
+            | Op::CloudOwnerGithubComplete
+            | Op::CloudOwnerGithubList
+            | Op::CloudOwnerGithubCloneToken
+            | Op::CloudOwnerSlack
+            | Op::CloudOwnerSlackAwake
+            | Op::CloudOwnerTurnCheckpoint
+            | Op::CloudOwnerTurnRewind
+            | Op::CloudOwnerTurns
             | Op::CloudPreviewsRefresh
             | Op::CloudPreviewsCreateLink
             | Op::CloudPreviewsRevokeLink
             | Op::CloudMachineIo
+            | Op::CloudMachineChatAccess
+            | Op::CloudMachineShareChat
+            | Op::CloudMachineChiefStart
+            | Op::CloudMachineChiefResize
+            | Op::CloudMachineSetupDesktop
+            | Op::CloudMachineFork
     )
 }
 pub(super) fn handle(
@@ -233,9 +246,12 @@ mod calls {
         request: &Request,
         key: Zeroizing<Vec<u8>>,
     ) -> Result<Value, ResourceError> {
-        let result = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-            Ok(runtime) => runtime.block_on(cmux_cloud_api::perform(request, key)),
-            Err(e) => Err(Failure::Transport(e.to_string())),
+        let result = if request.call.starts_with("runs.") {
+            // The daemon's own sandboxed Runs (cloud_runs.rs): whose Run it is comes from the app's
+            // signed-in account, never from this call; its credential is not used.
+            super::super::cloud_runs::engine(mux).perform(&request.call, &request.args)
+        } else {
+            block_on(cmux_cloud_api::perform(request, key))
         };
         let result = result.and_then(|body| {
             let size = serde_json::to_vec(&body).map_or(usize::MAX, |bytes| bytes.len());
@@ -259,6 +275,14 @@ mod calls {
     }
 
     /// `operation.failed` for `failure`, with neither credential in it.
+    /// One library call on a runtime of its own (this is a worker thread).
+    fn block_on(future: impl Future<Output = Result<Value, Failure>>) -> Result<Value, Failure> {
+        match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            Ok(runtime) => runtime.block_on(future),
+            Err(e) => Err(Failure::Transport(e.to_string())),
+        }
+    }
+
     pub(super) fn refusal(
         operation: ResourceOperation,
         request: &Request,

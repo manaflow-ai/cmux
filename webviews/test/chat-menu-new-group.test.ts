@@ -83,7 +83,7 @@ test("Copy lists the session id last, and only for a chat that has one", () => {
 test("New terminal and New browser open beside a tab, and Quick Chat's panel has no tab beside it", () => {
   const open = { terminal: () => {}, browser: () => {} };
   const keys = (quick: boolean) => {
-    const sideChat = sideChatRow({ canFork: true, throughSeq: 3, local: !quick }, () => {});
+    const sideChat = sideChatRow({ canFork: true, throughSeq: 3, place: quick ? undefined : "local" }, () => {});
     return opensBesideRows({ sideChat, quick }, open).map((row) => row.key);
   };
   expect(keys(false)).toEqual(["sideChat", "newTerminal", "newBrowser"]);

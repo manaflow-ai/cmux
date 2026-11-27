@@ -35,10 +35,11 @@ enum MacScreenHomeParts {
     }
 
     /// A switch with its title and detail before it: the label leads, the switch trails.
-    static func switchRow(title: String, detail: String, isOn: Bool, enabled: Bool = true, id: String,
+    /// `emphasized`: the title in the emphasized weight (a status that is the row's title).
+    static func switchRow(title: String, detail: String, isOn: Bool, enabled: Bool = true, emphasized: Bool = false, id: String,
                           change: @escaping (Bool) -> Void) -> NSView {
         let labels = MacScreenStack.make(.vertical, spacing: 2, alignment: .leading)
-        MacScreenStack.addFullWidth(MacScreenText(title, font: MacScreenType.body, wraps: true), to: labels)
+        MacScreenStack.addFullWidth(MacScreenText(title, font: emphasized ? MacScreenType.emphasized : MacScreenType.body, wraps: true), to: labels)
         MacScreenStack.addFullWidth(MacScreenText(detail, font: MacScreenType.caption, ink: \.secondary, wraps: true), to: labels)
         let toggle = MacScreenSwitch(id: id, label: title)
         toggle.isOn = isOn

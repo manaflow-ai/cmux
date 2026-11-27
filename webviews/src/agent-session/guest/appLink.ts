@@ -86,23 +86,37 @@ export type AppOpenWindow = {
  * the card keeps "Continue in browser", so a wrong guess strands no one. The one timer and both listeners are
  * removed when it settles.
  */
-export function tryOpenApp(win: AppOpenWindow, url: string, waitMs = APP_OPEN_WAIT_MS): Promise<boolean> {
-  if (win.document.visibilityState === "hidden") return whenVisible(win).then(() => attempt(win, url, waitMs));
-  return attempt(win, url, waitMs);
+export function tryOpenApp(
+  win: AppOpenWindow,
+  url: string,
+  waitMs = APP_OPEN_WAIT_MS,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (win.document.visibilityState !== "hidden") return attempt(win, url, waitMs);
+  // An unmount between the page showing and this callback still ends it: `shown` alone is not enough.
+  return whenVisible(win, signal).then((shown) => (shown && !signal?.aborted ? attempt(win, url, waitMs) : false));
 }
 
 /**
  * A page opened hidden (a background tab) asks nothing until it is shown: hidden is the only proof the app took
- * the link, so an attempt from a hidden page would always look taken. The one listener goes when it fires.
+ * the link, so an attempt from a hidden page would always look taken. Answers true when shown, false when
+ * `signal` ends the wait first (the card unmounted), so a page restored later from the back-forward cache never
+ * asks for a card that is gone. The one listener goes either way.
  */
-function whenVisible(win: AppOpenWindow): Promise<void> {
+function whenVisible(win: AppOpenWindow, signal?: AbortSignal): Promise<boolean> {
   return new Promise((resolve) => {
-    const shown = () => {
-      if (win.document.visibilityState === "hidden") return;
-      win.removeEventListener("visibilitychange", shown);
-      resolve();
+    if (signal?.aborted) return resolve(false);
+    const end = (shown: boolean) => {
+      win.removeEventListener("visibilitychange", changed);
+      signal?.removeEventListener("abort", aborted);
+      resolve(shown);
     };
-    win.addEventListener("visibilitychange", shown);
+    const changed = () => {
+      if (win.document.visibilityState !== "hidden") end(true);
+    };
+    const aborted = () => end(false);
+    win.addEventListener("visibilitychange", changed);
+    signal?.addEventListener("abort", aborted);
   });
 }
 

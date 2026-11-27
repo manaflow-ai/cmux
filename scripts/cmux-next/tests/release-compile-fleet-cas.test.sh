@@ -5,10 +5,13 @@
 # Stubs: fleet-cas-settings.sh (node up or down) and check-release-compile.sh (records how it ran)
 # in a scratch git workspace; for check-release-compile.sh itself, a stub xcodebuild.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/cmux-release-fleet-cas-test.XXXXXX")
+# Physical path: macOS /var is a link to /private/var, and the script under test reports the resolved one.
+TMP=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/cmux-release-fleet-cas-test.XXXXXX")" && pwd -P)
 SOCKDIR=$(mktemp -d /tmp/rcfc.XXXXXX)  # short: a Unix socket path has a length limit
-trap 'rm -rf "$TMP" "$SOCKDIR"' EXIT
+git_fixture_trap_exit 'rm -rf "$TMP" "$SOCKDIR"'
 fail() { printf 'FAIL: %s\n' "$1"; cat "$TMP/out" 2>/dev/null || true; exit 1; }
 
 # A workspace with the wrapper and its helpers, and a stub check-release-compile.sh.
@@ -79,16 +82,32 @@ run write || fail "write exited $?"
 [[ ! -e "$CROOT/DerivedData/Build" ]] || fail "write kept earlier build products"
 [[ -e "$CROOT/DerivedData/SourcePackages/pkg" ]] || fail "write removed the package checkouts"
 
-# 4. The node down: read builds the old way, write refuses with 3 and builds nothing.
+# 4. The node down: read builds in the host's plain root (kept, cache off), write refuses with 3
+#    and builds nothing. CMUX_NEXT_RELEASE_PLAIN_ROOT=off builds the old way.
+PROOT="$FLEET/next-release-plain"
 run read STUB_NODE=down || fail "read (node down) exited $?"
-[[ "$(called dd)" == "$TMP/fallback-dd" ]] || fail "read with the node down built into $(called dd)"
+[[ "$(called script)" == "$PROOT/src/scripts/cmux-next/check-release-compile.sh" ]] || fail "read with the node down ran $(called script)"
+[[ "$(called dd)" == "$PROOT/DerivedData" ]] || fail "read with the node down built into $(called dd)"
+[[ "$(git -C "$PROOT/src" rev-parse HEAD)" == "$HEAD" ]] || fail "the plain tree is not at HEAD"
 settings | grep -q UNSET || fail "read with the node down passed cache settings"
+grep -q "CMUX_NEXT_RELEASE_DERIVED_DATA=$PROOT/DerivedData" "$TMP/genv" || fail "read with the node down did not export the plain DerivedData"
+[[ "$(called fsmode)" == checksum-only ]] || fail "the plain root did not judge changes by content"
+mkdir -p "$PROOT/DerivedData/Build"; touch "$PROOT/DerivedData/Build/kept.o"
+run read STUB_NODE=down || fail "read (node down, kept) exited $?"
+[[ -e "$PROOT/DerivedData/Build/kept.o" ]] || fail "the plain root's DerivedData was not kept"
+run read STUB_NODE=down CMUX_NEXT_RELEASE_PLAIN_ROOT=off || fail "read (plain off) exited $?"
+[[ "$(called dd)" == "$TMP/fallback-dd" ]] || fail "CMUX_NEXT_RELEASE_PLAIN_ROOT=off built into $(called dd)"
+exec 8>>"$PROOT/lock"
+python3 -I "$WS/scripts/cmux-next/host_build_lock.py" acquire "$PROOT/lock" --fd 8 || fail "test could not take the plain lock"
+run read STUB_NODE=down || fail "read (plain busy) exited $?"
+[[ "$(called dd)" == "$TMP/fallback-dd" ]] || fail "read with a busy plain root built into $(called dd)"
+exec 8>&-
 status=0; run write STUB_NODE=down || status=$?
 [[ $status -eq 3 && ! -e "$TMP/called" ]] || fail "write with the node down exited $status or built"
-# No socket (a helper that still answers): the node is not there, so read falls back at once.
+# No socket (a helper that still answers): the node is not there, so read uses the plain root.
 mv "$FLEET/fleet-cas.sock" "$TMP/sock.away"
 run read || fail "read (no socket) exited $?"
-[[ "$(called dd)" == "$TMP/fallback-dd" ]] || fail "read with no socket built into $(called dd)"
+[[ "$(called dd)" == "$PROOT/DerivedData" ]] || fail "read with no socket built into $(called dd)"
 mv "$TMP/sock.away" "$FLEET/fleet-cas.sock"
 
 # 5. Another build holds the root: read builds the old way at once, write refuses with 75.
@@ -150,7 +169,7 @@ crc STUB_FAIL_ALWAYS=1 STUB_FAIL_WITH="error: CAS error encountered during compi
 
 # 9. The stale-module clear accepts the canonical root's DerivedData only when that root is exported.
 #    Under /var/tmp: the guard accepts anything under /tmp already.
-VT=$(mktemp -d /var/tmp/cmux-release-cas-root.XXXXXX); trap 'rm -rf "$TMP" "$SOCKDIR" "$VT"' EXIT
+VT=$(mktemp -d /var/tmp/cmux-release-cas-root.XXXXXX); git_fixture_trap_exit 'rm -rf "$TMP" "$SOCKDIR" "$VT"'
 mkdir -p "$VT/DerivedData/Build" "$VT/DerivedData/SourcePackages" "$VT/other/Build"
 touch "$VT/DerivedData/SourcePackages/pkg"
 clear_dd() { env -i PATH=/usr/bin:/bin "$@" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$dd" >"$TMP/out" 2>&1; }

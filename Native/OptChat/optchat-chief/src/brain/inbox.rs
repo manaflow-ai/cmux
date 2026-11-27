@@ -56,6 +56,9 @@ impl Brain {
                         }
                         self.state.awaiting.clear();
                         self.state.stopped_reply = None;
+                        // The guard counts per conversation (budget_hold.rs).
+                        self.guard_rows.clear();
+                        self.state.budget_hold = false;
                     }
                     self.state.conversation = Some(conversation.id.clone());
                     self.save();
@@ -268,6 +271,7 @@ impl Brain {
         if message.author == self.settings.membership.participant {
             self.mux_messages.insert(message.id.clone());
         }
+        self.guard_row(&message);
         if self.daemon.is_none() || message.seq <= self.handled {
             return;
         }
@@ -320,6 +324,11 @@ impl Brain {
                 }
                 self.summary = Some(summary);
                 self.handled = from;
+                // The guard's count from what the snapshot holds (a host that
+                // starts with the guard closed holds at once, budget_hold.rs).
+                for m in messages.iter().chain(pending.iter()) {
+                    self.guard_row(m);
+                }
                 // A deletion made while the brain was not listening (a restart,
                 // a lost connection): the newest page's retracted messages go
                 // through the live path, which writes each one once.
@@ -431,9 +440,13 @@ impl Brain {
                 .filter(|p| p.kind == cmux_conversation::ParticipantKind::Human)
                 .and_then(|p| p.person.as_deref())
                 .filter(|id| *id != cmux_chief::rules::USER_LOCAL);
+            // `from`, `images`, `files`, `remote`: content-free flags for
+            // product analytics (analytics/catalog.rs).
+            let from = message_from(summary, &message);
             self.trace.emit(
                 "usage.message",
-                serde_json::json!({"id": message.id, "person": person}),
+                serde_json::json!({"id": message.id, "person": person, "from": from,
+                    "images": has_images, "files": has_files, "remote": remote.is_some(), "side": false}),
             );
             let sender = self.settings.membership.agent_sender(summary, &message);
             let relay = sender
@@ -441,6 +454,31 @@ impl Brain {
                 .filter(|s| self.chief.trusts_agent(&s.name))
                 .map(|s| s.name.clone());
             let framed = agent_framed(sender.as_ref(), relay.is_some(), &text);
+            // Words that are not the owner's (another agent's, another
+            // person's) are marked, so the nightly review never takes a rule
+            // or a fact about the owner from them (dream.rs).
+            let author = if sender.is_some() {
+                Some("agent")
+            } else if !owner_msg && !lifts_floor {
+                Some("other")
+            } else {
+                None
+            };
+            if let (Some(kind), Some(files), Some(main)) = (
+                author,
+                self.memory_files.as_ref(),
+                self.state.conversation.as_deref(),
+            ) && let Err(e) = files.mark_author(&format!("{main}#{}", message.seq), kind)
+            {
+                (self.log)(&format!("marking message {} as {kind}: {e}", message.seq));
+            }
+            // A person's `/name` runs that skill on this message: the turn reads
+            // its SKILL.md (slash_skills.rs). Agents' messages invoke nothing.
+            let framed = if sender.is_none() {
+                self.with_slash_skill(&framed)
+            } else {
+                framed
+            };
             let logged =
                 super::files::logged_text(&super::images::logged_text(&framed, &images), &files);
             self.posted
@@ -585,4 +623,38 @@ pub(super) fn agent_framed(
         name = sender.name,
         class = sender.class,
     )
+}
+
+impl Brain {
+    /// `text` with the invocation line of the skill it invokes (`/name`,
+    /// slash_skills.rs); the catalog is read only for a message that starts
+    /// with a command.
+    pub(super) fn with_slash_skill(&self, text: &str) -> String {
+        if crate::slash_skills::invoked(text).is_none() {
+            return text.to_owned();
+        }
+        let skills = crate::slash_skills::catalog(
+            &self.file.mux_home(),
+            &crate::compactor::user_claude_home(),
+        );
+        crate::slash_skills::with_invocation(text, &skills)
+    }
+}
+
+/// Whether `message`'s author is a person (`human`), an agent or neither,
+/// from the conversation's participants: a closed token for analytics.
+pub(super) fn message_from(
+    summary: &cmux_conversation::Summary,
+    message: &cmux_conversation::Message,
+) -> &'static str {
+    match summary
+        .participants
+        .iter()
+        .find(|p| p.id == message.author)
+        .map(|p| &p.kind)
+    {
+        Some(cmux_conversation::ParticipantKind::Human) => "human",
+        Some(cmux_conversation::ParticipantKind::Agent) => "agent",
+        _ => "other",
+    }
 }

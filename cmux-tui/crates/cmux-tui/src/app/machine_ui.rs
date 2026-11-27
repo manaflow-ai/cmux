@@ -359,6 +359,7 @@ impl App {
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
+        self.synchronized_output.clear();
         self.pane_areas.clear();
         self.viewport_projection.clear();
         self.viewport_layout.clear();
@@ -475,6 +476,7 @@ impl App {
                 .snapshot
                 .active
                 .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch);
+            // retry-prompt-ok: a client log line naming the automatic reconnect, not text a person acts on
             crate::client_log::info(
                 "machine",
                 &format!("stream lost; queueing {request:?} to reconnect"),

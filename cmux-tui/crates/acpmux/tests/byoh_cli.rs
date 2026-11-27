@@ -235,7 +235,7 @@ fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
     assert!(file.contains(r#"ANTHROPIC_BASE_URL = "https://llm.example.com""#), "{file}");
     assert!(file.contains(r#"protocol = "claude-stdio""#), "{file}");
 
-    // OpenAI-compatible: OpenCode, its key from the default Keychain item.
+    // OpenAI-compatible: OpenCode, keyless until a key is stored.
     let out = user.run(&[
         "harness",
         "add",
@@ -248,18 +248,38 @@ fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
         "qwen3",
     ]);
     assert!(out.status.success(), "add failed: {}", text(&out));
-    assert!(
-        text(&out).contains("cmux harness secret set local-oai CMUX_BYO_API_KEY"),
-        "no next step: {}",
-        text(&out)
-    );
+    assert!(text(&out).contains("add it again with --key --force"), "no next step: {}", text(&out));
+    // No key given: the profile names no Keychain item (a keyless server's env resolves).
     let file = std::fs::read_to_string(dir.join("local-oai.toml")).unwrap();
-    assert!(
-        file.contains(
-            r#"CMUX_BYO_API_KEY = { keychain = "cmux-harness/local-oai/CMUX_BYO_API_KEY" }"#
-        ),
-        "{file}"
-    );
+    assert!(!file.contains("CMUX_BYO_API_KEY = {"), "{file}");
+    // A keyless OpenCode config reads no key at all (a CMUX_BYO_API_KEY in some env never reaches
+    // it).
+    assert!(!file.contains("{env:CMUX_BYO_API_KEY}"), "{file}");
+    assert!(!file.contains("apiKey"), "{file}");
+    // `secret set` never writes an endpoint's key (it comes only with an add, for that URL): it
+    // is refused before any prompt, and the file stays as it was.
+    let out = user.run(&["harness", "secret", "set", "local-oai", "CMUX_BYO_API_KEY"]);
+    assert!(!out.status.success(), "{}", text(&out));
+    assert!(text(&out).contains("endpoint harness"), "{}", text(&out));
+    assert_eq!(std::fs::read_to_string(dir.join("local-oai.toml")).unwrap(), file);
+    // cmux's own Keychain service is never a --keychain-item, the bare service included.
+    for item in ["cmux-harness", "cmux-harness/acme/ANTHROPIC_AUTH_TOKEN"] {
+        let out = user.run(&[
+            "harness",
+            "add",
+            "stolen",
+            "--example",
+            "openai-endpoint",
+            "--base-url",
+            "http://127.0.0.1:11434/v1",
+            "--model",
+            "qwen3",
+            "--keychain-item",
+            item,
+        ]);
+        assert!(!out.status.success(), "{item}: {}", text(&out));
+        assert!(!dir.join("stolen.toml").exists());
+    }
 
     // Plain http to another host is refused, and nothing is written.
     let out = user.run(&[
@@ -413,4 +433,37 @@ fn a_custom_harness_gets_the_icon_it_sets_or_a_smart_default() {
     // A built-in harness is not the user's file.
     let refused = rpc(&user, "_acpmux/harness/icon", json!({"id": "no-such", "icon": "🦊"}));
     assert!(refused.get("error").is_some(), "{refused}");
+}
+
+#[test]
+fn byo_endpoint_cli_refuses_an_id_another_source_has() {
+    let user = User::new("byosrc");
+    // `corp` comes from the acpmux config (another source than the harness folder).
+    std::fs::write(
+        user.root.join("amx").join("config.json"),
+        json!({"permissionPolicy": "approve-all", "harnesses": {"corp": {"argv": ["true"]}}})
+            .to_string(),
+    )
+    .unwrap();
+    let dir = user.root.join("xdg").join("cmux").join("harnesses");
+    for force in [false, true] {
+        let mut args = vec![
+            "harness",
+            "add",
+            "corp",
+            "--example",
+            "openai-endpoint",
+            "--base-url",
+            "https://api.example.com/v1",
+            "--model",
+            "m",
+        ];
+        if force {
+            args.push("--force");
+        }
+        let out = user.run(&args);
+        assert!(!out.status.success(), "added over another source's id: {}", text(&out));
+        assert!(text(&out).contains("another source"), "{}", text(&out));
+        assert!(!dir.join("corp.toml").exists());
+    }
 }

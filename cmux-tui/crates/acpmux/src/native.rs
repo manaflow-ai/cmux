@@ -26,7 +26,7 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
             for p in walk(&root, 4) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                if name.ends_with(".jsonl") && name.contains(sid) {
+                if is_codex_rollout(&name, sid) {
                     out.push(("codex-rollout".to_owned(), p));
                 }
             }
@@ -34,11 +34,19 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
         "claude" => {
             // ~/.claude/projects/<cwd-with-dashes>/<session-id>.jsonl
             let root = home.join(".claude").join("projects");
+            // The file under the chat's own folder's name is the one its agent reads and
+            // writes: when it is there it is the chat's, and no other folder's copy of the
+            // id (one the chat left behind in a folder it ran in before) goes with it. It
+            // also spares a snapshot the walk of every project.
+            let own = root.join(claude_project_dir(&meta.cwd)).join(format!("{sid}.jsonl"));
+            if std::fs::symlink_metadata(&own).is_ok_and(|m| m.file_type().is_file()) {
+                return claude_transcript_with_children(own);
+            }
             for p in walk(&root, 2) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 if name == format!("{sid}.jsonl") {
-                    out.push(("claude-project".to_owned(), p));
+                    out.extend(claude_transcript_with_children(p));
                 }
             }
         }
@@ -56,6 +64,57 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
         _ => {}
     }
     out
+}
+
+/// Whether the file named `name` is the Codex rollout of the session `sid`:
+/// `rollout-<time>-<sid>.jsonl`. The id is the name's whole end after a dash, so a word that is
+/// merely somewhere in a name (`rollout`, a date, the start of another id) names no file.
+fn is_codex_rollout(name: &str, sid: &str) -> bool {
+    name.starts_with("rollout-") && name.ends_with(&format!("-{sid}.jsonl"))
+}
+
+/// The folder beside a Claude transcript (`<session-id>/subagents`) that holds its subagents'.
+/// A Claude transcript and its `Task` children's transcripts
+/// (`<session-id>/subagents/*.jsonl` beside it, which Claude reads back for the subagents
+/// it ran). Both the chat's own folder and the walk of every project list through this, so
+/// neither leaves the children behind.
+fn claude_transcript_with_children(transcript: PathBuf) -> Vec<(String, PathBuf)> {
+    let children = transcript.with_extension("").join(CLAUDE_SUBAGENTS);
+    let mut out = vec![("claude-project".to_owned(), transcript)];
+    for child in walk(&children, 0) {
+        if child.extension().is_some_and(|e| e == "jsonl") {
+            out.push((CLAUDE_SUBAGENT_LABEL.to_owned(), child));
+        }
+    }
+    out
+}
+
+const CLAUDE_SUBAGENTS: &str = "subagents";
+/// The bundle label of a Claude subagent's transcript (`<session-id>/subagents/*.jsonl`).
+pub const CLAUDE_SUBAGENT_LABEL: &str = "claude-subagent";
+
+/// Where a bundled Claude subagent transcript goes: `rel` must be
+/// `.claude/projects/<dir>/<sid>/subagents/<name>.jsonl`, and it lands under the target cwd's
+/// project directory, beside the session's own transcript.
+fn claude_subagent_target(meta: &SessionMeta, sid: &str, rel: &Path) -> Option<PathBuf> {
+    let parts: Vec<&str> = rel.iter().map(|p| p.to_str()).collect::<Option<_>>()?;
+    match parts.as_slice() {
+        [".claude", "projects", dir, s, CLAUDE_SUBAGENTS, name]
+            if !dir.is_empty()
+                && *s == sid
+                && name.len() > ".jsonl".len()
+                && name.ends_with(".jsonl") =>
+        {
+            Some(
+                PathBuf::from(".claude/projects")
+                    .join(claude_project_dir(&meta.cwd))
+                    .join(sid)
+                    .join(CLAUDE_SUBAGENTS)
+                    .join(name),
+            )
+        }
+        _ => None,
+    }
 }
 
 /// pi's session folder under the home folder.
@@ -122,13 +181,77 @@ pub fn copy_into_from(src: &Path, dest: &Path, label: &str, home: &Path) -> Resu
     let rel = src.strip_prefix(home).unwrap_or(src);
     let target = dest.join(label).join(rel);
     if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)?;
+        crate::home_fs::create_dirs(parent)?;
     }
-    std::fs::copy(src, &target)?;
+    crate::home_fs::copy(src, &target)?;
     if target.extension().is_some_and(|e| e == "jsonl") {
         complete_lines(&target)?;
     }
     Ok(target.strip_prefix(dest).unwrap_or(&target).to_string_lossy().into_owned())
+}
+
+/// [`copy_into_from`] from `prepared`, the folder an earlier [`copy_into_from`] of `src` filled:
+/// its copy moves to `dest` and only what `src` grew by since is read and appended, so the cost
+/// is the growth, not the file. None when there is no earlier copy or `src` is not that copy
+/// grown at its end (shorter, or other bytes in the [`GROWN_WINDOW`] before the copy's end):
+/// the caller copies it whole.
+pub fn grow_into_from(
+    src: &Path,
+    prepared: &Path,
+    dest: &Path,
+    label: &str,
+    home: &Path,
+) -> Result<Option<String>> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let rel = src.strip_prefix(home).unwrap_or(src);
+    let (earlier, target) = (prepared.join(label).join(rel), dest.join(label).join(rel));
+    let Ok(had) = std::fs::metadata(&earlier).map(|m| m.len()) else { return Ok(None) };
+    let mut from = std::fs::File::open(src)?;
+    let now = from.metadata()?.len();
+    if now < had {
+        return Ok(None);
+    }
+    let window = had.min(GROWN_WINDOW);
+    let tail = |file: &mut std::fs::File| -> std::io::Result<Vec<u8>> {
+        let mut bytes = vec![0; window as usize];
+        file.seek(SeekFrom::Start(had - window))?;
+        file.read_exact(&mut bytes)?;
+        Ok(bytes)
+    };
+    if tail(&mut from)? != tail(&mut std::fs::File::open(&earlier)?)? {
+        return Ok(None);
+    }
+    if let Some(parent) = target.parent() {
+        crate::home_fs::create_dirs(parent)?;
+    }
+    crate::home_fs::rename(&earlier, &target)?;
+    let mut out = crate::home_fs::OpenOptions::new().append(true).open(&target)?;
+    from.seek(SeekFrom::Start(had))?;
+    std::io::copy(&mut (&mut from).take(now - had), &mut out)?;
+    out.flush()?;
+    drop(out);
+    if target.extension().is_some_and(|e| e == "jsonl") {
+        complete_lines_after(&target, had)?;
+    }
+    Ok(Some(target.strip_prefix(dest).unwrap_or(&target).to_string_lossy().into_owned()))
+}
+
+/// The bytes before an earlier copy's end that [`grow_into_from`] compares with the file now.
+pub const GROWN_WINDOW: u64 = 64 << 10;
+
+/// [`complete_lines`] of a file whose first `start` bytes end at a line's end: only the bytes
+/// past `start` are read.
+fn complete_lines_after(path: &Path, start: u64) -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = crate::home_fs::OpenOptions::new().read(true).write(true).open(path)?;
+    file.seek(SeekFrom::Start(start))?;
+    let mut grown = Vec::new();
+    file.read_to_end(&mut grown)?;
+    if grown.last().is_some_and(|b| *b != b'\n') {
+        let keep = grown.iter().rposition(|b| *b == b'\n').map(|i| i + 1).unwrap_or(0);
+        file.set_len(start + keep as u64)?;
+    }
+    Ok(())
 }
 
 /// The adapters append their JSONL while a turn runs, so a copy can end in a
@@ -138,7 +261,7 @@ fn complete_lines(path: &Path) -> Result<()> {
     let bytes = std::fs::read(path)?;
     if bytes.last().is_some_and(|b| *b != b'\n') {
         let keep = bytes.iter().rposition(|b| *b == b'\n').map(|i| i + 1).unwrap_or(0);
-        std::fs::OpenOptions::new().write(true).open(path)?.set_len(keep as u64)?;
+        crate::home_fs::OpenOptions::new().write(true).open(path)?.set_len(keep as u64)?;
     }
     Ok(())
 }
@@ -168,10 +291,9 @@ fn restore_target(meta: &SessionMeta, label: &str, rel: &Path) -> Option<PathBuf
             // the destination cwd may differ from the exporting machine's.
             Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
         }
+        ("claude", CLAUDE_SUBAGENT_LABEL) => claude_subagent_target(meta, sid, rel),
         ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
-                && name.ends_with(".jsonl")
-                && name.contains(sid) =>
+            if rel.starts_with(".codex/sessions") && is_codex_rollout(&name, sid) =>
         {
             Some(rel.to_path_buf())
         }
@@ -194,8 +316,58 @@ pub fn restore(bundle: &Path, meta: &SessionMeta) -> Result<usize> {
     restore_in(bundle, meta, &dirs::home_dir().unwrap_or_default())
 }
 
+/// [`restore`] of a bundle nothing reads after it: a file the home folder does not hold yet
+/// becomes another name of the bundle's (one link, not a copy of a transcript that can be
+/// gigabytes), falling back to a copy where the link fails.
+pub fn restore_linked(bundle: &Path, meta: &SessionMeta) -> Result<usize> {
+    restore_in_with(bundle, meta, &dirs::home_dir().unwrap_or_default(), true)
+}
+
 /// [`restore`] under the home folder `home`.
 pub fn restore_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usize> {
+    restore_in_with(bundle, meta, home, false)
+}
+
+/// [`restore`] of a copy that is the chat (Auto mode's Cloud copy, `hub/auto_import.rs`): a
+/// file here that holds other bytes is replaced, whatever it holds, since the chat's log here
+/// was replaced the same way. The file that was here stays beside it under
+/// [`REPLACED_SUFFIX`].
+pub fn restore_replacing(bundle: &Path, meta: &SessionMeta) -> Result<usize> {
+    restore_replacing_in(bundle, meta, &dirs::home_dir().unwrap_or_default())
+}
+
+/// [`restore_replacing`] under the home folder `home`.
+pub fn restore_replacing_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usize> {
+    restore_as(bundle, meta, home, Placing::Replace)
+}
+
+/// The name a replaced agent file is kept under, after its own: no agent reads a file of this
+/// ending as a session.
+pub const REPLACED_SUFFIX: &str = ".before-cloud-copy";
+
+/// What a restore does with a file the home folder holds already, and how it puts a new one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Placing {
+    /// Overwritten only when it is a shorter start of the bundled one; a new file is copied.
+    Copy,
+    /// [`Placing::Copy`], and a new file is a link to the bundle's.
+    Link,
+    /// Overwritten unless it holds the same bytes.
+    Replace,
+}
+
+/// [`restore_in`]; `link`: [`restore_linked`].
+pub fn restore_in_with(
+    bundle: &Path,
+    meta: &SessionMeta,
+    home: &Path,
+    link: bool,
+) -> Result<usize> {
+    restore_as(bundle, meta, home, if link { Placing::Link } else { Placing::Copy })
+}
+
+fn restore_as(bundle: &Path, meta: &SessionMeta, home: &Path, placing: Placing) -> Result<usize> {
+    let link = placing == Placing::Link;
     let native = bundle.join("native");
     if !native.is_dir() {
         return Ok(0);
@@ -219,18 +391,24 @@ pub fn restore_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usiz
             let target = home.join(target);
             if target.exists() {
                 // A chat back on a machine it ran on: this machine's copy is the start of the
-                // log the chat kept writing elsewhere. Any other copy is left as it is.
+                // log the chat kept writing elsewhere. Any other copy is left as it is, unless
+                // the bundle is the chat (`Placing::Replace`).
                 if !is_strict_prefix(&target, &file)? {
-                    continue;
+                    if placing != Placing::Replace || same_bytes(&target, &file)? {
+                        continue;
+                    }
+                    keep_replaced(&target)?;
                 }
                 replace_with(&file, &target)?;
                 n += 1;
                 continue;
             }
             if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)?;
+                crate::home_fs::create_dirs(parent)?;
             }
-            std::fs::copy(&file, &target)?;
+            if !(link && crate::home_fs::hard_link(&file, &target).is_ok()) {
+                crate::home_fs::copy(&file, &target)?;
+            }
             n += 1;
         }
     }
@@ -248,14 +426,31 @@ fn is_strict_prefix(old: &Path, new: &Path) -> Result<bool> {
     Ok(b.starts_with(&a))
 }
 
+/// Whether two files hold the same bytes.
+fn same_bytes(a: &Path, b: &Path) -> Result<bool> {
+    if std::fs::metadata(a)?.len() != std::fs::metadata(b)?.len() {
+        return Ok(false);
+    }
+    Ok(std::fs::read(a)? == std::fs::read(b)?)
+}
+
+/// Keeps the file at `target` beside itself under [`REPLACED_SUFFIX`], in place of any kept
+/// before: what this machine's agent wrote after the chat's last copy left.
+fn keep_replaced(target: &Path) -> Result<()> {
+    let mut name = target.file_name().unwrap_or_default().to_os_string();
+    name.push(REPLACED_SUFFIX);
+    replace_with(target, &target.with_file_name(name))
+}
+
 /// Puts a copy of `src` at `target` in one rename, so the agent never reads a half-written file.
 fn replace_with(src: &Path, target: &Path) -> Result<()> {
     let parent = target.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let part = parent.join(format!(".{name}.{}.part", uuid::Uuid::now_v7()));
-    let placed = std::fs::copy(src, &part).and_then(|_| std::fs::rename(&part, target));
+    let placed =
+        crate::home_fs::copy(src, &part).and_then(|_| crate::home_fs::rename(&part, target));
     if placed.is_err() {
-        let _ = std::fs::remove_file(&part);
+        let _ = crate::home_fs::remove_file(&part);
     }
     Ok(placed?)
 }
@@ -324,10 +519,9 @@ fn guarded_target(meta: &SessionMeta, sid: &str, label: &str, rel: &Path) -> Opt
         {
             Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
         }
+        ("claude", CLAUDE_SUBAGENT_LABEL) => claude_subagent_target(meta, sid, rel),
         ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
-                && name.starts_with("rollout-")
-                && name.ends_with(&format!("-{sid}.jsonl")) =>
+            if rel.starts_with(".codex/sessions") && is_codex_rollout(name, sid) =>
         {
             Some(rel.to_path_buf())
         }
@@ -367,20 +561,20 @@ pub fn restore_guarded(plan: &[(PathBuf, PathBuf)], replace: bool) -> Result<usi
 
 fn restore_one(src: &Path, target: &Path, replace: bool) -> Result<()> {
     let parent = target.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
-    std::fs::create_dir_all(parent)?;
+    crate::home_fs::create_dirs(parent)?;
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let part = parent.join(format!(".{name}.{}.part", uuid::Uuid::now_v7()));
     let placed = write_without_mode(src, &part).and_then(|()| {
         if replace {
-            std::fs::rename(&part, target)?;
+            crate::home_fs::rename(&part, target)?;
         } else {
-            std::fs::hard_link(&part, target)?;
-            std::fs::remove_file(&part)?;
+            crate::home_fs::hard_link(&part, target)?;
+            crate::home_fs::remove_file(&part)?;
         }
         Ok(())
     });
     if placed.is_err() {
-        let _ = std::fs::remove_file(&part);
+        let _ = crate::home_fs::remove_file(&part);
     }
     placed
 }
@@ -388,7 +582,9 @@ fn restore_one(src: &Path, target: &Path, replace: bool) -> Result<()> {
 fn write_without_mode(src: &Path, dest: &Path) -> Result<()> {
     use std::io::Write;
     let text = std::fs::read(src)?;
-    let file = std::fs::OpenOptions::new().write(true).create_new(true).open(dest)?;
+    // The owner's only, as the agent's own store is: a transcript holds the whole conversation.
+    let file =
+        crate::home_fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(dest)?;
     let mut out = std::io::BufWriter::new(file);
     for line in text.split(|b| *b == b'\n') {
         if let Some(kept) = without_mode(line) {
@@ -532,7 +728,7 @@ pub fn export_opencode_with(
         _ => anyhow::bail!("opencode export did not answer session {sid}"),
     };
     let dir = native_dir.join(OPENCODE_EXPORT);
-    std::fs::create_dir_all(&dir)?;
+    crate::home_fs::create_dirs(&dir)?;
     let name = opencode_export_name(sid);
     crate::agent_login::write_private(&dir.join(&name), json)?;
     Ok(Some(format!("{OPENCODE_EXPORT}/{name}")))
@@ -572,4 +768,23 @@ pub fn import_opencode_with(cli: &Path, bundle: &Path, meta: &SessionMeta) -> Re
     cmd.arg("import").arg(&file).current_dir(&meta.cwd);
     run_cli(cmd).map_err(|e| anyhow::anyhow!("opencode import: {e}"))?;
     Ok(true)
+}
+
+#[cfg(all(test, unix))]
+mod private_copy_tests {
+    /// A restored transcript is the owner's only, whatever the umask (review F2 on #41462).
+    #[test]
+    fn a_restored_transcript_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-restore-mode-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("src.jsonl");
+        std::fs::write(&src, "{\"type\":\"user\"}\n").unwrap();
+        let dest = dir.join("dest.jsonl");
+        super::write_without_mode(&src, &dest).unwrap();
+        let mode = std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "mode {mode:o}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

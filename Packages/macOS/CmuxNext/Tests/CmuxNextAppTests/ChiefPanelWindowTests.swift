@@ -56,6 +56,11 @@ struct ChiefPanelWindowTests {
         return f
     }
 
+    /// Whether two frames match to a point (a place kept as a share of the window rounds to whole points).
+    static func near(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= 1 && abs(a.minY - b.minY) <= 1 && abs(a.width - b.width) <= 1 && abs(a.height - b.height) <= 1
+    }
+
     static func chiefView() -> (NSView, ChiefState) {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 400))
         return (view, ChiefState(in: view))
@@ -67,8 +72,8 @@ struct ChiefPanelWindowTests {
         return view.frame
     }
 
-    /// Clicking the open-workspace indicator (a link in the Chief) opens its workspace with the Chief floating over
-    /// it: the workspace fills the content area under it (its layout untouched, no dock), and the panel holds the
+    /// Clicking the open-workspace indicator (a link in the Chief, with `home.chiefDock.openBeside` on; off by default,
+    /// cmux#45889) opens its workspace with the Chief floating over it: the workspace fills the content area under it (its layout untouched, no dock), and the panel holds the
     /// Chief's own view, its draft, selection and scroll kept.
     @Test func theIndicatorOpensTheWorkspaceWithTheChiefFloatingOverIt() async throws {
         let (chief, state) = Self.chiefView()
@@ -83,8 +88,8 @@ struct ChiefPanelWindowTests {
         #expect(f.shown == ["k1"], "shown \(f.shown): Home stayed on screen")
         let host = f.controller.root.contentHost.bounds
         #expect(f.controller.content?.contentView.frame == host, "the workspace does not fill the content area under the Chief")
-        let panel = try #require(Self.panelFrame(f))
-        #expect(host.contains(panel), "the panel is off the content area: \(panel) in \(host)")
+        let panelView = try #require(f.controller.chiefPanelView)
+        #expect(panelView.window === panelView.launcher && panelView.launcher?.isVisible == true, "the Chief does not float in its own window")
         #expect(f.controller.chiefPanelView?.chief === chief, "the panel does not hold the Chief's view")
         #expect(chief.isDescendant(of: try #require(f.controller.chiefPanelView)))
         state.expectKept(in: chief, "after the link")
@@ -224,7 +229,8 @@ struct ChiefPanelWindowTests {
     /// Pane focus moves (Cmd-Ctrl-H/J/K/L, Cmd-Option-arrows: the focusLeft/Right/Up/Down actions) go into the
     /// docked Chief off the stage's edge and back out of it, as between any panes; the floating Chief takes a move
     /// toward its side.
-    @Test func paneFocusMovesGoIntoAndOutOfTheChief() async throws {
+    @Test(.enabled("needs a display: the floating Chief takes the keys only as a key window on a screen") { await MainActor.run { !NSScreen.screens.isEmpty } })
+    func paneFocusMovesGoIntoAndOutOfTheChief() async throws {
         let (chief, _) = Self.chiefView()
         let f = try await Self.fixture(chief)
         defer { f.close() }
@@ -251,20 +257,23 @@ struct ChiefPanelWindowTests {
         let leftPane = f.services.workspace(id: "k1")?.screens.first?.panes.first?.id
         #expect(f.controller.content?.focus.state.pane == leftPane, "the move out did not land in the pane next to the Chief")
 
-        #expect(f.controller.floatChiefPanel()) // floating at the right of the content area
+        #expect(f.controller.floatChiefPanel()) // in its own window, on one side of the cmux window's middle
         f.frame()
-        move("focusRight")
-        move("focusRight")
+        let launcher = try #require(f.controller.chiefPanelView?.launcher), window = try #require(f.controller.window)
+        let (toward, back): (ActionID, ActionID) = launcher.frame.midX >= window.frame.midX ? ("focusRight", "focusLeft") : ("focusLeft", "focusRight")
+        move(toward)
+        move(toward)
         f.frame()
-        #expect(f.controller.frameChiefPanelHasKeys, "a move right off the stage did not reach the floating Chief on the right")
-        move("focusLeft")
+        #expect(f.controller.frameChiefPanelHasKeys, "a move off the stage toward the floating Chief did not reach it")
+        move(back)
         f.frame()
         #expect(!f.controller.frameChiefPanelHasKeys, "a move from the floating Chief did not go back to the stage")
     }
 
     /// Esc hides the floating Chief while it has the keys; dragged and resized, it keeps its place across a hide, a
     /// dock and the window record (a relaunch, which brings it back closed).
-    @Test func escHidesTheFloatingChiefAndItRemembersItsPlace() async throws {
+    @Test(.enabled("needs a display: the floating Chief's place is kept on its screen's visible frame") { await MainActor.run { !NSScreen.screens.isEmpty } })
+    func escHidesTheFloatingChiefAndItRemembersItsPlace() async throws {
         let (chief, state) = Self.chiefView()
         let f = try await Self.fixture(chief)
         defer { f.close() }
@@ -272,15 +281,15 @@ struct ChiefPanelWindowTests {
         f.services.windows.show(workspaceID: "k1", in: f.state)
         f.frame()
         let view = try #require(f.controller.chiefPanelView)
-        let moved = NSRect(x: 40, y: 60, width: 360, height: 300)
-        view.actions.moved(moved)
-        f.frame()
-        #expect(view.frame == moved, "the panel did not stay where it was dropped: \(view.frame)")
+        let launcher = try #require(view.launcher)
+        try ChiefPanelStyleWindowTests.drag(view, by: CGVector(dx: -120, dy: -60), in: f)
+        // Where it was left, kept on the screen when it comes back (a small screen pushes a drag past its edge).
+        let moved = ChiefLauncherPanel.placement(saved: launcher.frame, in: try #require(launcher.screen?.visibleFrame))
         f.controller.dockChiefPanel(at: .right)
         f.frame()
         #expect(f.controller.floatChiefPanel())
         f.frame()
-        #expect(view.frame == moved, "a dock and float lost the floating place: \(view.frame)")
+        #expect(launcher.frame == moved, "a dock and float lost the floating place: \(moved) -> \(launcher.frame)")
         let saved = try #require(f.state.chiefPanel.record)
         let data = try JSONEncoder().encode(saved)
         let restored = ChiefPanel(record: try JSONDecoder().decode(WindowChiefPanelRecord.self, from: data))
@@ -289,16 +298,16 @@ struct ChiefPanelWindowTests {
         #expect(restored == hidden, "the window record does not bring the panel back where it was")
         #expect(!restored.isOpen, "a relaunch shows the Chief (cmux#37365: never pinned at launch)")
 
-        try #require(f.controller.window?.makeFirstResponder(state.draft) == true)
+        try #require(launcher.makeFirstResponder(state.draft))
         let esc = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                                windowNumber: f.controller.window?.windowNumber ?? 0, context: nil,
+                                                windowNumber: launcher.windowNumber, context: nil,
                                                 characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
         #expect(view.performKeyEquivalent(with: esc), "Esc did not reach the floating Chief")
         f.frame()
         #expect(!f.controller.frameChiefPanelShown, "Esc did not hide the floating Chief")
         f.controller.toggleChiefPanel()
         f.frame()
-        #expect(view.frame == moved, "the panel did not reopen where it was: \(view.frame)")
+        #expect(launcher.frame == moved, "the window did not reopen where it was: \(launcher.frame)")
         state.expectKept(in: chief, "after Esc and reopening")
     }
 
@@ -370,9 +379,9 @@ struct ChiefPanelWindowTests {
         f.frame()
         let view = try #require(f.controller.chiefPanelView)
         try #require(f.controller.frameChiefPanelShown)
-        try #require(f.controller.window?.makeFirstResponder(answering.box) == true)
+        try #require(view.window?.makeFirstResponder(answering.box) == true)
         let esc = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                                windowNumber: f.controller.window?.windowNumber ?? 0, context: nil,
+                                                windowNumber: view.window?.windowNumber ?? 0, context: nil,
                                                 characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
         #expect(view.performKeyEquivalent(with: esc), "Esc did not reach the panel")
         f.frame()

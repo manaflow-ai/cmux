@@ -148,6 +148,24 @@ export class RunBook {
       .map((entry) => entry.run);
   }
 
+  /** The author of the one running run with this id, for a live frame whose owner stamps no
+   * author. Run ids are unique per author only (a Cloud brain counts `run_<n>` per Chief), so two
+   * running runs with the id answer nothing: the frame is dropped rather than shown under the
+   * wrong Chief (hq#2834). */
+  soleRunningAuthor(conversation: string, id: string, now = Date.now()): string | undefined {
+    const authors = new Set(
+      this.running(conversation, now)
+        .filter((run) => run.id === id)
+        .map((run) => run.author),
+    );
+    return authors.size === 1 ? [...authors][0] : undefined;
+  }
+
+  /** The conversation's runs, for the composer hat's tasks (chiefTasks.ts reads the newest). */
+  entriesOf(conversation: string): RunEntry[] {
+    return [...this.runs.values()].filter((entry) => entry.run.conversation === conversation);
+  }
+
   /** Runs that can project the conversation's current goal strip. */
   goalEntries(conversation: string): RunEntry[] {
     return [...this.runs.values()]

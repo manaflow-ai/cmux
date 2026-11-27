@@ -64,6 +64,8 @@ public final class MarqueeLabel: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = false
+        // A rename's roll blurs the words in and out (`rollText(from:)`).
+        layerUsesCoreImageFilters = true
         text.actions = ["bounds": NSNull(), "position": NSNull(), "contents": NSNull(), "mask": NSNull()]
         text.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
         layer?.addSublayer(text)
@@ -94,6 +96,14 @@ public final class MarqueeLabel: NSView {
 
     public func stopMarquee() { fade.stopMarquee() }
 
+    /// Rolls from `old` to the string just set, as the agent chat's live line rolls a new tool
+    /// call (`MotionGate.rollTitle`). Call before the next layout. False when it does not animate.
+    @discardableResult
+    public func rollText(from old: String) -> Bool { gate.rollTitle(text, from: old, flipped: isFlipped, in: self) }
+
+    /// Ends a running roll at once (`MotionGate.cancelTitleRoll`).
+    public func cancelRoll() { gate.cancelTitleRoll(text) }
+
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         text.contentsScale = window?.backingScaleFactor ?? 2
@@ -103,7 +113,7 @@ public final class MarqueeLabel: NSView {
         super.layout()
         let geometry = TitleFadeGeometry(
             textWidth: text.textWidth, span: bounds.width, visibleWidth: max(0, bounds.width - trailingOcclusion),
-            leadingPadding: leadingPadding, trailingPadding: 0, fadeWidth: fadeWidth
+            leadingPadding: leadingPadding, trailingPadding: 0, fadeWidth: fadeWidth, wordStarts: text.wordStarts
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)

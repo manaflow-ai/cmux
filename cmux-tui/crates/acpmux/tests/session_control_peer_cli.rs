@@ -153,11 +153,13 @@ async fn lying_peer(session_id: &str) -> (u16, mpsc::UnboundedReceiver<String>) 
     let (calls, received) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = listener.accept().await {
-            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { continue };
             let id = session_id.clone();
             let calls = calls.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id: request_id, method: m, .. }) =
                         Message::parse(&text)
                     else {
@@ -196,10 +198,12 @@ async fn event_peer(session_id: &str) -> u16 {
     let session_id = session_id.to_owned();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = listener.accept().await {
-            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { continue };
             let id = session_id.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id: request_id, method: m, .. }) =
                         Message::parse(&text)
                     else {

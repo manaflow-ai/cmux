@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import os
 
 /// The single owner of every open cmux dialog. Callers present a spec in a
 /// scope and get exactly one answer; automation (the debug socket, the
@@ -41,8 +42,8 @@ public final class CmuxDialogCenter {
         case app
     }
 
-    /// The host that places dialogs. The app's composition root gives the shared center a host that draws
-    /// them (CmuxNextPages `OverlayDialogDrawing`); a dialog shown before that moves to the new host.
+    /// The host that places dialogs: the overlay host with the native card (``CmuxDialogNativeDrawing``) by
+    /// default. A dialog shown before the host changes moves to the new host.
     public var host: any CmuxDialogHosting {
         didSet { rehost(from: oldValue) }
     }
@@ -231,9 +232,25 @@ public final class CmuxDialogCenter {
             return
         }
         let dialog = CmuxDialogPresentation(id: id, spec: entry.spec, activeLook: scope.window?.backdropActiveLook)
-        dialog.onPress = { [weak self] button in self?.press(id, button: button) }
+        dialog.onPress = { [weak self, weak dialog] button in
+            guard let self, let dialog else { return }
+            self.cardPressed(dialog, button: button)
+        }
         entries[id]?.dialog = dialog
         host.show(dialog, in: scope) { [weak self] in self?.dismiss(id) }
+    }
+
+    /// A press on a shown card (a click, Return, Escape, Space): it answers the dialog the card shows. A card that is not
+    /// its dialog's shown card any more (the dialog ended, or it shows again in another card) answers nothing: it leaves
+    /// the screen, so no card ever stays up taking clicks and keys that end nothing.
+    private func cardPressed(_ dialog: CmuxDialogPresentation, button: String) {
+        if entries[dialog.id]?.dialog === dialog {
+            press(dialog.id, button: button)
+            return
+        }
+        Logger(subsystem: "com.cmuxterm.app.next", category: "dialog")
+            .fault("a card took a press after its dialog \(dialog.id, privacy: .public) ended; it leaves the screen")
+        host.discard(dialog)
     }
 
     /// Shows the dialogs `old` showed on ``host`` instead, so none is left in a host that no longer draws.
@@ -249,7 +266,15 @@ public final class CmuxDialogCenter {
     private func finish(_ id: Int, _ answer: CmuxDialogAnswer) {
         guard let entry = entries.removeValue(forKey: id) else { return }
         if let observer = entry.closeObserver { NotificationCenter.default.removeObserver(observer) }
-        if let dialog = entry.dialog { host.hide(dialog) }
+        if let dialog = entry.dialog {
+            host.hide(dialog)
+            // The host let its card go, or the card stays up answering nothing: take it off the screen now.
+            if dialog.isPresented {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "dialog")
+                    .fault("dialog \(id, privacy: .public) ended but its host kept its card on screen; it leaves the screen")
+                host.discard(dialog)
+            }
+        }
         let next = queue.remove(id)
         entry.completion(answer)
         emit(.answered(id: id, answer: answer))

@@ -202,11 +202,20 @@ pub fn error_class(message: &str) -> Option<ErrorClass> {
 /// its room, as the line (`build_node`) instead of leaving it unsummarized
 /// (https://github.com/manaflow-ai/cmux/issues/36026). Any other 400 (a bad
 /// marker or parameter) may be fixed by a new build and stays an error.
+///
+/// Claude Code also says it with no status: "Prompt is too long" (its own check of the request
+/// against the model's window, "· the request is ~1300979 tokens (limit 1000000) ..."). Read as
+/// a transient error, such a node took its 8 tries, then 8 more every `STUCK_RETRY`, for ever:
+/// 110 nodes on Leo's laptop made about 55 compactor sessions a minute for a week, each a
+/// `claude` process, and kept acpmux above 100 % CPU (2026-11-15).
 pub fn oversized_request(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains(CLAUDE_CODE_TOO_LONG) {
+        return true;
+    }
     let Some(class) = error_class(message) else {
         return false;
     };
-    let lower = message.to_ascii_lowercase();
     class.status == 413
         || (class.status == 400
             && [
@@ -221,15 +230,18 @@ pub fn oversized_request(message: &str) -> bool {
             .any(|p| lower.contains(p)))
 }
 
+/// Claude Code's own words for a request too large for the model, lowercased.
+const CLAUDE_CODE_TOO_LONG: &str = "prompt is too long";
+
 /// How long an exhausted route asks to wait (a 429, 503 or 529, e.g. the
 /// subrouter's "no non-exhausted claude accounts available ... (retry after
 /// 3596s)"): None when `message` is not a capacity error.
 pub fn capacity_wait(message: &str) -> Option<std::time::Duration> {
-    // The subrouter's own words also count when no status is passed on (the
-    // turn's rule, optchat_chief::turn::capacity_retry_after, reads them too).
-    let exhausted = message.to_ascii_lowercase().contains("no non-exhausted");
-    let capacity = error_class(message).is_some_and(|c| matches!(c.status, 429 | 503 | 529));
-    if !exhausted && !capacity {
+    // The provider's capacity (529, 503, overloaded, the subrouter's "no non-exhausted") or the
+    // route's account limit (429): one reading with acpmux and the Chief turn
+    // (cmux_upstream_error; ask-616b73f6bc).
+    if !cmux_upstream_error::is_capacity(message) && !cmux_upstream_error::is_account_limit(message)
+    {
         return None;
     }
     Some(retry_after_in(message).unwrap_or(CAPACITY_WAIT))
@@ -241,15 +253,5 @@ pub const CAPACITY_WAIT: std::time::Duration = std::time::Duration::from_secs(60
 /// The wait an error text names: "retry after 3596s" (the subrouter) or
 /// "retry-after: 30".
 pub(crate) fn retry_after_in(message: &str) -> Option<std::time::Duration> {
-    let lower = message.to_ascii_lowercase();
-    ["retry after ", "retry-after: ", "retry-after "]
-        .iter()
-        .find_map(|lead| {
-            let at = lower.find(lead)? + lead.len();
-            let digits: String = lower[at..]
-                .chars()
-                .take_while(char::is_ascii_digit)
-                .collect();
-            digits.parse().ok().map(std::time::Duration::from_secs)
-        })
+    cmux_upstream_error::retry_after(message)
 }

@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextNotifications
 import CmuxNextWindowRules
 
 /// Notification actions over the daemon's retained unread markers
@@ -18,9 +20,7 @@ enum NotificationHandlers {
         let services = context.services
         let panel = NotificationsPanelController(context: context)
         registry.bind("showNotifications", run: { _ in panel.toggle() })
-        let feedPanel = FeedPanelController(context: context)
-        registry.bind("feed.show", run: { _ in feedPanel.toggle() })
-        services.pages.register(services.feedPage)
+        FeedGitHubActions.bind(into: registry, services: services)
         registry.bind("clearAllNotifications", requires: ack, daemon: context.daemon, run: { _ in
             _ = try context.requireConnection()
             context.daemon.send("notification.clear") { connection in
@@ -88,6 +88,9 @@ enum NotificationHandlers {
         })
         NotificationSettingsHandlers.bind(into: registry, context: context)
         AgentChatMuteHandlers.bind(into: registry, context: context)
+        registry.bindEffect(AgentChatRename.action) { // Rename Agent Session…
+            AgentChatRename.effect(registry, $0, environment: QuitAgents.environment(context.services), chat: context.daemonTab($0)?.tab.agentSession)
+        }
         SubagentLimitHandlers.bind(into: registry, context: context)
         AgentChatIdentifierHandlers.bind(into: registry, context: context)
         // View Chat Only (`cmux agent view <chat>`, the palette): the All chats row's View Only opener.

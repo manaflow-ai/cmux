@@ -6,15 +6,23 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import re
+import subprocess
 import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 SCRIPT = ROOT / "scripts/ci/nightly_next_fix_forward.py"
-spec = importlib.util.spec_from_file_location("fix_forward", SCRIPT)
-ff = importlib.util.module_from_spec(spec)
-sys.modules["fix_forward"] = ff
-spec.loader.exec_module(ff)
+# One module object per file (tests/test_script_module_loads.py): the name scripts import it by, reused when
+# another test loaded it first.
+ff = sys.modules.get("nightly_next_fix_forward")
+if ff is None:
+    spec = importlib.util.spec_from_file_location("nightly_next_fix_forward", SCRIPT)
+    ff = importlib.util.module_from_spec(spec)
+    sys.modules["nightly_next_fix_forward"] = ff
+    spec.loader.exec_module(ff)
 
 REPO = "manaflow-ai/cmux"
 GOOD, BAD, NEWER = "3947349329001", "3947430561301", "3947500000001"
@@ -102,6 +110,18 @@ class Tests(unittest.TestCase):
         api.run_repo, api.run_extra = REPO, {"event": "pull_request"}
         self.assertIsNone(ff.build_commit(api, REPO, BAD))
 
+    def test_only_a_404_means_no_run_other_failures_name_themselves(self):
+        # 11-24 train run 45339117563: a failed read was reported as "good build
+        # has no nightly-next run, so no base" for a build whose run exists.
+        def missing(path, **_):
+            raise subprocess.CalledProcessError(1, ["gh"], stderr="gh: Not Found (HTTP 404)")
+        self.assertIsNone(ff.build_commit(missing, REPO, BAD))
+
+        def refused(path, **_):
+            raise subprocess.CalledProcessError(1, ["gh"], stderr="gh: API rate limit exceeded (HTTP 403)")
+        with self.assertRaisesRegex(ValueError, r"rate limit exceeded"):
+            ff.build_commit(refused, REPO, BAD)
+
     def test_dispatches_the_train_with_the_newest_car_quarantined(self):
         api = FakeApi(train_commit=True)
         plan = go(api)
@@ -170,7 +190,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("scripts/ci/nightly_next_fix_forward.py run", job)
         self.assertIn("actions: write", job)
         self.assertNotIn("environment:", job, "the fix-forward holds no feed secrets")
-        self.assertNotIn("secrets.", job)
+        self.assertEqual(workflow_jobs.secret_names(job), set())
         for out in ("changed", "serving", "pulled"):
             self.assertIn(f"{out}: ${{{{ steps.plan.outputs.{out} }}}}", self.text)
 

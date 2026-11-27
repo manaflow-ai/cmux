@@ -101,6 +101,9 @@ import Testing
         var responses: [String] { lock.withLock { log.sets } }
         private var rejection = false
         var reject: Bool { get { lock.withLock { rejection } } set { lock.withLock { rejection = newValue } } }
+        private var tunnelSeconds: TimeInterval = 0
+        /// How long a `_acpmux/machine.tunnel.*` call takes before acpmux answers it.
+        var tunnelDelay: TimeInterval { get { lock.withLock { tunnelSeconds } } set { lock.withLock { tunnelSeconds = newValue } } }
         private let done = DispatchSemaphore(value: 0)
         private let served = DispatchGroup()
 
@@ -199,6 +202,14 @@ import Testing
                         reply["result"] = ["person": person]
                     case "_acpmux/info":
                         reply["result"] = info
+                    case "_acpmux/machine.tunnel.attach", "_acpmux/machine.tunnel.detach", "_acpmux/machine.tunnel.rekey":
+                        // This connection's own thread: a slow platform call, as acpmux makes it.
+                        Thread.sleep(forTimeInterval: tunnelDelay)
+                        if person {
+                            reply["result"] = ["machineId": "machine_1"]
+                        } else {
+                            reply["error"] = ["code": -32001, "message": "permission.person_required"] as [String: Any]
+                        }
                     case "_acpmux/permission_respond":
                         let option = params["optionId"] as? String ?? ""
                         if !reject && (person || option == "no"), params["permissionId"] as? String == "p1",

@@ -9,8 +9,12 @@ struct ToolbarLayout {
     var capsule: CGRect
     var right: CGRect
 
-    static func make(metrics m: TabsKitTheme.Metrics, size: CGSize, safeBottom: CGFloat, keyboard: CGFloat, bar: ChromeState.Bar,
-                     editing: Bool, splitBack: Bool, labelWidth: CGFloat, noBack: Bool = false) -> ToolbarLayout {
+    static func make(metrics m: TabsKitTheme.Metrics, size: CGSize, safeTop: CGFloat = 0, safeBottom: CGFloat, keyboard: CGFloat,
+                     bar: ChromeState.Bar, editing: Bool, splitBack: Bool, labelWidth: CGFloat, noBack: Bool = false) -> ToolbarLayout {
+        if m.barEdge == .top {
+            return makeTop(metrics: m, size: size, safeTop: safeTop, bar: bar, editing: editing, splitBack: splitBack,
+                           labelWidth: labelWidth, noBack: noBack)
+        }
         let w = size.width
         let bottom = size.height - max(safeBottom, 20)
         let backW = m.control + (splitBack ? m.forwardExtra : 0)
@@ -43,6 +47,57 @@ struct ToolbarLayout {
         return ToolbarLayout(back: back, capsule: capsule, right: tabs)
     }
 
+    /// The bar under the status bar (`barEdge == .top`). It never moves for the keyboard:
+    /// Back, the address and Tabs stay one tap away while a composer below is focused.
+    /// Editing keeps the field in the bar's row (Safari's top address bar); collapsed, the
+    /// pill sits just under the status bar.
+    private static func makeTop(metrics m: TabsKitTheme.Metrics, size: CGSize, safeTop: CGFloat, bar: ChromeState.Bar,
+                                editing: Bool, splitBack: Bool, labelWidth: CGFloat, noBack: Bool) -> ToolbarLayout {
+        let w = size.width
+        let inset = m.topSideInset
+        let backW = m.control + (splitBack ? m.forwardExtra : 0)
+        let barY = topBarY(metrics: m, safeTop: safeTop)
+        let back = CGRect(x: inset, y: barY, width: backW, height: m.control)
+        let tabs = CGRect(x: w - inset - m.control, y: barY, width: m.control, height: m.control)
+        let capsuleX = noBack || editing ? inset : back.maxX + m.gap
+        let capsule = CGRect(x: capsuleX, y: barY, width: tabs.minX - m.gap - capsuleX, height: m.control)
+        if editing { return ToolbarLayout(back: back, capsule: capsule, right: tabs) }
+        if bar == .collapsed {
+            let pillW = CollapsedPill.width(labelWidth: labelWidth, scale: m.collapsedScale, padding: m.pillPadding,
+                                            maxWidth: collapsedMaxWidth(metrics: m, screenWidth: w, backWidth: backW))
+            let pill = CGRect(x: (w - pillW) / 2, y: PageChromeInsets.collapsedTopPillY(safeTop: safeTop, pillHeight: m.pillHeight),
+                              width: pillW, height: m.pillHeight)
+            let b = CGRect(x: pill.minX - m.gap - back.width, y: pill.midY - m.control / 2, width: back.width, height: m.control)
+            let t = CGRect(x: pill.maxX + m.gap, y: pill.midY - m.control / 2, width: m.control, height: m.control)
+            return ToolbarLayout(back: b, capsule: pill, right: t)
+        }
+        return ToolbarLayout(back: back, capsule: capsule, right: tabs)
+    }
+
+    /// The top bar's row: just under the status bar (20 pt where a screen reports none).
+    static func topBarY(metrics m: TabsKitTheme.Metrics, safeTop: CGFloat) -> CGFloat {
+        PageChromeInsets.topBarY(safeTop: safeTop, gap: m.topBarGap)
+    }
+
+    /// The page height the bar covers from its edge, gap below it included: the content inset on that edge.
+    static func barInset(metrics m: TabsKitTheme.Metrics, size: CGSize, safeTop: CGFloat, safeBottom: CGFloat) -> CGFloat {
+        let expanded = make(metrics: m, size: size, safeTop: safeTop, safeBottom: safeBottom, keyboard: 0, bar: .expanded,
+                            editing: false, splitBack: false, labelWidth: 69)
+        return m.barEdge == .top ? expanded.capsule.maxY + 8 : max(0, size.height - expanded.capsule.minY + 8)
+    }
+
+    /// The page's insets under the chrome: `resting` (the expanded bar's, for layout that must
+    /// not move while scrolling) and `live` (this frame's, a collapsed top bar's band given back).
+    static func pageInsets(metrics m: TabsKitTheme.Metrics, size: CGSize, safeTop: CGFloat, safeBottom: CGFloat,
+                           bar: ChromeState.Bar) -> (resting: PageChromeInsets, live: PageChromeInsets) {
+        let inset = barInset(metrics: m, size: size, safeTop: safeTop, safeBottom: safeBottom)
+        let resting = m.barEdge == .top ? PageChromeInsets(top: inset, bottom: safeBottom)
+            : PageChromeInsets(top: safeTop, bottom: inset)
+        let live = PageChromeInsets.live(edge: m.barEdge, collapsed: bar == .collapsed, resting: resting, safeTop: safeTop,
+                                         pillHeight: m.pillHeight)
+        return (resting, live)
+    }
+
     static func collapsedMaxWidth(metrics m: TabsKitTheme.Metrics, screenWidth: CGFloat, backWidth: CGFloat) -> CGFloat {
         CollapsedPill.maxWidth(screenWidth: screenWidth, sideInset: m.sideInset, backWidth: backWidth, control: m.control,
                                gap: m.gap, padding: m.pillPadding)
@@ -56,6 +111,7 @@ struct TabsToolbar: View {
     @Bindable var chrome: ChromeState
     var tab: TabsKitTab?
     var size: CGSize
+    var safeTop: CGFloat = 0
     var safeBottom: CGFloat
     var keyboard: CGFloat
     /// Long-press menus on back and forward (nil: none).
@@ -75,6 +131,9 @@ struct TabsToolbar: View {
     /// finger): the upward translation and velocity in points (/s).
     var onSwipeUpChanged: (CGFloat, CGFloat) -> Void = { _, _ in }
     var onSwipeUpEnded: (CGFloat, CGFloat) -> Void = { _, _ in }
+    /// The system cancelled a bar drag on this axis (the app left the
+    /// foreground, a system gesture took the touch): no end comes.
+    var onSwipeCancelled: (BarSwipe.Axis) -> Void = { _ in }
 
     @State private var labelWidth: CGFloat = 69
     /// The bar drag's direction, fixed once it moved past the slop.
@@ -82,6 +141,9 @@ struct TabsToolbar: View {
     /// A bar drag moved past the slop: the button under the finger must not
     /// act on touch-up (Safari never opens a menu from a swipe).
     @State private var swipeMoved = false
+    /// True while a bar drag is down. A gesture state resets when the drag
+    /// ends or is cancelled; only an end calls `onEnded`.
+    @GestureState private var swipeDown = false
     @State private var progressShown: CGFloat = 0
     @State private var progressOpacity: Double = 0
     @Environment(\.tabsKitTheme) private var theme
@@ -103,7 +165,7 @@ struct TabsToolbar: View {
 
     var body: some View {
         let m = theme.metrics
-        let layout = ToolbarLayout.make(metrics: m, size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
+        let layout = ToolbarLayout.make(metrics: m, size: size, safeTop: safeTop, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
                                         editing: chrome.editing, splitBack: splitBack, labelWidth: labelWidth,
                                         noBack: !features.contains(.history))
         let sideOpacity: Double = chrome.sidesVisible && !chrome.editing ? 1 : 0
@@ -144,7 +206,7 @@ struct TabsToolbar: View {
         }
         // Back <-> back | forward and the enabled tint morph with the toolbar spring.
         .animation(theme.motion.resolve(theme.motion.expandTap), value: splitBack)
-        .animation(.easeInOut(duration: 0.2), value: tab?.navigation.canGoBack == true)
+        .animation(theme.motion.resolve(.easeInOut(duration: 0.2)), value: tab?.navigation.canGoBack == true)
         .onChange(of: loading, initial: true) { _, loading in updateProgress(loading: loading) }
         .onChange(of: tab?.navigation.progress ?? 1) { _, _ in updateProgress(loading: loading) }
     }
@@ -304,7 +366,7 @@ struct TabsToolbar: View {
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: m.control)
                 .contentShape(.rect)
-                .animation(.easeInOut(duration: 0.15), value: loading)
+                .animation(theme.motion.resolve(.easeInOut(duration: 0.15)), value: loading)
             }
             .buttonStyle(.plain)
             .foregroundStyle(theme.colors.label)
@@ -312,6 +374,7 @@ struct TabsToolbar: View {
             .allowsHitTesting(!collapsed && !chrome.editing && showsReload)
             .accessibilityHidden(collapsed || chrome.editing || !showsReload)
             .frame(maxWidth: .infinity, alignment: .trailing)
+            // retry-prompt-ok: the browser's own Reload control, used on purpose
             .accessibilityLabel(loading ? "Stop" : "Reload")
         }
         .frame(width: r.width, height: r.height)
@@ -324,6 +387,16 @@ struct TabsToolbar: View {
         .glassEffect(.regular.interactive(), in: .capsule)
         .contentShape(.capsule)
         .simultaneousGesture(swipe, including: chrome.editing || collapsed ? .subviews : .all)
+        .onChange(of: swipeDown) { _, down in
+            guard !down else { return }
+            // After `onEnded` of the same touch-up, which clears the axis.
+            Task { @MainActor in
+                guard let axis = swipeAxis else { return }
+                swipeAxis = nil
+                swipeMoved = false
+                onSwipeCancelled(axis)
+            }
+        }
         .overlay {
             // Collapsed: the whole pill is one hit target that starts the
             // expand spring on touch-up. A zero-distance drag ends on
@@ -433,6 +506,7 @@ struct TabsToolbar: View {
 
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
+            .updating($swipeDown) { _, down, _ in down = true }
             .onChanged { v in
                 guard !chrome.editing, !collapsed else { return }
                 swipeMoved = true
@@ -440,8 +514,9 @@ struct TabsToolbar: View {
                 if swipeAxis == nil { swipeAxis = axis }
                 switch axis {
                 case .horizontal: onSwipeChanged(v.translation.width)
-                case .up: onSwipeUpChanged(-v.translation.height, -v.velocity.height)
-                case .down: break
+                // Away from the bar's edge into the page opens the grid: up from a bottom bar, down from a top one.
+                case towardPage: onSwipeUpChanged(gridTravel(v.translation.height), gridTravel(v.velocity.height))
+                default: break
                 }
             }
             .onEnded { v in
@@ -449,14 +524,19 @@ struct TabsToolbar: View {
                 swipeAxis = nil
                 // After the button under the finger saw this touch-up.
                 Task { @MainActor in swipeMoved = false }
-                switch axis {
-                case .horizontal?:
+                if axis == .horizontal {
                     if chrome.swiping { onSwipeEnded(v.translation.width, v.predictedEndTranslation.width) }
-                case .up?: onSwipeUpEnded(-v.translation.height, -v.velocity.height)
-                default: break
+                } else if axis == towardPage {
+                    onSwipeUpEnded(gridTravel(v.translation.height), gridTravel(v.velocity.height))
                 }
             }
     }
+
+    /// The bar drag that opens the grid: into the page, away from the bar's edge.
+    private var towardPage: BarSwipe.Axis { theme.metrics.barEdge == .top ? .down : .up }
+
+    /// A vertical drag as travel into the page (positive), from either edge.
+    private func gridTravel(_ dy: CGFloat) -> CGFloat { theme.metrics.barEdge == .top ? dy : -dy }
 
     // MARK: Progress
 
@@ -466,13 +546,13 @@ struct TabsToolbar: View {
             if progressOpacity == 0 {
                 progressShown = 0
                 progressOpacity = 1
-                withAnimation(.easeOut(duration: 0.25)) { progressShown = p }
+                withAnimation(theme.motion.resolve(.easeOut(duration: 0.25))) { progressShown = p }
             } else {
-                withAnimation(.easeOut(duration: 0.25)) { progressShown = max(progressShown, p) }
+                withAnimation(theme.motion.resolve(.easeOut(duration: 0.25))) { progressShown = max(progressShown, p) }
             }
         } else if progressOpacity > 0 {
-            withAnimation(.easeOut(duration: 0.2)) { progressShown = 1 } completion: {
-                withAnimation(.easeOut(duration: 0.25)) { progressOpacity = 0 }
+            withAnimation(theme.motion.resolve(.easeOut(duration: 0.2))) { progressShown = 1 } completion: {
+                withAnimation(theme.motion.resolve(.easeOut(duration: 0.25))) { progressOpacity = 0 }
             }
         }
     }

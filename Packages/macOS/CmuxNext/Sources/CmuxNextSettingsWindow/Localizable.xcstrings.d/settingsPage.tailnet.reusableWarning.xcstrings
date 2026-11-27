@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.tailnet.reusableWarning" : {
+      "comment" : "Settings > Tailscale Cloud machine join.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

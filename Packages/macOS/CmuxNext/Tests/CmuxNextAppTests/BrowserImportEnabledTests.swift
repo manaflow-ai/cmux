@@ -7,6 +7,7 @@ import CmuxNextDesign
 @testable import CmuxNextImportCards
 import CmuxNextImportSuggestions
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -81,7 +82,7 @@ import Testing
         try Data("{}".utf8).write(to: url)
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()
@@ -115,7 +116,7 @@ import Testing
         #expect(!h.services.registry.perform("importFromBrowser", invocation: ActionInvocation(origin: .user)))
         // The import tool window (onboarding's import step) does not open, whoever asks.
         h.services.onboarding.show(step: .importData)
-        #expect(!h.services.onboarding.isShowing, "the import window stays closed")
+        #expect(!(h.services.onboarding.controller != nil), "the import window stays closed")
         // Every run says why: the palette's subtitle and the socket's `unavailable` reason.
         #expect(h.services.registry.unavailableReason(for: "importFromBrowser") == BrowserImportOfferStrings.turnedOff)
         // The import suggestion cards are off in Settings › Import, and a card
@@ -155,10 +156,10 @@ import Testing
         let h = try await make()
         defer { h.tearDown() }
         h.services.onboarding.show(step: .importData)
-        #expect(h.services.onboarding.isShowing, "the import window opens while browser import is on")
+        #expect((h.services.onboarding.controller != nil), "the import window opens while browser import is on")
         try await h.set(false)
-        await h.until { !h.services.onboarding.isShowing }
-        #expect(!h.services.onboarding.isShowing, "turning browser import off closed the import window")
+        await h.until { !(h.services.onboarding.controller != nil) }
+        #expect(!(h.services.onboarding.controller != nil), "turning browser import off closed the import window")
 
         let app = AppOnboardingServices(owner: h.services.onboarding)
         #expect(await app.detectBrowsers().isEmpty, "no other browser's folders are read")
@@ -203,14 +204,14 @@ struct BrowserImportOffScanTests {
     }
 
     @Test func turningOffDropsTheScanInFlightAndOnAgainScansAgain() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "import-off-scan-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "import-off-scan-\(UUID().uuidString)"))
         let ledger = FileManager.default.temporaryDirectory.appending(path: "import-jobs-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: ledger) }
         let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: ledger)
         let held = HeldScan()
         center.scanThisMac = { _ in await held.run() }
         center.host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] },
-                                      openSettings: { _ in }, importClassic: { _ in nil }, importConductor: { _ in nil })
+                                      openSettings: { _ in }, importClassic: { _ in nil }, importConductor: { _ in nil }, classicAvailability: { .unavailable })
         var landed = false
         center.scan { landed = true }
         while held.started == 0 { await Task.yield() }

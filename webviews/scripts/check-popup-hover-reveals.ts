@@ -5,7 +5,9 @@
  * A row owns a hidden action strip while each popup opener owns the `data-popup-open` marker (the
  * shared Menu and ContextMenu triggers both set it). The pointer can leave the row for the popup,
  * so a `:hover` reveal without a matching `:has([data-popup-open])` selector hides the trigger
- * before the menu can be used. This checker scans every webview stylesheet and only exempts
+ * before the menu can be used. A transcript row's reveal may match `[data-popup-within]` instead, which
+ * the same openers put on every ancestor up to their row (ui/popupWithin.ts), with no `:has()` for
+ * Chromium to walk the row for on every element it styles. This checker scans every webview stylesheet and only exempts
  * controls that are documented as non-popup reveals (keyboard hints, status text, and similar
  * affordances).
  */
@@ -34,7 +36,27 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ],
   ["agent-session/acpmux/conversation/conversation.css|.cv-message:hover .cv-sent-actions", "copy affordance"],
   ["agent-session/acpmux/conversation/conversation.css|.cv-sent:hover .cv-sent-actions", "copy affordance"],
+  // EditedFilesCard's aggregate opens the turn diff directly; its alternate label owns no popup.
+  [
+    "agent-session/acpmux/conversation/EditedFilesCard.css|.acpmux-edited-summary:hover .acpmux-edited-summary-link",
+    "direct diff navigation label",
+  ],
+  // The closed card's "View changes" is text in place of its counts, never a control: no popup to keep open.
+  [
+    "agent-session/acpmux/conversation/EditedFilesCard.css|.acpmux-edited:not([data-open]) .acpmux-edited-head[data-interactive]:not([data-hover-quiet]):is(:hover:not(:has(button:not(.acpmux-edited-toggle):hover)), :has(.acpmux-edited-toggle:focus-visible)) .acpmux-edited-counts > .acpmux-edited-hover-label",
+    "alternate label",
+  ],
   ["agent-session/acpmux/conversation/CardCopy.css|.cv-disclosure__panel:hover > .cv-card-copy", "copy affordance"],
+  // Pull request card provenance copy buttons and check-log external arrows open no popup.
+  ["agent-session/acpmux/chips/linkCard.css|.acpmux-pr-card__facts:hover .acpmux-pr-card__copyBtn", "copy affordance"],
+  [
+    "agent-session/acpmux/chips/linkCard.css|.acpmux-pr-card__branches:hover .acpmux-pr-card__copyBtn",
+    "copy affordance",
+  ],
+  [
+    "agent-session/acpmux/chips/linkCard.css|a.acpmux-pr-card__checkRow:is(:hover,:focus-visible) .acpmux-pr-card__checkArrow",
+    "external link affordance",
+  ],
   [
     "agent-session/acpmux/conversation/conversation.css|.cv-tool-output__box:hover .cv-tool-output__actions",
     "copy affordance",
@@ -70,24 +92,20 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/modelPicker.css|.acpmux-quick-model-effort:is(:hover, :has([data-highlighted])) .acpmux-quick-star",
     "favourite toggle",
   ],
+  // A harness update row's Update (HarnessUpdates.tsx) starts that update on the click; it opens no menu.
+  [
+    "agent-session/acpmux/harnessUpdates.css|.acpmux-harness-update:is(:hover, :focus-within) .acpmux-harness-update-run[data-reveal]",
+    "update button",
+  ],
   // Suggestion rows sit in .nt-popover, which the New Tab page's ContextMenu ignores: no menu opens from them.
   ["agent-session/acpmux/newtab/screen.css|.nt-row:hover .nt-row-action", "suggestion row hint"],
-  [
-    "agent-session/acpmux/styles.css|.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut",
-    "keyboard shortcut",
-  ],
   [
     "agent-session/acpmux/composerAttachments.css|.acpmux-attachment:hover .acpmux-attachment-remove",
     "remove affordance",
   ],
   // An inline attachment chip's ×, Retry and Expand are plain buttons (composer/inlineAttachments.tsx).
   ["agent-session/acpmux/markdownField.css|.acpmux-md-inline-chip:hover .acpmux-md-inline-remove", "remove affordance"],
-  [
-    "agent-session/acpmux/composerLook.css|.acpmux-composer:has(.acpmux-composer-foot:hover) .acpmux-look-dots",
-    "look affordance",
-  ],
-  ["agent-session/acpmux/composerLook.css|.acpmux-composer-under:hover .acpmux-look-dots", "look affordance"],
-  ["pages/changelog/updateSurfaces.css|.wn-card:is(:hover, :focus-within) .wn-card-close", "close affordance"],
+  ["pages/changelog/updateSurfaces.css|.wn-card:is(:hover, :has(:focus-visible)) .wn-card-close", "close affordance"],
   [
     "agent-session/acpmux/needsYou/needsYou.css|.acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-tools",
     "needs-you actions",
@@ -107,7 +125,6 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/subagents/subagents.css|.cv-subagent-done-row:hover .cv-subagent-done__actions",
     "copy affordance",
   ],
-  ["agent-session/acpmux/prototype/prototype.css|.proto-tab:hover .proto-tab-close", "close affordance"],
   ["pages/settings/styles.css|.backdrop-pending:hover .backdrop-thumb", "pending wallpaper brightness"],
   ["pages/settings/styles.css|.backdrop-own:hover .backdrop-remove:not(:disabled)", "remove affordance"],
   ["gallery/fixtures/VisualMediaBoard.css|.cmux-gallery-media-stage:hover img", "gallery preview brightness"],
@@ -251,13 +268,16 @@ export function findHoverRevealViolations(source: string, file = ""): HoverRevea
       const normalizedSelector = normalized(selector);
       if (NON_POPUP_REVEALS.has(`${file}|${normalizedSelector}`)) continue;
       const expected = normalized(selector.replace(/:hover\b/g, ":has([data-popup-open])"));
-      const popupDeclarations = revealed.get(`${rule.context}|${expected}`);
-      if (
-        !all.includes(`${rule.context}|${expected}`) ||
-        !popupDeclarations ||
-        [...declarations].some((declaration) => !popupDeclarations.has(declaration))
-      )
-        violations.push({ line: rule.line, selector: normalizedSelector, expected, file });
+      const within = normalized(selector.replace(/:hover\b/g, "[data-popup-within]"));
+      const kept = [expected, within].some((candidate) => {
+        const popupDeclarations = revealed.get(`${rule.context}|${candidate}`);
+        return (
+          all.includes(`${rule.context}|${candidate}`) &&
+          !!popupDeclarations &&
+          [...declarations].every((declaration) => popupDeclarations.has(declaration))
+        );
+      });
+      if (!kept) violations.push({ line: rule.line, selector: normalizedSelector, expected, file });
     }
   }
   return violations;

@@ -44,6 +44,7 @@ CONCAT_PREFIX = re.compile(r'\s*concat!\s*\(\s*"([^"]+)"', re.S)
 # into the tree (cmux-tui-hook and cmux-tui-host are cmux-tui bins).
 PUBLISHED_ROOTS = (
     "acpmux",
+    "acpmux-standalone",
     "chatmux-relay",
     "cmux-app-host",
     "cmux-browser-host",

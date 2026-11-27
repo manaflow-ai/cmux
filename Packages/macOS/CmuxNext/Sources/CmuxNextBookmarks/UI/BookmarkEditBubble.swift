@@ -72,7 +72,6 @@ public final class BookmarkEditBubble: NSObject {
     public func show(relativeTo anchor: NSView) {
         BookmarkEditBubble.current?.close()
         guard let window = anchor.window else { return }
-        model.colors = anchor.performWithTheme { BookmarkPageColors.resolve() }
         model.onDone = { [weak self] in self?.close() }
         model.onRemove = { [weak self] in
             guard let self else { return }
@@ -85,8 +84,9 @@ public final class BookmarkEditBubble: NSObject {
             self?.close()
             self?.onMore()
         }
-        let content = NSHostingView(rootView: BookmarkEditView(model: model))
-        let card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        // The form's text draws the theme's inks fit to the menu glass, before the first draw (ThemedHostingView).
+        let content = ThemedHostingView(rootView: BookmarkEditView(model: model))
+        let card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
         popup.panel.adoptThemeScope(of: anchor)
         // A press on the star toggles the bubble: the star closes it, not the click monitor.

@@ -57,11 +57,11 @@ final class CloudPageProvider: PageProvider {
         self.account = account
     }
 
-    /// The account value the auth stream sends: whether it is signed in, the user and the team. The
-    /// user is in it so a switch between two signed-in accounts with no team is a change too.
-    static func accountValue(signedIn: Bool, user: String?, team: String?) -> CmuxNextSettings.JSONValue {
+    /// The account value the auth stream sends: whether it is signed in, the user, the team and, signed out, the line under
+    /// the page's Sign In. The user is in it so a switch between two signed-in accounts with no team is a change too.
+    static func accountValue(signedIn: Bool, user: String?, team: String?, signInBackend: String? = nil) -> CmuxNextSettings.JSONValue {
         let text: (String?) -> CmuxNextSettings.JSONValue = { value in signedIn ? value.map { .string($0) } ?? .null : .null }
-        return ["signedIn": .bool(signedIn), "user": text(user), "team": text(team)]
+        return ["signedIn": .bool(signedIn), "user": text(user), "team": text(team), "signInBackend": signedIn ? .null : signInBackend.map { .string($0) } ?? .null]
     }
 
     /// The default sign-in: nobody signs in.
@@ -71,8 +71,6 @@ final class CloudPageProvider: PageProvider {
 
     /// Live watch streams (one per Cloud page that loaded its list).
     var watcherCount: Int { watchers.count }
-    /// Live auth streams (one per open Cloud page).
-    var accountWatcherCount: Int { accountWatchers.count }
 
     func call(_ name: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard name.hasPrefix(Self.prefix) else { throw PageError.unknownOp(name) }
@@ -148,7 +146,7 @@ final class CloudPageProvider: PageProvider {
                 throw PageError(code: "cmux.protocol.transport", message: failure.message, retryable: true)
             }
             let code = failure.code.isEmpty ? "cmux.cloud.failed" : (failure.code.hasPrefix("cmux.") ? failure.code : "cmux." + failure.code)
-            throw PageError(code: code, message: failure.message, details: failure.details.map(pageJSON))
+            throw PageError(code: code, message: failure.message, retryable: failure.retryable, details: failure.details.map(pageJSON))
         }
     }
 

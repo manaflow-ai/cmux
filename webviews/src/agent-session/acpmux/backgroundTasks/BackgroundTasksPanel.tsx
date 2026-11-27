@@ -28,6 +28,8 @@
 // second only while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops
 // with the panel.
 import { Button } from "../../../ui/Button";
+import { LiveCount } from "../summary/LiveCount";
+import { useSplitOpenResize } from "../../../ui/SplitEdge";
 import {
   createContext,
   Fragment,
@@ -39,12 +41,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { formatDuration } from "../conversation/turns";
+import { formatDuration, spanDuration } from "../conversation/turns";
 import { ChevronLeft, Close, Expand } from "../conversation/icons";
-import { useT } from "../i18n";
+import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { useNow } from "../subagents/subagentGroupModel";
+import { useOwnLog, type OwnLogChat, type ReadOwnLog } from "../subagents/subagentOwnLog";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
 import { useWorkflowTranscript } from "../summary/useWorkflowTranscript";
@@ -57,10 +60,12 @@ import {
   type StopTarget,
 } from "./backgroundTasks";
 import { BackgroundTaskCard } from "./BackgroundTaskCard";
+import { FOCUS_FRESH_MS } from "./openBackgroundTasks";
 import { SubagentTranscript } from "./SubagentTranscript";
 import { NestedAgents } from "./subagentTranscriptModel";
 import "./backgroundTasks.css";
 import { FINISHED_PAGE, type PanelSection, panelSections } from "./backgroundTasksPanelModel";
+import { Clock } from "../../../ui/Typography";
 
 /// Whether this chat's subagents stop on their own (Claude Code's do; App.tsx `stopsSubagents`): a
 /// subagent's row shows no stop button where it would do nothing (never a dead click).
@@ -80,18 +85,27 @@ const ReadsOutput = createContext(true);
 /// `compact` puts the counts on the agent's own line and opens the tasks from it.
 export type PanelLook = "nested" | "flat" | "compact";
 
+/// How a subagent's own records are read (App.tsx `readSubagentLog`) when the snapshot's view of it
+/// holds none of its rows, or it finished and the view may hold only its end: the drill-in then
+/// draws them, as the subagent's pane does (subagents/subagentOwnLog.ts `needsOwnLog`).
+export type OwnLogReads = { chat: OwnLogChat; read: ReadOwnLog; connected: boolean };
+const NO_READ: ReadOwnLog = () => Promise.resolve([]);
+
 /// `agentId` is a subagent's id, or for a workflow's agent (`workflow`) its workflow pane id.
 export type Drill = { agentId: string; rowId?: string; workflow?: boolean };
 
 export function BackgroundTasksPanel({
   groups,
+  loading = false,
   views,
   look = "nested",
   expanded = false,
   initialDrill,
+  focus,
   stopsAgents = true,
   readsOutput = true,
   workflow,
+  ownLog,
   onStop,
   onClearFinished,
   onExpand,
@@ -100,6 +114,8 @@ export function BackgroundTasksPanel({
   onOpenCommand,
 }: {
   groups: readonly BackgroundGroup[];
+  /// The chat's subagent list has not answered yet: an empty list says it loads, not that nothing runs.
+  loading?: boolean;
   /// The subagents' own rows (the snapshot's `subagentViews`), which a drill-in draws from.
   views?: Record<string, AcpmuxRow[]>;
   look?: PanelLook;
@@ -107,11 +123,18 @@ export function BackgroundTasksPanel({
   expanded?: boolean;
   /// A gallery or a test opens on a transcript.
   initialDrill?: Drill;
+  /// The latest request to open on one of the chat's own commands (openBackgroundTasks.ts, Session
+  /// Info's row): each new one steps back to the list, opens the command's heading and card, and
+  /// brings the card into view. One already old when the panel first draws is history.
+  focus?: { toolCallId: string; at: number };
   stopsAgents?: boolean;
   /// The host reads a command's output (BackgroundTaskOutputContext); off, its card shows the command.
   readsOutput?: boolean;
   /// Reads a workflow agent's transcript; unset (Labs off), a workflow's agents open nothing.
   workflow?: WorkflowReads;
+  /// Reads a subagent's own records for a drill-in the snapshot's view cannot fill; unset, the
+  /// drill-in draws the view alone.
+  ownLog?: OwnLogReads;
   onStop?(target: StopTarget): Promise<unknown>;
   onClearFinished(ids: string[]): void;
   /// Unset (the panel is a tab of its own, backgroundPane.ts), no Expand button.
@@ -124,6 +147,10 @@ export function BackgroundTasksPanel({
   onOpenCommand?(task: BackgroundTask): void;
 }) {
   const t = useT();
+  // Docked in the chat's right column (it can be closed), opening narrows the chat and its composer,
+  // and closing widens them again: a split's resize (schemas/layout-motion/contract.json `resize`), one
+  // move of each box, as the side panel's (ArtifactPanel.tsx). Its own tab narrows nothing.
+  useSplitOpenResize(onClose ? "background tasks" : undefined);
   const live = anyRunning(groups);
   const now = useNow(live);
   // The drill-ins, deepest last: an agent opened from another's transcript stacks on it, and Back
@@ -132,6 +159,14 @@ export function BackgroundTasksPanel({
   // Workflows turned off (Labs) while a workflow agent's transcript shows: there is nothing to read
   // it with, so the panel steps back out of it rather than show a blank pane.
   if (!workflow && stack.some((entry) => entry.workflow)) setStack(stack.filter((entry) => !entry.workflow));
+  // The request the panel acts on, and the latest one it has seen.
+  const [target, setTarget] = useState(() => (focus && Date.now() - focus.at < FOCUS_FRESH_MS ? focus : undefined));
+  const [seenFocus, setSeenFocus] = useState(focus?.at);
+  if (focus && focus.at !== seenFocus) {
+    setSeenFocus(focus.at);
+    setTarget(focus);
+    if (stack.length > 0) setStack([]);
+  }
   const drill = stack.at(-1);
   const list = useRef<HTMLDivElement>(null);
   const listScroll = useRef(0);
@@ -154,6 +189,20 @@ export function BackgroundTasksPanel({
   const finished = useMemo(() => finishedGroupIds(groups), [groups]);
   const sections = useMemo(() => panelSections(groups), [groups]);
   const drilled = drill && agentOf(groups, drill.agentId);
+  // A subagent's drill-in: the snapshot's view of it, else (or, once it finished, when fuller) its
+  // own records, the rule its pane follows (Leo, 2026-11-12: "NO MESSAGES DISPLAYED?").
+  const drillAgent = drill && !drill.workflow ? drill.agentId : undefined;
+  const viewRows = drillAgent ? views?.[drillAgent] : undefined;
+  const drillRunning = drilled?.state === "running";
+  const own = useOwnLog(
+    ownLog && drillAgent && (!viewRows?.length || !drillRunning) ? drillAgent : undefined,
+    ownLog?.chat ?? {},
+    ownLog?.read ?? NO_READ,
+    ownLog?.connected ?? false,
+  );
+  const ownRows = drillAgent ? own.log?.views[drillAgent] : undefined;
+  const drillRows =
+    viewRows?.length && (drillRunning || (ownRows?.length ?? 0) <= viewRows.length) ? viewRows : (ownRows ?? []);
   return (
     <StopsAgents.Provider value={stopsAgents}>
       <ReadsOutput.Provider value={readsOutput}>
@@ -169,14 +218,22 @@ export function BackgroundTasksPanel({
           >
             <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
               {groups.length === 0 ? (
-                <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
+                <p className="acpmux-bg__empty">
+                  {loading ? t("backgroundTasks.loading") : t("backgroundTasks.empty")}
+                </p>
               ) : (
                 sections.map((section) => (
-                  <Section key={section.id} id={section.id} count={section.groups.length + section.commands.length}>
+                  <Section
+                    key={section.id}
+                    id={section.id}
+                    count={section.groups.length + section.commands.length}
+                    openAt={focusedIn(section.commands, target)}
+                  >
                     {section.commands.map((task) => (
                       <TaskRow
                         key={task.id}
                         task={task}
+                        openAt={focusedIn([task], target)}
                         now={now}
                         onDrill={open}
                         onStop={onStop}
@@ -217,9 +274,10 @@ export function BackgroundTasksPanel({
               <NestedAgents.Provider value={nested}>
                 <SubagentTranscript
                   key={`${stack.length}:${drill.agentId}`}
-                  rows={views?.[drill.agentId] ?? []}
-                  running={drilled?.state === "running"}
+                  rows={drillRows}
+                  running={drillRunning}
                   anchor={drill.rowId}
+                  notice={drillRows.length === 0 && own.loading ? t("subagents.loading.title") : undefined}
                 />
               </NestedAgents.Provider>
             )}
@@ -233,9 +291,25 @@ export function BackgroundTasksPanel({
 /// A heading that folds its groups: Running open at first, Finished folded, as Claude Desktop's panel
 /// opens (Leo, 2026-11-07); its fold is the panel's own state, so Back from a transcript finds it as
 /// it was.
-function Section({ id, count, children }: { id: PanelSection["id"]; count: number; children: ReactNode }) {
+function Section({
+  id,
+  count,
+  openAt,
+  children,
+}: {
+  id: PanelSection["id"];
+  count: number;
+  /// A request to open on a command under it (`focus`): each new one opens the heading.
+  openAt?: number;
+  children: ReactNode;
+}) {
   const t = useT();
-  const [open, setOpen] = useState(id === "running");
+  const [open, setOpen] = useState(id === "running" || openAt !== undefined);
+  const [openedAt, setOpenedAt] = useState(openAt);
+  if (openAt !== undefined && openAt !== openedAt) {
+    setOpenedAt(openAt);
+    setOpen(true);
+  }
   return (
     <div className="acpmux-bg__section" data-section={id}>
       <Button
@@ -246,13 +320,24 @@ function Section({ id, count, children }: { id: PanelSection["id"]; count: numbe
         onClick={() => setOpen(!open)}
       >
         <Disclosure open={open} />
-        <span>{t(id === "running" ? "backgroundTasks.section.running" : "backgroundTasks.section.finished")}</span>
-        <span className="acpmux-bg__section-count">{count}</span>
+        {/* Running is its mark and its count, no word (Leo, 2026-11-23: ""running" doesn't need text"). */}
+        {id === "running" ? (
+          <LiveCount n={count} label={t("summary.subagents.running", { n: count })} />
+        ) : (
+          <>
+            <span>{t("backgroundTasks.section.finished")}</span>
+            <span className="acpmux-bg__section-count">{count}</span>
+          </>
+        )}
       </Button>
       {open && children}
     </div>
   );
 }
+
+/// The time of the request (`focus`) that names one of `tasks`, if one does.
+const focusedIn = (tasks: readonly BackgroundTask[], focus: { toolCallId: string; at: number } | undefined) =>
+  focus && tasks.some((task) => task.toolCallId === focus.toolCallId) ? focus.at : undefined;
 
 /// The group a subagent is, or the one it is a task of.
 function agentOf(groups: readonly BackgroundGroup[], agentId: string) {
@@ -281,22 +366,10 @@ function WorkflowAgentTranscript({
   running: boolean;
   reads: WorkflowReads;
 }) {
-  const transcript = useWorkflowTranscript(
-    pane,
-    reads.sessionId,
-    true,
-    agent,
-    reads.chat,
-    reads.read,
-    reads.connection,
-  );
-  // The first row is the "Subagent of" pill the app's pane leads with; the panel's head names it. The
-  // hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
+  const transcript = useWorkflowTranscript(pane, reads.sessionId, true, agent, reads.read, reads.connection);
+  // The panel's head names the agent. The hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
   // the window is taken from the agent's rows when they arrive, never from the notice.
-  const rows = useMemo(
-    () => (transcript.rows?.slice(1) ?? []).filter((row) => row.kind !== "notice"),
-    [transcript.rows],
-  );
+  const rows = useMemo(() => (transcript.rows ?? []).filter((row) => row.kind !== "notice"), [transcript.rows]);
   const notice = transcript.rows?.find((row) => row.kind === "notice")?.text;
   // Older history, a page at a time, from the transcript's top (the hook's loader changes each render).
   const loader = useRef(transcript.loadOlder);
@@ -415,12 +488,17 @@ function PanelFrame({
   );
 }
 
-/// Elapsed while it runs; once ended, its duration, or nothing when its end time is unknown (a
-/// command known only from the transcript), never a time that keeps counting.
-const time = (from: number | undefined, to: number | undefined, now: number, running: boolean) =>
-  from === undefined || (!running && to === undefined)
+/// Elapsed while it runs; once ended, its duration ("856ms" under a second, spanDuration), or
+/// nothing when its end time is unknown (a command known only from the transcript) or it was
+/// stamped at one moment, never a time that keeps counting or a floored "0s".
+const time = (t: Translate, from: number | undefined, to: number | undefined, now: number, running: boolean) =>
+  from === undefined
     ? undefined
-    : formatDuration(Math.max(0, (running ? now : to!) - from));
+    : running
+      ? formatDuration(Math.max(0, now - from))
+      : to === undefined
+        ? undefined
+        : spanDuration(t, to - from);
 
 function GroupBlock({
   group,
@@ -478,7 +556,7 @@ function GroupBlock({
         {!live && group.state === "failed" ? (
           <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
         ) : (
-          <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now, live)}</span>
+          <Clock className="acpmux-bg__time" text={time(t, group.startedAt, group.endedAt, now, live) ?? ""} />
         )}
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
@@ -605,17 +683,21 @@ function TaskList({
 
 function TaskRow({
   task,
+  openAt,
   now,
   onDrill,
   onStop,
   onOpenCommand,
 }: {
   task: BackgroundTask;
+  /// A request to open on this command (`focus`): its card opens and comes into view.
+  openAt?: number;
   now: number;
   onDrill(drill: Drill): void;
   onStop?(target: StopTarget): Promise<unknown>;
   onOpenCommand?(task: BackgroundTask): void;
 }) {
+  const t = useT();
   const agentId = task.agentId;
   const pane = useContext(Workflows) ? task.workflow?.pane : undefined;
   const readsOutput = useContext(ReadsOutput);
@@ -630,9 +712,10 @@ function TaskRow({
         toolCallId={task.toolCallId}
         processId={task.processId}
         state={task.state}
-        time={time(task.startedAt, task.endedAt, now, task.state === "running")}
+        time={time(t, task.startedAt, task.endedAt, now, task.state === "running")}
         stop={<StopSlot target={task.stop} name={task.title} onStop={onStop} />}
         readOutput={readsOutput}
+        openAt={openAt}
         onOpenTerminal={onOpenCommand && task.toolCallId ? () => onOpenCommand(task) : undefined}
       />
     );
@@ -652,7 +735,10 @@ function TaskRow({
         </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </Button>
-      <span className="acpmux-bg__time">{time(task.startedAt, task.endedAt, now, task.state === "running")}</span>
+      <Clock
+        className="acpmux-bg__time"
+        text={time(t, task.startedAt, task.endedAt, now, task.state === "running") ?? ""}
+      />
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
   );
@@ -675,6 +761,7 @@ function StopSlot({
   if (!target && state !== "idle") setState("idle");
   if (!target || !onStop || (target.kind === "agent" && !stopsAgents))
     return <span className="acpmux-bg__stop-slot" aria-hidden="true" />;
+  // retry-prompt-ok: stopping a task is a destructive action the person chooses, so a failed stop is theirs to try again.
   const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", { name });
   return (
     <span className="acpmux-bg__stop-slot">

@@ -1,3 +1,7 @@
+import { readPeerLinkDetail, type PeerLinkDetail } from "./linkState";
+import { intl } from "../../ui/intl";
+import type { MachineAutoCloud } from "./machineResources";
+
 /// Where a chat runs, as the environment picker (EnvironmentPicker.tsx) lists it: this computer, an
 /// SSH machine (an `ssh://` acpmux peer) or a Cloud machine (any other peer, or a Cloud chat's host).
 /// The machines are the composer's computers (ComposerContext availableComputers): acpmux's peers
@@ -16,7 +20,20 @@ export type Environment = {
   connected?: boolean;
   state?: string;
   loadWarning?: string;
+  /// When acpmux says its link left `connected` (`PeerLinkDetail.since`, ms since the epoch), while
+  /// it is not connected; absent from an older daemon.
+  downSince?: number;
+  /// Its owner enrolled it in AutoCloud (RFD 0172): AutoCloud's Mac tier, listed after this Mac.
+  autoCloud?: MachineAutoCloud;
+  /// What acpmux says the peer is for (`_acpmux/status` `peers[].group`, one parent agent session
+  /// per VM, #54094): `own` a machine of the person's, listed inline in a new chat's picker, or
+  /// `agent` one of the agent machines, behind the picker's Agent machines list. Absent from an
+  /// older daemon: the name decides then (environmentSections).
+  group?: PeerGroup;
 };
+
+/// A peer's group as acpmux says it (`peers[].group`).
+export type PeerGroup = "own" | "agent";
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
@@ -39,6 +56,21 @@ export const CONNECT_ACTIONS = {
 export type ConnectKind = keyof typeof CONNECT_ACTIONS;
 /// A started chat's move: to a Cloud machine, or back to this Mac.
 export type OffloadKind = Extract<ConnectKind, "move" | "bringBack">;
+/// Why each offered move would refuse now, as the chat's right-click menu row says it under its title.
+export type OffloadReasons = Readonly<Partial<Record<OffloadKind, string>>>;
+
+/// The `pane.tabState` `moveReasons` (by action id) for the offered `kinds`.
+export function offloadReasonsOf(
+  kinds: readonly OffloadKind[],
+  reasons: Readonly<Record<string, string>>,
+): OffloadReasons {
+  const out: Partial<Record<OffloadKind, string>> = {};
+  for (const kind of kinds) {
+    const reason = reasons[CONNECT_ACTIONS[kind]];
+    if (reason) out[kind] = reason;
+  }
+  return out;
+}
 
 /// Each peer's transport from `_acpmux/status`: `ssh` for an `ssh://` peer, `cloud` for a
 /// `ws://`/`wss://` one (cmux Cloud and other daemons the user connected by URL). In the app the
@@ -59,6 +91,19 @@ export function peerKindsFromStatus(status: unknown): Record<string, "ssh" | "cl
   return kinds;
 }
 
+/// Each peer's group from `_acpmux/status` (`peers[].group`, #54094): `own` or `agent`. A peer with
+/// no group, or another word, is left out, so the name decides (environmentSections).
+export function peerGroupsFromStatus(status: unknown): Record<string, PeerGroup> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  const groups: Record<string, PeerGroup> = {};
+  for (const peer of peers) {
+    const { name, group } = (peer ?? {}) as { name?: unknown; group?: unknown };
+    if (typeof name === "string" && name && (group === "own" || group === "agent")) groups[name] = group;
+  }
+  return groups;
+}
+
 /// Each peer's `connected` flag from `_acpmux/status` (the relay keeps it only as a JSON boolean;
 /// AcpmuxPaneMethods.replyShapes). A peer with no flag, or one that is not a boolean, is left out.
 export function peerConnectedFromStatus(status: unknown): Record<string, boolean> {
@@ -72,8 +117,42 @@ export function peerConnectedFromStatus(status: unknown): Record<string, boolean
   return connected;
 }
 
+/// Each connected peer's `agentLogin` flag from `_acpmux/status` (it listed `agent_login` at its
+/// last handshake). acpmux forgets a peer's features when its link ends, so a peer that is not
+/// connected reads false whatever it runs: it is left out, like a peer with no flag (an older
+/// acpmux), and its chats keep the page's own answer until a read that finds it connected.
+export function peerAgentLoginFromStatus(status: unknown): Record<string, boolean> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  const login: Record<string, boolean> = {};
+  for (const peer of peers) {
+    const { name, connected, agentLogin } = (peer ?? {}) as {
+      name?: unknown;
+      connected?: unknown;
+      agentLogin?: unknown;
+    };
+    if (typeof name === "string" && name && connected === true && typeof agentLogin === "boolean")
+      login[name] = agentLogin;
+  }
+  return login;
+}
+
 /// Each peer's link state from `_acpmux/status` (the relay keeps it as a string;
 /// AcpmuxPaneMethods.replyShapes). A peer with no state, or one that is not a string, is left out.
+/// Each peer's whole link state from `_acpmux/status` or `_acpmux/peers` rows (`link`, linkState.ts),
+/// from a daemon that sends it.
+export function peerLinksFromStatus(status: unknown): Record<string, PeerLinkDetail> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  const links: Record<string, PeerLinkDetail> = {};
+  for (const peer of peers) {
+    const row = (peer ?? {}) as { name?: unknown; link?: unknown };
+    const detail = row.link === undefined ? undefined : readPeerLinkDetail(row);
+    if (typeof row.name === "string" && row.name && detail) links[row.name] = detail;
+  }
+  return links;
+}
+
 export function peerStatesFromStatus(status: unknown): Record<string, string> {
   const peers = (status as { peers?: unknown } | undefined)?.peers;
   if (!Array.isArray(peers)) return {};
@@ -86,12 +165,57 @@ export function peerStatesFromStatus(status: unknown): Record<string, string> {
 }
 
 /// Whether a chat can start on the machine now: this Mac always; a peer once acpmux says its link
-/// is `connected` (a `degraded` link has not finished its handshake), or, from a daemon that says no
-/// state, while it is not marked disconnected. A Cloud chat's host acpmux does not list counts.
+/// is `connected` (a `degraded` link has not finished its handshake) or `idle` (left closed because
+/// unused: the start connects it, acpmux `peer_demand.rs`), or, from a daemon that says no state,
+/// while it is not marked disconnected. A Cloud chat's host acpmux does not list counts.
 export function environmentReady(environment: Environment): boolean {
   if (environment.kind === "local") return true;
-  if (environment.state !== undefined) return environment.state === "connected";
+  if (environment.state !== undefined) return environment.state === "connected" || environment.state === "idle";
   return environment.connected !== false;
+}
+
+/// The link states of a machine acpmux cannot reach: dropped and dialing again, down, refused or too
+/// old. Connecting and degraded are on their way up; paused and resuming are a Cloud machine asleep.
+const UNREACHABLE_STATES: ReadonlySet<string> = new Set([
+  "reconnecting",
+  "restarting",
+  "offline",
+  "authFailed",
+  "updateRequired",
+]);
+/// How long a machine stays unreachable before its machine list moves it under Unavailable: a link
+/// that drops and comes back keeps its row in place.
+export const UNAVAILABLE_AFTER_MS = 5 * 60_000;
+
+/// Whether a machine list puts the machine under its collapsed Unavailable group (Leo, 2026-11-09,
+/// of four retired lanes listed "Reconnecting" for good: "drop retired and unreachable machines from
+/// the list, or group them at the bottom"). acpmux keeps no retired flag on a peer, so a retired
+/// machine is one acpmux can no longer reach: a peer down or dialing again for UNAVAILABLE_AFTER_MS
+/// (`downSince`; an older daemon that sends no time counts at once), or a machine only an old chat
+/// still names (acpmux no longer lists it). A machine on its way up, a Cloud machine asleep and this
+/// Mac never are.
+export function environmentUnavailable(environment: Environment, now: number): boolean {
+  if (environment.kind === "local" || environmentReady(environment)) return false;
+  if (environment.state === undefined) return environment.connected === false;
+  if (!UNREACHABLE_STATES.has(environment.state)) return false;
+  return environment.downSince === undefined || now - environment.downSince >= UNAVAILABLE_AFTER_MS;
+}
+
+/// The link states of a machine acpmux is still dialing: its first attempt, a handshake not finished,
+/// a dropped link redialing, a daemon restarting.
+const ON_ITS_WAY_STATES: ReadonlySet<string> = new Set(["connecting", "degraded", "reconnecting", "restarting"]);
+
+/// Whether the machine is a pick and reads as live: ready, or still dialing and not yet long down
+/// (`environmentUnavailable`). Leo, 2026-11-24: "all the connecting... indicators and the graying out
+/// of workspaces, nah let's not do that. let's just keep optimistically connecting and reinforcing the
+/// connection". A machine on its way is never greyed, never says Connecting or Reconnecting, and a chat
+/// picked on it waits for its link (the prompt queue's `hostWaitMs`), as the Mac's New Agent Chat
+/// picker does (`Destination.opens`, cmux#55058). Offline, a refused sign-in, an update and a long
+/// drop still say so.
+export function environmentPickable(environment: Environment, now: number = Date.now()): boolean {
+  if (environmentReady(environment)) return true;
+  if (environment.state === undefined || !ON_ITS_WAY_STATES.has(environment.state)) return false;
+  return !environmentUnavailable(environment, now);
 }
 
 /// The name the picker's This Mac row shows. The host sends this Mac's own name as
@@ -114,8 +238,10 @@ export function thisMacName(
 /// or a Cloud chat's host, and every SSH peer whose name is a shared stem and a number
 /// (`gcp-codex-lane-1`, `gcp-codex-lane-2`, `gcp-codex-lane-3`), at least three of them. Any other
 /// SSH peer is the person's own (`big-red`, `cmux16`, and a pair such as `build-mini-1`/`-2`).
-export type EnvironmentSection = "local" | "mine" | "fleet";
-const SECTION_ORDER: readonly EnvironmentSection[] = ["local", "mine", "fleet"];
+/// An SSH machine its owner enrolled in AutoCloud (RFD 0172) is AutoCloud's Mac tier: listed right
+/// after this Mac, in AutoCloud's own order (this Mac, enrolled machines, the cloud pool).
+export type EnvironmentSection = "local" | "autocloud" | "mine" | "fleet";
+const SECTION_ORDER: readonly EnvironmentSection[] = ["local", "autocloud", "mine", "fleet"];
 const POOL_NAME = /^(.*\D)[-_.]?\d+$/;
 const POOL_MIN = 3;
 
@@ -131,23 +257,30 @@ export function environmentSections(environments: readonly Environment[]): Map<s
     environments.map((environment) => {
       if (environment.kind === "local") return [environment.id, "local"];
       if (environment.kind === "cloud") return [environment.id, "fleet"];
+      if (environment.autoCloud) return [environment.id, "autocloud"];
+      // acpmux's own word wins over the name: an agent machine is the fleet's, a peer it calls own the person's.
+      if (environment.group === "agent") return [environment.id, "fleet"];
+      if (environment.group === "own") return [environment.id, "mine"];
       const stem = stemOf(environment);
       return [environment.id, stem && (stems.get(stem) ?? 0) >= POOL_MIN ? "fleet" : "mine"];
     }),
   );
 }
 
-const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+// Made on the first ordering, not while the pane's modules evaluate ahead of its handshake.
+let collator: Intl.Collator | undefined;
+const byName = () => (collator ??= intl.Collator(undefined, { numeric: true, sensitivity: "base" }));
 
 /// The environments in the order the picker lists them: This Mac, then the person's machines, then
 /// Cloud and VMs; in each, the machines a chat can start on first, then the ones still connecting or
 /// down, each part by name with its numbers in order (`lane-2` before `lane-10`).
 export function orderEnvironments<T extends Environment>(environments: readonly T[]): T[] {
   const sections = environmentSections(environments);
+  const names = byName();
   return SECTION_ORDER.flatMap((section) => {
     const listed = environments
       .filter((environment) => sections.get(environment.id) === section)
-      .sort((a, b) => byName.compare(a.label, b.label));
+      .sort((a, b) => names.compare(a.label, b.label));
     return [...listed.filter(environmentReady), ...listed.filter((environment) => !environmentReady(environment))];
   });
 }

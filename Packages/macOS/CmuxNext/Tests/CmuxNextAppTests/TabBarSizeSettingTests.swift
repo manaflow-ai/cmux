@@ -13,9 +13,11 @@ import Testing
 /// whose pills grow with it; a load reaches a strip that is already on screen.
 @MainActor @Suite(.serialized, .closesItsWindows) struct TabBarSizeSettingTests {
     /// Applies `metrics` the way a settings load does, with nothing else set.
-    private func load(_ metrics: [String: Double] = [:]) {
+    private func load(_ metrics: [String: Double] = [:], cornerPadding: Double? = nil) {
         let appearance = JSONValue.object(["metrics": .object(metrics.mapValues { .number($0) })])
-        let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
+        var config = ["appearance": appearance]
+        if let cornerPadding { config["layout"] = .object(["cornerPadding": .number(cornerPadding)]) }
+        let snapshot = CmuxConfigSnapshot.parse(.object(config), validDensities: SettingsApplier.validDensities,
                                                 validMetrics: SettingsApplier.validMetrics)
         _ = SettingsApplier(registry: ActionRegistry.standard()).apply(snapshot)
     }
@@ -53,7 +55,7 @@ import Testing
         let harness = Harness()
         defer { harness.window.close() }
         let body = Typography.body.pointSize
-        #expect(try harness.cell().titleFont.pointSize == body, "unset, a tab title is the chrome's body size")
+        #expect(try harness.cell().titleFont.pointSize == 14, "unset, a Default tab title is 14 pt")
 
         load(["tabFontSize": 16])
         harness.refresh()
@@ -74,8 +76,8 @@ import Testing
         load(["chromeFontSize": 15])
         let harness = Harness()
         defer { harness.window.close() }
-        #expect(try harness.cell().titleFont.pointSize == Typography.body.pointSize)
         #expect(Typography.body.pointSize > 13, "the interface size reached the body size")
+        #expect(try harness.cell().titleFont.pointSize > 14, "unset, a tab title grows with the interface size from Default's 14 pt")
     }
 
     @Test func tabBarHeightGrowsTheBarAndItsTabs() throws {
@@ -96,5 +98,21 @@ import Testing
         load(["tabStripHeight": 22])
         harness.refresh()
         #expect(try harness.cell().frame.height == tabHeight + 22 - barHeight)
+    }
+
+    @Test func cornerPaddingDerivesTheStripEvenWithAHeightOverride() throws {
+        defer { load() }
+        load()
+        let tabHeight = Metrics.tabHeight
+        for (stripHeight, padding) in [(22.0, 0.0), (40.0, 4.0)] {
+            load(["tabStripHeight": stripHeight], cornerPadding: padding)
+            #expect(DesignSettings.shared.paneChrome.cornerPadding == CGFloat(padding))
+            #expect(DesignSettings.shared.overrides[.tabStripHeight] == CGFloat(stripHeight))
+            let harness = Harness()
+            defer { harness.window.close() }
+            #expect(try harness.cell().frame.height == tabHeight)
+            #expect(Metrics.tabStripHeight == tabHeight + 2 * CGFloat(padding) + Metrics.stripTopOutset)
+            #expect(TabStripView.preferredHeight == Metrics.tabStripHeight)
+        }
     }
 }

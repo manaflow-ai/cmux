@@ -1,4 +1,4 @@
-//! `cmux terminal <t> wait --until idle|prompt [--timeout D]` (cx-6so.14,
+//! `cmux terminal <t> wait --until idle|prompt|ready [--timeout D]` (cx-6so.14,
 //! plans/cmux-next/status-indicators.md section 5): blocks until the
 //! terminal's shell facts (`terminal-activity-v1`) hold, then prints its
 //! record as `terminal <t> show` does.
@@ -11,8 +11,19 @@
 //!   and no OSC 9;4 progress is under way. An interactive command
 //!   (`in_use`: vim, a REPL, an agent's own screen) is idle unless it
 //!   reports work itself.
+//!   Idle right after input is not yet an answer (W5-R, bench round 4 item
+//!   10): when a client wrote input less than `INPUT_GRACE_MS` ago
+//!   (`extra.last_input`), the wait holds until the terminal answers it (a
+//!   work state seen during the wait and ended, or a command finished or a
+//!   prompt drawn after the input), or until the grace passes with nothing
+//!   started. An agent's turn starts within a second of Enter under load.
 //!
-//! Nothing polls: the wait holds the session's `session.events` stream on a
+//! - `ready`: the terminal's agent can take a message: no startup dialog,
+//!   and its hooks say idle or its input box shows. A dialog (Claude's
+//!   folder-trust question, a login) ends the wait as `blocked` (exit 4).
+//!   It looks four times a second, like `agent start` (agent_start.rs).
+//!
+//! Nothing else polls: the wait holds the session's `session.events` stream on a
 //! second connection, opened before the first read, and reads the record
 //! again after each event. A passed `--timeout` exits 124 with
 //! `wait.timeout`; without one the wait lasts until the condition holds or
@@ -35,11 +46,17 @@ pub(super) const TIMEOUT_EXIT: i32 = 124;
 pub(super) const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 /// A read timeout may wake this much before the deadline it was set for.
 const DEADLINE_SLACK: Duration = Duration::from_millis(50);
+/// How long after input an idle terminal may take to show that the input
+/// started work. Measured: Claude Code's first `working` report came
+/// 116-897 ms after Enter at load average ~150 (owners/W5-R.md).
+const INPUT_GRACE_MS: u64 = 3_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Until {
+pub(super) enum Until {
     Idle,
     Prompt,
+    /// The terminal's agent can take a message (agent_start/readiness.rs).
+    Ready,
 }
 
 impl Until {
@@ -47,6 +64,7 @@ impl Until {
         match self {
             Self::Idle => "idle",
             Self::Prompt => "prompt",
+            Self::Ready => "ready",
         }
     }
 }
@@ -59,6 +77,9 @@ pub(super) fn run(global: &GlobalArgs, words: &[String]) -> Option<i32> {
         return None;
     }
     Some(match parse(flags) {
+        Ok((Until::Ready, timeout)) => {
+            super::super::agent_start::wait_ready_command(global, selector, timeout)
+        }
         Ok((until, timeout)) => wait(global, selector, until, timeout),
         Err(error) => {
             super::super::app::failure("usage.invalid", &format!("cmux: {error}"), global.output, 2)
@@ -66,7 +87,7 @@ pub(super) fn run(global: &GlobalArgs, words: &[String]) -> Option<i32> {
     })
 }
 
-fn parse(words: &[String]) -> Result<(Until, Option<Duration>), UsageError> {
+pub(super) fn parse(words: &[String]) -> Result<(Until, Option<Duration>), UsageError> {
     let mut until = None;
     let mut timeout = None;
     let mut words = words.iter();
@@ -91,9 +112,10 @@ fn parse(words: &[String]) -> Result<(Until, Option<Duration>), UsageError> {
                 until = Some(match value()?.as_str() {
                     "idle" => Until::Idle,
                     "prompt" => Until::Prompt,
+                    "ready" => Until::Ready,
                     other => {
                         return Err(UsageError::new(format!(
-                            "--until takes idle or prompt, not {other:?}"
+                            "--until takes idle, prompt or ready, not {other:?}"
                         )));
                     }
                 });
@@ -107,15 +129,15 @@ fn parse(words: &[String]) -> Result<(Until, Option<Duration>), UsageError> {
             }
             other => {
                 return Err(UsageError::new(format!(
-                    "terminal wait takes --until idle|prompt and --timeout, not {other}"
+                    "terminal wait takes --until idle|prompt|ready and --timeout, not {other}"
                 )));
             }
         }
     }
     let until = until.ok_or_else(|| {
         UsageError::new(
-            "terminal wait needs --until idle|prompt (screen wait and process wait wait for \
-             output and exit)",
+            "terminal wait needs --until idle|prompt|ready (screen wait and process wait wait \
+             for output and exit)",
         )
     })?;
     Ok((until, timeout))
@@ -186,7 +208,7 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
             let mut reader = BufReader::new(stream);
             let route = SocketRoute::new(&socket, derived, global);
             // `terminal current wait` waits on the caller's own terminal.
-            let caller_route = global.socket.is_none() && global.session.is_none();
+            let caller_route = wire::routes_to_caller_session(global);
             resolve::apply(&mut reader, &mut plan, caller_route, &route)?;
             let params = plan.params.as_object().cloned().ok_or_else(|| {
                 Failure::Transport("cmux: request params are not an object".into())
@@ -221,20 +243,38 @@ fn hold(
         })?;
     // Ctrl-C shuts the stream down, which ends a wait without a timeout.
     wire::arm_signal_interrupt(events.get_ref().as_ref());
+    // A work state seen during this wait: its end answers the input.
+    let mut seen_work = false;
     loop {
         // `--timeout` bounds every daemon answer too, not only the event wait.
         let _ = reader.get_mut().set_read_timeout(Some(answer_wait(deadline)));
         let record = resolve::read(reader, ResourceOperation::TerminalGet, params.clone())
             .map_err(|failure| if past(deadline) { timed_out(until, timeout) } else { failure })?;
-        if holds(&record, until)? {
+        let held = holds(&record, until)?;
+        if until == Until::Idle && !held {
+            seen_work = true;
+        }
+        let grace = if held && until == Until::Idle {
+            unanswered_input_grace(&record, seen_work, now_epoch_ms())
+        } else {
+            None
+        };
+        if held && grace.is_none() {
             return Ok(record);
         }
+        let grace_end = grace.map(|left| Instant::now() + left);
         let remaining = match deadline {
             None => None,
             Some(deadline) => match deadline.checked_duration_since(Instant::now()) {
                 Some(remaining) if !remaining.is_zero() => Some(remaining),
+                // Idle, only waiting out the input's grace: the old answer.
+                _ if held => return Ok(record),
                 _ => return Err(timed_out(until, timeout)),
             },
+        };
+        let remaining = match (remaining, grace) {
+            (Some(remaining), Some(grace)) => Some(remaining.min(grace)),
+            (remaining, grace) => remaining.or(grace),
         };
         if events.get_mut().set_read_timeout(remaining).is_err() {
             return Err(Failure::Transport("cmux: cannot wait on the event stream".into()));
@@ -255,6 +295,8 @@ fn hold(
             // The read timed out at the deadline: read the record once more
             // (a change may have landed just before it), then time out.
             Err(_) if past(deadline) => {}
+            // The input's grace passed: read the record once more.
+            Err(_) if past(grace_end) => {}
             Ok(None) => {
                 return Err(Failure::Transport("cmux: the session's event stream ended".into()));
             }
@@ -278,7 +320,7 @@ fn holds(record: &Value, until: Until) -> Result<bool, Failure> {
             }),
             exit: 1,
         }),
-        Until::Prompt => Ok(false),
+        Until::Prompt | Until::Ready => Ok(false),
         Until::Idle => {
             let command = extra["activity"]["state"] == "running";
             let progress =
@@ -289,6 +331,32 @@ fn holds(record: &Value, until: Until) -> Result<bool, Failure> {
             Ok(!(command || progress || working))
         }
     }
+}
+
+/// For an idle record: how much longer to wait for the terminal to answer
+/// input written less than `INPUT_GRACE_MS` ago (`extra.last_input`), or
+/// none when the input is answered or old. Answered: a work state seen
+/// during the wait (`seen_work`), or a command finished or a prompt drawn
+/// at or after the input. A `last_input` further ahead of this clock than
+/// the grace (another machine's clock) is ignored.
+fn unanswered_input_grace(record: &Value, seen_work: bool, now_ms: u64) -> Option<Duration> {
+    let ms = |pointer: &str| {
+        record.pointer(pointer).and_then(Value::as_str).and_then(|text| text.parse::<u64>().ok())
+    };
+    let input = ms("/extra/last_input/at_ms")?;
+    let answered = seen_work
+        || [ms("/extra/last_command/finished_at_ms"), ms("/extra/prompt/since_ms")]
+            .into_iter()
+            .flatten()
+            .any(|at| at >= input);
+    let left = input.saturating_add(INPUT_GRACE_MS).checked_sub(now_ms)?;
+    (!answered && left > 0 && left <= INPUT_GRACE_MS).then_some(Duration::from_millis(left))
+}
+
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// How long to wait for one daemon answer: its usual bound, cut to what is
@@ -311,12 +379,18 @@ fn timed_out(until: Until, timeout: Option<Duration>) -> Failure {
     let condition = match until {
         Until::Idle => "idle",
         Until::Prompt => "at its prompt",
+        Until::Ready => "ready for a message",
     };
     Failure::Local {
         error: json!({
             "code": "wait.timeout",
             "message": format!("the terminal was not {condition} within {millis} ms"),
-            "details": {"until": until.as_str(), "timeout_ms": millis.to_string()},
+            "details": {
+                "until": until.as_str(),
+                "timeout_ms": millis.to_string(),
+                "timed_out": true,
+                "waited_ms": millis.to_string(),
+            },
             "retryable": true,
         }),
         exit: TIMEOUT_EXIT,

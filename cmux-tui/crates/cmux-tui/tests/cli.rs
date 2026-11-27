@@ -19,8 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
-#[path = "support/private_state.rs"]
-mod private_state;
+use crate::private_state;
 
 struct HeadlessServer {
     child: Child,
@@ -110,6 +109,7 @@ impl HeadlessServer {
         // Durable state and the shell integration scripts stay in the test
         // folder, never below the host's HOME (support/private_state.rs).
         private_state::use_private_state(&mut command, &dir)
+            .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -341,12 +341,38 @@ fn signal_test_process_group(pid: u32, signal: libc::c_int) {
     }
 }
 
+/// The headless daemon's diagnostic log. The daemon records the cause of a
+/// `mutation.indeterminate` and other internal faults only here.
+fn daemon_log_path(dir: &std::path::Path) -> PathBuf {
+    dir.join("daemon.log")
+}
+
+/// Prints the end of the daemon log, so a failed CLI assertion shows the
+/// daemon-side cause next to the client error.
+fn print_daemon_log(dir: &std::path::Path) {
+    const MAX_PRINTED_BYTES: usize = 64 * 1024;
+    let path = daemon_log_path(dir);
+    let Ok(log) = fs::read(&path) else {
+        eprintln!("headless daemon log {}: none", path.display());
+        return;
+    };
+    let tail = &log[log.len().saturating_sub(MAX_PRINTED_BYTES)..];
+    eprintln!(
+        "--- headless daemon log {} (last {} of {} bytes) ---\n{}\n--- end of daemon log ---",
+        path.display(),
+        tail.len(),
+        log.len(),
+        String::from_utf8_lossy(tail)
+    );
+}
+
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
         if std::thread::panicking() {
             // A failed assertion (for example an indeterminate terminal
             // write) is explained by what the daemon logged before it.
             eprintln!("headless daemon stderr before the failure:\n{}", self.stderr_tail());
+            print_daemon_log(&self.dir);
         }
         // Durable terminal hosts intentionally outlive the daemon. Tests must
         // close their terminal resources first rather than assuming SIGKILL
@@ -789,7 +815,7 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert_success(&remote_help);
     let remote_help = String::from_utf8(remote_help.stdout).unwrap();
     assert!(
-        remote_help.contains("USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]"),
+        remote_help.contains("USAGE: cmux remote connect|ssh|exec|cp|forward|rpc [OPTIONS]"),
         "{remote_help}"
     );
     assert!(remote_help.contains("cmux remote enroll <ACTION> [OPTIONS]"), "{remote_help}");
@@ -817,7 +843,7 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert!(typo_help.contains("cmux remote connect"), "{typo_help}");
 
     let unknown_remote_action = lifecycle_cli(&["remote", "frobnicate"]);
-    assert_eq!(unknown_remote_action.status.code(), Some(1));
+    assert_eq!(unknown_remote_action.status.code(), Some(2));
     let error = String::from_utf8(unknown_remote_action.stderr).unwrap();
     assert!(error.contains("unknown remote action \"frobnicate\""), "{error}");
 
@@ -1484,6 +1510,7 @@ fn explicit_socket_keeps_state_in_platform_root() {
         .args(["--headless", "--socket"])
         .arg(&socket)
         .env("CMUX_TUI_STATE_DIR", &state)
+        .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -3013,6 +3040,18 @@ mod session_shutdown;
 mod apps_store;
 
 #[cfg(unix)]
+#[path = "cli/apps_external_server.rs"]
+mod apps_external_server;
+
+#[cfg(unix)]
+#[path = "cli/apps_store_sections.rs"]
+mod apps_store_sections;
+
+#[cfg(unix)]
+#[path = "cli/stop_start_lock.rs"]
+mod stop_start_lock;
+
+#[cfg(unix)]
 #[path = "cli/pty_child.rs"]
 mod pty_child;
 #[cfg(unix)]
@@ -3717,6 +3756,9 @@ mod browser_profiles;
 #[path = "cli/caller_selector.rs"]
 mod caller_selector;
 #[cfg(unix)]
+#[path = "cli/carrier_tunnel.rs"]
+mod carrier_tunnel;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[cfg(unix)]
@@ -3730,6 +3772,9 @@ mod closed_ids;
 #[cfg(unix)]
 #[path = "cli/cloud_lease_gate.rs"]
 mod cloud_lease_gate;
+#[cfg(unix)]
+#[path = "cli/cloud_runs_app_route.rs"]
+mod cloud_runs_app_route;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]
@@ -3744,6 +3789,9 @@ mod conversation_person_credentials;
 #[cfg(unix)]
 #[path = "cli/conversation_runs.rs"]
 mod conversation_runs;
+#[cfg(unix)]
+#[path = "cli/conversation_scheduled.rs"]
+mod conversation_scheduled;
 #[cfg(unix)]
 #[path = "cli/conversation_thread_objects.rs"]
 mod conversation_thread_objects;
@@ -3766,11 +3814,16 @@ mod feed_local;
 mod frontend_browser_status;
 #[path = "cli/git_branches.rs"]
 mod git_branches;
+#[path = "cli/git_review.rs"]
+mod git_review;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[cfg(unix)]
 #[path = "cli/home_inbox.rs"]
 mod home_inbox;
+#[cfg(unix)]
+#[path = "cli/hub.rs"]
+mod hub;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
@@ -3779,6 +3832,8 @@ mod launch_credential;
 mod layout_delta;
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
+#[path = "cli/list_filters.rs"]
+mod list_filters;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
 #[path = "cli/new_terminal_cwd.rs"]
@@ -3797,6 +3852,15 @@ mod state_helpers;
 mod status;
 #[path = "cli/tab_group_hex.rs"]
 mod tab_group_hex;
+#[cfg(unix)]
+#[path = "cli/tabless_terminals.rs"]
+mod tabless_terminals;
+#[cfg(unix)]
+#[path = "cli/terminal_copy_text.rs"]
+mod terminal_copy_text;
+#[cfg(unix)]
+#[path = "cli/terminal_paste.rs"]
+mod terminal_paste;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;

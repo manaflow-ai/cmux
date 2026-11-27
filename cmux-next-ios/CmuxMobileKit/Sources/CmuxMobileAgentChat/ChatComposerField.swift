@@ -3,8 +3,9 @@ import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
-/// The agent chat composer's text: a multi-line field that grows with the
-/// draft up to `maxLines`, then scrolls. Return on the on-screen keyboard
+/// The agent chat composer's text: a multi-line field that grows upward with
+/// the draft up to `maxLines`, then scrolls (`ComposerFieldHeight`, shared
+/// with the terminal composer). Return on the on-screen keyboard
 /// starts a new line and the send button sends; on a hardware keyboard
 /// Return sends and Shift-Return (or Option-Return) starts a new line
 /// (`ComposerReturnStyle.chat`, as in the ChatGPT and Claude iPhone apps).
@@ -18,13 +19,21 @@ struct ChatComposerField: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): the composer attaches it.
     var onPasteAttachments: (() -> Void)?
+    /// The attachment strip's height above the field inside the card (0:
+    /// none): the field gives it that much of the cap.
+    var stripReserve: CGFloat = 0
+    /// Where the screen reads the field's strip overlap (`ComposerFieldRef`).
+    var fieldRef: ComposerFieldRef?
+    /// The draft gained or lost a line (typed, or set from outside): the bottom stack's next
+    /// height change moves on `ComposerLineMotion`, not the stack's slower spring.
+    var onLineChange: (() -> Void)?
 
-    static let maxLines = 8
+    static var maxLines: Int { ComposerHeightCap.lines }
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     func makeUIView(context: Context) -> ChatComposerTextView {
-        let view = ChatComposerTextView(policy: ComposerReturnPolicy(style: .chat, maxLines: Self.maxLines))
+        let view = ChatComposerTextView()
         view.delegate = context.coordinator
         view.onSend = { [weak coordinator = context.coordinator] in coordinator?.parent.onSend() }
         view.font = .preferredFont(forTextStyle: .body)
@@ -33,12 +42,16 @@ struct ChatComposerField: UIViewRepresentable {
         view.textColor = .label
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
-        view.isScrollEnabled = false
-        // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-        view.autocorrectionType = .no
+        // GUI text, so autocorrect and spell check are on, as in every other text app (Leo,
+        // 2026-11-23: "you need to not ... entirely disable autocorrect in the gui"; the
+        // terminal's composer keeps it off). No capitals and no curly quotes or long dashes:
+        // a prompt holds code, paths and flags (full verify D5).
+        view.autocorrectionType = .yes
+        view.spellCheckingType = .yes
         view.autocapitalizationType = .none
         view.smartQuotesType = .no
         view.smartDashesType = .no
+        ComposerTextTraits.blockSiriSuggestions(view)
         view.returnKeyType = .default
         view.accessibilityIdentifier = Self.accessibilityIdentifier
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -49,7 +62,13 @@ struct ChatComposerField: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
+        ComposerKeyStamp.viewUpdate(view) { update(view, context: context) }
+    }
+
+    private func update(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
+        fieldRef?.view = view
+        view.stripReserve = stripReserve
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
         }
@@ -59,8 +78,9 @@ struct ChatComposerField: UIViewRepresentable {
             view.refreshPlaceholderFont()
             view.invalidateIntrinsicContentSize()
         }
-        if view.text != text {
-            view.text = text
+        if view.differs(from: text) {
+            view.takeDraft(text)
+            if view.lineCountChangePending { onLineChange?() }
             view.invalidateIntrinsicContentSize()
         }
         if view.placeholder != placeholder { view.placeholder = placeholder }
@@ -86,15 +106,10 @@ struct ChatComposerField: UIViewRepresentable {
         if coordinator.parent.isFocused { coordinator.parent.isFocused = false }
     }
 
+    /// Grows a line at a time up to `maxLines`, then scrolls inside
+    /// (`ComposerFieldHeight`); measuring changes nothing on the view.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ChatComposerTextView, context: Context) -> CGSize? {
-        let width = proposal.width ?? 280
-        let font = uiView.font ?? .preferredFont(forTextStyle: .body)
-        let insets = uiView.textContainerInset.top + uiView.textContainerInset.bottom
-        let maxHeight = ceil(font.lineHeight * CGFloat(uiView.returnPolicy.maxLines) + insets)
-        let fitting = max(ceil(font.lineHeight + insets), uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height)
-        let scrolls = fitting > maxHeight
-        if uiView.isScrollEnabled != scrolls { uiView.isScrollEnabled = scrolls }
-        return CGSize(width: width, height: min(fitting, maxHeight))
+        uiView.fittingSize(proposedWidth: proposal.width)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -111,10 +126,23 @@ struct ChatComposerField: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            parent.text = textView.text
+            if (textView as? ComposerReturnTextView)?.lineCountChangePending == true {
+                // A line came or went: the field grows (or shrinks) on the same short spring the
+                // stack and the transcript above it take, one motion (`ComposerLineMotion`).
+                parent.onLineChange?()
+                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = Self.draft(of: textView) }
+            } else {
+                parent.text = Self.draft(of: textView)
+            }
             (textView as? ComposerReturnTextView)?.updatePlaceholder()
-            textView.invalidateIntrinsicContentSize()
-            if textView.isScrollEnabled { textView.scrollRangeToVisible(textView.selectedRange) }
+            // The height is settled once per edit, and SwiftUI asked again only when it changed.
+            (textView as? ComposerReturnTextView)?.settleAfterEdit()
+            (textView as? ComposerReturnTextView)?.followCaret()
+        }
+
+        /// A native copy, so a long draft compares as a buffer downstream (`draftText()`).
+        static func draft(of textView: UITextView) -> String {
+            (textView as? ComposerReturnTextView)?.draftText() ?? textView.text
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }
@@ -122,9 +150,72 @@ struct ChatComposerField: UIViewRepresentable {
     }
 }
 
+/// `chat_composer_ready`: the first frame showing the chat's answer control: the composer, collapsed
+/// or open, or the permission bar or sudo card that takes its place. Taken on the control as a whole
+/// (``ChatReadyMarkOnShow``), not on the text field: a chat with turns opens on the collapsed capsule,
+/// which builds no field, so a chat waiting on a question (`ws-s0`, a Claude tab) never took the mark
+/// and LaunchTTIUITests' chat flow timed out.
+@MainActor
+enum ChatReadyMark {
+    static func take() {
+        LaunchMarks.shared.markNextFrame("chat_composer_ready")
+        #if DEBUG
+        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
+        #endif
+    }
+}
+
+/// Takes ``ChatReadyMark`` for a control in the composer's place, once it shows (not on a chat
+/// face parked behind its terminal).
+private struct ChatReadyMarkOnShow: ViewModifier {
+    @Environment(\.chatFaceHidden) private var faceHidden
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { if !faceHidden { ChatReadyMark.take() } }
+            .onChange(of: faceHidden) { _, hidden in if !hidden { ChatReadyMark.take() } }
+    }
+}
+
+extension View {
+    /// See ``ChatReadyMarkOnShow``.
+    func chatReadyMarkOnShow() -> some View { modifier(ChatReadyMarkOnShow()) }
+}
+
 /// The chat field: takes a focus asked for before it had a window once it gets one.
+extension EnvironmentValues {
+    /// The chat is built but not shown: a terminal tab's chat face parked at zero opacity
+    /// behind its terminal (`TerminalChatPair`).
+    @Entry public var chatFaceHidden = false
+}
+
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
+
+    /// A finger is scrolling a draft taller than the field (past `maxLines`). Both swipe-down-to-dismiss
+    /// paths (the bottom stack's drag and the dock's pan) read it and leave the keyboard up: a drag that
+    /// scrolls the draft scrolls the draft (Leo, 2026-11-23: "when i try to scroll in the composer in ios
+    /// it [...] swipes the entire thing down instead of scrolling through the composer").
+    @MainActor static var isScrollingDraft = false
+
+    init() {
+        super.init(policy: ComposerReturnPolicy(style: .chat, maxLines: ChatComposerField.maxLines))
+        panGestureRecognizer.addTarget(self, action: #selector(draftPan(_:)))
+    }
+
+    @objc private func draftPan(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            Self.isScrollingDraft = contentSize.height > bounds.height + 1
+        case .ended, .cancelled, .failed:
+            Self.isScrollingDraft = false
+        default:
+            break
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()

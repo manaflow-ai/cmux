@@ -16,7 +16,6 @@ fn ask(argv: &[&str], timeout: u64) -> Ask {
 /// `NOPASSWD` rule does, and the command gets stdin as is.
 #[cfg(unix)]
 fn fake_sudo(dir: &Path) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let path = dir.join("sudo");
     let script = format!(
         r#"#!/bin/sh
@@ -42,13 +41,14 @@ exec "$@"
         nopasswd = dir.join("nopasswd").display(),
         listing = dir.join("listing").display(),
     );
-    std::fs::write(&path, script).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Written by a short-lived `sh`, never by this process: any test of the binary that forks
+    // while this process holds the script's write descriptor hands it to that child until it
+    // execs, and running the script in that window fails with ETXTBSY ("Text file busy").
+    crate::test_exec::write_executable(&path, script);
     path
 }
 
-/// One test at a time writes and runs a stand-in sudo: a test that forks while another still
-/// holds its new script open for writing makes that script's exec fail with ETXTBSY.
+/// One test at a time writes and runs a stand-in sudo.
 static FAKES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn temp(tag: &str) -> PathBuf {
@@ -189,16 +189,17 @@ async fn a_sudo_that_asks_for_no_password_never_hands_it_to_the_command() {
     let sudo = fake_sudo(&dir);
     std::fs::write(dir.join("nopasswd"), "").unwrap();
     let started = std::time::Instant::now();
-    let out =
-        run(&sudo, &ask(&["sh", "-c", "cat | od -c"], 30), Zeroizing::new(PASSWORD.to_owned()))
-            .await;
+    let out = run(
+        &sudo,
+        &ask(&["sh", "-c", "printf ran:; cat"], 30),
+        Zeroizing::new(PASSWORD.to_owned()),
+    )
+    .await;
     assert_eq!(out["exitCode"], 0, "{out}");
-    // `od -c` of an empty stdin prints only the zero offset.
-    assert_eq!(
-        out["stdout"].as_str().unwrap().trim(),
-        "0000000",
-        "the command read the password: {out}"
-    );
+    // The command ran and `cat` copied every byte of its stdin, which was empty: none of the
+    // password reached it. (No `od`: an empty input prints its zero offset on some macOS
+    // releases and nothing on others.)
+    assert_eq!(out["stdout"], "ran:", "the command read the password: {out}");
     // The account's passwordless rule was found before anything ran: sudo -n, no password and
     // no prompt to wait for (review F1 of 852e490: a command could print the prompt itself).
     let calls = std::fs::read_to_string(dir.join("calls")).unwrap();

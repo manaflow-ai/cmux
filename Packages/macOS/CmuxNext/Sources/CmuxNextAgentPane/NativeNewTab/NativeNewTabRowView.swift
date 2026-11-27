@@ -14,9 +14,14 @@ final class NativeNewTabRowView: NSView {
     private let detail = NSTextField(labelWithString: "")
     private let hint = NSTextField(labelWithString: "")
     private(set) var content: NativeNewTabRowContent?
+    /// The title label (tests read its frame).
+    var titleField: NSTextField { title }
+    /// The detail label (tests read its frame).
+    var detailField: NSTextField { detail }
     private(set) var selected = false
-    /// Runs the row, as a click on it does.
-    var activate: @MainActor () -> Void = {}
+    /// Runs the row, as a click on it does: with the click's event, or nil for an accessibility press (no event of its
+    /// own: `NSApp.currentEvent` then is an older, unrelated one).
+    var activate: @MainActor (NSEvent?) -> Void = { _ in }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -28,9 +33,12 @@ final class NativeNewTabRowView: NSView {
         detail.textColor = .secondaryLabelColor
         hint.textColor = .tertiaryLabelColor
         hint.alignment = .right
+        // One line, never wrapping: a wrapping cell (maximumNumberOfLines) measures its intrinsic
+        // width against its current frame, so a row's first layout gave each label a few points.
         for label in [title, detail, hint] {
-            label.maximumNumberOfLines = 1
-            label.cell?.truncatesLastVisibleLine = true
+            label.usesSingleLineMode = true
+            label.cell?.wraps = false
+            label.cell?.isScrollable = false
         }
         for view in [symbol, title, detail, hint] as [NSView] { addSubview(view) }
         setAccessibilityElement(true)
@@ -40,11 +48,12 @@ final class NativeNewTabRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Shows `content`, tinted when `selected`.
-    func show(_ content: NativeNewTabRowContent, selected: Bool) {
+    /// Shows `content`, tinted when `selected`. `images` is the page's decoded-favicon cache, keyed by data URL: the first
+    /// paint decodes once and later passes look up the fixed-size image, so typing never decodes a seen site again.
+    func show(_ content: NativeNewTabRowContent, selected: Bool, images: NSCache<NSString, NSImage>) {
         if content != self.content {
             self.content = content
-            symbol.image = NSImage(systemSymbolName: content.symbol, accessibilityDescription: nil)
+            symbol.image = Self.image(for: content, cache: images)
             title.stringValue = content.title
             detail.stringValue = content.detail ?? ""
             detail.isHidden = content.detail == nil
@@ -61,6 +70,26 @@ final class NativeNewTabRowView: NSView {
         }
         self.selected = selected
         updateTint()
+    }
+
+    private static func image(for content: NativeNewTabRowContent, cache: NSCache<NSString, NSImage>) -> NSImage? {
+        if let icon = content.icon, let comma = icon.firstIndex(of: ",") {
+            let header = icon[..<comma]
+            guard header.hasSuffix(";base64") else { return placeholder(for: content.symbol) }
+            if let cached = cache.object(forKey: icon as NSString) { return cached }
+            let payload = String(icon[icon.index(after: comma)...])
+            if let data = Data(base64Encoded: payload), let image = NSImage(data: data) {
+                image.size = NSSize(width: 16, height: 16)
+                cache.setObject(image, forKey: icon as NSString)
+                return image
+            }
+        }
+        return placeholder(for: content.symbol)
+    }
+
+    private static func placeholder(for symbol: String) -> NSImage? {
+        NSImage.packOverride(forSymbol: symbol, pointSize: NSFont.systemFontSize)
+            ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
     }
 
     private func updateTint() {
@@ -82,13 +111,23 @@ final class NativeNewTabRowView: NSView {
         symbol.frame = NSRect(x: x, y: (bounds.height - 16) / 2, width: 18, height: 16)
         x += 18 + gap
         let trailing = bounds.width - inset
-        let hintWidth = hint.isHidden ? 0 : ceil(hint.intrinsicContentSize.width)
+        let hintWidth = hint.isHidden ? 0 : textWidth(hint)
         hint.frame = centered(x: trailing - hintWidth, width: hintWidth, label: hint)
         let limit = hint.isHidden ? trailing : trailing - hintWidth - gap
-        let titleWidth = min(ceil(title.intrinsicContentSize.width), max(0, limit - x))
+        let titleWidth = min(textWidth(title), max(0, limit - x))
         title.frame = centered(x: x, width: titleWidth, label: title)
         x += titleWidth + gap
-        detail.frame = centered(x: x, width: max(0, min(ceil(detail.intrinsicContentSize.width), limit - x)), label: detail)
+        // The detail sits on the title's baseline (its font is smaller, so centering it drops it low).
+        var detailFrame = centered(x: x, width: max(0, min(textWidth(detail), limit - x)), label: detail)
+        detailFrame.origin.y = title.frame.maxY - title.firstBaselineOffsetFromTop
+            - (detailFrame.height - detail.firstBaselineOffsetFromTop)
+        detail.frame = detailFrame
+    }
+
+    /// The label's text on one line, measured from the text (not from the label's current frame).
+    private func textWidth(_ label: NSTextField) -> CGFloat {
+        let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        return ceil(label.cell?.cellSize(forBounds: unbounded).width ?? label.attributedStringValue.size().width)
     }
 
     private func centered(x: CGFloat, width: CGFloat, label: NSTextField) -> NSRect {
@@ -112,11 +151,11 @@ final class NativeNewTabRowView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        activate()
+        activate(event)
     }
 
     override func accessibilityPerformPress() -> Bool {
-        activate()
+        activate(nil)
         return true
     }
 }

@@ -25,18 +25,20 @@ supporting evidence; terminal output assertions determine liveness.
 
 ## Run
 
-On a leased fleet Mac with matching tagged Mac and iOS Simulator builds:
-
-```sh
-scripts/run-iroh-release-gate.sh --mode relay-only --tag soki --skip-build --soak-profile basic --report-output /tmp/soki-result.json
-scripts/run-iroh-release-gate.sh --mode relay-only --tag sokx --skip-build --soak-profile stress --report-output /tmp/sokx-result.json
-```
-
-Both builds use the agent auth profile and the same backend. Use distinct tags
-for simultaneous workloads. Relay-only mode prevents same-host Simulator
-loopback connectivity from bypassing the managed Iroh relay.
+Not runnable on `feat-cmux-next`. The basic and stress workloads ran through
+`scripts/run-iroh-release-gate.sh --soak-profile`, which paired the iOS
+Simulator app with the tagged Mac app's iroh phone listener
+(`mobile.attach_ticket.create`, `mobile.rpc.ready`). The cmux-next Mac app no
+longer runs that listener (#42780), so the gate refuses the `automatic`,
+`relay-only` and `relay-expiry` modes and their soak, production and backend
+flags with exit 2 before any build. The workload description above records
+what the gate covered.
 
 ## Verify path selection
+
+Not runnable on `feat-cmux-next` either: `CmuxIrxTransport` and `CmuxIrohTransport`, the Swift
+packages this section tests, had no consumer and were deleted, and the release gate now refuses
+`direct-only` and `private-path` with exit 2. The steps below record what they covered.
 
 The active `IrxConnection` subscribes to native Iroh path events and records
 the initial selected path separately, because the event watcher does not replay
@@ -90,21 +92,18 @@ interface disappears.
 CMUX_IROH_PUBLIC_RELAY_TEST=1 swift test --package-path Packages/Shared/CmuxIrxTransport --filter IrxPathMigrationTests
 ```
 
-Run the release gate in each mode when a path-selection change needs live
-evidence:
+Run the transport modes of the release gate when a path-selection change needs
+live evidence. They test the `CmuxIrohTransport` package and need no Mac app:
 
 ```sh
-scripts/run-iroh-release-gate.sh --mode automatic --tag <tag> --report-output /tmp/iroh-automatic.json
-scripts/run-iroh-release-gate.sh --mode relay-only --tag <tag> --report-output /tmp/iroh-relay.json
 scripts/run-iroh-release-gate.sh --mode direct-only --tag <tag> --report-output /tmp/iroh-direct.json
 scripts/run-iroh-release-gate.sh --mode private-path --tag <tag> --report-output /tmp/iroh-private.json
 ```
 
-Automatic mode should show Iroh opening a relay path and may later show a
-selected direct or private-network path after admission. Relay-only should keep
-the selected class at `relay`. Direct-only disables relay dialing and should
-show a direct or private-network selected class. Private-path proves the
-broker-authorized private route with relays disabled. A selected path is Iroh's
+Direct-only disables relay dialing and should show a direct or private-network
+selected class. Private-path proves the broker-authorized private route with
+relays disabled. The `automatic` and `relay-only` app modes are refused (see
+Run). A selected path is Iroh's
 current choice; it is not a promise that every candidate was usable or that
 the path remains fastest after a network change.
 

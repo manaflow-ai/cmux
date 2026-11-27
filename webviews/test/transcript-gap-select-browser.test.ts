@@ -1,15 +1,26 @@
+// cmux-web-test-timeout: 300
+// Alone it takes 110-117 s on an 8-vCPU runner (two engines, 50 tests); the 120 s default cut it short beside other files.
 // l10n-allow-file: public transcript fixtures, not shipped UI.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { GAP_KINDS, gapPair } from "../src/agent-session/acpmux/conversation/selectionGaps.fixture";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 
 await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
   setDefaultTimeout(180_000);
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const engines: [string, BrowserType][] = [];
+  for (const engine of [
+    ["chromium", chromium],
+    ["webkit", webkit],
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("transcript-gap-select-browser.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
   const { createServer } = await import("vite");
   const root = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>>;
@@ -33,12 +44,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
     });
     await vite.listen();
     await warmViteServer(vite, "/test/browser/transcript-follow.html");
-    for (const [name, engine] of [
-      ["chromium", chromium],
-      ["webkit", webkit],
-    ] as const) {
-      browsers.set(name, await engine.launch({ headless: true }));
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
     if (process.env.CMUX_GAP_CAPTURE)
       await warmGalleryFrame(vite, "agent-pane.gutter-select", {
         browser: browsers.get("chromium"),
@@ -131,7 +137,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         right: (column.right + innerWidth - 16) / 2,
       };
     });
-  for (const name of ["chromium", "webkit"]) {
+  for (const [name] of engines) {
     for (const lineDirection of ["rtl", "ltr"] as const)
       test(`${name}: RTL document gaps and both gutters preserve ${lineDirection} line endpoints`, async () => {
         const text =
@@ -235,10 +241,13 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           const page = await open(name, above, below);
           const box = await geometry(page);
           expect(box.lower.top).toBeGreaterThan(box.upper.bottom);
-          const nearestRow = box.gapY - box.upper.bottom <= box.lower.top - box.gapY ? "upper" : "lower";
+          // Mouse events use integer CSS pixels in WebKit; measure the point we actually send.
+          const gapY = Math.round(box.gapY);
+          const distance = { upper: gapY - box.upper.bottom, lower: box.lower.top - gapY };
+          const nearest = Math.min(distance.upper, distance.lower);
           // Consecutive tool rows can have zero row padding: their content owns the center.
           for (const x of [...(box.hasRowPadding ? [box.center] : []), box.left, box.right]) {
-            await drag(page, { x, y: box.gapY }, box.after);
+            await drag(page, { x, y: gapY }, box.after);
             expect((await selected(page)).length).toBeGreaterThan(0);
             const anchor = await page.evaluate(() => {
               const s = getSelection()!;
@@ -248,12 +257,15 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
                 length: s.anchorNode?.textContent?.length,
               };
             });
-            expect(anchor.row).toBe(nearestRow);
-            expect(anchor.offset).toBe(nearestRow === "upper" ? (anchor.length ?? -1) : 0);
+            expect(anchor.row === "upper" || anchor.row === "lower").toBe(true);
+            // Midpoint rounding within one layout unit can resolve equally near carets to either row.
+            const anchored = anchor.row as "upper" | "lower";
+            expect(distance[anchored] - nearest).toBeLessThanOrEqual(1 / 64);
+            expect(anchor.offset).toBe(anchored === "upper" ? (anchor.length ?? -1) : 0);
             // Restart from an existing selection, then a plain gap click must clear it.
-            await drag(page, { x, y: box.gapY }, box.lower);
+            await drag(page, { x, y: gapY }, box.lower);
             expect((await selected(page)).length).toBeGreaterThan(0);
-            await page.mouse.click(x, box.gapY);
+            await page.mouse.click(x, gapY);
             expect(await selected(page)).toBe("");
           }
           await page.close();
@@ -271,24 +283,31 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           await paint(page);
           const box = await geometry(page);
           expect(box.lowerRowTop - box.upperRowBottom).toBeGreaterThanOrEqual(32);
-          const midpoint = (box.upperRowBottom + box.lowerRowTop) / 2;
+          const midpoint = Math.round((box.upperRowBottom + box.lowerRowTop) / 2);
           expect(midpoint).toBeGreaterThan(box.upperRowBottom);
           expect(midpoint).toBeLessThan(box.lowerRowTop);
-          const nearestRow = midpoint - box.upper.bottom <= box.lower.top - midpoint ? "upper" : "lower";
+          const distance = { upper: midpoint - box.upper.bottom, lower: box.lower.top - midpoint };
+          const nearest = Math.min(distance.upper, distance.lower);
           for (const x of [box.center, box.left, box.right]) {
             // The press belongs to empty transcript space, never to a tool disclosure or another
             // row control. Those surfaces keep their ownership in the existing control regression.
+            // A row's own gap target (VirtualTranscript.tsx `.acpmux-row__gap`, spanning the placed
+            // gap under it: a prompt's is the 32px turn gap) is that empty space too.
             expect(
               await page.evaluate(
                 ({ x, y }) => {
                   const target = document.elementFromPoint(x, y);
-                  return Boolean(
-                    target?.closest(".acpmux-thread, .acpmux-spacer, .acpmux-scroll") && !target.closest(".acpmux-row"),
+                  const empty = Boolean(
+                    target?.closest(".acpmux-thread, .acpmux-spacer, .acpmux-scroll") &&
+                    (!target.closest(".acpmux-row") || target.matches('[data-transcript-gap="row"]')),
                   );
+                  if (empty) return "empty";
+                  const row = target?.closest(".acpmux-row")?.getAttribute("data-row-id");
+                  return `${target?.tagName.toLowerCase()}.${String(target?.className).replace(/\s+/g, ".")} in ${row} at ${x},${y}`;
                 },
                 { x, y: midpoint },
               ),
-            ).toBe(true);
+            ).toBe("empty");
             await drag(page, { x, y: midpoint }, box.after);
             expect((await selected(page)).length).toBeGreaterThan(0);
             const anchor = await page.evaluate(() => {
@@ -299,8 +318,11 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
                 length: selection.anchorNode?.textContent?.length,
               };
             });
-            expect(anchor.row).toBe(nearestRow);
-            expect(anchor.offset).toBe(nearestRow === "upper" ? (anchor.length ?? -1) : 0);
+            expect(anchor.row === "upper" || anchor.row === "lower").toBe(true);
+            // Midpoint rounding within one layout unit can resolve equally near carets to either row.
+            const anchored = anchor.row as "upper" | "lower";
+            expect(distance[anchored] - nearest).toBeLessThanOrEqual(1 / 64);
+            expect(anchor.offset).toBe(anchored === "upper" ? (anchor.length ?? -1) : 0);
             await drag(page, { x, y: midpoint }, box.lower);
             expect((await selected(page)).length).toBeGreaterThan(0);
             await page.mouse.click(x, midpoint);

@@ -21,6 +21,9 @@
 //                                          least-squares slope over the checkpoints (0.1: no O(rows) work per token)
 //   transcript_replay.long.tool_output_ms  and .tool_output_slope_ms_per_krow: the same for a shell call's streamed
 //                                          output update
+//   transcript_replay.long.thought_ms      and .thought_slope_ms_per_krow: the same for a streamed thought token
+//   transcript_replay.long.tool_call_ms    and .tool_call_slope_ms_per_krow: the same for a read call's start or end
+//                                          (a new row, the bulk of an agent's turn)
 //   transcript_replay.long.heap_mb         JS heap after GC, the long log open, less the empty pane's (64 MB)
 //   (a check, not a row) each kind's cost at the largest checkpoint within GROWTH_FACTOR (1.5x) of the smallest's
 //   transcript_replay.long.idle_ms_per_s   main-thread ms per second once the replay has settled (1 ms/s: no idle CPU)
@@ -28,8 +31,11 @@
 // suite (web-ui-suite.ts) runs it without --strict: the perf cron's advisory issue is where a regression shows.
 // Every sampler stops when its page closes; finally closes the servers, the browser and the build directory.
 // PROFILE=1 builds the pane unminified, takes a CPU profile of every burst and prints, per kind, the functions whose self
-// time per record grew most from the first checkpoint to the last: where the O(rows) work is.
+// time per record grew most from the first checkpoint to the last: where the O(rows) work is; then the same for each
+// function's total time, its callees' included: which caller a native function's self time belongs to.
 // --log FILE (repeatable) plays a recorded acpmux log too: JSON lines of SessionEvents or {events: [...]}, seq-keyed.
+// FIXTURE=god plays the god session (bench/godFixture.ts) in the long log's place, alone: its rows are the long log's
+// with `god` after the prefix (transcript_replay.god.long.token_ms pairs with transcript_replay.long.token_ms).
 //   bun bench/transcript-replay.bench.ts [--turns 600] [--checkpoints T,T,...] [--tokens 80] [--updates 30]
 //     [--only long,recorded,mock] [--log FILE]...
 //     [--strict]
@@ -37,11 +43,28 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type CDPSession, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { Browser, CDPSession, Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
+import { installFoldProbe, measureToggle } from "../test/support/foldFrameReport";
 import { installPaintedFrames } from "../test/support/paintedFrames";
-import { perfRow, TARGET_MS, type PerfRow } from "./perfRow";
-import { checkSeq, longLog, mockLogs, parseLog, recordedLog, rowsIn, slope, type ReplayLog } from "./replayLogs";
+import { benchFixture, godLog, scaledPerfRow } from "./godFixture";
+import { perfRow as printRow, TARGET_MS, type PerfRow } from "./perfRow";
+import {
+  BURST_KINDS,
+  type Burst,
+  type BurstKind,
+  checkSeq,
+  longLog,
+  mockLogs,
+  parseLog,
+  recordedLog,
+  rowsIn,
+  slope,
+  type ReplayLog,
+} from "./replayLogs";
+import { cpuSession } from "./stability";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -52,6 +75,32 @@ const TURNS = Number(flag("--turns") ?? 600);
 const ONLY = (flag("--only") ?? "long,recorded,mock").split(",");
 const STRICT = argv.includes("--strict");
 const PROFILE = process.env.PROFILE === "1";
+/// `ALLOC=1` (with PROFILE=1) samples the heap allocations of every burst: bytes per record by allocating function.
+const ALLOC = process.env.ALLOC === "1";
+/// `PROBE=1` counts, per burst record, geometry reads, forced layouts and row renders (BurstResult `probe`), with a
+/// DevTools trace on: its time is not a clean measurement, its counts are.
+const PROBE = process.env.PROBE === "1";
+/// `CLOCK=cpu` times each burst in main-thread CPU time (`threadTicks`), not wall time: a busy shared runner
+/// stretches wall time by whatever else it runs (p95 swung 40% between runs), CPU time much less.
+const CPU_CLOCK = process.env.CLOCK === "cpu";
+/// `PAIRED=1` (with `--only long`) plays the god session and the long log live at once, each in its own page, each
+/// burst of one right after the same burst of the other (`pairedLiveRound`), and prints both runs' rows: the god
+/// ones with `god` in their names, as FIXTURE=god does. No open phase. bench/god-ratio-ab.sh runs it this way.
+const PAIRED = process.env.PAIRED === "1";
+/// `RENDERS=1` counts, per burst record, the components React committed again (perf.ts `renders`, counted by
+/// `useCountedRender` and `acpmuxPerf.render`): the pane, its header and composer, each transcript row and its content.
+/// It emits `transcript_replay.long.<kind>.renders_per_record` (every component) and `.row_renders_per_record` (the
+/// transcript's `row:` frames) and prints each kind's components. An appended record that touches one row commits one
+/// row and nothing else. Counting turns the pane's perf measurement on, so a RENDERS run's ms rows are not clean ones.
+const RENDERS = process.env.RENDERS === "1";
+/// `INVALIDATIONS=1` prints, per burst, what restyled the page and the rows React drew (`invalidations`).
+const INVALIDATIONS = process.env.INVALIDATIONS === "1";
+/// `SPLIT=1` prints, per burst, the ms per record of each main-thread phase (script, style, layout, forced
+/// layout, paint, layerize, GC, other) and the components React drew per record (`split`).
+const SPLIT = process.env.SPLIT === "1";
+/// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
+/// has settled, right after the heap row is read: what holds the heap that row reports.
+const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
 /// The long log's checkpoint turns (`--checkpoints 11,110,1105`: about 50, 500 and 5,000 rows), else
 /// its default fifths.
 const CHECKPOINTS = flag("--checkpoints")?.split(",").map(Number);
@@ -60,6 +109,10 @@ const CHECKPOINTS = flag("--checkpoints")?.split(",").map(Number);
 const TOKENS = flag("--tokens") === undefined ? undefined : Number(flag("--tokens"));
 const UPDATES = flag("--updates") === undefined ? undefined : Number(flag("--updates"));
 const LOG_FILES = argv.flatMap((arg, index) => (argv[index - 1] === "--log" ? [arg] : []));
+const FIXTURE = benchFixture();
+const perfRow = scaledPerfRow(printRow, FIXTURE);
+/// The log whose bursts make the per-update rows: the long log, or at god scale the god session.
+const BURST_LOG = FIXTURE === "god" ? "god" : "long";
 if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "recorded", "mock"].includes(name))) {
   console.error("usage: bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]");
   process.exit(2);
@@ -77,12 +130,19 @@ const BUDGET = {
   slope: 0.1,
   heapMb: 64,
   idleMsPerS: 1,
+  /// Pane redraws per record for a record whose one changed row the running turn's closed fold hides.
+  hiddenPaneRenders: 0.1,
+  /// Transcript renders per streamed token, as counted: each render counts twice (VirtualTranscript's
+  /// `useCountedRender` at commit and `acpmuxPerf.render` in the body), so 2.4 is 1.2 real renders a
+  /// token. A token is one render; more is a second pass a layout read or a listener queued.
+  tokenTranscriptRenders: 2.4,
 } as const;
 const webviews = path.resolve(import.meta.dir, "..");
 
 // ---------- the stand-in acpmux ----------
 type Play = { log: ReplayLog; served: number; status: string; socket?: { send(data: string): void } };
-let play: Play | undefined;
+/// A stand-in acpmux and the log it serves (`play`, which `openPage` sets): one per page that plays at once.
+type Daemon = { port: number; play?: Play };
 const summary = (p: Play) => ({
   ...p.log.summary,
   status: p.status,
@@ -93,8 +153,7 @@ const summary = (p: Play) => ({
   turnCount: p.log.events.filter((event) => event.kind === "user_message").length,
   updatedAt: p.log.events.at(-1)?.at ?? Date.now(),
 });
-function answer(method: string): unknown {
-  const p = play!;
+function answer(p: Play, method: string): unknown {
   switch (method) {
     case "initialize":
       return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
@@ -108,10 +167,10 @@ function answer(method: string): unknown {
       return null;
   }
 }
-const send = (message: unknown) => play?.socket?.send(JSON.stringify(message));
-const emit = (event: EventRecord) => send({ jsonrpc: "2.0", method: "_acpmux/event", params: event });
+const send = (p: Play, message: unknown) => p.socket?.send(JSON.stringify(message));
+const emit = (p: Play, event: EventRecord) => send(p, { jsonrpc: "2.0", method: "_acpmux/event", params: event });
 const changed = (p: Play) =>
-  send({
+  send(p, {
     jsonrpc: "2.0",
     method: "_acpmux/session_changed",
     params: { sessionId: p.log.sessionId, session: summary(p), kind: "status", seq: p.served },
@@ -119,7 +178,7 @@ const changed = (p: Play) =>
 
 // ---------- the page side ----------
 /** Init script: the replay clock, layout-shift and long-task buffers. Self-contained (Playwright serializes it). */
-function instrument(start: number) {
+export function instrument(start: number) {
   const w = window as unknown as {
     __replayAt?: (at: number) => void;
     __shifts: { at: number; value: number; input: boolean; sources: string[] }[];
@@ -172,12 +231,12 @@ function instrument(start: number) {
   }
 }
 
-const paint = (page: Page, frames: number) =>
+export const paint = (page: Page, frames: number) =>
   page.evaluate(async (count) => {
     for (let frame = 0; frame < count; frame++) await window.cmuxPaintFrame();
   }, frames);
 /// Resolves once the transcript's offset and height have held, with nothing animating, for 12 painted frames.
-const rest = (page: Page) =>
+export const rest = (page: Page) =>
   page.evaluate(async () => {
     const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll");
     const moving = () =>
@@ -241,24 +300,208 @@ async function metric(cdp: CDPSession, name: string): Promise<number> {
   const { metrics } = (await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] };
   return metrics.find((each) => each.name === name)?.value ?? 0;
 }
+/// INVALIDATIONS=1: what made the page restyle and lay out again while `run` played a burst, from a DevTools
+/// trace with invalidation tracking: per record, style recalcs and the elements they touched, and the most
+/// common invalidation reasons by element (`reason node`), and which rows React drew.
+async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Page, records: number): Promise<string> {
+  const events: { name: string; args?: { data?: Record<string, unknown>; elementCount?: number } }[] = [];
+  const onData = (data: { value: object[] }) => events.push(...(data.value as typeof events));
+  cdp.on("Tracing.dataCollected", onData);
+  await cdp.send("Tracing.start", {
+    traceConfig: {
+      recordMode: "recordAsMuchAsPossible",
+      includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.invalidationTracking"],
+    },
+    transferMode: "ReportEvents",
+  });
+  await run();
+  await paint(page, 2);
+  const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+  await cdp.send("Tracing.end");
+  await done;
+  cdp.off("Tracing.dataCollected", onData);
+  const reasons = new Map<string, number>();
+  let styled = 0;
+  let recalcs = 0;
+  for (const event of events) {
+    if (event.name === "UpdateLayoutTree") {
+      recalcs += 1;
+      styled += event.args?.elementCount ?? 0;
+    }
+    if (!event.name.endsWith("InvalidationTracking")) continue;
+    const data = event.args?.data ?? {};
+    // A subtree invalidation names the classes and attributes its invalidation set matched: which one
+    // flipped on the node, so the whole thread restyled.
+    type InvalidationSet = { classes?: string[]; attributes?: string[]; ids?: string[]; subtree?: boolean };
+    const sets = [
+      ...((data.invalidationList as InvalidationSet[] | undefined) ?? []).flatMap((set) => [
+        ...(set.subtree ? ["subtree"] : []),
+        ...(set.classes ?? []).map((name) => `.${name}`),
+        ...(set.attributes ?? []).map((name) => `[${name}]`),
+        ...(set.ids ?? []).map((name) => `#${name}`),
+      ]),
+      ...((data.selectors as { selector?: string }[] | undefined) ?? []).map((each) => `{${each.selector ?? ""}}`),
+    ]
+      .slice(0, 4)
+      .join(" ");
+    const why =
+      (data.reason as string | undefined) ??
+      [
+        data.changedAttribute && `attr ${String(data.changedAttribute)}`,
+        data.changedClass && `class ${String(data.changedClass)}`,
+        data.changedPseudo && `pseudo ${String(data.changedPseudo)}`,
+        data.changedId && `id`,
+        data.invalidationSet && "set",
+      ]
+        .filter(Boolean)
+        .join(",");
+    const what = [why, sets].filter(Boolean).join(" ");
+    const node = String(data.nodeName ?? "").slice(0, 60);
+    const key = `${event.name.replace("InvalidationTracking", "")}: ${what || "?"} @ ${node}`;
+    reasons.set(key, (reasons.get(key) ?? 0) + 1);
+  }
+  const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+    string,
+    number
+  >;
+  const rows = Object.entries(renders)
+    .filter(([name]) => name.startsWith("row:") || name.startsWith("content:"))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([name, count]) => `${name.slice(0, 40)}=${count}`)
+    .join(" ");
+  const per = (value: number) => Math.round((value / records) * 10) / 10;
+  const top = [...reasons.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, Number(process.env.INVALIDATIONS_TOP) || 14)
+    .map(([key, count]) => `\n      ${per(count)}/rec ${key}`)
+    .join("");
+  return `style recalcs ${per(recalcs)}/rec, ${per(styled)} elements/rec; renders ${rows}${top}`;
+}
+
+/// SPLIT=1: where a burst's main-thread time went, from a DevTools timeline trace: per record, the ms of
+/// each renderer main-thread phase (script, style, layout, pre-paint, paint, layerize, GC), and the rest of
+/// its tasks' time as `other`. Phases nest in tasks, so each is summed only outside another phase.
+async function split(cdp: CDPSession, run: () => Promise<void>, page: Page, records: number): Promise<string> {
+  type Ev = { name: string; ph: string; ts: number; dur?: number; tid: number; pid: number };
+  const events: Ev[] = [];
+  const onData = (data: { value: object[] }) => events.push(...(data.value as Ev[]));
+  cdp.on("Tracing.dataCollected", onData);
+  await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+  await cdp.send("Tracing.start", {
+    traceConfig: {
+      recordMode: "recordAsMuchAsPossible",
+      includedCategories: ["devtools.timeline", "v8", "disabled-by-default-devtools.timeline"],
+    },
+    transferMode: "ReportEvents",
+  });
+  await run();
+  await paint(page, 2);
+  const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+  await cdp.send("Tracing.end");
+  await done;
+  cdp.off("Tracing.dataCollected", onData);
+  const phase: Record<string, string> = {
+    FunctionCall: "script",
+    EvaluateScript: "script",
+    TimerFire: "script",
+    FireAnimationFrame: "script",
+    EventDispatch: "script",
+    "V8.Execute": "script",
+    RunMicrotasks: "script",
+    v8__run_microtasks: "script",
+    UpdateLayoutTree: "style",
+    Layout: "layout",
+    PrePaint: "prepaint",
+    Paint: "paint",
+    Layerize: "layerize",
+    Commit: "commit",
+    MinorGC: "gc",
+    MajorGC: "gc",
+    ScavengeTask: "gc",
+  };
+  // The main thread: the one with the most RunTask time in the renderer that ran CrRendererMain.
+  const tasks = events.filter((e) => e.ph === "X" && e.name === "RunTask");
+  const byThread = new Map<string, number>();
+  for (const t of tasks) byThread.set(`${t.pid}:${t.tid}`, (byThread.get(`${t.pid}:${t.tid}`) ?? 0) + (t.dur ?? 0));
+  const main = [...byThread.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const on = events
+    .filter((e) => e.ph === "X" && `${e.pid}:${e.tid}` === main)
+    .sort((a, b) => a.ts - b.ts || (b.dur ?? 0) - (a.dur ?? 0));
+  const sums = new Map<string, number>();
+  let taskUs = 0;
+  // Outermost-phase accounting: a phase event inside another phase's span counts to the outer one, except
+  // style/layout forced from script, which count to themselves and come off script.
+  const stack: { end: number; kind: string }[] = [];
+  for (const e of on) {
+    const end = e.ts + (e.dur ?? 0);
+    while (stack.length && stack.at(-1)!.end <= e.ts) stack.pop();
+    if (e.name === "RunTask" && stack.length === 0) taskUs += e.dur ?? 0;
+    const kind = phase[e.name];
+    if (!kind) continue;
+    const outer = stack.find((s) => s.kind !== "task")?.kind;
+    if (outer === undefined) sums.set(kind, (sums.get(kind) ?? 0) + (e.dur ?? 0));
+    else if (outer === "script" && (kind === "style" || kind === "layout" || kind === "gc")) {
+      sums.set(kind, (sums.get(kind) ?? 0) + (e.dur ?? 0));
+      sums.set("script", (sums.get("script") ?? 0) - (e.dur ?? 0));
+      sums.set(`${kind}(forced)`, (sums.get(`${kind}(forced)`) ?? 0) + (e.dur ?? 0));
+    }
+    stack.push({ end, kind });
+  }
+  const known = [...sums.entries()].filter(([k]) => !k.includes("(")).reduce((a, [, v]) => a + v, 0);
+  sums.set("other", taskUs - known);
+  const per = (us: number) => (us / 1000 / records).toFixed(3);
+  const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+    string,
+    number
+  >;
+  const drawn = Object.entries(renders)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 16)
+    .map(([name, count]) => `${name.slice(0, 40)}=${(count / records).toFixed(2)}`)
+    .join(" ");
+  return (
+    `renders/rec ${drawn}\n    task ${per(taskUs)} ms/rec: ` +
+    [...sums.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k} ${per(v)}`)
+      .join(", ")
+  );
+}
+
 async function heapMb(cdp: CDPSession): Promise<number> {
   await cdp.send("HeapProfiler.collectGarbage");
   const { usedSize } = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
   return usedSize / 2 ** 20;
 }
 
-type Ctx = { browser: Browser; url: (log: ReplayLog) => string };
+async function writeHeapSnapshot(cdp: CDPSession, file: string): Promise<void> {
+  const out = fs.openSync(file, "w");
+  const onChunk = ({ chunk }: { chunk: string }) => fs.writeSync(out, chunk);
+  cdp.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
+  try {
+    await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
+  } finally {
+    cdp.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
+    fs.closeSync(out);
+  }
+}
+
+/// The browser, the stand-in daemons (one per page that plays at once: PAIRED=1 plays two) and a log's page URL on one.
+type Ctx = { browser: Browser; daemons: Daemon[]; url: (log: ReplayLog, daemon: Daemon) => string };
 type Shift = { at: number; value: number; input: boolean; sources: string[] };
 
-async function openPage(ctx: Ctx, log: ReplayLog, served: number, status: string, start: number) {
-  play = { log, served, status };
+async function openPage(ctx: Ctx, daemon: Daemon, log: ReplayLog, served: number, status: string, start: number) {
+  const play: Play = { log, served, status };
+  daemon.play = play;
   const page = await ctx.browser.newPage({ viewport: { width: 900, height: 700 } });
   await page.addInitScript(instrument, start);
   await installPaintedFrames(page);
+  if (PROBE) await installFoldProbe(page);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Performance.enable");
   if (PROFILE) await cdp.send("Profiler.enable");
-  return { page, cdp };
+  return { page, cdp, play };
 }
 
 /// The elements that shifted most, by the layout-shift value they took part in, summed (pure).
@@ -286,10 +529,11 @@ async function openRound(ctx: Ctx, log: ReplayLog): Promise<Open> {
       : log.events.at(-1)?.kind === "turn_result"
         ? "idle"
         : "running";
-  const { page } = await openPage(ctx, log, log.events.length, status, last + 1000);
+  const daemon = ctx.daemons[0]!;
+  const { page } = await openPage(ctx, daemon, log, log.events.length, status, last + 1000);
   try {
     await page.addInitScript(sampleRows);
-    await page.goto(ctx.url(log));
+    await page.goto(ctx.url(log, daemon));
     await page.locator("[data-row-id]").first().waitFor({ timeout: 60_000 });
     await rest(page);
     await page.waitForTimeout(400);
@@ -322,12 +566,96 @@ async function openRound(ctx: Ctx, log: ReplayLog): Promise<Open> {
   }
 }
 
-type BurstResult = { kind: string; rows: number; msPerRecord: number; selfMs?: Map<string, number> };
+type BurstResult = {
+  kind: string;
+  rows: number;
+  msPerRecord: number;
+  selfMs?: Map<string, number>;
+  /// Each function's total time per record, its callees' included (PROFILE=1): which caller the native self time
+  /// (`getBoundingClientRect`, `getAnimations`) belongs to.
+  totalMs?: Map<string, number>;
+  /// Each React effect's time per record, its callees' included (PROFILE=1, `effectTimes`): which effect a commit's
+  /// effect time belongs to.
+  effectMs?: Map<string, number>;
+  /// KB allocated per record by each function (ALLOC=1, `allocKb`): the garbage a record makes, which the GC rows pay for.
+  allocKb?: Map<string, number>;
+  /// What the page held when the burst ended: its elements, the transcript rows mounted and the animations running.
+  dom?: { elements: number; mounted: number; animations: number };
+  /// PROBE=1: what one record cost besides time (foldFrameReport.ts): geometry reads from script, the
+  /// layouts script forced, transcript rows React drew again, and the most layout objects and restyled
+  /// elements one pass touched. Work per update that follows the rows in view shows here.
+  /// RENDERS=1: committed renders per record by component (`row:<id>` counts as `row`), and their sum (events apart).
+  renders?: { total: number; byComponent: Record<string, number> };
+  probe?: {
+    reads: number;
+    forced: number;
+    rowRenders: number;
+    contentRenders: number;
+    layoutObjects: number;
+    styled: number;
+    /// The trace's main-thread ms per record by phase: where the time no script profile names goes.
+    phases: { script: number; style: number; layout: number; paint: number };
+  };
+};
+/// Names of perf.ts `renders` that count something other than one more component commit: the transcript's anchor
+/// passes, scroll flushes and layout flags, a row's mount (`mount:`), RowFrame's commit (`frame:`), which is the
+/// same render `row:` already counted, and the pane's notes on records whose row is hidden (`record:`, `pane:`). They print, but stay out of a record's render total.
+const RENDER_EVENTS = /^(transcript:|layout\.|frame:|mount:|pane:|record:)/;
+/// Names whose part after the first `:` is one row's id: each folds into its kind (`row:a`, `row:b` count as `row`).
+const PER_ROW = new Set(["row", "content", "notice", "frame", "mount"]);
+/// A burst's render counts (perf.ts `renders`) per record, by component (pure): `total` sums components' commits,
+/// events (`RENDER_EVENTS`) apart; `byComponent` lists both, most first.
+export function rendersPerRecord(
+  counts: Record<string, number>,
+  records: number,
+): { total: number; byComponent: Record<string, number> } {
+  const per = (value: number) => Math.round((value / Math.max(records, 1)) * 100) / 100;
+  const groups = new Map<string, number>();
+  let total = 0;
+  for (const [name, count] of Object.entries(counts)) {
+    const head = name.split(":")[0]!;
+    const group = PER_ROW.has(head) ? head : name;
+    groups.set(group, (groups.get(group) ?? 0) + count);
+    if (!RENDER_EVENTS.test(name)) total += count;
+  }
+  const byComponent = Object.fromEntries(
+    [...groups.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => [name, per(count)]),
+  );
+  return { total: per(total), byComponent };
+}
+/// One row per record kind of `bursts` (RENDERS=1), means over its bursts (pure): pane and transcript renders per
+/// record, the share of records whose one changed row the running turn's closed fold hides (`record:row-hidden`), and
+/// the pane renders per record those hidden ones still cost (`pane:row-hidden`), which should be 0.
+export function kindRenderTable(
+  bursts: readonly Pick<BurstResult, "kind" | "renders">[],
+): { kind: string; pane: number; transcript: number; hiddenShare: number; hiddenPane: number }[] {
+  const byKind = new Map<string, Record<string, number>[]>();
+  for (const burst of bursts)
+    if (burst.renders) byKind.set(burst.kind, [...(byKind.get(burst.kind) ?? []), burst.renders.byComponent]);
+  const mean = (all: Record<string, number>[], name: string) =>
+    Math.round((all.reduce((sum, each) => sum + (each[name] ?? 0), 0) / all.length) * 100) / 100;
+  return [...byKind.entries()].map(([kind, all]) => ({
+    kind,
+    pane: mean(all, "pane"),
+    transcript: mean(all, "transcript"),
+    hiddenShare: mean(all, "record:row-hidden"),
+    hiddenPane: mean(all, "pane:row-hidden"),
+  }));
+}
+/// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
+/// script work over every row; one that grows with them is the page's own (style, layout).
+const domSize = (page: Page) =>
+  page.evaluate(() => ({
+    elements: document.getElementsByTagName("*").length,
+    mounted: document.querySelectorAll("[data-row-id]").length,
+    animations: document.getAnimations().length,
+  }));
 type CpuProfile = {
   nodes: {
     id: number;
     callFrame: { functionName: string; url: string; lineNumber: number };
     positionTicks?: { line: number; ticks: number }[];
+    children?: number[];
   }[];
   samples: number[];
   timeDeltas: number[];
@@ -357,6 +685,83 @@ export function selfTimes(profile: CpuProfile, records: number, lines = false): 
   }
   return self;
 }
+/// Total time per function (ms) in a profile, its callees' included, each divided by `records` (pure): a sample counts
+/// once for every distinct function on its stack.
+export function totalTimes(profile: CpuProfile, records: number): Map<string, number> {
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const keyOf = (id: number) => {
+    const frame = byId.get(id)?.callFrame;
+    if (
+      !frame ||
+      frame.functionName === "(root)" ||
+      frame.functionName === "(idle)" ||
+      frame.functionName === "(program)"
+    )
+      return undefined;
+    const file = frame.url.split("/").pop() ?? "";
+    return `${frame.functionName || "(anon)"}${file ? ` ${file}:${frame.lineNumber + 1}` : ""}`;
+  };
+  const total = new Map<string, number>();
+  profile.samples.forEach((id, index) => {
+    const ms = (profile.timeDeltas[index] ?? 0) / 1000 / records;
+    const seen = new Set<string>();
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const key = keyOf(at);
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        total.set(key, (total.get(key) ?? 0) + ms);
+      }
+    }
+  });
+  return total;
+}
+/// Time per record (ms) of each React effect, its callees' included (pure): a sample under React's effect runner
+/// (`commitHookEffectListMount`, `commitHookEffectListUnmount`) counts for the function right below the runner on its
+/// stack, the effect's own body, keyed `fn file:line` as `selfTimes` keys it (an anonymous effect by its line).
+const EFFECT_RUNNERS = new Set(["commitHookEffectListMount", "commitHookEffectListUnmount"]);
+export function effectTimes(profile: CpuProfile, records: number): Map<string, number> {
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const effects = new Map<string, number>();
+  profile.samples.forEach((id, index) => {
+    let below: number | undefined;
+    for (let at: number | undefined = id; at !== undefined; below = at, at = parent.get(at)) {
+      if (!EFFECT_RUNNERS.has(byId.get(at)?.callFrame.functionName ?? "")) continue;
+      const frame = below === undefined ? undefined : byId.get(below)?.callFrame;
+      if (!frame) break;
+      const file = frame.url.split("/").pop() ?? "";
+      const key = `${frame.functionName || "(anon)"}${file ? ` ${file}:${frame.lineNumber + 1}` : ""}`;
+      effects.set(key, (effects.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000 / records);
+      break;
+    }
+  });
+  return effects;
+}
+/// A heap sampling profile (`HeapProfiler.stopSampling`): a call tree whose nodes carry the bytes allocated by that frame.
+type HeapProfile = {
+  head: HeapNode;
+};
+type HeapNode = {
+  callFrame: { functionName: string; url: string; lineNumber: number };
+  selfSize: number;
+  children: HeapNode[];
+};
+/// KB allocated per record by each function, by the frame that allocated (pure), keyed as `selfTimes` keys it.
+export function allocKb(profile: HeapProfile, records: number): Map<string, number> {
+  const out = new Map<string, number>();
+  const visit = (node: HeapNode) => {
+    const frame = node.callFrame;
+    const file = frame.url.split("/").pop() ?? "";
+    const key = `${frame.functionName || "(anon)"}${file ? ` ${file}:${frame.lineNumber + 1}` : ""}`;
+    if (node.selfSize > 0) out.set(key, (out.get(key) ?? 0) + node.selfSize / 1024 / records);
+    for (const child of node.children ?? []) visit(child);
+  };
+  visit(profile.head);
+  return out;
+}
 /// The functions whose self time per record grew most from `first` to `last` (pure).
 export function grew(first: Map<string, number>, last: Map<string, number>, top = 12): [string, number, number][] {
   return [...last.entries()]
@@ -375,99 +780,289 @@ type Live = {
   seconds: number;
   shiftNotes: string[];
 };
+/// A live replay in its own page, played a step at a time (`startLive`): `next` plays the records up to the next
+/// measured burst and names it, `measure` plays and times that burst, `finish` settles the page and reads the rest.
+/// `liveRound` plays one log that way from start to end; PAIRED=1 plays two side by side, each burst of one right
+/// after the same burst of the other (`pairedLiveRound`).
+type LiveReplay = {
+  next(): Promise<Burst | undefined>;
+  measure(burst: Burst): Promise<void>;
+  finish(measureIdle: boolean): Promise<Live>;
+  close(): Promise<void>;
+};
 /// The live phase: an empty session, then every record as a live event at the page's top speed.
-async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promise<Live> {
+async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<LiveReplay> {
   const first = log.events[0]?.at ?? Date.now();
-  const { page, cdp } = await openPage(ctx, log, 0, "running", first);
+  const { page, cdp, play } = await openPage(ctx, daemon, log, 0, "running", first);
   const started = performance.now();
   try {
-    await page.goto(ctx.url(log));
+    await page.goto(ctx.url(log, daemon));
     await page.locator(".acpmux-scroll").waitFor({ timeout: 60_000 });
-    for (let tries = 0; !play!.socket && tries < 600; tries++) await paint(page, 1);
-    if (!play!.socket) throw new Error(`${log.name}: the pane never attached`);
+    for (let tries = 0; !play.socket && tries < 600; tries++) await paint(page, 1);
+    if (!play.socket) throw new Error(`${log.name}: the pane never attached`);
     await rest(page);
-    const heapBefore = await heapMb(cdp);
-    const since = await page.evaluate(() => performance.now());
-    const bursts: BurstResult[] = [];
-    const inBurst = new Map<number, (typeof log.bursts)[number]>();
-    for (const burst of log.bursts) inBurst.set(burst.fromSeq, burst);
-    const burstWindows: [number, number][] = [];
-    let index = 0;
-    while (index < log.events.length) {
-      const burst = inBurst.get(log.events[index]!.seq);
-      if (burst) {
-        await paint(page, 2);
-        if (PROFILE) await cdp.send("Profiler.start");
-        const taskBefore = await metric(cdp, "TaskDuration");
-        const windowStart = await page.evaluate(() => performance.now());
+  } catch (error) {
+    await page.close();
+    throw error;
+  }
+  const heapBefore = await heapMb(cdp);
+  // CLOCK=cpu: the per-update rows count the renderer main thread's CPU time in its tasks, not their wall
+  // time, which also counts the time a task waits on a busy shared runner.
+  const clock = CPU_CLOCK ? ((await cpuSession(page, true)) ?? cdp) : cdp;
+  const since = await page.evaluate(() => performance.now());
+  const bursts: BurstResult[] = [];
+  const inBurst = new Map<number, Burst>();
+  for (const burst of log.bursts) inBurst.set(burst.fromSeq, burst);
+  const burstWindows: [number, number][] = [];
+  let index = 0;
+  return {
+    async next() {
+      while (index < log.events.length) {
+        const burst = inBurst.get(log.events[index]!.seq);
+        if (burst) return burst;
+        const batch: EventRecord[] = [];
+        while (index < log.events.length && batch.length < BATCH && !inBurst.has(log.events[index]!.seq))
+          batch.push(log.events[index++]!);
+        await clockTo(page, batch.at(-1)!.at);
+        for (const event of batch) {
+          play.served = event.seq;
+          emit(play, event);
+        }
+        await paint(page, 1);
+      }
+      return undefined;
+    },
+    async measure(burst) {
+      await paint(page, 2);
+      if (PROFILE) await cdp.send("Profiler.start");
+      if (PROFILE && ALLOC)
+        await cdp.send("HeapProfiler.startSampling", {
+          samplingInterval: 4096,
+          includeObjectsCollectedByMajorGC: true,
+          includeObjectsCollectedByMinorGC: true,
+        });
+      const taskBefore = await metric(clock, "TaskDuration");
+      const windowStart = await page.evaluate(() => performance.now());
+      const playBurst = async () => {
         for (; index < log.events.length && log.events[index]!.seq <= burst.toSeq; index++) {
           const event = log.events[index]!;
           await clockTo(page, event.at);
-          play!.served = event.seq;
-          emit(event);
+          play.served = event.seq;
+          emit(play, event);
           await paint(page, 1);
         }
+      };
+      const records = burst.toSeq - burst.fromSeq + 1;
+      let probe: BurstResult["probe"];
+      let renders: BurstResult["renders"];
+      if (PROBE) {
+        await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+        const cost = await measureToggle(page, burst.kind, playBurst, () => paint(page, 2), cdp);
+        const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+          string,
+          number
+        >;
+        const sum = (prefix: string) =>
+          Object.entries(renders).reduce((total, [name, count]) => total + (name.startsWith(prefix) ? count : 0), 0);
+        const per = (value: number) => Math.round((value / records) * 100) / 100;
+        probe = {
+          reads: per(cost.reads),
+          forced: per(cost.forcedLayouts ?? 0),
+          rowRenders: per(sum("row:")),
+          contentRenders: per(sum("content:")),
+          layoutObjects: cost.layoutObjectsMax ?? 0,
+          styled: cost.styleElementsMax ?? 0,
+          phases: {
+            script: per(cost.scriptMs ?? 0),
+            style: per(cost.styleMs ?? 0),
+            layout: per(cost.layoutMs ?? 0),
+            paint: per(cost.paintMs ?? 0),
+          },
+        };
+      } else if (RENDERS) {
+        await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+        await playBurst();
         await paint(page, 2);
-        const taskMs = ((await metric(cdp, "TaskDuration")) - taskBefore) * 1000;
-        const records = burst.toSeq - burst.fromSeq + 1;
-        const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
-        burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
-        bursts.push({
-          kind: burst.kind,
-          rows: burst.rows,
-          msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
-          ...(profiled ? { selfMs: selfTimes(profiled, records, process.env.PROFILE_LINES === "1") } : {}),
-        });
-        continue;
+        const counts = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+          string,
+          number
+        >;
+        renders = rendersPerRecord(counts, records);
+      } else if (SPLIT) {
+        console.log(`  ${burst.kind} at ${burst.rows} rows: ${await split(cdp, playBurst, page, records)}`);
+      } else if (INVALIDATIONS) {
+        await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+        console.log(`  ${burst.kind} at ${burst.rows} rows: ${await invalidations(cdp, playBurst, page, records)}`);
+      } else {
+        await playBurst();
+        await paint(page, 2);
       }
-      const batch: EventRecord[] = [];
-      while (index < log.events.length && batch.length < BATCH && !inBurst.has(log.events[index]!.seq))
-        batch.push(log.events[index++]!);
-      await clockTo(page, batch.at(-1)!.at);
-      for (const event of batch) {
-        play!.served = event.seq;
-        emit(event);
+      const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
+      const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
+      // RAWDIR=dir keeps each burst's raw profile, to read past the summary's top functions.
+      if (profiled && process.env.RAWDIR)
+        fs.writeFileSync(
+          `${process.env.RAWDIR}/${burst.kind}-${Date.now()}.cpuprofile`,
+          JSON.stringify({ records, profile: profiled }),
+        );
+      const allocated =
+        PROFILE && ALLOC
+          ? ((await cdp.send("HeapProfiler.stopSampling")) as { profile: HeapProfile }).profile
+          : undefined;
+      burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
+      const dom = await domSize(page);
+      bursts.push({
+        dom,
+        ...(probe ? { probe } : {}),
+        ...(renders ? { renders } : {}),
+        kind: burst.kind,
+        rows: burst.rows,
+        msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
+        ...(profiled
+          ? {
+              selfMs: selfTimes(profiled, records, process.env.PROFILE_LINES === "1"),
+              totalMs: totalTimes(profiled, records),
+              effectMs: effectTimes(profiled, records),
+              ...(allocated ? { allocKb: allocKb(allocated, records) } : {}),
+            }
+          : {}),
+      });
+    },
+    async finish(measureIdle) {
+      play.status = "idle";
+      changed(play);
+      await rest(page);
+      let idleMsPerS = 0;
+      if (measureIdle) {
+        // Two seconds more first: a chat's own settling (fold timers, deferred measurement) is not idle work.
+        await page.waitForTimeout(2000);
+        // CPU time, not TaskDuration (wall time, which grows while a task waits on a busy host), from a session of
+        // its own so the per-token rows' session keeps its wall-clock domain.
+        const idleCdp = await cpuSession(page, true);
+        const idleBefore = await metric(idleCdp!, "ThreadTime");
+        await page.waitForTimeout(3000);
+        idleMsPerS = (((await metric(idleCdp!, "ThreadTime")) - idleBefore) * 1000) / 3;
+        await idleCdp!.detach();
       }
-      await paint(page, 1);
-    }
-    play!.status = "idle";
-    changed(play!);
-    await rest(page);
-    let idleMsPerS = 0;
-    if (measureIdle) {
-      // Two seconds more first: a chat's own settling (fold timers, deferred measurement) is not idle work.
-      await page.waitForTimeout(2000);
-      const idleBefore = await metric(cdp, "TaskDuration");
-      await page.waitForTimeout(3000);
-      idleMsPerS = (((await metric(cdp, "TaskDuration")) - idleBefore) * 1000) / 3;
-    }
-    const heapAfter = await heapMb(cdp);
-    const { shifts, long } = await page.evaluate((since) => {
-      const w = window as unknown as { __shifts: Shift[]; __long: { at: number; ms: number }[] };
-      return { shifts: w.__shifts.filter((shift) => !shift.input && shift.at >= since), long: w.__long };
-    }, since);
-    const burstLong = long.filter((task) => burstWindows.some(([from, to]) => task.at >= from && task.at <= to));
-    return {
-      log: log.name,
-      cls: Math.round(shifts.reduce((sum, shift) => sum + shift.value, 0) * 1e4) / 1e4,
-      longTasks: burstLong.length,
-      longestTaskMs: Math.round(Math.max(0, ...long.map((task) => task.ms))),
-      bursts,
-      heapMb: Math.round((heapAfter - heapBefore) * 10) / 10,
-      idleMsPerS: Math.round(idleMsPerS * 100) / 100,
-      seconds: Math.round((performance.now() - started) / 100) / 10,
-      shiftNotes: shiftSources(shifts),
-    };
+      const heapAfter = await heapMb(cdp);
+      // PAIRED=1 finishes two pages: each writes its own snapshot, FILE with the log's name before its extension.
+      if (HEAP_SNAPSHOT && measureIdle)
+        await writeHeapSnapshot(
+          cdp,
+          PAIRED ? HEAP_SNAPSHOT.replace(/(\.heapsnapshot)?$/, `.${log.name}$1`) : HEAP_SNAPSHOT,
+        );
+      const { shifts, long } = await page.evaluate((since) => {
+        const w = window as unknown as { __shifts: Shift[]; __long: { at: number; ms: number }[] };
+        return { shifts: w.__shifts.filter((shift) => !shift.input && shift.at >= since), long: w.__long };
+      }, since);
+      const burstLong = long.filter((task) => burstWindows.some(([from, to]) => task.at >= from && task.at <= to));
+      return {
+        log: log.name,
+        cls: Math.round(shifts.reduce((sum, shift) => sum + shift.value, 0) * 1e4) / 1e4,
+        longTasks: burstLong.length,
+        longestTaskMs: Math.round(Math.max(0, ...long.map((task) => task.ms))),
+        bursts,
+        heapMb: Math.round((heapAfter - heapBefore) * 10) / 10,
+        idleMsPerS: Math.round(idleMsPerS * 100) / 100,
+        seconds: Math.round((performance.now() - started) / 100) / 10,
+        shiftNotes: shiftSources(shifts),
+      };
+    },
+    close: () => page.close(),
+  };
+}
+async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promise<Live> {
+  const live = await startLive(ctx, ctx.daemons[0]!, log);
+  try {
+    for (let burst = await live.next(); burst; burst = await live.next()) await live.measure(burst);
+    return await live.finish(measureIdle);
   } finally {
-    await page.close();
+    await live.close();
+  }
+}
+/// PAIRED=1: the god log and the long log live at once, each in its own page (its own renderer) on its own daemon,
+/// each burst of one measured right after the same burst of the other (which goes first turns each burst), so a
+/// minute the shared runner runs slow slows both alike: their ratio pairs work measured seconds apart, not the
+/// minutes between two runs (a round's god / small ratio swung 1.1x to 1.7x on the same code run after run).
+async function pairedLiveRound(ctx: Ctx, god: ReplayLog, small: ReplayLog): Promise<[Live, Live]> {
+  const a = await startLive(ctx, ctx.daemons[0]!, god);
+  try {
+    const b = await startLive(ctx, ctx.daemons[1]!, small);
+    try {
+      for (let turn = 0; ; turn++) {
+        const [burstA, burstB] = [await a.next(), await b.next()];
+        if (!burstA || !burstB) {
+          if (burstA || burstB) throw new Error(`PAIRED=1: ${god.name} and ${small.name} have different bursts`);
+          break;
+        }
+        if (burstA.kind !== burstB.kind)
+          throw new Error(`PAIRED=1: burst ${turn} is ${burstA.kind} against ${burstB.kind}`);
+        if (turn % 2) {
+          await b.measure(burstB);
+          await a.measure(burstA);
+        } else {
+          await a.measure(burstA);
+          await b.measure(burstB);
+        }
+      }
+      return [await a.finish(true), await b.finish(true)];
+    } finally {
+      await b.close();
+    }
+  } finally {
+    await a.close();
   }
 }
 
+/// PAIRED=1 with PROFILE=1 (PROFILE_TOP=N lists N functions a kind, 20 by default): per burst kind, the functions that cost god more per record than small, from the same
+/// checkpoints played seconds apart (pure). Self and total time per record are summed over the kind's checkpoints, so
+/// a function whose cost grows with the rows a chat holds leads the list; the self line also gives each page's sum, and
+/// the effect lines name the React effect (`effectTimes`) a commit's extra time went to.
+export function pairedProfile(god: Live, small: Live, top = Number(process.env.PROFILE_TOP) || 20): string[] {
+  const lines: string[] = [];
+  const r3 = (ms: number) => Math.round(ms * 1000) / 1000;
+  for (const kind of ["token", "thought", "tool_output", "tool_call"] as const) {
+    const pick = (live: Live) => live.bursts.filter((burst) => burst.kind === kind && burst.selfMs);
+    const [g, s] = [pick(god), pick(small)];
+    if (!g.length || g.length !== s.length) continue;
+    for (const field of ["selfMs", "totalMs", "effectMs", "allocKb"] as const) {
+      if (field === "allocKb" && !g.some((burst) => burst.allocKb)) continue;
+      const summed = (bursts: BurstResult[]) => {
+        const into = new Map<string, number>();
+        for (const burst of bursts)
+          for (const [key, ms] of burst[field] ?? []) into.set(key, (into.get(key) ?? 0) + ms);
+        return into;
+      };
+      const [gm, sm] = [summed(g), summed(s)];
+      const sum = (m: Map<string, number>) => [...m.values()].reduce((a, b) => a + b, 0);
+      lines.push(
+        `paired profile ${kind} ${{ selfMs: "self", totalMs: "total", effectMs: "effect", allocKb: "alloc" }[field]} ${field === "allocKb" ? "KB" : "ms"} per record over ${g.length} checkpoints` +
+          (field === "selfMs" ? `: god ${r3(sum(gm))} small ${r3(sum(sm))}` : "") +
+          "; god minus small:",
+      );
+      const keys = [...new Set([...gm.keys(), ...sm.keys()])];
+      for (const [key, more, gms, sms] of keys
+        .map((key) => [key, (gm.get(key) ?? 0) - (sm.get(key) ?? 0), gm.get(key) ?? 0, sm.get(key) ?? 0] as const)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, top))
+        lines.push(`  +${r3(more)} (god ${r3(gms)} small ${r3(sms)}) ${key}`);
+    }
+  }
+  return lines;
+}
+
+/// Each burst kind as a budget line names one of its records.
+const BURST_NAMES: Record<BurstKind, string> = {
+  token: "reply token",
+  thought: "thought token",
+  tool_output: "tool output update",
+  tool_call: "tool call start or end",
+};
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) / 2)] ?? 0;
 const worst = (values: number[]) => Math.max(0, ...values);
 
 /// The rows and the budget misses of a run (pure).
-export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: string[] } {
+export function judge(opens: Open[], lives: Live[], burstLog = "long"): { rows: PerfRow[]; misses: string[] } {
   const rows: PerfRow[] = [];
   const misses: string[] = [];
   const row = (r: PerfRow, why: string) => {
@@ -530,9 +1125,9 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
       `a streamed token or tool update took a task over 50 ms (longest ${worst(lives.map((l) => l.longestTaskMs))} ms)`,
     );
   }
-  const longLive = lives.find((l) => l.log === "long");
+  const longLive = lives.find((l) => l.log === burstLog);
   if (longLive) {
-    for (const kind of ["token", "tool_output"] as const) {
+    for (const kind of BURST_KINDS) {
       const points = longLive.bursts
         .filter((b) => b.kind === kind)
         .map((b) => ({ x: b.rows / 1000, y: b.msPerRecord }));
@@ -546,8 +1141,63 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
           target: TARGET_MS.frameWork,
           floor: 0.5,
         },
-        `one ${kind === "token" ? "reply token" : "tool output update"} costs more main-thread time than a frame's work`,
+        `one ${BURST_NAMES[kind]} costs more main-thread time than a frame's work`,
       );
+      const counted = longLive.bursts.filter((b) => b.kind === kind && b.renders);
+      if (counted.length) {
+        const totals = counted.map((b) => b.renders!.total);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.renders_per_record`,
+            p50: median(totals),
+            p95: worst(totals),
+            unit: "count",
+            floor: 0.5,
+          },
+          `one ${BURST_NAMES[kind]} commits this many components again`,
+        );
+        const rowRenders = counted.map((b) => b.renders!.byComponent.row ?? 0);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.row_renders_per_record`,
+            p50: median(rowRenders),
+            p95: worst(rowRenders),
+            unit: "count",
+            floor: 0.5,
+          },
+          `one ${BURST_NAMES[kind]} commits this many transcript rows again`,
+        );
+        // A record whose one changed row the running turn's closed fold hides draws nothing anyone
+        // sees in its row: the pane must not redraw for it (drawnRows.ts, `pane:row-hidden`). A quiet
+        // call's start or end moves only the live line, which hears it without the pane
+        // (liveCallLine.ts); a shell's or an edit's still redraws it.
+        const hiddenPane = counted.map((b) => b.renders!.byComponent["pane:row-hidden"] ?? 0);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.hidden_pane_renders_per_record`,
+            p50: median(hiddenPane),
+            p95: worst(hiddenPane),
+            unit: "count",
+            target: BUDGET.hiddenPaneRenders,
+            floor: 0.05,
+          },
+          `one ${BURST_NAMES[kind]} whose row sits under the running turn's closed fold still redraws the pane`,
+        );
+        if (kind === "token") {
+          const transcript = counted.map((b) => b.renders!.byComponent.transcript ?? 0);
+          row(
+            {
+              name: "transcript_replay.long.token.transcript_renders_per_record",
+              p50: median(transcript),
+              p95: worst(transcript),
+              unit: "count",
+              target: BUDGET.tokenTranscriptRenders,
+              floor: 0.5,
+            },
+            "one streamed token renders the transcript more than once",
+          );
+        }
+      }
       const growth = Math.round(slope(points) * 1000) / 1000;
       row(
         {
@@ -557,7 +1207,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
           target: BUDGET.slope,
           floor: 0.05,
         },
-        `each ${kind === "token" ? "token" : "tool output update"} costs ${growth} ms more per 1000 rows already in the ` +
+        `each ${BURST_NAMES[kind]} costs ${growth} ms more per 1000 rows already in the ` +
           `transcript (${points.map((p) => `${Math.round(p.x * 1000)} rows: ${p.y} ms`).join(", ")}): O(rows) work per update`,
       );
       // The largest checkpoint against the smallest (`--checkpoints 11,110,1105`: 5,000 rows against
@@ -567,7 +1217,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
       const factor = Math.round((largest.y / Math.max(smallest.y, 0.001)) * 100) / 100;
       if (points.length > 1 && factor > GROWTH_FACTOR)
         misses.push(
-          `BUDGET MISS ${kind} growth = ${factor}x (budget ${GROWTH_FACTOR}x): one ${kind === "token" ? "token" : "tool output update"} ` +
+          `BUDGET MISS ${kind} growth = ${factor}x (budget ${GROWTH_FACTOR}x): one ${BURST_NAMES[kind]} ` +
             `costs ${largest.y} ms at ${Math.round(largest.x * 1000)} rows against ${smallest.y} ms at ${Math.round(smallest.x * 1000)} rows`,
         );
     }
@@ -588,6 +1238,8 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
         p50: longLive.idleMsPerS,
         p95: longLive.idleMsPerS,
         target: BUDGET.idleMsPerS,
+        clock: "cpu",
+        version: 3,
         floor: 0.5,
       },
       `the pane keeps working (${longLive.idleMsPerS} ms each second) after the replay settled: idle CPU`,
@@ -611,7 +1263,8 @@ if (import.meta.main) {
   try {
     const now = Date.now();
     const logs: ReplayLog[] = [];
-    if (ONLY.includes("long"))
+    if (FIXTURE === "god") logs.push(godLog("god"));
+    else if (ONLY.includes("long"))
       logs.push(
         longLog({
           turns: TURNS,
@@ -620,36 +1273,58 @@ if (import.meta.main) {
           ...(UPDATES ? { outputUpdates: UPDATES } : {}),
         }),
       );
-    if (ONLY.includes("recorded")) logs.push(recordedLog());
-    if (ONLY.includes("mock")) logs.push(...mockLogs(now));
+    if (FIXTURE === "small" && ONLY.includes("recorded")) logs.push(recordedLog());
+    if (FIXTURE === "small" && ONLY.includes("mock")) logs.push(...mockLogs(now));
     for (const file of LOG_FILES) logs.push(parseLog(path.basename(file), fs.readFileSync(file, "utf8")));
     for (const log of logs) checkSeq(log);
-    const daemon = Bun.serve({
-      port: 0,
-      hostname: "127.0.0.1",
-      fetch(request, server) {
-        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
-      },
-      websocket: {
-        message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
-          if (message.method === "_acpmux/attach" && play) play.socket = ws;
-          if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+    // Two stand-in daemons: PAIRED=1 plays two pages at once, each on its own.
+    const daemons: Daemon[] = [0, 1].map(() => {
+      const daemon: Daemon = { port: 0 };
+      const server = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch(request, server) {
+          return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
         },
-      },
+        websocket: {
+          message(ws, raw) {
+            const message = JSON.parse(String(raw)) as { id?: number; method: string };
+            const p = daemon.play;
+            if (message.method === "_acpmux/attach" && p) p.socket = ws;
+            if (message.id !== undefined)
+              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: p ? answer(p, message.method) : null }));
+          },
+        },
+      });
+      daemon.port = server.port ?? 0;
+      releases.push(() => server.stop(true));
+      return daemon;
     });
-    releases.push(() => daemon.stop(true));
-    const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
-    releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+    // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+    // PROFILE_BUILD keeps the build it made, so it makes its own.
+    const variant = Boolean(PROFILE || process.env.PROFILE_BUILD);
+    const shared = sharedPaneDir({ variant });
+    const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
+    // PROFILE_BUILD=DIR keeps the pane's build there: a profile's `file:line` read against it names an anonymous function.
+    if (!shared)
+      releases.push(() =>
+        process.env.PROFILE_BUILD
+          ? fs.renameSync(out, process.env.PROFILE_BUILD)
+          : fs.rmSync(out, { recursive: true, force: true }),
+      );
     const builtAt = performance.now();
     const { build } = await import("vite");
-    await build({
-      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
-      logLevel: "error",
-    });
-    console.log(`transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
+    if (!shared)
+      await build({
+        configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+        build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+        logLevel: "error",
+      });
+    console.log(
+      shared
+        ? `transcript-replay: the suite's pane build (${shared})`
+        : `transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`,
+    );
     const statics = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
@@ -661,17 +1336,38 @@ if (import.meta.main) {
     });
     releases.push(() => statics.stop(true));
     const browser = await chromium.launch({
-      ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-        ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-        : { channel: "chrome" }),
       headless: true,
     });
     releases.push(() => browser.close());
     const ctx: Ctx = {
       browser,
-      url: (log) =>
-        `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${encodeURIComponent(log.sessionId)}`,
+      daemons,
+      url: (log, daemon) =>
+        `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${encodeURIComponent(log.sessionId)}`,
     };
+    if (PAIRED) {
+      const small = logs.find((log) => log.name === "long");
+      if (!small) throw new Error("PAIRED=1 plays the long log beside the god session: run it with --only long");
+      const god = godLog("god");
+      checkSeq(god);
+      logs.length = 0;
+      const [godLive, smallLive] = await pairedLiveRound(ctx, god, small);
+      for (const [log, live] of [
+        [god, godLive],
+        [small, smallLive],
+      ] as const) {
+        console.log(
+          `transcript-replay: paired ${log.name} (${log.events.length} records, ${rowsIn(log.events)} rows) live ` +
+            `${live.seconds} s cls ${live.cls} long tasks ${live.longTasks} (longest ${live.longestTaskMs} ms) ` +
+            `heap +${live.heapMb} MB idle ${live.idleMsPerS} ms/s`,
+        );
+        for (const burst of live.bursts)
+          console.log(`  ${log.name} ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);
+      }
+      if (PROFILE) for (const line of pairedProfile(godLive, smallLive)) console.log(line);
+      for (const each of judge([], [godLive], "god").rows) scaledPerfRow(printRow, "god")(each);
+      for (const each of judge([], [smallLive], "long").rows) printRow(each);
+    }
     let failed = 0;
     const opens: Open[] = [];
     const lives: Live[] = [];
@@ -683,7 +1379,7 @@ if (import.meta.main) {
         const live =
           log.name.startsWith("mock:") && log.events.length < 8
             ? undefined
-            : await liveRound(ctx, log, log.name === "long");
+            : await liveRound(ctx, log, log.name === BURST_LOG);
         if (live) lives.push(live);
         console.log(
           `transcript-replay: ${log.name} (${log.events.length} records, ${rowsIn(log.events)} rows) open cls ${open.cls} ` +
@@ -691,7 +1387,7 @@ if (import.meta.main) {
             (live
               ? ` | live ${live.seconds} s cls ${live.cls} long tasks ${live.longTasks} (longest ${live.longestTaskMs} ms) ` +
                 `heap +${live.heapMb} MB` +
-                (log.name === "long" ? ` idle ${live.idleMsPerS} ms/s` : "")
+                (log.name === BURST_LOG ? ` idle ${live.idleMsPerS} ms/s` : "")
               : ""),
         );
         for (const note of [
@@ -700,13 +1396,62 @@ if (import.meta.main) {
         ])
           if (!note.includes(" 0.0000 ")) console.log(`  ${note}`);
         for (const burst of live?.bursts ?? [])
-          console.log(`  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);
-        for (const kind of ["token", "tool_output"]) {
+          console.log(
+            `  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record` +
+              (burst.dom
+                ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted, ${burst.dom.animations} animations)`
+                : "") +
+              (burst.probe
+                ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +
+                  `${burst.probe.rowRenders} content renders ${burst.probe.contentRenders}; most layout objects ` +
+                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}; ms script ` +
+                  `${burst.probe.phases.script} style ${burst.probe.phases.style} layout ${burst.probe.phases.layout} ` +
+                  `paint ${burst.probe.phases.paint}`
+                : "") +
+              (burst.renders
+                ? ` renders per record ${burst.renders.total}: ` +
+                  Object.entries(burst.renders.byComponent)
+                    .slice(0, Number(process.env.RENDERS_TOP) || 12)
+                    .map(([name, count]) => `${name}=${count}`)
+                    .join(" ")
+                : ""),
+          );
+        // PROFILE_JSON=FILE writes every profiled burst's self and total times, for comparing two runs.
+        if (process.env.PROFILE_JSON && live)
+          fs.writeFileSync(
+            process.env.PROFILE_JSON,
+            JSON.stringify(
+              live.bursts
+                .filter((burst) => burst.selfMs)
+                .map((burst) => ({
+                  kind: burst.kind,
+                  rows: burst.rows,
+                  msPerRecord: burst.msPerRecord,
+                  self: Object.fromEntries(burst.selfMs!),
+                  total: Object.fromEntries(burst.totalMs ?? []),
+                })),
+            ),
+          );
+        for (const kind of BURST_KINDS) {
           const profiled = (live?.bursts ?? []).filter((burst) => burst.kind === kind && burst.selfMs);
           if (profiled.length < 2) continue;
           const [first, last] = [profiled[0]!, profiled.at(-1)!];
           console.log(`  ${kind}: self ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.selfMs!, last.selfMs!))
+            console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);
+          // And where a record's time goes at the smallest and the largest checkpoint, growing or
+          // not: the smallest is the cost every chat pays, however short.
+          for (const at of [first, last]) {
+            console.log(`  ${kind}: most self ms per record at ${at.rows} rows`);
+            for (const [fn, ms] of [...at.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
+              console.log(`    ${ms.toFixed(3)}  ${fn}`);
+          }
+          // A cost that does not grow still counts against the frame: which callers hold it at the largest checkpoint.
+          console.log(`  ${kind}: most total ms per record at ${last.rows} rows`);
+          for (const [fn, ms] of [...last.totalMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40))
+            console.log(`    ${ms.toFixed(3)}  ${fn}`);
+          console.log(`  ${kind}: total ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
+          for (const [fn, before, after] of grew(first.totalMs!, last.totalMs!, 25))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);
         }
       } catch (error) {
@@ -714,7 +1459,19 @@ if (import.meta.main) {
         console.log(`transcript-replay: ${log.name} FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    const { rows, misses } = judge(opens, lives);
+    if (RENDERS)
+      for (const live of lives) {
+        const table = kindRenderTable(live.bursts);
+        if (!table.length) continue;
+        console.log(`transcript-replay: ${live.log} renders per record by kind`);
+        console.log("  kind         pane  transcript  hidden-row share  pane per hidden record");
+        for (const each of table)
+          console.log(
+            `  ${each.kind.padEnd(12)} ${String(each.pane).padStart(4)}  ${String(each.transcript).padStart(10)}  ` +
+              `${String(each.hiddenShare).padStart(16)}  ${String(each.hiddenPane).padStart(22)}`,
+          );
+      }
+    const { rows, misses } = judge(opens, lives, BURST_LOG);
     for (const each of rows) perfRow(each);
     for (const miss of misses) console.log(`transcript-replay: ${miss}`);
     if (!misses.length) console.log("transcript-replay: every budget held");

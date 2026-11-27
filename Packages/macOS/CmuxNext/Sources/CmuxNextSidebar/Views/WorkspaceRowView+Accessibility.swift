@@ -98,7 +98,7 @@ extension WorkspaceRowView {
     }
 
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, title: String? = nil) -> String {
-        Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence,
+        Self.accessibilityText(ws, content: content, tabCount: count, presence: driveIndicator.drivers + (presenceDots.isHidden ? [] : presenceDots.presence),
                                title: title)
     }
 
@@ -107,15 +107,18 @@ extension WorkspaceRowView {
     /// row reads (`SidebarWorkspace.spokenRowTitle`), nil for the workspace's.
     static func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, tabCount count: Int?,
                                   presence: [SidebarPresence], title: String? = nil) -> String {
-        var parts = [title ?? ws.title]
+        var parts = [content.displayedTitle(title ?? ws.title)]
         let detail = content.now.map(Strings.rowNow) ?? content.detail
         if let detail { parts.append(detail) }
+        if let meta = content.meta { parts.append(meta) }
         // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.
-        if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) }) ?? content.trailingStatus { parts.append(s) }
+        if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) })
+            ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
         if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
         if let rollUp = content.rollUp { parts.append(Strings.rollUp(rollUp)) }
+        if content.subagentsFailed > 0 { parts.append(Strings.subagentsFailed(content.subagentsFailed)) }
         if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         if let count { parts.append(Strings.tabCount(count)) }
         switch ws.unread {
@@ -124,8 +127,8 @@ extension WorkspaceRowView {
         default: break
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
+        if ws.isPinnedInGroup { parts.append(Strings.pinned) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
-        parts += ws.usageWarnings
         // The computer: a one-list row on another computer says it with its status when it cannot connect
         // (`SidebarLayout.machineLabel`, "gpu-box · Failed to start"), whether or not the row draws a mark
         // (with one machine listed it draws none). No line draws it (Leo 2026-10-30: "remove the second

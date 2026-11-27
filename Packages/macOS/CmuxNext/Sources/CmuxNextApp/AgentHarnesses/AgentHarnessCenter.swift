@@ -109,13 +109,13 @@ final class AgentHarnessCenter {
 
     /// Starts the harness and runs the ACP handshake (`_acpmux/harness/doctor`); Settings shows
     /// the steps. `noPrompt` stops after session/new (no model call); otherwise the check sends one
-    /// real hello turn (`prompt: true`), what the Chief editor needs before it saves a backend.
+    /// real hello turn (`prompt: true`), what the Chief editor needs before it saves a backend (`extra`: `chief`, `chiefId`).
     @discardableResult
-    func doctor(id: String, noPrompt: Bool = false) async throws -> JSONValue {
+    func doctor(id: String, noPrompt: Bool = false, extra: [String: any Sendable] = [:]) async throws -> JSONValue {
         doctors[id] = ["running": true]
         publish()
         do {
-            let answer = try await manage(.doctor, noPrompt ? ["id": id, "noPrompt": true] : ["id": id, "prompt": true])
+            let answer = try await manage(.doctor, extra.merging(noPrompt ? ["id": id, "noPrompt": true] : ["id": id, "prompt": true]) { $1 })
             doctors[id] = answer
             publish()
             return answer
@@ -124,21 +124,6 @@ final class AgentHarnessCenter {
             publish()
             throw error
         }
-    }
-
-    /// Stores `value` in the Keychain for harness `id` under `key` (`_acpmux/harness/secret/set`)
-    /// and answers the item name the profile reads (`keychain:NAME`). The value goes only into
-    /// this one request: never a log, a state Settings draws, or a profile.
-    func setSecret(id: String, key: String, value: String) async throws -> String {
-        let answer: JSONValue
-        do {
-            answer = try await call(.secretSet, ["id": id, "key": key, "value": value])
-        } catch let error as AcpmuxRPCError where error.isMethodMissing {
-            // An acpmux without the Keychain write: the endpoint cannot be added from the app. The
-            // other harness buttons in Settings still work, so this does not switch them off.
-            throw AgentHarnessFailure.unsupported
-        }
-        return answer["item"]?.stringValue ?? "cmux-harness/\(id)/\(key)"
     }
 
     /// `_acpmux/models`: every harness's probed models, with their efforts.
@@ -186,6 +171,22 @@ final class AgentHarnessCenter {
         try await call(.list)["harnesses"]?.objectValue.map { Array($0.keys) } ?? []
     }
 
+    /// The daemon's harnesses a Chief's own turns can run on, for the Chief Settings picker: the
+    /// Chief harness (family `chief`, the person's chat with a Chief) and terminal-only harnesses
+    /// never run a Chief turn (the brain refuses both, `harness_gate`), so they are not offered.
+    func chiefEngines() async throws -> [String] {
+        Self.chiefEngines(in: try await call(.list)["harnesses"]?.objectValue ?? [:])
+    }
+
+    /// ``chiefEngines()`` over one `_acpmux/harnesses` `harnesses` object, sorted by id.
+    nonisolated static func chiefEngines(in harnesses: [String: JSONValue]) -> [String] {
+        harnesses.compactMap { id, profile in
+            let family = profile["family"]?.stringValue
+            let kind = profile["kind"]?.stringValue
+            return family == "chief" || kind == "terminal" ? nil : id
+        }.sorted()
+    }
+
     /// `_acpmux/harness/health` (cx-ny85): the daemon's last check of every harness.
     func health() async throws -> [JSONValue] {
         try await call(.health)["harnesses"]?.arrayValue ?? []
@@ -204,7 +205,7 @@ final class AgentHarnessCenter {
         var state: [String: JSONValue] = [
             "status": .string(status),
             "manages": .bool(manages),
-            "harnesses": .array(AgentHarnessRows.rows(list)),
+            "harnesses": .array(AgentHarnessRows(list).rows),
             "doctor": .object(doctors),
         ]
         if let message { state["message"] = .string(message) }

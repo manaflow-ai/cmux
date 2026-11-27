@@ -13,8 +13,10 @@ use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::{future::Future, pin::Pin, sync::OnceLock};
 use tokio::sync::{Notify, broadcast};
+#[path = "watch_timers.rs"]
+pub(crate) mod timers;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Watch {
     pub id: String,
@@ -22,17 +24,41 @@ pub struct Watch {
     pub sessions: Vec<String>,
     pub until: Vec<String>,
     pub match_text: Option<String>,
+    /// Which text of a turn `match_text` is looked for in (`watch_events::MatchIn`). Older
+    /// files have none: the whole turn, as before.
+    #[serde(default, skip_serializing_if = "watch_events::MatchIn::is_turn")]
+    pub match_in: watch_events::MatchIn,
     pub once: bool,
     pub caller: Option<String>,
     pub active: bool,
     pub cursors: BTreeMap<String, watch_events::Cursor>,
     pub offline: BTreeSet<String>,
+    /// A time watch (`watch_timers.rs`): when it next falls due, in ms since the epoch. A state
+    /// watch has none. Every time field is optional so files of older daemons still open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_ms: Option<u64>,
+    /// `--every`: the period of a recurring time watch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every_ms: Option<u64>,
+    /// `--until` of an `--every` watch: no fire is due after this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_ms: Option<u64>,
+    /// The message a time watch sends when it falls due.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
 }
 
 impl Watch {
     fn status(&self) -> Value {
-        json!({"id": self.id, "to": self.to, "sessions": self.sessions, "until": self.until,
-            "match": self.match_text, "once": self.once, "active": self.active, "offline": self.offline})
+        let mut v = json!({"id": self.id, "to": self.to, "sessions": self.sessions, "until": self.until,
+            "match": self.match_text, "matchIn": self.match_in, "once": self.once, "active": self.active, "offline": self.offline});
+        if self.prompt.is_some() {
+            v["nextDueMs"] = json!(self.due_ms);
+            v["everyMs"] = json!(self.every_ms);
+            v["endMs"] = json!(self.end_ms);
+            v["prompt"] = json!(self.prompt);
+        }
+        v
     }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -50,6 +76,7 @@ const REMOTE_WORKERS: usize = 8;
 type ReadHook = Arc<
     dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<bool, RpcError>> + Send>> + Send + Sync,
 >;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
 #[cfg(test)]
 static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
 #[derive(Default)]
@@ -57,6 +84,9 @@ struct Jobs {
     ready: VecDeque<String>,
     // Dirty while running, plus consecutive failures; one entry per peer/session.
     pending: BTreeMap<String, (bool, u8)>,
+    // A source that failed waits here until its deadline, not in a worker: a worker that slept
+    // out a failing source's backoff left healthy sources (other peers too) unread for as long.
+    retry: BTreeMap<String, tokio::time::Instant>,
 }
 impl Jobs {
     fn enqueue(&mut self, key: String) {
@@ -67,31 +97,71 @@ impl Jobs {
             self.ready.push_back(key);
         }
     }
-    fn take(&mut self) -> Option<String> {
-        let key = self.ready.pop_front()?;
+    /// The next source to read, or when the soonest waiting retry is due (None: none waits).
+    fn take(&mut self, now: tokio::time::Instant) -> Result<String, Option<tokio::time::Instant>> {
+        let due: Vec<String> =
+            self.retry.iter().filter(|(_, at)| **at <= now).map(|(k, _)| k.clone()).collect();
+        for key in due {
+            self.retry.remove(&key);
+            self.ready.push_back(key);
+        }
+        let Some(key) = self.ready.pop_front() else {
+            return Err(self.retry.values().min().copied());
+        };
         if let Some(pending) = self.pending.get_mut(&key) {
             pending.0 = false;
         }
-        Some(key)
+        Ok(key)
     }
 }
 #[derive(Default)]
 pub struct Watches {
     inner: Mutex<Inner>,
     wake: Notify,
+    /// Wakes the timer task to re-arm after an add or remove (`watch_timers.rs`).
+    timers: Notify,
     jobs: Mutex<Jobs>,
     available: Notify,
+    /// Tests: how often the loop of `start` came around, and a panic asked of its next pass.
+    #[cfg(test)]
+    passes: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    panic_next: std::sync::atomic::AtomicBool,
 }
 impl Watches {
+    #[cfg(test)]
+    fn test_pass(&self) {
+        use std::sync::atomic::Ordering;
+        self.passes.fetch_add(1, Ordering::SeqCst);
+        assert!(!self.panic_next.swap(false, Ordering::SeqCst), "watch loop test panic");
+    }
     pub(super) fn peer_settled(&self) {
         self.wake.notify_one();
     }
     pub fn open(&self, path: &Path) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.saved = match std::fs::read(path)
-            .and_then(|b| serde_json::from_slice(&b).map_err(std::io::Error::other))
+            .and_then(|b| serde_json::from_slice::<Saved>(&b).map_err(std::io::Error::other))
         {
-            Ok(saved) => saved,
+            Ok(mut saved) => {
+                // A watch saved before `match` was capped keeps its wake, with the match cut.
+                for w in saved.watches.values_mut() {
+                    if crate::hub::cap_match(&mut w.match_text) {
+                        tracing::warn!(
+                            "watch {}: saved match past {} bytes, cut to that; its cursors start the turn's match over",
+                            w.id,
+                            crate::hub::MAX_MATCH_BYTES
+                        );
+                        // The tail and `matched` were kept for the old pattern: the cut one
+                        // searched across the old tail would wake on text already passed.
+                        for c in w.cursors.values_mut() {
+                            c.tail = String::new();
+                            c.matched = false;
+                        }
+                    }
+                }
+                saved
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Saved::default(),
             Err(e) => {
                 let bad = path.with_extension(format!("json.bad-{}", crate::store::now_ms()));
@@ -100,7 +170,7 @@ impl Watches {
                     path.display(),
                     bad.display()
                 );
-                if let Err(e) = std::fs::rename(path, bad) {
+                if let Err(e) = crate::home_fs::rename(path, bad) {
                     tracing::warn!("cannot preserve watch state: {e}");
                 }
                 Saved::default()
@@ -126,6 +196,7 @@ impl Watches {
         let result = watch.status();
         self.change(|s| s.watches.insert(watch.id.clone(), watch))?;
         self.wake.notify_one();
+        self.timers.notify_one();
         Ok(result)
     }
     pub fn list(&self, hub: &Hub) -> Value {
@@ -141,42 +212,98 @@ impl Watches {
     /// Remove a watch: it makes no new wake. Wakes it already owes stay pending and are still
     /// delivered (`drain`), since their events happened before the removal; returns how many.
     pub fn remove(&self, id: &str) -> Result<Option<usize>, RpcError> {
-        self.change(|s| {
+        let removed = self.change(|s| {
             s.watches.remove(id)?;
             Some(s.pending.values().filter(|d| watch_of(d) == Some(id)).count())
-        })
+        })?;
+        self.timers.notify_one();
+        Ok(removed)
     }
     pub fn start(hub: &Arc<Hub>) {
         for _ in 0..REMOTE_WORKERS {
             tokio::spawn(remote_worker(Arc::clone(hub)));
         }
-        let mut events = hub.subscribe(); // Subscribe before startup/reconciliation.
         let weak = Arc::downgrade(hub);
-        tokio::spawn(async move {
-            let Some(hub) = weak.upgrade() else { return };
-            hub.wait_logs().await;
-            hub.wait_startup().await;
-            let mut refresh = true;
-            loop {
-                if refresh && let Err(e) = reconcile(&hub).await {
-                    tracing::error!("watch: {e}");
-                }
-                refresh = tokio::select! {
-                    () = hub.shutdown.notified() => break,
-                    () = hub.watches.wake.notified() => true,
-                    () = hub.outbox.changed.notified() => { drain(&hub, false); false },
-                    e = events.recv() => match e {
-                        Ok(e) => concerns(&hub, &e),
-                        Err(broadcast::error::RecvError::Lagged(_)) => true,
-                        Err(broadcast::error::RecvError::Closed) => break,
-                    }
-                };
-                // Coalesce already queued changes; no timer and no periodic reads.
+        let timer_weak = weak.clone();
+        // One task sleeps until the earliest time watch is due; an add or remove re-arms it.
+        crate::supervise::restarting("watch-timer", &hub.fatal, move || {
+            let weak = timer_weak.clone();
+            async move {
+                let Some(hub) = weak.upgrade() else { return };
+                hub.wait_logs().await;
+                hub.wait_startup().await;
                 loop {
-                    match events.try_recv() {
-                        Ok(e) => refresh |= concerns(&hub, &e),
-                        Err(broadcast::error::TryRecvError::Lagged(_)) => refresh = true,
-                        Err(_) => break,
+                    let rearm = hub.watches.timers.notified();
+                    let now = crate::store::now_ms();
+                    let earliest = match hub.watches.fire_timers(now) {
+                        Ok((fired, earliest)) => {
+                            if !fired.is_empty() {
+                                tracing::info!(
+                                    "watch timer fired {}: {}",
+                                    fired.len(),
+                                    fired.join(" ")
+                                );
+                                drain(&hub, false);
+                            }
+                            earliest
+                        }
+                        Err(e) => {
+                            // Not saved: nothing fired. Try again soon rather than never.
+                            tracing::error!("watch timer: {e}");
+                            Some(now + timers::SLACK_MS)
+                        }
+                    };
+                    let sleep = async {
+                        match earliest {
+                            Some(due) => {
+                                let ms = due
+                                    .saturating_sub(crate::store::now_ms())
+                                    .min(timers::MAX_SLEEP_MS);
+                                tokio::time::sleep(std::time::Duration::from_millis(ms)).await
+                            }
+                            None => std::future::pending().await,
+                        }
+                    };
+                    tokio::select! {
+                        () = hub.shutdown.notified() => break,
+                        () = rearm => {}
+                        () = sleep => {}
+                    }
+                }
+            }
+        });
+        // After a panic the loop starts over: subscribed again, then a full reconcile.
+        crate::supervise::restarting("watch", &hub.fatal, move || {
+            let weak = weak.clone();
+            async move {
+                let Some(hub) = weak.upgrade() else { return };
+                let mut events = hub.subscribe(); // Subscribe before startup/reconciliation.
+                hub.wait_logs().await;
+                hub.wait_startup().await;
+                let mut refresh = true;
+                loop {
+                    #[cfg(test)]
+                    hub.watches.test_pass();
+                    if refresh && let Err(e) = reconcile(&hub).await {
+                        tracing::error!("watch: {e}");
+                    }
+                    refresh = tokio::select! {
+                        () = hub.shutdown.notified() => break,
+                        () = hub.watches.wake.notified() => true,
+                        () = hub.outbox.changed.notified() => { drain(&hub, false); false },
+                        e = events.recv() => match e {
+                            Ok(e) => concerns(&hub, &e),
+                            Err(broadcast::error::RecvError::Lagged(_)) => true,
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                    };
+                    // Coalesce already queued changes; no timer and no periodic reads.
+                    loop {
+                        match events.try_recv() {
+                            Ok(e) => refresh |= concerns(&hub, &e),
+                            Err(broadcast::error::TryRecvError::Lagged(_)) => refresh = true,
+                            Err(_) => break,
+                        }
                     }
                 }
             }
@@ -203,6 +330,14 @@ pub fn resolve(hub: &Hub, key: &str) -> Result<String, RpcError> {
     }
     hub.resolve_remote(key)
         .map(|(p, id, _)| format!("{}/{id}", p.name))
+        .or_else(|| {
+            let id = hub.mesh_book_resolve(key)?;
+            let host = key
+                .split_once('/')
+                .map(|(host, _)| host.to_owned())
+                .or_else(|| hub.mesh_book_host(&id))?;
+            Some(format!("{host}/{id}"))
+        })
         .ok_or_else(|| RpcError::not_found(format!("no session matches {key:?}; run acpmux ls")))
 }
 pub(super) fn summary(hub: &Hub, key: &str) -> Value {
@@ -212,10 +347,14 @@ pub(super) fn summary(hub: &Hub, key: &str) -> Value {
     if let Some((_, _, s)) = hub.resolve_remote(key) {
         return s;
     }
+    if let Some(row) = hub.mesh_book_row(key) {
+        return row.summary.value();
+    }
     if let Some((peer, _)) = key.split_once('/') {
         if hub.peer(peer).is_some_and(|p| {
             p.connected.load(std::sync::atomic::Ordering::SeqCst) && *p.settled().borrow() > 0
-        }) {
+        }) || hub.mesh_book_has_host(peer)
+        {
             return json!({"status": "closed", "missing": true});
         }
         json!({"status": "unreachable", "stale": true})
@@ -238,25 +377,33 @@ fn commit(
     }
     hub.watches.change(|saved| {
         let Some(w) = saved.watches.get_mut(&old.id) else { return };
-        if !w.active || w.cursors.get(key) != old.cursors.get(key) { return; }
-        if !resolved && key.split_once('/').is_some_and(|(p, _)| next.offline.contains(p) && w.offline.contains(p)) { return; }
+        if !w.active || w.cursors.get(key) != old.cursors.get(key) {
+            return;
+        }
+        if !resolved
+            && key
+                .split_once('/')
+                .is_some_and(|(p, _)| next.offline.contains(p) && w.offline.contains(p))
+        {
+            return;
+        }
         if let Some(cursor) = next.cursors.get(key) {
             w.cursors.insert(key.into(), cursor.clone());
         }
         if let Some((peer, _)) = key.split_once('/') {
-            if next.offline.contains(peer) { w.offline.insert(peer.into()); }
-            else { w.offline.remove(peer); }
+            if next.offline.contains(peer) {
+                w.offline.insert(peer.into());
+            } else {
+                w.offline.remove(peer);
+            }
         }
-        if resolved { w.active = false; }
+        if resolved {
+            w.active = false;
+        }
         if !lines.is_empty() {
             let id = uuid::Uuid::now_v7().to_string();
-            let now = crate::store::now_ms();
-            let request = json!({"sessionId": w.to, "prompt": [{"type": "text", "text": format!("acpmux watch {}:\n{}", w.id, lines.join("\n\n"))}],
-                "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true,
-                    "watchId": w.id, "watchDone": resolved}}});
-            saved.pending.insert(id.clone(), Delivery { id, target: w.to.clone(), request,
-                caller: w.caller.clone(), state: State::Queued, attempts: 0, never_sent: false, relay_post: None, error: None,
-                accepted: None, created_at: now, updated_at: now });
+            let text = format!("acpmux watch {}:\n{}", w.id, lines.join("\n\n"));
+            saved.pending.insert(id.clone(), timers::delivery(w, id, text, resolved));
         }
     })
 }
@@ -324,13 +471,34 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
     hub.watches.available.notify_one();
     Ok(())
 }
+/// How many times a failing watch source's retry wait doubles from 250 ms.
+pub const WATCH_RETRY_STEPS: u8 = 10;
+
 async fn remote_worker(hub: Arc<Hub>) {
     loop {
         let available = hub.watches.available.notified();
-        let key = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner()).take();
-        let Some(key) = key else {
-            tokio::select! { () = hub.shutdown.notified() => return, () = available => {} }
-            continue;
+        let next = hub
+            .watches
+            .jobs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take(tokio::time::Instant::now());
+        let key = match next {
+            Ok(key) => key,
+            Err(due) => {
+                let retry = async {
+                    match due {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }
+                };
+                tokio::select! {
+                    () = hub.shutdown.notified() => return,
+                    () = available => {}
+                    () = retry => {}
+                }
+                continue;
+            }
         };
         hub.watches.available.notify_one(); // Let another worker take the next source.
         let (mut more, mut failed) = (false, false);
@@ -348,20 +516,17 @@ async fn remote_worker(hub: Arc<Hub>) {
             }
         }
         drain(&hub, false);
-        let failures = {
-            let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
-            let state = jobs.pending.entry(key.clone()).or_default();
-            state.1 = if failed { (state.1 + 1).min(6) } else { 0 };
-            state.1
-        };
-        if failed {
-            tokio::select! {
-                () = hub.shutdown.notified() => return,
-                () = tokio::time::sleep(std::time::Duration::from_millis(250 << (failures - 1))) => {}
-            }
-        }
         let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
-        if more || failed || jobs.pending.get(&key).is_some_and(|pending| pending.0) {
+        let state = jobs.pending.entry(key.clone()).or_default();
+        // A source that keeps failing is asked again at most every ~2 min (250 ms << 9), not
+        // every 8 s: each failed read is a whole page the peer still sent. It waits in the
+        // queue; this worker goes on to the next source at once.
+        state.1 = if failed { (state.1 + 1).min(WATCH_RETRY_STEPS) } else { 0 };
+        if failed {
+            let wait = std::time::Duration::from_millis(250 << (state.1 - 1));
+            jobs.retry.insert(key, tokio::time::Instant::now() + wait);
+            hub.watches.available.notify_one(); // An idle worker learns the new deadline.
+        } else if more || jobs.pending.get(&key).is_some_and(|pending| pending.0) {
             jobs.ready.push_back(key);
             hub.watches.available.notify_one();
         } else {
@@ -375,11 +540,20 @@ fn watch_of(d: &Delivery) -> Option<&str> {
 // Delivered is the recipient's acceptance (queued or steered into its turn), not that its agent
 // read the wake; Held hands the wake to the outbox, which runs it when the person resumes the
 // pair. Either way the outbox owns it from here, so the watch stops owing it.
+//
+// A wake that failed past its day (`Delivery::past_retry_window`) is settled too: the outbox
+// bounced it once, and sent again it fails at once. Queued again on every reconcile, four watch
+// wakes on huge-blue failed and bounced 6,333 times over 16 days (3,146 of the 3,703 failures
+// `acpmux ls` counted in 36 h), each "oldest waiting 1383760 s".
 fn drain(hub: &Arc<Hub>, retry: bool) {
     let pending = hub.watches.inner.lock().unwrap_or_else(|e| e.into_inner()).saved.pending.clone();
+    let now = crate::store::now_ms();
     for d in pending.into_values() {
         match hub.outbox.get(&d.id) {
-            Some(sent) if matches!(sent.state, State::Delivered | State::Held) => {
+            Some(sent)
+                if matches!(sent.state, State::Delivered | State::Held)
+                    || (sent.state == State::Failed && sent.past_retry_window(now)) =>
+            {
                 if let Err(e) = hub.watches.change(|s| {
                     s.pending.remove(&d.id);
                     if d.request.pointer("/_meta/acpmux/watchDone") == Some(&json!(true))
@@ -399,10 +573,11 @@ fn drain(hub: &Arc<Hub>, retry: bool) {
                 crate::server::outbox::resume(hub, vec![d]);
             }
             Some(_) => {}
-            None => {
-                hub.outbox.add(d.clone());
-                crate::server::outbox::resume(hub, vec![d]);
-            }
+            // Not saved: the watch still owes it and hands it over again on a later drain.
+            None => match hub.outbox.add(d.clone()) {
+                Ok(_) => crate::server::outbox::resume(hub, vec![d]),
+                Err(e) => tracing::warn!("watch: wake {} not queued: {e:#}", d.id),
+            },
         }
     }
 }
@@ -419,8 +594,186 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::{Duration, sleep};
 
+    /// A panic in the watch loop ended it for the daemon's whole life: no watch resolved and no
+    /// owed wake was sent again, with one line in `panics.jsonl` as the only sign. The loop
+    /// starts again (`crate::supervise`).
+    #[tokio::test]
+    async fn the_watch_loop_runs_again_after_a_panic() {
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let hub = Hub::new(
+            config.clone(),
+            store::open(&config.store, Path::new("/nonexistent")).unwrap(),
+        );
+        Watches::start(&hub);
+        let passes = |hub: &Hub| hub.watches.passes.load(Ordering::SeqCst);
+        let reaches = |hub: Arc<Hub>, n: usize| async move {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while passes(&hub) < n {
+                    hub.watches.wake.notify_one();
+                    sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+        };
+        reaches(hub.clone(), 1).await.expect("the loop runs");
+        hub.watches.panic_next.store(true, Ordering::SeqCst);
+        let before = passes(&hub);
+        reaches(hub.clone(), before + 3).await.expect("the loop came around again after its panic");
+        assert!(!hub.watches.panic_next.load(Ordering::SeqCst), "the loop never panicked");
+    }
+
+    /// Codex review of #40885, F1: a watch saved before `match` was capped came back with its
+    /// multi-megabyte pattern, and every stub of its peer's replies kept that much of each end. At
+    /// load the match is cut to `MAX_MATCH_BYTES`; the load never fails over it.
+    #[test]
+    fn a_persisted_oversized_match_loads_capped_and_its_stubs_stay_bounded() {
+        let dir = cmux_unix_socket::short_test_dir("watch-match-cap");
+        let path = dir.path().join("watches.json");
+        let watch = |id: &str, m: String| Watch {
+            id: id.into(),
+            to: "sink".into(),
+            sessions: vec!["peer/s".into()],
+            until: vec!["ready".into()],
+            match_text: Some(m),
+            once: true,
+            caller: None,
+            active: true,
+            cursors: BTreeMap::new(),
+            offline: BTreeSet::new(),
+            ..Default::default()
+        };
+        let mut saved = Saved::default();
+        saved.watches.insert("big".into(), watch("big", "\u{e9}".repeat(2 << 20)));
+        saved.watches.insert("small".into(), watch("small", "ready".into()));
+        std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+
+        let watches = Watches::default();
+        watches.open(&path);
+        let loaded = watches.inner.lock().unwrap().saved.watches.clone();
+        assert_eq!(loaded.len(), 2, "the load dropped a watch");
+        assert_eq!(loaded["small"].match_text.as_deref(), Some("ready"));
+        let big = loaded["big"].match_text.clone().expect("the match was dropped, not capped");
+        assert!(big.len() <= crate::hub::MAX_MATCH_BYTES, "match kept {} bytes", big.len());
+        assert!(path.exists(), "the state file was moved aside as bad");
+
+        // A long reply chunk stubbed with the loaded pattern stays within a page.
+        let text = "\u{e9}".repeat(3 << 20);
+        let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "s",
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}});
+        let stub = super::super::paging::stub_msg(&msg, text.len(), Some(&big));
+        let size = serde_json::to_vec(&stub).unwrap().len();
+        assert!(size <= super::super::paging::DEFAULT_PAGE_BYTES / 16, "stub is {size} bytes");
+    }
+
+    /// Codex review of #40885 at c18b2425, F1: capping a saved match left each cursor's tail and
+    /// `matched` from the old pattern. After a restart mid-turn the next chunk searched the old
+    /// 4 MiB tail with the cut pattern and woke on text the watch had already passed, and the old
+    /// tail stayed in memory. A capped watch's cursors start the turn's match over.
+    #[test]
+    fn a_capped_match_resets_its_cursors_so_the_old_tail_never_wakes() {
+        let dir = cmux_unix_socket::short_test_dir("watch-match-cursors");
+        let path = dir.path().join("watches.json");
+        let old = "q".repeat(4 << 20);
+        let cursor = watch_events::Cursor {
+            seq: 7,
+            // One short of the old pattern: it never matched, but holds the cut one many times.
+            tail: "q".repeat((4 << 20) - 1),
+            ..Default::default()
+        };
+        let mut saved = Saved::default();
+        saved.watches.insert(
+            "w".into(),
+            Watch {
+                id: "w".into(),
+                to: "sink".into(),
+                sessions: vec!["peer/s".into()],
+                until: vec!["ready".into()],
+                match_text: Some(old),
+                once: true,
+                caller: None,
+                active: true,
+                cursors: BTreeMap::from([("peer/s".to_string(), cursor)]),
+                offline: BTreeSet::new(),
+                ..Default::default()
+            },
+        );
+        std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+
+        let watches = Watches::default();
+        watches.open(&path);
+        let w = watches.inner.lock().unwrap().saved.watches["w"].clone();
+        let pattern = w.match_text.clone().unwrap();
+        let mut c = w.cursors["peer/s"].clone();
+        assert!(c.tail.len() <= crate::hub::MAX_MATCH_BYTES, "tail kept {} bytes", c.tail.len());
+        assert!(!c.matched);
+        assert_eq!(c.seq, 7, "the cursor's place in the log is kept");
+        c.text("z", Some(&pattern));
+        assert!(!c.matched, "the next chunk matched the old tail: a false wake");
+    }
+
+    /// huge-blue, 2026-11-27: four watch wakes 16 days old ("oldest waiting 1383760 s") were
+    /// queued again on every reconcile, failed at once as past their day, bounced, and were
+    /// queued again: 6,333 bounces. A wake failed past its day settles the watch's debt, as a
+    /// delivered one does; a failed one still within its day is queued again, as before.
+    #[tokio::test]
+    async fn a_wake_failed_past_its_day_is_never_queued_again() {
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let hub = Hub::new(
+            config.clone(),
+            store::open(&config.store, Path::new("/nonexistent")).unwrap(),
+        );
+        let watch = Watch {
+            id: "w".into(),
+            to: "gone-session".into(),
+            sessions: vec!["peer/s".into()],
+            until: vec!["ready".into()],
+            once: true,
+            active: true,
+            ..Default::default()
+        };
+        let failed = |id: &str, age_ms: u64| {
+            let mut d = timers::delivery(&watch, id.into(), "wake".into(), true);
+            d.created_at = crate::store::now_ms().saturating_sub(age_ms);
+            d.state = State::Failed;
+            d.error = Some("not delivered within a day of being sent".into());
+            d
+        };
+        let day = crate::hub::outbox::RETRY_FOR_MS;
+        let old = failed("old", day + 60_000);
+        let fresh = failed("fresh", 60_000);
+        hub.outbox.add(old.clone()).unwrap();
+        hub.outbox.add(fresh.clone()).unwrap();
+        hub.watches
+            .change(|s| {
+                s.watches.insert("w".into(), watch.clone());
+                s.pending.insert(old.id.clone(), old.clone());
+                s.pending.insert(fresh.id.clone(), fresh.clone());
+            })
+            .unwrap();
+
+        drain(&hub, true);
+
+        let sent = hub.outbox.get("old").expect("the outbox keeps the failed wake");
+        assert_eq!(sent.state, State::Failed, "a wake past its day was queued again");
+        assert_eq!(sent.attempts, old.attempts, "a wake past its day was sent again");
+        let saved = hub.watches.inner.lock().unwrap().saved.clone();
+        assert!(!saved.pending.contains_key("old"), "the watch still owes a wake past its day");
+        assert!(saved.pending.contains_key("fresh"), "a wake within its day was dropped");
+        assert_ne!(
+            hub.outbox.get("fresh").map(|d| d.error),
+            Some(fresh.error.clone()),
+            "a failed wake within its day was not queued again"
+        );
+        // A second pass (the next reconcile) does not touch it either.
+        drain(&hub, true);
+        assert_eq!(hub.outbox.get("old").map(|d| d.state), Some(State::Failed));
+    }
+
     #[tokio::test]
     async fn reconcile_uses_a_real_eight_worker_pool_and_dirty_requeues_once() {
+        let _hook = HOOK_TEST.lock().await;
         let dir = cmux_unix_socket::short_test_dir("watch-pool");
         #[cfg(unix)]
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -441,6 +794,7 @@ mod tests {
                 active: true,
                 cursors,
                 offline: BTreeSet::new(),
+                ..Default::default()
             })
             .unwrap();
         let before = tokio::runtime::Handle::current().metrics().num_alive_tasks();
@@ -498,6 +852,102 @@ mod tests {
         expected.sort();
         assert_eq!(actual, expected);
         assert!(maximum.load(Ordering::SeqCst) <= REMOTE_WORKERS);
+        *READ_HOOK.get_or_init(Mutex::default).lock().unwrap() = None;
+        hub.shutdown_all().await;
+    }
+
+    /// `READ_HOOK` is one per process: the tests that set it run one at a time.
+    static HOOK_TEST: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// A failing source waits out its backoff in the queue, not in a worker: when eight sources
+    /// failed at once, each of the eight workers slept out its source's wait, and a healthy
+    /// source (another peer's) was not read until one woke, up to minutes later.
+    #[tokio::test]
+    async fn failing_sources_never_hold_a_worker_from_a_healthy_one() {
+        let _hook = HOOK_TEST.lock().await;
+        let dir = cmux_unix_socket::short_test_dir("watch-retry");
+        #[cfg(unix)]
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Local;
+        let hub = Hub::new(config.clone(), store::open(&config.store, dir.path()).unwrap());
+        let bad: Vec<_> = (0..REMOTE_WORKERS).map(|n| format!("down/session-{n}")).collect();
+        let good = "up/session".to_owned();
+        let keys: Vec<_> = bad.iter().cloned().chain([good.clone()]).collect();
+        let cursors = keys.iter().map(|k| (k.clone(), watch_events::Cursor::default())).collect();
+        hub.watches
+            .add(Watch {
+                id: "w".into(),
+                to: "sink".into(),
+                sessions: keys,
+                until: vec!["ready".into()],
+                match_text: None,
+                once: true,
+                caller: None,
+                active: true,
+                cursors,
+                offline: BTreeSet::new(),
+                ..Default::default()
+            })
+            .unwrap();
+        let reads = Arc::new(Mutex::new(Vec::<(String, tokio::time::Instant)>::new()));
+        let failed = Arc::new(Notify::new());
+        let hook: ReadHook = {
+            let (reads, failed) = (reads.clone(), failed.clone());
+            Arc::new(move |key: String| {
+                let (reads, failed) = (reads.clone(), failed.clone());
+                Box::pin(async move {
+                    let mut r = reads.lock().unwrap();
+                    r.push((key.clone(), tokio::time::Instant::now()));
+                    if !key.starts_with("down/") {
+                        return Ok(false);
+                    }
+                    if r.iter().filter(|(k, _)| k.starts_with("down/")).count() == REMOTE_WORKERS {
+                        failed.notify_one();
+                    }
+                    Err(RpcError::internal("peer watch page timed out"))
+                })
+            })
+        };
+        *READ_HOOK.get_or_init(Mutex::default).lock().unwrap() = Some(hook);
+        let workers: Vec<_> =
+            (0..REMOTE_WORKERS).map(|_| tokio::spawn(remote_worker(hub.clone()))).collect();
+        {
+            let mut jobs = hub.watches.jobs.lock().unwrap();
+            for key in &bad {
+                jobs.enqueue(key.clone());
+            }
+        }
+        hub.watches.available.notify_one();
+        tokio::time::timeout(Duration::from_secs(5), failed.notified()).await.unwrap();
+        // Every worker has just seen its source fail. The healthy source comes in now.
+        let asked = tokio::time::Instant::now();
+        hub.watches.jobs.lock().unwrap().enqueue(good.clone());
+        hub.watches.available.notify_one();
+        let mut served = None;
+        for _ in 0..2000 {
+            served = reads.lock().unwrap().iter().find(|(k, _)| *k == good).map(|(_, at)| *at);
+            if served.is_some() {
+                break;
+            }
+            sleep(Duration::from_millis(1)).await;
+        }
+        let served = served.expect("the healthy source was never read");
+        assert!(
+            served - asked < Duration::from_millis(100),
+            "the healthy source waited {:?} behind failing ones",
+            served - asked
+        );
+        // The failing ones are asked again on their own deadlines, backing off: in 1 s at most
+        // 250 ms, 500 ms after the first try, each.
+        sleep(Duration::from_secs(1)).await;
+        for key in &bad {
+            let n = reads.lock().unwrap().iter().filter(|(k, _)| k == key).count();
+            assert!((2..=3).contains(&n), "{key} was read {n} times in about 1 s");
+        }
+        for worker in workers {
+            worker.abort();
+        }
         *READ_HOOK.get_or_init(Mutex::default).lock().unwrap() = None;
         hub.shutdown_all().await;
     }

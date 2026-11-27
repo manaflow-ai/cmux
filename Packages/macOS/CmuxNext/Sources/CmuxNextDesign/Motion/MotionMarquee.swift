@@ -69,4 +69,28 @@ extension MotionGate {
         animation.isRemovedOnCompletion = true
         return animation
     }
+
+    /// A value that follows one marquee pass of `travel` points (``marqueeAnimation(keyPath:travel:sign:now:policy:)``):
+    /// `rest` until the scroll starts, `scrolled` once the title has moved `reach` points (linear in the scroll's time,
+    /// so it leads the eased text), held through the hold, and back to `rest` as the title springs back. A title's
+    /// fade mask uses it to fade the glyphs that leave on the left (`TitleFade`). Nil when the marquee should not run.
+    public func marqueeEdgeAnimation(keyPath: String, rest: Any, scrolled: Any, travel: CGFloat, reach: CGFloat,
+                                     now: CFTimeInterval, policy: MotionPolicy? = nil) -> CAAnimation? {
+        guard let timing = (policy ?? self.policy).marquee(travel: Double(travel)) else { return nil }
+        let animation = CAKeyframeAnimation(keyPath: keyPath)
+        animation.values = [rest, scrolled, scrolled, rest]
+        let total = timing.total
+        let arrive = timing.scroll * Double(min(1, max(0, reach) / max(1, travel)))
+        animation.keyTimes = [0, arrive / total, (timing.scroll + timing.hold) / total, 1].map { NSNumber(value: $0) }
+        animation.timingFunctions = [
+            CAMediaTimingFunction(name: .linear),
+            CAMediaTimingFunction(name: .linear),
+            fadeCurve,
+        ]
+        animation.duration = total
+        animation.beginTime = now + timing.delay
+        animation.fillMode = .backwards
+        animation.isRemovedOnCompletion = true
+        return animation
+    }
 }

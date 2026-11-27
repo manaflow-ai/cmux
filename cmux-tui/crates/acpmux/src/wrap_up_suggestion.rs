@@ -37,6 +37,9 @@ pub struct Watch {
     /// Each wrap-up call still running, by tool call id (a later update may carry only the status).
     calls: HashMap<String, Call>,
     pending: Option<String>,
+    /// The facts the last completed wrap-up offered for the project's instructions file
+    /// (`memory_inbox.rs`).
+    learned: Vec<String>,
 }
 
 impl Watch {
@@ -71,12 +74,19 @@ impl Watch {
         };
         // The last completed wrap-up decides, a recap alone included: it takes back an earlier ask.
         self.pending = args.as_ref().and_then(first_answer);
+        self.learned = args.as_ref().map(crate::memory_inbox::learned_facts).unwrap_or_default();
     }
 
     /// The turn ended: its answer, if any, and a clean slate for the next turn.
     pub fn take(&mut self) -> Option<String> {
         self.calls.clear();
+        self.learned.clear();
         self.pending.take()
+    }
+
+    /// The facts the turn's wrap-up offered, taken.
+    pub fn take_learned(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.learned)
     }
 }
 
@@ -190,6 +200,16 @@ pub fn observe(session: &str, update: &Value) {
     }
     let mut watches = WATCHES.lock().unwrap_or_else(|e| e.into_inner());
     watches.entry(session.to_owned()).or_default().observe(update);
+}
+
+/// [`Watch::take_learned`] for `session`; the turn's end calls it before [`take`].
+pub fn take_learned(session: &str) -> Vec<String> {
+    WATCHES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_mut(session)
+        .map(Watch::take_learned)
+        .unwrap_or_default()
 }
 
 /// [`Watch::take`] for `session`.

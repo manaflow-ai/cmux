@@ -11,7 +11,7 @@
 //! (Claude Code, codex-acp), so such a call and the URL it printed are remembered until it ends
 //! (`Session::pr_creates`); the URL counts only when the call completes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -21,9 +21,22 @@ use super::*;
 static PULL_URL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$").unwrap() // crash-allow: constant pattern
 });
+static API_PULL_URL: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(
+        r"^https://api\.github\.com/repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pulls/([0-9]+)$",
+    )
+    .ok()
+});
+
+/// The `"number": N` of a `lane-gh call land|close` call's JSON arguments. `None` only if the
+/// constant pattern failed to build, which its tests rule out.
+static LANE_GH_NUMBER: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r#""number"\s*:\s*([0-9]+)"#).ok());
 
 /// A session keeps at most this many; a runaway loop stops growing its meta here.
-const MAX_PULL_REQUESTS: usize = 200;
+/// Measured: the meta is saved whole on every change, about 130 bytes a pull request (its URL
+/// and time): 26 KB per save at 200.
+pub(super) const MAX_PULL_REQUESTS: usize = 200;
 
 /// The shell script a tool call runs: `rawInput.command` as a string, or an argv (the script of
 /// `bash -lc SCRIPT`, else the words joined); for a call without one, its title.
@@ -163,22 +176,283 @@ fn commands(script: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The script ends in `gh pr create`: each command before it is a `cd` or must succeed for gh to
-/// run (`git push && gh pr create`), none come after, and only `VAR=value` words or `env` precede
-/// `gh`. gh's URL is the last bare pull request URL printed, so earlier steps' output can't stand
-/// in for it (`git push` prints `/pull/new/BRANCH`, which is not one).
+/// The script ends in `gh pr create` (or a lane VM's broker form, `lane-gh call pr_create`): each
+/// command before it is a `cd` or must succeed for gh to run (`git push && gh pr create`), none
+/// come after but output filters it pipes into (`2>&1 | tail -3`), and only `VAR=value` words,
+/// `env` or `timeout [-k N] N` precede `gh`. gh's URL is the last bare pull request URL printed,
+/// so earlier steps' output can't stand in for it (`git push` prints `/pull/new/BRANCH`, which is
+/// not one); a filter hides gh's exit status, so its "already exists" URL is ruled out by the
+/// line before it (`bare_urls`).
 fn is_gh_pr_create(script: &str) -> bool {
     let commands = commands(script);
-    let Some(((last, _), before)) = commands.split_last() else {
+    let mut end = commands.len();
+    while end > 1 && commands[end - 2].1 == "|" && is_filter(&commands[end - 1].0) {
+        end -= 1;
+    }
+    let Some(((last, _), before)) = commands[..end].split_last() else {
         return false;
     };
     if !before.iter().all(|(c, sep)| c == "cd" || c.starts_with("cd ") || sep == "&&") {
         return false;
     }
-    let mut words = last.split_whitespace().skip_while(|w| {
-        *w == "env" || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
-    });
-    matches!((words.next(), words.next(), words.next()), (Some("gh"), Some("pr"), Some("create")))
+    let mut words = last.split_whitespace().peekable();
+    loop {
+        match words.peek() {
+            Some(&w)
+                if w == "env"
+                    || w.split_once('=')
+                        .is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-')) =>
+            {
+                words.next();
+            }
+            Some(&"timeout") => {
+                words.next();
+                // Its flags (`-k 5`, `--signal=KILL`, `-s KILL`), then the duration.
+                while let Some(&w) = words.peek() {
+                    words.next();
+                    if matches!(w, "-k" | "-s" | "--kill-after" | "--signal") {
+                        words.next();
+                    } else if !w.starts_with('-') {
+                        break;
+                    }
+                }
+            }
+            _ => break,
+        }
+    }
+    let first: Vec<&str> = words.take(3).collect();
+    matches!(first[..], ["gh", "pr", "create"] | ["lane-gh", "call", "pr_create"])
+}
+
+/// A command that only passes on or keeps what it reads: `tail -3`, `head`, `tee FILE`, `cat`.
+fn is_filter(command: &str) -> bool {
+    matches!(command.split_whitespace().next(), Some("tail" | "head" | "tee" | "cat"))
+}
+
+/// A tool that opens a pull request through a broker or repository helper. GitHub's
+/// `pr_create` names and repo MCP's `repo_publish` both return the created URL in their
+/// structured result, so they can be joined to the session without scraping chat text.
+fn is_pr_create_tool(name: &str) -> bool {
+    name == "pr_create"
+        || name.ends_with("__pr_create")
+        || name.ends_with(".pr_create")
+        || name == "repo_publish"
+        || name.ends_with("__repo_publish")
+        || name.ends_with(".repo_publish")
+}
+
+/// A tool that starts a background command (acpmux's `bg_start`), whose output arrives later.
+fn is_bg_start_tool(name: &str) -> bool {
+    name == "bg_start" || name.ends_with("__bg_start") || name.ends_with(".bg_start")
+}
+
+/// The tool's name: Claude Code's `_meta.claude.tool`, else its title.
+fn tool_name(update: &Value) -> Option<&str> {
+    update
+        .pointer("/_meta/claude/tool")
+        .and_then(Value::as_str)
+        .or_else(|| update.get("title").and_then(Value::as_str))
+}
+
+/// A pull request a `gh pr merge` or `gh pr close` call settled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Target {
+    Url(String),
+    /// A bare number with no `--repo`: the repository is the one gh found in the call's folder,
+    /// which acpmux does not know, so the review index names it (`Index::pr_by_number`).
+    Number(u64),
+}
+
+/// A `gh pr merge` or `gh pr close` call while it runs (`Session::pr_closes`).
+#[derive(Clone, Debug, Default)]
+pub(super) struct Closing {
+    /// What its arguments name, counted once the call completes.
+    named: Vec<Target>,
+    /// What gh printed it settled, counted however the call ends.
+    printed: Vec<Target>,
+    /// gh said it only queued or refused the merge.
+    unsettled: bool,
+}
+
+/// gh's flags for `pr merge` and `pr close` that take the next word as their value.
+const VALUE_FLAGS: [&str; 13] = [
+    "-R",
+    "--repo",
+    "-b",
+    "--body",
+    "-F",
+    "--body-file",
+    "-t",
+    "--subject",
+    "-c",
+    "--comment",
+    "-A",
+    "--author-email",
+    "--match-head-commit",
+];
+
+/// The `gh pr merge` and `gh pr close` commands among the script's top-level commands (after
+/// `VAR=value` words or `env`), wherever they stand, so a pipe after one (`2>&1 | tail -3`) or a
+/// step before it changes nothing; `None` when it runs neither. Each names the pull request its
+/// first argument is: a URL, or a number (`5`, `#5`) with `--repo OWNER/REPO` or without. A
+/// branch name, or `--auto` (nothing is merged yet), names none. A lane VM's direct form,
+/// `lane-gh call land|close OWNER/REPO JSON`, names the `"number"` its JSON holds.
+fn gh_pr_closes(script: &str) -> Option<Vec<Target>> {
+    let mut found = None;
+    for (command, _) in commands(script) {
+        let words: Vec<&str> = command
+            .split_whitespace()
+            .skip_while(|w| {
+                *w == "env"
+                    || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
+            })
+            .collect();
+        if let ["lane-gh", "call", "land" | "close", repo, ..] = words[..] {
+            // A lane VM's broker call, `lane-gh call land OWNER/REPO '{"number": 5, ...}'`.
+            let targets: &mut Vec<Target> = found.get_or_insert_with(Vec::new);
+            if let Some(n) = LANE_GH_NUMBER
+                .as_ref()
+                .and_then(|number| number.captures(&command))
+                .and_then(|c| c[1].parse::<u64>().ok())
+                && repo.split('/').count() == 2
+            {
+                targets.push(Target::Url(format!("https://github.com/{repo}/pull/{n}")));
+            }
+            continue;
+        }
+        if !matches!(words.get(..3), Some(["gh", "pr", "merge" | "close"])) {
+            continue;
+        }
+        let targets: &mut Vec<Target> = found.get_or_insert_with(Vec::new);
+        let (mut repo, mut first, mut auto) = (None, None, false);
+        let mut rest = words[3..].iter().map(|w| w.trim_matches(|c| c == '\'' || c == '"'));
+        while let Some(word) = rest.next() {
+            if word == "--auto" {
+                auto = true;
+            } else if let Some(value) = word.strip_prefix("--repo=") {
+                repo = Some(value.to_owned());
+            } else if VALUE_FLAGS.contains(&word) {
+                let value = rest.next();
+                if matches!(word, "-R" | "--repo") {
+                    repo = value.map(str::to_owned);
+                }
+            } else if !word.starts_with('-') && first.is_none() {
+                first = Some(word.to_owned());
+            }
+        }
+        let Some(first) = first.filter(|_| !auto) else { continue };
+        if PULL_URL.is_match(&first) {
+            targets.push(Target::Url(first));
+        } else if let Ok(n) = first.trim_start_matches('#').parse::<u64>() {
+            let repo = repo.map(|r| r.trim_start_matches("https://github.com/").to_owned());
+            targets.push(match repo.filter(|r| r.split('/').count() == 2) {
+                Some(repo) => Target::Url(format!("https://github.com/{repo}/pull/{n}")),
+                None => Target::Number(n),
+            });
+        }
+    }
+    found
+}
+
+/// What gh prints when a merge is only queued or refused: none of the call's pull requests is
+/// settled by it. On a lane VM, `gh pr merge` and `lane-gh call land` say `handed to` (`handed_to`)
+/// when the broker queued the merge behind a hold, and `"ok": false` or `refused` when it did not
+/// merge.
+const UNSETTLED: [&str; 8] = [
+    "will be automatically merged",
+    "merge queue",
+    "is not mergeable",
+    "X Pull request",
+    " handed to ",
+    "\"handed_to\"",
+    "\"ok\": false",
+    "refused",
+];
+
+/// The lines gh prints once a pull request is settled: `✓ Squashed and merged pull request
+/// o/r#5 (title)` (also `Merged`, `Rebased and merged`, `Closed`), `! Pull request o/r#5 was
+/// already merged` (or `closed`), a merge wrapper's `merged o/r#5 at SHA`, and a lane VM's
+/// `✓ Squashed and merged o/r#5` and `✓ Closed o/r#5`. `--auto`'s "will be
+/// automatically merged" is none of them: nothing is merged yet.
+/// `None` only if the constant pattern failed to build, which its tests rule out.
+static SETTLED: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)(?:(?:Squashed and merged|Rebased and merged|Merged|Closed) (?:pull request )?|Pull request |^merged )([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)(?: was already (?:merged|closed)| at [0-9a-f]{7,}|[ ]\(|$)",
+    )
+    .ok()
+});
+
+/// The pull requests `output` says gh merged or closed, as their URLs, once each.
+fn settled_urls(output: &str) -> Vec<String> {
+    let mut urls: Vec<String> = vec![];
+    let Some(settled) = SETTLED.as_ref() else { return urls };
+    for found in settled.captures_iter(output) {
+        let url = format!("https://github.com/{}/pull/{}", &found[1], &found[2]);
+        if !urls.contains(&url) {
+            urls.push(url);
+        }
+    }
+    urls
+}
+
+/// Follows a `tool_call` or `tool_call_update` of `session`: a shell call that runs `gh pr merge`
+/// or `gh pr close` is remembered while it runs, and the pull requests it settled are returned
+/// when it ends, for `m.closed_pull_requests` ([`record_closed`]) and the review queue
+/// (`review_queue.rs`), whoever's session opened them.
+pub(super) fn absorb_closed(session: &Session, update: &Value) -> Vec<Target> {
+    let mut calls = session.pr_closes.lock().unwrap_or_else(|e| e.into_inner());
+    track_closed(&mut calls, update)
+}
+
+/// Adds `url` to `m.closed_pull_requests` once, dropping the oldest past
+/// [`MAX_PULL_REQUESTS`].
+pub(super) fn record_closed(m: &mut SessionMeta, url: &str) {
+    if m.closed_pull_requests.iter().any(|u| u == url) {
+        return;
+    }
+    if m.closed_pull_requests.len() >= MAX_PULL_REQUESTS {
+        m.closed_pull_requests.remove(0);
+    }
+    m.closed_pull_requests.push(url.to_owned());
+}
+
+/// Follows one update of a `gh pr merge` or `gh pr close` call in `calls`: what it settled, once
+/// it ends. Off a terminal gh prints nothing when a merge or close succeeds, so a call that
+/// completes counts the pull requests its arguments name, unless gh said it only queued or
+/// refused the merge. What gh printed it settled (`was already merged`, a wrapper's `merged
+/// o/r#5 at SHA`) counts however the call ends: a `| tail` after gh makes the call's status the
+/// pipe's, not gh's.
+fn track_closed(calls: &mut HashMap<String, Closing>, update: &Value) -> Vec<Target> {
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return vec![] };
+    let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
+    if execute
+        && !calls.contains_key(id)
+        && let Some(named) = script(update).and_then(|s| gh_pr_closes(&s))
+    {
+        calls.insert(id.to_owned(), Closing { named, ..Default::default() });
+    }
+    let Some(closing) = calls.get_mut(id) else { return vec![] };
+    let output = output_text(update);
+    closing.unsettled |= UNSETTLED.iter().any(|line| output.contains(line));
+    for url in settled_urls(&output) {
+        let target = Target::Url(url);
+        if !closing.printed.contains(&target) {
+            closing.printed.push(target);
+        }
+    }
+    let status = update.get("status").and_then(Value::as_str);
+    if !matches!(status, Some("completed" | "failed")) {
+        return vec![];
+    }
+    let Some(Closing { named, mut printed, unsettled }) = calls.remove(id) else { return vec![] };
+    if status == Some("completed") && !unsettled {
+        for target in named {
+            if !printed.contains(&target) {
+                printed.push(target);
+            }
+        }
+    }
+    printed
 }
 
 /// The text a tool update reports as its output: `rawOutput.stdout` when the harness keeps stdout
@@ -189,7 +463,9 @@ fn output_text(update: &Value) -> String {
     }
     let mut text = String::new();
     for block in update.get("content").and_then(Value::as_array).into_iter().flatten() {
-        if let Some(t) = block.pointer("/content/text").and_then(Value::as_str) {
+        if let Some(t) =
+            block.pointer("/content/text").or_else(|| block.get("text")).and_then(Value::as_str)
+        {
             text.push_str(t);
             text.push('\n');
         }
@@ -209,35 +485,169 @@ fn output_text(update: &Value) -> String {
     text
 }
 
+/// Every output line that is nothing but a pull request URL, in order, once each, but one gh printed
+/// because it already exists (`a pull request for branch "b" into branch "main" already exists:`
+/// on the line before, or on its own line).
+fn bare_urls(output: &str) -> Vec<String> {
+    let mut urls: Vec<String> = vec![];
+    let mut previous = "";
+    for line in output.lines().map(str::trim) {
+        if let Some(url) = normalize_pull_url(line).filter(|_| !previous.contains("already exists"))
+            && !urls.iter().any(|u| u == &url)
+        {
+            urls.push(url);
+        }
+        if !line.is_empty() {
+            previous = line;
+        }
+    }
+    urls
+}
+
 /// The pull request `gh pr create` printed: the last output line that is nothing but its URL.
-fn printed_url(output: &str) -> Option<&str> {
-    output.lines().rev().map(str::trim).find(|line| PULL_URL.is_match(line))
+fn printed_url(output: &str) -> Option<String> {
+    bare_urls(output).pop()
+}
+
+/// Normalizes GitHub's API pull URL to the browser URL stored in session metadata.
+fn normalize_pull_url(value: &str) -> Option<String> {
+    if PULL_URL.is_match(value) {
+        return Some(value.to_owned());
+    }
+    let captures = API_PULL_URL.as_ref()?.captures(value)?;
+    Some(format!("https://github.com/{}/{}/pull/{}", &captures[1], &captures[2], &captures[3]))
+}
+
+/// The pull request a broker create answered with: `{"ok": true, "status": 201, "data":
+/// {"html_url": URL, ...}}` (the MCP tool and `lane-gh call pr_create`), or the bare URL `gh pr
+/// create` prints. A refusal (`"ok": false`, a cooldown, a 409) names none.
+fn created_url(output: &str) -> Option<String> {
+    let trimmed = output.trim();
+    let answer: Option<Value> = serde_json::from_str(trimmed)
+        .ok()
+        .or_else(|| trimmed.find('{').and_then(|i| serde_json::from_str(&trimmed[i..]).ok()));
+    if let Some(answer) = answer.filter(Value::is_object) {
+        if answer.get("ok").and_then(Value::as_bool) == Some(false) {
+            return None;
+        }
+        for pointer in ["/data/url", "/data/html_url", "/url", "/html_url"] {
+            if let Some(url) =
+                answer.pointer(pointer).and_then(Value::as_str).and_then(normalize_pull_url)
+            {
+                return Some(url);
+            }
+        }
+    }
+    printed_url(output)
 }
 
 /// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr create` is
-/// remembered, and the pull request URL its output prints joins `m.pull_requests`.
-pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta) {
-    let mut calls = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(url) = track(&mut calls, update)
-        && m.pull_requests.len() < MAX_PULL_REQUESTS
-        && !m.pull_requests.contains(&url)
-    {
-        m.pull_requests.push(url);
+/// remembered, and the pull request URL its output prints joins `m.pull_requests`, opened `at`
+/// (`m.pull_request_times`). Returns a URL that joined it, for the review queue
+/// (`review_queue.rs`) and the cost ledger (`hub/ledger`).
+pub(super) fn absorb(
+    session: &Session,
+    update: &Value,
+    m: &mut SessionMeta,
+    at: u64,
+) -> Option<String> {
+    let mut creates = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
+    let mut joined = None;
+    for url in follow(&mut creates, update) {
+        if m.pull_requests.len() < MAX_PULL_REQUESTS && !m.pull_requests.contains(&url) {
+            m.pull_requests.push(url.clone());
+            m.pull_request_times.insert(url.clone(), at);
+            joined.get_or_insert(url);
+        }
     }
+    joined
+}
+
+/// The pull request creates a session has running (`Session::pr_creates`; the scorecard keeps
+/// its own while it reads a log).
+#[derive(Debug, Default)]
+pub(crate) struct Creates {
+    /// A `gh pr create` call's (or a broker `pr_create`'s) id, and the URL it printed so far.
+    calls: HashMap<String, Option<String>>,
+    /// `bg_start` calls whose command opens a pull request, by tool call id.
+    launches: HashSet<String>,
+    /// Their background tasks (`bg-…`), whose output is read when a tool reads it (`bg_output`,
+    /// `run_wait`) or the task's end notice arrives (`follow_notice`).
+    tasks: HashSet<String>,
+}
+
+impl Creates {
+    pub(crate) fn clear(&mut self) {
+        self.calls.clear();
+        self.launches.clear();
+        self.tasks.clear();
+    }
+}
+
+/// Follows one tool update into `creates`: the pull request URLs it settled as opened. A
+/// `gh pr create` or broker `pr_create` call counts once it completes (`track`). A `bg_start`
+/// whose command opens one is remembered by its task id, and every bare pull request URL that
+/// task printed counts when a tool result shows its output.
+pub(crate) fn follow(creates: &mut Creates, update: &Value) -> Vec<String> {
+    let mut urls: Vec<String> = track(&mut creates.calls, update).into_iter().collect();
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return urls };
+    let opens = |s: &str| s.contains("gh pr create") || s.contains("pr_create");
+    if tool_name(update).is_some_and(is_bg_start_tool) && script(update).is_some_and(|s| opens(&s))
+    {
+        creates.launches.insert(id.to_owned());
+    }
+    let completed = update.get("status").and_then(Value::as_str) == Some("completed");
+    let output = || output_text(update);
+    if completed && creates.launches.remove(id) {
+        if let Some(task) = serde_json::from_str::<Value>(output().trim())
+            .ok()
+            .and_then(|v| v.get("id").and_then(Value::as_str).map(str::to_owned))
+        {
+            creates.tasks.insert(task);
+        }
+    } else if completed && !creates.tasks.is_empty() {
+        // A `bg_output` or `run_wait` answer: `{"id": "bg-…", "text": OUTPUT, ...}`.
+        if let Ok(answer) = serde_json::from_str::<Value>(output().trim())
+            && answer.get("id").and_then(Value::as_str).is_some_and(|t| creates.tasks.contains(t))
+            && let Some(text) = answer.get("text").and_then(Value::as_str)
+        {
+            for url in bare_urls(text) {
+                if !urls.contains(&url) {
+                    urls.push(url);
+                }
+            }
+        }
+    }
+    urls
+}
+
+/// A background task's end notice (a `user_message` whose `_meta.provenance.bgTaskId` names a task
+/// `follow` remembered): the bare pull request URLs in the output lines it quotes.
+pub(crate) fn follow_notice(creates: &mut Creates, message: &Value) -> Vec<String> {
+    let Some(task) = message.pointer("/_meta/provenance/bgTaskId").and_then(Value::as_str) else {
+        return vec![];
+    };
+    if !creates.tasks.contains(task) {
+        return vec![];
+    }
+    message.get("text").and_then(Value::as_str).map(bare_urls).unwrap_or_default()
 }
 
 /// Follows one update of a `gh pr create` call in `calls` (its id, and the URL it printed so far):
 /// the URL to record once the call completes. A failed call records none, though it printed one
-/// before failing ("a pull request for branch ... already exists: URL").
+/// before failing ("a pull request for branch ... already exists: URL"). A broker `pr_create`
+/// tool call (`is_pr_create_tool`) counts the same way, with the URL its JSON answer names.
 fn track(calls: &mut HashMap<String, Option<String>>, update: &Value) -> Option<String> {
     let id = update.get("toolCallId").and_then(Value::as_str)?;
     let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
-    if execute && script(update).is_some_and(|s| is_gh_pr_create(&s)) {
+    if execute && script(update).is_some_and(|s| is_gh_pr_create(&s))
+        || tool_name(update).is_some_and(is_pr_create_tool)
+    {
         calls.entry(id.to_owned()).or_default();
     }
     let printed = calls.get_mut(id)?;
-    if let Some(url) = printed_url(&output_text(update)) {
-        *printed = Some(url.to_owned());
+    if let Some(url) = created_url(&output_text(update)) {
+        *printed = Some(url);
     }
     match update.get("status").and_then(Value::as_str) {
         Some("completed") => calls.remove(id).flatten(),
@@ -250,93 +660,5 @@ fn track(calls: &mut HashMap<String, Option<String>>, update: &Value) -> Option<
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_a_command_that_is_gh_pr_create_counts() {
-        for yes in [
-            "gh pr create --fill",
-            "cd /src/app && gh pr create -B main",
-            "cd a; cd b && GH_HOST=github.com env gh pr create --draft",
-            "gh pr create --title x --body \"$(cat <<'EOF'\nSummary | with; a pipe && more\n\"quoted\"\nEOF\n)\"",
-            "gh pr create --title 'a && b' --body 'x; y | z'",
-            "gh pr create --body \"$(printf 'a)b')\" --title \"x && y\"",
-            "gh pr create --fill 2>&1",
-            "gh pr create --fill &>/tmp/pr.log",
-            "git push && gh pr create --fill",
-            "git add -A && git commit -m 'x; y' && git push -u origin HEAD && gh pr create --fill 2>&1",
-        ] {
-            assert!(is_gh_pr_create(yes), "{yes}");
-        }
-        for no in [
-            "grep -rn 'gh pr create' .",
-            "echo gh pr create",
-            "gh pr create --fill && gh pr view 9",
-            "gh pr create --fill | tee out",
-            "gh pr create --body \"$(cat body.md)\" && gh pr view 9",
-            "git push; gh pr create --fill",
-            "git push || gh pr create --fill",
-            "git push | gh pr create --fill",
-            "sleep 9 & gh pr create --fill",
-            "gh pr view 9",
-            "",
-        ] {
-            assert!(!is_gh_pr_create(no), "{no}");
-        }
-    }
-
-    #[test]
-    fn script_reads_a_string_a_shell_argv_and_falls_back_to_the_title() {
-        assert_eq!(
-            script(&json!({"rawInput": {"command": "gh pr create"}})).unwrap(),
-            "gh pr create"
-        );
-        let argv = json!({"rawInput": {"command": ["/bin/bash", "-lc", "cd x && gh pr create"]}});
-        assert_eq!(script(&argv).unwrap(), "cd x && gh pr create");
-        let words = json!({"rawInput": {"command": ["gh", "pr", "create"]}});
-        assert_eq!(script(&words).unwrap(), "gh pr create");
-        assert_eq!(script(&json!({"title": "gh pr create"})).unwrap(), "gh pr create");
-    }
-
-    #[test]
-    fn a_url_counts_only_when_its_call_completes() {
-        let mut calls = std::collections::HashMap::new();
-        let start = json!({"toolCallId": "t1", "kind": "execute", "rawInput": {"command": "gh pr create --fill"}});
-        let printed = json!({"toolCallId": "t1", "status": "in_progress",
-            "rawOutput": {"stdout": "https://github.com/o/r/pull/5\n"}});
-        assert_eq!(track(&mut calls, &start), None);
-        // gh's "already exists: URL" streamed before the call fails records nothing.
-        assert_eq!(track(&mut calls, &printed), None);
-        assert_eq!(track(&mut calls, &json!({"toolCallId": "t1", "status": "failed"})), None);
-        assert!(calls.is_empty());
-        // The URL printed earlier counts once the call completes, though the last update has no output.
-        assert_eq!(track(&mut calls, &start), None);
-        assert_eq!(track(&mut calls, &printed), None);
-        assert_eq!(
-            track(&mut calls, &json!({"toolCallId": "t1", "status": "completed"})).as_deref(),
-            Some("https://github.com/o/r/pull/5")
-        );
-        assert!(calls.is_empty());
-        // Another call's updates are not a gh pr create.
-        assert_eq!(
-            track(
-                &mut calls,
-                &json!({"toolCallId": "t2", "status": "completed",
-            "rawOutput": {"stdout": "https://github.com/o/r/pull/6\n"}})
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn printed_url_is_the_last_line_that_is_only_a_pull_url() {
-        let out =
-            "Creating pull request for b into main in o/r\n\nhttps://github.com/o/r/pull/12\n";
-        assert_eq!(printed_url(out), Some("https://github.com/o/r/pull/12"));
-        assert_eq!(printed_url("see https://github.com/o/r/pull/3 for more"), None);
-        assert_eq!(printed_url("https://github.com/o/r/pull/3/files"), None);
-        let stdout = json!({"rawOutput": {"stdout": "https://github.com/o/r/pull/4\n", "stderr": "warning"}});
-        assert_eq!(printed_url(&output_text(&stdout)), Some("https://github.com/o/r/pull/4"));
-    }
-}
+#[path = "pull_requests_tests.rs"]
+mod tests;

@@ -1,11 +1,14 @@
 // Lawrence, msg 3790: "everywhere we say sign in, we need to have a button for signing in". The
 // Artifacts page's signed-out failure ("Sign in to cmux to see your artifacts.") shows the shared Sign
-// In button, which runs the app's Sign In action; any other failure keeps only Try Again.
+// In button, which runs the app's Sign In action; any other failure shows no button and the page reads
+// the tree again on its own (Leo, 2026-11-22: a "try again" is a vacuous decision).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { pageError, type PageClient } from "../src/pages/shared/pageClient";
+import { teardownDom } from "./support/domTeardown";
+import { actTurn, until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 // The page's file tree (@pierre/trees) defines a custom element when it loads.
@@ -36,12 +39,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 /** A host whose every read fails with `code`, recording each call. */
@@ -82,8 +82,15 @@ test("signed out, the page offers Sign In, which runs the app's Sign In action",
   expect(fake.calls.at(-1)).toEqual({ op: "cmux.app.action.run", params: { action: "palette.auth.signIn" } });
 });
 
-test("another failure offers no Sign In", async () => {
-  await render("cmux.artifacts.failed");
+test("another failure offers no button, and the page reads the tree again on its own", async () => {
+  const fake = await render("cmux.artifacts.failed");
   expect(host.querySelector('[data-action="sign-in"]')).toBeNull();
-  expect(host.querySelector(".artifacts-retry")).not.toBeNull();
+  expect(host.querySelector("button")).toBeNull();
+  // Nothing at first: no failure text, no "Try again".
+  expect(host.textContent).toBe("");
+  const reads = fake.calls.filter((call) => call.op === "cmux.artifacts.tree").length;
+  // The first ask comes within the jittered first step (at most 1 s).
+  await until(() => fake.calls.filter((call) => call.op === "cmux.artifacts.tree").length > reads, actTurn);
+  expect(fake.calls.filter((call) => call.op === "cmux.artifacts.tree").length).toBeGreaterThan(reads);
+  expect(host.querySelector("button")).toBeNull();
 });

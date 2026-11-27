@@ -8,6 +8,7 @@ import { OnNewTab } from "./newTabComposer";
 import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./quickModelMenuModel";
 import type { SessionAuth } from "./sessionAuth";
 import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
 const loadQuickModelMenu = async () => {
@@ -38,7 +39,7 @@ function installDom(): HTMLElement {
     "cancelAnimationFrame",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -63,6 +64,7 @@ afterEach(async () => {
     });
   root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -169,7 +171,7 @@ for (const newTab of [false, true]) {
       });
       const recovery = () =>
         [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-          (row) => row.textContent?.trim() === "Sign in again",
+          (row) => row.textContent?.trim() === "Sign in to Claude Code",
         );
       expect(recovery()).toBeDefined();
       const input = document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
@@ -379,7 +381,7 @@ test("inline effort picks a different model and its level together; model names 
           },
           families: {
             current: "claude",
-            onPick: (row) => picks.push(row),
+            onPick: (row) => void picks.push(row),
             list: [
               {
                 id: "claude",
@@ -487,7 +489,7 @@ test.each([
           fast: { checked: false, onChange: (value) => fastPicks.push(value) },
           families: {
             current: "claude",
-            onPick: (model) => combos.push(model),
+            onPick: (model) => void combos.push(model),
             list: [
               {
                 id: "claude",
@@ -952,7 +954,7 @@ test("another tab whose models honor Fast mode draws the Fast row and lands its 
           fast: { checked: false, onChange() {} },
           families: {
             current: "claude",
-            onPick: (model) => picks.push(model),
+            onPick: (model) => void picks.push(model),
             list: [
               {
                 id: "claude",
@@ -1039,6 +1041,38 @@ test("familyTabs: one tab per model family, its routes in rail order", async () 
     ["openai", "Codex", ["codex", "codex-app-server"]],
     ["vercel", "Vercel AI Gateway", ["vercel"]],
   ]);
+});
+
+test("familyTabs: Antigravity is a route of the Gemini tab, drawn with the Gemini mark", async () => {
+  const { familyTabs, leadRoute } = await import("./quickModelMenuModel");
+  const gemini: QuickFamily = {
+    id: "gemini",
+    name: "Gemini CLI",
+    mark: "gemini",
+    models: [{ id: "gemini-3.8-flash", name: "3.8 Flash", family: "gemini" }],
+    more: [],
+    unavailable: true,
+  };
+  const antigravity: QuickFamily = {
+    id: "antigravity",
+    name: "Antigravity",
+    mark: "antigravity",
+    models: [{ id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", family: "antigravity" }],
+    more: [],
+  };
+  const tabs = familyTabs([gemini, antigravity]);
+  expect(tabs.map((tab) => [tab.key, tab.name, tab.mark, tab.routes.map((route) => route.id)])).toEqual([
+    ["gemini", "Gemini", "gemini", ["gemini", "antigravity"]],
+  ]);
+  // The tab opens on the route that can start: Gemini CLI failed its probe (not signed in), even
+  // when it is the new chat's harness.
+  expect(leadRoute(tabs[0]!, "gemini").id).toBe("antigravity");
+  expect(leadRoute(tabs[0]!, undefined).id).toBe("antigravity");
+  // A Gemini CLI that can start keeps its place as the chat's own route.
+  const ready = familyTabs([{ ...gemini, unavailable: undefined }, antigravity]);
+  expect(leadRoute(ready[0]!, "gemini").id).toBe("gemini");
+  // One product's routes keep their own name and mark.
+  expect(familyTabs(familyRail)[0]?.mark).toBeUndefined();
 });
 
 test("searchGroups: a family's routes share one heading and list a model once", async () => {

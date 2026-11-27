@@ -14,6 +14,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_compile_revert as revert  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+from cmux_next_step_text import inline_steps  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next.yml"
 
@@ -93,7 +104,7 @@ class RevertStep(unittest.TestCase):
     """The workflow's revert command on a real repository: a squash and a two-parent commit both revert."""
 
     def revert_script(self) -> str:
-        job_ = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-revert"]
+        job_ = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-revert"]
         run = next(step["run"] for step in job_["steps"] if step.get("name") == "Open the revert pull request")
         return run[run.index("mainline=()"):run.index("auth=")]
 
@@ -124,22 +135,92 @@ class RevertStep(unittest.TestCase):
                     git("commit", "-qm", "squash")
                 sha = git("rev-parse", "HEAD")
                 done = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp,
-                                      env={"MERGE_SHA": sha, "PR": "1", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"},
+                                      env=git_fixture_env.fixture_env({"MERGE_SHA": sha, "PR": "1", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}),
                                       capture_output=True, text=True)
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertFalse(Path(tmp, "b").exists())
 
 
+class RefusedRead(unittest.TestCase):
+    def test_a_spent_rate_limit_skips_the_attribution_instead_of_failing(self):
+        # The job runs only after another job failed; a spent budget made it a second red row with no
+        # culprit in it (2026-11-26 01:41Z and 01:46Z). A rate-limited read now skips; other refusals raise.
+        import contextlib
+        import io
+        import subprocess
+
+        import cmux_next_push_attribution as attribution
+
+        def limited(args, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, args, output='{"message":"API rate limit exceeded for installation."}',
+                stderr="gh: API rate limit exceeded for installation. (HTTP 403)")
+
+        def missing(args, **kwargs):
+            raise subprocess.CalledProcessError(1, args, output='{"message":"Not Found"}', stderr="gh: Not Found (HTTP 404)")
+
+        argv = ["--repo", "o/r", "--run-id", "1", "--sha", "a" * 40]
+        out = io.StringIO()
+        with mock.patch.dict("os.environ", {"GH_READ_TOKEN": ""}), \
+             mock.patch.object(attribution.subprocess, "run", side_effect=limited), \
+             contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(out):
+            self.assertEqual(attribution.main(argv), 0)
+        self.assertIn("Attribution skipped", out.getvalue())
+        with mock.patch.dict("os.environ", {"GH_READ_TOKEN": ""}), \
+             mock.patch.object(attribution.subprocess, "run", side_effect=missing), \
+             contextlib.redirect_stderr(io.StringIO()), \
+             self.assertRaises(subprocess.CalledProcessError):
+            attribution.main(argv)
+
+    def test_a_refused_read_prints_ghs_message_and_body(self):
+        # gh's message (with the HTTP status) goes to stderr and the body to stdout; both are captured,
+        # so the job log showed only "returned non-zero exit status 1" (2026-11-13, 05:14Z to 05:40Z).
+        import contextlib
+        import io
+        import subprocess
+
+        import cmux_next_push_attribution as attribution
+
+        def run(args, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, args, output='{"message":"API rate limit exceeded for installation ID 1."}',
+                stderr="gh: API rate limit exceeded for installation ID 1. (HTTP 403)")
+
+        err = io.StringIO()
+        with mock.patch.dict("os.environ", {"GH_READ_TOKEN": ""}), \
+             mock.patch.object(attribution.subprocess, "run", side_effect=run), \
+             contextlib.redirect_stderr(err), \
+             self.assertRaises(subprocess.CalledProcessError):
+            attribution.gh_api("repos/o/r/actions/runs/1/jobs?per_page=100")
+        self.assertIn("gh api repos/o/r/actions/runs/1/jobs?per_page=100 failed (exit 1)", err.getvalue())
+        self.assertIn("(HTTP 403)", err.getvalue())
+        self.assertIn("API rate limit exceeded for installation ID 1.", err.getvalue().split("body:", 1)[-1])
+
+
 class WorkflowJob(unittest.TestCase):
+    def test_the_reads_use_the_cmux_bot_read_token(self):
+        # Off the repository token's hourly budget, as push attribution reads.
+        steps = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-revert"]["steps"]
+        names = [step.get("name") for step in steps]
+        mint = steps[names.index("Mint the cmux-bot read token")]
+        self.assertLess(names.index("Mint the cmux-bot read token"), names.index("Find the one merge to revert"))
+        self.assertTrue(mint.get("continue-on-error"))
+        self.assertEqual(mint["with"]["permission-actions"], "read")
+        self.assertNotIn("permission-contents-write", mint["with"])
+        find = steps[names.index("Find the one merge to revert")]
+        self.assertEqual(find["env"]["GH_READ_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        self.assertEqual(find["env"]["GH_TOKEN"], "${{ github.token }}")
+
     def test_it_runs_after_a_failed_base_push_compile_only(self):
-        job_ = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-revert"]
+        job_ = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-revert"]
         self.assertEqual(job_["needs"], ["release-compile", "release-compile-fast-admission"])
         for needle in ("needs.release-compile.result == 'failure'", "needs.release-compile-fast-admission.result == 'failure'",
                        "github.event_name == 'push'", "github.ref == 'refs/heads/feat-cmux-next'"):
             self.assertIn(needle, job_["if"])
         # No write permission on the workflow token: the App token pushes and opens the revert.
         self.assertEqual(job_["permissions"], {"actions": "read", "contents": "read", "pull-requests": "read"})
-        self.assertEqual(job_["environment"], "ci-routing-agent")
+        self.assertEqual(workflow_jobs.resolve(job_, "release-compile-revert").environment,
+                         {"name": "ci-routing-agent", "deployment": False})
         run = "\n".join(step.get("run", "") for step in job_["steps"])
         self.assertIn("cmux_next_compile_revert.py", run)
         self.assertIn("git revert --no-edit", run)

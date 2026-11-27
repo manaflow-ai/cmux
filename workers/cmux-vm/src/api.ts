@@ -19,7 +19,7 @@ import {
   ServiceUnavailable,
   Unauthorized,
 } from "./errors.ts";
-import { SnapshotId, VmId } from "./lib/ids.ts";
+import { MeshId, SnapshotId, VmId } from "./lib/ids.ts";
 import { VmCreationsGroupDefinition } from "./api/creations.ts";
 import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
@@ -170,6 +170,7 @@ export class CreateVmRequest extends Schema.Class<CreateVmRequest>("CreateVmRequ
     maxRunSeconds: Schema.optional(MaxRunSeconds),
     autoDeleteSeconds: Schema.optional(AutoDeleteSeconds),
     labels: Schema.optional(Labels),
+    meshId: Schema.optional(MeshId.annotations({ description: "Create the VM on this mesh's private network, so it is on the network from its first boot. Needs the mesh:write scope and a mesh of the caller's team (404 otherwise). The VM is reachable only after PUT /v1/meshes/{meshId}/vms/{vmId}, which applies the mesh's access rules; that call is still required, and is faster for a VM created this way. Omit to create the VM on no network." })),
   },
   {
     description: BASE_IMAGE_DESCRIPTION,
@@ -266,6 +267,38 @@ export class FileStat extends Schema.Class<FileStat>("FileStat")({
 
 export const FilePathParams = Schema.Struct({ path: GuestPath });
 
+export const SearchFilesParams = Schema.Struct({
+  path: GuestPath,
+  query: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)).annotations({ description: "A literal, case-sensitive substring, matched line by line." }),
+  limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 1000)).annotations({ description: "Most matches to answer, 1 to 1000; default 100." })),
+});
+
+export const SearchSource = Schema.Literal("replica", "disk").annotations({
+  description: "replica: answered from the copy of the text seeded while this VM has been paused, in one read. disk: read from the saved disk file by file (no replica, or the VM changed since it was seeded).",
+});
+
+export class SearchMatch extends Schema.Class<SearchMatch>("SearchMatch")({
+  path: Schema.String,
+  line: Schema.Int.pipe(Schema.positive()),
+  text: Schema.String.annotations({ description: "The matching line, at most 400 characters." }),
+}) {}
+
+export class FileSearch extends Schema.Class<FileSearch>("FileSearch")({
+  source: SearchSource,
+  complete: Schema.Boolean.annotations({ description: "False when a bound (5000 files, 2000 folders, 16 MiB) left files under the path unread, or the limit cut the matches." }),
+  scanned: Schema.Int.pipe(Schema.nonNegative()).annotations({ description: "Files under the path that were searched." }),
+  matches: Schema.Array(SearchMatch),
+}) {}
+
+export class FileReplica extends Schema.Class<FileReplica>("FileReplica")({
+  root: GuestPath,
+  complete: Schema.Boolean,
+  files: Schema.Int.pipe(Schema.nonNegative()),
+  bytes: Schema.Int.pipe(Schema.nonNegative()),
+  truncated: Schema.Int.pipe(Schema.nonNegative()).annotations({ description: "Files over 256 KiB: only their first 256 KiB are searched." }),
+  seedMs: Schema.Int.pipe(Schema.nonNegative()),
+}) {}
+
 export const WriteFileParams = Schema.Struct({
   path: GuestPath,
   mode: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(0, 0o7777)).annotations({
@@ -294,6 +327,16 @@ export const WriteFileHeaders = Schema.Struct({
 export const CreateHeaders = Schema.Struct({
   ...teamHeader,
   "idempotency-key": Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(255))),
+});
+
+/**
+ * A create's own priority: `background` is a VM made ahead of anyone asking (the platform's spares). It waits behind
+ * every other create for the environment's provider create slots and never takes the last one. It only ever lowers
+ * the caller's own priority, so any caller may send it.
+ */
+export const CreateVmHeaders = Schema.Struct({
+  ...CreateHeaders.fields,
+  "x-cmux-create-priority": Schema.optional(Schema.Literal("background")),
 });
 
 const VmPath = Schema.Struct({ vmId: Schema.String });
@@ -350,7 +393,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
   .add(
     HttpApiEndpoint.post("createVm", "/v1/vms")
       .setPayload(CreateVmRequest)
-      .setHeaders(CreateHeaders)
+      .setHeaders(CreateVmHeaders)
       .addSuccess(CreatedVm, { status: 201 })
       .addError(BadRequest)
       .addError(Forbidden)
@@ -362,7 +405,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
         describe(
           "Create a VM",
           "vm:write",
-          "Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied.",
+          "Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. meshId additionally requires mesh:write and names a mesh of the caller's team; the VM joins that mesh's private network at creation and still needs PUT /v1/meshes/{meshId}/vms/{vmId} to become reachable.",
         ),
       ),
   )
@@ -401,7 +444,16 @@ export class VmsGroup extends HttpApiGroup.make("vms")
       .addSuccess(VmPublicEgress)
       .addError(Forbidden).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
       .annotateContext(describe("Allow a VM's public egress", "vm:network",
-        "Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready.")),
+        "Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off (revokeVmPublicEgress does) and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready.")),
+  )
+  .add(
+    HttpApiEndpoint.del("revokeVmPublicEgress", "/v1/vms/:vmId/public-egress")
+      .setPath(VmPath)
+      .setHeaders(TeamHeaders)
+      .addSuccess(VmPublicEgress)
+      .addError(Forbidden).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Revoke a VM's public egress", "vm:network",
+        "Stops an existing VM reaching the public Internet, live: deletes every rule whose source is exactly this VM (or a create's inline rule) and whose destination is the whole public Internet, then reads the rules again and answers 503 unless none is left. Idempotent: a VM without such a rule changes nothing. It never deletes a narrower rule, an HTTPS proxy (the VM keeps those) or a shared-network rule.")),
   )
   .add(
     HttpApiEndpoint.get("getVm", "/v1/vms/:vmId")
@@ -539,6 +591,40 @@ export class FilesGroup extends HttpApiGroup.make("files")
       .addError(Conflict)
       .addError(QuotaExceeded)
       .annotateContext(describe("List a directory in a VM", "vm:files")),
+  )
+  .add(
+    HttpApiEndpoint.get("searchFiles", "/v1/vms/:vmId/files/search")
+      .setPath(VmPath)
+      .setUrlParams(SearchFilesParams)
+      .setHeaders(TeamHeaders)
+      .addSuccess(FileSearch)
+      .addError(BadRequest)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(describe(
+        "Search the text of files under a folder in a VM",
+        "vm:files",
+        "One request instead of a listing and a read per file. On a paused VM it never wakes the guest: it answers from the replica seeded at pause (POST files/replica) while the VM is unchanged since, and otherwise reads the saved disk and keeps what it read as the replica. On a running VM it reads the disk. Folders named .git, node_modules, target, .cache, .venv, __pycache__, .next, dist and build are skipped; binary files are not matched.",
+      )),
+  )
+  .add(
+    HttpApiEndpoint.post("seedFileReplica", "/v1/vms/:vmId/files/replica")
+      .setPath(VmPath)
+      .setUrlParams(FilePathParams)
+      .setHeaders(TeamHeaders)
+      .addSuccess(FileReplica)
+      .addError(BadRequest)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(describe(
+        "Seed a paused VM's read replica",
+        "vm:files",
+        "Reads the text under the path from the paused VM's saved disk once and keeps it off the VM, so later searches under it answer in one read with no wake. Call it right after a pause. Replaces the previous replica. A VM that is not paused is 409. The replica answers only while the VM is unchanged; a resume makes it stale.",
+      )),
   )
   .middleware(Authentication) {}
 

@@ -12,26 +12,26 @@
 // plus the normal room for the composer, as it did before the first cycle.
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("transcript-fold-room-end.browser.test.ts", async () => {
   setDefaultTimeout(240_000);
-  try {
-    await (await chromium.launch({ headless: true })).close();
-  } catch {
-    console.warn("transcript-fold-room-end: skipping (run `bunx playwright install chromium`)");
-    describe.skip("fold room at the end", () => test("chromium", () => {}));
-    return;
-  }
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-  const engines = { chromium, webkit } as const;
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const allEngines = { chromium, webkit } as const;
+  const engines: Partial<Record<keyof typeof allEngines, BrowserType>> = {};
+  for (const name of Object.keys(allEngines) as (keyof typeof allEngines)[])
+    if (await probeEngineOrSkip("transcript-fold-room-end.browser.test.ts", name, allEngines[name]))
+      engines[name] = allEngines[name];
+  if (Object.keys(engines).length === 0) return;
   const browsers: Partial<Record<keyof typeof engines, Browser>> = {};
   beforeAll(async () => {
     vite = await createServer({
@@ -43,7 +43,7 @@ await requireBrowserLane("transcript-fold-room-end.browser.test.ts", async () =>
     await vite.listen();
     await warmViteServer(vite, "/test/browser/send-scroll-setting.html");
     for (const name of Object.keys(engines) as (keyof typeof engines)[])
-      browsers[name] = await engines[name].launch({ headless: true });
+      browsers[name] = await engines[name]!.launch({ headless: true });
   });
   afterAll(async () => {
     for (const each of Object.values(browsers)) await each?.close();
@@ -100,9 +100,13 @@ await requireBrowserLane("transcript-fold-room-end.browser.test.ts", async () =>
           window.cmuxAfterPaint(() => {
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
             if (!scroller) return;
-            const moving = scroller
-              .getAnimations({ subtree: true })
-              .some((each) => each.playState === "running" && each.effect?.getTiming().iterations !== Infinity);
+            // The follow chase (followChase.ts) draws the thread back with an inline `translate` on
+            // the display's frames, not a Web Animation: while it is set, the rows are still moving.
+            const moving =
+              scroller
+                .getAnimations({ subtree: true })
+                .some((each) => each.playState === "running" && each.effect?.getTiming().iterations !== Infinity) ||
+              [...scroller.querySelectorAll<HTMLElement>("[style]")].some((each) => each.style.translate !== "");
             const now = `${Math.round(scroller.scrollTop)} ${scroller.scrollHeight}`;
             alike = !moving && now === last ? alike + 1 : 0;
             last = now;
@@ -230,6 +234,9 @@ await requireBrowserLane("transcript-fold-room-end.browser.test.ts", async () =>
             }),
           run,
         );
+        // How far over the end the view sits as the close starts: the wheel's 60px, or a few px less
+        // where WebKit's wheel lands short of it.
+        const over = (await end(page)).fromEnd;
         await click(page, run);
         const tops = await watching;
         await settle(page);
@@ -240,14 +247,14 @@ await requireBrowserLane("transcript-fold-room-end.browser.test.ts", async () =>
             .first()
             .evaluate((node) => node.getBoundingClientRect().height));
         // The line never moves up, and comes down no further than the close would have left blank:
-        // what closed less the 60px the view sat over the end.
+        // what closed less what the view sat over the end.
         for (let index = 1; index < tops.length; index += 1)
           if (tops[index]! < tops[index - 1]! - 0.5)
             failures.push(
               `cycle ${cycle}: the clicked line moved up ${(tops[index - 1]! - tops[index]!).toFixed(1)}px`,
             );
         const travel = tops.at(-1)! - tops[0]!;
-        if (travel > closed - 60 + 2)
+        if (travel > closed - over + 2)
           failures.push(
             `cycle ${cycle}: the clicked line came down ${travel.toFixed(1)}px for a ${closed.toFixed(1)}px close`,
           );

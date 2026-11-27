@@ -9,6 +9,10 @@ use tokio_tungstenite::tungstenite::{Message as Frame, protocol::CloseFrame};
 
 pub(crate) const DRAIN_BUDGET: Duration = Duration::from_secs(2);
 const CLOSE_BUDGET: Duration = Duration::from_secs(1);
+/// How long a connection that ended (`stopped`) still writes what it queued, its reason why among
+/// it (`outbound.rs`, `reader.too_slow`), before it closes: a client that reads nothing gets no
+/// longer, as a socket's last line (`stream.rs`).
+const LAST_FRAMES_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone)]
 pub struct WsShutdown {
@@ -111,12 +115,26 @@ impl WsShutdown {
 /// let an immediate retry connect to this dying listener. Linux stops a listening socket on
 /// shutdown, whatever copies remain; other systems refuse that, and only the drop applies.
 pub(super) fn close_admission(listener: tokio::net::TcpListener) {
+    // The handover and the keeper are unix-only: on Windows no copy is kept.
+    #[cfg(unix)]
+    let kept = crate::daemon::listener_handover::listeners_live_on();
+    #[cfg(not(unix))]
+    let kept = false;
+    close_admission_unless_kept(listener, kept);
+}
+
+fn close_admission_unless_kept(listener: tokio::net::TcpListener, kept: bool) {
+    // A listener handed to the next daemon (`daemon/listener_handover.rs`) or held for it by a
+    // keeper (`daemon/listener_keeper.rs`) is that process's too: a shutdown would stop its queue
+    // as well. Its connects wait for the next daemon instead.
     #[cfg(target_os = "linux")]
-    {
+    if !kept {
         use std::os::fd::AsRawFd;
         // SAFETY: shutdown on the listener's own descriptor, open for the whole call.
         unsafe { libc::shutdown(listener.as_raw_fd(), libc::SHUT_RD) };
     }
+    #[cfg(not(target_os = "linux"))]
+    let _ = kept;
     drop(listener);
 }
 
@@ -143,30 +161,74 @@ impl Drop for Children {
 }
 
 /// Shutdown also interrupts a blocked text send. Sending Close flushes buffered frames, but
-/// a client that stopped reading cannot hold daemon handoff beyond CLOSE_BUDGET. A large line
-/// goes compressed once the client asked for that (`frame_compress.rs`).
-pub(super) async fn write<S>(
+/// a client that stopped reading cannot hold daemon handoff beyond CLOSE_BUDGET. Once the
+/// connection ended (`stopped`), what it queued is written for [`LAST_FRAMES_WAIT`] at most, a
+/// frame already waiting on the client included, so a frozen client never holds the socket open. A large line
+/// goes compressed once the client asked for that (`frame_compress.rs`). A link that may carry
+/// the v2 list stream has a `slot`: v1's lines first, then the frame in it (`link_v2::next_line`).
+pub(super) async fn write_link<S>(
     mut sink: S,
     mut outbound: mpsc::Receiver<String>,
+    slot: Option<std::sync::Arc<crate::link_v2::Slot>>,
     mut stopped: oneshot::Receiver<()>,
     shutdown: WsShutdown,
     wire: std::sync::Arc<crate::frame_compress::Wire>,
 ) where
     S: Sink<Frame> + Unpin,
 {
+    let mut streak = 0;
+    let mut pings = tokio::time::interval_at(
+        tokio::time::Instant::now() + super::ws_read_ahead::PING_EVERY,
+        super::ws_read_ahead::PING_EVERY,
+    );
+    pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tokio::select! {
         biased;
         () = shutdown.normal() => {},
         () = shutdown.closing() => {},
         () = async {
+            // Set once the connection ended: what is left must be written by then.
+            let mut deadline: Option<tokio::time::Instant> = None;
             loop {
-                let line = tokio::select! {
-                    line = outbound.recv() => line,
-                    _ = &mut stopped => None,
+                let next = crate::link_v2::next_line(&mut outbound, slot.as_deref(), &mut streak);
+                let line = match deadline {
+                    Some(at) => tokio::time::timeout_at(at, next).await.ok().flatten(),
+                    None => tokio::select! {
+                        line = next => line,
+                        _ = &mut stopped => {
+                            deadline = Some(tokio::time::Instant::now() + LAST_FRAMES_WAIT);
+                            continue;
+                        }
+                        // A client that answers no ping is ended by the reader's idle bound.
+                        _ = pings.tick() => {
+                            if !matches!(
+                                tokio::time::timeout(CLOSE_BUDGET, sink.send(Frame::Ping(Default::default()))).await,
+                                Ok(Ok(()))
+                            ) {
+                                break;
+                            }
+                            continue;
+                        }
+                    },
                 };
                 let Some(line) = line else { break };
                 let Some(frame) = wire.frame(line).await else { break };
-                if sink.send(frame).await.is_err() {
+                let send = sink.send(frame);
+                tokio::pin!(send);
+                let sent = match deadline {
+                    Some(at) => tokio::time::timeout_at(at, send).await.ok(),
+                    // A frame that waits on a client reading nothing does not hold the end.
+                    None => tokio::select! {
+                        biased;
+                        sent = &mut send => Some(sent),
+                        _ = &mut stopped => {
+                            let at = tokio::time::Instant::now() + LAST_FRAMES_WAIT;
+                            deadline = Some(at);
+                            tokio::time::timeout_at(at, send).await.ok()
+                        }
+                    },
+                };
+                if !matches!(sent, Some(Ok(()))) {
                     break;
                 }
             }

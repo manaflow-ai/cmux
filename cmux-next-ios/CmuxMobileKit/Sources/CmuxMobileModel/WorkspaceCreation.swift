@@ -12,6 +12,18 @@ public enum NewWorkspaceStart: Hashable, Sendable {
     case browser
 }
 
+/// What a plain tap on New Workspace starts, and in which folder (nil: the Mac's default).
+public struct NewWorkspaceTap: Hashable, Sendable {
+    public var start: NewWorkspaceStart
+    public var directory: String?
+    public init(start: NewWorkspaceStart, directory: String?) {
+        self.start = start
+        self.directory = directory
+    }
+    /// The tap opens an agent chat (else a terminal).
+    public var opensAgentChat: Bool { if case .agent = start { true } else { false } }
+}
+
 /// One request to create a workspace.
 public struct NewWorkspaceRequest: Hashable, Sendable {
     public var macID: String
@@ -20,13 +32,16 @@ public struct NewWorkspaceRequest: Hashable, Sendable {
     public var start: NewWorkspaceStart
     /// Where it goes in the Mac's sidebar once the Mac lists it (nil: where the Mac puts it).
     public var placement: NewWorkspacePlacement?
+    /// New Task: the first message the agent gets, and the model it runs (an `.agent` start only).
+    public var task: AgentTask?
 
     public init(macID: String, directory: String? = nil, start: NewWorkspaceStart = .terminal,
-                placement: NewWorkspacePlacement? = nil) {
+                placement: NewWorkspacePlacement? = nil, task: AgentTask? = nil) {
         self.macID = macID
         self.directory = directory
         self.start = start
         self.placement = placement
+        self.task = task
     }
 }
 
@@ -101,9 +116,13 @@ public struct WorkspaceCreationError: Error, Hashable, Sendable, LocalizedError 
     /// The message is written for the person (the phone's own words, or the Mac's
     /// reason it shows them too), so a toast shows it as is.
     public var isForPerson: Bool
-    public init(_ message: String, isForPerson: Bool = false) {
+    /// New Task in a terminal: the agent's command may already run on the Mac (it was typed,
+    /// or its reply was lost), so the task is never handed back to be started again.
+    public var mayHaveStarted: Bool
+    public init(_ message: String, isForPerson: Bool = false, mayHaveStarted: Bool = false) {
         self.message = message
         self.isForPerson = isForPerson
+        self.mayHaveStarted = mayHaveStarted
     }
     public var errorDescription: String? { message }
 }
@@ -390,9 +409,18 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// Duplicate Screen: a new screen named as this one, its terminal in the folder of the
     /// screen's shown tab (`new-screen`, `rename-screen`). Returns its tab once the Mac lists it.
     func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab
+    /// New Task: starts sending `task` as the first message of the agent chat this backend
+    /// made in `workspace` (`create` of an `.agent` start with a task) and returns; it never
+    /// waits for the agent's turn. Throws when nothing could be sent; a later failure goes to
+    /// `failed`.
+    func sendTask(_ task: AgentTask, in workspace: Workspace, failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws
 }
 
 extension WorkspaceCreationBackend {
+    public func sendTask(_ task: AgentTask, in workspace: Workspace, failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
+        throw WorkspaceCreationError("This Mac can't take a task from here.", isForPerson: true)
+    }
+
     public func forkAgentChat(_ tab: WorkspaceTab, through seq: Int, in workspace: Workspace) async throws -> WorkspaceTab {
         throw WorkspaceCreationError("This Mac can't copy a chat up to an earlier message.", isForPerson: true)
     }
@@ -504,10 +532,9 @@ public struct RecentDirectories: @unchecked Sendable {
         defaults.stringArray(forKey: key(macID)) ?? []
     }
 
+    /// Puts `directory` first (Rust's `workspace_recents_noted`).
     public func note(_ directory: String, macID: String) {
-        var list = load(macID: macID).filter { $0 != directory }
-        list.insert(directory, at: 0)
-        defaults.set(Array(list.prefix(Self.limit)), forKey: key(macID))
+        defaults.set(WorkspaceCreationRules.noted(directory, in: load(macID: macID)), forKey: key(macID))
     }
 }
 
@@ -535,6 +562,9 @@ public final class WorkspaceCreator {
     public private(set) var preferredMacID: String?
     /// A creation the Mac refused: the removed placeholder and the reason.
     @ObservationIgnored public var onFailure: (@MainActor (Workspace, String) -> Void)?
+    /// New Task's workspace stands, but its task didn't reach the chat: the workspace, the
+    /// task (the shell puts it in that chat's composer) and why.
+    @ObservationIgnored public var onTaskNotDelivered: (@MainActor (Workspace, AgentTask, TaskDeliveryFailure) -> Void)?
     /// The placeholder's opening tab became the Mac's real tab (`from`,
     /// `to`): a page the person already opened in it keeps going under the
     /// real id (a streamed browser tab, verify/redial-video.md).
@@ -566,19 +596,52 @@ public final class WorkspaceCreator {
         seenCache = (macID, revision, pending, directories)
         return directories
     }
-    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
+    /// The task the New Task composer holds: saved to the drafts list when the composer is left
+    /// with something in it, cleared by Start, and given back when its start was refused.
+    public var taskDraft = TaskDraft()
+    /// The draft each New Task placeholder came from, by placeholder id, until the Mac answers.
+    @ObservationIgnored var taskOrigins: [String: TaskDraft] = [:]
+    /// Why the Mac refused the task whose draft came back; New Task shows it until the next Start.
+    public var taskRefusal: String?
+    /// The Cloud machines New Task can run on (``refreshCloudTaskTargets()``), beside the Macs.
+    public var cloudTaskTargets: [CloudTaskTarget] = []
+    /// Reads the Cloud machines the connected Macs list; nil when the read failed. Nil: no Cloud.
+    @ObservationIgnored public var loadCloudTaskTargets: (@MainActor () async -> [CloudTaskTarget]?)?
+    /// Where ``loadCloudTaskTargets`` reads from now (the live link and its focused Mac). Read in
+    /// a view body it is observed, so New Task reads the machines again when it changes.
+    @ObservationIgnored public var cloudTaskTargetsSource: (@MainActor () -> String?)?
+    /// Opens a started Cloud task: its machine and the first message.
+    @ObservationIgnored public var openCloudTask: (@MainActor (CloudTaskTarget, String) -> Void)?
+    /// Placeholders of refused tasks and where their task went (the failure toast says so).
+    @ObservationIgnored var refusedTasks: [String: RefusedTaskPlace] = [:]
+    /// The saved New Task drafts (the drafts list).
+    public let taskDrafts: TaskDraftStore
+    /// The task (without its agents) whose draft the composer was given back, while it holds it.
+    @ObservationIgnored var restoredTask: TaskDraft?
     /// The last group request of each Mac: group requests go to a Mac one
     /// after another, so the Mac applies quick taps in the order they came.
     @ObservationIgnored var groupRequestTail: [String: Task<Void, Never>] = [:]
     private static let preferredMacKey = "cmuxMobile.workspaces.newMac"
 
-    public init(store: AppStore, backend: any WorkspaceCreationBackend, defaults: UserDefaults = .standard) {
+    public init(store: AppStore, backend: any WorkspaceCreationBackend, defaults: UserDefaults = .standard,
+                taskDrafts: TaskDraftStore = TaskDraftStore(directory: nil)) {
+        self.taskDrafts = taskDrafts
         self.store = store
         self.backend = backend
         self.defaults = defaults
         recents = RecentDirectories(defaults: defaults)
         preferredMacID = defaults.string(forKey: Self.preferredMacKey)
+        #if DEBUG
+        // UI tests start each scene from a clean setup (the kept one is the last scene's).
+        if CommandLine.arguments.contains("-cmux-mobile-fresh-task-setup") {
+            for key in [Self.taskSetupKey, Self.taskLaunchKey, Self.agentSettingsKey] { defaults.removeObject(forKey: key) }
+        }
+        #endif
+        // New Task starts as it was last left: its agents, Mac, folder and Chat or Terminal (a
+        // terminal until a chat is chosen); each agent's settings are kept per agent.
+        restoreTaskSetup()
     }
 
     /// The active team's Macs this backend can create on, in team order.
@@ -607,22 +670,40 @@ public final class WorkspaceCreator {
     /// phone, then the Mac's workspaces by activity. Empty when the backend
     /// cannot choose a directory.
     public func recentDirectories(on macID: String) -> [String] {
-        guard options(on: macID).directories else { return [] }
+        let options = options(on: macID)
+        guard options.directories else { return [] }
         let used = recents.load(macID: macID)
         let seen = seenDirectories(on: macID, limit: RecentDirectories.limit + used.count)
-        var result: [String] = []
-        for directory in used + seen where !result.contains(directory) {
-            result.append(directory)
+        return WorkspaceCreationRules.recentDirectories(options, used: used, seen: seen)
+    }
+
+    /// What a plain tap on New Workspace makes on a Mac (Aziz, 2026-11-17: an agent chat,
+    /// not a terminal): a chat with the Mac's default agent (`""`, else the first agent it
+    /// offers) in its most recent project folder that is open on the Mac now, the same start
+    /// as New Agent Chat › that folder. A terminal at the default folder when the Mac can't
+    /// start an agent from a phone now, or has no such folder (a chat never starts in the
+    /// home folder, and the Mac refuses a folder it has no workspace in).
+    /// The rules are Rust's `workspace_tap_start`; this reads the folders it chooses from.
+    public func tapStart(on macID: String) -> NewWorkspaceTap {
+        let options = options(on: macID)
+        guard options.directories, !options.agents.isEmpty else {
+            return NewWorkspaceTap(start: .terminal, directory: nil)
         }
-        return Array(result.prefix(RecentDirectories.limit))
+        let used = recents.load(macID: macID)
+        let seen = seenDirectories(on: macID, limit: RecentDirectories.limit + used.count)
+        return WorkspaceCreationRules.tapStart(options, used: used, seen: seen)
+    }
+
+    /// Whether an agent chat may start in `path`: not the home folder or above it
+    /// (`~`, `/`, `/Users/<name>`, `/var/root`), as the Mac's own guard says.
+    nonisolated public static func isProjectFolder(_ path: String) -> Bool {
+        WorkspaceCreationRules.isProjectFolder(path)
     }
 
     /// The directory a plain tap uses: the last one used on that Mac, else
     /// its home. Nil when the Mac picks (the backend cannot choose).
     public func defaultDirectory(on macID: String) -> String? {
-        let options = options(on: macID)
-        guard options.directories, options.tapUsesLastDirectory else { return nil }
-        return recents.load(macID: macID).first ?? "~"
+        WorkspaceCreationRules.defaultDirectory(options(on: macID), used: recents.load(macID: macID))
     }
 
     /// Starts creating a workspace and returns its optimistic placeholder,
@@ -633,22 +714,23 @@ public final class WorkspaceCreator {
                        placement: NewWorkspacePlacement? = nil) -> Workspace? {
         guard let mac = macID.flatMap({ id in availableMacs.first { $0.id == id } }) ?? targetMac else { return nil }
         let options = options(on: mac.id)
-        switch start {
-        case .terminal: break
-        case .agent(let harness): guard options.agents.contains(harness) else { return nil }
-        case .browser: guard options.browser else { return nil }
-        }
+        guard WorkspaceCreationRules.offers(start, options) else { return nil }
         let dir = options.directories ? (directory ?? defaultDirectory(on: mac.id)) : nil
         let request = NewWorkspaceRequest(macID: mac.id, directory: dir, start: start, placement: placement)
         let placeholder = Self.placeholder(for: request, existing: store.workspaces.filter { $0.macID == mac.id }.map(\.title))
+        begin(request, placeholder: placeholder, focus: true)
+        return placeholder
+    }
+
+    /// Inserts the optimistic row and starts its creation. `focus`: the row opens when pushed.
+    func begin(_ request: NewWorkspaceRequest, placeholder: Workspace, focus: Bool) {
         store.insertPending(placeholder)
-        store.requestFocusOnOpen(placeholder.id)
+        if focus { store.requestFocusOnOpen(placeholder.id) }
         phases[placeholder.id] = .pending
-        if let dir { recents.note(dir, macID: mac.id) }
+        if let dir = request.directory { recents.note(dir, macID: request.macID) }
         tasks[placeholder.id] = Task { [weak self] in
             await self?.run(request, placeholder: placeholder)
         }
-        return placeholder
     }
 
     /// Whether a workspace can be renamed or closed from this phone now:
@@ -741,7 +823,7 @@ public final class WorkspaceCreator {
     }
 
     static func message(_ error: any Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        UserFacingError.message(error)
     }
 
     /// Waits for every creation in flight (tests and demos).
@@ -755,20 +837,46 @@ public final class WorkspaceCreator {
     private func run(_ request: NewWorkspaceRequest, placeholder: Workspace) async {
         defer { tasks[placeholder.id] = nil }
         do {
+            if request.task != nil {
+                // Off the drafts list on disk before anything reaches the Mac: a draft still
+                // there after a relaunch would start the task a second time.
+                await taskDrafts.flush()
+                if taskDrafts.lastWriteFailed {
+                    // retry-prompt-ok: starting the task is the person's action, refused before it
+                    // reached the Mac so it never runs twice; the person decides whether to send it again.
+                    throw WorkspaceCreationError("Couldn't update this iPhone's saved drafts, so the task wasn't started. Try again.",
+                                                 isForPerson: true)
+                }
+            }
             let real = try await backend.create(request, placeholder: placeholder)
             store.resolvePending(placeholder.id, with: real)
             if let tab = Self.openingTab(of: real, for: request.start) {
                 if request.start == .browser, let first = Self.openingTab(of: placeholder, for: request.start), first.id != tab.id {
                     onTabResolved?(first.id, tab.id)
                 }
-                store.noteOpened(tabID: tab.id, in: real.id)
+                store.requestOpen(tabID: tab.id, in: real.id)
             }
             phases[placeholder.id] = .created(real.id)
+            taskOrigins[placeholder.id] = nil
+            // The workspace stands from here: a task that doesn't reach its chat is reported,
+            // never handed back as a draft (that would start a second agent on it).
+            // A terminal launch typed its command when the workspace was made: nothing to send.
+            if let task = request.task, task.launch == .chat { deliver(task, to: real) }
             if let placement = request.placement { await place(real, placement) }
         } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            let message = UserFacingError.message(error)
             store.removePending(placeholder.id)
             phases[placeholder.id] = .failed(message)
+            // The Mac's own words, as the person's reason: written for them, said as is; else
+            // quoted as the Mac's ("Authentication required" from the agent's start).
+            let refusal = error as? WorkspaceCreationError
+            if refusal?.mayHaveStarted == true {
+                // The agent may be running it: never handed back (a second Start runs it twice).
+                taskOrigins[placeholder.id] = nil
+                refusedTasks[placeholder.id] = .mayHaveStarted
+            } else {
+                restoreTaskDraft(after: placeholder.id, reason: refusal?.isForPerson == true ? message : "The Mac said: \(message)")
+            }
             onFailure?(placeholder, message)
         }
     }
@@ -788,32 +896,21 @@ public final class WorkspaceCreator {
     public static func placeholder(for request: NewWorkspaceRequest, existing titles: [String], now: Date = Date()) -> Workspace {
         let id = "new-\(UUID().uuidString.prefix(8).lowercased())"
         let directory = request.directory ?? "~"
-        let base = Self.title(for: request.directory)
         let tabID = "\(id)-t1"
         let tab = switch request.start {
         case .terminal: WorkspaceTab(id: tabID, kind: .terminal, title: "zsh", subtitle: directory)
         case .agent(let harness):
-            WorkspaceTab(id: tabID, kind: .agent, title: harness.isEmpty ? "Agent Chat" : harness == "codex" ? "Codex" : harness == "claude" ? "Claude" : harness.capitalized,
+            WorkspaceTab(id: tabID, kind: .agent, title: WorkspaceCreationRules.agentTabTitle(harness),
                          subtitle: "New session", harness: harness)
         case .browser: WorkspaceTab(id: tabID, kind: .browser, title: "New Tab")
         }
-        return Workspace(id: id, macID: request.macID, title: uniqueTitle(base, existing: titles), directory: directory,
+        return Workspace(id: id, macID: request.macID, title: WorkspaceCreationRules.placeholderTitle(directory: request.directory, existing: titles), directory: directory,
                          tabs: [tab], lastActivityAt: now)
     }
 
-    static func title(for directory: String?) -> String {
-        guard let directory, directory != "~", directory != "/" else { return "New Workspace" }
-        let last = (directory as NSString).lastPathComponent
-        return last.isEmpty || last == "~" ? "New Workspace" : last
-    }
-
-    /// "cmux", then "cmux 2", "cmux 3", …
+    /// "cmux", then "cmux 2", "cmux 3", … (Rust's `workspace_unique_title`).
     public static func uniqueTitle(_ base: String, existing: [String]) -> String {
-        let taken = Set(existing)
-        guard taken.contains(base) else { return base }
-        var n = 2
-        while taken.contains("\(base) \(n)") { n += 1 }
-        return "\(base) \(n)"
+        WorkspaceCreationRules.uniqueTitle(base, existing: existing)
     }
 }
 
@@ -838,8 +935,12 @@ public final class UnavailableWorkspaceCreationBackend: WorkspaceCreationBackend
 @MainActor
 public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     public var failNext: String?
+    /// The refusal is the Mac's words for the person (a live chat refusal), shown as they are.
+    public var failNextForPerson = false
     /// What Jump to Latest Unread and Jump to Last Prompt find (`TabAttentionBackend`).
     public var attention: (unread: TabAttentionPlace?, prompt: TabAttentionPlace?) = (nil, nil)
+    /// Where Toggle Terminal and Chat's pairings and faces are kept (the shell's; none keeps nothing).
+    public var keeping: (any TerminalChatKeeping)?
     private let clock: any Clock<Duration>
     private let latency: Duration
 
@@ -850,19 +951,58 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     public func canCreate(on macID: String) -> Bool { true }
 
+    /// Agents can start from the phone (off: no agent entries, so no New Task).
+    public var offersAgents = true
+    /// Agent chats (acpmux, the `""` entry) can start, as a live Mac offers them, beside the named
+    /// harnesses: New Workspace's New Agent Chat ▸ (its captures).
+    public var offersAgentChats = false
+
     public func options(on macID: String) -> WorkspaceCreationOptions {
-        WorkspaceCreationOptions(directories: true, agents: ["claude", "codex"], browser: true, cloneFromGit: false)
+        let agents = offersAgents ? (offersAgentChats ? ["", "claude", "codex"] : ["claude", "codex"]) : []
+        return WorkspaceCreationOptions(directories: true, agents: agents, browser: true, cloneFromGit: false)
     }
 
     public func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace {
         try await settle()
-        return placeholder
+        var created = placeholder
+        if let task = request.task, task.launch == .terminal {
+            // What the Mac's shell would run (Mock mode records it; nothing runs).
+            guard let line = task.terminalLine() else {
+                throw WorkspaceCreationError("This agent can't open in a terminal from here. Open it as a chat.", isForPerson: true)
+            }
+            typedLines.append(line)
+        } else if request.task != nil, !created.tabs.isEmpty {
+            // A task's chat is a new session, as the Mac's is (mock chats named so start empty).
+            created.tabs[0].subtitle = "New session"
+        }
+        onCreated?(created)
+        return created
     }
 
     public func canManage(on macID: String) -> Bool { true }
 
     public func rename(_ workspace: Workspace, to title: String) async throws {
         try await settle()
+    }
+
+    /// The tasks sent (Mock mode only: no agent reads them). `taskFailure` fails the next one.
+    public var sentTasks: [AgentTask] = []
+    public var taskFailure: TaskDeliveryFailure?
+    /// The command lines terminal launches typed (Mock mode only: nothing runs).
+    public var typedLines: [String] = []
+    /// Mock mode: the shell sends a delivered task to the workspace's mock chat.
+    public var onTaskSent: (@MainActor (AgentTask, Workspace) -> Void)?
+    /// Mock mode: a workspace was made (the shell rebuilds its chats, which were starting).
+    public var onCreated: (@MainActor (Workspace) -> Void)?
+
+    public func sendTask(_ task: AgentTask, in workspace: Workspace, failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
+        sentTasks.append(task)
+        if let failure = taskFailure {
+            taskFailure = nil
+            failed(failure)
+            return
+        }
+        onTaskSent?(task, workspace)
     }
 
     public func close(_ workspace: Workspace) async throws {
@@ -878,11 +1018,53 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     public func unavailableTabKinds(on macID: String) -> [(kind: NewTabKind, reason: String)] { unavailable }
 
+    /// What `agentCatalog` answers: the catalog, none (`empty`), a refusal (`failed`), or the
+    /// catalog after `catalogDelay` (`slow`, the loading state).
+    public enum CatalogMode: String, Sendable { case normal, empty, failed, slow, many }
+    public var catalogMode: CatalogMode = .normal
+    public var catalogDelay: Duration = .seconds(30)
+
     public func agentCatalog(on macID: String) async throws -> AgentCatalog {
-        AgentCatalog(harnesses: [
+        switch catalogMode {
+        case .normal: break
+        case .empty: return AgentCatalog(harnesses: [])
+        case .failed: throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
+        case .slow: try await clock.sleep(for: catalogDelay)
+        case .many:
+            // More agents than a task takes (agentLimit), and a model the account can't use.
+            let sonnet = AgentModelChoice(id: "sonnet", name: "Sonnet")
+            let locked = AgentModelChoice(id: "opus-max", name: "Opus Max", unavailableReason: "Not on this plan")
+            return AgentCatalog(harnesses: [
+                AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
+                                   models: [AgentModelChoice(id: "opus", name: "Opus"), sonnet, locked], defaultModel: "opus"),
+                AgentHarnessChoice(id: "claude-cr", name: "Claude Code Router", family: "claude"),
+                AgentHarnessChoice(id: "claude-work", name: "Claude Code (work)", family: "claude"),
+                AgentHarnessChoice(id: "claude-review", name: "Claude Code (review)", family: "claude"),
+                AgentHarnessChoice(id: "claude-docs", name: "Claude Code (docs)", family: "claude"),
+                AgentHarnessChoice(id: "codex", name: "Codex", family: "codex", unavailableReason: AgentCatalog.refusedReason),
+            ])
+        }
+        // As a Mac's acpmux lists them: each model's efforts, the modes a phone may start, and
+        // what the agent's chats reported (mode names). No Fast mode: a phone may not set it.
+        let claudeEfforts = ["low", "medium", "high", "xhigh", "max"]
+        let modes = [AgentSettingChoice(id: "default", name: "Manual", detail: "Always ask before making changes"),
+                     AgentSettingChoice(id: "plan", name: "Plan", detail: "Create a plan before making changes")]
+        return AgentCatalog(harnesses: [
             AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
-                               models: [AgentModelChoice(id: "opus", name: "Opus"), AgentModelChoice(id: "sonnet", name: "Sonnet")],
-                               defaultModel: "opus"),
+                               models: [AgentModelChoice(id: "claude-opus-5-5", name: "Claude Opus 5.5", efforts: claudeEfforts, defaultEffort: "high",
+                                                         shortName: "Opus 5.5", aliases: ["opus"]),
+                                        AgentModelChoice(id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", efforts: claudeEfforts,
+                                                         defaultEffort: "high", shortName: "Sonnet 5.5", aliases: ["sonnet"]),
+                                        AgentModelChoice(id: "claude-haiku-5-5", name: "Claude Haiku 5.5", shortName: "Haiku 5.5", aliases: ["haiku"]),
+                                        AgentModelChoice(id: "claude-opus-5", name: "Claude Opus 5", efforts: claudeEfforts, defaultEffort: "high",
+                                                         shortName: "Opus 5", isCurrent: false),
+                                        AgentModelChoice(id: "claude-opus-4-8", name: "Claude Opus 4.8", efforts: ["low", "medium", "high"],
+                                                         defaultEffort: "high", shortName: "Opus 4.8", isCurrent: false)],
+                               defaultModel: "opus", askingModes: ["default", "plan"], reportedModes: modes),
+            AgentHarnessChoice(id: "claude-cr", name: "Claude Code Router", family: "claude",
+                               models: [AgentModelChoice(id: "gpt-5.5", name: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium"),
+                                        AgentModelChoice(id: "kimi-k2", name: "Kimi K2")],
+                               defaultModel: "gpt-5.5", askingModes: ["default", "plan"], reportedModes: modes),
             AgentHarnessChoice(id: "codex", name: "Codex", family: "codex", unavailableReason: AgentCatalog.refusedReason),
         ])
     }
@@ -1065,8 +1247,61 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         if latency > .zero { try await clock.sleep(for: latency) }
         if let message = failNext {
             failNext = nil
-            throw WorkspaceCreationError(message)
+            throw WorkspaceCreationError(message, isForPerson: failNextForPerson)
         }
+    }
+}
+
+/// Toggle Terminal and Chat on mock data (`CMUX_MOBILE_MOCK_TERMINAL_AGENTS=1` lists terminals
+/// running Claude Code and Codex): the Mac's View Only chat opens at once, and what the phone
+/// keeps goes to `keeping`, which the shell gives the file a signed-in account keeps
+/// (`KeptTerminalChats`), so a relaunch reads the pairings and faces through the real code.
+extension MockWorkspaceCreationBackend: TerminalChatBackend {
+    public func terminalChatListings(on macID: String) -> [TerminalChatListing] { [] }
+    public func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen {
+        .chat("mock-view-only-\(session)")
+    }
+    public func keptTerminalChat(harness: String, session: String, on macID: String) -> String? {
+        keeping?.keptTerminalChat(harness: harness, session: session, on: macID)
+    }
+    public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {
+        keeping?.keepTerminalChat(chat, harness: harness, session: session, on: macID)
+    }
+    public func keptTerminalChatFace(tabID: String, on macID: String) -> Bool? {
+        keeping?.keptTerminalChatFace(tabID: tabID, on: macID)
+    }
+    public func keepTerminalChatFace(_ showsChat: Bool, tabID: String, on macID: String) {
+        keeping?.keepTerminalChatFace(showsChat, tabID: tabID, on: macID)
+    }
+    public var keptTerminalChatsLoaded: Bool { keeping?.keptTerminalChatsLoaded ?? true }
+    public func loadKeptTerminalChats() async { await keeping?.loadKeptTerminalChats() }
+}
+
+/// The Panes page on mock data (`CMUX_MOBILE_MOCK_PANES=1` lists a workspace laid out in two
+/// panes): moving a tab between panes is accepted after the mock latency; the layout actions
+/// that need the Mac's tree answer that mock mode has none.
+extension MockWorkspaceCreationBackend: WorkspacePaneBackend {
+    private static var noLayout: WorkspaceCreationError { WorkspaceCreationError("Mock mode has no Mac to lay out panes on.", isForPerson: true) }
+
+    public func canEditPanes(on macID: String) -> Bool { true }
+    public func split(_ pane: Int, _ direction: PaneSplit, in workspace: Workspace) async throws -> WorkspaceTab { throw Self.noLayout }
+    public func newPane(from pane: Int, column: Bool, in workspace: Workspace) async throws -> WorkspaceTab { throw Self.noLayout }
+    public func toggleZoom(_ pane: Int, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func swap(_ pane: Int, _ direction: PaneSwap, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func renamePane(_ pane: Int, to name: String, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func closePane(_ pane: Int, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func equalizeSplits(in workspace: Workspace) async throws -> Int { throw Self.noLayout }
+    public func undoLayout(in workspace: Workspace, confirming confirmation: LayoutUndoConfirmation?) async throws -> LayoutUndoOutcome {
+        throw Self.noLayout
+    }
+    public func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws { try await settle() }
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws {
+        try await settle()
+    }
+    public func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw Self.noLayout
     }
 }
 #endif
@@ -1101,24 +1336,6 @@ public enum NewTabPosition: String, Hashable, Sendable, CaseIterable {
     /// daemon reads the index as an insertion point in the current list, one past for a
     /// forward move.
     public func moveIndex(from: Int, anchor: Int, pinned: [Bool], groups: [String?] = []) -> Int? {
-        let count = pinned.count
-        guard count > 1, pinned.indices.contains(from), pinned.indices.contains(anchor), anchor != from else { return nil }
-        // The places without the new tab, where the final index is counted.
-        let others = pinned.indices.filter { $0 != from }
-        let pinnedCount = others.prefix { pinned[$0] }.count
-        let final: Int
-        switch self {
-        case .sameKind, .afterCurrent:
-            guard var at = others.firstIndex(of: anchor) else { return nil }
-            if groups.indices.contains(anchor), let group = groups[anchor] {
-                while at + 1 < others.count, groups.indices.contains(others[at + 1]), groups[others[at + 1]] == group { at += 1 }
-            }
-            final = max(at + 1, pinnedCount)
-        case .start: final = pinnedCount
-        case .end: final = count - 1
-        }
-        let clamped = min(max(final, 0), count - 1)
-        guard clamped != from else { return nil }
-        return clamped > from ? clamped + 1 : clamped
+        WorkspaceCreationRules.moveIndex(self, from: from, anchor: anchor, pinned: pinned, groups: groups)
     }
 }

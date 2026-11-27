@@ -152,6 +152,73 @@ import PackageDescription
 // the frame cmux presents (RESIZE P0 10, T render hop). A frame the renderer
 // shows itself at the host size ends the wait, so at rest output stays paced.
 //
+// Since 538a3e2ef..2db2ea423 (fork PR #87, stacked on #86): host frames say
+// whether the program drew at their grid. ghostty_surface_host_frame(false)
+// returns READY_PROGRAM (7) for a frame drawn after program output parsed since
+// the last grid change, READY for a frame of the size only, and a
+// program-fresh frame turns the main run loop when it completes, so cmux's
+// presenter can hold a resize's frame for the program's redraw (RESIZE P0 12).
+//
+// Since 2db2ea423..8e881185b (fork PR #88, stacked on #87): READY_PROGRAM
+// means the program redrew the whole new grid, not only that it wrote output.
+// A picture begins at a synchronized update, a cursor home, a full clear or a
+// line feed; it counts when it reaches the last row and column without going
+// past the grid (RESIZE P0 13). An old-grid frame (a program that repaints
+// for the size it read before the change) no longer ends cmux's hold.
+//
+// Since 8e881185b..7a372c740 (release/cmux-538a3e2e-resize-p0-16): a full
+// clear that begins a picture no longer reaches the last row by itself; the
+// picture reaches it once the program printed on the grid's last two rows.
+// ncurses (htop) writes its repaint after the clear in several reads, so the
+// first read's end showed a nearly empty frame (RESIZE P0 16).
+//
+// Since 538a3e2ef..8379ecc8a (fork PR #90, release branch
+// release/cmux-538a3e2e-upstream-picks): upstream #15111 (one-scan style runs
+// in RowBuilder.scan) and #15121 (RefCountedSet reuses dead IDs instead of
+// a whole-page clone), picked onto the #86 pin. ghostty-bench: 1.24-1.62x on
+// styled and hyperlink streams and render-state updates.
+//
+// b3a5ebfdf (release/cmux-538a3e2e-resize-p0-22) merges 8379ecc8a into
+// 7a372c740: both changes above in one pin (RESIZE P0 22).
+//
+// Since b3a5ebfdf..a0975fd8c (release/cmux-gi-pin-sync-2, GI PIN SYNC): five
+// upstream Ghostty main commits picked onto b3a5ebfdf with `cherry-pick -x`:
+// 96d379822 and 15a443234 (RenderState.endUpdate looks up a row's styles
+// once per segment and walks the pending style runs as a shrinking slice:
+// less work per scrolled row), 321a32a42 (a resize that grows rows and
+// shrinks columns keeps the scrollback it pulled down), 5ce2325ec (a shrink
+// with no scrollback no longer leaves the cursor pin garbage, so a Kitty
+// image at the cursor draws) and 1b8b3f55b (pins are remapped when the
+// column backfill stops early: no viewport on a freed page). No C API change.
+//
+// Since a0975fd8c..c370b103a (release/cmux-gi-land-1 merges a0975fd8c and
+// a0e665d4f, release/cmux-gi-present-cb-1; ghostty-integration step 3):
+// ghostty_surface_set_present_callback reports each frame that becomes the
+// layer's contents (pixel size, content or resize, sequence, host time); it
+// replaces cmux's setContents: swizzle on IOSurfaceLayer.
+//
+// Since c370b103a..b37a94dfe (release/cmux-gi-land-1-cell-guard, the two
+// commits of fork PR #91: red c59eb2db0, fix b37a94dfe): a frame drawn before
+// the surface's first cell build runs no cell pass and has a 0 x 0 grid
+// (Contents.framePlan), so a new surface shows its plain background, never
+// cells of another buffer. No C API change.
+//
+// Since b37a94dfe..2bd5d2503 (release/cmux-vt-1.0.1): a merge of upstream
+// libghostty-vt tag vt-1.0.1 (108cacb17, 209 upstream commits since
+// c7f68a7f4), per plans/cmux-next/ghostty-next.md section 1. The embedded
+// C API (ghostty.h) only gains GHOSTTY_ACTION_SET_WINDOW_THEME; the
+// libghostty-vt C API takes upstream's 1.0 ABI (cmux-tui's ghostty-vt
+// binding moves with it in the same pin change).
+//
+// Since b37a94dfe..a84a1c7e4 (release/cmux-gi-land-1-cell-guard, fork PR
+// #93): two config keys, background-cells-opacity (an alpha for every
+// explicit cell background) and background-cells-neutral-fade (a near-grey
+// explicit background fades to clear by its Oklab lightness distance from the
+// theme background). Both unset = the old rule. No C API change.
+//
+// Since 2bd5d2503 and a84a1c7e4..5c01c7171 (release/cmux-vt-1.0.1-cell-bg): a
+// --no-ff merge of the two lines above, both changes in one pin.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -175,8 +242,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-538a3e2efafe28ef4058483f4f942fc4cb8f8aba-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "15b130316e7beeb47e1017437bc3ad4d397f32d5edf16b1c0ba136d432392d5e"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-5c01c7171dc2c00d486f231adda7fb5bf6e55c97-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "ead90aeb4d72cc0ac19226ff8ebaf6b0c70862b274d063d4f263ab10f99c686c"
         ),
     ]
 )

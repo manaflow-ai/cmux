@@ -6,30 +6,37 @@
 // Session Info lab). Past five, "Show more" opens the rest. The ones that ended fold under one row,
 // "94 done · 1 failed", failed first. Every line opens what it names: a subagent's pane or view
 // (App.tsx `showSubagent`), a chat beside this one (`chat.offer.open`); its hover card names it and
-// says its state and its task. The live counts sit in the section's head ("3 running · 40 done",
-// `subagentCounts`).
+// says its state and its task. The live counts sit in the section's head (the running ones as their mark
+// and number, then "40 done",
+// `subagentCountParts`).
 import { useState } from "react";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useScrollEdges } from "../../../ui/scrollEdges";
-import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { SubagentCardBody } from "../subagents/SubagentPreview";
+import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
+import { useSenderIconLook } from "../subagents/senderIconLook";
 import { useAgentProgress } from "../subagents/agentProgressStore";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { subagentProgress } from "../subagents/subagentProgress";
+import { namedAction } from "../subagents/trayDetail";
 import { nestAgents } from "../subagents/agentsPillModel";
-import { elapsed, running, useNow } from "../subagents/subagentGroupModel";
+import { running, subagentTime, useNow } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
+import { subsessionResumeRow } from "../subagents/resumeState";
 import { retrying } from "../subagents/retryState";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "./childSessionRowsModel";
 import "./SubagentsSection.css";
 import { heightAbove, useFoldMotion } from "./foldMotion";
 import { SessionInfoFold } from "./SessionInfoSection";
-import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCounts } from "./subagentsSectionModel";
+import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCountParts } from "./subagentsSectionModel";
+import { CountLine } from "../summary/LiveCount";
 import { WindowedRows } from "./WindowedRows";
 
 /// The section head's counts on the clock the lines read, so an idle one leaves "running" in both
@@ -45,8 +52,12 @@ export function SubagentCountsMeta({
 }) {
   const t = useT();
   const now = useNow(agents.some(running));
-  const text = subagentCounts(t, agents, waiting, sessions, now);
-  return text ? <span className="acpmux-session-info-section__value">{text}</span> : null;
+  const parts = subagentCountParts(t, agents, waiting, sessions, now);
+  return parts.length > 0 ? (
+    <span className="acpmux-session-info-section__value">
+      <CountLine parts={parts} />
+    </span>
+  ) : null;
 }
 
 /// "94 done · 1 failed": the ended row's words, the done ones first as Leo asked for them (its
@@ -67,6 +78,8 @@ type Line = {
   key: string;
   identity: string;
   agent?: Subagent;
+  /// A stopped sub-session's row, for its Resume (resumeState.ts ``subsessionResumeRow``).
+  resumeRow?: Subagent;
   name: string;
   detail?: string;
   /// The kind of agent it is, for the hover card.
@@ -101,8 +114,11 @@ export function SubagentsSection({
   sessions = NO_SESSIONS,
   onOpenSession,
   harness,
+  resume,
 }: {
   agents: readonly Subagent[];
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx), as its end line offers it.
+  resume?: ResumeActions;
   waiting: ReadonlySet<string>;
   /// Shows a subagent (App.tsx `showSubagent`); without it a subagent's line opens nothing.
   onOpen?: (id: string) => void;
@@ -114,11 +130,16 @@ export function SubagentsSection({
   harness?: string;
 }) {
   const t = useT();
+  // A retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
   const endedEdges = useScrollEdges();
+  // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
+  // change of the setting draws them again.
+  const senderBadge = useSenderIconLook().badge;
   // Show more grows the running lines in place, and the ended row opens its list, each as one motion
   // with the sections under it and the panel's edge (foldMotion.ts).
   const moreFold = useFoldMotion<HTMLUListElement>(more, (list) => heightAbove(list, list.children[SUBAGENTS_SHOWN]));
@@ -133,16 +154,16 @@ export function SubagentsSection({
       progress: subagentProgress(t, language, agent, { usage: false }).join(" · "),
       // What it does now, while it runs; its kind (Explore, general-purpose) is no subtitle on the
       // line (Leo, 2026-10-31: "a lot of these subtitles are bad"): the hover card keeps it.
-      detail: working(status) ? agent.action : undefined,
+      detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
-      state: subagentStateText(t, agent, waiting, now),
+      state: subagentStateText(t, agent, waiting, connectionQuiet, now),
       working: Boolean(retrying(agent)),
-      time: formatDuration(elapsed(agent, now)),
+      time: subagentTime(agent, now),
       task: agent.task,
       icon: SUBAGENT_FALLBACK,
       // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
-      mark: foreignHarness(agent.harness, harness),
+      mark: foreignHarness(agent.harness, harness, senderBadge),
       depth,
       at: agent.endedAt ?? agent.startedAt,
       open: onOpen && (() => onOpen(agent.id)),
@@ -153,12 +174,13 @@ export function SubagentsSection({
     identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
+    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child, connectionQuiet)),
     icon: "agent.chat",
     mark: child.harness,
     depth: 0,
     at: child.createdAt ?? 0,
     open: onOpenSession && (() => onOpenSession(child.sessionId)),
+    resumeRow: subsessionResumeRow(child),
   });
   // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
   // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
@@ -180,7 +202,9 @@ export function SubagentsSection({
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
   const shown = moreFold.drawn ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
-  const line = (item: Line) => (
+  const line = (item: Line) => lineOf(item, item.agent ?? item.resumeRow);
+  // `resumable`: the row a stopped one's Resume reads, a subagent's or a sub-session's.
+  const lineOf = (item: Line, resumable: Subagent | undefined) => (
     <li key={item.key}>
       <AgentLine
         lean
@@ -194,6 +218,7 @@ export function SubagentsSection({
         depth={item.depth}
         onOpen={item.open}
         card={<AgentCard item={item} />}
+        after={resume && resumable && <ResumeControl agent={resumable} actions={resume} />}
       />
     </li>
   );
@@ -243,21 +268,21 @@ export function SubagentsSection({
 
 function AgentCard({ item }: { item: Line }) {
   const progress = useAgentProgress(item.agent) ?? item.progress;
+  // The one subagent card (subagents/SubagentPreview.tsx), which a subagent's name chip shows too.
   return (
-    <span className="acpmux-agent-card">
-      <span className="acpmux-agent-card__name">{item.name}</span>
-      <span className="acpmux-agent-card__state" data-status={item.status}>
-        {[
-          item.state,
-          item.time,
-          item.kind,
-          progress,
-          item.status === "running" || item.status === "waiting" ? item.detail : undefined,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
-      </span>
-      {item.task && item.task !== item.name && <span className="acpmux-agent-card__task">{item.task}</span>}
-    </span>
+    <SubagentCardBody
+      name={item.name}
+      status={item.status}
+      state={[
+        item.state,
+        item.time,
+        item.kind,
+        progress,
+        item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      task={item.task && item.task !== item.name ? item.task : undefined}
+    />
   );
 }

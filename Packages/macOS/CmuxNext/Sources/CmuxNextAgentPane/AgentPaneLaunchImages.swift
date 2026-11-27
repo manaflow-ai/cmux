@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import ImageIO
 public import CmuxNextDesign
 public import CmuxNextWakeups
 
@@ -26,7 +27,15 @@ public final class AgentPaneLaunchImages {
     /// The most saved pages one launch reads (one per pane on screen at the last quit).
     nonisolated static let maximumFiles = 64
 
-    let directory: URL?
+    nonisolated let directory: URL?
+    /// Saves the pages while the app runs (``AgentLaunchPictures``), so a launch after a crash or a kill has them too.
+    public var pictures: AgentLaunchPictures?
+    /// Whether the last quit saved any page: a directory listing, for a lane thread (``CEFLaunchPrefetch``: a page on
+    /// screen at the quit is a Chromium page by default, so its framework is read before the first window).
+    public nonisolated var savedPagesExist: @Sendable () -> Bool {
+        let directory = directory
+        return { directory.map { !((try? FileManager.checked.contentsOfDirectory(atPath: $0.path)) ?? []).isEmpty } ?? false }
+    }
     /// Reads the saved pages.
     private let reader: LaunchFileReader
     /// Drops the read's pages after ``prefetch(on:keep:mark:)``'s `keep`.
@@ -34,11 +43,18 @@ public final class AgentPaneLaunchImages {
     /// Released pages' last frames (AgentPageHibernation), in memory as encoded images: a page built
     /// again draws its old frame until it paints, as at launch.
     private var held: [String: (data: Data, size: NSSize, appearance: NSAppearance.Name?)] = [:]
+    /// This Mac's machine id: its tabs keep the bare tab id as their key here (``slot(_:machine:)``).
+    public var localMachine: () -> String? = { nil }
     /// The launch read of the saved pages, decoded, by tab key (``prefetch(on:keep:mark:)``); nil before it
     /// starts and once its pages are dropped.
     private var read: LaunchRead<[String: Page]>?
     /// The saved pages handed out (each once per launch).
     private var taken: Set<String> = []
+    /// The read's pages once its end reached the main thread (``MainDelivery``): a pane told then gets its page
+    /// even before ``LaunchRead/value`` is set on that turn.
+    private var delivered: [String: Page]?
+    /// What runs once the read ends, by key: the panes that asked before it did (``whenReadEnds(_:_:)``).
+    private var readWaiters: [String: @MainActor () -> Void] = [:]
     /// Records a launch mark.
     private var mark: @Sendable (String) -> Void = { _ in }
     /// Whether the read's results were dropped (``prefetch(on:keep:mark:)`` then starts no new read).
@@ -80,9 +96,11 @@ public final class AgentPaneLaunchImages {
         guard let directory, read == nil, !readDropped else { return nil }
         self.mark = mark
         let reader = reader
-        let read = LaunchRead(on: work) {
+        let read = LaunchRead(on: work) { [weak self] in
             let pages = Self.readAll(in: directory, reader)
             mark("agent_pane.launch_images_read")
+            // The panes that asked too early hear of it on the main thread's next turn.
+            MainDelivery().run { self?.readEnded(pages) }
             return pages
         }
         self.read = read
@@ -95,7 +113,30 @@ public final class AgentPaneLaunchImages {
     /// Drops the read's results that no pane took.
     private func dropRead() {
         read = nil
+        delivered = nil
+        readWaiters = [:]
         readDropped = true
+    }
+
+    /// The read ended: each pane that asked before it did asks again (``whenReadEnds(_:_:)``).
+    private func readEnded(_ pages: [String: Page]) {
+        guard read != nil else { return }
+        delivered = pages
+        let waiting = readWaiters
+        readWaiters = [:]
+        for body in waiting.values { body() }
+    }
+
+    /// When a pane asked for `key`'s page before the launch read ended (``take(_:size:appearance:)`` gave nil and
+    /// marked `agent_pane.launch_image_missed`), runs `body` on the main thread once the read ends, so the pane can
+    /// ask again and draw its page then instead of its loading state until the live page paints. One waiter per
+    /// key: a later call for a waiting key keeps the first. False, and `body` never runs, when no read is under
+    /// way (it ended, was dropped, or never started).
+    @discardableResult
+    public func whenReadEnds(_ key: String, _ body: @escaping @MainActor () -> Void) -> Bool {
+        guard read != nil, delivered == nil else { return false }
+        if readWaiters[key] == nil { readWaiters[key] = body }
+        return true
     }
 
     /// `key`'s last page for its pane's first frame, at once, never waiting. A released page's frame
@@ -112,12 +153,23 @@ public final class AgentPaneLaunchImages {
             return image
         }
         guard let read else { return nil }
-        guard let pages = read.value else {
+        guard let pages = delivered ?? read.value else {
             mark("agent_pane.launch_image_missed")
             return nil
         }
         guard let page = pages[key], taken.insert(key).inserted else { return nil }
         return NSImage(cgImage: page.image, size: page.size)
+    }
+
+    /// `key`'s last page without handing it out: a released page's held frame, else the page the last quit saved
+    /// while the launch read keeps it. The hover card's miniature shows it for a chat not on screen since (#51768).
+    /// A held frame taken in the other light or dark look than `appearance` is skipped, as ``take(_:size:appearance:)`` does.
+    public func lastPage(_ key: String, appearance: NSAppearance.Name? = nil) -> CGImage? {
+        if let frame = held[key], appearance == nil || frame.appearance == nil || frame.appearance == appearance,
+           let source = CGImageSourceCreateWithData(frame.data as CFData, nil) {
+            return CGImageSourceCreateImageAtIndex(source, 0, nil)
+        }
+        return (delivered ?? read?.value)?[key]?.image
     }
 
     /// Holds `image` as tab `key`'s frame until ``take(_:size:appearance:)`` or ``drop(_:)``.
@@ -134,8 +186,15 @@ public final class AgentPaneLaunchImages {
         held[key] = nil
     }
 
-    /// Replaces the saved pages with `images` (by tab key).
-    public func save(_ images: [String: NSImage]) async {
+    /// The save under way (``save(_:keeping:)``): the next one writes after it, so two saves never
+    /// interleave their writes and removals.
+    private var writing: Task<Void, Never>?
+
+    /// Replaces the saved pages with `images` (by tab key), keeping the saved page of each key in `keeping`
+    /// that `images` lacks: a pane on screen whose page has not painted yet keeps its last picture rather
+    /// than losing it to a save that could not take a new one. Every other saved page goes, so the set stays
+    /// the pages on screen (one per pane, at most ``maximumFiles`` read at launch).
+    public func save(_ images: [String: NSImage], keeping: Set<String> = []) async {
         guard let directory else { return }
         // NSImage stays on the main actor; the encode and the writes run detached.
         var frames: [String: CGImage] = [:]
@@ -144,7 +203,13 @@ public final class AgentPaneLaunchImages {
             let scale = max(1, min(3, Int((CGFloat(cgImage.width) / image.size.width).rounded())))
             frames[Self.fileName(key, scale: scale, ext: cgImage.pageImageExtension)] = cgImage
         }
-        await Task.detached(priority: .utility) { Self.write(frames.compactMapValues { $0.pageImageData() }, to: directory) }.value
+        let kept = keeping.subtracting(images.keys), previous = writing
+        let write = Task.detached(priority: .utility) {
+            await previous?.value
+            Self.write(frames.compactMapValues { $0.pageImageData() }, keeping: kept, to: directory)
+        }
+        writing = write
+        await write.value
     }
 
     /// Every saved page in `directory`, decoded, with its point size, by tab key: for each key the first
@@ -164,10 +229,10 @@ public final class AgentPaneLaunchImages {
         return pages
     }
 
-    private nonisolated static func write(_ files: [String: Data], to directory: URL) {
+    private nonisolated static func write(_ files: [String: Data], keeping: Set<String>, to directory: URL) {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil {
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil && !keeping.contains(key(ofFile: old)) {
             try? manager.removeItem(at: directory.appending(path: old))
         }
         for (name, data) in files {
@@ -179,8 +244,27 @@ public final class AgentPaneLaunchImages {
 
     private nonisolated static func fileName(_ key: String, scale: Int, ext: String) -> String { "\(key)@\(scale)x.\(ext)" }
 
+    /// The tab key a saved page's file name holds (``fileName(_:scale:ext:)``; a file-safe key has no `@`).
+    public nonisolated static func key(ofFile name: String) -> String { String(name.prefix { $0 != "@" }) }
+
+    /// Where tab `key` of `machine` keeps its frame and saved page: the bare id on this Mac (the files a
+    /// save before tabs had a machine wrote), else the id and a digest of the machine, so two machines'
+    /// tabs of one id never show each other's page. Still a file-safe key (``isFileSafe(_:)``).
+    public func slot(_ key: String, machine: String?) -> String {
+        guard let machine, !machine.isEmpty, machine != localMachine() else { return key }
+        let digest = machine.utf8.reduce(UInt64(0xcbf29ce484222325)) { ($0 ^ UInt64($1)) &* 0x100000001b3 }
+        return key + "-m" + String(digest, radix: 16)
+    }
+
     /// Tab keys are `tab_<hex>`; anything else never becomes a path.
     private nonisolated static func isFileSafe(_ key: String) -> Bool {
         !key.isEmpty && key.count <= 128 && key.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
+    }
+}
+
+extension NSView {
+    /// The light or dark look this pane's saved pages are taken in (``AgentPaneLaunchImages/take(_:size:appearance:)``).
+    public var launchImageAppearance: NSAppearance.Name? {
+        effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
     }
 }

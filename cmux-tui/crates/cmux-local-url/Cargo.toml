@@ -1,0 +1,15 @@
+[package]
+name = "cmux-local-url"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Loopback URLs a dev server prints, the TCP connect that confirms one listens, and which device opens a web link"
+
+[lints]
+workspace = true
+
+[dependencies]
+regex-automata.workspace = true
+url.workspace = true

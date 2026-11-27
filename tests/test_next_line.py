@@ -11,6 +11,13 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,8 +55,8 @@ class NextLineTests(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
-    def line(self, event, base_ref, base_sha):
-        result = subprocess.run([str(SCRIPT), event, base_ref, base_sha], cwd=self.clone,
+    def line(self, event, base_ref, base_sha, ref_name=""):
+        result = subprocess.run([str(SCRIPT), event, base_ref, base_sha, ref_name], cwd=self.clone,
                                 capture_output=True, text=True, check=True)
         return result.stdout.strip()
 
@@ -67,6 +74,14 @@ class NextLineTests(unittest.TestCase):
     def test_other_events_are_not(self):
         self.assertEqual(self.line("merge_group", "", self.next_sha), "false")
         self.assertEqual(self.line("workflow_dispatch", "", ""), "false")
+        self.assertEqual(self.line("workflow_dispatch", "", "", "main"), "false")
+
+    def test_a_dispatch_on_feat_cmux_next_is_on_the_line(self):
+        # The hourly full tier dispatches ci.yml on feat-cmux-next (.github/hourly-full-tier.json);
+        # it routes like a feat-cmux-next pull request, not through the legacy lanes.
+        self.assertEqual(self.line("workflow_dispatch", "", "", "feat-cmux-next"), "true")
+        # A pull request's ref is its merge ref; only its base decides.
+        self.assertEqual(self.line("pull_request", "main", self.main_sha, "feat-cmux-next"), "false")
 
     def test_an_unreadable_base_runs_the_legacy_lanes(self):
         self.assertEqual(self.line("pull_request", "leo/x", "not-a-sha"), "false")

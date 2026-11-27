@@ -10,6 +10,7 @@ import { TURN_RETRY, type AcpmuxRow } from "./model";
 import { THINKING, withRetry } from "./conversation/turns";
 import { retryParts } from "./conversation/thinkingModel";
 import { readTurnRetry } from "./direct";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -23,7 +24,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -135,15 +137,15 @@ test("the line says what is wrong, the retry's count and the harness's error", (
     count: 'turn.live.retry.attempt{"attempt":7,"max":10}',
     error: "503 server error",
   });
-  expect(retryParts(translate, { attempt: 2, errorStatus: 529 }).label).toBe("turn.live.retry.busy");
+  expect(retryParts(translate, { attempt: 2, errorStatus: 529 }).label).toBe("capacity.live");
   expect(retryParts(translate, { error: "rate_limit" })).toEqual({
-    label: "turn.live.retry.busy",
+    label: "capacity.live",
     count: "turn.live.retry.retrying",
-    error: "rate limit",
+    detail: "rate limit",
   });
   // Claude's status-less error codes carry a trailing "_error".
-  expect(retryParts(translate, { error: "rate_limit_error" }).label).toBe("turn.live.retry.busy");
-  expect(retryParts(translate, { error: "overloaded_error" }).label).toBe("turn.live.retry.busy");
+  expect(retryParts(translate, { error: "rate_limit_error" }).label).toBe("capacity.live");
+  expect(retryParts(translate, { error: "overloaded_error" }).label).toBe("capacity.live");
   expect(retryParts(translate, { error: "server_error" }).label).toBe("turn.live.retry.unreachable");
 });
 

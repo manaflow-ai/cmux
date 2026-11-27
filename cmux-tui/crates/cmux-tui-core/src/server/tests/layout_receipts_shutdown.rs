@@ -10,9 +10,13 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
     let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
 
-    let before =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let before = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+        &test_writer(),
+    )
+    .unwrap();
     let split = before["workspaces"][0]["screens"][0]["layout"]["split"]
         .as_u64()
         .expect("protocol v8 split id");
@@ -25,9 +29,13 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     }))
     .unwrap();
     handle_command(&mux, mux.local_test_client(0), request.cmd, &test_writer()).unwrap();
-    let after_exact =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let after_exact = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+        &test_writer(),
+    )
+    .unwrap();
     assert_eq!(after_exact["workspaces"][0]["screens"][0]["layout"]["split"], split);
     let exact_ratio = after_exact["workspaces"][0]["screens"][0]["layout"]["ratio"]
         .as_f64()
@@ -43,9 +51,13 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     }))
     .unwrap();
     handle_command(&mux, mux.local_test_client(0), legacy.cmd, &test_writer()).unwrap();
-    let after_legacy =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let after_legacy = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+        &test_writer(),
+    )
+    .unwrap();
     assert_eq!(after_legacy["workspaces"][0]["screens"][0]["layout"]["split"], split);
     let legacy_ratio = after_legacy["workspaces"][0]["screens"][0]["layout"]["ratio"]
         .as_f64()
@@ -75,9 +87,13 @@ fn workspace_tree_exposes_stable_resource_ids_for_startup_attach_and_receipts() 
         ContentPublicId::Browser(_) => panic!("workspace started with a browser"),
     };
 
-    let tree =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let tree = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+        &test_writer(),
+    )
+    .unwrap();
 
     for (path, prefix) in [
         (&tree["workspaces"][0]["resource_id"], "ws_"),
@@ -99,11 +115,15 @@ fn projected_split_ratio_range_failure_is_not_reported_as_unknown() {
     let first = mux.new_workspace(None, Some((80, 22))).unwrap();
     let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
     mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
-    let split =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap()["workspaces"][0]["screens"][0]["layout"]["split"]
-            .as_u64()
-            .expect("viewport projection exposes a stable split");
+    let split = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
+        &test_writer(),
+    )
+    .unwrap()["workspaces"][0]["screens"][0]["layout"]["split"]
+        .as_u64()
+        .expect("viewport projection exposes a stable split");
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
 
@@ -331,6 +351,8 @@ fn create_terminal_rejects_partial_dimensions() {
                 env: None,
                 keep: false,
                 detached: false,
+                create_workspace: false,
+                workspace_name: None,
                 mutation: MutationRequest::default(),
             },
             &test_writer(),
@@ -359,6 +381,8 @@ fn mutation_specific_raw_terminal_create_updates_public_projection_once() {
         env: None,
         keep: false,
         detached: false,
+        create_workspace: false,
+        workspace_name: None,
         mutation: MutationRequest {
             origin: Some("raw-projection-test".to_string()),
             mutation_id: Some("raw-terminal-create-once".to_string()),
@@ -430,6 +454,7 @@ fn creation_receipts_replay_exact_surfaces_across_control_connections() {
                 device_name: None,
                 device_id: None,
                 api_revision: None,
+                api_version: None,
                 version: None,
                 install: None,
                 remote: None,
@@ -540,6 +565,7 @@ fn browser_receipt_targets_an_exact_empty_workspace_without_focus_state() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,
@@ -636,6 +662,7 @@ fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
                 device_name: None,
                 device_id: None,
                 api_revision: None,
+                api_version: None,
                 version: None,
                 install: None,
                 remote: None,
@@ -869,6 +896,52 @@ fn daemon_shutdown_is_local_fenced_and_queues_ack_first() {
     assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
 }
 
+/// `restart` on `shutdown-daemon` reaches every client that negotiated
+/// `daemon-shutdown-restart-v1` on the shutdown notice, so an attached TUI
+/// reconnects after `server restart` and exits after `server stop`. A client
+/// without the capability (a strict older SDK) gets the bare event, and a
+/// requester that does not say leaves it out.
+#[test]
+fn daemon_reconnect_shutdown_notice_carries_restart() {
+    for (restart, expected) in
+        [(Some(true), json!(true)), (Some(false), json!(false)), (None, Value::Null)]
+    {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (tui_writer, tui_outbound) = captured_writer();
+        let tui = mux.control_clients.register(ClientTransport::Unix, tui_writer);
+        let capabilities = Some(vec![DAEMON_SHUTDOWN_RESTART_CAPABILITY.to_string()]);
+        mux.control_clients.set_info(tui, None, Some("tui".into()), capabilities).unwrap();
+        let (sdk_writer, sdk_outbound) = captured_writer();
+        let sdk = mux.control_clients.register(ClientTransport::Unix, sdk_writer);
+        let (_, generation) = mux.registry_identity();
+        let mut request = json!({
+            "id": 95,
+            "cmd": "shutdown-daemon",
+            "pid": std::process::id(),
+            "generation": generation,
+        });
+        if let Some(restart) = restart {
+            request["restart"] = json!(restart);
+        }
+        assert!(handle_message(&mux, requester, &request.to_string(), &writer));
+        assert!(mux.daemon_shutdown_requested(), "{restart:?}");
+        assert!(!mux.control_clients.contains(tui));
+        assert!(!mux.control_clients.contains(sdk));
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        let requester_notice = pop_json(&outbound);
+        assert_eq!(requester_notice, json!({"event": DAEMON_SHUTDOWN_EVENT}));
+        let notice = pop_json(&tui_outbound);
+        assert_eq!(notice["event"], DAEMON_SHUTDOWN_EVENT);
+        assert_eq!(notice["restart"], expected, "{notice}");
+        assert_eq!(pop_json(&sdk_outbound), json!({"event": DAEMON_SHUTDOWN_EVENT}));
+    }
+}
+
 #[test]
 fn daemon_shutdown_waits_for_ack_flush_before_disconnecting_the_owner() {
     let mux = test_mux();
@@ -955,6 +1028,14 @@ fn undecodable_requests_reply_with_their_request_id() {
     }
 }
 
+/// The refusal a message gets once the daemon's shutdown or handoff began: not executed, with the
+/// stable code a client waits on for the shutdown notice.
+fn assert_refused_unexecuted(reply: &Value, id: u64) {
+    assert_eq!(reply["id"], id, "{reply}");
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], DAEMON_SHUTDOWN_PENDING_CODE, "{reply}");
+}
+
 #[test]
 fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
     let mux = test_mux();
@@ -994,6 +1075,8 @@ fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
     .to_string();
     assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler,));
     assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+    // Refused unexecuted before the close, never dispatched (shutdown_refusal.rs).
+    assert_refused_unexecuted(&pop_json(&outbound), 99);
     assert!(outbound.try_pop().is_none());
 }
 
@@ -1019,6 +1102,8 @@ fn daemon_handoff_fences_pipelined_messages_before_shutdown_flag() {
     .to_string();
     assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler));
     assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+    // Refused unexecuted before the close, never dispatched (shutdown_refusal.rs).
+    assert_refused_unexecuted(&pop_json(&outbound), 99);
     assert!(outbound.try_pop().is_none());
 }
 
@@ -1100,6 +1185,7 @@ fn daemon_shutdown_force_preserves_the_identity_fence() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,
@@ -1167,6 +1253,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,
@@ -1184,6 +1271,8 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             force: false,
             end_terminals: false,
             keep_layout: false,
+            restart: None,
+            if_idle: false,
         },
         &requester_writer,
     )
@@ -1207,6 +1296,8 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             force: false,
             end_terminals: false,
             keep_layout: false,
+            restart: None,
+            if_idle: false,
         },
         &requester_writer,
     )
@@ -1224,6 +1315,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,
@@ -1344,4 +1436,24 @@ fn pane_and_screen_close_detach_views_without_closing_terminal_hosts() {
         mux.close_terminal(TERMINAL, INCARNATION).unwrap();
         assert!(mux.surface(surface).is_none());
     }
+}
+
+/// A requester that leaves while its reservation is pending takes its
+/// `restart` along: a later handoff that names none (session.shutdown, the
+/// orphan stop) must not announce the old one.
+#[test]
+fn daemon_reconnect_restart_does_not_outlive_its_reservation() {
+    let mux = test_mux();
+    mux.mark_server_lifecycle_ready();
+    let (writer, _outbound) = captured_writer();
+    let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    mux.begin_daemon_handoff(first, DaemonHandoffRequest::unfenced(false)).unwrap();
+    mux.control_clients.set_daemon_handoff_restart(first, Some(true));
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), Some(true));
+    mux.control_clients.remove(first);
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), None);
+
+    let second = mux.control_clients.register(ClientTransport::Unix, writer);
+    mux.begin_daemon_handoff(second, DaemonHandoffRequest::unfenced(false)).unwrap();
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), None);
 }

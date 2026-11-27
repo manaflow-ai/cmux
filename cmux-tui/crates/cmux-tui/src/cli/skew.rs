@@ -234,7 +234,7 @@ fn probe(global: &GlobalArgs) -> Option<(PathBuf, DaemonBuild, Route)> {
     probe_socket(socket)
 }
 
-fn probe_socket(socket: PathBuf) -> Option<(PathBuf, DaemonBuild, Route)> {
+pub(super) fn probe_socket(socket: PathBuf) -> Option<(PathBuf, DaemonBuild, Route)> {
     let stream = UnixStream::connect(&socket).ok()?;
     let peer_uid = cmux_tui_core::platform::unix_peer_uid(&stream).ok()?;
     let peer_pid = cmux_tui_core::platform::transport::Stream::peer_process_key(&stream)
@@ -259,8 +259,16 @@ fn probe_socket(socket: PathBuf) -> Option<(PathBuf, DaemonBuild, Route)> {
     Some((socket, daemon, Route::Local { peer_uid, peer_pid }))
 }
 
+/// Whether the daemon itself answered on `route`: the socket's peer is the
+/// daemon's own pid. A tunnel (`cmux remote ssh`, a relay) forwards to a
+/// daemon on another machine.
+pub(super) fn answered_itself(daemon: &DaemonBuild, route: &Route) -> bool {
+    let Route::Local { peer_pid, .. } = route;
+    *peer_pid == Some(daemon.pid)
+}
+
 /// The line for a daemon of another build behind a tunnel socket.
-fn remote_skew(daemon: &DaemonBuild, own_build: &str, socket: &Path) -> String {
+pub(super) fn remote_skew(daemon: &DaemonBuild, own_build: &str, socket: &Path) -> String {
     let m = &crate::localization::catalog().skew;
     let text = match tunnel_ssh_destination(socket) {
         Some(destination) => {
@@ -294,7 +302,7 @@ fn tunnel_ssh_destination(socket: &Path) -> Option<String> {
     plain.then(|| destination.to_owned())
 }
 
-fn own_build_id() -> &'static str {
+pub(super) fn own_build_id() -> &'static str {
     cmux_build_identity::BUILD_IDENTITY
 }
 

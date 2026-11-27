@@ -1,6 +1,8 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
+import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -30,8 +32,6 @@ struct CloudErrorTextTests {
     /// caller or the classic `cmux vm` CLI: the app shows the message and
     /// trace id without them; the log (`description`) keeps them.
     @Test(arguments: [
-        ("vm_firewall_rule_not_found", "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done."),
-        ("vm_tunnel_not_found", "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up."),
         ("vm_not_found", "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`."),
         ("vm_access_requires_pro", "Upgrade to Pro at https://cmux.com/pricing to reconnect vm-1, or delete it with `cmux vm rm vm-1`."),
         ("vm_active_limit_exceeded", "Upgrade to cmux Pro at https://cmux.com/pricing for more active machines, or free a slot with `cmux vm rm <id>`."),
@@ -45,6 +45,22 @@ struct CloudErrorTextTests {
                                        headerCode: code)
         #expect(error.description == "It failed. \(action) (trace t-1)")
         #expect(CloudStrings.errorText(error) == "It failed. \(CloudStrings.trace("t-1"))")
+    }
+
+    /// The app server's refusal at the team's machine count limit says so, not "Something went wrong": a person
+    /// who reads it can delete a machine and start the chat (cmux#40159, the dev team at 18 of 18).
+    @Test func aCreateAtTheMachineLimitSaysSo() {
+        let refusal = CloudAppOpFailure(code: "cmux.cloud.vm_limit", message: "cloud.quota.vm_limit")
+        #expect(CloudStrings.errorText(refusal) == CloudMoveStrings.machineLimit)
+        #expect(CloudStrings.errorText(refusal) != PlainErrorText.generic)
+        #expect(CloudStrings.errorText(CloudAppOpFailure(code: "cmux.cloud.other", message: "x")) == PlainErrorText.generic)
+    }
+
+    /// A Cloud request the app server refused as sent too often says to wait, not "Something went wrong" (cmux#45774).
+    @Test func aRateLimitedRefusalSaysToWait() {
+        let refusal = CloudAppOpFailure(code: "cmux.cloud.rate_limited", message: "cloud.rate_limited")
+        #expect(CloudStrings.errorText(refusal) != PlainErrorText.generic)
+        #expect(CloudStrings.errorText(refusal).contains("Wait a minute"))
     }
 
     @Test func aFailedCreationReadsAsTheErrorText() {
@@ -79,7 +95,8 @@ struct CloudErrorTextTests {
         #expect(CloudStrings.errorText(CloudAPIError.noBackend(URL(string: "http://127.0.0.1:1")!)) == CloudStrings.localBackend)
         #expect(CloudStrings.errorText(CloudAPIError.timedOut("/api/vm")) == CloudStrings.apiTimedOut)
         #expect(!CloudStrings.apiTimedOut.contains("/api/"))
-        #expect(CloudStrings.errorText(CloudAPIError.transport("offline")) == CloudStrings.apiUnreachable("offline"))
+        #expect(CloudStrings.errorText(CloudAPIError.transport("The Internet connection appears to be offline.")) == CloudStrings.apiUnreachable)
+        #expect(!CloudStrings.apiUnreachable.contains("offline."), "the system's network text reached the toast")
         #expect(CloudStrings.errorText(CloudAPIError.decoding("keyNotFound(…)")) == CloudStrings.apiUnreadable)
     }
 
@@ -89,7 +106,50 @@ struct CloudErrorTextTests {
         #expect(CloudService.workerApprovalsFailure(.decoding("keyNotFound(…)")) == .failed(CloudStrings.apiUnreadable))
     }
 
+    private struct Opaque: Error {}
+
+    /// A system error reads in plain words, any other as one plain generic line: never Cocoa's
+    /// "Error Domain=… Code=…" or a Swift dump (Leo, 2026-11-12: "we want good error states. We
+    /// don't want busted errors.").
+    @Test func aSystemOrUnknownErrorReadsInPlainWords() {
+        #expect(CloudStrings.errorText(URLError(.notConnectedToInternet)) == PlainErrorText.words(.offline))
+        #expect(CloudStrings.errorText(POSIXError(.ENOSPC)) == PlainErrorText.words(.noSpace))
+        #expect(CloudStrings.errorText(Opaque()) == PlainErrorText.generic)
+        #expect(CloudStrings.errorText(NSError(domain: "x", code: -1)) == PlainErrorText.generic)
+        #expect(CloudStrings.errorText(NSError(domain: NSCocoaErrorDomain, code: 4)) == PlainErrorText.words(.notFound))
+        let errors: [any Error] = [URLError(.badServerResponse), CocoaError(.fileWriteUnknown), Opaque(),
+                                   NSError(domain: "x", code: -1), CloudAPIError.transport("Error Domain=NSURLErrorDomain Code=-1009")]
+        for error in errors {
+            let text = CloudStrings.errorText(error)
+            #expect(!text.contains("Error Domain=") && !text.contains("Code=") && !text.contains("Opaque"), "\(text)")
+        }
+    }
+
+    /// No Cloud failure toast tells a person to run a CLI command; Retry on the toast is the way on.
+    @Test func noFailureNamesTheDiagnosticsCommand() {
+        for text in [CloudStrings.apiTimedOut, CloudStrings.apiUnreachable, CloudMoveStrings.moveFailed("x"),
+                     CloudBringBackStrings.failed("x"), CloudStrings.linkCheckFailed] {
+            #expect(!text.contains("cmux cloud diagnostics"), "\(text)")
+        }
+    }
+
+    /// A machine that never came to the relay names no code: "didn't connect: relay" told a person nothing to do.
+    @Test func aMachineThatNeverCameOnlineNamesNoCode() {
+        #expect(CloudMoveStrings.notConnected("dev", because: "relay") == CloudMoveStrings.notConnected("dev"))
+        #expect(CloudMoveStrings.notConnected("dev", because: "its sign-in expired").contains("its sign-in expired"))
+    }
+
     @Test func anActionFailureReadsAsItsMessage() {
         #expect(CloudStrings.errorText(ActionFailure(message: "No Cloud machine is selected.")) == "No Cloud machine is selected.")
+    }
+
+    /// A create's failure reads as the ensure's or the CLI's own sentence, not "Something went wrong."
+    /// (start-matrix environment and repo rows, 2026-11-24).
+    @Test func aCreateFailureReadsAsItsOwnSentence() {
+        #expect(CloudStrings.errorText(CloudAppOpFailure(code: "cmux.cloud.environment_not_found", message: "No environment named web.")) == "No environment named web.")
+        #expect(CloudStrings.errorText(CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "")) == "cmux.cloud.bad_response")
+        let refused = "backend capability refused: machine_create.bootstrap (backend https://cloud-api.cmux.dev)"
+        #expect(CloudStrings.errorText(CloudEnvironmentBootstrap.CreateRefused(stderr: Data((refused + "\n").utf8))) == refused)
+        #expect(CloudStrings.errorText(CloudEnvironmentBootstrap.CreateRefused(stderr: Data())) != PlainErrorText.generic)
     }
 }

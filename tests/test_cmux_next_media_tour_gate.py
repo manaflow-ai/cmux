@@ -33,6 +33,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-next-media.yml")
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
+import workflow_jobs  # noqa: E402
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 REPO = "manaflow-ai/cmux"
 LABEL = "media-tour"
@@ -105,7 +109,7 @@ def evaluate(node, context):
 
 def expression(text, context):
     text = str(text).strip()
-    parts = re.split(r"\$\{\{(.*?)\}\}", text)
+    parts = gh_expressions.EXPRESSION.split(text)
     if len(parts) == 3 and not parts[0] and not parts[2]:
         return evaluate(parse_expression(parts[1]), context)
     if len(parts) == 1:
@@ -188,8 +192,22 @@ def main():
            "re-adding the label cancels the pull request's older tour")
     _check(not expression(cancel, push_event()), "a nightly tour in progress is never cancelled")
     merge_group = expression(group, push_event())
-    _check(merge_group != expression(group, dict(push_event(), github=dict(push_event()["github"], sha="b" * 40))),
-           f"each nightly tip has its own group, so no tour is replaced by a newer one ({merge_group!r})")
+    # One group for every nightly tip: one tours at a time, the newest waiting tip runs next, and the
+    # next tour's base is the last toured tip (scripts/ci/media_last_toured.py), so a replaced tip's
+    # changes still tour.
+    _check(merge_group == expression(group, dict(push_event(), github=dict(push_event()["github"], sha="b" * 40))),
+           f"nightly tips share one group, so tours never run side by side ({merge_group!r})")
+    route_steps = {step.get("id"): step for step in workflow["jobs"]["route"]["steps"] if step.get("id")}
+    _check("last_toured" in route_steps and "media_last_toured.py" in route_steps["last_toured"]["run"],
+           "the route finds the last toured tip, so a replaced or deferred tip is in the next tour's range")
+    # A tip under the gap holds (takes no Mac) unless What's New clips wait (#57326).
+    hold = route_steps.get("hold", {})
+    _check("steps.last_toured.outputs.defer == 'true'" in hold.get("if", "")
+           and "held=true" in hold.get("run", "")
+           and "steps.hold.outputs.held != 'true'" in route_steps["pick"]["if"],
+           "a tip under the tour gap takes no Mac")
+    _check("needs.route.outputs.base" in workflow["jobs"]["tour"]["env"]["BASE_SHA"],
+           "the tour compares the last toured tip with the new one")
 
     # The route job decides; without a wanted tour no Mac is taken and nothing is posted.
     _check(jobs["tour"]["if"] == "${{ needs.route.outputs.runs_on != '' }}", "the tour needs a picked runner")
@@ -212,7 +230,8 @@ def main():
     _check(bool(expression(jobs["publish"]["if"].replace("!cancelled() && ", ""), handed)),
            "a hand-off dispatch publishes the pull request run's tour")
     _check(not expression(jobs["route"]["if"], handed), "a hand-off dispatch tours nothing")
-    _check(jobs["publish"].get("environment") == "pr-media" and "environment" not in jobs["hand-off"],
+    _check(workflow_jobs.resolve(jobs["publish"]).environment == {"name": "pr-media"}
+           and workflow_jobs.resolve(jobs["hand-off"]).environment is None,
            "only the publisher runs in the pr-media environment")
     decide = next((s for s in jobs["route"]["steps"] if s.get("id") == "decide"), None)
     _check(decide is not None and "media_auto_tour.py" in decide.get("run", ""),
@@ -224,7 +243,7 @@ def main():
     route_env = pick["env"]
     _check(str(expression(route_env["SAME_REPO"], push_event())).lower() == "true",
            "a nightly tip counts as same-repository")
-    tour_env = jobs["tour"]["env"]
+    tour_env = workflow_jobs.resolve(jobs["tour"]).env
     _check(expression(tour_env["BASE_SHA"], push_event()) == "f" * 40,
            "a nightly tour compares against the previous nightly tip")
     _check(expression(tour_env["HEAD_SHA"], push_event()) == "a" * 40, "a nightly tour tours the new tip")

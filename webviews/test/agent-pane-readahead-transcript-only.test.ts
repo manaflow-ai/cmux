@@ -12,13 +12,16 @@
 import { afterAll, beforeAll, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { keptTail } from "../src/agent-session/acpmux/tailCache";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const saved = ["window", "document"].map((key) => [key, key in scope, scope[key]] as const);
 beforeAll(() => Object.assign(scope, { window: dom.window, document: dom.window.document }));
-afterAll(() => {
+afterAll(async () => {
   setSystemTime();
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];
@@ -59,6 +62,8 @@ class Daemon {
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
   reads: string[] = [];
+  /// Each read-ahead page asked: the newest page, or the records after a seq, and its reply's bytes.
+  pages: { sessionId: string; afterSeq?: number; bytes: number }[] = [];
   /// Chats whose next read-ahead page fails (acpmux answers an error).
   failing = new Set<string>();
   bytes = 0;
@@ -102,6 +107,20 @@ class Daemon {
       ];
       result = { events, hasMore: false, lastSeq: row.lastSeq };
       this.reads.push(sessionId);
+    } else if (message.method === "_acpmux/events" && row && typeof params.afterSeq === "number") {
+      // A forward page: the records the chat logged after `afterSeq`, each a short reply.
+      const sessionId = row.sessionId;
+      const after: number = params.afterSeq;
+      const events = Array.from({ length: Math.max(0, row.lastSeq - after) }, (_, index) => ({
+        sessionId,
+        seq: after + 1 + index,
+        at: START + after + 1 + index,
+        dir: "mux",
+        kind: "turn_result",
+        msg: { status: "completed" },
+      }));
+      result = { events, hasMore: false, lastSeq: row.lastSeq, pageThrough: row.lastSeq };
+      this.reads.push(sessionId);
     } else if (message.method === "_acpmux/events") result = { events: [], hasMore: false, lastSeq: 0 };
     const failed = message.method === "_acpmux/events" && row !== undefined && this.failing.delete(row.sessionId);
     const reply = JSON.stringify(
@@ -109,7 +128,15 @@ class Daemon {
         ? { jsonrpc: "2.0", id: message.id, error: { code: -32000, message: "busy" } }
         : { jsonrpc: "2.0", id: message.id, result },
     );
-    if (message.method === "_acpmux/events" && params.beforeSeq === Number.MAX_SAFE_INTEGER) this.bytes += reply.length;
+    const afterSeq = typeof params.afterSeq === "number" ? params.afterSeq : undefined;
+    if (
+      message.method === "_acpmux/events" &&
+      row &&
+      (params.beforeSeq === Number.MAX_SAFE_INTEGER || afterSeq !== undefined)
+    ) {
+      this.bytes += reply.length;
+      this.pages.push({ sessionId: row.sessionId, afterSeq, bytes: reply.length });
+    }
     queueMicrotask(() => this.onmessage?.({ data: reply }));
   }
 
@@ -282,6 +309,80 @@ test("a chat whose turn runs is read again once, when the turn ends", async () =
     // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
     await settle();
     expect(daemon.reads.slice(first.reads + busy.reads)).toEqual([done.sessionId]);
+  } finally {
+    client.close();
+  }
+}, 30_000);
+
+/// The brief, measured on the user's Mac: acpmux sent an idle app about 1 MB/s on loopback, "find
+/// which stream on :47811 carries about 1 MB/s to an idle app (full snapshots instead of deltas,
+/// replays, or a redraw loop)". A shown pane's read ahead was most of it: each chat that ran on was
+/// read again as its newest 128 KiB page, for the few records it had logged since. Now a chat the
+/// pane already read ahead is read from where its read stopped, and what came is added to its tail.
+test("a chat that ran on is read from where its read stopped, not as a whole page again", async () => {
+  prefix = "0190e000";
+  rows = makeRows();
+  let now = START;
+  setSystemTime(new Date(now));
+  const daemon = new Daemon();
+  const client = await AcpmuxDirectClient.connect(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://readahead-forward.invalid/",
+      token: "t",
+      sessionId: id(0),
+    },
+    () => {},
+    undefined,
+    () => daemon as unknown as WebSocket,
+  );
+  try {
+    // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+    await settle();
+    expect(daemon.pages.length).toBe(RECENT);
+    const whole = daemon.pages[0]!.bytes;
+
+    // Two turns end in one chat, a minute apart: each read asks only for the records after the last.
+    const ran = rows[5]!;
+    const forward: { afterSeq?: number; bytes: number }[] = [];
+    for (let turn = 1; turn <= 2; turn += 1) {
+      const from = daemon.pages.length;
+      now += 60_000;
+      setSystemTime(new Date(now));
+      const through = ran.lastSeq;
+      ran.updatedAt = now;
+      ran.lastSeq += 2;
+      ran.transcriptSeq = ran.lastSeq;
+      daemon.changed("turn_result", { ...ran });
+      // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+      await settle();
+      const pages = daemon.pages.slice(from);
+      expect(pages.map((page) => [page.sessionId, page.afterSeq])).toEqual([[ran.sessionId, through]]);
+      forward.push(pages[0]!);
+      // The tail holds the page it read first and every record after it, in order.
+      const events = keptTail(ran.sessionId)!.events;
+      expect(events.map((event) => event.seq)).toEqual([...Array(ran.lastSeq).keys()].map((at) => at + 1));
+      expect(events[1]!.kind).toBe("agent_message_chunk");
+    }
+    console.log(
+      `agent-pane-readahead: a chat that ran on, read again: before ${whole} bytes (its newest page), ` +
+        `after ${forward[0]!.bytes} bytes (the records after its last read)`,
+    );
+    expect(forward[0]!.bytes * 20).toBeLessThan(whole);
+
+    // Its log goes back (a peer restored from an older copy): the newest page is read whole again.
+    const from = daemon.pages.length;
+    now += 60_000;
+    setSystemTime(new Date(now));
+    ran.updatedAt = now;
+    ran.transcriptSeq = 2;
+    daemon.changed("status", { ...ran });
+    // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+    await settle();
+    expect(daemon.pages.slice(from).map((page) => [page.sessionId, page.afterSeq])).toEqual([
+      [ran.sessionId, undefined],
+    ]);
   } finally {
     client.close();
   }

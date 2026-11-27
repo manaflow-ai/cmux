@@ -1,7 +1,7 @@
 // cmux-web-test-timeout: 120
 // An unlabeled highlighted code card keeps its horizontal scrollbar visible under the corner veil.
 // Pierre hangs that scrollbar below the body's box into the card's bottom inset
-// (HighlightedCode.tsx `codeUnsafeCSS`, 6 px in WebKit), and the veil masks the body
+// (highlightedCodeModel.ts `codeUnsafeCSS`, 6 px in WebKit), and the veil masks the body
 // (conversation.css `--cv-code-corner-veil`): a mask painted only over the body's own lines cut the
 // scrollbar off at rest and on hover (cross-model review of #37521). At rest and hovered, the
 // mask's painted area must reach the scrollbar's bottom, and the lane must look the same as it does
@@ -175,11 +175,20 @@ await requireBrowserLane("code-corner-veil-scrollbar.test.ts", async () => {
           await page.mouse.move(card.x + 40, card.y + card.height / 2);
           await eased(page);
         }
-        // A thumb that shows: Pierre's is clear until its card is hovered, and faint then.
+        // A thumb that shows: Pierre's is clear until its card is hovered, and faint then. WebKit keeps a
+        // scrollbar's parts as they were styled when it made the scrollbar (scrollers.ts), so the red only
+        // paints on a scrollbar made after it: take the scroller's scrollbar away and give it back.
         await page.evaluate((selector) => {
+          const root = document.querySelector(selector)!.shadowRoot!;
           const style = document.createElement("style");
           style.textContent = "[data-code]::-webkit-scrollbar-thumb { background-color: #f00 !important; }";
-          document.querySelector(selector)!.shadowRoot!.append(style);
+          root.append(style);
+          for (const scroller of root.querySelectorAll<HTMLElement>("[data-code]")) {
+            scroller.style.overflowX = "hidden";
+            void scroller.offsetHeight;
+            scroller.style.overflowX = "";
+            void scroller.offsetHeight;
+          }
         }, BODY);
         await eased(page);
         const at = await geometry(page);

@@ -4,6 +4,7 @@
 //! queued message sink over a synchronized TCP stream.
 
 use super::BACKPRESSURE_RECHECK;
+use super::BudgetedFrame;
 use super::BudgetedText;
 use super::MAX_SERVER_CONNECTIONS;
 use super::MessageSink;
@@ -20,6 +21,7 @@ use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::io::IoSlice;
 use std::io::Read;
 use std::io::Write;
 use std::net::Shutdown;
@@ -29,6 +31,7 @@ use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::Instant;
 
 #[derive(Default)]
 pub(super) struct BoundedOutbound {
@@ -58,8 +61,32 @@ pub(super) struct StreamOutboundUsage {
 }
 
 pub(super) struct RegularOutbound {
-    text: Arc<BudgetedText>,
+    message: QueuedMessage,
     stream: OutboundStream,
+}
+
+/// What a stream queues: a JSON line, or an `attach-frames-v1` frame. Both
+/// share the stream's FIFO and byte budget, so a frame keeps its place among
+/// the stream's JSON events.
+pub(super) enum QueuedMessage {
+    Line(Arc<BudgetedText>),
+    Frame(Arc<BudgetedFrame>),
+}
+
+impl QueuedMessage {
+    fn len(&self) -> usize {
+        match self {
+            Self::Line(text) => text.len(),
+            Self::Frame(frame) => frame.len(),
+        }
+    }
+
+    fn into_item(self) -> OutboundItem {
+        match self {
+            Self::Line(text) => OutboundItem::Text(text),
+            Self::Frame(frame) => OutboundItem::Frame(frame),
+        }
+    }
 }
 
 pub(super) enum ControlOutbound {
@@ -69,6 +96,9 @@ pub(super) enum ControlOutbound {
 
 pub(super) enum OutboundItem {
     Text(Arc<BudgetedText>),
+    /// An `attach-frames-v1` frame: header and payload, no newline. Only a
+    /// Unix connection that negotiated the capability gets one.
+    Frame(Arc<BudgetedFrame>),
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -187,7 +217,8 @@ impl BoundedOutbound {
         initial: bool,
     ) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
-        let result = Self::push_regular_locked(&mut state, text, stream, initial);
+        let result =
+            Self::push_regular_locked(&mut state, QueuedMessage::Line(text), stream, initial);
         drop(state);
         self.changed.notify_all();
         result
@@ -196,6 +227,24 @@ impl BoundedOutbound {
     pub(super) fn push_regular_backpressured(
         &self,
         text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.push_backpressured(QueuedMessage::Line(text), stream)
+    }
+
+    /// [`Self::push_regular_backpressured`] of an `attach-frames-v1` frame: same queue, same
+    /// budget, same wait.
+    pub(super) fn push_frame_backpressured(
+        &self,
+        frame: Arc<BudgetedFrame>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.push_backpressured(QueuedMessage::Frame(frame), stream)
+    }
+
+    fn push_backpressured(
+        &self,
+        message: QueuedMessage,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
@@ -212,7 +261,7 @@ impl BoundedOutbound {
             let pending =
                 state.stream_usage.get(&stream.id).map(|usage| usage.messages).unwrap_or_default();
             if pending < OUTBOUND_BACKPRESSURED_STREAM_CAPACITY {
-                let result = Self::push_regular_locked(&mut state, text, stream, false);
+                let result = Self::push_regular_locked(&mut state, message, stream, false);
                 drop(state);
                 self.changed.notify_all();
                 return result;
@@ -224,7 +273,7 @@ impl BoundedOutbound {
 
     pub(super) fn push_regular_locked(
         state: &mut BoundedOutboundState,
-        text: Arc<BudgetedText>,
+        message: QueuedMessage,
         stream: &OutboundStream,
         initial: bool,
     ) -> std::io::Result<()> {
@@ -234,7 +283,7 @@ impl BoundedOutbound {
         if !stream.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
         }
-        let bytes = text.len();
+        let bytes = message.len();
         if bytes > OUTBOUND_BYTE_CAPACITY {
             Self::terminate_stream_locked(state, stream)?;
             return Err(std::io::Error::new(
@@ -288,7 +337,7 @@ impl BoundedOutbound {
         });
         usage.messages += 1;
         usage.bytes += bytes;
-        let message = RegularOutbound { text, stream: stream.clone() };
+        let message = RegularOutbound { message, stream: stream.clone() };
         if initial {
             state.initial.push_back(message);
         } else {
@@ -302,6 +351,36 @@ impl BoundedOutbound {
         Self::push_control_locked(&mut state, text)?;
         self.changed.notify_one();
         Ok(())
+    }
+
+    /// [`Self::push_control`] for a sender that may wait: when the control
+    /// queue has no room for `text` now, it waits until `deadline` for the
+    /// writer to take what is queued. Only then is the queue "overflowed".
+    /// For a thread that has more than one large message for a connection at
+    /// one time (`git_lane.rs`: the copies of a shared reply), never for a
+    /// reader thread.
+    pub(super) fn push_control_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        let mut state = self.state.lock().recover_poison();
+        loop {
+            let result = Self::push_control_locked(&mut state, text.clone());
+            let full =
+                matches!(&result, Err(error) if error.kind() == std::io::ErrorKind::WouldBlock);
+            let left = deadline.saturating_duration_since(Instant::now());
+            // A message above the whole reserve never fits: no wait helps it.
+            if !full || left.is_zero() || text.len() > OUTBOUND_CONTROL_BYTE_RESERVE {
+                drop(state);
+                // All: the writer thread and other senders wait on this one condition.
+                self.changed.notify_all();
+                return result;
+            }
+            let wait = left.min(BACKPRESSURE_RECHECK);
+            let (next, _) = self.changed.wait_timeout(state, wait).recover_poison();
+            state = next;
+        }
     }
 
     pub(super) fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
@@ -389,7 +468,10 @@ impl BoundedOutbound {
                 });
                 usage.messages += 1;
                 usage.bytes += bytes;
-                state.regular.push_back(RegularOutbound { text, stream: stream.clone() });
+                state.regular.push_back(RegularOutbound {
+                    message: QueuedMessage::Line(text),
+                    stream: stream.clone(),
+                });
                 stream.terminal_enqueued.store(true, Ordering::Release);
                 stream.close();
                 drop(state);
@@ -473,6 +555,12 @@ impl BoundedOutbound {
                     self.changed.notify_all();
                     return Some(text.to_string());
                 }
+                Some(OutboundItem::Frame(frame)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    let bytes = [&frame.header[..], &frame.payload].concat();
+                    return Some(String::from_utf8_lossy(&bytes).into_owned());
+                }
                 Some(OutboundItem::Flush(flushed)) => {
                     drop(state);
                     self.changed.notify_all();
@@ -506,7 +594,7 @@ impl BoundedOutbound {
 
     pub(super) fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         let item = Self::pop_item_locked(state);
-        if matches!(item, Some(OutboundItem::Text(_))) {
+        if matches!(item, Some(OutboundItem::Text(_) | OutboundItem::Frame(_))) {
             state.lines_taken += 1;
         }
         item
@@ -515,7 +603,7 @@ impl BoundedOutbound {
     fn pop_item_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
-            return Some(OutboundItem::Text(message.text));
+            return Some(message.message.into_item());
         }
         if let Some(control) = state.control.pop_front() {
             return Some(match control {
@@ -529,11 +617,11 @@ impl BoundedOutbound {
         }
         let message = state.regular.pop_front()?;
         Self::record_stream_pop(state, &message);
-        Some(OutboundItem::Text(message.text))
+        Some(message.message.into_item())
     }
 
     pub(super) fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
-        let bytes = message.text.len();
+        let bytes = message.message.len();
         state.regular_bytes = state.regular_bytes.saturating_sub(bytes);
         let remove = state.stream_usage.get_mut(&message.stream.id).is_some_and(|usage| {
             usage.messages = usage.messages.saturating_sub(1);
@@ -595,8 +683,13 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
 ) -> std::io::Result<()> {
     match item {
         OutboundItem::Text(text) => {
-            writer.write_all(text.as_bytes())?;
-            writer.write_all(b"\n")
+            let result =
+                write_parts(writer, &mut [IoSlice::new(text.as_bytes()), IoSlice::new(b"\n")]);
+            text.note_written(result.is_ok());
+            result
+        }
+        OutboundItem::Frame(frame) => {
+            write_parts(writer, &mut [IoSlice::new(&frame.header), IoSlice::new(&frame.payload)])
         }
         OutboundItem::Flush(flushed) => {
             writer.flush()?;
@@ -606,12 +699,43 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
     }
 }
 
-pub(super) struct QueuedSink {
-    pub(super) outbound: Arc<BoundedOutbound>,
-    pub(super) control: Option<SinkControl>,
+/// A line and its `\n`, or a frame's header and payload, in one vectored
+/// write: one syscall per message, and the client never wakes on a line body
+/// with no end. A short write finishes with the rest, as `write_all` would.
+fn write_parts<W: Write + ?Sized>(
+    writer: &mut W,
+    parts: &mut [IoSlice<'_>],
+) -> std::io::Result<()> {
+    let mut rest = parts;
+    while !rest.is_empty() {
+        match writer.write_vectored(rest) {
+            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(written) => IoSlice::advance_slices(&mut rest, written),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
-pub(super) enum SinkControl {
+pub(super) struct QueuedSink {
+    pub(super) outbound: Arc<BoundedOutbound>,
+    /// The connection's own descriptor of its socket, shared with the
+    /// connection loop, which closes it when the connection ends.
+    pub(super) control: Option<Arc<SinkControl>>,
+}
+
+/// A connection's handle on its own socket, for a kick or a write timeout
+/// from any thread. `close` shuts the socket down and closes this descriptor
+/// in the same call, so a `MessageWriter` clone that outlives the connection
+/// (a subscriber, a request thread) holds no descriptor of the socket. On
+/// macOS a client blocked in a read can miss the wake from a shutdown while
+/// the daemon keeps any descriptor of its end open; the last close wakes it.
+pub(super) struct SinkControl {
+    socket: Mutex<Option<SinkSocket>>,
+}
+
+enum SinkSocket {
     Unix(Box<dyn transport::Stream>),
     WebSocket(TcpStream),
 }
@@ -747,17 +871,35 @@ impl Write for SynchronizedTcpStream {
 }
 
 impl SinkControl {
+    pub(super) fn unix(stream: Box<dyn transport::Stream>) -> Arc<Self> {
+        Arc::new(Self { socket: Mutex::new(Some(SinkSocket::Unix(stream))) })
+    }
+
+    pub(super) fn websocket(stream: TcpStream) -> Arc<Self> {
+        Arc::new(Self { socket: Mutex::new(Some(SinkSocket::WebSocket(stream))) })
+    }
+
+    /// Ok and nothing to do once the descriptor is closed.
     pub(super) fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        match self {
-            Self::Unix(stream) => stream.set_write_timeout(timeout),
-            Self::WebSocket(stream) => stream.set_write_timeout(timeout),
+        match &*self.socket.lock().recover_poison() {
+            Some(SinkSocket::Unix(stream)) => stream.set_write_timeout(timeout),
+            Some(SinkSocket::WebSocket(stream)) => stream.set_write_timeout(timeout),
+            None => Ok(()),
         }
     }
 
-    pub(super) fn shutdown(&self) -> std::io::Result<()> {
-        match self {
-            Self::Unix(stream) => stream.shutdown(Shutdown::Both),
-            Self::WebSocket(stream) => stream.shutdown(Shutdown::Both),
+    /// Shuts the socket down both ways (the connection's own reader wakes)
+    /// and closes this descriptor. Later calls do nothing.
+    pub(super) fn close(&self) {
+        let socket = self.socket.lock().recover_poison().take();
+        match socket {
+            Some(SinkSocket::Unix(stream)) => {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+            Some(SinkSocket::WebSocket(stream)) => {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+            None => {}
         }
     }
 }
@@ -783,8 +925,24 @@ impl MessageSink for QueuedSink {
         self.outbound.push_regular_backpressured(text, stream)
     }
 
+    fn send_frame_backpressured(
+        &self,
+        frame: Arc<BudgetedFrame>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.outbound.push_frame_backpressured(frame, stream)
+    }
+
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         self.outbound.push_control(text)
+    }
+
+    fn send_control_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.outbound.push_control_backpressured(text, deadline)
     }
 
     fn send_terminal(
@@ -822,7 +980,7 @@ impl MessageSink for QueuedSink {
     fn abort(&self) {
         self.outbound.abort();
         if let Some(control) = &self.control {
-            let _ = control.shutdown();
+            control.close();
         }
     }
 

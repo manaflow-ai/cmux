@@ -87,13 +87,13 @@ public final class HangEpisodeRecorder: Sendable {
         let info = bundle.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? "?"
         let build = info["CFBundleVersion"] as? String ?? "?"
-        let header = _dyld_get_image_header(0)
+        let header: UnsafePointer<mach_header>? = AppSymbolMap.codeImage
         let uuid = header.flatMap(AppSymbolMap.uuid(of:))?.uuidString ?? "?"
         let base = header.map { "0x" + String(UInt(bitPattern: $0), radix: 16) } ?? "?"
         identity = [
             "app: \(bundle.bundleIdentifier ?? "?") \(version) (\(build))",
             "commit: \(info["CMUXCommit"] as? String ?? "unknown")",
-            // Raw frames in the executable resolve as address - load address against its dSYM.
+            // Raw frames in the app code image (CmuxNextApp.framework) resolve as address - load address against its dSYM.
             "executable: uuid \(uuid), load address \(base)",
         ]
         queue.async { [self] in loadEntries() }
@@ -170,13 +170,14 @@ public final class HangEpisodeRecorder: Sendable {
     /// A hang started `elapsed` ago: opens its file, with the `load` measured so far. Returns at once (the toggle is read on
     /// the recorder's queue too, so a main thread holding the tunable store's lock never
     /// blocks the watchdog).
-    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample], load: HangLoad = HangLoad()) {
-        let started = Date(timeIntervalSinceNow: -elapsed.fractionalMilliseconds / 1_000)
+    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample], load: HangLoad = HangLoad(),
+               observedAt: Date = Date()) {
+        let started = observedAt.addingTimeInterval(-elapsed.fractionalMilliseconds / 1_000)
         queue.async { [self] in
             guard isEnabled() else { return }
             // Raw addresses first: the evidence is on disk before anything can block.
             let raw = Self.render(main: main.map(Self.hex), others: others.map { (name: $0.name, frames: $0.addresses.map(Self.hex)) })
-            let entry = Entry(url: directory.appending(path: Self.fileName(started)), started: started, duration: elapsed,
+            let entry = Entry(url: uniqueURL(started), started: started, duration: elapsed,
                               ongoing: true, topFrames: Array(main.prefix(Self.topFrameCount).map(Self.hex)), load: load)
             state.withLock { state in
                 state.episodes.append(Episode(beat: beat, entry: entry, stacks: raw, raw: (main: main, others: others)))
@@ -197,7 +198,11 @@ public final class HangEpisodeRecorder: Sendable {
             change(beat: beat) { episode in
                 episode.entry.duration = duration
                 episode.entry.ongoing = ongoing
-                if let load { episode.entry.load = load }
+                // A later load keeps the blocking call the hang was sampled in (the call may end before the hang).
+                if var load {
+                    if load.blockingCall == nil { load.blockingCall = episode.entry.load.blockingCall }
+                    episode.entry.load = load
+                }
             }
         }
     }
@@ -340,9 +345,22 @@ public final class HangEpisodeRecorder: Sendable {
 
     // MARK: Format
 
-    /// `hang-2026-10-22T00-42-10.123Z.txt`: sortable, and no colons for Finder.
-    static func fileName(_ date: Date) -> String {
-        filePrefix + timestamp(date).replacingOccurrences(of: ":", with: "-") + ".txt"
+    /// `hang-2026-10-22T00-42-10.123Z.txt`: sortable, and no colons for Finder. A second hang that
+    /// starts in the same millisecond is `hang-2026-10-22T00-42-10.123Z-2.txt`, and so on.
+    static func fileName(_ date: Date, sequence: Int = 1) -> String {
+        filePrefix + timestamp(date).replacingOccurrences(of: ":", with: "-") + (sequence > 1 ? "-\(sequence)" : "") + ".txt"
+    }
+
+    /// The first file name for a hang started at `started` that no file, entry or episode already
+    /// holds, so hangs starting in one millisecond keep their own files (hq#20008). Recorder queue only.
+    private func uniqueURL(_ started: Date) -> URL {
+        let taken = state.withLock { state in Set(state.entries.map(\.url) + state.episodes.map(\.entry.url)) }
+        // At most maxFiles names are kept, so one of the first maxFiles + 1 is free.
+        for sequence in 1...(maxFiles + 1) {
+            let url = directory.appending(path: Self.fileName(started, sequence: sequence))
+            if !taken.contains(url) && !FileManager.checked.fileExists(atPath: url.path) { return url }
+        }
+        return directory.appending(path: Self.fileName(started, sequence: maxFiles + 2))
     }
 
     /// UTC with milliseconds: `2026-10-22T00:42:10.123Z`.

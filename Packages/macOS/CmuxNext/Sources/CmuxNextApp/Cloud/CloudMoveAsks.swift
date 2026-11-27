@@ -108,7 +108,7 @@ final class CloudMoveAsks {
                     }
                     asks[tab] = Ask(folder: "", always: false, scope: nil)
                     offered.insert(tab)
-                    show(tab, .failed, text, [.retry, .dismiss], services: services)
+                    show(tab, .failed, text, [.retry, .dismiss], services: services)  // retry-prompt-ok: finishing an unfinished move moves the chat to Cloud (files, a paid machine); Dismiss keeps it here
                 }
                 return
             }
@@ -132,7 +132,7 @@ final class CloudMoveAsks {
         guard asks[tab] != nil else { return }
         guard let failure else { return close(tab, services: services) }
         let retry = services.cloud.moveRetries[tab] != nil
-        show(tab, .failed, failure, retry ? [.retry, .dismiss] : [.dismiss], services: services)
+        show(tab, .failed, failure, retry ? [.retry, .dismiss] : [.dismiss], services: services)  // retry-prompt-ok: a move retry copies the chat to a paid Cloud machine; Dismiss keeps it here
     }
 
     @discardableResult
@@ -195,13 +195,14 @@ final class CloudMoveAsks {
     /// The local chat tab of agent session `session`, with its pane.
     private static func chat(_ session: String, services: AppServices) -> (TabModel, PaneModel)? {
         let tabs = services.agentTabs
+        let machine = services.daemon.machineID
         for pane in services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes) {
-            if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.resolve($0.id)] ?? $0.agentSession?.session) == session }) { return (tab, pane) }
+            if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.tabKey($0.id, machine: machine)] ?? $0.agentSession?.session) == session }) { return (tab, pane) }
         }
         return nil
     }
 
-    private static func name(_ folder: String) -> String { URL(fileURLWithPath: folder).lastPathComponent }
+    private static func name(_ folder: String) -> String { (folder as NSString).lastPathComponent }
 
     private static func title(_ answer: Answer) -> String {
         switch answer {
@@ -209,7 +210,7 @@ final class CloudMoveAsks {
         case .notNow: CloudMoveAskStrings.notNow
         case .always: CloudMoveAskStrings.always
         case .askFirst: CloudMoveAskStrings.askFirst
-        case .retry: CloudMoveStrings.retry
+        case .retry: CloudMoveStrings.retry  // retry-prompt-ok: the move card's Retry moves the chat (files, a paid Cloud machine)
         case .dismiss: CloudMoveAskStrings.dismiss
         }
     }

@@ -10,6 +10,7 @@
 //! each other cannot ask back and forth.
 
 use super::Origin;
+use super::host_power;
 use crate::hub::Hub;
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
@@ -44,11 +45,25 @@ const PRESSURE_KEYS: [&str; 10] = [
 /// This machine's own health (`_acpmux/host_health`). A Web or peer caller
 /// gets no host name (`hub::host_label`): the caller names its peer.
 pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
+    host_health_with(hub, origin, crate::wireguard::link_state_dir().as_deref()).await
+}
+
+/// [`host_health`] with the cmux link state directory `link_dir` (none: no link here).
+pub(crate) async fn host_health_with(
+    hub: &Hub,
+    origin: Origin,
+    link_dir: Option<&std::path::Path>,
+) -> Value {
     let mut v = json!({
         "version": crate::hub::VERSION,
         "build": crate::hub::build(),
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
+        // What kind of device this is (`cmux-device-kind`: `mac-mini`, `linux-server`), so every
+        // view of a machine draws its own glyph; read once per process.
+        "device": cmux_device_kind::this_device().kind.as_str(),
+        // The SF Symbol that kind draws, so a native view names it without a table of its own.
+        "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
         "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
         "liveSessions": hub.live_session_count(),
         "uptimeSecs": crate::store::now_ms().saturating_sub(hub.started_at) / 1000,
@@ -79,10 +94,22 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     if let Some((used, total)) = swap() {
         v.set("swap", json!({"usedBytes": used, "totalBytes": total}));
     }
+    // Power and network for Auto chat placement (`host_power.rs`): a closed lid, a low battery
+    // or a network that is down change where a chat runs. A debug override can stand in for each.
+    let assume = host_power::assumed(crate::store::now_ms());
+    if let Some(power) = host_power::power_json(host_power::power().await, assume.as_ref()) {
+        v.set("power", power);
+    }
+    v.set("network", host_power::network_json(host_power::network_up(), assume.as_ref()));
     v.set(
         "pressure",
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect(),
     );
+    // Whether this machine's owner enrolled it in AutoCloud, whose work it takes, and whether it
+    // takes any now (owner away, inside its hours): the placer's enrolled tier (`place_mode`).
+    // What `_acpmux/autocloud_enroll` saved wins over the settings key (`Enrollment::resolve`).
+    let saved = hub.config.read().await.auto_cloud_enroll.clone();
+    v.set("autoCloud", json!(crate::autocloud_enroll::report_now(saved.as_ref())));
     // What the machine health loop found wrong and could not fix
     // (`machine_health.rs`); none on a machine without the loop.
     if let Some(problems) = super::machine_health::problems().await {
@@ -91,13 +118,67 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     if !origin.web_class() {
         v.set("host", json!(crate::hub::host_label()));
     }
+    if let Some(link) =
+        link_identity(origin, link_dir.and_then(crate::peer::overlay::own_install_in))
+    {
+        v.set("link", link);
+    }
     // The public node identity is safe to show in status and is what the
     // platform join/registry APIs use to address this machine. The private
     // key stays in the transport-owned helper and is never serialized.
     if let Ok(key) = crate::cli::mesh_node_key::load_or_create() {
-        v.set("node", json!({"wgPublicKey": key.public_key_b64()}));
+        let mut node = json!({"wgPublicKey": key.public_key_b64()});
+        // While the WireGuard transport runs: its UDP port and service address, which a peer
+        // daemon that runs it too learns a route from (`peer_wg_learn.rs`).
+        if let Some(transport) = &hub.wireguard {
+            node.set("wireguard", transport.advert());
+        }
+        v.set("node", node);
     }
     v
+}
+
+/// `_acpmux/wireguard_admit` (`peer_wg_learn.rs`): a peer daemon that learned a WireGuard
+/// route to this machine asks it to admit its key (`{"publicKey", "address"}`, its
+/// `node.wireguard`), as an inbound-only mesh peer. Only a proven peer daemon or the local
+/// socket may ask; the mesh still carries bytes only to the token-checked listener.
+pub(super) async fn wireguard_admit(
+    hub: &Hub,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    if !matches!(origin, Origin::Peer | Origin::Local) {
+        return Err(RpcError::invalid_params("only a peer daemon admits a WireGuard key")
+            .with_data(json!({"reason": "wireguard.admit_refused"})));
+    }
+    let Some(transport) = &hub.wireguard else {
+        return Err(RpcError::invalid_params("the WireGuard transport is off on this machine")
+            .with_data(json!({"reason": "wireguard.off"})));
+    };
+    let key = params
+        .get("publicKey")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("publicKey must be a base64 key"))?;
+    let address =
+        params.get("address").and_then(Value::as_str).and_then(|a| a.parse().ok()).ok_or_else(
+            || RpcError::invalid_params("address must be a service address (ip:port)"),
+        )?;
+    transport
+        .admit(key, address)
+        .await
+        .map(|added| json!({"admitted": added}))
+        .map_err(|e| RpcError::invalid_params(format!("{e:#}")))
+}
+
+/// `link` of `host_health`: the install this machine's cmux link runs as, so a daemon that
+/// reaches it over ssh and is paired with that install adds the link as a backup path
+/// (`peer_overlay.rs`). For every origin but the Web: a peer daemon (`Origin::Peer`, which is
+/// web-class for rights) is the one that asks, and a Web client gets no machine identity.
+pub(crate) fn link_identity(origin: Origin, install: Option<String>) -> Option<Value> {
+    if origin == Origin::Web {
+        return None;
+    }
+    install.map(|install| json!({"install": install}))
 }
 
 /// How long ago this host's meter took its last sample, in ms.
@@ -144,13 +225,28 @@ pub(super) async fn peer_status(
 async fn peer_row(hub: &Hub, listed: &Value) -> Value {
     let name = listed["name"].as_str().unwrap_or_default().to_owned();
     let mut row = json!({"name": name, "self": false, "reachable": false});
-    for key in ["state", "lastSeen", "downSince", "remoteBuild", "outdated", "sessions"] {
+    for key in [
+        "state",
+        "via",
+        "lastSeen",
+        "downSince",
+        "remoteBuild",
+        "outdated",
+        "sessions",
+        "group",
+        "liveSessions",
+    ] {
         if let Some(v) = listed.get(key).filter(|v| !v.is_null()) {
             row[key] = v.clone();
         }
     }
     let peer = hub.connected_peers().into_iter().find(|p| p.name == name);
     let Some(peer) = peer else {
+        // Listed as connected through the hub: it is up, only this machine has no link of its own to ask.
+        if listed["state"] == "connected" && listed["via"] == "hub" {
+            row.set("via", json!("hub"));
+            return row;
+        }
         let why = listed["error"].as_str().unwrap_or("not connected");
         row.set("error", json!(format!("{why}; `{NEXT} {name}` checks it step by step")));
         return row;
@@ -171,7 +267,15 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             if let Some(problems) = health.get("problems") {
                 row.set("problems", super::machine_health::sanitize(problems));
             }
-            row.set("outdated", json!(health["build"].as_str() != Some(crate::hub::build())));
+            row.set(
+                "outdated",
+                json!(
+                    health
+                        .get("build")
+                        .and_then(Value::as_str)
+                        .is_none_or(|b| crate::build_info::lags(b, crate::hub::build()))
+                ),
+            );
         }
         // It answered, so it is up: an older build without this method.
         Ok(Err(e)) => {
@@ -198,7 +302,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
 
 /// Free and total bytes of the disk that holds `path`.
 #[cfg(unix)]
-fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
+pub(crate) fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
     let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -211,7 +315,7 @@ fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
 }
 
 #[cfg(not(unix))]
-fn disk(_: &std::path::Path) -> Option<(u64, u64)> {
+pub(crate) fn disk(_: &std::path::Path) -> Option<(u64, u64)> {
     None
 }
 

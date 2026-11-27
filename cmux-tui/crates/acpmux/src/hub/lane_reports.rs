@@ -40,8 +40,17 @@
 //!   none, so a parent's turn
 //!   on reports never reports upward and a report never answers a report. The hub alone sets a report's provenance
 //!   (`prompt_provenance.rs` takes only `agent_message` from a client), so no prompt passes for
-//!   one. A report never steers: it waits for the parent's turn to end, so it never becomes part
-//!   of a turn that reports.
+//!   one. A report steers into the parent's running turn, as any agent's message does
+//!   (`subsession_send.rs`): a busy coordinator reads it at its next tool step instead of after a
+//!   turn that may run for many minutes (Leo, 2026-10-29, of a lane's "your queue is drained"
+//!   left behind a 15-minute turn: "the drain guy came back but it's still not doing the right
+//!   thing"). It goes into the person's own turn too, as a sub-session's family message does
+//!   (`Hub::own_lane_report`): the chat's own lane reporting to the session that started it. A
+//!   steered report is not counted as work the turn took in (`lane_steer_in`), so a turn on
+//!   reports only still reports nothing. A parent whose agent does not steer, or whose turn is
+//!   past its cap (`turn_cap.rs`), gets it when the turn ends, as before. A no-wait question's
+//!   reply (`question_replies.rs`) goes the same way into its asker's turn, as any agent's
+//!   message does, but never into a turn the asker's person started.
 //! - At most [`MAX_REPORTS`] reports a lane in [`WINDOW_MS`]: past it the newest is held and
 //!   goes when the window frees a place (or at a turn end under the cap), whatever the runaway
 //!   pair guard (`agent_pairs.rs`) decides.
@@ -53,8 +62,23 @@
 //!   a report into a paused pair is held for the person to resume.
 //! - Prompt id `lane-report-<random>`, the same for every try of one turn's report and sent with
 //!   `resend`, so a retry never runs twice and no other prompt takes its id.
+//! - A still-waiting turn's report is held, not sent: the lane is `idle` but a background task
+//!   of its own still runs that brings its end to the lane (`bg_notify.rs`), so a turn that
+//!   reports is sure to follow; and its reply says it still waits ([`WAITING`]) and names no
+//!   pull request or commit not reported before, no review verdict, and none of [`DECISIVE`]'s
+//!   words (merged, failed, blocked, done, please, timed out, a question mark...). A reply that
+//!   says anything else is news. A harness's own background shell or subagent does not count:
+//!   the turn its end starts is the harness's (`background_turn.rs`), which reports nothing. Leo, 2026-11-09, about a coordinator one helper woke 15 times in a row to say
+//!   "still waiting on fleet run": "for stuff like this, are you able to simply not respond? why
+//!   are you even the one reading and responding to these no-ops anyways". It neither wakes nor
+//!   steers into the parent: the lane's next report replaces it and says how many such turns it
+//!   folds in, a still-waiting turn never replaces a real report still queued, and the lane's own
+//!   row shows its last words meanwhile. One that nothing replaced in [`HELD_MAX_MS`] goes as it
+//!   is, never steered (a task that never ends, a dev server say). A report that is no longer
+//!   still waiting (the work ended, it failed, it asks) goes as before, at once.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;
@@ -75,6 +99,8 @@ const MAX_DEPTH: usize = 16;
 pub const MAX_REPORTS: usize = 20;
 /// The window of [`MAX_REPORTS`].
 pub const WINDOW_MS: u64 = 10 * 60 * 1000;
+/// The longest a still-waiting turn's report is held when no newer one replaces it.
+pub const HELD_MAX_MS: u64 = 15 * 60 * 1000;
 /// A report's prompt id starts with this.
 const PROMPT_PREFIX: &str = "lane-report-";
 
@@ -92,7 +118,7 @@ fn matches(re: &Option<Regex>, text: &str) -> Vec<String> {
 /// One lane's link to its parent.
 #[derive(Debug, Clone, Default)]
 pub(super) struct Link {
-    parent: String,
+    pub(super) parent: String,
     pub(super) asked: bool,
     /// The last report's content, to leave out the same report again.
     last: Option<String>,
@@ -104,6 +130,10 @@ pub(super) struct Link {
     ready: Option<Report>,
     /// A timer will send `ready`, held at the cap, when the window frees a place.
     wake: bool,
+    /// The timer that sends a still-waiting `ready` (its prompt id) once it was held
+    /// [`HELD_MAX_MS`]; aborted when another is armed. One that fires for a link gone or a
+    /// report replaced does nothing.
+    held: Option<(String, tokio::task::AbortHandle)>,
 }
 
 /// The links by lane id.
@@ -130,6 +160,9 @@ struct TurnKinds {
     /// The last turn started when another prompt was answered as gone in, by session: every
     /// turn up to it had one.
     carried: HashMap<String, u64>,
+    /// The parent's subagent that asked for each turn, by session and turn
+    /// (`lane_report_subagents.rs` `asking_subagent`): its report goes to that subagent.
+    subagents: HashMap<(String, u64), Value>,
 }
 
 impl TurnKinds {
@@ -161,6 +194,7 @@ impl TurnKinds {
 
     fn forget(&mut self, id: &str) {
         self.report_only.retain(|(s, _)| s != id);
+        self.subagents.retain(|(s, _), _| s != id);
         self.in_flight.remove(id);
         self.carried.remove(id);
     }
@@ -200,30 +234,55 @@ impl<F: Fn() -> u64> Drop for SteerCount<'_, F> {
     }
 }
 
-/// One report, before it is written out.
-#[derive(Debug, Clone, PartialEq)]
-struct Report {
+/// One report, before it is written out. Kept whole beside a subagent's notice until it takes
+/// it (`lane_report_subagents.rs`), so a report it never took still reaches the lead.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(super) struct Report {
     /// Its state and whole reply; with its pull requests, what makes two reports the same
     /// ([`Report::key`]).
     content: String,
     /// The same for every try of this report.
-    prompt_id: String,
-    name: String,
-    session: String,
-    turn: u64,
+    pub(super) prompt_id: String,
+    pub(super) name: String,
+    /// The lane's id.
+    pub(super) session: String,
+    pub(super) turn: u64,
     state: String,
     reply: String,
     prs: Vec<String>,
     shas: Vec<String>,
+    /// The Claude Code subagent of the parent that asked for this turn without waiting for its
+    /// reply (`{id, type}`, its prompt's `fromSubagent`): the report goes to it while it runs.
+    #[serde(default)]
+    pub(super) for_subagent: Option<Value>,
+    /// That subagent has ended: the report goes to the parent, saying whose it was.
+    #[serde(default)]
+    pub(super) subagent_ended: bool,
+    /// Its turn only said the lane still waits on its own work (module docs): held, never sent
+    /// unless a newer report replaces it.
+    #[serde(default)]
+    pub(super) interim: bool,
+    /// A still-waiting report that went as it is once held [`HELD_MAX_MS`]: still no news, so it
+    /// never steers.
+    #[serde(default)]
+    pub(super) released: bool,
+    /// Still-waiting turns before this one whose reports it replaced.
+    #[serde(default)]
+    pub(super) quiet_turns: u32,
 }
 
 impl Report {
+    /// This report, for its parent's chat: the subagent it was for has ended.
+    pub(super) fn subagent_gone(&self) -> Self {
+        Self { subagent_ended: true, ..self.clone() }
+    }
+
     /// What makes two reports the same: the state, the reply and every pull request it names.
     fn key(&self) -> String {
         format!("{}\n{}", self.content, self.prs.join(" "))
     }
 
-    fn text(&self) -> String {
+    pub(super) fn text(&self) -> String {
         let mut t = format!(
             "[{}] {} · turn {}, {}\n{}",
             self.name,
@@ -234,6 +293,22 @@ impl Report {
         );
         if !self.prs.is_empty() {
             t.push_str(&format!("\nPull requests: {}", self.prs.join(" ")));
+        }
+        if self.quiet_turns > 0 {
+            let turns = if self.quiet_turns == 1 { "turn" } else { "turns" };
+            t.push_str(&format!(
+                "\n({} {turns} before this one only said it was still waiting on its own work; \
+those reports were held.)",
+                self.quiet_turns
+            ));
+        }
+        if self.subagent_ended
+            && let Some(label) = super::lane_report_subagents::label(self.for_subagent.as_ref())
+        {
+            t.push_str(&format!(
+                "\nThis report is for your {label}, which asked for this turn and has ended, so \
+it comes to you."
+            ));
         }
         t
     }
@@ -252,6 +327,73 @@ pub(super) fn reports_only(provenance: Option<&Value>) -> bool {
     }
 }
 
+/// A clause of a still-waiting reply, whole: a wait on a named piece of the lane's own work
+/// ("still waiting on fleet run 42549646257", "the compile check is still running on the pool"),
+/// or "nothing new". Nothing else may be in the clause: a reply is still-waiting only when every
+/// clause is one of these or an [`ELAPSED`] one (reviews of #39105 at bfdb6cd, dd6dd96 and
+/// 849eeac: a request in or beside a wait is news). The work is named from a short list of
+/// words, so a wait on anything else (a person, an input) is news too.
+const WAITING: &str = concat!(
+    r"(?i)^(?:",
+    // "still waiting on (the) fleet run 4254...", "waiting for CI (attempt 2)"
+    r"(?:still |just )?(?:waiting|wait) (?:on|for) (?:the |its |my |a |this )?(?:WORK|ID)(?: (?:WORK|ID))*",
+    r"|(?:the |its |my )?(?:WORK)(?: (?:WORK|ID))* (?:is|are) still (?:running|pending|queued|in progress|going)",
+    r"(?: on (?:the )?(?:pool|fleet|runner|runners|mini|minis|linux|mac|box|vm))?",
+    r"|(?:still )?(?:waiting|running)",
+    r"|nothing new(?: yet)?(?: (?:here|from (?:the )?(?:WORK)))?",
+    r"|no change(?: yet)?",
+    r")$",
+);
+
+/// The words a wait may name its work with, and what may follow them (an id, a number, a link,
+/// "(attempt 2)").
+const WAITING_WORK: &str = r"fleet|ci|checks?|builds?|tests?|compile|compile-check|compile check|jobs?|pool|runners?|runs?|review|reviews|reviewer|merge queue|queue|mirror|deploy|deployment|nightly|pr|pull request|workflow|actions|pipeline|the|its|my|linux|mac|macos|ios|web|rust|cargo|bench|benchmark|soak|sync|upload of the build|artifact|artifacts|lease|machine";
+const WAITING_ID: &str = r"#?\d+|\(attempt \d+\)|https?://\S+|[0-9a-f]{7,12}|[A-Za-z]+-\d+";
+
+/// Words that make a turn's reply news for its parent even while it says it waits: an end, a
+/// failure, a block, an ask, a request to act, or a wait on the reader ("waiting for you to
+/// upload the credentials", review of #39105 at e8aeb72, F1) (module docs). A false match only sends a
+/// report, as before.
+const DECISIVE: &str = r"(?i)\b(merged|landed|shipped|done|finished|completed?|passed|passing|green|succeeded|ready|fail(?:ed|s|ing|ure|ures)?|errors?|blocked|stuck|needs?|question|approve|approval|refused|denied|cancell?ed|broken|red|timed out|time ?outs?|please|rebase|restart|retry|retrying|can you|could you|should|must|want|you|your|yours|input|reply|answer|confirm|confirmation|decision|decide|permission|access|credentials?|token|login|sign in|upload)\b|\?|!";
+
+/// A sentence of a still-waiting reply that only says how long it has waited ("4 min in").
+const ELAPSED: &str = r"(?i)^\(?\s*(about |over |~)?\d+\s*(s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?)\b( in| so far| now| elapsed)?\)?$";
+/// Where a reply's clauses end: `.`, `,`, `;`, `:`, `!` or `?` before a space or the end, a
+/// dash between spaces, or a line break. A period inside a URL ends none.
+const SENTENCE_END: &str = r"[.,;:!?](\s+|$)|\s[-\u{2013}\u{2014}]\s|\n";
+
+static WAITING_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    let work = format!("(?:{WAITING_WORK})");
+    let id = format!("(?:{WAITING_ID})");
+    Regex::new(&WAITING.replace("WORK", &work).replace("ID", &id)).ok()
+});
+static DECISIVE_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(DECISIVE).ok());
+static ELAPSED_LINE: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(ELAPSED).ok());
+static SENTENCE_ENDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(SENTENCE_END).ok());
+
+/// Whether `reply`, a lane's turn's, says only that it still waits: each of its clauses is a
+/// whole wait ([`WAITING`]) or says how long ([`ELAPSED`]), so a request in or beside a wait
+/// ("Still waiting on fleet, stop the rollout.") is news; and it has no review
+/// verdict, no full commit sha and none of [`DECISIVE`]'s words. A pull request it names is news
+/// only when not reported before, which delivery decides (`due_report`). A pattern that failed
+/// to build counts every reply as news.
+fn says_only_waiting(reply: &str) -> bool {
+    let (Some(waiting), Some(decisive), Some(elapsed), Some(ends)) = (
+        WAITING_WORDS.as_ref(),
+        DECISIVE_WORDS.as_ref(),
+        ELAPSED_LINE.as_ref(),
+        SENTENCE_ENDS.as_ref(),
+    ) else {
+        return false;
+    };
+    let mut sentences = ends.split(reply).map(str::trim).filter(|s| !s.is_empty()).peekable();
+    sentences.peek().is_some()
+        && sentences.all(|s| waiting.is_match(s) || elapsed.is_match(s))
+        && !decisive.is_match(reply)
+        && !super::lane_report_text::has_verdict(reply)
+        && matches(&FULL_SHA, reply).is_empty()
+}
+
 /// STATE of a report, from the lane's summary.
 fn state(summary: &Value) -> String {
     let s = |k: &str| summary.get(k).and_then(Value::as_str).unwrap_or_default();
@@ -267,6 +409,9 @@ fn state(summary: &Value) -> String {
                 format!("waiting on a question: {ask}")
             };
         }
+        Some("secret") => return "waiting on a secret".into(),
+        Some("elevation") => return "waiting on a root password".into(),
+        Some("mcp_connect") => return "waiting on an MCP server connect".into(),
         Some(_) => return "waiting on a permission".into(),
         None => {}
     }
@@ -277,6 +422,14 @@ fn state(summary: &Value) -> String {
     if last.get("status").and_then(Value::as_str) == Some("failed") {
         let error = last.get("errorText").and_then(Value::as_str).unwrap_or("the turn failed");
         let paused = if summary["queuePaused"] == true { "; its queue is paused" } else { "" };
+        // A cut turn acpmux continues by itself is paused, not blocked: its parent need not
+        // act (`pause_state.rs`).
+        if let Some(state @ super::pause_state::PauseState::Paused { .. }) =
+            super::pause_state::of_row(summary)
+        {
+            let line = super::pause_state::short_line(&state);
+            return format!("{line} ({}){paused}", short_text(error, 120));
+        }
         return format!("blocked: {}{paused}", short_text(error, 160));
     }
     if summary["queuePaused"] == true {
@@ -326,8 +479,27 @@ fn new_items(found: impl IntoIterator<Item = String>, seen: &[String]) -> Vec<St
 
 impl Hub {
     /// The authenticated starter a lane reports to, independent of mutable display tags.
+    /// Whether `provenance` is the report of a lane `session` started, to it: as a sub-session's
+    /// family message does, it goes into the person's own turn (`turns.rs`, `steer_end.rs`), the
+    /// chat's own lane reporting to the session that started it. A report the hub sends another
+    /// asker (`question_replies.rs`) is none. Only the hub sets a report's provenance.
+    pub(super) fn own_lane_report(&self, session: &Session, provenance: Option<&Value>) -> bool {
+        provenance.is_some_and(|p| {
+            p.get("kind").and_then(Value::as_str) == Some(KIND)
+                && p.get("from")
+                    .and_then(Value::as_str)
+                    .and_then(|lane| self.lane_report_parent(lane))
+                    .is_some_and(|parent| parent == session.id)
+        })
+    }
+
     pub(crate) fn lane_report_parent(&self, lane: &str) -> Option<String> {
         self.lane_links(|links| links.get(lane).map(|link| link.parent.clone()))
+    }
+
+    /// Pull requests this link's reports named (`exit_notify.rs` hands them to the parent).
+    pub(super) fn lane_link_prs(link: &Link) -> Vec<String> {
+        link.prs.clone()
     }
 
     pub(super) fn lane_links<R>(&self, f: impl FnOnce(&mut BTreeMap<String, Link>) -> R) -> R {
@@ -390,8 +562,7 @@ impl Hub {
         if parent == child || self.lane_below(parent, child) {
             return;
         }
-        let Some(s) = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(child).cloned()
-        else {
+        let Some(s) = self.session_get(child) else {
             return;
         };
         // A close sets the status before `lane_retire` takes this lock: read under it, a parent
@@ -416,6 +587,27 @@ impl Hub {
     /// (`digest.rs`).
     pub(super) fn lane_turn_started(&self, session: &Session, provenance: Option<&Value>) {
         self.lane_turn_on(session, reports_only(provenance));
+        self.lane_turn_asked(session, provenance);
+        let parent = self.lane_report_parent(&session.id);
+        let turn = session.meta().turn_count;
+        let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
+        if parent.is_some() && kind == Some(super::digest::DIGEST_KIND) {
+            self.lane_report_turn_joined(&session.id, turn);
+        }
+    }
+
+    /// `session`'s turn started (its turn count counts it) on the messages `provenance` names: a
+    /// subagent of the lane's parent that asked for it gets its report
+    /// (`lane_report_subagents.rs`). A carried turn's names the steers it carried
+    /// (`carried_turn.rs`).
+    pub(super) fn lane_turn_asked(&self, session: &Session, provenance: Option<&Value>) {
+        let parent = self.lane_report_parent(&session.id);
+        if let Some(sub) =
+            super::lane_report_subagents::asking_subagent(parent.as_deref(), provenance)
+        {
+            let turn = session.meta().turn_count;
+            self.lane_turns().subagents.insert((session.id.clone(), turn), sub);
+        }
     }
 
     /// `session`'s turn started (its turn count counts it); `reports`: on lane reports only (a
@@ -425,6 +617,12 @@ impl Hub {
             let turn = session.meta().turn_count;
             self.lane_turns().report_only.insert((session.id.clone(), turn));
         }
+    }
+
+    /// The subagent of the lane's parent that asked for turn `turn` of session `id`.
+    #[cfg(test)]
+    pub(super) fn lane_turn_subagent(&self, id: &str, turn: u64) -> Option<Value> {
+        self.lane_turns().subagents.get(&(id.to_owned(), turn)).cloned()
     }
 
     /// Whether turn `turn` of session `id` is counted as one on lane reports only.
@@ -455,9 +653,12 @@ impl Hub {
         started: bool,
         turn: u64,
     ) {
+        // Reports left for its subagents that none of them will take (`lane_report_subagents.rs`).
+        self.subagent_notices_sweep(session);
         // One that failed to start left the lane stuck, so it reports whatever it took in.
         let on_reports = self.lane_turns().end(&session.id, turn) && started;
         if !self.lane_links(|links| links.contains_key(&session.id)) {
+            self.lane_turns().subagents.remove(&(session.id.clone(), turn));
             return;
         }
         self.lane_report_ended(&session.id, turn);
@@ -466,10 +667,30 @@ impl Hub {
             let report = self.lane_capture(session, turn, started);
             self.lane_links(|links| {
                 if let Some(l) = links.get_mut(&session.id) {
-                    l.ready = Some(replace_ready(report, l.ready.take()));
+                    l.ready = Some(replace_ready_seen(report, l.ready.take(), &l.prs));
                 }
             });
+        } else {
+            self.lane_turns().subagents.remove(&(session.id.clone(), turn));
         }
+        self.lane_send(&session.id);
+    }
+
+    /// `session`'s cut turn will not be continued after all (its retries ran out, or a chat past
+    /// its context window could not compact): its turn's report went out saying it was paused,
+    /// so its parent hears now that it is stranded and needs a prompt or `acpmux retry`
+    /// (`pause_state.rs`). Leo, 2026-11-24: "do they get stranded!?"
+    pub(super) fn lane_stranded(self: &Arc<Self>, session: &Arc<Session>) {
+        if !self.lane_links(|links| links.contains_key(&session.id)) {
+            return;
+        }
+        let turn = session.meta().turn_count;
+        let report = self.capture_report(session, turn, false, None);
+        self.lane_links(|links| {
+            if let Some(l) = links.get_mut(&session.id) {
+                l.ready = Some(replace_ready_seen(report, l.ready.take(), &l.prs));
+            }
+        });
         self.lane_send(&session.id);
     }
 
@@ -495,6 +716,7 @@ impl Hub {
         let now = now_ms();
         let Some(due) = self.lane_take_due(lane, now) else {
             self.lane_wake_held(lane, now);
+            self.lane_release_waiting_at(lane, HELD_MAX_MS);
             return;
         };
         self.lane_hand_over(lane, due).await;
@@ -516,6 +738,45 @@ impl Hub {
             hub.lane_links(|links| links.get_mut(&lane).map(|l| l.wake = false));
             hub.lane_send(&lane);
         });
+    }
+
+    /// A still-waiting report held now (`due_report`) goes as it is once held `after` ms, unless
+    /// a newer one replaced it meanwhile, which arms its own. One timer a lane: arming one aborts
+    /// the one before, and it stops after its one send.
+    fn lane_release_waiting_at(self: &Arc<Self>, lane: &str, after: u64) {
+        let held = self.lane_links(|links| {
+            let l = links.get_mut(lane)?;
+            let r = l.ready.as_ref().filter(|r| r.interim)?;
+            // Already timed: held since it was first held, not since this look.
+            if l.held.as_ref().is_some_and(|(id, t)| *id == r.prompt_id && !t.is_finished()) {
+                return None;
+            }
+            Some(r.prompt_id.clone())
+        });
+        let Some(held) = held else { return };
+        let (hub, id, report) = (Arc::downgrade(self), lane.to_owned(), held.clone());
+        let timer = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(after)).await;
+            let Some(hub) = hub.upgrade() else { return };
+            let released = hub.lane_links(|links| {
+                let l = links.get_mut(&id)?;
+                l.held = None;
+                let r = l.ready.as_mut().filter(|r| r.prompt_id == held && r.interim)?;
+                r.interim = false;
+                r.released = true;
+                Some(())
+            });
+            if released.is_some() {
+                hub.lane_send(&id);
+            }
+        });
+        let old = self.lane_links(|links| {
+            let l = links.get_mut(lane)?;
+            l.held.replace((report, timer.abort_handle()))
+        });
+        if let Some((_, old)) = old {
+            old.abort();
+        }
     }
 
     /// `lane`'s parent and the report due to it now, with its key ([`due_report`]).
@@ -550,6 +811,31 @@ impl Hub {
     /// `started`: its agent ran it. A turn that failed before its agent started has no reply
     /// of its own, so none is read (the last one is the turn before's).
     fn lane_capture(&self, session: &Session, turn: u64, started: bool) -> Report {
+        let for_subagent = self.lane_turns().subagents.remove(&(session.id.clone(), turn));
+        self.capture_report(session, turn, started, for_subagent)
+    }
+
+    /// The report of `session`'s turn `turn`, which just ended, for the session that asked it a
+    /// question without waiting (`question_replies.rs`), and the asking subagent, if any.
+    /// `started` as in [`Hub::lane_capture`]: a turn whose agent never got the prompt has no reply.
+    pub(super) fn lane_capture_reply(
+        &self,
+        session: &Session,
+        turn: u64,
+        started: bool,
+        for_subagent: Option<Value>,
+    ) -> Report {
+        self.capture_report(session, turn, started, for_subagent)
+    }
+
+    /// [`Hub::lane_capture`] with the subagent the report is for.
+    fn capture_report(
+        &self,
+        session: &Session,
+        turn: u64,
+        started: bool,
+        for_subagent: Option<Value>,
+    ) -> Report {
         let summary = self.session_summary(session);
         let read = if started { self.lane_last_reply(&session.id, &summary) } else { Ok(None) };
         if let Err(e) = &read {
@@ -567,6 +853,11 @@ impl Hub {
         let shas = new_items(matches(&FULL_SHA, &reply), &[]);
         let name = summary.get("name").and_then(Value::as_str).unwrap_or(&session.id);
         let state = state(&summary);
+        // Still waiting (module docs): idle, its own work runs on, and its words say nothing new.
+        let interim = started
+            && state == "idle"
+            && says_only_waiting(&reply)
+            && self.lane_own_work_runs(session);
         Report {
             content: format!("{state}\n{reply}"),
             prompt_id: format!("{PROMPT_PREFIX}{}", uuid::Uuid::new_v4()),
@@ -577,7 +868,19 @@ impl Hub {
             reply: if reply.is_empty() { "(no reply)".into() } else { reply },
             prs,
             shas,
+            for_subagent,
+            subagent_ended: false,
+            interim,
+            quiet_turns: 0,
+            released: false,
         }
+    }
+
+    /// Whether work `session` started still runs past its turn and is sure to bring it a turn
+    /// that reports: a background task of the daemon that brings its end to the chat (module
+    /// docs).
+    fn lane_own_work_runs(&self, session: &Session) -> bool {
+        self.bg_notifying_count(session) > 0
     }
 
     /// The lane's last reply, read from its last turn's transcript records; an error when they
@@ -598,7 +901,7 @@ impl Hub {
 
     /// Whether session `id` is here and not closed.
     fn lane_open(&self, id: &str) -> bool {
-        let s = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let s = self.session_get(id);
         s.is_some_and(|s| s.status() != SessionStatus::Closed)
     }
 
@@ -608,49 +911,27 @@ impl Hub {
         self.lane_links(|links| links.retain(|lane, l| lane != id && l.parent != id));
         self.lane_turns().forget(id);
         self.lane_report_forget(id);
+        // Reports left for its subagents (`lane_report_subagents.rs`): none of them runs now.
+        crate::subagent_notice::forget(&crate::config::home(), id);
     }
 
     /// Hands the report to the parent: accepted (queued, started, steered or held for the
-    /// person).
-    async fn lane_deliver(
+    /// person). A turn a subagent of the parent asked for without waiting goes to that subagent
+    /// while it runs (`lane_report_subagents.rs`), and to the parent, saying whose it was, once
+    /// it has ended.
+    pub(super) async fn lane_deliver(
         self: &Arc<Self>,
         parent: &str,
         lane: &str,
         report: &Report,
     ) -> Result<(), RpcError> {
-        let prompt_id = report.prompt_id.clone();
-        let blocks = vec![json!({"type": "text", "text": report.text()})];
-        let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(parent).cloned();
+        let local = self.session_get(parent);
         let Some(p) = local else {
             // The parent is gone: nobody to report to.
             self.lane_links(|links| {
                 links.remove(lane);
             });
             return Ok(());
-        };
-        let provenance = json!({
-            "kind": KIND, "from": lane, "fromName": report.name, "to": parent,
-            "turn": report.turn, "state": report.state,
-            "details": {"session": report.session, "commits": report.shas},
-        });
-        // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
-        let lane_session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned();
-        let sender = lane_session
-            .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
-        let provenance = crate::prompt_provenance::stamp_sender(provenance, sender.as_ref());
-        let (tx, rx) = oneshot::channel();
-        let opts = PromptOptions {
-            prompt_id: Some(prompt_id),
-            resend: true,
-            provenance: Some(provenance.clone()),
-            agent: Some(report.name.clone()),
-            // A lane's report says what its turn did (`prompt_class.rs`).
-            class: Some(crate::prompt_class::PromptClass::Result),
-            on_accepted: Some(Box::new(move |v| {
-                let _ = tx.send(v);
-            })),
-            ..PromptOptions::default()
         };
         // A lane that closed (or a parent that changed) since its report was taken has its link
         // retired, and sends nothing. A parent's close that begins after this is refused at its
@@ -661,6 +942,7 @@ impl Hub {
         }
         if self.lane_report_was_read(lane, report.turn) {
             if !super::queue::closing(&p) {
+                let provenance = self.lane_report_provenance(parent, lane, report);
                 self.lane_report_delivered_read(
                     &p,
                     lane,
@@ -671,11 +953,68 @@ impl Hub {
             }
             return Ok(());
         }
-        // The answer comes when the parent's turn ends; the report is in once it is accepted.
+        let ended;
+        let report = if report.for_subagent.is_some() && !report.subagent_ended {
+            if self.lane_report_to_subagent(&p, report, false) {
+                return Ok(());
+            }
+            ended = report.subagent_gone();
+            &ended
+        } else {
+            report
+        };
+        self.lane_report_to_parent(p, lane, report).await
+    }
+
+    /// The report's provenance: `{kind: "lane_report", from, fromName, to, turn, state,
+    /// details}`, the lane bound as its sender, and `forSubagent` for a subagent's turn.
+    fn lane_report_provenance(&self, parent: &str, lane: &str, report: &Report) -> Value {
+        let mut provenance = json!({
+            "kind": KIND, "from": lane, "fromName": report.name, "to": parent,
+            "turn": report.turn, "state": report.state,
+            "details": {"session": report.session, "commits": report.shas},
+        });
+        if let Some(sub) = &report.for_subagent {
+            provenance.set(super::lane_report_subagents::FOR_SUBAGENT, sub.clone());
+        }
+        // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
+        let lane_session = self.session_get(lane);
+        let sender = lane_session
+            .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
+        crate::prompt_provenance::stamp_sender(provenance, sender.as_ref())
+    }
+
+    /// Puts the report in parent `p`'s chat as a hub-set prompt; done once it is accepted.
+    pub(super) async fn lane_report_to_parent(
+        self: &Arc<Self>,
+        p: Arc<Session>,
+        lane: &str,
+        report: &Report,
+    ) -> Result<(), RpcError> {
+        let provenance = self.lane_report_provenance(&p.id, lane, report);
+        let blocks = vec![json!({"type": "text", "text": report.text()})];
+        let (tx, rx) = oneshot::channel();
+        let opts = PromptOptions {
+            prompt_id: Some(report.prompt_id.clone()),
+            resend: true,
+            provenance: Some(provenance),
+            agent: Some(report.name.clone()),
+            // A lane's report says what its turn did (`prompt_class.rs`).
+            class: Some(crate::prompt_class::PromptClass::Result),
+            on_accepted: Some(Box::new(move |v| {
+                let _ = tx.send(v);
+            })),
+            ..PromptOptions::default()
+        };
+        // The report is in once it is accepted, steered or queued.
         let hub = self.clone();
-        // Never steered in: a report waits for the parent's turn to end (see above).
+        // Steered into a running turn (see above); a still-waiting report that went as it is
+        // after HELD_MAX_MS is no news, so it waits for the turn to end.
+        // A still-waiting report due only for a pull request it names first (`due_report`) is
+        // news, as `replace_ready_seen` takes it.
+        let steer = (!report.interim || !report.prs.is_empty()) && !report.released;
         let run =
-            tokio::spawn(async move { hub.prompt_with(&p, blocks, "acpmux", false, opts).await });
+            tokio::spawn(async move { hub.prompt_with(&p, blocks, "acpmux", steer, opts).await });
         if rx.await.is_ok() {
             return Ok(());
         }
@@ -741,6 +1080,10 @@ fn due_report(l: &mut Link, now: u64) -> Option<(Report, String)> {
     }
     let mut report = ready.clone();
     report.prs = new_items(report.prs, &l.prs);
+    // A still-waiting turn's report stays queued for the next one to replace (module docs).
+    if report.interim && report.prs.is_empty() {
+        return None;
+    }
     Some((report, ready.key()))
 }
 
@@ -766,9 +1109,28 @@ fn delivered(l: &mut Link, report: &Report, key: String, now: u64) {
 }
 
 /// A newer turn's report replaces one still queued, keeping the pull requests only that one
-/// named.
-fn replace_ready(mut newer: Report, queued: Option<Report>) -> Report {
-    for pr in queued.into_iter().flat_map(|q| q.prs) {
+/// named, and counting a still-waiting one it folds in. A still-waiting turn's report never
+/// replaces one that is news: that one stays queued, to go as it is.
+#[cfg(test)]
+fn replace_ready(newer: Report, queued: Option<Report>) -> Report {
+    replace_ready_seen(newer, queued, &[])
+}
+
+/// [`replace_ready`] on a link whose reports already named `reported`: a still-waiting turn
+/// naming only those is no news (review of #39105 at e8aeb72, F2).
+fn replace_ready_seen(mut newer: Report, queued: Option<Report>, reported: &[String]) -> Report {
+    let Some(queued) = queued else { return newer };
+    if newer.interim && !queued.interim {
+        // A still-waiting turn that names a pull request the news does not is news itself: it
+        // replaces the news as any newer report does, under its own turn and id (review of
+        // #39105 at bfdb6cd, F2). One that names none leaves the news queued as it is.
+        if newer.prs.iter().all(|pr| queued.prs.contains(pr) || reported.contains(pr)) {
+            return queued;
+        }
+        newer.interim = false;
+    }
+    newer.quiet_turns = queued.quiet_turns.saturating_add(u32::from(queued.interim));
+    for pr in queued.prs {
         if !newer.prs.contains(&pr) {
             newer.prs.push(pr);
         }
@@ -777,679 +1139,5 @@ fn replace_ready(mut newer: Report, queued: Option<Report>) -> Report {
 }
 
 #[cfg(test)]
-mod tests {
-    fn report(turn: u64, prs: &[&str]) -> Report {
-        Report {
-            content: format!("turn {turn}"),
-            prompt_id: format!("p{turn}"),
-            name: "lane".into(),
-            session: "s".into(),
-            turn,
-            state: "idle".into(),
-            reply: "r".into(),
-            prs: prs.iter().map(|p| (*p).to_owned()).collect(),
-            shas: vec![],
-        }
-    }
-
-    #[test]
-    fn a_held_reports_pull_request_goes_with_a_newer_report_the_same_as_the_last() {
-        let (now, x) = (WINDOW_MS * 2, "https://github.com/o/r/pull/1");
-        // Turn 2's report went; turn 3's, naming X, is held at the cap.
-        let mut l = Link { last: Some(report(2, &[]).key()), ..Link::default() };
-        l.sent = vec![now; MAX_REPORTS];
-        l.ready = Some(report(3, &[x]));
-        assert_eq!(due_report(&mut l, now), None);
-        // Past the window, turn 4 repeats turn 2's report without X: X still goes.
-        let later = now + WINDOW_MS;
-        let mut same = report(4, &[]);
-        same.content = report(2, &[]).content;
-        l.ready = Some(replace_ready(same, l.ready.take()));
-        let (got, _) = due_report(&mut l, later).unwrap();
-        assert_eq!((got.turn, got.prs), (4, vec![x.to_owned()]));
-        // The very same report is dropped.
-        let mut l = Link { last: Some(report(2, &[]).key()), ..Link::default() };
-        l.ready = Some(report(2, &[]));
-        assert_eq!(due_report(&mut l, now), None);
-        assert!(l.ready.is_none());
-    }
-
-    #[test]
-    fn a_repeated_report_naming_a_reported_pull_request_is_dropped() {
-        let (now, x) = (WINDOW_MS * 2, "https://github.com/o/r/pull/1");
-        let mut l = Link::default();
-        // Turn 2 names X; turn 3 says something new and still names X: both go.
-        for turn in [2, 3] {
-            l.ready = Some(report(turn, &[x]));
-            let (got, key) = due_report(&mut l, now).unwrap();
-            delivered(&mut l, &got, key, now);
-        }
-        // Turn 4 repeats turn 3 word for word: nothing new, so nothing goes.
-        let mut same = report(4, &[x]);
-        same.content = report(3, &[x]).content;
-        l.ready = Some(same);
-        assert_eq!(due_report(&mut l, now + 1), None);
-        assert_eq!(l.sent.len(), 2);
-    }
-
-    #[test]
-    fn a_newer_report_replaces_a_queued_one_and_keeps_its_pull_requests() {
-        let got = replace_ready(report(2, &["pr/2"]), Some(report(1, &["pr/1", "pr/2"])));
-        assert_eq!((got.turn, got.prs), (2, vec!["pr/2".to_owned(), "pr/1".to_owned()]));
-        assert_eq!(replace_ready(report(1, &[]), None), report(1, &[]));
-    }
-
-    #[test]
-    fn each_turn_on_reports_only_is_known_on_its_own() {
-        let mut k = TurnKinds::default();
-        // Two report turns back to back: the second never hides the first.
-        k.report_only.insert(("c".into(), 1));
-        k.report_only.insert(("c".into(), 2));
-        assert!(k.end("c", 1));
-        assert!(k.end("c", 2));
-        // A task steered in before the turn ends: counted before the end, whenever its own
-        // answer comes, so the turn reports.
-        k.report_only.insert(("c".into(), 3));
-        k.steer_in("c");
-        assert!(!k.end("c", 3));
-        k.steer_done("c", true, 3);
-        assert!(k.in_flight.is_empty());
-        // (answered once turn 3, which reported for it, ended: turn 4 does not)
-        k.report_only.insert(("c".into(), 4));
-        assert!(k.end("c", 4));
-        // A steer withdrawn (or that found no turn) is taken back: still reports only.
-        k.report_only.insert(("c".into(), 5));
-        k.steer_in("c");
-        k.steer_done("c", false, 5);
-        assert!(k.end("c", 5));
-        // A turn not on reports.
-        assert!(!k.end("c", 6));
-        k.steer_in("c");
-        k.forget("c");
-        assert!(k.in_flight.is_empty() && k.carried.is_empty() && k.report_only.is_empty());
-    }
-
-    #[test]
-    fn a_steer_dropped_before_its_answer_is_not_counted_forever() {
-        let turns = StdMutex::new(TurnKinds::default());
-        // The steer's request is dropped (its client went away) before the agent answers, in
-        // turn 1. It may already be with the agent, to be read in turn 1 or the next: both
-        // report, and no later one.
-        let count = SteerCount::new(&turns, "c", || 1);
-        for turn in [1, 2, 3] {
-            turns.lock().unwrap().report_only.insert(("c".into(), turn));
-        }
-        drop(count);
-        let mut k = turns.lock().unwrap();
-        assert!(k.in_flight.is_empty(), "a dropped steer stays on its way");
-        assert!(!k.end("c", 1));
-        assert!(!k.end("c", 2), "the next turn, which may have read it, did not report");
-        assert!(k.end("c", 3), "every later report turn reports");
-        drop(k);
-        // Answered, it counts as the answer says.
-        SteerCount::new(&turns, "c", || 4).done(false);
-        let mut k = turns.lock().unwrap();
-        k.report_only.insert(("c".into(), 4));
-        assert!(k.end("c", 4));
-    }
-
-    #[test]
-    fn a_turn_whose_end_runs_after_the_next_turn_ended_keeps_its_steer() {
-        let mut k = TurnKinds::default();
-        // A task is steered into report turn 1; turn 1's end is held up behind the next turn,
-        // which ends first.
-        k.report_only.insert(("c".into(), 1));
-        k.report_only.insert(("c".into(), 2));
-        k.steer_in("c");
-        k.steer_done("c", true, 1);
-        assert!(k.end("c", 2));
-        assert!(!k.end("c", 1), "turn 1's task was lost when turn 2 ended first");
-    }
-
-    #[test]
-    fn a_steer_answered_after_its_session_was_forgotten_leaves_nothing() {
-        let turns = StdMutex::new(TurnKinds::default());
-        let answered = SteerCount::new(&turns, "c", || 1);
-        let dropped = SteerCount::new(&turns, "c", || 1);
-        turns.lock().unwrap().forget("c");
-        answered.done(true);
-        drop(dropped);
-        let k = turns.lock().unwrap();
-        assert!(k.in_flight.is_empty() && k.carried.is_empty(), "a retired lane left state");
-    }
-
-    #[test]
-    fn a_steer_counted_before_a_report_turn_started_still_makes_it_report() {
-        let mut k = TurnKinds::default();
-        // A task's steer is counted while turn 1 is the count, then the agent takes it into turn
-        // 2, a report turn that started meanwhile: turn 2 did a task, so it reports.
-        k.steer_in("c");
-        k.report_only.insert(("c".into(), 2));
-        assert!(!k.end("c", 2), "the task's turn was taken for reports only");
-        // Answered after that turn ended, with none running since: the turn it went into
-        // already reported, so the next one does not.
-        k.steer_done("c", true, 2);
-        k.report_only.insert(("c".into(), 3));
-        assert!(k.end("c", 3));
-    }
-
-    #[test]
-    fn a_late_steer_answer_does_not_make_a_later_report_turn_report() {
-        let mut k = TurnKinds::default();
-        k.steer_in("c");
-        // Two report turns end while the steer is on its way: both report, one had it.
-        for turn in [1, 2] {
-            k.report_only.insert(("c".into(), turn));
-            assert!(!k.end("c", turn));
-        }
-        // Its answer comes after, with turn 2 the last to start: no later report turn is put
-        // down to it.
-        k.steer_done("c", true, 2);
-        k.report_only.insert(("c".into(), 3));
-        assert!(k.end("c", 3), "a later report turn reported for a steer it never had");
-        // Answered while turn 4 runs, it went into turn 4: that one reports.
-        k.steer_in("c");
-        k.steer_done("c", true, 4);
-        k.report_only.insert(("c".into(), 4));
-        assert!(!k.end("c", 4));
-    }
-
-    #[test]
-    fn a_steer_taken_by_the_next_report_turn_makes_that_turn_report() {
-        let mut k = TurnKinds::default();
-        // Sent in report turn 1, which ends before the agent reads it (that turn reports, as
-        // it may have had it); report turn 2 starts and takes it, answered while it runs.
-        k.steer_in("c");
-        k.report_only.insert(("c".into(), 1));
-        assert!(!k.end("c", 1));
-        k.report_only.insert(("c".into(), 2));
-        k.steer_done("c", true, 2);
-        assert!(!k.end("c", 2), "the turn that did the task was taken for reports only");
-        // Answered with turn 2 just started and turn 1 not yet ended: both report.
-        k.steer_in("c");
-        k.report_only.insert(("c".into(), 3));
-        k.report_only.insert(("c".into(), 4));
-        k.steer_done("c", true, 4);
-        assert!(!k.end("c", 3));
-        assert!(!k.end("c", 4));
-        k.report_only.insert(("c".into(), 5));
-        assert!(k.end("c", 5));
-    }
-
-    #[tokio::test]
-    async fn a_turn_ending_after_the_next_one_started_ends_its_own_turn() {
-        let hub = test_hub();
-        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
-        let lane = hub.new_session(start()).await.unwrap();
-        let report = json!({"kind": KIND, "from": "s1"});
-        for turn in [1, 2] {
-            lane.meta.lock().unwrap().turn_count = turn;
-            hub.lane_turn_started(&lane, Some(&report));
-        }
-        // Report turn 1's end runs after report turn 2 started (its queue woke turn 2 first).
-        hub.lane_turn_ended(&lane, true, 1);
-        assert!(
-            hub.lane_turns().report_only.contains(&(lane.id.clone(), 2)),
-            "turn 1's end took turn 2's mark: turn 2 will report"
-        );
-        hub.lane_turn_ended(&lane, true, 2);
-        assert!(hub.lane_turns().report_only.is_empty());
-        hub.kill(&lane, true).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn a_report_turn_that_failed_to_start_still_reports() {
-        let hub = test_hub();
-        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
-        let parent = hub.new_session(start()).await.unwrap();
-        let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id, false);
-        // A worker's report starts the lane's turn 1, whose agent then fails to start: the lane
-        // is stuck, and its parent must hear it.
-        lane.meta.lock().unwrap().turn_count = 1;
-        hub.lane_turn_started(&lane, Some(&json!({"kind": KIND, "from": "s1"})));
-        hub.lane_turn_ended(&lane, false, 1);
-        for _ in 0..150 {
-            if parent.meta().turn_count > 0 {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert_eq!(parent.meta().turn_count, 1, "the failed start never reached the parent");
-        for s in [&lane, &parent] {
-            hub.kill(s, true).await.unwrap();
-        }
-    }
-
-    #[test]
-    fn the_last_reply_is_read_from_the_start_of_its_turn_however_many_records_it_streamed() {
-        let rec = |seq: u64, kind: &str| crate::store::EventRecord {
-            seq,
-            at: 0,
-            dir: "in".into(),
-            kind: kind.into(),
-            msg: json!({}),
-            host_seq: None,
-        };
-        // An older turn, then the last turn's start at 10 and 1,000 chunks after it.
-        let log: Vec<_> = (1..=1010)
-            .map(|s| rec(s, if s == 3 || s == 10 { "turn_started" } else { "chunk" }))
-            .collect();
-        let page = |before: u64| -> Result<EventPage> {
-            let below: Vec<_> = log.iter().filter(|r| r.seq < before).cloned().collect();
-            let from = below.len().saturating_sub(TAIL_RECORDS);
-            Ok(EventPage { has_more: from > 0, events: below[from..].to_vec() })
-        };
-        let (got, whole) = last_turn_records(1010, page).unwrap();
-        assert!(whole);
-        assert_eq!(got.first().map(|r| r.seq), Some(10));
-        assert_eq!(got.len(), 1001);
-        assert!(got.windows(2).all(|w| w[0].seq + 1 == w[1].seq));
-    }
-
-    #[test]
-    fn a_turn_longer_than_the_pages_read_says_its_reply_is_cut() {
-        let rec = |seq: u64, kind: &str| crate::store::EventRecord {
-            seq,
-            at: 0,
-            dir: "in".into(),
-            kind: kind.into(),
-            msg: json!({}),
-            host_seq: None,
-        };
-        // The turn's start lies further back than every page read.
-        let n = (TAIL_RECORDS * MAX_TAIL_PAGES) as u64 + 100;
-        let log: Vec<_> =
-            (1..=n).map(|s| rec(s, if s == 1 { "turn_started" } else { "chunk" })).collect();
-        let page = |before: u64| -> Result<EventPage> {
-            let below: Vec<_> = log.iter().filter(|r| r.seq < before).cloned().collect();
-            let from = below.len().saturating_sub(TAIL_RECORDS);
-            Ok(EventPage { has_more: from > 0, events: below[from..].to_vec() })
-        };
-        let (got, whole) = last_turn_records(n, page).unwrap();
-        assert!(!whole, "a scan that stopped short of turn_started reads as the whole turn");
-        assert_eq!(got.len(), TAIL_RECORDS * MAX_TAIL_PAGES);
-        assert_eq!(cut_reply("its end".into(), whole), format!("{CUT_NOTE}its end"));
-        assert_eq!(cut_reply("all of it".into(), true), "all of it");
-    }
-
-    #[test]
-    fn a_turn_with_no_reply_never_reads_the_turn_befores_through_the_transcript_filter() {
-        let mux = |seq: u64, kind: &str| crate::store::EventRecord {
-            seq,
-            at: 0,
-            dir: "mux".into(),
-            kind: kind.into(),
-            msg: json!({}),
-            host_seq: None,
-        };
-        let reply = |seq: u64, text: &str| crate::store::EventRecord {
-            seq,
-            at: 0,
-            dir: "in".into(),
-            kind: "agent_message_chunk".into(),
-            msg: json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a",
-                "update": {"sessionUpdate": "agent_message_chunk",
-                           "content": {"type": "text", "text": text}}}}),
-            host_seq: None,
-        };
-        // Turn 1 replies; turn 2 ends with no reply of its own.
-        let log = [
-            mux(1, "turn_started"),
-            reply(2, "turn one's reply"),
-            mux(3, "turn_result"),
-            mux(4, "turn_started"),
-            mux(5, "turn_result"),
-        ];
-        // What `lane_last_reply` reads: the transcript filter, newest pages first.
-        let filter = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
-        let read = |last_seq: u64| {
-            let page = |before: u64| -> Result<EventPage> {
-                let events: Vec<_> =
-                    log.iter().filter(|r| r.seq < before && filter.matches(r)).cloned().collect();
-                Ok(EventPage { has_more: false, events })
-            };
-            let (records, _) = last_turn_records(last_seq, page).unwrap();
-            let events: Vec<Value> = records
-                .into_iter()
-                .map(|r| json!({"seq": r.seq, "dir": r.dir, "kind": r.kind, "msg": r.msg}))
-                .collect();
-            last_reply(&events)
-        };
-        assert_eq!(read(3).as_deref(), Some("turn one's reply"));
-        assert_eq!(read(5), None);
-    }
-
-    fn test_hub() -> Arc<Hub> {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut cfg: crate::config::Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", fake]}},
-            "defaultHarness": "fake",
-        }))
-        .unwrap();
-        cfg.store.mode = crate::config::StoreMode::Memory;
-        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        Hub::new(cfg, store)
-    }
-
-    fn queued_report(lane: &str) -> Report {
-        Report {
-            content: "idle\nlast words".into(),
-            prompt_id: format!("{PROMPT_PREFIX}test"),
-            name: "lane".into(),
-            session: lane.to_owned(),
-            turn: 1,
-            state: "idle".into(),
-            reply: "last words".into(),
-            prs: vec![],
-            shas: vec![],
-        }
-    }
-
-    #[test]
-    fn a_transcript_that_does_not_read_says_so_instead_of_no_reply() {
-        assert_eq!(reply_of(Ok(Some("done".into()))), "done");
-        assert_eq!(reply_of(Ok(None)), "");
-        let got = reply_of(Err(anyhow::anyhow!("page 3 failed")));
-        assert!(got.contains("did not read") && got.contains("page 3 failed"), "{got}");
-    }
-
-    #[tokio::test]
-    async fn a_report_held_at_the_cap_goes_when_the_window_frees_a_place() {
-        let hub = test_hub();
-        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
-        let parent = hub.new_session(start()).await.unwrap();
-        let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id, false);
-        // The cap is full, its oldest report leaving the window in 300 ms; the lane never ends
-        // another turn.
-        let oldest = now_ms() - WINDOW_MS + 300;
-        hub.lane_links(|l| {
-            let l = l.get_mut(&lane.id).unwrap();
-            l.sent = vec![oldest; MAX_REPORTS];
-            l.ready = Some(queued_report(&lane.id));
-        });
-        hub.lane_deliver_ready(&lane.id).await;
-        assert_eq!(parent.meta().turn_count, 0, "the report went past the cap");
-        for _ in 0..150 {
-            if parent.meta().turn_count > 0 {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert_eq!(parent.meta().turn_count, 1, "the held report never went");
-        for s in [&lane, &parent] {
-            hub.kill(s, true).await.unwrap();
-        }
-    }
-
-    #[tokio::test]
-    async fn a_report_counts_toward_the_cap_from_when_the_parent_took_it() {
-        let hub = test_hub();
-        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
-        let parent = hub.new_session(start()).await.unwrap();
-        let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id, false);
-        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
-        // Taken a minute before the parent accepts it (its admission waited).
-        let taken = now_ms() - 60_000;
-        let due = hub.lane_take_due(&lane.id, taken).unwrap();
-        let before = now_ms();
-        hub.lane_hand_over(&lane.id, due).await;
-        let sent = hub.lane_links(|l| l.get(&lane.id).map(|l| l.sent.clone())).unwrap();
-        assert_eq!(sent.len(), 1);
-        assert!(sent[0] >= before, "counted from when it was taken, not accepted: {sent:?}");
-        for s in [&lane, &parent] {
-            hub.kill(s, true).await.unwrap();
-        }
-    }
-
-    #[tokio::test]
-    async fn a_parent_that_starts_closing_after_the_link_check_takes_no_report() {
-        let hub = test_hub();
-        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
-        let parent = hub.new_session(start()).await.unwrap();
-        let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id, false);
-        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
-        let now = now_ms();
-        let due = hub.lane_take_due(&lane.id, now).unwrap();
-        // The parent's close has begun (`kill` marks it closing, then closes it) but has not
-        // retired its links yet: the link check passes, the parent must still refuse it.
-        parent.closing.store(true, Ordering::SeqCst);
-        hub.set_status(&parent, SessionStatus::Closed);
-        hub.lane_hand_over(&lane.id, due).await;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        assert_eq!(parent.meta().turn_count, 0, "the closing parent took the report");
-        assert_eq!(parent.status(), SessionStatus::Closed, "the report reopened the parent");
-        for s in [&lane, &parent] {
-            hub.kill(s, true).await.unwrap();
-        }
-    }
-
-    /// A report that comes once a shutdown began (a lane turn Quit Everything cut ends, and its
-    /// report reaches an idle parent the shutdown has not ended yet) starts no turn: no agent may
-    /// start from then on, and the parent's log takes no prompt it never ran.
-    #[tokio::test]
-    async fn an_idle_parent_takes_no_report_once_the_shutdown_began() {
-        let hub = test_hub();
-        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
-        let parent = hub.new_session(start()).await.unwrap();
-        let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id, false);
-        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
-        let due = hub.lane_take_due(&lane.id, now_ms()).unwrap();
-        hub.begin_shutdown();
-        hub.lane_hand_over(&lane.id, due).await;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        assert_eq!(parent.meta().turn_count, 0, "a report went in once the shutdown began");
-        for s in [&lane, &parent] {
-            hub.kill(s, true).await.unwrap();
-        }
-    }
-
-    #[tokio::test]
-    async fn a_report_queued_behind_a_busy_parent_that_then_closes_never_runs() {
-        let hub = test_hub();
-        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
-        let parent = hub.new_session(start()).await.unwrap();
-        let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id, false);
-        let (h, p) = (hub.clone(), parent.clone());
-        let blocks = vec![json!({"type": "text", "text": "until-cancel"})];
-        let busy = tokio::spawn(async move {
-            h.prompt_with(&p, blocks, "test", false, PromptOptions::default()).await
-        });
-        for _ in 0..100 {
-            if parent.turn().is_some() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert!(parent.turn().is_some(), "the parent's turn never started");
-        // The report queues behind the parent's turn; then the parent closes.
-        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
-        let now = now_ms();
-        let due = hub.lane_take_due(&lane.id, now).unwrap();
-        hub.lane_hand_over(&lane.id, due).await;
-        for _ in 0..100 {
-            if parent.queued() > 0 {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert_eq!(parent.queued(), 1, "the report never queued behind the parent's turn");
-        // A lane's report is a result (`prompt_class.rs`): it never wakes a coordinator by itself.
-        let class = parent.queue().first().and_then(|q| q.run.class);
-        assert_eq!(class, Some(crate::prompt_class::PromptClass::Result));
-        let turns = parent.meta().turn_count;
-        hub.kill(&parent, false).await.unwrap();
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), busy).await;
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        assert_eq!(parent.meta().turn_count, turns, "the queued report ran after the close");
-        assert!(parent.child.lock().await.is_none(), "the report started the parent's agent again");
-        for s in [&lane, &parent] {
-            hub.kill(s, true).await.unwrap();
-        }
-    }
-
-    /// Quit Everything (`_acpmux/shutdown endAgents`) ends the parent with its lanes, and no
-    /// agent may start once the shutdown has begun: a lane's turn it cancels reports nothing.
-    #[tokio::test]
-    async fn a_lane_turn_quit_everything_cancels_reports_nothing() {
-        let hub = test_hub();
-        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
-        let parent = hub.new_session(start()).await.unwrap();
-        let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id, false);
-        let (h, l) = (hub.clone(), lane.clone());
-        let blocks = vec![json!({"type": "text", "text": "until-cancel"})];
-        let run = tokio::spawn(async move {
-            h.prompt_with(&l, blocks, "test", false, PromptOptions::default()).await
-        });
-        for _ in 0..100 {
-            if lane.turn().is_some() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert!(lane.turn().is_some(), "the lane's turn never started");
-        hub.end_agents_at_shutdown(Default::default()).unwrap();
-        hub.shutdown_all().await;
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), run).await;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        assert_eq!(parent.meta().turn_count, 0, "a report went in during the shutdown");
-        assert!(hub.lane_links(|l| l.get(&lane.id).is_none_or(|l| l.ready.is_none())));
-    }
-
-    #[tokio::test]
-    async fn a_report_taken_for_a_lane_that_closes_before_it_goes_never_reaches_the_parent() {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut cfg: crate::config::Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", fake]}},
-            "defaultHarness": "fake",
-        }))
-        .unwrap();
-        cfg.store.mode = crate::config::StoreMode::Memory;
-        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        let hub = Hub::new(cfg, store);
-        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
-        let parent = hub.new_session(start()).await.unwrap();
-        let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id, false);
-        let queued = Report {
-            content: "idle\nlast words".into(),
-            prompt_id: format!("{PROMPT_PREFIX}test"),
-            name: "lane".into(),
-            session: lane.id.clone(),
-            turn: 1,
-            state: "idle".into(),
-            reply: "last words".into(),
-            prs: vec![],
-            shas: vec![],
-        };
-        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued));
-        // The report is taken; the lane closes (its link retired) before it is handed over.
-        let now = now_ms();
-        let due = hub.lane_take_due(&lane.id, now).unwrap();
-        hub.kill(&lane, true).await.unwrap();
-        hub.lane_hand_over(&lane.id, due).await;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        assert_eq!(parent.meta().turn_count, 0, "the closed lane's report went in");
-        hub.kill(&parent, true).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn a_parent_that_closed_while_its_lane_started_is_never_linked() {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut cfg: crate::config::Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", fake]}},
-            "defaultHarness": "fake",
-        }))
-        .unwrap();
-        cfg.store.mode = crate::config::StoreMode::Memory;
-        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        let hub = Hub::new(cfg, store);
-        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
-        let parent = hub.new_session(start()).await.unwrap();
-        let child = hub.new_session(start()).await.unwrap();
-        // The parent closes after `session/new` read it and before the link goes in.
-        hub.kill(&parent, false).await.unwrap();
-        hub.lane_link(&parent.id, &child.id, false);
-        assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
-        // A child that closed after `lane_link` read it and before the link went in is not
-        // linked again: its close retired its links already.
-        let closing = hub.new_session(start()).await.unwrap();
-        let open_parent = hub.new_session(start()).await.unwrap();
-        hub.kill(&closing, false).await.unwrap();
-        hub.lane_link(&open_parent.id, &closing.id, false);
-        assert!(!hub.lane_links(|l| l.contains_key(&closing.id)));
-        hub.kill(&closing, true).await.unwrap();
-        hub.kill(&open_parent, true).await.unwrap();
-        // An open parent is linked.
-        let open = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&open.id, &child.id, false);
-        assert!(hub.lane_links(|l| l.get(&child.id).is_some_and(|l| l.parent == open.id)));
-        // Its parent closing retires it; a child is never linked under its own descendant.
-        hub.kill(&open, false).await.unwrap();
-        assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
-        let grandchild = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&child.id, &grandchild.id, false);
-        hub.lane_link(&grandchild.id, &child.id, false);
-        assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
-        hub.kill(&grandchild, true).await.unwrap();
-        for s in [&child, &open] {
-            hub.kill(s, true).await.unwrap();
-        }
-        hub.kill(&parent, true).await.unwrap();
-    }
-
-    use super::*;
-
-    #[test]
-    fn a_turn_on_reports_only_is_known_by_its_provenance() {
-        let report = json!({"kind": "lane_report", "from": "s1"});
-        let task = json!({"kind": "session_message", "from": "s2"});
-        assert!(reports_only(Some(&report)));
-        assert!(!reports_only(Some(&task)));
-        assert!(!reports_only(None));
-        let digest = |kinds: &[&Value]| {
-            let m: Vec<Value> = kinds.iter().map(|p| json!({"provenance": p})).collect();
-            json!({"kind": "agent_digest", "messages": m})
-        };
-        assert!(reports_only(Some(&digest(&[&report, &report]))));
-        assert!(!reports_only(Some(&digest(&[&report, &task]))));
-    }
-
-    #[test]
-    fn the_state_names_what_the_lane_waits_on() {
-        assert_eq!(state(&json!({"status": "ready"})), "idle");
-        assert_eq!(state(&json!({"status": "running"})), "working on its next prompt");
-        assert_eq!(
-            state(
-                &json!({"status": "waiting", "waitingOn": "question", "waitingPrompt": "Which base?"})
-            ),
-            "waiting on a question: Which base?"
-        );
-        assert_eq!(
-            state(&json!({"status": "waiting", "waitingOn": "permission"})),
-            "waiting on a permission"
-        );
-        assert_eq!(
-            state(
-                &json!({"status": "ready", "queuePaused": true, "lastTurn": {"status": "failed", "errorText": "agent process closed"}})
-            ),
-            "blocked: agent process closed; its queue is paused"
-        );
-        assert_eq!(state(&json!({"status": "disconnected"})), "blocked: its agent stopped");
-    }
-
-    #[test]
-    fn a_lane_with_a_prompt_queued_is_working_not_idle() {
-        let between = json!({"status": "ready", "queued": 1});
-        assert_eq!(state(&between), "working on its next prompt");
-        // A paused queue holds its prompts: blocked, not working.
-        let paused = json!({"status": "ready", "queued": 1, "queuePaused": true});
-        assert_eq!(state(&paused), "blocked: its queue is paused");
-    }
-}
+#[path = "lane_reports_tests.rs"]
+mod tests;

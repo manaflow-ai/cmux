@@ -1,0 +1,18 @@
+{
+  "manifestVersion": 2,
+  "id": "local/pr-card",
+  "name": "PR card",
+  "version": "1.0.0",
+  "description": "A chat widget an extension draws under matching tool calls (cmux.chat.widget/1).",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.chat.widget/1": {
+      "export": "renderCard",
+      "title": "Pull request",
+      "symbol": "arrow.triangle.pull",
+      "options": { "tools": ["mcp__github__get_pull_request", "mcp__github__*pull_request*"] }
+    }
+  },
+  "activation": ["onInterface:cmux.chat.widget/1"]
+}

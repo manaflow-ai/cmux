@@ -29,12 +29,20 @@ final class CEFHostedPageView: NSView {
     private(set) var contextID: UInt32 = 0
     private let root = CALayer()
     private var remote: CALayer?
+    /// The hosted context's root layer when that context is in this process (``remoteRoot``), held by its top-left
+    /// corner; nil when it is not (the layer host then holds the root by its bottom-left corner, as the fork places it).
+    private weak var contextRoot: CALayer?
     private let makeLayerHost: (UInt32) -> CALayer?
+    private let remoteRoot: (UInt32) -> CALayer?
 
-    /// - Parameter makeLayerHost: the layer that shows a context id; a
-    ///   `CALayerHost` by default (tests pass one that fails).
-    init(frame: NSRect, makeLayerHost: @escaping (UInt32) -> CALayer? = { CEFHostedPageView.layerHost(contextID: $0) }) {
+    /// - Parameters:
+    ///   - makeLayerHost: the layer that shows a context id; a `CALayerHost` by default (tests pass one that fails).
+    ///   - remoteRoot: the root layer of the context a context id names, when that context is in this process; nil
+    ///     when it is not (a browser in another process).
+    init(frame: NSRect, makeLayerHost: @escaping (UInt32) -> CALayer? = { CEFHostedPageView.layerHost(contextID: $0) },
+         remoteRoot: @escaping (UInt32) -> CALayer? = { CEFHostedPageView.inProcessRoot(contextID: $0) }) {
         self.makeLayerHost = makeLayerHost
+        self.remoteRoot = remoteRoot
         super.init(frame: frame)
         // Layer-hosting view (layer set before wantsLayer): AppKit sizes
         // the root with the view and never touches the remote layer under it.
@@ -59,8 +67,26 @@ final class CEFHostedPageView: NSView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        placeRemote()
         // A partial hole's mask covers the bounds; the other cases do not depend on the size.
         if case .rect = hole { applyHole() }
+    }
+
+    /// cmux-ad m81: the page's top-left corner stays on this view's top-left corner, whatever size the fork's root has in
+    /// a frame. The fork sizes its root to the page window (`adoptDisplayLayers`), and that size and this view's size do
+    /// not show in the same frame (cmux21, 120 Hz: the root showed the next spring frame's height while the pane showed
+    /// this one's). Held by its bottom-left corner in this unflipped view, the page moved as a whole by the difference in
+    /// each such frame of a split, then back. Held by its top-left corner, a size that differs only cuts or uncovers the
+    /// page's bottom edge, beside the page's backdrop, as the trailing edge already does. The layer host's position is
+    /// this view's layout, so it commits with the pane.
+    private func placeRemote() {
+        guard let remote else { return }
+        let position = CGPoint(x: 0, y: contextRoot == nil ? 0 : bounds.height)
+        guard remote.position != position else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        remote.position = position
+        CATransaction.commit()
     }
 
     private func applyHole() {
@@ -88,13 +114,39 @@ final class CEFHostedPageView: NSView {
         CATransaction.commit()
     }
 
-    /// Not flipped: the fork's root layer is unflipped, origin bottom left.
+    /// Not flipped: the fork's root layer is unflipped, origin bottom left (its top-left corner is held: ``placeRemote()``).
     override var isFlipped: Bool { false }
 
     /// Input goes to the page window above; this view never takes the mouse.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    override func isAccessibilityElement() -> Bool { false }
+    /// The page's accessibility tree lives in Chromium's page window, an input-only embedded window that is no AXWindow
+    /// of the app: an AX client (CuaDriver, VoiceOver) found no window for it (`ax_window_unresolved`) and the cmux
+    /// window that shows the page held none of it (the Customize composer's "Prompt" box read nowhere). This view stands
+    /// where the page shows, so it lends the page window's content as its children: the page reads under the cmux
+    /// window, as a WKWebView page does. Nothing while no page window sits here.
+    override func isAccessibilityElement() -> Bool { pageWindowForAccessibility() != nil }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+
+    override func accessibilityChildren() -> [Any]? {
+        guard let content = pageWindowForAccessibility()?.contentView else { return [] }
+        return NSAccessibility.unignoredChildren(from: [content])
+    }
+
+    /// The embedded page window (``ChromiumPageWindowVisibility/isEmbeddedPage(_:)``) at this view's screen rect: a
+    /// child of this view's window, or, while hosting is detached (fork API 30) and the page window left its parent,
+    /// any window of the app.
+    func pageWindowForAccessibility(isEmbedded: (NSWindow) -> Bool = ChromiumPageWindowVisibility.isEmbeddedPage,
+                                    appWindows: () -> [NSWindow] = { NSApp?.windows ?? [] }) -> NSWindow? {
+        guard let window, !isHiddenOrHasHiddenAncestor else { return nil }
+        let rect = window.convertToScreen(convert(bounds, to: nil))
+        func placed(_ page: NSWindow) -> Bool {
+            page !== window && isEmbedded(page) && CEFTab.frame(page.frame, isPlacedAt: rect)
+        }
+        if let child = window.childWindows?.first(where: placed) { return child }
+        return appWindows().first(where: placed)
+    }
 
     /// `debug.cef` `tracker.hosted_pages` counts the hosted views in a
     /// window, so a view released with its host (DevTools closed, a pane
@@ -118,14 +170,22 @@ final class CEFHostedPageView: NSView {
         CATransaction.setDisableActions(true)
         remote?.removeFromSuperlayer()
         remote = nil
+        contextRoot = nil
         contextID = 0
         if id != 0, let layerHost = makeLayerHost(id) {
             layerHost.anchorPoint = .zero
             layerHost.position = .zero
             layerHost.actions = Self.noActions
+            if let contextRoot = remoteRoot(id) {
+                // The root's top-left corner on the layer host (its position stays the fork's zero), and the layer
+                // host on this view's top-left corner (``placeRemote()``).
+                contextRoot.anchorPoint = CGPoint(x: 0, y: 1)
+                self.contextRoot = contextRoot
+            }
             root.addSublayer(layerHost)
             remote = layerHost
             contextID = id
+            placeRemote()
         }
         CATransaction.commit()
         return contextID == id
@@ -139,8 +199,46 @@ final class CEFHostedPageView: NSView {
         return layerHost
     }
 
+    /// The root layer of the Core Animation context `contextID` names, when that context is in this process (the fork's
+    /// `_hostRoot`); nil for a context of another process or an OS without the SPI. QuartzCore SPI, as `debug.layers` reads
+    /// it: `+[CAContext allContexts]`, `-[CAContext contextId]`, `-[CAContext layer]`, each sent only after `responds(to:)`.
+    nonisolated static func inProcessRoot(contextID: UInt32) -> CALayer? {
+        let contextIdGetter = #selector(getter: QuartzContextSPI.contextId)
+        let layerGetter = #selector(getter: QuartzContextSPI.layer)
+        guard contextID != 0, let contextClass: AnyClass = NSClassFromString("CAContext"),
+              (contextClass as AnyObject).responds(to: #selector(QuartzContextSPI.allContexts)),
+              let contexts = (contextClass as AnyObject).perform(#selector(QuartzContextSPI.allContexts))?
+                  .takeUnretainedValue() as? [NSObject] else { return nil }
+        for context in contexts {
+            guard context.responds(to: contextIdGetter) else { continue }
+            guard context.responds(to: layerGetter) else { continue }
+            let spi = unsafeBitCast(context, to: QuartzContextSPI.self)
+            if spi.contextId == contextID { return spi.layer }
+        }
+        return nil
+    }
+
     private static let noActions: [String: any CAAction] = [
         "position": NSNull(), "bounds": NSNull(), "sublayers": NSNull(), "contents": NSNull(), "hidden": NSNull(),
         "path": NSNull(),
     ]
 }
+
+/// The QuartzCore SPI ``CEFHostedPageView/inProcessRoot(contextID:)`` reads. No class conforms; a caller casts an object
+/// it asked `responds(to:)` for the one message it sends. `nonisolated`: the reader is a nonisolated function (the
+/// initializer's default value calls it), and the module's default isolation would make these getters main-actor ones.
+@objc private nonisolated protocol QuartzContextSPI {
+    /// `+[CAContext allContexts]`: an instance requirement because `#selector` cannot name a static one of a protocol;
+    /// it is sent to the class object with `perform(_:)`.
+    func allContexts() -> [NSObject]?
+    var contextId: UInt32 { get }
+    var layer: CALayer? { get }
+}
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension CEFHostedPageView {
+    /// The hosted context's root layer size, the page window's size as the fork laid it out; nil when the context is
+    /// not in this process or none is hosted. Read by `debug.motion`'s `page` sampler (CEFHostView+MotionSample).
+    var debugHostedRootSize: CGSize? { contextRoot?.bounds.size }
+}
+#endif

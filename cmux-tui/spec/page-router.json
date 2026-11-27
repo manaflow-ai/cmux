@@ -54,22 +54,27 @@
       ]
     },
     "apps": {
-      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show and revoking a scope need the person's gesture (they never widen what an app may do); an install, uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox). It hears apps-changed, so an open page shows an install, removal or instance change made elsewhere (the CLI, another window) without a reload.",
+      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show, revoking a scope and an install need the person's gesture: an install's Install click is its consent, with what the app may do shown on its listing before the click, and it never turns off the sandbox or allows an optional scope (Leo, 2026-11-16: \"if i click install it means it works\"). An uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox). It hears apps-changed, so an open page shows an install, removal or instance change made elsewhere (the CLI, another window) without a reload.",
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
+        "apps.catalog.sections",
         "apps.installed.list",
+        "apps.updates.list",
         "apps.grants.get",
         "apps.logs",
-        "apps.asset.get"
+        "apps.asset.get",
+        "apps.features.list"
       ],
       "gesture": [
         "apps.hidden.set",
-        "apps.grant.revoke"
+        "apps.grant.revoke",
+        "apps.install",
+        "apps.features.set"
       ],
       "confirm": [
         "apps.set",
-        "apps.install",
+        "apps.update",
         "apps.uninstall",
         "apps.grant.set"
       ],
@@ -118,6 +123,39 @@
       "events": [
         "tasks-changed"
       ]
+    },
+    "feed": {
+      "description": "Feed (plans/cmux-next/feed-page.md): the person's feed read from the daemon's feed client (feed-client-v1), in the Inbox tab and the right sidebar. It reads the view, items, the Reports basket and Find Work's GitHub lists; an answer, decline, read, archive, snooze or Mark All Read (feed.intent), a GitHub refresh and a report reply need the person's gesture. It hears feed-view-changed and feed-reports-changed, so an open page re-reads on each change without polling. Posting, withdrawing, the GitHub setting and the presence stay with the verified app connection.",
+      "read": [
+        "feed.view.read",
+        "feed.item.get",
+        "feed.items.list",
+        "feed.github.find_work",
+        "feed.reports.read"
+      ],
+      "gesture": [
+        "feed.intent",
+        "feed.github.refresh",
+        "feed.reports.reply"
+      ],
+      "confirm": [],
+      "events": [
+        "feed-view-changed",
+        "feed-reports-changed"
+      ]
+    },
+    "forum": {
+      "description": "Forum (experiments.forum): the team's hosted forum read through the daemon's forum owner (server/forum_routed.rs, the cmux-forum-hosted client). It reads the spaces and threads (forum.snapshot) and one thread with its comments (forum.thread.get); a new thread (forum.thread.post) and a reply (forum.thread.reply) need the person's gesture. It hears no event: the page re-reads after its own post or reply and on demand.",
+      "read": [
+        "forum.snapshot",
+        "forum.thread.get"
+      ],
+      "gesture": [
+        "forum.thread.post",
+        "forum.thread.reply"
+      ],
+      "confirm": [],
+      "events": []
     }
   },
   "namespaces": {
@@ -127,7 +165,9 @@
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
+        "apps.catalog.sections",
         "apps.installed.list",
+        "apps.updates.list",
         "apps.grants.get",
         "apps.logs",
         "apps.asset.get"
@@ -135,10 +175,21 @@
       "mutation": [
         "apps.set",
         "apps.install",
+        "apps.update",
         "apps.uninstall",
         "apps.hidden.set",
         "apps.grant.set",
         "apps.grant.revoke"
+      ]
+    },
+    "apps_features": {
+      "owner": "apps.features",
+      "description": "Built-in features as App Store switches (server/app_features.rs): list reads each feature's existing settings key; set writes that key the way Settings does (a toggle's bool, or a choice's value and a reset to the default). No key of its own, no default changed. Unix socket and authenticated WebSocket connections; mutations need origin user.",
+      "read": [
+        "apps.features.list"
+      ],
+      "mutation": [
+        "apps.features.set"
       ]
     },
     "agent_session": {
@@ -153,9 +204,10 @@
     },
     "bookmarks": {
       "owner": "bookmarks.tree",
-      "description": "The bookmark tree of each browser profile in the home session (bookmarks-v1, server/bookmarks_routed.rs): list, search, the omnibar rank and the Netscape export as reads; apply (the bookmark ops in turn, each replay-keyed), import_html and import_source as mutations. Unix socket and authenticated WebSocket connections; mutations need origin user.",
+      "description": "The bookmark tree of each browser profile in the home session (bookmarks-v1, server/bookmarks_routed.rs): list, children, search, the omnibar rank and the Netscape export as reads; apply (the bookmark ops in turn, each replay-keyed), import_html and import_source as mutations. Unix socket and authenticated WebSocket connections; mutations need origin user.",
       "read": [
         "bookmarks.list",
+        "bookmarks.children",
         "bookmarks.search",
         "bookmarks.rank",
         "bookmarks.export"
@@ -178,6 +230,38 @@
         "tasks.move",
         "tasks.archive",
         "tasks.delegate"
+      ]
+    },
+    "feed": {
+      "owner": "feed",
+      "description": "The daemon's feed client (feed-client-v1, plans/cmux-next/feed-page.md section 2): the mirror of the person's FeedDO on the app's cloud lease, the in-memory integration owner (GitHub items, update cards), the GitHub poller and the acpmux Reports basket. Unix socket and authenticated WebSocket connections; mutations need origin user; feed.post, feed.withdraw, feed.github.configure and feed.presence.set need the verified app connection itself.",
+      "read": [
+        "feed.view.read",
+        "feed.item.get",
+        "feed.items.list",
+        "feed.github.find_work",
+        "feed.reports.read"
+      ],
+      "mutation": [
+        "feed.intent",
+        "feed.post",
+        "feed.withdraw",
+        "feed.github.configure",
+        "feed.github.refresh",
+        "feed.reports.reply",
+        "feed.presence.set"
+      ]
+    },
+    "forum": {
+      "owner": "forum.hosted",
+      "description": "The team's hosted forum (/v1/forum on cmux-platform) through the daemon's cmux-forum-hosted client (server/forum_routed.rs), set up from CMUX_FORUM_URL, CMUX_FORUM_TEAM and CMUX_FORUM_KEY. Only the app's own process (its main connection or its Forum page relay); mutations need origin user.",
+      "read": [
+        "forum.snapshot",
+        "forum.thread.get"
+      ],
+      "mutation": [
+        "forum.thread.post",
+        "forum.thread.reply"
       ]
     }
   }

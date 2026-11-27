@@ -3,6 +3,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -76,7 +77,7 @@ struct SidebarPriorityRemoteRowsTests {
 
     @Test func aReadOrSnoozeMarkOnAnUntimedNoticeOutlivesTheAppsMemory() async throws {
         let suite = "priority-remote-rows-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         // Notices posted before the app connected carry no time.
         let vm = Remote.tree([
@@ -195,7 +196,7 @@ struct SidebarPriorityRemoteRowsTests {
 
     @Test func aMarkOnARemoteNoticeEndsWhenARestartedDaemonReusesItsIdForANewNotice() async throws {
         let suite = "priority-remote-reuse-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let posted = UInt64(Date().timeIntervalSince1970 * 1000) - 60_000
         let ask = { (at: UInt64) in

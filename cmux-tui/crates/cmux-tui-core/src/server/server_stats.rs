@@ -12,6 +12,20 @@ const LOCKS: &str = "locks";
 /// The optional section that counts the session's queued agent hook events
 /// and those `reset-state` dropped (`diagnostics::HookQueueSnapshot`).
 const HOOK_QUEUE: &str = "hook_queue";
+/// The optional section that reports the registry's disk use by file and by
+/// journal kind (`diagnostics::DiskUsageSnapshot`).
+const DISK: &str = "disk";
+/// Adds the registry's journal checkpoints to `disk`
+/// (`diagnostics::CheckpointDiskSnapshot`). A name of its own: an older SDK
+/// that asks for `disk` gets exactly the shape it decodes.
+const DISK_CHECKPOINTS: &str = "disk_checkpoints";
+/// The optional section that counts the requests by command name and by client kind
+/// (`diagnostics::CommandStatsSnapshot`).
+const COMMANDS: &str = "commands";
+/// The optional section that lists the clients that follow the journal live
+/// and whether they keep the rows left out at rest
+/// (`mux::JournalFollowersSnapshot`).
+const JOURNAL_FOLLOWERS: &str = "journal_followers";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -31,6 +45,9 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
                 mux.connection_stats().socket().map(crate::diagnostics::HookQueueSnapshot::beside)
             })
             .flatten(),
+        disk: wants(DISK).then(|| mux.disk_usage_stats(wants(DISK_CHECKPOINTS))).flatten(),
+        commands: wants(COMMANDS).then(|| mux.connection_stats().commands().snapshot()),
+        journal_followers: wants(JOURNAL_FOLLOWERS).then(|| mux.journal_followers_stats()),
     }
 }
 

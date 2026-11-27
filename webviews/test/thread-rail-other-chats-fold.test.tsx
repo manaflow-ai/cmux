@@ -9,6 +9,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow, ConversationLayout } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -41,13 +43,9 @@ const { ThreadMinimap } = await import("../src/agent-session/acpmux/threadMinima
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 const { incomingPrompt } = await import("../src/agent-session/acpmux/conversation/incomingMessage");
 
-afterAll(() => {
+afterAll(async () => {
   setBookmarkTransport(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -115,6 +113,7 @@ async function mount(marked: number[]) {
       }),
     ),
   );
+  await railFrame();
   await settle();
   const tick = (index: number) => host.querySelector<HTMLElement>(`[data-tick="${index}"]`)!;
   const focus = (index: number) => act(async () => tick(index).focus());

@@ -5,12 +5,14 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostError, HostUnavailableLine } from "./HostError";
+import { type FlickerEvent, resetFlickerLogForTests, startFlickerLog } from "./flickerLog";
 import { waitedText } from "./hostErrorModel";
 import { hostLineText } from "./hostLine";
 import { hostErrorShows } from "./hostRetry";
 import { translate } from "./i18n";
 import { Notice, NoticeSlot } from "./NoticeSlot";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -36,6 +38,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -61,7 +64,9 @@ test("a refusal another binary's acpmux caused is one line whose one action is R
     );
   });
   expect(buttons(container)).toEqual(["Restart agent service"]);
-  expect(container.querySelectorAll("p")).toHaveLength(1);
+  expect(container.querySelector(".acpmux-host-line-message")!.textContent).toBe(
+    "acpmux belongs to cmux NIGHTLY, and this build may not use it.",
+  );
   expect(container.textContent).not.toContain("starts the one in this app");
   await act(async () => container.querySelector("button")!.click());
   expect(pressed).toEqual(["restart"]);
@@ -100,18 +105,28 @@ test("a queued Retry holds Restart acpmux until the handshake settles", async ()
   expect(pressed).toEqual([]);
 });
 
-test("a late failure is its message and Retry, with no recovery steps", async () => {
+// Leo, 2026-11-12, after the machine hosting a chat's agent rebooted: "the recovery needs to be a
+// lot better and it shouldn't talk so much bullshit"; "try what? no, it should just automatically
+// do stuff". A failure the pane clears by asking again by itself is one quiet line.
+test("a late failure the pane retries by itself shows nothing: no chip, no button, no reassurance", async () => {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
-    root.render(<HostUnavailableLine message="acpmux did not answer in time." onRetry={() => undefined} />);
+    root.render(
+      <HostUnavailableLine
+        message="Couldn't connect to the agent."
+        detail="WebSocket error"
+        onRetry={() => undefined}
+      />,
+    );
   });
-  expect(buttons(container)).toEqual(["Retry"]);
-  expect(container.querySelector('[role="alert"]')).not.toBeNull();
-  expect(container.querySelectorAll("p")).toHaveLength(1);
-  expect(container.textContent).toBe("acpmux did not answer in time.Retry");
-  expect(container.textContent).not.toContain("tries again on its own");
-  expect(container.textContent).not.toContain("stays here until");
+  // Leo, 2026-11-24: "all the connecting... indicators ... nah let's not do that."
+  expect(container.textContent).toBe("");
+  expect(buttons(container)).toEqual([]);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.querySelector(".acpmux-host-line-note")).toBeNull();
+  expect(container.textContent).not.toContain("Retry");
+  expect(container.textContent).not.toContain("chats are kept");
   expect(container.querySelector(".cv-spinner__arc")).toBeNull();
 });
 
@@ -119,7 +134,9 @@ test("a Retry waiting on the attempt in flight says so and holds", async () => {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
-    root.render(<HostUnavailableLine message="acpmux did not answer in time." onRetry={() => undefined} retrying />);
+    root.render(
+      <HostUnavailableLine message="This chat is too large." onRetry={() => undefined} retrying selfRetrying={false} />,
+    );
   });
   expect(buttons(container)).toEqual(["Retrying…"]);
   expect(container.querySelector("button")!.disabled).toBe(true);
@@ -182,57 +199,39 @@ test("a reconnecting or slow peer renders no card, no line and no Retry", async 
   }
 });
 
-test("a machine gone for minutes is one plain line with Retry, and acpmux's words only behind Details", async () => {
+test("a machine gone for minutes (rebooting) shows nothing, never acpmux's words or Retry", async () => {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
     root.render(<PaneHostLine error={new Error(LEOS)} failingForMs={5 * 60_000} />);
   });
-  const line = container.querySelector(".acpmux-host-line-message")!;
-  expect(line.textContent).toBe("Can't reach <host>.");
-  expect(buttons(container)).toEqual(["Retry", "Details"]);
+  expect(container.textContent).toBe("");
+  expect(buttons(container)).toEqual([]);
   expect(container.textContent).not.toContain("peer_unreachable");
   expect(container.textContent).not.toContain("acpmux machine ls");
-  expect(container.querySelector(".acpmux-host-line-detail")).toBeNull();
+});
+
+test("a failure asking again cannot clear keeps its message, its action and Details", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <HostUnavailableLine
+        message="Update cmux to open this chat, then Retry."
+        detail="message.too_large"
+        onRetry={() => undefined}
+        selfRetrying={false}
+      />,
+    );
+  });
+  expect(container.querySelector(".acpmux-host-line-message")!.textContent).toBe(
+    "Update cmux to open this chat, then Retry.",
+  );
+  expect(buttons(container)).toEqual(["Retry", "Details"]);
+  expect(container.querySelector(".acpmux-host-line-note")).toBeNull();
   const details = [...container.querySelectorAll("button")].find((b) => b.textContent === "Details")!;
-  expect(details.getAttribute("aria-expanded")).toBe("false");
   await act(async () => details.click());
-  expect(details.getAttribute("aria-expanded")).toBe("true");
-  expect(container.querySelector(".acpmux-host-line-detail")!.textContent).toBe(LEOS);
-});
-
-// The app never restarts a slow acpmux on its own (#28083, rule R5): a pane that waits long shows
-// how long, and the person's Restart agent service is the one action.
-test("a long wait for acpmux says how long and offers Restart agent service", async () => {
-  const container = installDom();
-  const pressed: string[] = [];
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<HostWaitingLine since={0} now={95_000} onRestart={() => pressed.push("restart")} />);
-  });
-  expect(container.textContent).toContain("Waiting for the agent service (1:35)");
-  expect(buttons(container)).toEqual(["Restart agent service"]);
-  await act(async () => container.querySelector("button")!.click());
-  expect(pressed).toEqual(["restart"]);
-});
-
-test("a short wait for acpmux shows nothing", async () => {
-  const container = installDom();
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<HostWaitingLine since={0} now={3_000} onRestart={() => undefined} />);
-  });
-  expect(container.textContent).toBe("");
-});
-
-test("a Restart agent service in flight holds its button", async () => {
-  const container = installDom();
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<HostWaitingLine since={0} now={40_000} restarting onRestart={() => undefined} />);
-  });
-  expect(buttons(container)).toEqual(["Restarting agent service…"]);
-  expect([...container.querySelectorAll("button")].every((b) => b.disabled)).toBe(true);
+  expect(container.querySelector(".acpmux-host-line-detail")!.textContent).toBe("message.too_large");
 });
 
 test("the wait reads as minutes and seconds", () => {
@@ -241,27 +240,28 @@ test("the wait reads as minutes and seconds", () => {
   expect(waitedText(605_000)).toBe("10:05");
 });
 
-test("one host line at a time: a long wait replaces an earlier failure's line", async () => {
+test("a host line records when it shows and when it goes, and a self-retrying failure records nothing", async () => {
   const container = installDom();
-  const earlier = <p data-earlier>acpmux did not answer in time.</p>;
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<HostWaitingLine since={0} now={3_000} onRestart={() => undefined} otherwise={earlier} />);
-  });
-  expect(container.querySelector("[data-earlier]")).not.toBeNull();
-  await act(async () => {
-    root!.render(<HostWaitingLine since={0} now={30_000} onRestart={() => undefined} otherwise={earlier} />);
-  });
-  expect(container.querySelector("[data-earlier]")).toBeNull();
-  expect(buttons(container)).toEqual(["Restart agent service"]);
-});
-
-test("a wait the host cannot restart keeps its time and shows no button", async () => {
-  const container = installDom();
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<HostWaitingLine since={0} now={40_000} />);
-  });
-  expect(container.textContent).toContain("Waiting for the agent service (0:40)");
-  expect(buttons(container)).toEqual([]);
+  const sent: FlickerEvent[] = [];
+  const win = dom!.window as unknown as Window;
+  startFlickerLog(win, (events) => void sent.push(...events));
+  try {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<HostUnavailableLine message="refused" onRetry={() => undefined} />);
+    });
+    await act(async () =>
+      root!.render(<HostUnavailableLine message="refused" onRetry={() => undefined} selfRetrying={false} />),
+    );
+    await act(async () => root!.render(<HostUnavailableLine message="refused" onRetry={() => undefined} />));
+    win.dispatchEvent(new dom!.window.Event("pagehide"));
+    const lines = sent.filter((event) => event.kind === "host-line");
+    expect(lines.map((event) => [event.line, event.state])).toEqual([
+      ["unavailable", "shown"],
+      ["unavailable", "cleared"],
+    ]);
+    expect(typeof lines[1]!.ms).toBe("number");
+  } finally {
+    resetFlickerLogForTests();
+  }
 });

@@ -10,7 +10,8 @@
 //!
 //! - **Record.** Each upload's folder holds `.record`, `{name, source, at, sha256, size}`: the
 //!   name it was shown as, the app it came from when the sender said, when it was stored, and
-//!   which stored bytes it is.
+//!   which stored bytes it is. It is written once the store takes the upload, just after its
+//!   finish has answered; an upload the store could not take keeps its own copy and has none.
 //! - **References.** A stored file's references are its other hard links (its link count less
 //!   the store's own), so the count can never drift from what is on disk, a crash included.
 //! - **Deletion.** Stored bytes go once no upload links them ([`release`] when an upload folder
@@ -89,10 +90,19 @@ pub(crate) fn record(dir: &Path) -> Option<Record> {
     Record::from_json(&serde_json::from_reader(file).ok()?)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many files [`sha256_of`] began to hash on this thread: a test's proof that a request
+    /// it ran hashed nothing.
+    pub(crate) static HASHED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Lowercase hex SHA-256 of the file at `path`, read 1 MiB at a time.
 pub(crate) fn sha256_of(path: &Path) -> std::io::Result<String> {
     use sha2::Digest;
     use std::io::Read;
+    #[cfg(test)]
+    HASHED.with(|n| n.set(n.get() + 1));
     let mut file = crate::config::private_state_file(path).map_err(std::io::Error::other)?;
     let mut hash = sha2::Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
@@ -109,7 +119,9 @@ pub(crate) fn sha256_of(path: &Path) -> std::io::Result<String> {
 /// Puts the finished upload at `file` (`<root>/<chat>/<upload id>/<name>`) into the store and
 /// writes its record: bytes the store already holds are linked in place of `file`'s own copy,
 /// which goes; new bytes are linked into the store. `file`'s path never stops naming the bytes
-/// (the swap is a rename). `sha256` is the file's hash when the caller already has it. Blocking.
+/// (the swap is a rename). The record is written first, so a reader that finds the file has
+/// another name always finds the record that names the store's (`is_stored_link`). `sha256` is
+/// the file's hash when the caller already has it. Blocking.
 pub(crate) fn adopt(
     root: &Path,
     file: &Path,
@@ -125,12 +137,12 @@ pub(crate) fn adopt(
         _ => sha256_of(file)?,
     };
     let record = Record { name, source: source.map(str::to_owned), at: now_ms, sha256: hash, size };
+    let bytes = serde_json::to_vec(&record.to_json())?;
+    crate::agent_tools::write_private(&dir.join(RECORD), &bytes)?;
     #[cfg(unix)]
     link_into_store(root, file, &record)?;
     #[cfg(not(unix))]
     let _ = root;
-    let bytes = serde_json::to_vec(&record.to_json())?;
-    crate::agent_tools::write_private(&dir.join(RECORD), &bytes)?;
     Ok(record)
 }
 
@@ -138,7 +150,7 @@ pub(crate) fn adopt(
 /// link (another file system) leaves `file` its own copy, which is no error.
 #[cfg(unix)]
 fn link_into_store(root: &Path, file: &Path, record: &Record) -> anyhow::Result<()> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::fs::MetadataExt;
     let stored = stored_path(root, &record.sha256)
         .ok_or_else(|| anyhow::anyhow!("not a sha256: {}", record.sha256))?;
     let shard = stored.parent().ok_or_else(|| anyhow::anyhow!("the store has no folder"))?;
@@ -156,10 +168,12 @@ fn link_into_store(root: &Path, file: &Path, record: &Record) -> anyhow::Result<
         // The store has these bytes: name them at `file`'s path, then drop `file`'s copy, in one
         // rename so the path always names the bytes.
         let swap = file.with_file_name(format!(".link-{}", uuid::Uuid::now_v7()));
-        match std::fs::hard_link(&stored, &swap) {
+        // Through the held home (`home_fs`): a home replaced after the store's checks never
+        // gets a link (#41372 review F3).
+        match crate::home_fs::hard_link(&stored, &swap) {
             Ok(()) => {
-                if let Err(e) = std::fs::rename(&swap, file) {
-                    let _ = std::fs::remove_file(&swap);
+                if let Err(e) = crate::home_fs::rename(&swap, file) {
+                    let _ = crate::home_fs::remove_file(&swap);
                     return Err(e.into());
                 }
                 Ok(())
@@ -176,8 +190,8 @@ fn link_into_store(root: &Path, file: &Path, record: &Record) -> anyhow::Result<
             tracing::warn!("{} is not the stored upload it names; not linked", stored.display());
             return Ok(());
         }
-        std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o400))?;
-        if let Err(e) = std::fs::hard_link(file, &stored) {
+        crate::home_fs::set_mode(file, 0o400)?;
+        if let Err(e) = crate::home_fs::hard_link(file, &stored) {
             tracing::debug!("upload kept as its own copy: cannot link {}: {e}", stored.display());
         }
         Ok(())
@@ -235,9 +249,9 @@ fn release_one(root: &Path, hash: &str) -> bool {
     let unlinked =
         std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) && references(root, hash) == 0;
     // A platform without link counts never deletes stored bytes (it never stores any).
-    if cfg!(unix) && unlinked && std::fs::remove_file(&path).is_ok() {
+    if cfg!(unix) && unlinked && crate::home_fs::remove_file(&path).is_ok() {
         if let Some(shard) = path.parent() {
-            let _ = std::fs::remove_dir(shard);
+            let _ = crate::home_fs::remove_dir(shard);
         }
         return true;
     }
@@ -276,7 +290,7 @@ pub(crate) fn set_kept(chat: &Path, kept: bool) -> anyhow::Result<()> {
     if kept {
         crate::agent_tools::write_private(&mark, &[])
     } else {
-        match std::fs::remove_file(&mark) {
+        match crate::home_fs::remove_file(&mark) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e.into()),

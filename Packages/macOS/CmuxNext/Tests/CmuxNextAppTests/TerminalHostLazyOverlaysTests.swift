@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// A new terminal builds no Restart, Retry or "Sized for" button: each is a rounded NSButton whose
@@ -37,17 +38,19 @@ import Testing
         #expect(restart.first?.isHidden == true, "the action went away")
     }
 
-    @Test func retryShowsOnlyForAFailedAttach() {
-        let host = TerminalHostView()
+    /// A failed attach shows no Retry button (Leo, 2026-11-22: a vacuous "try again" is just done): the view
+    /// re-attaches by itself while it shows.
+    @Test func aFailedAttachShowsNoRetryButton() async throws {
+        let clock = ManualClock()
+        let host = TerminalHostView(clock: clock)
         host.showStatus(.disconnected(.connectionLost, reconnecting: true))
         host.showStatus(.disconnected(.turnedOffByOrganization, reconnecting: false))
         #expect(Self.buttons(in: host).isEmpty)
-        host.showStatus(.disconnected(.attachFailed, reconnecting: false))
-        let retry = Self.buttons(in: host).compactMap { $0 as? TerminalRetryButton }
-        #expect(retry.count == 1)
-        #expect(retry.first?.isHidden == false)
         host.showStatus(.connected)
-        #expect(retry.first?.isHidden == true)
+        host.showStatus(.disconnected(.attachFailed, reconnecting: false))
+        clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay))
+        for _ in 0..<200 where host.statusLabelWaits { await Task.yield() }
+        #expect(Self.buttons(in: host).isEmpty)
     }
 
     @Test func sizedForBuildsTheChipWhenItShows() {

@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use cmux_history::{
-    HistoryEntry, HistoryKind, HistoryQuery, HistoryRange, NewVisit, Removal, VisitStores,
+    ActorFilter, HistoryEntry, HistoryKind, HistoryQuery, HistoryRange, NewVisit, Removal,
+    VisitActor, VisitStores,
 };
 use serde_json::{Map, Value, json};
 
@@ -57,6 +58,21 @@ pub(super) fn range(
     }
 }
 
+/// The end of a clear: the caller's `until_ms` (the click time of a clear
+/// that waited in the app's queue, so what happened after the click stays),
+/// at most `now_ms`; omitted: `now_ms`.
+pub(super) fn until_ms(fields: &Map<String, Value>, now_ms: i64) -> Result<i64, ResourceError> {
+    match fields.get("until_ms") {
+        None | Some(Value::Null) => Ok(now_ms),
+        Some(value) => value
+            .as_str()
+            .and_then(|text| text.parse::<i64>().ok())
+            .filter(|until| *until >= 0)
+            .map(|until| until.min(now_ms))
+            .ok_or_else(|| invalid("until_ms", "until_ms must be an unsigned decimal string")),
+    }
+}
+
 /// The query of a list request.
 pub(super) fn query(fields: &Map<String, Value>) -> Result<HistoryQuery, ResourceError> {
     let limit = match fields.get("limit") {
@@ -77,6 +93,12 @@ pub(super) fn query(fields: &Map<String, Value>) -> Result<HistoryQuery, Resourc
         },
         range: range(fields, false)?,
         limit: Some(limit),
+        actor: match fields.get("actor").and_then(Value::as_str).unwrap_or("mine") {
+            "mine" => ActorFilter::Mine,
+            "agents" => ActorFilter::Agents,
+            "all" => ActorFilter::All,
+            _ => return Err(invalid("actor", "actor must be mine, agents or all")),
+        },
     })
 }
 
@@ -221,7 +243,8 @@ pub(crate) fn run(
         }
         "history.clear" => {
             let since = range(fields, true)?.start(now_ms, day_start_ms);
-            stores.clear(since, profile).map(|r| removal(&r)).map_err(failed)
+            let until = until_ms(fields, now_ms)?;
+            stores.clear_between(since, until, profile).map(|r| removal(&r)).map_err(failed)
         }
         "history.restore" => {
             let id = restore_id(fields)?;
@@ -253,6 +276,13 @@ pub(crate) fn run(
                     title => title.map(str::to_owned),
                 },
                 tab: text(fields, "tab")?.map(str::to_owned),
+                actor: match fields.get("actor").and_then(Value::as_str).unwrap_or("person") {
+                    "person" => None,
+                    "agent" => Some(VisitActor::Agent {
+                        session_id: text(fields, "session_id")?.map(str::to_owned),
+                    }),
+                    _ => return Err(invalid("actor", "actor must be person or agent")),
+                },
                 at_ms: at_ms(fields)?,
             };
             let id = stores.record(profile, &visit).map_err(failed)?;

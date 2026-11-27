@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 public import CmuxNextWakeups
+import AppKit
 import Foundation
 
 /// Keeps one overlay sync observer registered; removing it (or releasing
@@ -99,9 +100,28 @@ extension LayoutRootView {
         }
     }
 
+    /// A person's live resize of the window: every displayed screen's pane contents follow it as a divider drag
+    /// (`ScreenContentView+WindowLiveResize`). A resize nobody drags (a display change's one-shot frame) lays out once.
+    override public func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        guard NSEvent.pressedMouseButtons != 0 else { return }
+        for screen in screenViews.values { screen.windowLiveResizeBegan() }
+    }
+
     override public func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
+        for screen in screenViews.values { screen.windowLiveResizeEnded() }
         runStillWork()
+    }
+
+    /// The window's chrome resizes the content area over several frames (the sidebar's width motion): every displayed
+    /// screen takes a live resize's per-tick mode for it (`ScreenContentView.contentAreaMotionBegan()`), and leaves it
+    /// at `active` false, which comes after the landing's layout.
+    public func contentAreaMotionDidChange(active: Bool) {
+        for screen in screenViews.values {
+            if active { screen.contentAreaMotionBegan() } else { screen.contentAreaMotionEnded() }
+        }
+        if !active { runStillWork() }
     }
 
     /// Holds `work` until `pane`, which left the layout in a close that still springs, goes when the motion lands (or
@@ -113,13 +133,13 @@ extension LayoutRootView {
 }
 
 /// The floating panes' cards (`MainPaneChromeShadeView`): every displayed
-/// pane of the shown screens, cut to what this view shows (a column
-/// scrolled past its edge, a screen sliding in).
+/// pane of the shown screen, cut to what this view shows (a column
+/// scrolled past its edge).
 extension LayoutRootView: PaneCardSource {
     public var paneCardsInWindow: [PaneCard] {
         guard window != nil, !isHiddenOrHasHiddenAncestor, !isParkedOrHasParkedAncestor else { return [] }
         let visible = convert(bounds, to: nil)
-        return screenViews.values.filter { !$0.isHidden && $0.alphaValue > 0.01 }.flatMap { screen in
+        return screenViews.values.filter { !$0.isHidden }.flatMap { screen in
             screen.displayedHosts.filter { !$0.isHidden && $0.alphaValue > 0.01 }.compactMap { host in
                 let rect = host.cardInWindow.intersection(visible)
                 return rect.isEmpty ? nil : PaneCard(rect: rect, radius: PaneChromeGeometry.cornerRadius(for: host.contentRect, style: context.style))

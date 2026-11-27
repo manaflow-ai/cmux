@@ -1,7 +1,7 @@
 // Agent board: a kanban of four columns, Working, Needs you, Ready to land and Landed today. The
 // first two hold agents; the last two hold pull requests with the agents on them.
-import { useMemo } from "react";
-import { boardColumns, branchPRs, landingLanes, startOfDay, type PRCard } from "../model";
+import { memo, useMemo } from "react";
+import { boardColumns, branchPRs, landingLanes, sameRowProps, shownReply, type PRCard } from "../model";
 import { AgentRow, agentsOf, Ago, CIChip, Loaded, OwnerChips, PRChip } from "../parts";
 import type { ChiefViewProps } from "../registry";
 import type { ChiefAgent } from "../types";
@@ -9,11 +9,11 @@ import type { Strings } from "../../shared/i18n";
 
 type Column = { id: string; title: string; agents?: ChiefAgent[]; prs?: PRCard[] };
 
-export function AgentBoardView({ data, strings, now, placement, onOpenAgent, onOpenURL }: ChiefViewProps) {
+export function AgentBoardView({ data, strings, today, placement, onOpenAgent, onOpenURL }: ChiefViewProps) {
   const agents = agentsOf(data);
-  const fleetPRs = data.fleet.status === "ready" ? data.fleet.reply.prs : undefined;
-  const landing = data.landing.status === "ready" ? data.landing.reply : undefined;
-  const today = startOfDay(now);
+  // While a Refresh reads again, the last reply stays shown: the cards neither empty nor redraw.
+  const fleetPRs = shownReply(data.fleet)?.prs;
+  const landing = shownReply(data.landing);
   const columns = useMemo(
     () => boardColumns(agents, landingLanes(landing, agents, fleetPRs, today)),
     [agents, landing, fleetPRs, today],
@@ -44,7 +44,6 @@ export function AgentBoardView({ data, strings, now, placement, onOpenAgent, onO
                     <AgentRow
                       key={`${agent.kind}:${agent.id}`}
                       agent={agent}
-                      now={now}
                       strings={strings}
                       compact
                       showMachine
@@ -56,7 +55,7 @@ export function AgentBoardView({ data, strings, now, placement, onOpenAgent, onO
               ) : (
                 <ul className="cv-rows cv-cards">
                   {column.prs!.map((pr) => (
-                    <PRCardRow key={pr.number} pr={pr} now={now} strings={strings} compact onOpenURL={onOpenURL} />
+                    <PRCardRow key={pr.number} pr={pr} strings={strings} compact onOpenURL={onOpenURL} />
                   ))}
                 </ul>
               )}
@@ -68,15 +67,14 @@ export function AgentBoardView({ data, strings, now, placement, onOpenAgent, onO
   );
 }
 
-export function PRCardRow({
+/** One pull request; it draws again only when the pull request, its CI word or its agents changed. */
+export const PRCardRow = memo(function PRCardRow({
   pr,
-  now,
   strings,
   compact,
   onOpenURL,
 }: {
   pr: PRCard;
-  now: number;
   strings: Strings;
   /** A board card: the title wraps and the CI chip and time move under it. */
   compact?: boolean;
@@ -86,7 +84,7 @@ export function PRCardRow({
   const meta = (
     <span className="cv-row-meta">
       <CIChip status={pr.ci} strings={strings} />
-      <Ago at={at} now={now} strings={strings} />
+      <Ago at={at} strings={strings} />
     </span>
   );
   return (
@@ -108,4 +106,4 @@ export function PRCardRow({
       </button>
     </li>
   );
-}
+}, sameRowProps);

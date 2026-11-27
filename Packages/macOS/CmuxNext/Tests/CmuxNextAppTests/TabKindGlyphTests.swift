@@ -6,11 +6,11 @@ import CmuxNextIcons
 import CmuxNextTabs
 import Testing
 
-/// Tab icons draw at 12 to 20 pt, so a terminal tab shows the bare `>_` and a browser tab without a
-/// favicon a globe with fewer lines (Leo 2026-11-07: "the terminal thing, it should just be the
-/// little ... pizza symbol and then the underscore", "the browser icon, it should be much less ...
-/// lined and detailed"). The framed `terminal` and the full `browser` globe stay for larger uses
-/// (the new tab page cards, menus, onboarding).
+/// Tab icons draw at 12 to 20 pt, so a terminal tab shows the bare `>_` (Leo 2026-11-07: "the terminal
+/// thing, it should just be the little ... pizza symbol and then the underscore"). Since 2026-11-09 the
+/// same bare prompt is `terminal` everywhere, and a browser tab without a favicon draws the outlined
+/// globe every other surface draws (Leo: "this icon didnt get drawn or smth", "just draw that
+/// basketball").
 @MainActor struct TabKindGlyphTests {
     @Test func terminalAndBrowserTabsResolveToTheTabSizeGlyphs() {
         let terminal = TabItemMapping.shared.item(TabModel(TabSnapshot(surface: 1)), fallbackTitle: "Terminal")
@@ -29,20 +29,17 @@ import Testing
         #expect(tab.line.count == 1)
         #expect(tab.line.allSatisfy { $0.op == .stroke && !$0.d.contains("Z") })
         #expect(Self.subpaths(tab.line) == 2)
-        // The larger uses keep the framed terminal.
-        let framed = try #require(IconPack.bundled.drawing(for: .terminal))
-        #expect(framed.line.contains { $0.d.contains("Z") })
+        // Every other use draws the same bare prompt.
+        let terminal = try #require(IconPack.bundled.drawing(for: .terminal))
+        #expect(terminal.line == tab.line)
     }
 
-    @Test func theBrowserTabGlyphHasFewerLinesThanTheGlobe() throws {
+    @Test func theBrowserTabGlyphIsTheWholeGlobe() throws {
         let tab = try #require(IconPack.bundled.drawing(for: .tabBrowser))
         let globe = try #require(IconPack.bundled.drawing(for: .browser))
-        // The ring, then the equator and one meridian curve; the globe has a two-sided lens.
-        #expect(Self.subpaths(tab.line) == 3)
-        #expect(Self.subpaths(tab.line) < Self.subpaths(globe.line) || Self.segments(tab.line) < Self.segments(globe.line))
-        #expect(tab.line.dropFirst().allSatisfy { !$0.d.contains("Z") }, "no closed lens inside the ring")
-        // Same ring, so its optical size matches the globe's.
-        #expect(tab.line.first?.d == globe.line.first?.d)
+        // The ring, the closed meridian lens and the equator: a ball that reads as finished at tab size.
+        #expect(tab.line == globe.line)
+        #expect(tab.line.filter { $0.d.contains("Z") }.count >= 2, "ring and lens are closed")
     }
 
     /// Every tab glyph keeps the pack's 1.5 stroke and centres its ink on the 24-unit grid at the
@@ -65,10 +62,6 @@ import Testing
 
     private static func subpaths(_ layers: [IconLayer]) -> Int {
         layers.reduce(0) { $0 + $1.d.filter { $0 == "M" }.count }
-    }
-
-    private static func segments(_ layers: [IconLayer]) -> Int {
-        layers.reduce(0) { $0 + $1.d.filter { $0 == "L" || $0 == "C" }.count }
     }
 
     /// The pixel box of every pixel with ink.

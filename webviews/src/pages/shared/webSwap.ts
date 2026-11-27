@@ -11,6 +11,8 @@
 // Installed with the desktop layer, so every first-party page answers. A page without it (or one
 // that does not answer) keeps the update waiting.
 
+import { prepareSwap, startSwapRestore, swapRestored, type SwapProbe } from "./swapHandoff";
+
 /** Why a reload now would lose or disturb something, or null/undefined when it would not. */
 export type WebSwapHold = () => string | null | undefined;
 
@@ -25,7 +27,7 @@ export const WEB_SWAP_FOCUS = "data-cmux-swap-focus";
 export const WEB_SWAP_FOCUS_KEY = "cmux.webSwap.focus";
 /** A stash older than this is from a look that did not swap: it is ignored. */
 export const WEB_SWAP_FOCUS_FRESH_MS = 10_000;
-/** What counts as an open menu, popover or dialog (as SessionInfo and WidgetEditing read it). */
+/** What counts as an open menu, popover or dialog (as SessionInfo reads it). */
 const OPEN_POPUP =
   'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], .ui-popup, [aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"], [role="combobox"][aria-expanded="true"]';
 
@@ -38,10 +40,14 @@ export function holdWebSwap(hold: WebSwapHold): () => void {
   return () => void holds.delete(hold);
 }
 
-function registeredPageHold(doc: Document): string | null {
+/** Holds a chat's wake state carries back, so a hidden-chat release need not keep the page for them:
+ * shell mode and its text (the composer's `shell` and `shellText`). A web swap still waits on them. */
+export const WAKE_CARRIED_HOLDS: ReadonlySet<string> = new Set(["composer.shell"]);
+
+function registeredPageHold(doc: Document, carried: ReadonlySet<string> = new Set()): string | null {
   for (const hold of holds) {
     const reason = hold();
-    if (reason) return reason;
+    if (reason && !carried.has(reason)) return reason;
   }
   if (composing.has(doc)) return "ime";
   return null;
@@ -60,9 +66,9 @@ function unkeptFieldHold(doc: Document, edited = false): string | null {
 
 /** Edits a chat's wake state does not carry: registered unsaved state (sends, drafts not yet saved,
  * composition) and any edited field outside the kept composer, such as a queued message being edited.
- * A release that `agents.hiddenChats.discard` alone makes keeps such a page (`holdsEdits`). */
+ * Every hidden-chat release keeps such a page (`holdsEdits`): nothing typed is lost. */
 export function pageEditHold(doc: Document = document): string | null {
-  return registeredPageHold(doc) || unkeptFieldHold(doc, true);
+  return registeredPageHold(doc, WAKE_CARRIED_HOLDS) || unkeptFieldHold(doc, true);
 }
 
 /** What a hidden page cannot hand back in its wake state: registered unsaved state (including
@@ -132,10 +138,25 @@ export function takeWebSwapFocus(key: string, now = Date.now()): boolean {
   }
 }
 
+/** The part of `doc` that has the keyboard and takes it back after a swap. Only a page that has the
+ * keyboard (`hasFocus()`): an unfocused chat keeps its DOM focus in its composer too, and taking it
+ * back there pulled the caret into that chat after a swap (cmux#50535's after-run). */
+function focusOwner(doc: Document): string | null | undefined {
+  if (!doc.hasFocus()) return null;
+  return doc.activeElement?.closest(`[${WEB_SWAP_FOCUS}]`)?.getAttribute(WEB_SWAP_FOCUS);
+}
+
 /** Answers the host's ask (`window.cmuxWebSwap`) and tracks input method composition. Once per document. */
 export function installWebSwap(doc: Document = document): void {
-  const view = doc.defaultView as (Window & { cmuxWebSwap?: { hold(): string | null } }) | null;
+  const view = doc.defaultView as
+    | (Window & {
+        cmuxWebSwap?: { hold(): string | null; prepare(): boolean; restored(): Promise<SwapProbe | null> };
+      })
+    | null;
   if (!view || view.cmuxWebSwap) return;
+  // GRACEFUL-SWAP (swapHandoff.ts): a document the host swapped in stays invisible over the host's
+  // still of the page until it is the page it was.
+  startSwapRestore(doc);
   view.addEventListener("compositionstart", () => composing.add(doc), { capture: true });
   view.addEventListener("compositionend", () => composing.delete(doc), { capture: true });
   view.cmuxWebSwap = {
@@ -143,7 +164,7 @@ export function installWebSwap(doc: Document = document): void {
       const reason = webSwapHold(doc);
       if (reason) return reason;
       // The reload comes next: the focus owner gets the keyboard back once the page is up again.
-      const owner = doc.activeElement?.closest(`[${WEB_SWAP_FOCUS}]`)?.getAttribute(WEB_SWAP_FOCUS);
+      const owner = focusOwner(doc);
       try {
         if (owner) view.sessionStorage.setItem(WEB_SWAP_FOCUS_KEY, JSON.stringify({ owner, at: Date.now() }));
         else view.sessionStorage.removeItem(WEB_SWAP_FOCUS_KEY);
@@ -152,6 +173,18 @@ export function installWebSwap(doc: Document = document): void {
       }
       return null;
     },
+    // The host reloads the page into new web next (PageWebView+GracefulSwap.swift): its state goes
+    // over to the new document, and the focus owner takes the keyboard back there.
+    prepare() {
+      const owner = focusOwner(doc);
+      try {
+        if (owner) view.sessionStorage.setItem(WEB_SWAP_FOCUS_KEY, JSON.stringify({ owner, at: Date.now() }));
+      } catch {
+        // No storage: the hand-off below fails too, and the page reloads as before.
+      }
+      return prepareSwap(doc);
+    },
+    restored: swapRestored,
   };
 }
 

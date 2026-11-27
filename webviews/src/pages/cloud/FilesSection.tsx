@@ -2,12 +2,15 @@
 // click; a file click previews a small text file, which Edit turns into a field that Save writes back.
 // Delete, Upload and Download go to the host (native confirmation or file panel); the page never
 // calls `fs.remove`, `file.push` or `file.pull` itself. A push or pull shows as a transfer row that
-// is running until its `file.transfer.changed` event; a busy refusal shows a message with Retry. A
+// is running until its `file.transfer.changed` event; a busy refusal shows a message with Retry
+// (retry-prompt-ok: it runs the push or pull again, which opens the host's file panel again). A
 // machine whose daemon has no file ops yet (`fs-v1`) shows "Not available yet" for that machine.
-import { useRef, useState } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import { formatBytes, plainKeys, type SectionProps } from "./sectionParts";
 import { joinPath } from "./files";
-import { CloudOps } from "./ops";
+import { CloudOps, type FsEntry } from "./ops";
 import { format, L } from "./strings";
 import type { FileTransfer } from "./transfers";
 
@@ -67,6 +70,8 @@ function Preview({ store, detail, strings }: Pick<SectionProps, "store" | "detai
           className="cloud-input cloud-file-editor cloud-mono"
           aria-label={preview.path}
           value={draft}
+          // Unsaved text: app health never reloads the page away from it (pageHealth.ts).
+          data-cmux-unsaved-edits={draft === preview.text ? undefined : ""}
           onChange={(event) => updateDraft(event.target.value)}
         />
       );
@@ -155,6 +160,252 @@ function NewFolder({ store, t }: { store: SectionProps["store"]; t: (key: string
   );
 }
 
+/** A row's height before the first one is measured (one line of link buttons, 4 px padding). */
+const ROW_ESTIMATE = 29;
+/** At least this many rows above and below the visible ones; else one viewport each side. */
+const MIN_OVERSCAN = 8;
+
+/** The closest element above `node` that scrolls vertically: the page's body. */
+function scrollParentOf(node: HTMLElement): HTMLElement {
+  for (let at = node.parentElement; at; at = at.parentElement) {
+    const overflow = at.ownerDocument.defaultView?.getComputedStyle(at).overflowY;
+    if (overflow === "auto" || overflow === "scroll" || overflow === "overlay") return at;
+  }
+  return node;
+}
+
+/**
+ * A folder's entries, mounting only those near the viewport (the visible-only rule): a folder has no
+ * size cap, and every entry used to be a mounted row. The rows window (TanStack Virtual) against the
+ * page body that scrolls them, from where the list starts in it (scrollMargin): about one viewport
+ * each side, in the flow between two blocks standing in for the rest. Rows are memoized on their
+ * entry with stable handlers, so a scroll draws only the rows it brings in and a relisting only the
+ * rows that changed. The row that has focus, its neighbours and the first and last rows stay mounted,
+ * so the browser's own Tab and Shift-Tab go to the next row in list order (and into the list at its
+ * first or last entry), each focused row scrolling into view. No row is selected or deep-linked.
+ */
+function FileRows({
+  store,
+  entries,
+  folder,
+  canPull,
+  canRemove,
+  strings,
+}: {
+  store: SectionProps["store"];
+  entries: readonly FsEntry[];
+  folder: string;
+  canPull: boolean;
+  canRemove: boolean;
+  strings: SectionProps["strings"];
+}) {
+  const { t } = strings;
+  const list = useRef<HTMLUListElement>(null);
+  const viewport = useRef<HTMLElement | null>(null);
+  const findViewport = useCallback(() => {
+    if (!viewport.current && list.current) viewport.current = scrollParentOf(list.current);
+    return viewport.current;
+  }, []);
+
+  // Where the rows start in the body's content, and one viewport of rows. They move only when a box
+  // between the list and the body resizes (a machine's sections loading above it), never on a scroll.
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const measureMargin = useCallback(() => {
+    const scroller = findViewport();
+    const start = list.current;
+    if (!scroller || !start || scroller === start) return;
+    const next =
+      start.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scroller.scrollTop -
+      scroller.clientTop;
+    setScrollMargin((previous) => (previous === next ? previous : next));
+    setViewportHeight(scroller.clientHeight);
+  }, [findViewport]);
+  useLayoutEffect(() => {
+    measureMargin();
+    const scroller = findViewport();
+    if (!scroller || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measureMargin);
+    for (let node: HTMLElement | null = list.current; node; node = node.parentElement) {
+      observer.observe(node);
+      // Its siblings above it in each box move it too (the sections above, the account rail's wrap).
+      for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling)
+        observer.observe(sibling);
+      if (node === scroller) break;
+    }
+    return () => observer.disconnect();
+  }, [findViewport, measureMargin]);
+
+  const pathOf = useCallback((entry: FsEntry) => entry.path ?? joinPath(folder, entry.name ?? ""), [folder]);
+  // An entry's place by its path, built once per listing: focus finds its row without a scan.
+  const indexOf = useMemo(() => new Map(entries.map((entry, index) => [pathOf(entry), index])), [entries, pathOf]);
+  const [focused, setFocused] = useState<string | undefined>(undefined);
+  const focusedIndex = focused === undefined ? -1 : (indexOf.get(focused) ?? -1);
+
+  // One function per listing: TanStack measures every row again when it changes.
+  const rowKey = useCallback((at: number) => pathOf(entries[at]!), [entries, pathOf]);
+  // The first measured row sizes every row not yet mounted.
+  const rowHeight = useRef(0);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns a mutable instance, so the React Compiler skips this component, as in ui/VirtualList.
+  const virtualizer = useVirtualizer({
+    count: entries.length,
+    getScrollElement: findViewport,
+    scrollMargin,
+    estimateSize: () => rowHeight.current || ROW_ESTIMATE,
+    getItemKey: rowKey,
+    overscan: Math.max(MIN_OVERSCAN, Math.ceil(viewportHeight / (rowHeight.current || ROW_ESTIMATE))),
+    // The row with focus stays mounted, so a scroll away never drops focus to the page; so do its
+    // neighbours and the first and last rows, the browser's next tab stops: Tab and Shift-Tab go on
+    // in list order, and into the list at its first or last entry.
+    rangeExtractor: (range: Range) => {
+      const indexes = defaultRangeExtractor(range);
+      const kept = [0, entries.length - 1];
+      if (focusedIndex >= 0) kept.push(focusedIndex - 1, focusedIndex, focusedIndex + 1);
+      for (const index of kept)
+        if (index >= 0 && index < entries.length && !indexes.includes(index)) indexes.push(index);
+      return indexes.sort((a, b) => a - b);
+    },
+  });
+  // A row's place (`data-index`, which TanStack measures it by, and `aria-posinset`/`aria-setsize`,
+  // the screen reader's "3 of 1,000") is written on its element here, not drawn by the row: an entry
+  // coming, going or moving above a row moves its place, and that draws none of the rows. `places`
+  // is the current listing's, read by the rows' ref as they mount.
+  const places = useRef({ indexOf, count: entries.length });
+  // react-doctor-disable-next-line react-doctor/no-ref-current-in-render -- the rows' ref callback reads it in this commit, before this component's layout effects: an effect would place new rows by the last listing.
+  places.current = { indexOf, count: entries.length };
+  const measure = useCallback(
+    (node: HTMLElement | null) => {
+      if (node) place(node, places.current.indexOf, places.current.count);
+      if (node && !rowHeight.current && node.offsetHeight > 0) rowHeight.current = node.offsetHeight;
+      virtualizer.measureElement(node);
+    },
+    [virtualizer],
+  );
+  // The rows already mounted take their new places when the listing changes (only the mounted rows).
+  useLayoutEffect(() => {
+    for (const node of list.current?.querySelectorAll<HTMLElement>(":scope > [data-path]") ?? [])
+      place(node, indexOf, entries.length);
+  }, [indexOf, entries.length]);
+
+  // One function per handler for every render: a memo row draws again only when its own props change.
+  const handlers = useStableHandlers({
+    onOpen: (path: string, isFolder: boolean) => void (isFolder ? store.files.open(path) : store.files.preview(path)),
+    onPull: (path: string) => void store.files.pull(path),
+    onRemove: (path: string) => void store.files.remove(path),
+  });
+  const labels = { folder: t(L.filesFolder), download: t(L.filesDownload), remove: t(L.delete) };
+
+  const children: ReactNode[] = [];
+  let reached = scrollMargin;
+  let previous = -1;
+  const gap = (height: number) => {
+    if (height > 0) children.push(<li key={`\u0000gap:${previous}`} aria-hidden="true" style={{ height }} />);
+  };
+  for (const { index, start, end } of virtualizer.getVirtualItems()) {
+    gap(start - reached);
+    reached = end;
+    previous = index;
+    const entry = entries[index]!;
+    const isFolder = entry.kind === "directory";
+    children.push(
+      <FileRow
+        key={pathOf(entry)}
+        measure={measure}
+        entry={entry}
+        path={pathOf(entry)}
+        detail={isFolder ? labels.folder : entry.size != null ? formatBytes(entry.size, strings) : ""}
+        downloadLabel={entry.kind === "file" && canPull ? labels.download : undefined}
+        removeLabel={canRemove ? labels.remove : undefined}
+        {...handlers}
+      />,
+    );
+  }
+  gap(virtualizer.getTotalSize() + scrollMargin - reached);
+
+  return (
+    <ul
+      ref={list}
+      className="cloud-items cloud-files"
+      onFocus={(event) => {
+        const row = (event.target as Element).closest<HTMLElement>("[data-path]");
+        setFocused(row?.dataset.path);
+      }}
+    >
+      {children}
+    </ul>
+  );
+}
+
+/** Writes a row element's place in the listing: `data-index` (TanStack measures it by that) and
+ *  `aria-posinset`/`aria-setsize`. Only what changed is written. */
+function place(node: HTMLElement, indexOf: ReadonlyMap<string, number>, count: number): void {
+  const index = indexOf.get(node.dataset.path ?? "");
+  if (index === undefined) return;
+  if (node.dataset.index !== String(index)) {
+    node.dataset.index = String(index);
+    node.setAttribute("aria-posinset", String(index + 1));
+  }
+  if (node.getAttribute("aria-setsize") !== String(count)) node.setAttribute("aria-setsize", String(count));
+}
+
+interface FileRowProps {
+  measure: (node: HTMLElement | null) => void;
+  entry: FsEntry;
+  path: string;
+  detail: string;
+  /** Absent: no Download (a folder, or the owner cannot pull). */
+  downloadLabel?: string;
+  removeLabel?: string;
+  onOpen: (path: string, isFolder: boolean) => void;
+  onPull: (path: string) => void;
+  onRemove: (path: string) => void;
+}
+
+const FileRow = memo(function FileRow({
+  measure,
+  entry,
+  path,
+  detail,
+  downloadLabel,
+  removeLabel,
+  onOpen,
+  onPull,
+  onRemove,
+}: FileRowProps) {
+  const isFolder = entry.kind === "directory";
+  return (
+    // `data-index`, `aria-posinset` and `aria-setsize` are written by the list (`place`), not drawn here.
+    <li ref={measure} data-path={path} className={`cloud-item cloud-file kind-${entry.kind}`}>
+      <button
+        type="button"
+        className="cloud-link-button cloud-file-name cloud-mono"
+        onClick={() => onOpen(path, isFolder)}
+      >
+        {entry.name ?? path}
+      </button>
+      <span className="cloud-item-detail">{detail}</span>
+      <span className="cloud-item-actions">
+        {downloadLabel !== undefined && (
+          <button type="button" className="cloud-link-button cloud-file-download" onClick={() => onPull(path)}>
+            {downloadLabel}
+          </button>
+        )}
+        {removeLabel !== undefined && (
+          <button
+            type="button"
+            className="cloud-link-button destructive cloud-file-remove"
+            onClick={() => onRemove(path)}
+          >
+            {removeLabel}
+          </button>
+        )}
+      </span>
+    </li>
+  );
+});
+
 export function FilesSection({
   store,
   detail,
@@ -214,6 +465,7 @@ export function FilesSection({
           </button>
         )}
       </div>
+      {/* retry-prompt-ok: nothing ran; running it again opens the host's native file panel, so it is the person's. */}
       {files.busy && (
         <p className="cloud-muted cloud-transfer-busy">
           {t(L.transferBusy)}{" "}
@@ -228,46 +480,14 @@ export function FilesSection({
       )}
       {rows}
       {files.entries?.length ? (
-        <ul className="cloud-items cloud-files">
-          {files.entries.map((entry) => {
-            const path = entry.path ?? joinPath(files.path, entry.name ?? "");
-            const folder = entry.kind === "directory";
-            return (
-              <li key={path} className={`cloud-item cloud-file kind-${entry.kind}`}>
-                <button
-                  type="button"
-                  className="cloud-link-button cloud-file-name cloud-mono"
-                  onClick={() => void (folder ? store.files.open(path) : store.files.preview(path))}
-                >
-                  {entry.name ?? path}
-                </button>
-                <span className="cloud-item-detail">
-                  {folder ? t(L.filesFolder) : entry.size != null ? formatBytes(entry.size, strings) : ""}
-                </span>
-                <span className="cloud-item-actions">
-                  {entry.kind === "file" && !unavailable.includes(CloudOps.filePull) && (
-                    <button
-                      type="button"
-                      className="cloud-link-button cloud-file-download"
-                      onClick={() => void store.files.pull(path)}
-                    >
-                      {t(L.filesDownload)}
-                    </button>
-                  )}
-                  {!unavailable.includes(CloudOps.fsRemove) && (
-                    <button
-                      type="button"
-                      className="cloud-link-button destructive cloud-file-remove"
-                      onClick={() => void store.files.remove(path)}
-                    >
-                      {t(L.delete)}
-                    </button>
-                  )}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+        <FileRows
+          store={store}
+          entries={files.entries}
+          folder={files.path}
+          canPull={!unavailable.includes(CloudOps.filePull)}
+          canRemove={!unavailable.includes(CloudOps.fsRemove)}
+          strings={strings}
+        />
       ) : (
         <p className="cloud-muted">{files.loading ? t(L.loading) : t(L.filesEmpty)}</p>
       )}

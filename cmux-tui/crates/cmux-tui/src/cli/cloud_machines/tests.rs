@@ -6,6 +6,14 @@ use super::*;
 
 const LOCAL: &str = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+/// `read` then `apply`, as `machine list` runs them (`machine_list_reads`).
+fn merge(global: &GlobalArgs, result: Value) -> Value {
+    match read(global) {
+        Some(cloud) => apply(global, result, cloud),
+        None => result,
+    }
+}
+
 fn local_row() -> Value {
     json!({"id": LOCAL, "name": "local", "origin": "local", "status": "running",
            "connectable": true, "deleted": false, "recoverable": false})
@@ -59,7 +67,7 @@ fn cloud_machines_join_the_daemon_rows_marked_kind_cloud() {
         rows[1],
         json!({"id": "vm-brave-otter", "name": "brave-otter", "origin": "cloud", "kind": "cloud",
                "status": "running", "connectable": true, "deleted": false, "recoverable": false,
-               "target": "machine:vm-brave-otter", "daemon": "connected"})
+               "target": "vm:vm-brave-otter", "daemon": "connected"})
     );
     // An untitled machine is named by its id; a paused one is not connectable.
     assert_eq!(rows[2]["name"], "vm-calm-heron");

@@ -34,6 +34,14 @@
 //!   predates it) is stopped and started again through a fresh
 //!   observation. Parked, binding or stopping hosts are left alone: their
 //!   next start reads the file.
+//! - An adopted session host of an older build than the one installed (an
+//!   update's flip restarted the agent, not the host) is replaced the same
+//!   way, terminal hosts kept, but never under a person's session: it goes
+//!   at once when no carrier session is attached, else at the first of the
+//!   last detach, [`HOST_INPUT_IDLE_MS`] with no input on the attached
+//!   sessions, or [`HOST_MAX_DEFER_MS`] after the build changed
+//!   ([`ReplaceWhy`]). While it waits, the agent looks again every
+//!   [`HOST_LOOK_MS`] and keeps the updater's deferral mark.
 //! - Every restart goes through a fresh observation (a backoff timer can
 //!   be from before a snapshot). Session host exits restart with a capped
 //!   backoff
@@ -49,6 +57,70 @@ pub const HEALTHY_RUN_MS: u64 = 10_000;
 /// at most this many, then only kernel events retry.
 pub const RETRY_ATTEMPTS: u32 = 10;
 pub const RETRY_FIRST_MS: u64 = 50;
+/// An old-build session host whose attached sessions sent no input this
+/// long is replaced: the person is away, the redial is not in their way.
+pub const HOST_INPUT_IDLE_MS: u64 = 10 * 60 * 1000;
+/// At most this long after the build changed an old-build session host is
+/// replaced, attached sessions or not: a forever-busy host does not keep a
+/// machine on an old build.
+pub const HOST_MAX_DEFER_MS: u64 = 24 * 60 * 60 * 1000;
+/// How often the agent looks at a deferred old-build host's sessions.
+pub const HOST_LOOK_MS: u64 = 15_000;
+/// Past the session host's restart budget (`config::SESSION_HOST_BUDGET`), a crash restarts it
+/// only after this long: the retry continues behind the `restart-budget-exceeded` state.
+pub const BUDGET_HOLD_RETRY_MS: u64 = 60 * 60 * 1000;
+
+/// One look at the carrier sessions of an adopted session host of an older
+/// build ([`Input::HostLooked`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HostLook {
+    /// Attached carrier sessions; `None` when the list could not be read,
+    /// which keeps the host (as it holds the updater's flip).
+    pub attached: Option<usize>,
+    /// The least time since any attached session's last input; `None` when
+    /// unknown (a host from before the field reports none).
+    pub input_idle_ms: Option<u64>,
+    /// Since the agent found the build changed.
+    pub since_changed_ms: u64,
+}
+
+/// Why an old-build session host was replaced (logged).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplaceWhy {
+    /// No carrier session was attached when the build change was found.
+    Idle,
+    /// The last attached carrier session detached.
+    Detached,
+    /// The attached sessions sent no input for [`HOST_INPUT_IDLE_MS`].
+    InputIdle,
+    /// [`HOST_MAX_DEFER_MS`] passed since the build changed.
+    MaxDefer,
+}
+
+impl ReplaceWhy {
+    pub fn name(self) -> &'static str {
+        match self {
+            ReplaceWhy::Idle => "idle",
+            ReplaceWhy::Detached => "detached",
+            ReplaceWhy::InputIdle => "input-idle-10m",
+            ReplaceWhy::MaxDefer => "max-defer-24h",
+        }
+    }
+
+    /// What fired, for one look, or `None` while the host must stay.
+    /// `was_attached`: an earlier look saw a session attached.
+    pub fn of(look: &HostLook, was_attached: bool) -> Option<ReplaceWhy> {
+        match look.attached {
+            Some(0) if was_attached => Some(ReplaceWhy::Detached),
+            Some(0) => Some(ReplaceWhy::Idle),
+            Some(_) if look.input_idle_ms.is_some_and(|ms| ms >= HOST_INPUT_IDLE_MS) => {
+                Some(ReplaceWhy::InputIdle)
+            }
+            _ if look.since_changed_ms >= HOST_MAX_DEFER_MS => Some(ReplaceWhy::MaxDefer),
+            _ => None,
+        }
+    }
+}
 
 /// A role notification. The agent adds deadlines and turns it into a
 /// `cmux_server_core::role::HostEvent`.
@@ -98,6 +170,10 @@ pub enum Input {
     ResumeSignal,
     /// The supervised session host exited after `lived_ms`.
     DaemonExited { lived_ms: u64 },
+    /// Whether today's session host faults are past the restart budget (the agent counts them
+    /// on the supervisor contract before it hands an exit in). Past it, a crash restarts only
+    /// after [`BUDGET_HOLD_RETRY_MS`].
+    RestartBudget { exceeded: bool },
     /// The session host ignored SIGTERM for the stop grace period.
     StopDeadline,
     /// The restart backoff elapsed.
@@ -115,6 +191,13 @@ pub enum Input {
     /// The running session host's relay carrier route is not the one
     /// `carrier.json` names now.
     CarrierChanged,
+    /// The adopted session host runs another executable than the installed
+    /// build's session host binary: an update flipped the build under it.
+    BuildChanged,
+    /// The agent looked at that host's carrier sessions.
+    HostLooked(HostLook),
+    /// The deferred host's look timer fired.
+    HostLookElapsed,
     /// Every role handled `Parked` and stopped (`ok`), or one refused.
     RolesParked { ok: bool },
     /// SIGTERM or SIGINT.
@@ -183,6 +266,16 @@ pub enum Action {
     Notify(Lifecycle),
     /// Tell the service manager the agent is ready (once).
     Ready,
+    /// Look at the old-build host's carrier sessions now; the agent answers
+    /// [`Input::HostLooked`].
+    LookHost,
+    /// Arm the one-shot look timer of a deferred old-build host.
+    ArmHostLook(u64),
+    /// Write the updater's deferral mark (`config::HOST_DEFERRED_FILE`).
+    MarkHostDeferred,
+    /// Remove the mark and log why the old-build host goes; a
+    /// `TerminateDaemon` follows.
+    ReplaceOldHost(ReplaceWhy),
     /// Leave the event loop. The session host keeps running.
     Exit,
 }
@@ -221,6 +314,10 @@ impl Action {
             Action::ShutdownRoles => "shutdown-roles",
             Action::Notify(_) => "notify",
             Action::Ready => "ready",
+            Action::LookHost => "look-host",
+            Action::ArmHostLook(_) => "arm-host-look",
+            Action::MarkHostDeferred => "mark-host-deferred",
+            Action::ReplaceOldHost(_) => "replace-old-host",
             Action::Exit => "exit",
         }
     }
@@ -244,6 +341,12 @@ pub enum DaemonState {
     /// Waiting for the restart backoff.
     Backoff,
 }
+
+/// Periodic announces after a bind, a resume or a (re)start on a bound
+/// machine (each one `announce_interval` after the last, 30 s by default):
+/// two minutes of repeats, then quiet, so an idle VM reaches the provider's
+/// 300 s idle timeout. A resume or a bind announces again.
+pub const ANNOUNCE_REPEATS: u32 = 4;
 
 /// The agent's decision state.
 #[derive(Clone, Debug)]
@@ -276,7 +379,24 @@ pub struct Machine {
     resume_pending: bool,
     /// The periodic announce timer is armed.
     announce_loop: bool,
+    /// Periodic announces since the last bind, resume or (re)start on a
+    /// bound machine; the loop stops at [`ANNOUNCE_REPEATS`].
+    announce_repeats: u32,
     exiting: bool,
+    /// The running session host is of an older build and waits to be
+    /// replaced; cleared by any exit of it (every spawn runs the new build).
+    old_host: Option<OldHost>,
+    /// Today's session host faults are past the restart budget ([`Input::RestartBudget`]).
+    over_budget: bool,
+}
+
+/// An old-build session host the machine waits to replace.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct OldHost {
+    /// A look saw a carrier session attached.
+    was_attached: bool,
+    /// The deferral mark is written.
+    marked: bool,
 }
 
 impl Default for Machine {
@@ -304,7 +424,10 @@ impl Machine {
             verify_pending: false,
             resume_pending: false,
             announce_loop: false,
+            announce_repeats: 0,
             exiting: false,
+            old_host: None,
+            over_budget: false,
         }
     }
 
@@ -356,6 +479,7 @@ impl Machine {
             Input::RetryElapsed => self.retry_armed = false,
             Input::ResumeSignal => self.resume(&mut out),
             Input::DaemonExited { lived_ms } => self.daemon_exited(lived_ms, &mut out),
+            Input::RestartBudget { exceeded } => self.over_budget = exceeded,
             Input::StopDeadline => {
                 if matches!(self.daemon, DaemonState::Stopping(_)) {
                     out.push(Action::KillDaemon);
@@ -381,6 +505,7 @@ impl Machine {
             Input::AnnounceTick => {
                 self.announce_loop = false;
                 if self.identity_settled() {
+                    self.announce_repeats = self.announce_repeats.saturating_add(1);
                     self.announce(&mut out);
                 }
             }
@@ -400,6 +525,18 @@ impl Machine {
                     self.daemon = DaemonState::Stopping(StopReason::Respawn);
                 }
             }
+            Input::BuildChanged => {
+                if self.replaceable() && self.old_host.is_none() {
+                    self.old_host = Some(OldHost::default());
+                    out.push(Action::LookHost);
+                }
+            }
+            Input::HostLookElapsed => {
+                if self.old_host.is_some() && self.replaceable() {
+                    out.push(Action::LookHost);
+                }
+            }
+            Input::HostLooked(look) => self.host_looked(look, &mut out),
             Input::RolesParked { ok } => self.roles_parked(ok, &mut out),
             Input::Shutdown => {
                 if self.roles_running {
@@ -478,6 +615,7 @@ impl Machine {
                 self.start_roles(out);
                 // An agent restart or an unpark on a bound machine starts
                 // the periodic announce too, not only a bind or a resume.
+                self.announce_repeats = 0;
                 self.arm_announce_loop(out);
                 if std::mem::take(&mut self.resume_pending) {
                     // The id is confirmed unchanged: deliver the resume.
@@ -487,8 +625,18 @@ impl Machine {
         }
     }
 
+    /// Re-arms the periodic announce, at most [`ANNOUNCE_REPEATS`] times after
+    /// a bind, a resume or a (re)start on a bound machine. A loop with no end
+    /// was outbound traffic every 30 s forever, so an idle VM never reached
+    /// the provider's 300 s idle timeout and never paused (staging,
+    /// 2026-11-27: every running VM's `lastNetworkActivity` under a minute old).
     fn arm_announce_loop(&mut self, out: &mut Vec<Action>) {
-        if !self.parked && self.current_id.is_some() && !self.announcing && !self.announce_loop {
+        if !self.parked
+            && self.current_id.is_some()
+            && !self.announcing
+            && !self.announce_loop
+            && self.announce_repeats < ANNOUNCE_REPEATS
+        {
             self.announce_loop = true;
             out.push(Action::ArmAnnounce);
         }
@@ -530,6 +678,7 @@ impl Machine {
     fn finish_bind(&mut self, id: String, out: &mut Vec<Action>) {
         self.fast_exits = 0;
         self.spawn(out);
+        self.announce_repeats = 0;
         self.announce(out);
         out.push(Action::Rekey(id.clone()));
         out.push(Action::RestartPromptSync);
@@ -613,6 +762,7 @@ impl Machine {
             return;
         }
         self.notify(Lifecycle::Resumed, out);
+        self.announce_repeats = 0;
         self.announce(out);
     }
 
@@ -643,7 +793,41 @@ impl Machine {
         out.push(Action::ArmRetry(delay));
     }
 
+    /// A running host the agent may stop and start again: not parked, no
+    /// bind in flight (as for [`Input::CarrierChanged`]).
+    fn replaceable(&self) -> bool {
+        self.daemon == DaemonState::Running && !self.parked && self.binding.is_none()
+    }
+
+    /// One look at an old-build host's sessions: replace it the way a
+    /// carrier route change does (terminate, then spawn through a fresh
+    /// observation, terminal hosts kept), or keep it, marked, and look again.
+    fn host_looked(&mut self, look: HostLook, out: &mut Vec<Action>) {
+        let Some(mut old) = self.old_host else { return };
+        if !self.replaceable() {
+            return;
+        }
+        if let Some(why) = ReplaceWhy::of(&look, old.was_attached) {
+            self.old_host = None;
+            out.push(Action::ReplaceOldHost(why));
+            out.push(Action::TerminateDaemon);
+            self.daemon = DaemonState::Stopping(StopReason::Respawn);
+            return;
+        }
+        if look.attached.is_some_and(|n| n > 0) {
+            old.was_attached = true;
+        }
+        if !old.marked {
+            old.marked = true;
+            out.push(Action::MarkHostDeferred);
+        }
+        self.old_host = Some(old);
+        out.push(Action::ArmHostLook(HOST_LOOK_MS));
+    }
+
     fn daemon_exited(&mut self, lived_ms: u64, out: &mut Vec<Action>) {
+        // Whatever ended it, the next session host runs the installed build.
+        self.old_host = None;
         match std::mem::replace(&mut self.daemon, DaemonState::Down) {
             DaemonState::Stopping(reason) => {
                 out.push(Action::DisarmStopDeadline);
@@ -694,7 +878,14 @@ impl Machine {
                     self.fast_exits = 0;
                 }
                 self.fast_exits = self.fast_exits.saturating_add(1);
-                match backoff_delay_ms(self.fast_exits) {
+                // Past the day's budget the loop is not normal life: hold, and try again hourly
+                // (the status reads `restart-budget-exceeded` with the causes meanwhile).
+                let delay = if self.over_budget {
+                    BUDGET_HOLD_RETRY_MS
+                } else {
+                    backoff_delay_ms(self.fast_exits)
+                };
+                match delay {
                     // Restart through a fresh observation.
                     0 => out.push(Action::Recheck),
                     delay => {
@@ -736,3 +927,7 @@ impl Machine {
 #[cfg(test)]
 #[path = "machine_carrier_tests.rs"]
 mod carrier_tests;
+
+#[cfg(test)]
+#[path = "machine_announce_tests.rs"]
+mod announce_tests;

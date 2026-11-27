@@ -21,8 +21,7 @@ enum WorkspaceGroupUndo {
     /// a toast when `toast`, else a step on the window's undo stack only.
     static func remove(_ invocation: ActionInvocation, _ context: AppActionContext, message: (String) -> String,
                        toast: Bool = true) throws {
-        let group = try context.group(invocation), sidebar = try context.sidebar(), prior = ToastUndoStep.latest
-        let id = sidebar.model.groupID(personal: group.id.rawValue)
+        let group = try context.shownGroup(invocation), sidebar = group.sidebar, prior = ToastUndoStep.latest, id = group.id
         let restore = SidebarGroupRestore.capture(id, in: sidebar.model.sections)
         sidebar.handle(.ungroup(id))
         // On the sidebar document the ungroup puts its own undo step now (the daemon's inverse keeps the pin, icon and
@@ -30,7 +29,7 @@ enum WorkspaceGroupUndo {
         let onDoc = context.services.sidebarDoc.store?.activeRecords != nil, docStep = onDoc ? ToastUndoStep.latest.flatMap { $0 === prior ? nil : $0 } : nil
         guard invocation.origin == .user, let restore, let window = context.activeWindow?.window else { return }
         let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
-        let services = context.services, groupID = group.id.rawValue
+        let services = context.services, groupID = group.personalID
         let undo: @MainActor () -> Void = { [weak sidebar] in
             if let entry = DaemonClosedHistory.groupEntry(groupID, in: services) {
                 DaemonClosedHistory.reopen(entry, services: services)
@@ -49,14 +48,14 @@ enum WorkspaceGroupUndo {
     /// The title History gives a deleted group's closed-history item.
     static func historyTitle(_ name: String) -> String {
         let name = name.isEmpty ? ConfirmationStrings.unnamedGroup : name
-        return String(format: String(localized: "workspaceGroup.closedHistoryTitle", defaultValue: "Group “%@”", table: "Handlers", bundle: .module), name)
+        return String(format: String(localized: "workspaceGroup.closedHistoryTitle", defaultValue: "Group “%@”", table: "Handlers", bundle: .module.inAppLanguage), name)
     }
 
     static func ungroupedToast(_ name: String) -> String {
-        String(format: String(localized: "workspaceGroup.ungroupedToast", defaultValue: "Ungrouped “%@”", table: "Handlers", bundle: .module), name)
+        String(format: String(localized: "workspaceGroup.ungroupedToast", defaultValue: "Ungrouped “%@”", table: "Handlers", bundle: .module.inAppLanguage), name)
     }
 
     static func deletedToast(_ name: String) -> String {
-        String(format: String(localized: "workspaceGroup.deletedToast", defaultValue: "Group “%@” deleted", table: "Handlers", bundle: .module), name)
+        String(format: String(localized: "workspaceGroup.deletedToast", defaultValue: "Group “%@” deleted", table: "Handlers", bundle: .module.inAppLanguage), name)
     }
 }

@@ -71,8 +71,25 @@ export type DeleteTeamDependencies = {
   readonly store?: TeamInviteStore;
 };
 
-/** Delete a team unless a Team subscription would keep billing it. */
+/**
+ * Whether the team record carries its own operator Cloud grant (`cmuxVmPlan` in client read-only
+ * metadata, which only the server key writes; backend cloud-vm-plan.ts reads it per team). The grant
+ * lives on the team record and nowhere else, so deleting the team would lose it.
+ */
+export function teamCarriesCloudGrant(team: Pick<TeamAccess["team"], "clientReadOnlyMetadata">): boolean {
+  const metadata = team.clientReadOnlyMetadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
+  const grant = (metadata as Record<string, unknown>).cmuxVmPlan;
+  return grant !== undefined && grant !== null;
+}
+
+/**
+ * Delete a team unless a Team subscription would keep billing it, or the team carries its own
+ * operator Cloud grant: an operator moves or clears that grant first, so no delete strands it.
+ * A personal grant lives on the user record, never a team, so no delete reaches it.
+ */
 export async function deleteTeam(access: TeamAccess, dependencies: DeleteTeamDependencies = {}): Promise<void> {
+  if (teamCarriesCloudGrant(access.team)) throw new TeamApiError("team_has_cloud_grant", 409);
   const hasActiveSubscription = dependencies.hasActiveSubscription ?? hasActiveTeamSubscriptionForTeam;
   let active: boolean;
   try {

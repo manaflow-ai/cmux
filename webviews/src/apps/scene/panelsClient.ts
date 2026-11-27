@@ -1,16 +1,73 @@
-import type { PageClient } from "../../pages/shared/pageClient";
+import { isPageError, type PageClient } from "../../pages/shared/pageClient";
+import { parseVisibleSlice, VISIBLE_SLICE_OP, VisibleSliceInput } from "../../ui/visibleSlice";
+import type { SceneAssetResolver } from "./SceneRenderer";
 import { SceneStore, type SceneOp } from "./store";
 
 export type AppPanel = { app: string; section: string; title: string; symbol?: string };
 export type MountContext = { session_id: string; cwd?: string; branch?: string; harness?: string };
-export type SceneEvent = { mount_id: string; ops: SceneOp[]; reset?: boolean };
+/** Where a mount shows (`cmux.apps.panels.mount {surface}`); the host resolves the app's implementation for it. */
+export type MountSurface =
+  | "pane"
+  | "sidebarSection"
+  | "hoverCard"
+  | "sessionInfoSection"
+  | "chatWidget"
+  | "newTab"
+  | "widget";
+/** The scene stream's two events: an ops batch, or the mount's status (`loading`, `ready`,
+ * `failed {reason}`, `disconnected {reason}`). A batch's `revision` is the mount's scene revision: 1 for the
+ * first batch, one more for each batch the host sends the mount (a reset included), and kept across a
+ * re-subscribe (which replays from the current revision). A status carries none and moves none. */
+export type SceneEvent =
+  | { mount_id: string; ops: SceneOp[]; reset?: boolean; revision?: number }
+  | { mount_id: string; status: "loading" | "ready" | "failed" | "disconnected"; reason?: string };
+/** A batch's scene revision, strictly: a finite integer of at least 1, else null (an unrevisioned batch,
+ * from a host before revisions, which no slice applies to). */
+export function sceneRevision(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+}
+
 export const panelId = (panel: AppPanel): `app:${string}#${string}` => `app:${panel.app}#${panel.section}`;
 export type MountedPanel = {
   panel: AppPanel;
   store: SceneStore;
   dispatch: (node: string, event: string, payload?: unknown) => void;
+  /** The failure row's Reload: runs the app's saved script again. Call it synchronously from the click.
+   * retry-prompt-ok: re-running an app's script is the person's call (the host takes it only from a gesture). */
+  reload: () => void;
+  /** Reports the drawn height, so the host can size a native frame around the page (sent once per change). */
+  layout: (height: number) => void;
+  /** The mount's bundle images, once the host serves them (`asset_base` in the mount reply). */
+  resolveAsset: SceneAssetResolver;
+  /** The part of the scene the host shows (`VISIBLE_SLICE_OP`, surface = the mount id), bound to the
+   * scene revision drawn; null until the host sends one for it. */
+  visibleSlice?: VisibleSliceInput;
 };
-type Entry = MountedPanel & { cancelled: boolean; failed: boolean; mountId?: string; unsubscribe?: () => void };
+type Entry = MountedPanel & {
+  visibleSlice: VisibleSliceInput;
+  cancelled: boolean;
+  failed: boolean;
+  mountId?: string;
+  assetBase?: string;
+  /** The drawn height the page measured last, and the one the host last heard. */
+  height?: number;
+  sentHeight?: number;
+  unsubscribe?: () => void;
+  unsubscribeSlice?: () => void;
+};
+
+/** A bundle-relative path (already checked by the renderer) under the host's asset base, each
+ * component encoded once, so a decoded `%2F` can never become a separator. */
+export function bundleAssetURL(base: string, path: string): string | undefined {
+  try {
+    const parts = path.split("/").map((part) => decodeURIComponent(part));
+    if (parts.some((part) => !part || part === "." || part === ".." || part.includes("/") || part.includes("\\")))
+      return undefined;
+    return base + parts.map(encodeURIComponent).join("/");
+  } catch {
+    return undefined;
+  }
+}
 const EMPTY: readonly MountedPanel[] = [];
 
 function readPanels(value: unknown): AppPanel[] {
@@ -133,6 +190,19 @@ export class AppPanelsClient {
               })
               .catch(() => undefined);
           },
+          reload: () => {
+            if (!this.active || created.cancelled || !created.mountId) return;
+            void this.client?.call("cmux.apps.panels.reload", { mount_id: created.mountId }).catch(() => undefined);
+          },
+          layout: (height) => {
+            const rounded = Math.max(0, Math.ceil(height));
+            if (!this.active || created.cancelled || !Number.isFinite(rounded)) return;
+            created.height = rounded;
+            // Before the mount answers, the height waits for it (`mount` sends it then).
+            this.sendLayout(created);
+          },
+          resolveAsset: (path) => (created.assetBase ? bundleAssetURL(created.assetBase, path) : undefined),
+          visibleSlice: new VisibleSliceInput(),
         };
         entry = created;
         this.entries.set(id, entry);
@@ -141,7 +211,15 @@ export class AppPanelsClient {
         entry.panel = panel;
       }
       // A separate snapshot prevents later metadata updates mutating a prior render's value.
-      return { panel: entry.panel, store: entry.store, dispatch: entry.dispatch };
+      return {
+        panel: entry.panel,
+        store: entry.store,
+        dispatch: entry.dispatch,
+        reload: entry.reload,
+        layout: entry.layout,
+        resolveAsset: entry.resolveAsset,
+        visibleSlice: entry.visibleSlice,
+      };
     });
     if (
       next.length === this.snapshot.length &&
@@ -158,7 +236,8 @@ export class AppPanelsClient {
   private async mount(entry: Entry): Promise<void> {
     const client = this.client!;
     try {
-      const result = await client.call<{ mount_id?: unknown }>("cmux.apps.panels.mount", {
+      const result = await client.call<{ mount_id?: unknown; asset_base?: unknown }>("cmux.apps.panels.mount", {
+        surface: "sessionInfoSection" satisfies MountSurface,
         app: entry.panel.app,
         section: entry.panel.section,
         context: this.context,
@@ -168,6 +247,7 @@ export class AppPanelsClient {
         return;
       }
       entry.mountId = result.mount_id;
+      if (typeof result.asset_base === "string" && result.asset_base.endsWith("/")) entry.assetBase = result.asset_base;
       if (entry.cancelled) {
         this.unmount(entry);
         return;
@@ -176,17 +256,54 @@ export class AppPanelsClient {
       const stop = await client.subscribe<SceneEvent>(
         "cmux.apps.panels.scene",
         (event) => {
-          if (entry.cancelled || event?.mount_id !== mountId || !Array.isArray(event.ops)) return;
-          entry.store.apply(event.ops, event.reset === true);
+          if (entry.cancelled || event?.mount_id !== mountId) return;
+          if ("status" in event) entry.store.setStatus(event.status, event.reason);
+          else if (Array.isArray(event.ops)) {
+            entry.store.apply(event.ops, event.reset === true);
+            entry.visibleSlice.setDrawn(sceneRevision(event.revision));
+          }
         },
         { mount_id: mountId },
       );
       if (entry.cancelled) stop();
-      else entry.unsubscribe = stop;
-    } catch {
+      else {
+        entry.unsubscribe = stop;
+        this.sendLayout(entry);
+        this.watchSlice(entry, mountId);
+      }
+    } catch (error) {
       entry.failed = true;
+      // The row says why, as the host's model does when its mount call fails; the next list mounts again.
+      if (!entry.cancelled) entry.store.setStatus("failed", error instanceof Error ? error.message : String(error));
       this.unmount(entry); // A failed scene subscription must not leave a daemon mount alive.
     }
+  }
+
+  /** The host's visible slice of this mount (`VISIBLE_SLICE_OP`, the mount id as its surface), when it has
+   * the stream; without it the scene draws whole. A slice applies only to the scene revision it names, read
+   * from the batch that drew it (`SceneEvent`'s `revision`): an unrevisioned batch takes none. */
+  private watchSlice(entry: Entry, mountId: string): void {
+    void this.client
+      ?.subscribe<unknown>(
+        VISIBLE_SLICE_OP,
+        (event) => {
+          const slice = entry.cancelled ? null : parseVisibleSlice(event, mountId);
+          if (slice) entry.visibleSlice.show(slice);
+        },
+        { surface: mountId },
+      )
+      .then((stop) => (entry.cancelled ? stop() : (entry.unsubscribeSlice = stop)))
+      .catch((error: unknown) => {
+        if (isPageError(error) && error.code === "cmux.protocol.unknown_op") return;
+        console.error("app panels: no slice stream", error);
+      });
+  }
+
+  private sendLayout(entry: Entry): void {
+    const { mountId, height } = entry;
+    if (!this.active || entry.cancelled || !mountId || height === undefined || height === entry.sentHeight) return;
+    entry.sentHeight = height;
+    void this.client?.call("cmux.apps.panels.layout", { mount_id: mountId, height }).catch(() => undefined);
   }
 
   private unmount(entry: Entry): void {
@@ -200,6 +317,8 @@ export class AppPanelsClient {
     entry.cancelled = true;
     entry.unsubscribe?.();
     entry.unsubscribe = undefined;
+    entry.unsubscribeSlice?.();
+    entry.unsubscribeSlice = undefined;
     this.unmount(entry);
   }
 }
@@ -207,7 +326,7 @@ export class AppPanelsClient {
 let devClient: PageClient | null = null;
 /** The browser dev entry installs its mock before React mounts. Production never selects a mock
  * from a URL, and tests/gallery can inject their own PageClient directly. */
-export function installAppPanelsDevClient(client: PageClient): void {
+export function installAppPanelsDevClient(client: PageClient | null): void {
   devClient = client;
 }
 export function appPanelsDevClient(): PageClient | null {

@@ -7,6 +7,8 @@
 // page writes wins.
 // The `render` tool's description (cmux-tui/.../mcp/render_tool.rs) lists the same variables.
 
+import { MOTION_MS } from "../../../motion/scale.generated";
+
 /// The variables a page can use, each read from the pane's theme (or the pane's fixed scale) with
 /// a fallback for a pane that has not themed yet.
 export const RENDER_TOKENS: ReadonlyArray<readonly [name: string, source: string | null, fallback: string]> = [
@@ -18,7 +20,7 @@ export const RENDER_TOKENS: ReadonlyArray<readonly [name: string, source: string
   ["--cmux-accent", "--agent-accent", "LinkText"],
   ["--cmux-control", "--agent-control", "color-mix(in srgb, CanvasText 7%, transparent)"],
   ["--cmux-control-hover", "--agent-control-hover", "color-mix(in srgb, CanvasText 11%, transparent)"],
-  ["--cmux-font", "--cv-font", '"Inter", system-ui, sans-serif'],
+  ["--cmux-font", "--cv-font", "-apple-system, BlinkMacSystemFont, system-ui, sans-serif"],
   ["--cmux-mono", "--font-mono", "ui-monospace, monospace"],
   ["--cmux-size-caption", "--text-caption", "11px"],
   ["--cmux-size-detail", "--text-detail", "12px"],
@@ -72,7 +74,7 @@ const BASE = [
   ":where(button,input,select,textarea){font:inherit;color:inherit}",
   ":where(button,input[type=button],input[type=submit],input[type=reset]){min-height:26px;padding:0 10px;",
   "border:0;border-radius:var(--cmux-radius);background:var(--cmux-control);",
-  "box-shadow:inset 0 0 0 0.5px var(--cmux-border);cursor:default;transition:background-color 120ms ease-out}",
+  `box-shadow:inset 0 0 0 0.5px var(--cmux-border);cursor:default;transition:background-color ${MOTION_MS.micro}ms ease-out}`,
   ":where(button:hover,input[type=button]:hover,input[type=submit]:hover){background:var(--cmux-control-hover)}",
   ":where(button:disabled){opacity:0.5}",
   ":where(input:not([type=checkbox],[type=radio],[type=range],[type=color],[type=button],[type=submit],[type=reset]),",

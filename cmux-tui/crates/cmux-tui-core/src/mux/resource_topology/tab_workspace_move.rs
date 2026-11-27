@@ -2,6 +2,10 @@
 
 use super::*;
 
+/// An empty destination gained a screen between the look and the commit;
+/// [`Mux::move_tab_to_workspace_placed`] looks again.
+const DESTINATION_CHANGED: &str = "the destination workspace kept changing while the tab moved";
+
 impl Mux {
     /// Move a live placement without spawning replacement content. New/empty
     /// workspace layout and source removal commit together before live state changes.
@@ -42,7 +46,41 @@ impl Mux {
         .context("moved tab has no workspace")
     }
 
+    /// Moves `surface` into `workspace` (a new one when `None`). An empty
+    /// destination that gained a screen between the look and the commit is
+    /// moved into again at once: the second look takes its active pane, so
+    /// nobody is asked to retry the move. Nothing was committed by the try
+    /// that saw the change.
     pub(super) fn move_tab_to_workspace_placed(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+        group: Option<String>,
+        group_index: Option<usize>,
+        name: Option<String>,
+    ) -> anyhow::Result<()> {
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            let result = self.move_tab_to_workspace_placed_once(
+                actor,
+                surface,
+                workspace,
+                group.clone(),
+                group_index,
+                name.clone(),
+            );
+            match result {
+                Err(error)
+                    if tries < 3
+                        && error.chain().any(|cause| cause.to_string() == DESTINATION_CHANGED) => {}
+                result => return result,
+            }
+        }
+    }
+
+    fn move_tab_to_workspace_placed_once(
         self: &Arc<Self>,
         actor: &Actor,
         surface: SurfaceId,
@@ -116,14 +154,10 @@ impl Mux {
                         state.workspace_index(id).context("destination workspace disappeared")?;
                     anyhow::ensure!(
                         state.workspaces[index].screens.is_empty(),
-                        "destination layout changed; retry the move"
+                        DESTINATION_CHANGED
                     );
                     (index, state.workspaces[index].clone())
                 } else {
-                    anyhow::ensure!(
-                        state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                        "workspace limit reached"
-                    );
                     (
                         new_workspace_position(
                             state,
@@ -181,7 +215,8 @@ impl Mux {
                     deltas.push(delete_delta(deltas.len(), "pane", source_pane_id.as_str()));
                     if source_screen_remains {
                         if source_layout.active_pane == source_pane {
-                            source_layout.active_pane = source_layout.root.first_visible_pane();
+                            let next = source_layout.focus_after_leave();
+                            source_layout.set_active_pane(next);
                         }
                         if source_layout.zoomed_pane == Some(source_pane) {
                             source_layout.zoomed_pane = None;
@@ -221,11 +256,7 @@ impl Mux {
                             )
                             .map(|s| s.public_id.clone());
                         changes.push(ResourceChange::UpsertWorkspace {
-                            workspace: registry_workspace(
-                                state,
-                                source_wi,
-                                registry.session_id().as_str(),
-                            ),
+                            workspace: registry_workspace(state, source_wi, &mux.session),
                             position: source_wi,
                             active_screen: remaining.clone(),
                         });
@@ -275,6 +306,7 @@ impl Mux {
                     zoomed_pane: None,
                     auto_layout: Some(vec![target_pane_id.clone()]),
                     viewport: RegistryViewport { base_width: None, columns: Vec::new() },
+                    floating: Vec::new(),
                 };
                 after.panes.push(pane_record.clone());
                 after.screens.push(screen_record.clone());
@@ -502,20 +534,12 @@ impl Mux {
                         new_pane: target_pane,
                     }
                 };
-                target_ws.screens.push(Screen {
-                    id: target_screen,
-                    public_id: target_screen_id,
-                    name: None,
-                    root: Node::Leaf(target_pane),
-                    active_pane: target_pane,
-                    zoomed_pane: None,
-                    creation_order_auto_layout: Some(vec![target_pane]),
-                    viewport_splits: Default::default(),
-                    viewport_base_width: None,
-                    layout_columns: Vec::new(),
-                    layout_revision: 0,
-                    layout_undo: Default::default(),
-                });
+                target_ws.screens.push(Screen::with_one_pane(
+                    target_screen,
+                    target_screen_id,
+                    None,
+                    target_pane,
+                ));
                 let pane = Pane {
                     id: target_pane,
                     public_id: target_pane_id,
@@ -599,6 +623,7 @@ impl Mux {
                 let _ = surface_handle.persist_host_workspace(&key);
             }
         }
+        self.refresh_terminal_size_policy(surface);
         self.emit_resource_topology_legacy_events(ResourceOperation::TabMove, &commit);
         Ok(())
     }

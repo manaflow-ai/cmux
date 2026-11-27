@@ -1126,16 +1126,21 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     assert_eq!(events.batches[0].previous_revision, 0);
     assert_eq!(events.batches[0].revision, 1);
     let c = events.batches[0].changes.as_array().unwrap();
-    assert_eq!([&c[0]["kind"], &c[1]["kind"]], ["upsert", "state_upsert"], "{c:?}");
-    assert_eq!([&c[0]["resource"], &c[1]["resource"]], ["workspace", "workspace_placement"]);
+    assert_eq!([&c[0]["kind"], &c[0]["resource"]], ["upsert", "workspace"], "{c:?}");
     assert!(c[0].get("event").is_none());
-    // Then the new workspace's sidebar document item and the document
-    // revision (sidebar-doc-v1).
+    // Then the new workspace's sidebar document item, the document revision
+    // (sidebar-doc-v1: the document decides the place) and the personal
+    // placement that follows it.
     assert!(
-        c[2..].iter().all(|change| change["kind"] == "state_upsert"
-            && matches!(change["resource"].as_str(), Some("sidebar_item" | "sidebar_doc"))),
+        c[1..].iter().all(|change| change["kind"] == "state_upsert"
+            && matches!(
+                change["resource"].as_str(),
+                Some("sidebar_item" | "sidebar_doc" | "workspace_placement")
+            )),
         "{c:?}"
     );
+    let placements = c.iter().filter(|change| change["resource"] == "workspace_placement").count();
+    assert_eq!(placements, 1, "{c:?}");
     assert_eq!(
         registry
             .connection
@@ -1462,6 +1467,7 @@ fn viewport_screen() -> RegistryScreen {
     let boundary = split_id(2);
     let base_column = split_id(3);
     let first_column = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: internal,
         direction: "down".into(),
         ratio: 0.5,
@@ -1474,6 +1480,7 @@ fn viewport_screen() -> RegistryScreen {
         position: 0,
         name: None,
         layout: RegistryLayoutNode::Split {
+            divider_hidden: false,
             split: boundary.clone(),
             direction: "right".into(),
             ratio: 1.0 / (1.0 + 0.5),
@@ -1496,6 +1503,7 @@ fn viewport_screen() -> RegistryScreen {
                 ),
             ],
         },
+        floating: Vec::new(),
     }
 }
 
@@ -1534,6 +1542,7 @@ fn viewport_schema_rejects_missing_duplicate_and_owner_splits() {
     let fourth = pane_id(4);
     if let RegistryLayoutNode::Split { second, .. } = &mut duplicate.layout {
         **second = RegistryLayoutNode::Split {
+            divider_hidden: false,
             split: split_id(4),
             direction: "down".into(),
             ratio: 0.5,
@@ -1542,6 +1551,7 @@ fn viewport_schema_rejects_missing_duplicate_and_owner_splits() {
         };
     }
     duplicate.viewport.columns[1].layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: split_id(1),
         direction: "down".into(),
         ratio: 0.5,
@@ -1594,6 +1604,7 @@ fn terminal_topology_patch() -> ResourcePatch {
                 zoomed_pane: None,
                 auto_layout: None,
                 viewport: RegistryViewport::default(),
+                floating: Vec::new(),
             }),
             ResourceChange::UpsertPane(RegistryPane {
                 public_id: pane.clone(),
@@ -1672,6 +1683,7 @@ fn commit_browser_topology(
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split,
                             direction: "right".into(),
                             ratio: 0.5,
@@ -1684,6 +1696,7 @@ fn commit_browser_topology(
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -2915,6 +2928,7 @@ fn commit_browser_topology_unchecked(
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split: split_id(1),
                             direction: "right".into(),
                             ratio: 0.5,
@@ -2927,6 +2941,7 @@ fn commit_browser_topology_unchecked(
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -3011,6 +3026,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split: split.clone(),
                             direction: "right".into(),
                             ratio: 0.5,
@@ -3023,6 +3039,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -3091,6 +3108,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::TombstonePane { pane_id: second_pane },
                 ],
@@ -4617,16 +4635,16 @@ fn schema_seven_resumes_interrupted_sensitive_receipt_cleanup() {
 }
 
 #[test]
-fn schema_seven_migrates_latest_agent_and_preserves_it_after_tombstone() {
-    assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(7);
+fn schema_seven_migrates_latest_agent_and_ends_it_at_the_tombstone() {
+    assert_schema_migrates_latest_agent_and_ends_it_at_the_tombstone(7);
 }
 
 #[test]
-fn schema_eight_migrates_latest_agent_and_preserves_it_after_tombstone() {
-    assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(8);
+fn schema_eight_migrates_latest_agent_and_ends_it_at_the_tombstone() {
+    assert_schema_migrates_latest_agent_and_ends_it_at_the_tombstone(8);
 }
 
-fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_schema: u32) {
+fn assert_schema_migrates_latest_agent_and_ends_it_at_the_tombstone(legacy_schema: u32) {
     let root = temp_root(&format!("schema-{legacy_schema}-agent-projection"));
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
     let terminal = terminal_resource(TERMINAL_ONE);
@@ -4743,12 +4761,13 @@ fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_s
             &json!([]),
         )
         .unwrap();
-    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 1);
-    assert_eq!(migrated.public_projections().unwrap().agents.len(), 1);
+    // The tombstone ends the record in its transaction (`spec/resource-api-v2.md`, "Agent").
+    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 0);
+    assert!(migrated.public_projections().unwrap().agents.is_empty());
     drop(migrated);
 
-    // Re-running the legacy migration recovers the durable projection from the
-    // latest report even though its terminal is already tombstoned.
+    // Re-running the legacy migration must not bring the record back from the
+    // latest report: its terminal is tombstoned.
     Connection::open(&database)
         .unwrap()
         .execute_batch(&format!(
@@ -4758,8 +4777,8 @@ fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_s
         ))
         .unwrap();
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
-    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
-    assert_eq!(reopened.public_projections().unwrap().agents.len(), 1);
+    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 0);
+    assert!(reopened.public_projections().unwrap().agents.is_empty());
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
@@ -6296,6 +6315,41 @@ fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The live panes of one screen are read through an index, also in a
+/// registry an older build made without it: each open reads them once per
+/// screen (the resource invariants), and a scan of every pane row made the
+/// open O(screens x panes), 0.5 s at 4,000 workspaces (#40449).
+#[test]
+fn an_older_registry_gets_the_index_that_reads_a_screens_live_panes() {
+    let root = temp_root("live-panes-by-screen-index");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "live-panes-index-seed");
+    }
+    let older = Connection::open(&database).unwrap();
+    older.execute_batch("DROP INDEX IF EXISTS live_resource_panes_by_screen;").unwrap();
+    drop(older);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let connection = reopened.connection.get();
+    let plan = connection
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT public_id FROM resource_panes
+             WHERE screen_id = ?1 AND deleted_revision IS NULL",
+        )
+        .unwrap()
+        .query_map(["screen"], |row| row.get::<_, String>(3))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+        .join("; ");
+    assert!(plan.contains("live_resource_panes_by_screen"), "a screen's live panes: {plan}");
+    drop(connection);
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
 mod exit_snapshot_generations;
 mod integrity_check_scope;
 mod ledger_retention;
@@ -6303,3 +6357,63 @@ mod terminal_journal_append;
 mod terminal_keep_tests;
 mod terminal_resume_tests;
 mod terminal_unplaced_tests;
+
+/// Registries created before Keep Awake (`workspace-keep-awake-v1`) gain the column on open;
+/// existing rows keep their pin and are not kept awake until the app mirrors its set.
+#[test]
+fn registries_created_before_keep_awake_gain_the_column_not_kept() {
+    let root = temp_root("workspace-keep-awake-column-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        seed_workspace(&mut registry, "one");
+    }
+
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE workspace_presentation;
+             CREATE TABLE workspace_presentation (
+               workspace_key TEXT PRIMARY KEY NOT NULL,
+               group_id TEXT,
+               color TEXT,
+               icon TEXT,
+               title TEXT,
+               pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1)),
+               marked_unread INTEGER NOT NULL DEFAULT 0 CHECK(marked_unread IN (0,1)),
+               description TEXT,
+               task_status TEXT
+             );
+             INSERT INTO workspace_presentation(workspace_key, pinned) VALUES('one', 1);",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert!(record.pinned);
+    assert!(!record.keep_awake);
+
+    let update = WorkspacePresentationUpdate { keep_awake: Some(true), ..Default::default() };
+    registry
+        .commit_workspace_presentation(
+            &WorkspaceMutation::daemon("keep-one", "test").unwrap(),
+            &json!({"op":"set-workspace-metadata","key":"one","keep_awake":true}),
+            None,
+            None,
+            "workspace-changed",
+            "one",
+            &[workspace(1, "one", "Workspace")],
+            Some(&workspace(1, "one", "Workspace").public_id),
+            &update,
+            &json!({"key":"one"}),
+        )
+        .unwrap();
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert!(record.pinned);
+    assert!(record.keep_awake, "Keep Awake survives a restart");
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}

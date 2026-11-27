@@ -13,6 +13,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 src="$TMP/src"
 mkdir -p "$src/scripts/cmux-next" "$src/webviews"
 cp "$ROOT/scripts/cmux-next/private-bun.sh" "$src/scripts/cmux-next/"
+cp "$ROOT/scripts/webviews_bun_version.py" "$src/scripts/"
 printf '{"devEngines":{"packageManager":{"name":"bun","version":"9.9.9","onFail":"error"}}}\n' > "$src/webviews/package.json"
 
 shim() { printf '#!/bin/sh\necho %s\n' "$2" > "$1"; chmod +x "$1"; }
@@ -21,8 +22,10 @@ mkdir -p "$TMP/shared"
 run() {
   rm -rf "$TMP/runner"; mkdir -p "$TMP/runner"; : > "$TMP/runner/path"
   status=0
+  # The machine store (#58098) is the test's own: the real ~/.cache one kept this test's 9.9.9 shim, which then
+  # answered the checksum case below without a download (CI, 2026-11-27).
   out=$(PATH="$TMP/shared:$PATH" RUNNER_TEMP="$TMP/runner" GITHUB_PATH="$TMP/runner/path" \
-    CMUX_BUN_RELEASE_BASE="file://$TMP/release" bash "$src/scripts/cmux-next/private-bun.sh" 2>&1) || status=$?
+    TOOLCHAIN_BUN_STORE="$TMP/store" CMUX_BUN_RELEASE_BASE="file://$TMP/release" bash "$src/scripts/cmux-next/private-bun.sh" 2>&1) || status=$?
 }
 private() { head -n 1 "$TMP/runner/path"; }
 
@@ -48,10 +51,13 @@ done
 run
 [[ "$status" == 0 ]] || fail "a swapped shared bun must be replaced by the pinned release (exit $status): $out"
 [[ "$("$(private)/bun" --version)" == 9.9.9 ]] || fail "the downloaded bun must be the pinned version"
+[[ "$("$TMP/store/9.9.9/bun" --version)" == 9.9.9 ]] || fail "the downloaded bun must be kept in the machine store"
 
 # A release that does not match its checksums is refused. Use a non-hex marker
 # so the mutation is deterministic even when the original digest starts with 0.
 (cd "$TMP/release/bun-v9.9.9" && sed -i.bak 's/^[0-9a-f]/X/' SHASUMS256.txt && rm SHASUMS256.txt.bak)
+# With no stored copy, so the download is what is judged.
+rm -rf "$TMP/store"
 run
 [[ "$status" != 0 ]] || fail "a checksum mismatch must fail: $out"
 [[ ! -s "$TMP/runner/path" ]] || fail "a refused download must not reach GITHUB_PATH"

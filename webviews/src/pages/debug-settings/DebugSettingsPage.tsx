@@ -3,6 +3,7 @@
 // app owns every value and the view state (DebugSettingsModel); this file renders what it sends and
 // turns clicks and plain keys into intents. Every row comes from the registry's data.
 import { Fragment, useSyncExternalStore, type KeyboardEvent } from "react";
+import { SplitEdge } from "../../ui/SplitEdge";
 import type { Strings } from "../shared/i18n";
 import type { DebugSettingsStore } from "./store";
 import { TunableControlView } from "./TunableControl";
@@ -160,48 +161,58 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
   };
   return (
     <div className="ds-page" data-connection={snap.connection}>
-      <nav className="ds-sidebar" aria-label={t("debugSettings.title")}>
-        <div className="ds-search-box">
-          <input
-            type="search"
-            className="ds-search"
-            placeholder={t("debugSettings.search")}
-            aria-label={t("debugSettings.search")}
-            value={query}
-            onChange={(event) => void store.setQuery(event.currentTarget.value)}
-            onKeyDown={searchKeys}
-            data-testid="ds.search"
-          />
-        </div>
-        <SidebarRow
-          label={t("debugSettings.all")}
-          count={state.total}
-          changed={0}
-          selected={!searching && state.selection === "all"}
-          onSelect={() => void store.select("all")}
-          testId="ds.section.all"
-        />
-        <SidebarRow
-          label={t("debugSettings.changed")}
-          count={state.changed}
-          changed={0}
-          selected={state.selection === "changed"}
-          onSelect={() => void store.select("changed")}
-          testId="ds.section.changed"
-        />
-        <hr className="ds-sidebar-separator" />
-        {state.sections.map((entry) => (
+      <div className="ds-side">
+        <nav className="ds-sidebar" aria-label={t("debugSettings.title")}>
+          <div className="ds-search-box">
+            <input
+              type="search"
+              className="ds-search"
+              placeholder={t("debugSettings.search")}
+              aria-label={t("debugSettings.search")}
+              value={query}
+              onChange={(event) => void store.setQuery(event.currentTarget.value)}
+              onKeyDown={searchKeys}
+              data-testid="ds.search"
+            />
+          </div>
           <SidebarRow
-            key={entry.id}
-            label={entry.title}
-            count={entry.count}
-            changed={entry.changed}
-            selected={!searching && state.selection === entry.id}
-            onSelect={() => void store.select(entry.id)}
-            testId={`ds.section.${entry.id}`}
+            label={t("debugSettings.all")}
+            count={state.total}
+            changed={0}
+            selected={!searching && state.selection === "all"}
+            onSelect={() => void store.select("all")}
+            testId="ds.section.all"
           />
-        ))}
-      </nav>
+          <SidebarRow
+            label={t("debugSettings.changed")}
+            count={state.changed}
+            changed={0}
+            selected={state.selection === "changed"}
+            onSelect={() => void store.select("changed")}
+            testId="ds.section.changed"
+          />
+          <hr className="ds-sidebar-separator" />
+          {state.sections.map((entry) => (
+            <SidebarRow
+              key={entry.id}
+              label={entry.title}
+              count={entry.count}
+              changed={entry.changed}
+              selected={!searching && state.selection === entry.id}
+              onSelect={() => void store.select(entry.id)}
+              testId={`ds.section.${entry.id}`}
+            />
+          ))}
+        </nav>
+        {/* The sections' line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
+        <SplitEdge
+          side="end"
+          property="--debug-settings-sidebar-width"
+          storageKey="cmux.debugSettings.sidebar.width"
+          min={160}
+          max={440}
+        />
+      </div>
       <main className="ds-main">
         <header className="ds-toolbar" data-titlebar="">
           <div className="ds-title-row">

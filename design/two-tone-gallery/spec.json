@@ -1,0 +1,77 @@
+{
+ "envs": [
+  [
+   "light",
+   "none"
+  ],
+  [
+   "dark",
+   "none"
+  ],
+  [
+   "light",
+   "busy"
+  ],
+  [
+   "dark",
+   "busy"
+  ]
+ ],
+ "shots": [
+  {
+   "name": "one-color",
+   "entry": "appearance.two-tone",
+   "variant": "one-color",
+   "width": 900,
+   "height": 560,
+   "deviceScaleFactor": 2,
+   "arms": {
+    "now": ""
+   }
+  },
+  {
+   "name": "pill",
+   "entry": "appearance.two-tone",
+   "variant": "pill",
+   "width": 900,
+   "height": 560,
+   "deviceScaleFactor": 2,
+   "arms": {
+    "now": ""
+   }
+  },
+  {
+   "name": "folder",
+   "entry": "appearance.two-tone",
+   "variant": "folder",
+   "width": 900,
+   "height": 560,
+   "deviceScaleFactor": 2,
+   "arms": {
+    "now": ""
+   }
+  },
+  {
+   "name": "folder-rim",
+   "entry": "appearance.two-tone",
+   "variant": "folder-rim",
+   "width": 900,
+   "height": 560,
+   "deviceScaleFactor": 2,
+   "arms": {
+    "now": ""
+   }
+  },
+  {
+   "name": "lifted",
+   "entry": "appearance.two-tone",
+   "variant": "lifted",
+   "width": 900,
+   "height": 560,
+   "deviceScaleFactor": 2,
+   "arms": {
+    "now": ""
+   }
+  }
+ ]
+}

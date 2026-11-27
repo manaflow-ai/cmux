@@ -3,14 +3,53 @@ import Foundation
 /// Strings of the App Store window and app surfaces (Resources/Localizable.xcstrings).
 nonisolated enum AppsStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var windowTitle: String { t("store.window.title", "App Store") }
+    /// Undo Look Change (`customize.revert`) could not run: no bundled `cmux` CLI.
+    static var customizeNoCLI: String { t("customize.revert.noCLI", "This build does not include the cmux CLI.") }
     /// An app mount failed and the supervisor gave no reason.
     static var mountFailed: String { t("apps.mount.failed", "The app could not start") }
+    /// A failed app view's error card: runs the app's script again from its saved files.
+    // retry-prompt-ok: runs the app's script again, which may act through its grants; a saved edit reloads by itself
+    static var reload: String { t("apps.mount.reload", "Reload") }
+    static var reloadHelp: String { t("apps.mount.reload.help", "Run the script again from its saved files") }
+    /// Why an app's overlay did not open (``AppOverlayPresenter/Refusal``).
+    static var overlayGesture: String { t("apps.overlay.gesture", "An app overlay opens only when you open it in cmux") }
+    static var overlayUndeclared: String { t("apps.overlay.undeclared", "This app has no overlay") }
+    static var overlayNoWindow: String { t("apps.overlay.noWindow", "No window to show the overlay in") }
+    /// The palette row that opens an app's overlay (%@: the app's name).
+    static func overlayOpen(_ name: String) -> String { String(format: t("apps.overlay.open", "Open %@ Overlay"), name) }
+    /// A failed mount's row (AppFailureCopy): its script threw or did not parse.
+    static var failureScript: String { t("apps.failure.script", "This section's script has an error") }
+    /// Where a script error is (`file` nil for an older host's unnamed `eval_script`), and the
+    /// engine's message.
+    static func failureScriptAt(file: String?, line: String, column: String, message: String) -> String {
+        switch (file, message.isEmpty) {
+        case (nil, true): String(format: t("apps.failure.scriptAtOnly", "Line %1$@, column %2$@"), line, column)
+        case (nil, false): String(format: t("apps.failure.scriptAt", "Line %1$@, column %2$@: %3$@"), line, column, message)
+        case (let file?, true):
+            String(format: t("apps.failure.scriptInAtOnly", "%1$@ · Line %2$@, column %3$@"), file, line, column)
+        case (let file?, false):
+            String(format: t("apps.failure.scriptInAt", "%1$@ · Line %2$@, column %3$@: %4$@"), file, line, column, message)
+        }
+    }
+    /// The scene went past the node or depth budget.
+    static var failureTooLarge: String { t("apps.failure.tooLarge", "This section is too large to show") }
+    /// Any other failed mount; the reason is under Details.
+    static var failureGeneric: String { t("apps.failure.generic", "This section couldn't load") }
+    static var failureCopy: String { t("apps.failure.copy", "Copy Error") }
+    static var failureCopied: String { t("apps.failure.copied", "Copied") }
+    static var failureDetails: String { t("apps.failure.details", "Details") }
+    static var failureHideDetails: String { t("apps.failure.hideDetails", "Hide Details") }
+    /// The marker under a kept app view whose last save did not load; the file and line follow it.
+    static var reloadFailed: String { t("apps.mount.reloadFailed", "Not reloaded") }
     /// The second line of an app's toast detail (`cmux.toast`): the app that showed it.
     static func toastSource(_ app: String) -> String { String(format: t("apps.toast.source", "From %@"), app) }
+    /// `app.menu.run` on a row no visible app has now, or with no workspace or tab to act on.
+    static var menuUnknownRow: String { t("apps.menu.unknownRow", "No installed app has this menu item.") }
+    static var menuNoTarget: String { t("apps.menu.noTarget", "Choose a workspace or tab for this menu item.") }
     static var discover: String { t("store.tab.discover", "Discover") }
     static var installed: String { t("store.tab.installed", "Installed") }
     static var features: String { t("store.tab.features", "Features") }
@@ -46,14 +85,13 @@ nonisolated enum AppsStrings {
     static var noneInstalled: String { t("store.empty.noneInstalled", "No apps installed") }
     static var selectApp: String { t("store.empty.select", "Select an app") }
     static func unknownApp(_ id: String) -> String { String(format: t("apps.client.unknownApp", "No app %@"), id) }
-    static var unavailableHelp: String { t("apps.store.disconnected.help", "Nothing can change until then.") }
 
     private static var notConnected: String { t("apps.store.disconnected.notConnected", "This machine isn't connected") }
 
     /// Why the app supervisor cannot be reached (store banner, app sections).
     static func unavailable(_ reason: AppsUnavailableReason) -> String {
         switch reason {
-        case .needsNewerDaemon: t("apps.store.disconnected.needsNewer", "Needs a newer cmux")
+        case .noAppHost: t("apps.store.disconnected.noAppHost", "Apps can’t run in this build of cmux")
         case .notConnected: notConnected
         case .notReady(let cause): "\(notConnected): \(cause)"
         case .turnedOff(let reason): reason
@@ -76,7 +114,10 @@ nonisolated enum AppsStrings {
     static var cloudFeatureOpen: String { t("store.cloud.open", "Explore Cloud") }
     static var installedBadge: String { t("store.badge.installed", "Installed") }
     static var disabledBadge: String { t("store.badge.disabled", "Disabled") }
-    static var localBadge: String { t("store.badge.local", "Local") }
+    /// A `cmux ext dev` app on Installed (the App Store page's badge).
+    static var localBadge: String { t("store.badge.local", "Local (dev)") }
+    /// The App Store page's filter for the SDK examples (developer mode or `cmux ext dev` only).
+    static var examplesShelf: String { t("store.shelf.examples", "Examples") }
     static var hiddenBadge: String { t("apps.store.badge.hidden", "Hidden") }
     static var installedForEveryone: String { t("apps.store.badge.default", "Installed for everyone") }
     static var installedForEveryoneHelp: String {

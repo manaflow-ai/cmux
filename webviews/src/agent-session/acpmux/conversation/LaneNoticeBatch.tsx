@@ -1,4 +1,4 @@
-import { useContext, useId, useLayoutEffect, useState, type ReactNode } from "react";
+import { useContext, useId, useLayoutEffect, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { useT } from "../i18n";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
@@ -8,12 +8,13 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { useDisclosure } from "./useDisclosure";
 import { messageRunSummary } from "./messageRuns";
 import { NoticeMark } from "./NoticeMark";
 import { useFold } from "./fold";
 import { foldPlays } from "./transcriptView";
-
+import { hoverMessages, shortSender } from "./MessageGroupHover";
+import { senderName } from "./senderIdentity";
 import "./LaneNoticeBatch.css";
 import { foldSeverity } from "./laneNoticeBatchModel";
 
@@ -24,17 +25,13 @@ const isWaiting = (row: AcpmuxRow) => row.kind === "queuedMessage" || row.steer 
 
 /// A sender's short name for the row's hover: its name after the last `/` ("gcp-agent-lane-1/ux-owner"
 /// reads "ux-owner").
-const senderShortName = (name: string) => (name.split("/").at(-1) ?? "").trim();
+const senderShortName = (name: string) => shortSender(name);
 
 /// Reports that arrived together keep their own message controls behind one disclosure.
 export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; renderMessage(row: AcpmuxRow): ReactNode }) {
   const t = useT();
   const session = useContext(PromptMarksSession);
-  const [open, setOpen] = useState(() => messageOpened(session, row.id));
-  const show = (next: boolean) => {
-    setMessageOpened(session, row.id, next);
-    setOpen(next);
-  };
+  const { open, set: show } = useDisclosure({ message: row.id, sessionId: session });
   const bodyId = useId();
   // The messages open and close with the transcript's fold (fold.ts), as a tool group's steps do; at
   // the very bottom the text above glides up with it (App.tsx `beginBottomStackFold`). Leo,
@@ -53,7 +50,7 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
   const verdicts = Object.entries(batch.verdicts)
     .map(([verdict, n]) => `${n} ${verdict}`)
     .join(", ");
-  const names = [...new Set(batch.threads.map(({ sender }) => sender).filter(Boolean))].join(", ");
+  const names = [...new Set(batch.threads.map(({ sender }) => senderName(sender)).filter(Boolean))].join(", ");
   // Delivered messages read "Received N messages", N the messages, with no session names at rest:
   // the senders' short names are its hover (Leo, 2026-11-02: "can't we simply just display most of
   // these as recieved x messages and all of them get revealed then we can expand the messages").
@@ -95,6 +92,13 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
           className="cv-lane-batch__toggle"
           ariaLabel={[count, received ? shortNames : detail].filter(Boolean).join(". ")}
           mark={folded.severity && <NoticeMark severity={folded.severity} />}
+          // Its hover lists the messages, newest first, not a wall of names (MessageGroupHover.tsx).
+          messages={hoverMessages(
+            batch.rows.map((member) => (member.incoming?.kind === "message" ? member.incoming.message : undefined)),
+            // A delivery that held only its thread's preview stands for the thread's whole count.
+            batch.rows.map((member) => member.inboxThread?.count),
+            batch.rows.map((member) => member.at),
+          )}
         />
       ) : (
         // Reports and reviews: their kind's glyph in the icon column, and the one trailing chevron

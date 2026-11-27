@@ -14,7 +14,7 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("HistoryActions", "action.history.back", "Go Back"),
         keywords: &["history", "previous", "location", "jump", "back", "where"],
-        default_shortcut: Some(Shortcut { key: "-", modifiers: CTRL }),
+        default_shortcut: Some(Shortcut { key: ",", modifiers: OPT | CMD }),
         category: "window",
         symbol: "chevron.backward",
         surfaces: PALETTE | KEYBOARD | MENU,
@@ -29,7 +29,7 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("HistoryActions", "action.history.forward", "Go Forward"),
         keywords: &["history", "next", "location", "jump", "forward"],
-        default_shortcut: Some(Shortcut { key: "-", modifiers: CTRL | SHIFT }),
+        default_shortcut: Some(Shortcut { key: ".", modifiers: OPT | CMD }),
         category: "window",
         symbol: "chevron.forward",
         surfaces: PALETTE | KEYBOARD | MENU,
@@ -49,6 +49,20 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
         cli_name: "history last",
+        main_menu: Some("window"),
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "focusHistoryBackSession",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.backSession", "Go Back One Session"),
+        keywords: &["history", "previous", "session", "chat", "agent", "back", "last", "toggle"],
+        category: "window",
+        symbol: "bubble.left.and.text.bubble.right",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
+        cli_name: "history back-session",
         main_menu: Some("window"),
         focuses: true,
         ..Action::DEFAULT
@@ -157,6 +171,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::SESSION_3.optional()],
         cli_name: "history resume",
         main_menu: Some("window"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -196,6 +211,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::ID_3, args::NEW_TAB.optional()],
         cli_name: "history open",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -210,6 +226,64 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::RANGE, args::KIND.optional()],
         cli_name: "history clear",
         main_menu: Some("window"),
+        ..Action::DEFAULT
+    },
+    // Catalog request rows (`Action::request`): the app sends the named request, no handler of its own.
+    Action {
+        id: "history.removeSite",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.removeSite", "Remove Site from History…"),
+        keywords: &["history", "privacy", "delete", "forget", "site", "domain", "host"],
+        category: "window",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        // Not destructive: the person picked the one site to forget, and that pick is the
+        // confirmation (removing history entries asks nothing in Chrome either). Clear History
+        // and Clear Recently Closed, which remove everything, still ask. `--confirm` is still
+        // taken and changes nothing.
+        arguments: &[args::SITE_HOST, args::CONFIRM.optional()],
+        cli_name: "history remove-site",
+        request: Some(Request {
+            lane: RequestLane::Session,
+            operation: "history.site.remove",
+            params: &[RequestParam { name: "host", source: ParamSource::Argument("host") }],
+        }),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "closed.clear",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.closedClear", "Clear Recently Closed…"),
+        keywords: &["history", "closed", "recently closed", "privacy", "delete", "forget", "clear"],
+        category: "window",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::CONFIRM.optional()],
+        cli_name: "closed clear",
+        is_destructive: true,
+        request: Some(Request {
+            lane: RequestLane::Session,
+            operation: "closed.delete",
+            params: &[RequestParam { name: "all", source: ParamSource::Constant(BindingValue::Bool(true)) }],
+        }),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "closed.delete",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.closedDelete", "Delete Recently Closed Item…"),
+        keywords: &["history", "closed", "recently closed", "privacy", "delete", "forget", "remove"],
+        category: "window",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        // Not destructive: one picked item, as Remove Site from History.
+        arguments: &[args::CLOSED_ITEM, args::CONFIRM.optional()],
+        cli_name: "closed delete",
+        request: Some(Request {
+            lane: RequestLane::Session,
+            operation: "closed.delete",
+            params: &[RequestParam { name: "closed", source: ParamSource::Argument("closed") }],
+        }),
         ..Action::DEFAULT
     },
     Action {

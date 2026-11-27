@@ -13,6 +13,11 @@ impl HostShared {
         targeted_ack: Option<(u64, &HostTap)>,
     ) -> anyhow::Result<bool> {
         let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
+        // A viewer's new size is a drag or a window resize in flight: note it
+        // when the host takes it, so this process's lower classes (the parser
+        // working through queued agent output) yield now, not once the parser
+        // reaches the resize behind up to MAX_HOST_PARSER_QUEUED_BYTES.
+        cmux_interactivity::note(cmux_interactivity::InteractionKind::Drag);
         let mut acknowledgement_queued = true;
         mutate_viewer_sizes(
             &self.viewer_sizes,
@@ -103,7 +108,7 @@ impl HostShared {
             }
         };
         let (response_sender, response_receiver) = sync_channel(1);
-        let command = ParserCommand::Resize {
+        let command = ParserCommand::Resize(Box::new(ParserResize {
             cols,
             rows,
             cell_pixels: *cell_pixels,
@@ -112,7 +117,7 @@ impl HostShared {
             targeted_ack: targeted_ack.map(|(request_id, tap)| (request_id, tap.clone())),
             pty_previous,
             response: response_sender,
-        };
+        }));
         if self.parser_commands.send(command).is_err() {
             restore_pty();
             self.smart.close_failed_transition(source_cursor);

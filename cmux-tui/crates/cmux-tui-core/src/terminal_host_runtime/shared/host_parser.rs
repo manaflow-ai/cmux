@@ -126,8 +126,12 @@ pub(crate) fn run_host_parser(
     signals: ParserSignals,
 ) {
     let ParserSignals { pending_responses, title_changed, bell, program_status: _ } = signals;
+    // What the legacy (parser-ordered) stream last published. With no
+    // legacy client attached nothing is published, and these two go stale;
+    // the first chunk a legacy client sees reads them again first (below).
     let mut last_colors = initial_colors;
     let mut last_pwd = None;
+    let mut legacy_state_stale = false;
     // The title last sent: one rewritten unchanged is not sent again.
     let mut last_title: Option<String> = None;
     let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
@@ -146,20 +150,66 @@ pub(crate) fn run_host_parser(
         let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
         replies.send(responses, |bytes| write_to_pty(&parser_host.writer, bytes));
     };
-    while let Ok(command) = parser_command_receiver.recv() {
+    let mut qos = cmux_interactivity::Follower::new();
+    // A command taken off the queue while coalescing Output that was not
+    // Output: it runs next, in its place in the order.
+    let mut carried: Option<ParserCommand> = None;
+    // Output frames joined into one parse (reused across chunks).
+    let mut joined: Vec<u8> = Vec::new();
+    while let Some(command) = carried.take().or_else(|| parser_command_receiver.recv().ok()) {
+        if matches!(command, ParserCommand::Resize(_)) {
+            cmux_interactivity::note(cmux_interactivity::InteractionKind::Drag);
+        }
+        qos.follow(super::host_start::host_work_class());
         match command {
-            ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
+            ParserCommand::Output { frame, source_cursor, accounted_bytes } => {
+                // A flood queues Output frames faster than one parse a frame
+                // takes them: the ones already queued join this one, so a
+                // backlog is one terminal lock, one metadata walk and one
+                // `vt_write` (its per-call cost is a third of a 16 KiB
+                // frame's parse) instead of one each. It never waits for a
+                // frame, so an echo goes out as before (goal
+                // terminal-throughput, G6).
+                let (source_cursor, accounted_bytes, bytes) = coalesce_queued_parser_output(
+                    &parser_command_receiver,
+                    &mut carried,
+                    &mut joined,
+                    &frame,
+                    source_cursor,
+                    accounted_bytes,
+                );
+                let bytes = bytes.unwrap_or(frame.payload.as_slice());
                 let title = {
                     let mut term = parser_host.term.lock().recover_poison();
+                    // A legacy client joins only under this lock (its
+                    // snapshot is taken here), so the answer holds for the
+                    // whole chunk. The smart stream (the daemon) parses the
+                    // raw bytes itself and needs none of the legacy frames.
+                    let legacy = !parser_host.taps.lock().recover_poison().is_empty();
+                    if legacy && legacy_state_stale {
+                        // The new client's snapshot holds the state before
+                        // this chunk: compare this chunk's state with that.
+                        last_colors = term.color_overrides();
+                        last_pwd = term.pwd();
+                        legacy_state_stale = false;
+                    }
                     // A terminal that cannot report cursor activity reports
                     // no cursor change.
-                    let cursor_activity = term.cursor_activity().ok();
-                    let normalized =
-                        crate::prompt_mode_reset::write_output(&mut term, &bytes, &mut shell_marks)
-                            .into_owned();
+                    let cursor_activity = legacy.then(|| term.cursor_activity().ok());
+                    // One walk of the chunk reads its OSC metadata and
+                    // rewrites the title ops ghostty-vt skips.
+                    let rewritten = parser_host
+                        .terminal_metadata
+                        .lock()
+                        .recover_poison()
+                        .observe_output_rewriting_titles(shell_marks.titles_mut(), bytes);
+                    let normalized = crate::prompt_mode_reset::write_rewritten_output(
+                        &mut term,
+                        rewritten,
+                        &mut shell_marks,
+                    );
                     {
                         let mut metadata = parser_host.terminal_metadata.lock().recover_poison();
-                        metadata.observe_output(&bytes);
                         // Whether a running command took the terminal for
                         // interaction, so an adopting daemon still reads it
                         // `in_use` (cx-6so.59).
@@ -172,18 +222,26 @@ pub(crate) fn run_host_parser(
                     if let Some(title) = &title {
                         last_title = Some(title.clone());
                     }
-                    let pwd = term.pwd();
-                    let colors = term.color_overrides();
-                    let cursor_changed = term.cursor_activity().ok() != cursor_activity;
-                    let colors = if colors != last_colors || cursor_changed {
-                        let encoded = encode_terminal_color_overrides(&colors);
-                        last_colors = colors;
-                        Some(encoded)
+                    if let Some(cursor_activity) = cursor_activity {
+                        let pwd = term.pwd();
+                        let colors = term.color_overrides();
+                        let cursor_changed = term.cursor_activity().ok() != cursor_activity;
+                        let colors = if colors != last_colors || cursor_changed {
+                            let encoded = encode_terminal_color_overrides(&colors);
+                            last_colors = colors;
+                            Some(encoded)
+                        } else {
+                            None
+                        };
+                        let pwd = changed_pwd_frame(&mut last_pwd, pwd);
+                        parser_host.broadcast_frames(output_transition_frames(
+                            normalized.into_owned(),
+                            colors,
+                            pwd,
+                        ));
                     } else {
-                        None
-                    };
-                    let pwd = changed_pwd_frame(&mut last_pwd, pwd);
-                    parser_host.broadcast_frames(output_transition_frames(normalized, colors, pwd));
+                        legacy_state_stale = true;
+                    }
                     // After this chunk's Output, so the owner's mirror shows
                     // what the program printed before it asked.
                     parser_host.clipboard.dispatch(&mut term, &parser_host.broadcast_lock);
@@ -207,16 +265,17 @@ pub(crate) fn run_host_parser(
                 }
                 flush_pending_responses();
             }
-            ParserCommand::Resize {
-                cols,
-                rows,
-                cell_pixels,
-                source_cursor,
-                acknowledge_with_replay,
-                targeted_ack,
-                pty_previous,
-                response,
-            } => {
+            ParserCommand::Resize(resize) => {
+                let ParserResize {
+                    cols,
+                    rows,
+                    cell_pixels,
+                    source_cursor,
+                    acknowledge_with_replay,
+                    targeted_ack,
+                    pty_previous,
+                    response,
+                } = *resize;
                 let result = parser_host.apply_parser_resize_after_pty(
                     cols,
                     rows,
@@ -235,7 +294,8 @@ pub(crate) fn run_host_parser(
                 flush_pending_responses();
                 let _ = response.send(());
             }
-            ParserCommand::ClearHistory { fallback_key, response } => {
+            ParserCommand::ClearHistory(clear) => {
+                let ParserClearHistory { fallback_key, response } = *clear;
                 let result = parser_host
                     .apply_parser_clear_history(fallback_key.as_ref())
                     .map_err(|error| error.to_string());
@@ -270,4 +330,66 @@ pub(crate) fn run_host_parser(
             }
         }
     }
+}
+
+/// The most bytes [`coalesce_queued_parser_output`] joins into one parse:
+/// as the daemon mirror's `OUTPUT_COALESCE_BYTES`.
+pub(crate) const HOST_PARSER_COALESCE_BYTES: usize = 64 * 1024;
+
+/// [`HOST_PARSER_COALESCE_BYTES`], unless `CMUX_HOST_PARSER_COALESCE_BYTES`
+/// names another bound (0 parses one frame at a time, as before G6), so the
+/// stage bench compares both on one binary and one machine.
+fn host_parser_coalesce_bytes() -> usize {
+    static BYTES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *BYTES.get_or_init(|| {
+        std::env::var("CMUX_HOST_PARSER_COALESCE_BYTES")
+            .ok()
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(HOST_PARSER_COALESCE_BYTES)
+    })
+}
+
+/// Joins the Output commands already queued behind `frame` (up to
+/// [`HOST_PARSER_COALESCE_BYTES`]) into `joined`. Returns the last joined
+/// source cursor, the accounted bytes of every joined command, and the joined
+/// bytes (`None` when nothing joined: parse `frame` itself, no copy). The
+/// first command that is not Output, or would pass the bound, goes to
+/// `carried` and runs next. It never waits.
+fn coalesce_queued_parser_output<'a>(
+    receiver: &Receiver<ParserCommand>,
+    carried: &mut Option<ParserCommand>,
+    joined: &'a mut Vec<u8>,
+    frame: &Frame,
+    mut source_cursor: u64,
+    mut accounted_bytes: usize,
+) -> (u64, usize, Option<&'a [u8]>) {
+    joined.clear();
+    let bound = host_parser_coalesce_bytes();
+    let mut total = frame.payload.len();
+    while total < bound
+        && let Ok(next) = receiver.try_recv()
+    {
+        match next {
+            ParserCommand::Output {
+                frame: more,
+                source_cursor: more_cursor,
+                accounted_bytes: more_accounted,
+            } if total.saturating_add(more.payload.len()) <= bound => {
+                if joined.is_empty() {
+                    joined.reserve(bound);
+                    joined.extend_from_slice(&frame.payload);
+                }
+                joined.extend_from_slice(&more.payload);
+                total = total.saturating_add(more.payload.len());
+                source_cursor = more_cursor;
+                accounted_bytes = accounted_bytes.saturating_add(more_accounted);
+            }
+            other => {
+                *carried = Some(other);
+                break;
+            }
+        }
+    }
+    let bytes = (!joined.is_empty()).then_some(joined.as_slice());
+    (source_cursor, accounted_bytes, bytes)
 }

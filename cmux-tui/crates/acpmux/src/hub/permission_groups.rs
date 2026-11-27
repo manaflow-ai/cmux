@@ -1,6 +1,7 @@
 //! Session-local permission batches. One lock owns membership, chat grants,
 //! callbacks and receipts, so a decision cannot approve an unseen member.
 use super::mac_approvers::MacProof;
+use super::review_queue::Settled;
 use super::*;
 use cmux_json::JsonSet as _;
 use std::collections::{HashSet, VecDeque};
@@ -16,6 +17,8 @@ const WINDOW: Duration = Duration::from_millis(100);
 /// way (`AskInFlight`); one later than that forms a group of its own.
 const LANDING_BOUND: Duration = Duration::from_secs(2);
 const MAX_ITEMS: usize = 32;
+/// Measured: advertised as `batching.maxPendingGroups` (spec/acpmux-protocol.json); each ask
+/// scans every group's items under the permission lock, 64 x MAX_ITEMS = 2,048 at most.
 const MAX_GROUPS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -110,6 +113,36 @@ pub(super) fn option(request: &Value, kind: &str) -> Option<String> {
     })
 }
 
+/// The input a request's call carries: its tool call's, else a command subject's.
+fn ask_input(request: &Value) -> Option<&Value> {
+    let subject = request.get("subject");
+    let subject_is =
+        |kind: &str| subject.and_then(|s| s.get("type")).and_then(Value::as_str) == Some(kind);
+    let tool = request.get("toolCall").or_else(|| {
+        subject_is("tool_call").then(|| subject.and_then(|s| s.get("toolCall"))).flatten()
+    });
+    match tool {
+        Some(tool) => tool.get("rawInput").filter(|v| v.is_object()),
+        None => subject.filter(|_| subject_is("command")),
+    }
+}
+
+/// What a request's call does in the agent's own words: the one-line `description` a shell
+/// call carries (Claude Code's Bash), never the command itself.
+pub(super) fn ask_summary(request: &Value) -> Option<String> {
+    let line = ask_input(request)?.get("description")?.as_str()?.lines().next()?.trim();
+    (!line.is_empty()).then(|| line.chars().take(200).collect())
+}
+
+/// A shell call's command without acpmux's subagent mark, so the person reads what the agent
+/// wrote and approves exactly that; `None` when nothing was stripped and the client can read
+/// the command itself.
+pub(super) fn ask_command(request: &Value) -> Option<String> {
+    let command = ask_input(request)?.get("command")?.as_str()?;
+    let bare = crate::bg_hook::without_subagent_mark(command);
+    (bare.len() != command.len()).then(|| bare.to_owned())
+}
+
 impl Group {
     fn terminal(&self) -> bool {
         matches!(self.state, "resolved" | "cancelled")
@@ -137,6 +170,8 @@ impl Group {
                     permission_id: i.id.clone(),
                     request: i.request.clone(),
                     state: i.state,
+                    summary: ask_summary(&i.request),
+                    command: ask_command(&i.request),
                 })
                 .collect(),
             decisions: if can_allow {
@@ -253,6 +288,16 @@ impl PermissionState {
         g.items.push(Item { id: id.into(), request: request.clone(), state: "pending" });
         g.revision += 1;
         Ok((g.id.clone(), fresh))
+    }
+
+    /// Tests: opens collecting group `id` for answers, as its timer does
+    /// (`start_permission_group_timer`); its revision then.
+    #[cfg(test)]
+    pub(super) fn open_group(&mut self, id: &str) -> Option<u64> {
+        let g = self.groups.iter_mut().find(|g| g.id == id)?;
+        g.state = "pending";
+        g.revision += 1;
+        Some(g.revision)
     }
 
     fn prune(&mut self) {
@@ -473,12 +518,13 @@ impl Hub {
         params: Value,
         control: Control,
         person: bool,
+        device: Option<&str>,
     ) -> Result<Value, RpcError> {
         // The Web's asking rule, at the answer: a deny only narrows
         // (`Hub::web_answer_check`). A group allow carries no proof of the person's; an
         // approver's signature (below) is held to the Web's control rule like none.
         let narrows = params["decision"].as_str() == Some("deny");
-        self.web_answer_check(session, control, narrows, false)?;
+        self.web_answer_check(session, control, narrows, false, device)?;
         let text = |key: &str| -> Result<String, RpcError> {
             params[key]
                 .as_str()
@@ -609,6 +655,15 @@ impl Hub {
         g.receipt = Some((body, result.clone()));
         self.append(session, "mux", "permission_group", json!({"group":result["group"]}));
         state.prune();
+        // A member a group deny dismissed (it has no single-use reject option): the caller
+        // dismissed it, as a one-ask dismissal is (`respond_permission`), so the audit trail logs
+        // a cancel instead of taking it for a withdrawal. Marked before the asking task wakes
+        // and logs the decision.
+        for (id, _, outcome) in &replies {
+            if outcome["outcome"] == "cancelled" {
+                self.review_index.mark_settled(&session.id, id, Settled::Caller);
+            }
+        }
         // All callbacks were removed and the receipt saved before any wake.
         for (_, reply, outcome) in replies {
             let _ = reply.send(outcome);
@@ -648,79 +703,13 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod plain_tool_ask_tests {
-    use super::plain_tool_ask;
-    use serde_json::json;
-
-    /// Full access answers a tool approval, never anything only a person answers.
-    #[test]
-    fn only_a_tool_approval_is_a_plain_tool_ask() {
-        let ask = |tool: serde_json::Value| json!({"toolCall": tool, "options": []});
-        assert!(plain_tool_ask(&ask(json!({"kind": "execute", "title": "rm -rf f/*"}))));
-        assert!(plain_tool_ask(&ask(json!({"kind": "other", "title": "Allow network access"}))));
-        for not_plain in [
-            json!({"kind": "switch_mode", "title": "Ready to code?"}),
-            json!({"kind": "other", "_meta": {"acpmux": {"trust": {"cwd": "/w"}}}}),
-            json!({"kind": "other", "_meta": {"claude": {"tool": "AskUserQuestion"}}}),
-            json!({"kind": "other", "_meta": {"claude": {"tool": "ExitPlanMode"}}}),
-            json!({"kind": "execute", "_meta": {"claude": {"interactive": true}}}),
-            // A Codex user-input request with no prompt text: no normalized question, still one.
-            json!({"kind": "other", "rawInput": {"questions": [{"id": "q", "question": ""}]},
-                   "_meta": {"codexAppServer": {"question": true}}}),
-            json!({"kind": "other", "_meta": {"codexAppServer": {"question": true}}}),
-            json!({"kind": "execute", "rawInput": {"questions": []}}),
-        ] {
-            assert!(!plain_tool_ask(&ask(not_plain.clone())), "{not_plain}");
-        }
-    }
-}
+#[path = "permission_groups_plain_tool_ask_tests.rs"]
+mod plain_tool_ask_tests;
 
 #[cfg(test)]
-mod approver_proofs_tests {
-    use super::{PendingMember, allow_options, approver_proofs};
-    use serde_json::{Value, json};
+#[path = "permission_groups_ask_display_tests.rs"]
+mod ask_display_tests;
 
-    fn member(id: &str, nonce: &str, kind: &str) -> PendingMember {
-        PendingMember {
-            id: id.into(),
-            decision_nonce: nonce.into(),
-            request: json!({"toolCall": {"toolCallId": id, "kind": "execute"},
-                            "options": [{"optionId": format!("yes-{id}"), "kind": kind}]}),
-        }
-    }
-
-    fn body(entries: Value) -> Value {
-        json!({"_meta": {"acpmux": {"approverDecisions": entries}}})
-    }
-
-    fn entry(nonce: &str) -> Value {
-        json!({"decisionNonce": nonce, "approverDecision": {"approver": "mac-1"}})
-    }
-
-    /// A group's signed allow names every pending member once, with its own nonce, and each
-    /// member offers a single one-time allow; anything else matches nothing.
-    #[test]
-    fn every_pending_member_needs_its_own_entry_and_nothing_else() {
-        let members = [member("p1", "n1", "allow_once"), member("p2", "n2", "allow_once")];
-        let options = allow_options(&members).expect("each offers a one-time allow");
-        let both = body(json!({"p1": entry("n1"), "p2": entry("n2")}));
-        let proofs = approver_proofs(&members, &options, &both).expect("both members");
-        assert_eq!(proofs.iter().map(|p| p.option).collect::<Vec<_>>(), ["yes-p1", "yes-p2"]);
-        assert_eq!(proofs.iter().map(|p| p.nonce).collect::<Vec<_>>(), ["n1", "n2"]);
-        assert!(proofs.iter().all(|p| p.answers.is_none()));
-        for refused in [
-            body(json!({"p1": entry("n1")})),
-            body(json!({"p1": entry("n1"), "p2": entry("n1")})),
-            body(json!({"p1": entry("n1"), "p3": entry("n2")})),
-            body(json!({"p1": entry("n1"), "p2": entry("n2"), "p3": entry("n3")})),
-            body(json!({"p1": entry("n1"), "p2": {"decisionNonce": "n2"}})),
-            body(json!([])),
-            json!({}),
-        ] {
-            assert!(approver_proofs(&members, &options, &refused).is_none(), "{refused}");
-        }
-        assert!(approver_proofs(&[], &[], &body(json!({}))).is_none());
-        let lasting = [member("p1", "n1", "allow_always")];
-        assert!(allow_options(&lasting).is_none());
-    }
-}
+#[cfg(test)]
+#[path = "permission_groups_approver_proofs_tests.rs"]
+mod approver_proofs_tests;

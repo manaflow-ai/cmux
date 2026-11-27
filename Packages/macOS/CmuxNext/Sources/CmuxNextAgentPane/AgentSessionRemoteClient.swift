@@ -16,6 +16,14 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func prompt(id: String, text: String) async throws -> Data
     /// Sends ordered ACP content, including images and file links, to the owning session.
     func prompt(id: String, content: Data) async throws -> Data
+    /// A prompt that steers into the running turn (`agent-session-steer-v1`): the owner's or a
+    /// Cloud team member's. A client without the verb queues it as a plain prompt.
+    func prompt(id: String, text: String, steer: Bool) async throws -> Data
+    func prompt(id: String, content: Data, steer: Bool) async throws -> Data
+    /// The owner runs (`approve`) or drops a prompt held for them, a link guest's
+    /// (`agent-session-queue-decision-v1`).
+    func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data
+    func queueDecline(promptID: String) async throws -> Data
     func cancel() async throws
     /// Answers a permission request the daemon announced on this attachment, with a question's
     /// `answers` and `annotations` (JSON) and the person's decision proof of a relayed allow when
@@ -30,10 +38,16 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func children() async throws -> Data
     /// Reads one image from the attached chat's host, as `{mimeType, data}` with base64 bytes.
     func media(path: String) async throws -> Data
+    /// Reads one byte range of a video on the attached chat's host, as
+    /// `{offset, size, identity, data, mimeType?, handle?}` (``AgentPaneRemoteMedia``).
+    func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data
     /// The person starts or stops typing in the chat (`agent-session-presence-v1`).
     func typing(_ on: Bool) async throws
     /// Whether the person's window shows the chat now (`agent-session-presence-v1`).
     func view(_ visible: Bool) async throws
+    /// The person's attention state and last on-screen sequence when supported by the owning
+    /// daemon (`agent-session-attention-v1`). The default keeps older clients visible-only.
+    func view(_ visible: Bool, attending: Bool?, seenSeq: UInt64?) async throws
     /// The person's model, mode and option picks for the chat (`agent-session-settings-v1`):
     /// acpmux's `session/set_model`, `session/set_mode` and `session/set_config_option` on that
     /// machine, answered as acpmux answers them (a config option answers `{configOptions}`).
@@ -50,6 +64,16 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     /// acpmux's `_acpmux/agent_login/<op>` answer, or `{refused: {reason}}`. `fields` are the
     /// daemon's (`agent`, `login_id`, `code`, `key`); the code and key are never logged.
     func login(_ op: String, _ fields: [String: String]) async throws -> Data
+    /// The composer's `/btw <question>` on that machine (`agent-session-btw-v1`): acpmux's inline
+    /// side question about the chat, `{text}` or `{refused: {reason}}`.
+    func btw(_ question: String) async throws -> Data
+    /// Whether that machine's daemon opens a side chat of this chat there (`agent-session-side-v1`).
+    func servesSide() async -> Bool
+    /// New side chat and `/side [prompt]` (`agent-session-side-v1`): that machine's acpmux forks
+    /// this chat (`throughSeq` nil: as it is now), tags the fork its side chat and sends it
+    /// `prompt`. Answers `{sessionId, prompted, notSent?}`: the side chat's id on that machine, and
+    /// why acpmux did not take `prompt` when it did not.
+    func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data
 }
 
 extension AgentSessionRemoteClient {
@@ -61,11 +85,23 @@ extension AgentSessionRemoteClient {
         }
         return try await prompt(id: id, text: text)
     }
+    /// A client without `agent-session-steer-v1` queues a steer as a plain prompt.
+    public func prompt(id: String, text: String, steer: Bool) async throws -> Data { try await prompt(id: id, text: text) }
+    public func prompt(id: String, content: Data, steer: Bool) async throws -> Data { try await prompt(id: id, content: content) }
+    /// A client without `agent-session-queue-decision-v1` cannot decide a held prompt.
+    public func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data { throw Self.queueDecisionUnsupported }
+    public func queueDecline(promptID: String) async throws -> Data { throw Self.queueDecisionUnsupported }
+    nonisolated static var queueDecisionUnsupported: AgentSessionRemoteError {
+        AgentSessionRemoteError(code: "agent_session.queue_decision_unsupported", message: "Update cmux on that machine to approve held messages.")
+    }
     /// A daemon without `agent-session-children-v1` lists none.
     public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }
     /// A daemon without `agent-session-presence-v1` shows no one: typing and view go nowhere.
     public func typing(_ on: Bool) async throws {}
     public func view(_ visible: Bool) async throws {}
+    public func view(_ visible: Bool, attending: Bool?, seenSeq: UInt64?) async throws {
+        try await view(visible)
+    }
     /// A daemon without `agent-session-settings-v1` changes nothing: the pick says so.
     public func setModel(_ modelId: String) async throws -> Data { throw Self.settingsUnsupported }
     public func setMode(_ modeId: String) async throws -> Data { throw Self.settingsUnsupported }
@@ -85,12 +121,25 @@ extension AgentSessionRemoteClient {
     }
     /// A daemon without `agent-session-login-v1` offers no sign-in.
     public func servesLogin() async -> Bool { false }
+    /// A daemon without `agent-session-side-v1` opens no side chat there.
+    public func servesSide() async -> Bool { false }
+    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.fork_unsupported", message: "Update cmux on that machine to open a side chat there.")
+    }
     public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
         Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
+    }
+    /// A daemon without `agent-session-btw-v1` asks no side question.
+    public func btw(_ question: String) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.btw_unsupported", message: "Update cmux on that machine to ask a side question here.")
     }
     /// Older daemons have no host media command; callers turn this into a refused image.
     public func media(path: String) async throws -> Data {
         throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve agent session media")
+    }
+    /// Older daemons read no video ranges; the pane then says the video can't play here.
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve video ranges")
     }
 }
 
@@ -100,16 +149,20 @@ public nonisolated struct AgentSessionPage: Sendable, Equatable {
     public var beforeSeq: UInt64?
     public var limit: Int?
     public var kinds: [String]?
+    /// The page's byte budget (the pane's `maxBytes`), sent where the daemon serves
+    /// `agent-session-page-bytes-v1`; nil leaves acpmux's default.
+    public var maxBytes: Int?
     /// The page's `_acpmux/watch` read: the wire answers it as a sessions list, so the page never
     /// gets its records. Never sent to the daemon.
     public var listing: Bool
 
     public init(afterSeq: UInt64? = nil, beforeSeq: UInt64? = nil, limit: Int? = nil, kinds: [String]? = nil,
-                listing: Bool = false) {
+                maxBytes: Int? = nil, listing: Bool = false) {
         self.afterSeq = afterSeq
         self.beforeSeq = beforeSeq
         self.limit = limit
         self.kinds = kinds
+        self.maxBytes = maxBytes
         self.listing = listing
     }
 }

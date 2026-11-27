@@ -78,7 +78,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +86,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_PLACED_JOBS, MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
+from pr_runner_pool import SIM_FIRST_CAPABILITY, sim_first  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 import owned_warm_state  # noqa: E402
 import starved_labels  # noqa: E402
@@ -127,6 +128,31 @@ GHOST_GIVE_UP_AGE = dt.timedelta(hours=72)
 # a sweep spends on runs GitHub refuses to cancel.
 DEFAULT_MAX_ORPHAN_CANCELS = 5
 MAX_ORPHAN_CANCELS_LIMIT = 10
+# Linux-only workflows (linux_only_workflow_paths) hold no macOS pool, so the backlog pass never reads their jobs. Their
+# lost assignments still clog the Linux labels: 2026-11-18, ubuntu-24.04 held 2,399 queued jobs, the oldest 20 h,
+# while newer jobs there started, and no sweep saw them. The Linux orphan pass reads the jobs of the oldest such runs
+# past the orphan age, LINUX_JOB_READS runs a sweep (one job listing each, up to MAX_JOB_PAGES calls), and cancels
+# their lost assignments under its own cap, with find_orphans' evidence and orphan_protected_reason's protections
+# unchanged. A protected run's jobs are never read; the summary counts those runs.
+DEFAULT_LINUX_JOB_READS = 30
+LINUX_JOB_READS_LIMIT = 60
+DEFAULT_MAX_LINUX_ORPHAN_CANCELS = 40
+MAX_LINUX_ORPHAN_CANCELS_LIMIT = 40
+# What bounds the Linux cap: a cancel costs up to ORPHAN_CANCEL_CALLS requests (cancel, recheck, force-cancel), and the
+# Linux cancels never take the token's core budget below LINUX_CANCEL_BUDGET_FLOOR, which every other user of the
+# cmux-bot App's 12,500 an hour shares (linux_cancel_cap). At 40 a sweep and about 6 sweeps an hour, a 2,500 backlog
+# drains in about 10 h instead of 21 h at 20.
+ORPHAN_CANCEL_CALLS = 3
+LINUX_CANCEL_BUDGET_FLOOR = 2000
+# The run list is newest first and stops at MAX_RUN_PAGES, so at a backlog of thousands the oldest runs, the likely
+# orphans, were never listed. One more listing per OLD_RUN_STATUSES, created before the orphan age, reads its LAST
+# pages (old_runs). in_progress too: a run whose other jobs finished is in_progress while its lost job waits, and the
+# 2026-11-18 dry run 44279689050 read 30 queued Linux runs, found 0 orphans and left a 22 h tail. These runs join
+# only the orphan search; no other pass reads their jobs.
+OLD_RUN_PAGES = 3
+OLD_RUN_STATUSES = ("queued", "in_progress")
+BAND_NARROWINGS = 3
+RUN_LIST_RESULT_CAP = 1000  # GitHub answers a filtered run list up to this many results
 # How long to let a cancel settle before checking whether it took.
 ORPHAN_RECHECK_SECONDS = 20
 # An orphan is never cancelled from a release pipeline or the merge queue: a
@@ -260,6 +286,44 @@ def linux_only_workflow_paths(workflows_dir: Path) -> frozenset[str]:
     return frozenset(paths)
 
 
+def stamp(moment: dt.datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def linux_orphan_reads(
+    runs: Sequence[Mapping[str, Any]],
+    linux_only_paths: frozenset[str],
+    *,
+    min_age: dt.timedelta,
+    budget: int,
+    now: dt.datetime,
+    also: Collection[int] = (),
+) -> list[Mapping[str, Any]]:
+    """The runs whose jobs the Linux orphan pass reads: Linux-only, or in ALSO (listed only by old_runs, so no other
+    pass reads their jobs), in flight, older than MIN_AGE, not protected, oldest first, at most BUDGET. A younger one
+    cannot hold an orphan; a protected one would only be reported. A queued run past GHOST_QUEUED_RUN_AGE is never
+    read (find_orphans takes it from the listing alone), and the band below that age goes first: dry run 44288789127
+    spent its 30 reads on runs up to 27 days old holding nothing queued, every sweep the same ones."""
+    picked = []
+    for run in runs:
+        created = parse_time(run.get("created_at"))
+        if ((run.get("path") in linux_only_paths or run["id"] in also) and run.get("status") in IN_FLIGHT_RUN_STATUSES
+                and created is not None and now - created >= min_age and orphan_protected_reason(run) is None
+                and not (run.get("status") == "queued" and now - created >= GHOST_QUEUED_RUN_AGE)):
+            picked.append((now - created >= GHOST_QUEUED_RUN_AGE, created, run["id"], run))
+    return [item[-1] for item in sorted(picked, key=lambda item: item[:3])[:budget]]
+
+
+def linux_protected_runs(runs: Sequence[Mapping[str, Any]], linux_only_paths: frozenset[str],
+                         *, min_age: dt.timedelta, now: dt.datetime) -> list[Mapping[str, Any]]:
+    """The in-flight Linux-only runs past MIN_AGE that orphan_protected_reason keeps: their jobs are never read, so a
+    dry run lists them here instead of among the skipped orphans."""
+    return [run for run in runs
+            if run.get("path") in linux_only_paths and run.get("status") in IN_FLIGHT_RUN_STATUSES
+            and (created := parse_time(run.get("created_at"))) is not None and now - created >= min_age
+            and orphan_protected_reason(run) is not None]
+
+
 def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt.datetime) -> bool:
     """Whether a run's jobs are worth one API call this sweep."""
     if run.get("path") in linux_only_paths:
@@ -278,13 +342,19 @@ def owned_label(job: Mapping[str, Any]) -> str | None:
     return next((str(label) for label in job.get("labels") or () if owned_pool(str(label))), None)
 
 
+def sim_first_label(job: Mapping[str, Any]) -> str | None:
+    """glaeda's sim-first label (pr_runner_pool.SIM_FIRST_LABEL) a simulator job asked for alone, if any."""
+    return next((str(label) for label in job.get("labels") or () if sim_first(str(label))), None)
+
+
 def is_macos_job(job: Mapping[str, Any]) -> bool:
-    return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
+    return (bool(owned_label(job)) or bool(sim_first_label(job))
+            or any("macos" in str(label).lower() for label in job.get("labels") or ()))
 
 
 def runner_pool(job: Mapping[str, Any]) -> str:
-    """The pool a macOS job waits on: its owned pool label, else the macOS labels it asked for."""
-    owned = owned_label(job)
+    """The pool a macOS job waits on: its owned pool label or sim-first label, else the macOS labels it asked for."""
+    owned = owned_label(job) or sim_first_label(job)
     if owned:
         return owned
     labels = sorted({str(label).lower() for label in job.get("labels") or () if "macos" in str(label).lower()})
@@ -292,7 +362,13 @@ def runner_pool(job: Mapping[str, Any]) -> str:
 
 
 def capabilities(job: Mapping[str, Any]) -> tuple[str, ...]:
-    """The capability labels (pr_runner_pool.CAPABILITY_LABELS) an owned job asked for beside its pool."""
+    """The capability labels (pr_runner_pool.CAPABILITY_LABELS) an owned job asked for beside its pool.
+
+    A job on the sim-first label holds its mini's simulator as a glaeda-ios-sim simulator job does, so
+    it counts toward that label (SIM_FIRST_CAPABILITY) and ios_runner_pool.py's snapshot path sees it.
+    """
+    if sim_first_label(job):
+        return (SIM_FIRST_CAPABILITY,)
     if not owned_label(job):
         return ()
     return tuple(label for label in CAPABILITY_LABELS if label in {str(item) for item in job.get("labels") or ()})
@@ -390,7 +466,11 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 # Match the workflow path only.  CI run names include routing metadata such as
 # ``release=arm64``; looking at the combined name and path made every ordinary
 # pull-request run look like a release reservation.
-RESERVED_POOL_WORKFLOW = re.compile(r"(?:^|/)(?:release|nightly)\.yml$", re.IGNORECASE)
+# app-ffi-release.yml's one macOS job, the xcframework build, is the release every app build links: until it
+# publishes, feat-cmux-next is red on "Check the app FFI pin". On 2026-11-10 run 42833220418's build queued 66
+# minutes on blacksmith-6vcpu-macos-26 behind pull request jobs (14:21 to 15:27Z), and the base stayed red 5 h 14
+# min. Its queued build reserves the label as a nightly's does.
+RESERVED_POOL_WORKFLOW = re.compile(r"(?:^|/)(?:release|nightly|app-ffi-release)\.yml$", re.IGNORECASE)
 POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 POOL_LOAD_VERSION = 1
 # Environment variable -> snapshot settings key, for pr_runner_pool.py.
@@ -539,7 +619,7 @@ def pool_load_snapshot(
         reserved = bool(RESERVED_POOL_WORKFLOW.search(str(run.get("path") or "")))
         seen: dict[str, int] = {}
         for job in jobs_by_run.get(run.get("id"), ()):
-            if is_macos_job(job) and owned_label(job) and job.get("status") in (
+            if is_macos_job(job) and (owned_label(job) or sim_first_label(job)) and job.get("status") in (
                     POOL_QUEUED_JOB_STATUSES | RUNNING_JOB_STATUSES):
                 for label in (*counted_pools(runner_pool(job)), *capabilities(job)):
                     seen[label] = seen.get(label, 0) + 1
@@ -559,7 +639,9 @@ def pool_load_snapshot(
         capability = (capability_markers or {}).get(run.get("id"))
         if capability and run.get("status") != "completed":
             label, peak = capability
-            carrying = [job for job in owned_jobs if label in capabilities(job)]
+            # Owned pool jobs with the label, and simulator jobs on the sim-first label.
+            carrying = [job for job in jobs_by_run.get(run.get("id"), ())
+                        if is_macos_job(job) and label in capabilities(job)]
             finished = sum(1 for job in carrying if job.get("status") == "completed")
             # Released once as many of its capability jobs finished as it declared.
             if not (carrying and finished == len(carrying) and finished >= peak):
@@ -1032,6 +1114,35 @@ class Orphan:
     running_jobs: int = 0
 
 
+def served_times(jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]]) -> dict[str, list[dt.datetime]]:
+    """Per label set, when each job that got a runner was created: a lost assignment's evidence."""
+    served: dict[str, list[dt.datetime]] = {}
+    for jobs in jobs_by_run.values():
+        for job in jobs:
+            created = parse_time(job.get("created_at"))
+            if job.get("runner_name") and created is not None:
+                served.setdefault(job_pool_key(job), []).append(created)
+    return served
+
+
+def stuck_by_pool(read: Mapping[int, Sequence[Mapping[str, Any]]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+                  *, min_age: dt.timedelta, now: dt.datetime) -> dict[str, tuple[int, int, dt.timedelta]]:
+    """Per label set, over READ's jobs queued with no runner past MIN_AGE: (how many, how many a newer served job in
+    JOBS_BY_RUN proves lost, the oldest's age). A dry run shows why a stuck tail is or is not cancelled."""
+    served = served_times(jobs_by_run)
+    found: dict[str, tuple[int, int, dt.timedelta]] = {}
+    for jobs in read.values():
+        for job in jobs:
+            queued_at = parse_time(job.get("created_at"))
+            if not never_assigned(job) or queued_at is None or now - queued_at < min_age:
+                continue
+            pool = job_pool_key(job)
+            count, proven, oldest = found.get(pool, (0, 0, dt.timedelta(0)))
+            lost = any(created > queued_at for created in served.get(pool, ()))
+            found[pool] = (count + 1, proven + lost, max(oldest, now - queued_at))
+    return found
+
+
 def find_orphans(
     runs: Sequence[Mapping[str, Any]],
     jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
@@ -1052,12 +1163,7 @@ def find_orphans(
     `queued` that long, whose jobs the sweep never lists (needs_jobs).
     """
     hard_age = max(GHOST_QUEUED_RUN_AGE, min_age)
-    served: dict[str, list[dt.datetime]] = {}
-    for jobs in jobs_by_run.values():
-        for job in jobs:
-            created = parse_time(job.get("created_at"))
-            if job.get("runner_name") and created is not None:
-                served.setdefault(job_pool_key(job), []).append(created)
+    served = served_times(jobs_by_run)
 
     orphans: list[Orphan] = []
     for run in runs:
@@ -1135,6 +1241,15 @@ class OrphanDecision:
     orphan: Orphan
     action: str  # "cancel", "skip" or "github-side" (past GHOST_GIVE_UP_AGE)
     note: str = ""
+
+
+def linux_cancel_cap(cap: int, limits: Mapping[str, Mapping[str, int]]) -> int:
+    """CAP, lowered so this sweep's Linux cancels leave LINUX_CANCEL_BUDGET_FLOOR of the core budget; CAP when no
+    budget header was seen."""
+    remaining = (limits.get("core") or {}).get("remaining")
+    if remaining is None:
+        return cap
+    return max(0, min(cap, (remaining - LINUX_CANCEL_BUDGET_FLOOR) // ORPHAN_CANCEL_CALLS))
 
 
 def build_orphan_plan(
@@ -1410,12 +1525,22 @@ def render_rate_limits(limits: Mapping[str, Mapping[str, int]]) -> str:
     return "GitHub API budget after this sweep's last request: " + "; ".join(parts) + "."
 
 
+def spent_until(limits: Mapping[str, Mapping[str, int]]) -> tuple[str, str] | None:
+    """(resource, reset as HH:MM:SSZ) for a resource whose budget the last response left at 0, else None."""
+    for resource, values in sorted(limits.items()):
+        if values.get("remaining") == 0 and "reset" in values:
+            return resource, dt.datetime.fromtimestamp(values["reset"], UTC).strftime("%H:%M:%SZ")
+    return None
+
+
 class GitHub:
     def __init__(self, token: str, repo: str) -> None:
         self.repo = repo
         self.calls = 0
         # Rate limit resource ("core", "graphql") -> the newest response's values.
         self.rate_limits: dict[str, dict[str, int]] = {}
+        # OLD_RUN_STATUSES status -> total_count of its created-before listing (old_runs).
+        self.old_run_totals: dict[str, int] = {}
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -1447,10 +1572,12 @@ class GitHub:
             self.rate_limits[found[0]] = found[1]
 
     def in_flight_runs(self) -> list[dict[str, Any]]:
+        """In-flight runs, newest first per status, MAX_RUN_PAGES each."""
         runs: dict[int, dict[str, Any]] = {}
-        for status in IN_FLIGHT_RUN_STATUSES:
-            for page in range(1, MAX_RUN_PAGES + 1):
-                query = urllib.parse.urlencode({"status": status, "per_page": 100, "page": page})
+        listings = [({"status": status}, MAX_RUN_PAGES) for status in IN_FLIGHT_RUN_STATUSES]
+        for filters, pages in listings:
+            for page in range(1, pages + 1):
+                query = urllib.parse.urlencode({**filters, "per_page": 100, "page": page})
                 payload = self.request("GET", f"/repos/{self.repo}/actions/runs?{query}")
                 batch = payload.get("workflow_runs") or []
                 for run in batch:
@@ -1458,6 +1585,38 @@ class GitHub:
                 if len(batch) < 100:
                     break
         return list(runs.values())
+
+    def old_runs(self, created_before: dt.datetime, band_start: dt.datetime) -> list[dict[str, Any]]:
+        """The oldest runs of the band BAND_START..CREATED_BEFORE per OLD_RUN_STATUSES, and the oldest queued runs
+        created before BAND_START (ghosts, cancelled from the listing alone).
+
+        Each list is newest first and a created filter only cuts its top, so page 1 gives total_count and the last
+        OLD_RUN_PAGES pages are read. GitHub answers a filtered list up to RUN_LIST_RESULT_CAP results, so a band
+        holding more is narrowed from its young end (at most BAND_NARROWINGS times, one call each) until its oldest
+        runs are reachable. Dry run 44288789127 read `created=<T` alone: 2,500 queued, the 30 runs it read were 10 h
+        to 27 days old and held 1 stuck job, while the 11-17 flood's runs were never reached. old_run_totals keeps
+        each listing's total_count for the summary."""
+        found: dict[int, dict[str, Any]] = {}
+        listings = [(status, band_start, created_before) for status in OLD_RUN_STATUSES] + [("queued", None, band_start)]
+        for status, start, end in listings:
+            for _ in range(BAND_NARROWINGS + 1):
+                created = (stamp(start) + ".." + stamp(end)) if start else "<" + stamp(end)
+                base = {"status": status, "created": created, "per_page": 100}
+                first = self.request("GET", f"/repos/{self.repo}/actions/runs?{urllib.parse.urlencode({**base, 'page': 1})}")
+                total = int(first.get("total_count") or 0)
+                if total <= RUN_LIST_RESULT_CAP or start is None:
+                    break
+                end = start + (end - start) * (RUN_LIST_RESULT_CAP * 0.8 / total)
+            self.old_run_totals[f"{status} {created}"] = total
+            batches = [first.get("workflow_runs") or []]
+            last = min(-(-total // 100), RUN_LIST_RESULT_CAP // 100)
+            for page in range(last, max(1, last - OLD_RUN_PAGES), -1):
+                query = urllib.parse.urlencode({**base, "page": page})
+                batches.append(self.request("GET", f"/repos/{self.repo}/actions/runs?{query}").get("workflow_runs") or [])
+            for batch in batches:
+                for run in batch:
+                    found[run["id"]] = run
+        return list(found.values())
 
     def artifact_names(self, run_id: int, *, stop: str) -> list[str]:
         """The run's artifact names, page by page until one starts with `stop`."""
@@ -1523,6 +1682,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--pull-request-policy", default=os.environ.get("CI_PULL_REQUEST_SUITE", ""))
     parser.add_argument("--orphan-minutes", type=int, default=None)
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
+    parser.add_argument("--linux-job-reads", type=int, default=None)
+    parser.add_argument("--max-linux-orphan-cancels", type=int, default=None)
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
     parser.add_argument("--pool-load", type=Path, default=(
@@ -1557,6 +1718,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"queue-janitor: orphan minutes must be >= {MIN_ORPHAN_MINUTES} and max orphan cancels "
               f"within 0..{MAX_ORPHAN_CANCELS_LIMIT}", file=sys.stderr)
         return 2
+    try:
+        linux_job_reads = (args.linux_job_reads if args.linux_job_reads is not None
+                           else env_int("LINUX_JOB_READS", DEFAULT_LINUX_JOB_READS))
+        max_linux_orphan_cancels = (args.max_linux_orphan_cancels if args.max_linux_orphan_cancels is not None
+                                    else env_int("MAX_LINUX_ORPHAN_CANCELS", DEFAULT_MAX_LINUX_ORPHAN_CANCELS))
+    except ValueError:
+        print("queue-janitor: LINUX_JOB_READS and MAX_LINUX_ORPHAN_CANCELS must be integers", file=sys.stderr)
+        return 2
+    if not 0 <= linux_job_reads <= LINUX_JOB_READS_LIMIT or not 0 <= max_linux_orphan_cancels <= MAX_LINUX_ORPHAN_CANCELS_LIMIT:
+        print(f"queue-janitor: linux job reads must be within 0..{LINUX_JOB_READS_LIMIT} and max linux orphan "
+              f"cancels within 0..{MAX_LINUX_ORPHAN_CANCELS_LIMIT}", file=sys.stderr)
+        return 2
     orphan_age = dt.timedelta(minutes=orphan_minutes)
 
     github = GitHub(token, args.repo)
@@ -1565,15 +1738,41 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         runs = github.in_flight_runs()
         jobs_by_run = {run["id"]: github.jobs(run["id"]) for run in runs if needs_jobs(run, linux_only, now)}
+        # The oldest runs, past the newest pages: only the orphan search sees them, through the Linux pass.
+        listed = {run["id"] for run in runs}
+        old_only = [run for run in (github.old_runs(now - orphan_age, now - GHOST_QUEUED_RUN_AGE)
+                                    if linux_job_reads else ())
+                    if run["id"] not in listed]
+        orphan_runs = runs + old_only
+        # The Linux orphan pass: the oldest Linux-only (or old-only) runs' jobs, read only to find lost
+        # assignments. They join the orphan search, never the macOS backlog plan, whose pools they do not hold.
+        linux_jobs = {run["id"]: github.jobs(run["id"])
+                      for run in linux_orphan_reads(orphan_runs, linux_only, min_age=orphan_age,
+                                                    budget=linux_job_reads, now=now,
+                                                    also={run["id"] for run in old_only})}
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
-        orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
-        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now)))
+        found = find_orphans(orphan_runs, {**jobs_by_run, **linux_jobs}, min_age=orphan_age, now=now)
+        orphans = [orphan for orphan in found if orphan.run["id"] not in linux_jobs]
+        linux_orphans = [orphan for orphan in found if orphan.run["id"] in linux_jobs]
+        orphans_all = orphans + linux_orphans
+        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans_all, now)))
         prs_by_branch = github.pull_requests(branches) if branches else {}
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
         print(render_rate_limits(github.rate_limits), file=sys.stderr)
-        return 1
+        spent = spent_until(github.rate_limits)
+        if spent is None:
+            return 1
+        # A spent budget is not a broken sweep: the rescue and janitor sweeps share the App token's 12,500 an hour,
+        # and run 44278071524 failed on it (2026-11-18). Nothing was cancelled; the next sweep after the reset runs.
+        skipped = f"## CI queue janitor\n\nSkipped: the token's {spent[0]} API budget is spent until {spent[1]}. " \
+                  f"Nothing was read past the first refusal and nothing was cancelled.\n"
+        print(skipped)
+        if args.summary:
+            with args.summary.open("a", encoding="utf-8") as handle:
+                handle.write(skipped)
+        return 0
 
     if args.pool_load:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run
@@ -1630,6 +1829,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         orphans, prs_by_branch, max_cancels=max_orphan_cancels,
         exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()}, now=now,
     )
+    # The Linux-only runs' orphans under their own cap, with the same protections and order, lowered near the
+    # budget floor.
+    linux_cap = linux_cancel_cap(max_linux_orphan_cancels, github.rate_limits)
+    orphan_decisions += build_orphan_plan(
+        linux_orphans, prs_by_branch, max_cancels=linux_cap, exclude_ids=set(), now=now,
+    )
     orphan_results: dict[int, str] = {}
     if not args.dry_run:
         orphan_results, orphan_failures = cancel_orphans(github, orphan_decisions)
@@ -1638,8 +1843,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
+    if linux_cap < max_linux_orphan_cancels:
+        summary += f"\n_Linux orphan cap lowered from {max_linux_orphan_cancels} to {linux_cap}: the core budget is " \
+                   f"near its floor of {LINUX_CANCEL_BUDGET_FLOOR}._\n"
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
-               f"{len(orphans)} orphans, {github.calls} API calls._\n"
+               f"{len(orphans)} orphans, {len(linux_jobs)} Linux job listings, " \
+               f"{len(linux_orphans)} Linux orphans, {github.calls} API calls._\n"
+    if linux_job_reads:
+        totals = ", ".join(f"{listing}: {total}" for listing, total in github.old_run_totals.items())
+        ages = sorted(now - created for run_id in linux_jobs
+                      if (created := parse_time(next(r for r in orphan_runs if r["id"] == run_id).get("created_at"))))
+        span = f"created {format_age(ages[-1])} to {format_age(ages[0])} ago" if ages else "none"
+        summary += f"\n_Linux pass: {len(old_only)} old runs past the newest pages (created-before totals: {totals}; " \
+                   f"at most {RUN_LIST_RESULT_CAP} reachable each); read {len(linux_jobs)}, {span}._\n"
+        stuck_runs = [(run_id, sum(1 for job in jobs if never_assigned(job))) for run_id, jobs in linux_jobs.items()]
+        stuck_runs = [(run_id, count) for run_id, count in stuck_runs if count]
+        if stuck_runs:
+            urls = {run["id"]: run.get("html_url") for run in orphan_runs}
+            summary += "\n_Read runs holding unassigned jobs: " + ", ".join(
+                f"[{run_id}]({urls.get(run_id)}) ({count})" for run_id, count in stuck_runs[:15]) + "._\n"
+        for pool, (count, proven, oldest) in sorted(stuck_by_pool(linux_jobs, {**jobs_by_run, **linux_jobs},
+                                                                  min_age=orphan_age, now=now).items()):
+            summary += f"\n_`{pool or '(no labels)'}`: {count} job(s) queued past the orphan age, oldest " \
+                       f"{format_age(oldest)}; {proven} with a newer served job on the same labels, the rest wait " \
+                       f"for {format_age(GHOST_QUEUED_RUN_AGE)}._\n"
+    protected = linux_protected_runs(orphan_runs, linux_only, min_age=orphan_age, now=now)
+    if protected:
+        summary += f"\n_{len(protected)} Linux-only runs past the orphan age are protected, never read or cancelled: " \
+                   + ", ".join(f"[{run['id']}]({run.get('html_url')}) ({orphan_protected_reason(run)})"
+                               for run in protected[:20]) + "._\n"
     summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
     print(summary)
     if args.summary:

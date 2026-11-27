@@ -1,6 +1,6 @@
 // The agent question card answers from the keyboard and hands the answer to the host (Leo
 // 2026-10-19, the Claude app's AskUserQuestion card, "this is decent ui cmux next should have it").
-// A pending ask shows a "Needs your input" pill over a card with the question as its header; the
+// A pending ask is a card with the question as its header (folded, a "Needs your input" pill); the
 // card has the keyboard when it arrives on an empty composer, so arrows move between the options,
 // Enter and ⌘↩ submit, Esc skips the waiting ask, a
 // click chooses an option and Submit sends it, and a number key picks Other to type an answer. What the card sends is the
@@ -109,20 +109,26 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
     page.evaluate(() => document.activeElement?.closest(".acpmux-question") !== null);
 
   describe("agent question card", () => {
-    test("shows a Needs your input pill over a card headed by the question", async () => {
+    test("a question card is headed by the question under its bar; Dismiss folds it to a Needs your input pill", async () => {
+      // Every pending ask is one card (2026-11-24): a "Needs your input" bar with Dismiss over the
+      // question, numbered options, "Type your answer" as the custom row and Send. The pill shows
+      // only while the card is folded.
       const page = await pendingQuestion();
       const pill = page.locator(".acpmux-question-status");
-      expect((await pill.innerText()).trim()).toBe("Needs your input");
+      expect(await pill.count()).toBe(0);
+      expect((await page.locator(".acpmux-question-bar").innerText()).trim()).toContain("Needs your input");
       expect((await page.locator(".acpmux-question-prompt").innerText()).trim()).toBe(prompt);
       const labels = await page.locator(".acpmux-question-row .acpmux-question-label").allInnerTexts();
-      expect(labels).toEqual(["OAuth 2.0", "API keys", "Passkeys", "Other"]);
+      expect(labels).toEqual(["OAuth 2.0", "API keys", "Passkeys", "Type your answer"]);
       expect(await page.locator(".acpmux-question-row[role=radio]").count()).toBe(4);
-      expect((await page.locator(".acpmux-question-submit").innerText()).replace(/\s+/g, "")).toBe("Submit⌘↩");
+      // Send draws no keycaps (its ⌘↩ hint stays in the markup, hidden).
+      expect((await page.locator(".acpmux-question-submit").innerText()).replace(/\s+/g, "")).toBe("Send");
 
-      // The pill's chevron folds the card away and back; the ask stays pending and keeps the pick.
+      // Dismiss folds the card away and the pill brings it back; the ask stays pending and keeps the pick.
       await page.keyboard.press("ArrowDown");
-      await pill.click();
+      await page.locator(".acpmux-question-bar .ui-dismiss").click();
       expect(await pill.getAttribute("aria-expanded")).toBe("false");
+      expect((await pill.innerText()).trim()).toBe("Needs your input");
       expect(await page.locator(".acpmux-question").isVisible()).toBe(false);
       await pill.click();
       await page.locator(".acpmux-question").waitFor();
@@ -168,11 +174,11 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
     test("keyboard contract: Up/Down and Ctrl-N/P wrap, then bare Enter submits the focused option", async () => {
       const page = await pendingQuestion();
       await page.keyboard.press("ArrowUp");
-      expect(await highlighted(page)).toBe("Other");
+      expect(await highlighted(page)).toBe("Type your answer");
       await page.keyboard.press("ArrowDown");
       expect(await highlighted(page)).toBe("OAuth 2.0");
       await page.keyboard.press("Control+p");
-      expect(await highlighted(page)).toBe("Other");
+      expect(await highlighted(page)).toBe("Type your answer");
       await page.keyboard.press("Control+n");
       expect(await highlighted(page)).toBe("OAuth 2.0");
       await page.keyboard.press("Control+n");
@@ -338,6 +344,44 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
+    // Lucas, 2026-11-27: "a weird vertical layout shift on 'Type your answer', when clicking into that".
+    // The field had a 24 px least height around an 18 px line, and a textarea draws its words at the
+    // top of its box, so they rose 3 px when the button turned into the field.
+    test("clicking Type your answer keeps the words on the same line", async () => {
+      const page = await pendingQuestion();
+      const choice = page.locator(".acpmux-question-footer .acpmux-question-other-choice");
+      const label = await choice.locator(".acpmux-question-label").evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return { top: box.top, left: box.left, height: box.height };
+      });
+      await choice.click();
+      const field = await page.locator(".acpmux-question-footer textarea").evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          top: box.top + parseFloat(style.paddingTop) + parseFloat(style.borderTopWidth),
+          left: box.left + parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth),
+          height: box.height,
+          line: parseFloat(style.lineHeight),
+        };
+      });
+      expect(field.top).toBeCloseTo(label.top, 1);
+      expect(field.left).toBeCloseTo(label.left, 1);
+      expect(field.height).toBeCloseTo(field.line, 1);
+      await page.close();
+    });
+
+    test("option rows keep 4 px between them", async () => {
+      const page = await pendingQuestion();
+      const gaps = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".acpmux-question-body .acpmux-question-row")];
+        return rows.slice(1).map((row, i) => row.getBoundingClientRect().top - rows[i]!.getBoundingClientRect().bottom);
+      });
+      expect(gaps.length).toBeGreaterThan(0);
+      for (const gap of gaps) expect(gap).toBeCloseTo(4, 1);
+      await page.close();
+    });
+
     test("Other takes a typed answer, which ⌘↩ sends", async () => {
       const page = await pendingQuestion();
       await page.keyboard.press("4");
@@ -379,7 +423,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
     test("keyboard contract: Esc in Other skips the whole ask, including earlier answers", async () => {
       const page = await pendingQuestion("pending-4-questions");
       await page.keyboard.press("1");
-      expect(await page.locator(".acpmux-question-tab[aria-current=step]").innerText()).toBe("Platforms");
+      expect(await page.locator(".acpmux-question-position").innerText()).toBe("2 of 4");
       await page.keyboard.press("5");
       await page.locator(".acpmux-question-other textarea").waitFor();
       await page.keyboard.type("Tauri");
@@ -392,11 +436,13 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
 
     test("a new ask arrives unfolded even when the last one was folded", async () => {
       const page = await pendingQuestion();
-      await page.locator(".acpmux-question-status").click();
+      await page.locator(".acpmux-question-bar .ui-dismiss").click();
       expect(await page.locator(".acpmux-question").isVisible()).toBe(false);
+      expect(await page.locator(".acpmux-question-status").getAttribute("aria-expanded")).toBe("false");
       await page.locator(".acpmux-preview-controls select").selectOption("question-pending-multi");
       await page.locator(".acpmux-question-prompt", { hasText: "platforms" }).waitFor({ state: "attached" });
-      expect(await page.locator(".acpmux-question-status").getAttribute("aria-expanded")).toBe("true");
+      // Open, the card draws no pill.
+      expect(await page.locator(".acpmux-question-status").count()).toBe(0);
       expect(await page.locator(".acpmux-question").isVisible()).toBe(true);
       await page.close();
     });

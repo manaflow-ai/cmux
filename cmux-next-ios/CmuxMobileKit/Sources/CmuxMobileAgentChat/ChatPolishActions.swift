@@ -1,4 +1,5 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import AVFoundation
 import CmuxMobileDesign
 import CmuxSpinner
@@ -94,6 +95,9 @@ public enum AgentChatCopy: String, CaseIterable, Identifiable, Sendable {
                 case .message(_, let markdown):
                     let text = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !text.isEmpty { blocks.append("**Assistant:**\n" + text) }
+                case .steer(let message) where message.incoming == nil:
+                    let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty { blocks.append("**User:**\n" + text) }
                 case .tool(let call):
                     let title = call.title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
                     guard !title.isEmpty else { continue }
@@ -150,7 +154,7 @@ struct ChatCopyChoicesSheet: View {
                     Button("Done", systemImage: "checkmark") { dismiss() }
                 }
             }
-            .sensoryFeedback(.success, trigger: copied)
+            .cmuxMobileSensoryFeedback(.success, trigger: copied)
         }
         .presentationDetents([.medium, .large])
     }
@@ -160,13 +164,33 @@ struct ChatCopyChoicesSheet: View {
         failure = nil
         Task { @MainActor in
             do {
-                UIPasteboard.general.string = try await row.text(for: store)
+                UIPasteboard.general.string = try await Self.read(row, store: store)
                 copied = row
                 UIAccessibility.post(notification: .announcement, argument: String(localized: "Copied"))
             } catch {
-                failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                failure = UserFacingError.message(error, fallback: "Couldn't copy that.")
             }
             copying = nil
+        }
+    }
+
+    /// Reads the row's value, reading again on its own (1 s, 2 s, jittered) when the link
+    /// blipped: the person already asked for the copy, so asking them again would only repeat
+    /// it. A value the chat lacks (``AgentFeatureUnavailable`` with the link up) is said at once.
+    static func read(_ row: AgentChatCopy, store: AgentChatStore,
+                     backoff: AutoRetryBackoff = .standard, attempts: Int = 3) async throws -> String {
+        var retry = 0
+        while true {
+            do {
+                return try await row.text(for: store)
+            } catch let error as AgentFeatureUnavailable where !store.source.isOffline {
+                // The live source also wraps a dropped link as unavailable; `isOffline` tells them apart.
+                throw error
+            } catch {
+                retry += 1
+                guard retry < attempts, !Task.isCancelled else { throw error }
+                try await Task.sleep(for: backoff.delay(beforeRetry: retry - 1, unit: Double.random(in: 0...1)))
+            }
         }
     }
 }
@@ -294,7 +318,7 @@ struct ChatDisplaySettingsSheet: View {
                             .disabled(!settings.canZoomIn(system: system))
                             .accessibilityIdentifier("chat.display.zoomIn")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.cmuxPressFillTinted)
                     .font(.title2)
                     Button("Actual Size") { preferences.update(summary) { $0.zoomStep = 0 } }
                         .disabled(settings.zoomStep == 0)
@@ -367,7 +391,7 @@ public final class ChatTurnNavigator {
 
     func step(forward: Bool, store: AgentChatStore, surface: AgentChatSurface) {
         let turns = store.navigableTurns(bookmarkedOnly: bookmarkedOnly)
-        let reading = surface.scroller?.readingTurn(among: turns.map(\.id))
+        let reading = surface.scroller?.readingTurn(among: turns.map(\.rowKey))
         // The reader may have scrolled since the last step: the bar shows where they are.
         if let reading { position = reading.index }
         guard let index = Self.target(count: turns.count, reading: reading, forward: forward) else {
@@ -375,7 +399,7 @@ public final class ChatTurnNavigator {
             return
         }
         position = index
-        surface.scroller?.revealFindBlock(AgentChatFind.promptKey(turns[index].id), position: 0,
+        surface.scroller?.revealFindBlock(AgentChatFind.promptKey(turns[index].rowKey), position: 0,
                                           animated: !UIAccessibility.isReduceMotionEnabled)
     }
 }
@@ -426,7 +450,7 @@ struct ChatTurnBar: View {
         .font(.body)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .glassEffect(.regular, in: .capsule)
+        .cmuxMobileFloatingGlass(in: .capsule)
         .padding(.horizontal, 12)
     }
 

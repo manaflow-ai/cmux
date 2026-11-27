@@ -20,7 +20,11 @@ import {
   useSubsessionInfos,
   waitingLine,
 } from "../subagents/subsessions";
-import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { retryWords, sessionRetry, sessionRetryKey } from "../subagents/retryState";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
+import { ResumeControl } from "../subagents/ResumeControl";
+import { subsessionResumeRow } from "../subagents/resumeState";
+import { TurnActionsContext } from "./turnActions";
 import { useFindReveal } from "./chatFind";
 import { useStartedName } from "./startedNames";
 import { ToolGroup } from "./icons";
@@ -33,6 +37,7 @@ import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
 import { sessionLine } from "./subsessionCallCardModel";
+import { orderedCountWords } from "../session-info/subagentsSectionModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const toolActivity = (tool: Tool): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool });
@@ -45,10 +50,12 @@ export type StartedGroupEntry = {
 export function SubsessionCallCard({
   call,
   tool,
+  messageAt,
   group,
 }: {
   call?: SubsessionCall;
   tool?: Tool;
+  messageAt?: number;
   group?: readonly StartedGroupEntry[];
 }) {
   if (group) return <StartedGroup entries={group} />;
@@ -57,7 +64,7 @@ export function SubsessionCallCard({
     case "start":
       return <StartedCard call={call} tool={tool} />;
     case "send":
-      return <SentLine call={call} tool={tool} />;
+      return <SentLine call={call} tool={tool} messageAt={messageAt} />;
     case "wait":
     case "list":
       return <SessionCards call={call} tool={tool} />;
@@ -84,14 +91,11 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
     else if (child?.state === "done") done++;
     else if (entries[index]?.call.running) working = true;
   }
-  const status = [
-    waiting ? t("summary.subagents.waiting", { n: waiting }) : undefined,
-    failed ? t("summary.subagents.failed", { n: failed }) : undefined,
-    working ? t("subsession.state.working") : undefined,
-    children.length > 0 && done === children.length ? t("subagents.state.completed") : undefined,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const status = orderedCountWords(
+    { waiting, failed, running: working ? 1 : 0, done: children.length > 0 && done === children.length ? done : 0 },
+    t,
+    { words: { running: () => t("subsession.state.working"), done: () => t("subagents.state.completed") } },
+  ).join(" · ");
   return (
     <DisclosureRow
       disclosureKey={`subsession-group:${entries[0]?.tool.id}`}
@@ -136,6 +140,7 @@ function SessionCard({
   shown,
   disclosure = false,
   disclosureKey,
+  disclosureChevron,
   children,
 }: {
   tool: Tool;
@@ -150,6 +155,7 @@ function SessionCard({
   fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
   disclosure?: boolean;
   disclosureKey?: string;
+  disclosureChevron?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -157,11 +163,17 @@ function SessionCard({
   const findItems = useMemo(() => [toolActivity(tool)], [tool]);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
+  const actions = useContext(TurnActionsContext);
   // The card's retry, as every surface reads it (retryState.ts ``sessionRetry``): while acpmux
   // retries its failed turn, the card works, and its state says so. Its Retry is on its end line.
   const phase = live ? sessionRetry(live) : undefined;
   const retry = phase?.kind === "retrying" ? phase.retry : undefined;
+  // Its words wait out the shared bound (retryState.ts ``retryWords``): until then it reads working.
+  const retryText = retryWords(t, retry, sessionRetryKey(sessionId ?? ""), useConnectionQuietKeys());
   const state = retry ? "working" : (live?.state ?? fallback?.state);
+  // A stopped one says so and offers Resume, as a stopped helper's every row does (resumeState.ts):
+  // acpmux carries its chat on from where it stopped.
+  const stopped = !retry && live ? subsessionResumeRow(live) : undefined;
   const waiting = live ? live.waiting : fallback?.waiting;
   // A failed one says why (acpmux's lane error), a retry acpmux refused included.
   const doing = waiting ? waitingLine(t, waiting) : sessionLine(live?.doing, live?.error, state === "failed", shown);
@@ -172,12 +184,15 @@ function SessionCard({
       sessionId={sessionId}
       model={live?.model ?? model}
       state={state}
-      {...(retry && { stateLabel: retryLabel(t, retry) })}
+      {...(retryText !== undefined && { stateLabel: retryText })}
+      {...(stopped && { stateLabel: t("subagents.state.cancelled") })}
+      actions={stopped && <ResumeControl agent={stopped} actions={actions} />}
       slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}
       queued={live?.queued}
       disclosure={disclosure}
       disclosureKey={disclosureKey}
+      disclosureChevron={disclosureChevron}
       findItems={findItems}
       // The row is the session's name by its harness's mark, no "Started sub-session" in front of it
       // (design/chat-transcript.md: no narration, the icon names the type; transcript audit HQ#5154).
@@ -202,6 +217,7 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       fallback={call.running ? { state: "working" } : undefined}
       shown={call.prompt}
       disclosure={true}
+      disclosureChevron={false}
       disclosureKey={`subsession-start:${tool.id}`}
     >
       {call.prompt && <CardCopy text={call.prompt} />}
@@ -319,7 +335,15 @@ function deliveryText(t: Translate, delivery: SubsessionDelivery): string {
 
 /// "Sent message to tests" and the first line, the row a shell `acpmux send` draws too
 /// (SentMessageLine.tsx); it opens to the whole message and the call's Raw.
-function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send" }>; tool: Tool }) {
+function SentLine({
+  call,
+  tool,
+  messageAt,
+}: {
+  call: Extract<SubsessionCall, { tool: "send" }>;
+  tool: Tool;
+  messageAt?: number;
+}) {
   const t = useT();
   const live = useSubsessionInfo(call.sessionId);
   // Its name from the session list, else from the call that started it (a chat that left the list
@@ -329,6 +353,7 @@ function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send"
   return (
     <SentMessageLine
       tool={tool}
+      messageAt={messageAt}
       state={call.running ? "sending" : "sent"}
       target={live?.name ?? started ?? shortId(call.sessionId)}
       text={call.text}

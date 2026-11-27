@@ -132,137 +132,6 @@
         }
       }
     },
-    "addDevice.joinLine.showMachines": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عرض في الأجهزة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži u Mašinama"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis i Maskiner"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "In Rechnern zeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show in Machines"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar en Equipos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afficher dans Machines"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra in Computer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "マシンに表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញក្នុងម៉ាស៊ីន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "컴퓨터에서 보기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis i Maskiner"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż w Komputerach"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar em Máquinas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показать в списке компьютеров"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงในเครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Makinelerde Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показати в списку комп’ютерів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện trong Máy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在机器中显示"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在機器中顯示"
-          }
-        }
-      }
-    },
     "devices.join.confirmUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -652,137 +521,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "允許你團隊的機器控制這台 Mac"
-          }
-        }
-      }
-    },
-    "devices.join.revokeAll": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn Off Screen Sharing and Control"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إيقاف مشاركة الشاشة والتحكم"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Isključi dijeljenje ekrana i kontrolu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Slå skærmdeling og styring fra"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bildschirmfreigabe und Steuerung ausschalten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desactivar compartir pantalla y control"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Désactiver le partage d'écran et le contrôle"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Disattiva condivisione schermo e controllo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "画面共有と操作をオフにする"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទការចែករំលែកអេក្រង់ និងការគ្រប់គ្រង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "화면 공유 및 제어 끄기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Slå av skjermdeling og kontroll"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wyłącz udostępnianie ekranu i sterowanie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desativar compartilhamento de tela e controle"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выключить демонстрацию экрана и управление"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิดการแชร์หน้าจอและการควบคุม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekran Paylaşımını ve Denetimi Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вимкнути демонстрацію екрана й керування"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tắt chia sẻ màn hình và điều khiển"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭屏幕共享和控制"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉螢幕分享與控制"
           }
         }
       }
@@ -2097,6 +1835,137 @@
         }
       }
     },
+    "devices.join.screenSearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen sharing, share screen, see my screen, let my team see"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مشاركة الشاشة, مشاركة شاشتي, رؤية شاشتي, السماح لفريقي بالرؤية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dijeljenje ekrana, podijeli ekran, vidi moj ekran, dozvoli timu da vidi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "skærmdeling, del skærm, se min skærm, lad mit team se"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildschirmfreigabe, Bildschirm teilen, meinen Bildschirm sehen, mein Team sehen lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "compartir pantalla, pantalla compartida, ver mi pantalla, dejar que mi equipo vea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "partage d’écran, partager l’écran, voir mon écran, laisser mon équipe voir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "condivisione schermo, condividi schermo, vedere il mio schermo, lascia vedere al team"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "画面共有, 画面を共有, 画面を見る, チームに見せる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចែករំលែកអេក្រង់, ចែករំលែកអេក្រង់, មើលអេក្រង់របស់ខ្ញុំ, ឱ្យក្រុមមើល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "화면 공유, 화면 공유하기, 내 화면 보기, 팀에게 보여 주기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "skjermdeling, del skjerm, se skjermen min, la teamet se"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "udostępnianie ekranu, udostępnij ekran, zobacz mój ekran, pozwól zespołowi widzieć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "compartilhamento de tela, compartilhar tela, ver minha tela, deixar minha equipe ver"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "общий экран, демонстрация экрана, видеть мой экран, разрешить команде видеть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแชร์หน้าจอ, แชร์หน้าจอ, ดูหน้าจอของฉัน, ให้ทีมดู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ekran paylaşımı, ekranı paylaş, ekranımı gör, ekibimin görmesine izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "спільний екран, демонстрація екрана, бачити мій екран, дозволити команді бачити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "chia sẻ màn hình, chia sẻ màn hình của tôi, xem màn hình, cho nhóm xem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "屏幕共享, 共享屏幕, 查看我的屏幕, 让团队查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "螢幕共享, 共享螢幕, 查看我的螢幕, 讓團隊查看"
+          }
+        }
+      }
+    },
     "devices.join.controlHelp": {
       "extractionState": "manual",
       "localizations": {
@@ -2224,6 +2093,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "你團隊的機器可以在此移動指標和輸入"
+          }
+        }
+      }
+    },
+    "devices.join.controlSearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote control, let my team control, take control, mouse and keyboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التحكم عن بُعد, السماح لفريقي بالتحكم, تولي التحكم, الفأرة ولوحة المفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "daljinsko upravljanje, dozvoli timu upravljanje, preuzmi upravljanje, miš i tastatura"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fjernstyring, lad mit team styre, overtag styringen, mus og tastatur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fernsteuerung, mein Team steuern lassen, Steuerung übernehmen, Maus und Tastatur"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "control remoto, dejar que mi equipo controle, tomar el control, ratón y teclado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "contrôle à distance, laisser mon équipe contrôler, prendre le contrôle, souris et clavier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "controllo remoto, lascia controllare al team, prendere il controllo, mouse e tastiera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リモート操作, チームに操作させる, 操作を引き継ぐ, マウスとキーボード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការគ្រប់គ្រងពីចម្ងាយ, ឱ្យក្រុមគ្រប់គ្រង, គ្រប់គ្រង, កណ្ដុរ និងក្ដារចុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 제어, 팀이 제어하도록 허용, 제어권 가져오기, 마우스와 키보드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fjernstyring, la teamet styre, ta kontroll, mus og tastatur"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zdalne sterowanie, pozwól zespołowi sterować, przejmij sterowanie, mysz i klawiatura"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "controle remoto, deixar minha equipe controlar, assumir o controle, mouse e teclado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "удалённое управление, разрешить команде управлять, взять управление, мышь и клавиатура"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การควบคุมระยะไกล, ให้ทีมควบคุม, เข้าควบคุม, เมาส์และคีย์บอร์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uzaktan kontrol, ekibimin kontrol etmesine izin ver, kontrolü al, fare ve klavye"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "віддалене керування, дозволити команді керувати, перейняти керування, миша і клавіатура"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "điều khiển từ xa, cho nhóm điều khiển, nắm quyền điều khiển, chuột và bàn phím"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程控制, 让团队控制, 接管控制, 鼠标和键盘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端控制, 讓團隊控制, 接管控制, 滑鼠和鍵盤"
           }
         }
       }
@@ -3272,6 +3272,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "允許"
+          }
+        }
+      }
+    },
+    "devices.join.ask.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإعدادات…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavke…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indstillinger…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einstellungen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustes…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réglages…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impostazioni…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Innstillinger…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustawienia…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustes…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройки…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตั้งค่า…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayarlar…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài đặt…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定…"
           }
         }
       }
@@ -13883,6 +14014,2626 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "進階：透過 SSH 加入"
+          }
+        }
+      }
+    },
+    "devices.join.signedInMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your other Macs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أجهزة Mac الأخرى لديك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaši drugi Macovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine andre Mac'er"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine anderen Macs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tus otros Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vos autres Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I tuoi altri Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ほかの Mac"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac ផ្សេងទៀតរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 다른 Mac"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine andre Mac-er"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoje inne Maki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seus outros Macs"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваши другие Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องอื่นของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer Mac'leriniz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваші інші Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các máy Mac khác của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的其他 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的其他 Mac"
+          }
+        }
+      }
+    },
+    "devices.join.signedInMachinesHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your other Macs signed in to this account can open workspaces and terminals here"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن لأجهزة Mac الأخرى المسجّل دخولها إلى هذا الحساب فتح مساحات العمل والطرفيات هنا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaši drugi Macovi prijavljeni na ovaj račun mogu ovdje otvarati radne prostore i terminale"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine andre Mac'er, der er logget ind på denne konto, kan åbne arbejdsområder og terminaler her"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine anderen Macs mit diesem Konto öffnen hier Arbeitsbereiche und Terminals"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tus otros Mac con esta cuenta pueden abrir aquí espacios de trabajo y terminales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vos autres Mac connectés à ce compte ouvrent ici des espaces de travail et des terminaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli altri Mac connessi a questo account possono aprire qui spazi di lavoro e terminali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このアカウントでサインインしたほかの Mac が、ここでワークスペースとターミナルを開けます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac ផ្សេងទៀតដែលបានចូលគណនីនេះ អាចបើកកន្លែងធ្វើការ និងទែមីណាល់នៅទីនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 계정으로 로그인한 다른 Mac에서 여기에 워크스페이스와 터미널을 열 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine andre Mac-er som er logget på denne kontoen, kan åpne arbeidsområder og terminaler her"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoje inne Maki zalogowane na to konto mogą tu otwierać obszary robocze i terminale"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seus outros Macs conectados a esta conta podem abrir espaços de trabalho e terminais aqui"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваши другие Mac с этой учётной записью открывают здесь рабочие области и терминалы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องอื่นที่ลงชื่อเข้าบัญชีนี้เปิดพื้นที่ทำงานและเทอร์มินัลที่นี่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu hesapla oturum açmış diğer Mac'leriniz burada çalışma alanı ve terminal açabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваші інші Mac з цим обліковим записом відкривають тут робочі області й термінали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các máy Mac khác đăng nhập tài khoản này có thể mở không gian làm việc và terminal tại đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录此账户的其他 Mac 可以在这里打开工作区和终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入此帳號的其他 Mac 可以在這裡打開工作區和終端機"
+          }
+        }
+      }
+    },
+    "devices.join.signedInMachinesSearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "other macs, open workspaces, remote workspaces, same account"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أجهزة Mac الأخرى, فتح مساحات العمل, مساحات عمل عن بُعد, الحساب نفسه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "drugi Mac računari, otvori radne prostore, udaljeni radni prostori, isti račun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "andre Mac-computere, åbn arbejdsområder, eksterne arbejdsområder, samme konto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "andere Macs, Arbeitsbereiche öffnen, entfernte Arbeitsbereiche, gleiches Konto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "otros Mac, abrir espacios de trabajo, espacios de trabajo remotos, misma cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "autres Mac, ouvrir des espaces de travail, espaces de travail distants, même compte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "altri Mac, aprire spazi di lavoro, spazi di lavoro remoti, stesso account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ほかのMac, ワークスペースを開く, リモートワークスペース, 同じアカウント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac ផ្សេងទៀត, បើកកន្លែងធ្វើការ, កន្លែងធ្វើការពីចម្ងាយ, គណនីដូចគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 Mac, 워크스페이스 열기, 원격 워크스페이스, 같은 계정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "andre Mac-maskiner, åpne arbeidsområder, eksterne arbeidsområder, samme konto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "inne Maki, otwieranie obszarów roboczych, zdalne obszary robocze, to samo konto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "outros Macs, abrir espaços de trabalho, espaços de trabalho remotos, mesma conta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "другие Mac, открыть рабочие пространства, удалённые рабочие пространства, тот же аккаунт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องอื่น, เปิดพื้นที่ทำงาน, พื้นที่ทำงานระยะไกล, บัญชีเดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "diğer Mac’ler, çalışma alanlarını aç, uzak çalışma alanları, aynı hesap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "інші Mac, відкрити робочі простори, віддалені робочі простори, той самий обліковий запис"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "các máy Mac khác, mở không gian làm việc, không gian làm việc từ xa, cùng tài khoản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他 Mac, 打开工作区, 远程工作区, 同一账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他 Mac, 開啟工作區, 遠端工作區, 同一帳號"
+          }
+        }
+      }
+    },
+    "devices.join.confirm.signedInMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow your other Macs signed in to this account to open workspaces on this Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح لأجهزة Mac الأخرى المسجّل دخولها إلى هذا الحساب بفتح مساحات عمل على هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dozvoli vašim drugim Macovima prijavljenim na ovaj račun da otvaraju radne prostore na ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "lade dine andre Mac'er, der er logget ind på denne konto, åbne arbejdsområder på denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "deinen anderen Macs mit diesem Konto erlauben, auf diesem Mac Arbeitsbereiche zu öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "permitir que tus otros Mac con esta cuenta abran espacios de trabajo en este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "autoriser vos autres Mac connectés à ce compte à ouvrir des espaces de travail sur ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "consentire agli altri Mac connessi a questo account di aprire spazi di lavoro su questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このアカウントでサインインしたほかの Mac がこの Mac でワークスペースを開くことを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ Mac ផ្សេងទៀតដែលបានចូលគណនីនេះ បើកកន្លែងធ្វើការនៅលើ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 계정으로 로그인한 다른 Mac이 이 Mac에 워크스페이스를 열도록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la dine andre Mac-er som er logget på denne kontoen, åpne arbeidsområder på denne Mac-en"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "pozwolić innym Makom zalogowanym na to konto otwierać obszary robocze na tym Maku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "permitir que seus outros Macs conectados a esta conta abram espaços de trabalho neste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "разрешить другим Mac с этой учётной записью открывать рабочие области на этом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตให้ Mac เครื่องอื่นที่ลงชื่อเข้าบัญชีนี้เปิดพื้นที่ทำงานบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu hesapla oturum açmış diğer Mac'lerinizin bu Mac'te çalışma alanı açmasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "дозволити іншим Mac з цим обліковим записом відкривати робочі області на цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cho phép các máy Mac khác đăng nhập tài khoản này mở không gian làm việc trên máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许登录此账户的其他 Mac 在这台 Mac 上打开工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許登入此帳號的其他 Mac 在這台 Mac 上打開工作區"
+          }
+        }
+      }
+    },
+    "devices.join.ask.otherMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One of your other Macs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أحد أجهزة Mac الأخرى لديك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedan od vaših drugih Macova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En af dine andre Mac'er"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einer deiner anderen Macs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uno de tus otros Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un de vos autres Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uno dei tuoi altri Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ほかの Mac のいずれか"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac មួយក្នុងចំណោម Mac ផ្សេងទៀតរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 다른 Mac 중 하나"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En av dine andre Mac-er"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeden z Twoich innych Maków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um dos seus outros Macs"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один из ваших других Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องอื่นของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer Mac'lerinizden biri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один з ваших інших Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một máy Mac khác của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的另一台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的另一台 Mac"
+          }
+        }
+      }
+    },
+    "devices.join.ask.signedInMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ asked to open a workspace on this Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلب %@ فتح مساحة عمل على هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ je tražio da otvori radni prostor na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bad om at åbne et arbejdsområde på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ möchte auf diesem Mac einen Arbeitsbereich öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ pidió abrir un espacio de trabajo en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ a demandé à ouvrir un espace de travail sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ha chiesto di aprire uno spazio di lavoro su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ がこの Mac でワークスペースを開くことを求めています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ បានស្នើសុំបើកកន្លែងធ្វើការនៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 이 Mac에 워크스페이스를 열려고 요청했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ba om å åpne et arbeidsområde på denne Mac-en."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ prosi o otwarcie obszaru roboczego na tym Maku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ pediu para abrir um espaço de trabalho neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ просит открыть рабочую область на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ขอเปิดพื้นที่ทำงานบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bu Mac'te bir çalışma alanı açmak istedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ просить відкрити робочу область на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ đã yêu cầu mở một không gian làm việc trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 请求在这台 Mac 上打开工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 要求在這台 Mac 上打開工作區。"
+          }
+        }
+      }
+    },
+    "devices.join.ask.signedInMachinesQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow your other Macs signed in to this account to open workspaces here?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تسمح لأجهزة Mac الأخرى المسجّل دخولها إلى هذا الحساب بفتح مساحات عمل هنا؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoliti vašim drugim Macovima prijavljenim na ovaj račun da ovdje otvaraju radne prostore?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du lade dine andre Mac'er, der er logget ind på denne konto, åbne arbejdsområder her?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deinen anderen Macs mit diesem Konto erlauben, hier Arbeitsbereiche zu öffnen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Permitir que tus otros Mac con esta cuenta abran espacios de trabajo aquí?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser vos autres Mac connectés à ce compte à ouvrir des espaces de travail ici ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consentire agli altri Mac connessi a questo account di aprire spazi di lavoro qui?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このアカウントでサインインしたほかの Mac が、ここでワークスペースを開くことを許可しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ Mac ផ្សេងទៀតដែលបានចូលគណនីនេះ បើកកន្លែងធ្វើការនៅទីនេះឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 계정으로 로그인한 다른 Mac이 여기에 워크스페이스를 열도록 허용할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vil du la dine andre Mac-er som er logget på denne kontoen, åpne arbeidsområder her?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwolić innym Makom zalogowanym na to konto na otwieranie tu obszarów roboczych?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que seus outros Macs conectados a esta conta abram espaços de trabalho aqui?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить другим Mac с этой учётной записью открывать здесь рабочие области?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตให้ Mac เครื่องอื่นที่ลงชื่อเข้าบัญชีนี้เปิดพื้นที่ทำงานที่นี่หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu hesapla oturum açmış diğer Mac'lerinizin burada çalışma alanı açmasına izin verilsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити іншим Mac з цим обліковим записом відкривати тут робочі області?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép các máy Mac khác đăng nhập tài khoản này mở không gian làm việc tại đây?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许登录此账户的其他 Mac 在这里打开工作区吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許登入此帳號的其他 Mac 在這裡打開工作區嗎？"
+          }
+        }
+      }
+    },
+    "devices.join.ask.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ليس الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ne sada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht jetzt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ahora no"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pas maintenant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "今はしない"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនមែនឥឡូវនេះទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "나중에"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie teraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agora não"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не сейчас"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ใช่ตอนนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şimdi değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не зараз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Để sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "以后再说"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "以後再說"
+          }
+        }
+      }
+    },
+    "devices.join.revokeAllSurfaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn All Off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف الكل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isključi sve"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå alt fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle ausschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivar todo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tout désactiver"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattiva tutto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべてオフにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모두 끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå av alt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyłącz wszystko"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desativar tudo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выключить всё"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tümünü kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимкнути все"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt tất cả"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全部关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全部關閉"
+          }
+        }
+      }
+    },
+    "devices.join.notRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux's background service isn't running, so Mac Screen is refused."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خدمة cmux في الخلفية لا تعمل، لذا يُرفض Mac Screen."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadinska usluga cmux-a ne radi, pa je Mac Screen odbijen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux' baggrundstjeneste kører ikke, så Mac Screen afvises."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Hintergrunddienst von cmux läuft nicht, daher wird Mac Screen abgelehnt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El servicio en segundo plano de cmux no se está ejecutando, así que Mac Screen se rechaza."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le service d'arrière-plan de cmux ne tourne pas, donc Mac Screen est refusé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il servizio in background di cmux non è in esecuzione, quindi Mac Screen viene rifiutato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxのバックグラウンドサービスが動作していないため、Mac Screenは拒否されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux មិនកំពុងដំណើរការទេ ដូច្នេះ Mac Screen ត្រូវបានបដិសេធ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux의 백그라운드 서비스가 실행되고 있지 않아 Mac Screen은 거부됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunnstjenesten til cmux kjører ikke, så Mac Screen avvises."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usługa w tle cmux nie działa, więc Mac Screen jest odrzucany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O serviço em segundo plano do cmux não está em execução, então o Mac Screen é recusado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фоновая служба cmux не запущена, поэтому Mac Screen отклоняется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บริการเบื้องหลังของ cmux ไม่ได้ทำงาน Mac Screen จึงถูกปฏิเสธ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un arka plan hizmeti çalışmıyor, bu yüzden Mac Screen reddedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фонова служба cmux не працює, тому Mac Screen відхиляється."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dịch vụ nền của cmux không chạy nên Mac Screen bị từ chối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 的后台服务未运行，因此 Mac Screen 会被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 的背景服務未執行，因此 Mac Screen 會被拒絕。"
+          }
+        }
+      }
+    },
+    "devices.join.refusedDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux doesn't trust the program answering for its background service, so Mac Screen is refused."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يثق cmux بالبرنامج الذي يجيب بدلًا من خدمته في الخلفية، لذا يُرفض Mac Screen."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne vjeruje programu koji se javlja umjesto njegove pozadinske usluge, pa je Mac Screen odbijen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux stoler ikke på det program, der svarer for dens baggrundstjeneste, så Mac Screen afvises."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux vertraut dem Programm nicht, das für seinen Hintergrunddienst antwortet, daher wird Mac Screen abgelehnt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no confía en el programa que responde por su servicio en segundo plano, así que Mac Screen se rechaza."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne fait pas confiance au programme qui répond pour son service d'arrière-plan, donc Mac Screen est refusé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non si fida del programma che risponde per il suo servizio in background, quindi Mac Screen viene rifiutato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxはバックグラウンドサービスとして応答しているプログラムを信頼していないため、Mac Screenは拒否されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនទុកចិត្តកម្មវិធីដែលឆ្លើយតបជំនួសសេវាកម្មផ្ទៃខាងក្រោយរបស់វាទេ ដូច្នេះ Mac Screen ត្រូវបានបដិសេធ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 백그라운드 서비스 대신 응답하는 프로그램을 신뢰하지 않아 Mac Screen은 거부됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux stoler ikke på programmet som svarer for bakgrunnstjenesten, så Mac Screen avvises."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie ufa programowi, który odpowiada za jego usługę w tle, więc Mac Screen jest odrzucany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não confia no programa que responde pelo seu serviço em segundo plano, então o Mac Screen é recusado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не доверяет программе, отвечающей вместо его фоновой службы, поэтому Mac Screen отклоняется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ไม่เชื่อถือโปรแกรมที่ตอบแทนบริการเบื้องหลังของตน Mac Screen จึงถูกปฏิเสธ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, arka plan hizmeti adına yanıt veren programa güvenmiyor, bu yüzden Mac Screen reddedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не довіряє програмі, яка відповідає замість його фонової служби, тому Mac Screen відхиляється."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không tin chương trình đang trả lời thay cho dịch vụ nền của nó nên Mac Screen bị từ chối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 不信任替其后台服务应答的程序，因此 Mac Screen 会被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 不信任代替其背景服務回應的程式，因此 Mac Screen 會被拒絕。"
+          }
+        }
+      }
+    },
+    "devices.join.noAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux's background service did not answer, so cmux can't read what this Mac allows. Mac Screen is refused until it can."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تُجب خدمة cmux في الخلفية، لذا لا يمكن لـ cmux قراءة ما يسمح به جهاز Mac هذا. يُرفض Mac Screen حتى يتمكن من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadinska usluga cmux-a nije odgovorila, pa cmux ne može pročitati šta ovaj Mac dozvoljava. Mac Screen je odbijen dok to ne bude mogao."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux' baggrundstjeneste svarede ikke, så cmux kan ikke læse, hvad denne Mac tillader. Mac Screen afvises, indtil den kan."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Hintergrunddienst von cmux hat nicht geantwortet, daher kann cmux nicht lesen, was dieser Mac erlaubt. Mac Screen wird abgelehnt, bis es das kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El servicio en segundo plano de cmux no respondió, así que cmux no puede leer lo que este Mac permite. Mac Screen se rechaza hasta que pueda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le service d'arrière-plan de cmux n'a pas répondu, cmux ne peut donc pas lire ce que ce Mac autorise. Mac Screen est refusé jusqu'à ce qu'il le puisse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il servizio in background di cmux non ha risposto, quindi cmux non può leggere cosa consente questo Mac. Mac Screen viene rifiutato finché non potrà farlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxのバックグラウンドサービスが応答しなかったため、cmuxはこのMacが許可している内容を読み取れません。読み取れるまでMac Screenは拒否されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux មិនបានឆ្លើយតបទេ ដូច្នេះ cmux មិនអាចអានអ្វីដែល Mac នេះអនុញ្ញាតបានទេ។ Mac Screen ត្រូវបានបដិសេធរហូតដល់វាអាចអានបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux의 백그라운드 서비스가 응답하지 않아 cmux가 이 Mac이 허용하는 항목을 읽을 수 없습니다. 읽을 수 있을 때까지 Mac Screen은 거부됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunnstjenesten til cmux svarte ikke, så cmux kan ikke lese hva denne Macen tillater. Mac Screen avvises til den kan."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usługa w tle cmux nie odpowiedziała, więc cmux nie może odczytać, na co ten Mac zezwala. Mac Screen jest odrzucany, dopóki nie będzie mógł."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O serviço em segundo plano do cmux não respondeu, então o cmux não consegue ler o que este Mac permite. O Mac Screen é recusado até que consiga."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фоновая служба cmux не ответила, поэтому cmux не может прочитать, что разрешает этот Mac. Mac Screen отклоняется, пока он не сможет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บริการเบื้องหลังของ cmux ไม่ตอบ cmux จึงอ่านไม่ได้ว่า Mac เครื่องนี้อนุญาตอะไร Mac Screen จะถูกปฏิเสธจนกว่าจะอ่านได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un arka plan hizmeti yanıt vermedi, bu yüzden cmux bu Mac'in neye izin verdiğini okuyamıyor. Okuyabilene kadar Mac Screen reddedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фонова служба cmux не відповіла, тому cmux не може прочитати, що дозволяє цей Mac. Mac Screen відхиляється, доки він не зможе."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dịch vụ nền của cmux không trả lời nên cmux không đọc được máy Mac này cho phép gì. Mac Screen bị từ chối cho đến khi đọc được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 的后台服务没有应答，因此 cmux 无法读取这台 Mac 允许的内容。在能读取之前，Mac Screen 会被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 的背景服務沒有回應，因此 cmux 無法讀取這台 Mac 允許的內容。在能讀取之前，Mac Screen 會被拒絕。"
+          }
+        }
+      }
+    },
+    "devices.join.olderDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An older copy of cmux's background service is running, so cmux can't read what this Mac allows. Quit it so cmux runs its own."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل نسخة أقدم من خدمة cmux في الخلفية، لذا لا يمكن لـ cmux قراءة ما يسمح به جهاز Mac هذا. أنهِها كي يشغّل cmux نسخته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radi starija kopija pozadinske usluge cmux-a, pa cmux ne može pročitati šta ovaj Mac dozvoljava. Zatvorite je da cmux pokrene svoju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ældre kopi af cmux' baggrundstjeneste kører, så cmux kan ikke læse, hvad denne Mac tillader. Afslut den, så cmux kører sin egen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine ältere Kopie des Hintergrunddienstes von cmux läuft, daher kann cmux nicht lesen, was dieser Mac erlaubt. Beende sie, damit cmux seinen eigenen ausführt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se está ejecutando una copia anterior del servicio en segundo plano de cmux, así que cmux no puede leer lo que este Mac permite. Ciérrala para que cmux ejecute el suyo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une ancienne copie du service d'arrière-plan de cmux est en cours d'exécution, cmux ne peut donc pas lire ce que ce Mac autorise. Quittez-la pour que cmux lance le sien."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "È in esecuzione una copia più vecchia del servizio in background di cmux, quindi cmux non può leggere cosa consente questo Mac. Chiudila perché cmux avvii il proprio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxのバックグラウンドサービスの古いコピーが動作しているため、cmuxはこのMacが許可している内容を読み取れません。終了すると、cmuxが自身のサービスを起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ច្បាប់ចម្លងចាស់ជាងនៃសេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux កំពុងដំណើរការ ដូច្នេះ cmux មិនអាចអានអ្វីដែល Mac នេះអនុញ្ញាតបានទេ។ បិទវា ដើម្បីឱ្យ cmux ដំណើរការរបស់ខ្លួនវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 백그라운드 서비스의 이전 사본이 실행 중이어서 cmux가 이 Mac이 허용하는 항목을 읽을 수 없습니다. 종료하면 cmux가 자체 서비스를 실행합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En eldre kopi av bakgrunnstjenesten til cmux kjører, så cmux kan ikke lese hva denne Macen tillater. Avslutt den så cmux kjører sin egen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Działa starsza kopia usługi w tle cmux, więc cmux nie może odczytać, na co ten Mac zezwala. Zamknij ją, aby cmux uruchomił własną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma cópia mais antiga do serviço em segundo plano do cmux está em execução, então o cmux não consegue ler o que este Mac permite. Encerre-a para que o cmux execute o seu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущена более старая копия фоновой службы cmux, поэтому cmux не может прочитать, что разрешает этот Mac. Завершите её, чтобы cmux запустил свою."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สำเนาที่เก่ากว่าของบริการเบื้องหลังของ cmux กำลังทำงานอยู่ cmux จึงอ่านไม่ได้ว่า Mac เครื่องนี้อนุญาตอะไร ปิดมันเพื่อให้ cmux เรียกใช้ของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un arka plan hizmetinin daha eski bir kopyası çalışıyor, bu yüzden cmux bu Mac'in neye izin verdiğini okuyamıyor. cmux'un kendisininkini çalıştırması için onu kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Працює старіша копія фонової служби cmux, тому cmux не може прочитати, що дозволяє цей Mac. Закрийте її, щоб cmux запустив свою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một bản cũ hơn của dịch vụ nền cmux đang chạy nên cmux không đọc được máy Mac này cho phép gì. Hãy thoát nó để cmux chạy bản của chính mình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在运行 cmux 后台服务的一个较旧副本，因此 cmux 无法读取这台 Mac 允许的内容。退出它，让 cmux 运行自己的服务。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在執行 cmux 背景服務的一個較舊副本，因此 cmux 無法讀取這台 Mac 允許的內容。結束它，讓 cmux 執行自己的服務。"
+          }
+        }
+      }
+    },
+    "devices.join.otherDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another copy of cmux's background service is running (%@), so these can't change. Quit it so cmux runs its own."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل نسخة أخرى من خدمة cmux في الخلفية (%@)، لذا لا يمكن تغيير هذه. أنهِها كي يشغّل cmux نسخته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radi druga kopija pozadinske usluge cmux-a (%@), pa se ovo ne može promijeniti. Zatvorite je da cmux pokrene svoju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En anden kopi af cmux' baggrundstjeneste kører (%@), så disse kan ikke ændres. Afslut den, så cmux kører sin egen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine andere Kopie des Hintergrunddienstes von cmux läuft (%@), daher können diese nicht geändert werden. Beende sie, damit cmux seinen eigenen ausführt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se está ejecutando otra copia del servicio en segundo plano de cmux (%@), así que no se pueden cambiar. Ciérrala para que cmux ejecute el suyo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une autre copie du service d'arrière-plan de cmux est en cours d'exécution (%@) : ces réglages ne peuvent pas changer. Quittez-la pour que cmux lance le sien."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "È in esecuzione un'altra copia del servizio in background di cmux (%@), quindi queste impostazioni non possono cambiare. Chiudila perché cmux avvii il proprio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxのバックグラウンドサービスの別のコピーが動作しているため（%@）、これらは変更できません。終了すると、cmuxが自身のサービスを起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ច្បាប់ចម្លងមួយផ្សេងទៀតនៃសេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux កំពុងដំណើរការ (%@) ដូច្នេះការកំណត់ទាំងនេះមិនអាចផ្លាស់ប្តូរបានទេ។ បិទវា ដើម្បីឱ្យ cmux ដំណើរការរបស់ខ្លួនវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 백그라운드 서비스의 다른 사본이 실행 중이어서(%@) 이 항목을 변경할 수 없습니다. 종료하면 cmux가 자체 서비스를 실행합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En annen kopi av bakgrunnstjenesten til cmux kjører (%@), så disse kan ikke endres. Avslutt den så cmux kjører sin egen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Działa inna kopia usługi w tle cmux (%@), więc nie można tego zmienić. Zamknij ją, aby cmux uruchomił własną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Outra cópia do serviço em segundo plano do cmux está em execução (%@), então isso não pode mudar. Encerre-a para que o cmux execute o seu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запущена другая копия фоновой службы cmux (%@), поэтому это нельзя изменить. Завершите её, чтобы cmux запустил свою."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สำเนาอื่นของบริการเบื้องหลังของ cmux กำลังทำงานอยู่ (%@) จึงเปลี่ยนค่าเหล่านี้ไม่ได้ ปิดมันเพื่อให้ cmux เรียกใช้ของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un arka plan hizmetinin başka bir kopyası çalışıyor (%@), bu yüzden bunlar değiştirilemez. cmux'un kendisininkini çalıştırması için onu kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Працює інша копія фонової служби cmux (%@), тому це не можна змінити. Закрийте її, щоб cmux запустив свою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một bản khác của dịch vụ nền cmux đang chạy (%@) nên không thể thay đổi những mục này. Hãy thoát nó để cmux chạy bản của chính mình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在运行 cmux 后台服务的另一个副本（%@），因此这些无法更改。退出它，让 cmux 运行自己的服务。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在執行 cmux 背景服務的另一個副本（%@），因此這些無法變更。結束它，讓 cmux 執行自己的服務。"
+          }
+        }
+      }
+    },
+    "devices.join.notProven": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not prove it's you to its background service, so these can't change. Quit and reopen cmux to try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux أن يُثبت لخدمته في الخلفية أنك أنت، لذا لا يمكن تغيير هذه. أنهِ cmux وأعد فتحه للمحاولة مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao dokazati svojoj pozadinskoj usluzi da ste to vi, pa se ovo ne može promijeniti. Zatvorite i ponovo otvorite cmux da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke bevise over for sin baggrundstjeneste, at det er dig, så disse kan ikke ændres. Afslut og åbn cmux igen for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte seinem Hintergrunddienst nicht nachweisen, dass du es bist, daher können diese nicht geändert werden. Beende cmux und öffne es erneut, um es noch einmal zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo demostrar a su servicio en segundo plano que eres tú, así que no se pueden cambiar. Cierra y vuelve a abrir cmux para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n'a pas pu prouver à son service d'arrière-plan que c'est bien vous, ces réglages ne peuvent donc pas changer. Quittez et rouvrez cmux pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è riuscito a dimostrare al suo servizio in background che sei tu, quindi queste impostazioni non possono cambiare. Chiudi e riapri cmux per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxはバックグラウンドサービスに対してあなた本人であることを証明できなかったため、これらは変更できません。cmuxを終了して再度開き、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចបញ្ជាក់ទៅសេវាកម្មផ្ទៃខាងក្រោយរបស់វាថាជាអ្នកបានទេ ដូច្នេះការកំណត់ទាំងនេះមិនអាចផ្លាស់ប្តូរបានទេ។ បិទ ហើយបើក cmux ម្តងទៀត ដើម្បីព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 백그라운드 서비스에 본인임을 증명하지 못해 이 항목을 변경할 수 없습니다. cmux를 종료했다가 다시 열어 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke bevise overfor bakgrunnstjenesten sin at det er deg, så disse kan ikke endres. Avslutt og åpne cmux på nytt for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł udowodnić swojej usłudze w tle, że to Ty, więc nie można tego zmienić. Zamknij i ponownie otwórz cmux, aby spróbować ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu provar ao seu serviço em segundo plano que é você, então isso não pode mudar. Encerre e abra o cmux de novo para tentar outra vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не смог доказать своей фоновой службе, что это вы, поэтому это нельзя изменить. Закройте и снова откройте cmux, чтобы попробовать ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux พิสูจน์ต่อบริการเบื้องหลังของตนไม่ได้ว่าเป็นคุณ จึงเปลี่ยนค่าเหล่านี้ไม่ได้ ปิดแล้วเปิด cmux ใหม่เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, arka plan hizmetine siz olduğunuzu kanıtlayamadı, bu yüzden bunlar değiştirilemez. Yeniden denemek için cmux'u kapatıp yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не зміг довести своїй фоновій службі, що це ви, тому це не можна змінити. Закрийте й знову відкрийте cmux, щоб спробувати ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không chứng minh được với dịch vụ nền của nó rằng đó là bạn nên không thể thay đổi những mục này. Hãy thoát và mở lại cmux để thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法向其后台服务证明是你本人，因此这些无法更改。退出并重新打开 cmux 后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法向其背景服務證明是你本人，因此這些無法變更。結束並重新開啟 cmux 後再試一次。"
+          }
+        }
+      }
+    },
+    "devices.join.personOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only a click by the person at this Mac can allow this."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن السماح بهذا إلا بنقرة من الشخص الموجود على جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo može dozvoliti samo klik osobe za ovim Macom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun et klik fra personen ved denne Mac kan tillade dette."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur ein Klick der Person an diesem Mac kann dies erlauben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo un clic de la persona que está en este Mac puede permitir esto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seul un clic de la personne devant ce Mac peut autoriser ceci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo un clic della persona davanti a questo Mac può consentirlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "これを許可できるのは、このMacの前にいる人のクリックだけです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែការចុចដោយមនុស្សនៅ Mac នេះប៉ុណ្ណោះដែលអាចអនុញ្ញាតការនេះបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac 앞에 있는 사람의 클릭만 이것을 허용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare et klikk fra personen ved denne Macen kan tillate dette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na to może zezwolić tylko kliknięcie osoby przy tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só um clique da pessoa neste Mac pode permitir isso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить это может только щелчок человека за этим Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงการคลิกของผู้ที่อยู่ที่ Mac เครื่องนี้เท่านั้นที่อนุญาตสิ่งนี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buna yalnızca bu Mac'in başındaki kişinin tıklaması izin verebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити це може лише клацання людини за цим Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ cú nhấp của người đang ngồi ở máy Mac này mới cho phép được việc này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有这台 Mac 前的人亲自点按才能允许此操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有這台 Mac 前的人親自點按才能允許此操作。"
+          }
+        }
+      }
+    },
+    "devices.join.notJoined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still off: this Mac is not joined to a team, or its join was revoked."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال متوقفًا: جهاز Mac هذا غير منضم إلى فريق، أو أُلغي انضمامه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I dalje isključeno: ovaj Mac nije pridružen timu ili mu je pridruživanje opozvano."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stadig slået fra: denne Mac er ikke tilknyttet et team, eller dens tilknytning er tilbagekaldt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiterhin aus: Dieser Mac ist keinem Team beigetreten, oder sein Beitritt wurde widerrufen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigue desactivado: este Mac no está unido a un equipo o se revocó su unión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours désactivé : ce Mac n'a rejoint aucune équipe, ou son adhésion a été révoquée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora disattivato: questo Mac non è unito a un team, oppure la sua unione è stata revocata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフのままです: このMacはチームに参加していないか、参加が取り消されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែបិទ៖ Mac នេះមិនបានចូលរួមក្រុមទេ ឬការចូលរួមរបស់វាត្រូវបានដកហូត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여전히 꺼짐: 이 Mac이 팀에 참여하지 않았거나 참여가 취소되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsatt av: denne Macen er ikke med i et team, eller medlemskapet er trukket tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal wyłączone: ten Mac nie dołączył do zespołu albo jego dołączenie zostało cofnięte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda desativado: este Mac não entrou em uma equipe, ou a entrada foi revogada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё ещё выключено: этот Mac не присоединён к команде, или его присоединение отозвано."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังปิดอยู่: Mac เครื่องนี้ไม่ได้เข้าร่วมทีม หรือการเข้าร่วมถูกเพิกถอนแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hâlâ kapalı: bu Mac bir ekibe katılmadı ya da katılımı iptal edildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі вимкнено: цей Mac не приєднано до команди, або його приєднання відкликано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn tắt: máy Mac này chưa tham gia nhóm nào, hoặc việc tham gia đã bị thu hồi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍为关闭：这台 Mac 未加入团队，或其加入已被撤销。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍為關閉：這台 Mac 未加入團隊，或其加入已被撤銷。"
+          }
+        }
+      }
+    },
+    "devices.join.changedMeanwhile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still off: the Labs switch or the settings changed while it was being turned on. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال متوقفًا: تغيّر مفتاح Labs أو الإعدادات أثناء تشغيله. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I dalje isključeno: prekidač u Labs ili postavke su se promijenili dok se uključivalo. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stadig slået fra: Labs-kontakten eller indstillingerne ændrede sig, mens den blev slået til. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiterhin aus: Der Labs-Schalter oder die Einstellungen haben sich beim Einschalten geändert. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigue desactivado: el interruptor de Labs o los ajustes cambiaron mientras se activaba. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours désactivé : l'interrupteur Labs ou les réglages ont changé pendant l'activation. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora disattivato: l'interruttore Labs o le impostazioni sono cambiati durante l'attivazione. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフのままです: オンにしている間にLabsのスイッチまたは設定が変わりました。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែបិទ៖ កុងតាក់ Labs ឬការកំណត់បានផ្លាស់ប្តូរ ពេលកំពុងបើក។ សូមព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여전히 꺼짐: 켜는 동안 Labs 스위치나 설정이 바뀌었습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsatt av: Labs-bryteren eller innstillingene endret seg mens den ble slått på. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal wyłączone: przełącznik Labs lub ustawienia zmieniły się podczas włączania. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda desativado: a chave do Labs ou os ajustes mudaram enquanto era ativado. Tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё ещё выключено: переключатель Labs или настройки изменились во время включения. Попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังปิดอยู่: สวิตช์ Labs หรือการตั้งค่าเปลี่ยนไประหว่างที่กำลังเปิด ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hâlâ kapalı: açılırken Labs anahtarı veya ayarlar değişti. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі вимкнено: перемикач Labs або налаштування змінилися під час увімкнення. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn tắt: công tắc Labs hoặc cài đặt đã thay đổi trong lúc bật. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍为关闭：开启过程中 Labs 开关或设置发生了变化。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍為關閉：開啟過程中 Labs 開關或設定有所變更。請再試一次。"
+          }
+        }
+      }
+    },
+    "devices.join.confirmCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still off: Touch ID or your login password was cancelled, so this Mac could not confirm it was you."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال متوقفًا: أُلغي Touch ID أو كلمة سر تسجيل الدخول، فلم يتمكن جهاز Mac هذا من التأكد من أنك أنت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I dalje isključeno: Touch ID ili lozinka za prijavu su otkazani, pa ovaj Mac nije mogao potvrditi da ste to vi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stadig slået fra: Touch ID eller din login-adgangskode blev annulleret, så denne Mac kunne ikke bekræfte, at det var dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiterhin aus: Touch ID oder dein Anmeldepasswort wurde abgebrochen, daher konnte dieser Mac nicht bestätigen, dass du es bist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigue desactivado: se canceló Touch ID o la contraseña de inicio de sesión, así que este Mac no pudo confirmar que eras tú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours désactivé : Touch ID ou votre mot de passe de session a été annulé, ce Mac n'a donc pas pu confirmer que c'était vous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora disattivato: Touch ID o la password di login sono stati annullati, quindi questo Mac non ha potuto confermare che eri tu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフのままです: Touch IDまたはログインパスワードがキャンセルされたため、このMacはあなた本人であることを確認できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែបិទ៖ Touch ID ឬពាក្យសម្ងាត់ចូលរបស់អ្នកត្រូវបានបោះបង់ ដូច្នេះ Mac នេះមិនអាចបញ្ជាក់ថាជាអ្នកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여전히 꺼짐: Touch ID 또는 로그인 암호가 취소되어 이 Mac이 본인임을 확인하지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsatt av: Touch ID eller påloggingspassordet ble avbrutt, så denne Macen kunne ikke bekrefte at det var deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal wyłączone: Touch ID lub hasło logowania zostało anulowane, więc ten Mac nie mógł potwierdzić, że to Ty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda desativado: o Touch ID ou a senha de login foi cancelado, então este Mac não pôde confirmar que era você."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё ещё выключено: Touch ID или пароль входа отменены, поэтому этот Mac не смог подтвердить, что это вы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังปิดอยู่: Touch ID หรือรหัสผ่านเข้าสู่ระบบถูกยกเลิก Mac เครื่องนี้จึงยืนยันไม่ได้ว่าเป็นคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hâlâ kapalı: Touch ID veya giriş parolanız iptal edildi, bu yüzden bu Mac sizin olduğunuzu doğrulayamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі вимкнено: Touch ID або пароль входу скасовано, тому цей Mac не зміг підтвердити, що це ви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn tắt: Touch ID hoặc mật khẩu đăng nhập đã bị hủy, nên máy Mac này không thể xác nhận đó là bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍为关闭：触控 ID 或登录密码已取消，因此这台 Mac 无法确认是你本人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍為關閉：Touch ID 或登入密碼已取消，因此這台 Mac 無法確認是你本人。"
+          }
+        }
+      }
+    },
+    "devices.join.acpmuxRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux's background service did not take it: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تقبله خدمة cmux في الخلفية: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadinska usluga cmux-a to nije prihvatila: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux' baggrundstjeneste tog ikke imod det: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Hintergrunddienst von cmux hat es nicht angenommen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El servicio en segundo plano de cmux no lo aceptó: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le service d'arrière-plan de cmux ne l'a pas accepté : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il servizio in background di cmux non l'ha accettato: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxのバックグラウンドサービスが受け付けませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux មិនបានទទួលយកវាទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux의 백그라운드 서비스가 받아들이지 않았습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunnstjenesten til cmux tok ikke imot det: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usługa w tle cmux tego nie przyjęła: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O serviço em segundo plano do cmux não aceitou: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фоновая служба cmux не приняла это: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บริการเบื้องหลังของ cmux ไม่รับ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un arka plan hizmeti bunu kabul etmedi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фонова служба cmux не прийняла це: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dịch vụ nền của cmux không nhận: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 的后台服务未接受：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 的背景服務未接受：%@"
           }
         }
       }

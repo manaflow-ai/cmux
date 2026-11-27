@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 5u
+#define CMUX_RD_FFI_ABI_VERSION 9u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -55,6 +55,8 @@ extern "C" {
 #define CMUX_RD_ERR_STREAM (-7)      /* the stream is not open, or the stream limit is reached */
 #define CMUX_RD_ERR_CONSENT (-8)     /* the upstream sender has no consent for its media kind */
 #define CMUX_RD_ERR_FULL (-9)        /* a bulk queue or the open transfer limit is full */
+#define CMUX_RD_ERR_TOO_LARGE (-10)  /* a clipboard text over CMUX_RD_CLIPBOARD_MAX_TEXT (refused, counted) */
+#define CMUX_RD_ERR_IO (-11)         /* the recording file could not be created or written */
 
 /* Input event kinds (the wire tags). */
 #define CMUX_RD_INPUT_KEY 1u
@@ -103,6 +105,7 @@ typedef struct CmuxRdStats {
     uint64_t frames_lost;
     uint32_t acked_frame;
     bool need_recovery;
+    uint64_t frames_skipped; /* frames a newer keyframe replaced on the ready queue (ABI 9) */
 } CmuxRdStats;
 
 /* One viewer input event. Fields the kind does not use are ignored. */
@@ -123,8 +126,11 @@ typedef struct CmuxRdInputEvent {
 
 uint32_t cmux_rd_ffi_abi_version(void);
 
-/* Returns NULL for an unknown carrier. deadline_us: how long a frame may wait
-   for missing shards; nack_after_us: how long before its gaps are NACKed. */
+/* Returns NULL for an unknown carrier. deadline_us: the longest a frame may
+   wait for missing shards (each is NACKed and retried every RTT + 10 ms, at most 50 ms,
+   and the frame waits two RTT + 10 ms windows after the request, the RTT measured by the
+   receiver; deadline_us caps that wait);
+   nack_after_us: how long before its gaps are NACKed. */
 CmuxRdReceiver *cmux_rd_receiver_new(uint32_t carrier, uint64_t deadline_us, uint64_t nack_after_us);
 void cmux_rd_receiver_free(CmuxRdReceiver *receiver);
 
@@ -140,8 +146,11 @@ int32_t cmux_rd_receiver_pop_frame(CmuxRdReceiver *receiver, CmuxRdFrame *out);
 /* Returns 1 and fills *out with the oldest queued message, or 0 when none is queued. */
 int32_t cmux_rd_receiver_pop_message(CmuxRdReceiver *receiver, CmuxRdMessage *out);
 
-/* Records one decode time for the feedback. */
+/* Records one decode time for the feedback; acknowledges no LTR token. */
 int32_t cmux_rd_receiver_note_decode(CmuxRdReceiver *receiver, uint32_t decode_us);
+/* Records one decode time of popped frame `frame`, the frame that decoded:
+   its LTR token is acknowledged to the host. */
+int32_t cmux_rd_receiver_note_frame_decode(CmuxRdReceiver *receiver, uint32_t frame, uint32_t decode_us);
 /* Asks the host for a keyframe in every feedback until one is released. */
 int32_t cmux_rd_receiver_request_keyframe(CmuxRdReceiver *receiver);
 
@@ -209,6 +218,9 @@ int32_t cmux_rd_session_tick(CmuxRdSession *session, uint64_t now_us);
 int32_t cmux_rd_session_pop_frame(CmuxRdSession *session, CmuxRdFrame *out, uint16_t *out_stream);
 int32_t cmux_rd_session_pop_message(CmuxRdSession *session, CmuxRdMessage *out);
 int32_t cmux_rd_session_note_decode(CmuxRdSession *session, uint16_t stream, uint32_t decode_us);
+/* Records one decode time of frame `frame` of `stream`, acknowledging its LTR
+   token to the host. */
+int32_t cmux_rd_session_note_frame_decode(CmuxRdSession *session, uint16_t stream, uint32_t frame, uint32_t decode_us);
 int32_t cmux_rd_session_request_keyframe(CmuxRdSession *session, uint16_t stream);
 /* Writes the next due feedback datagram of any stream (its header names the
    stream). Returns 1 when written, 0 when none is due; call again until 0.
@@ -216,14 +228,61 @@ int32_t cmux_rd_session_request_keyframe(CmuxRdSession *session, uint16_t stream
 int32_t cmux_rd_session_feedback(CmuxRdSession *session, uint64_t now_us, uint8_t *out, size_t cap, size_t *out_len);
 uint64_t cmux_rd_session_next_deadline_us(const CmuxRdSession *session);
 int32_t cmux_rd_session_stats(const CmuxRdSession *session, uint16_t stream, CmuxRdStats *out);
+/* ABI 8. 1 when the host went silent for 1.5 s (as of the last tick or push)
+   while it sends heartbeats (cursor positions, clock pongs: at least one a
+   second from a live host, even on a still screen): the network dropped and
+   the picture is frozen. 0 otherwise, including a host that sends no
+   heartbeats (an idle screen sends nothing else). The next bytes received
+   clear it. next_deadline_us includes the stall time, so the caller's one
+   timer wakes for it. */
+int32_t cmux_rd_session_stalled(const CmuxRdSession *session);
 /* Starts session clock probes (rd change C8). Call only when welcome lists
    the "clock" cap: an older host refuses the probe kinds. Pings then leave
    through cmux_rd_session_feedback; pongs are consumed, not queued. */
 int32_t cmux_rd_session_enable_clock(CmuxRdSession *session);
+/* Stage ledger (cmux.rd-stage-ledger/1). Frame `frame` of `stream` finished
+   decoding at decoded_at_us (the clock passed to push_*) after decode_us; also
+   feeds the feedback median like cmux_rd_session_note_decode. */
+int32_t cmux_rd_session_note_frame_decoded(CmuxRdSession *session, uint16_t stream, uint32_t frame,
+                                           uint32_t decode_us, uint64_t decoded_at_us);
+/* Frame `frame` of `stream` reached the glass at presented_at_us (the clock
+   passed to push_*; the drawable's presented time). */
+int32_t cmux_rd_session_note_frame_presented(CmuxRdSession *session, uint16_t stream, uint32_t frame,
+                                             uint64_t presented_at_us);
+/* Writes the stage ledger so far as one UTF-8 JSON object. CMUX_RD_ERR_BUFFER
+   when cap is too small; *out_len then holds the size needed. */
+int32_t cmux_rd_session_stage_ledger(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
+/* Session report (cmux.rd-session-report/1). The viewer began connecting at
+   at_us (the clock passed to push_*): the report's first frame counts from
+   the first call. */
+int32_t cmux_rd_session_note_connect_started(CmuxRdSession *session, uint64_t at_us);
+/* Writes this session's report so far (connect to first frame on glass,
+   display-to-glass and Present p50/p95 over every presented frame) as one
+   UTF-8 JSON object. CMUX_RD_ERR_BUFFER when cap is too small; *out_len then
+   holds the size needed. */
+int32_t cmux_rd_session_report(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
 /* The offset of the host's clock from this viewer's (host = viewer +
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */
 int32_t cmux_rd_session_clock(const CmuxRdSession *session, int64_t *offset_us, uint32_t *rtt_us);
+
+/* ---- Recording as you go (ABI 7) ----
+   The session copies every frame of stream 0 that cmux_rd_session_pop_frame
+   hands out into a fragmented MP4 (H.264, no re-encoding, timed by the
+   host's capture clock). The file begins at the next keyframe carrying its
+   SPS and PPS, which record_start asks the host for; each frame is one
+   moof+mdat, so a file cut off by a crash still plays. Same thread rule as
+   every session call. */
+
+/* Starts recording into a new file at path (UTF-8, NUL terminated; missing
+   folders are created, an existing file is replaced). A running recording
+   is finished first. CMUX_RD_ERR_INVALID for an empty or non-UTF-8 path,
+   CMUX_RD_ERR_IO when the file cannot be created. */
+int32_t cmux_rd_session_record_start(CmuxRdSession *session, const char *path);
+/* Finishes the recording and closes the file. Returns the frames written
+   (0 when none, or when no recording was running), or CMUX_RD_ERR_IO when a
+   write failed. */
+int32_t cmux_rd_session_record_stop(CmuxRdSession *session);
 
 /* ---- Upstream media sender (rd change C4b, cap "up_media", ABI 3) ----
    One sender per upstream stream (microphone, camera, screen share) the host
@@ -374,6 +433,48 @@ int32_t cmux_rd_bulk_receiver_accept(CmuxRdBulkReceiver *receiver, const uint8_t
 /* Ends a transfer (complete or cancelled): later chunks are refused. */
 int32_t cmux_rd_bulk_receiver_finish(CmuxRdBulkReceiver *receiver, uint64_t transfer);
 
+/* ---- Clipboard text sync (cap "clipboard.text", ABI 6) ----
+   One handle per session, used only when welcome lists "clipboard.text". The
+   host applies the viewer's text and sends its own only while the session holds
+   control. A long text goes in paced parts (clipboard control messages with
+   offset and total); a text over CMUX_RD_CLIPBOARD_MAX_TEXT is refused and
+   counted, never truncated. The handle remembers the text both sides last
+   agreed on, so the host's text set on this Mac is not sent back. No I/O, no
+   threads; a panic poisons the handle. */
+typedef struct CmuxRdClipboard CmuxRdClipboard;
+
+/* The largest clipboard text, UTF-8 bytes (1 MiB). */
+#define CMUX_RD_CLIPBOARD_MAX_TEXT 1048576u
+/* A pop_frame buffer this large always holds one framed part. */
+#define CMUX_RD_CLIPBOARD_FRAME_MAX 16645u
+
+/* NULL only when allocation fails. */
+CmuxRdClipboard *cmux_rd_clipboard_new(void);
+/* NULL is ignored. */
+void cmux_rd_clipboard_free(CmuxRdClipboard *clipboard);
+/* The viewer's clipboard now holds text (UTF-8): 1 when queued for the host,
+   0 when the host already has it, CMUX_RD_ERR_TOO_LARGE over the bound
+   (counted, nothing sent), CMUX_RD_ERR_INVALID for bytes that are not UTF-8. */
+int32_t cmux_rd_clipboard_offer(CmuxRdClipboard *clipboard, const uint8_t *text, size_t len);
+/* Writes the next part as a stream frame (type 1, a control message; send it
+   as is): 1 when written, 0 when none may go now, CMUX_RD_ERR_BUFFER
+   (*out_len = size needed) when cap is too small; the part then stays
+   pending. *out_len is written on every path. */
+int32_t cmux_rd_clipboard_pop_frame(CmuxRdClipboard *clipboard, uint64_t now_us,
+                                    uint8_t *out, size_t cap, size_t *out_len);
+/* When pop_frame can give a part next (0 when one is pending); UINT64_MAX
+   when nothing waits, for NULL or an unusable handle. */
+uint64_t cmux_rd_clipboard_next_deadline_us(const CmuxRdClipboard *clipboard);
+/* Offers a control message payload: 1 when it was the host's clipboard and
+   completed a text, with *text and *text_len set (UTF-8, valid until the next
+   call on this handle: set the viewer's clipboard to it); 0 for a part of a
+   longer text or another message; CMUX_RD_ERR_TOO_LARGE or
+   CMUX_RD_ERR_INVALID for a refused part (counted; the session goes on). */
+int32_t cmux_rd_clipboard_on_control(CmuxRdClipboard *clipboard, const uint8_t *json, size_t len,
+                                     const uint8_t **text, size_t *text_len);
+/* Texts and parts refused so far, both directions (0 for NULL). */
+uint64_t cmux_rd_clipboard_dropped(const CmuxRdClipboard *clipboard);
+
 /* ---- Remote browser tab client (cmux.rb/1 viewer reducer, ABI 2) ----
    One client per rb session of a remote tab: make a new one for each rb.open
    (tokens and screen seqs restart per session). Inputs and outcomes are JSON in the shapes of
@@ -416,6 +517,8 @@ typedef struct CmuxRdLineReader CmuxRdLineReader;
 #define CMUX_RD_LINE_DISPLAYS 512u
 #define CMUX_RD_LINE_CURRENT 1024u
 #define CMUX_RD_LINE_ERROR 2048u
+/* Typed pre-media carrier failure permits WebRTC on the same approved session. */
+static const uint32_t CMUX_RD_LINE_FALLBACK_WEBRTC = 4096u;
 
 typedef struct CmuxRdLine {
     uint32_t fields;               /* CMUX_RD_LINE_* bits */
@@ -446,8 +549,41 @@ int32_t cmux_rd_line_reader_push(CmuxRdLineReader *reader, const uint8_t *bytes,
    when none is ready. */
 int32_t cmux_rd_line_reader_next(CmuxRdLineReader *reader, CmuxRdLine *out);
 
+/* ---- Mac Screen and cmux Remote UI rules (stateless JSON calls) ----
+   A request is {"op": "<area>.<name>", "args": {...}}; the answer is
+   {"ok": <value>} or {"err": "<why>"} (src/ui/mod.rs lists the ops). No I/O,
+   no threads, no clock: a rule that needs the time takes now_ms. */
+/* CMUX_RD_OK with *out and *out_len set to the answer JSON, which the caller
+   frees with cmux_rd_ui_free; CMUX_RD_ERR_NULL / CMUX_RD_ERR_PANIC otherwise. */
+int32_t cmux_rd_ui_call(const uint8_t *json, size_t json_len, uint8_t **out, size_t *out_len);
+/* Frees one answer of cmux_rd_ui_call; NULL is ignored. */
+void cmux_rd_ui_free(uint8_t *ptr, size_t len);
+
+/* ---- Viewer rules (CmuxNextRemoteView) ----
+   The remote desktop viewer's rules and state (cmux_rd_ffi::view): keyboard
+   routing, held keys and HID usages, the system shortcut tap, scroll
+   accumulation, text chunking, the pane state reducer and the latency hold,
+   and the remote-view tab record (URL) and open policy. A request is JSON
+   {"op": "...", ...camelCase fields}; ops are keyboard.*, hid.*, keys.*,
+   mouse.button, shortcuts.*, scroll.add, text.events, pane.reduce, pane.view,
+   latency.sample and tab.*. Every op is pure: state in, next state out.
+   Modifiers are NSEvent.ModifierFlags raw bits, phases NSEvent.Phase bits,
+   instants nanoseconds (int64). The result bytes stay valid until the next
+   call on the same handle. No I/O, no threads; a panic poisons the handle. */
+typedef struct CmuxRdView CmuxRdView;
+
+/* NULL only when allocation fails. */
+CmuxRdView *cmux_rd_view_new(void);
+/* NULL is ignored. */
+void cmux_rd_view_free(CmuxRdView *view);
+/* Runs one request. CMUX_RD_OK with *result and *result_len set (JSON);
+   CMUX_RD_ERR_INVALID when json is not a request. */
+int32_t cmux_rd_view_call(CmuxRdView *view, const uint8_t *json, size_t json_len,
+                          const uint8_t **result, size_t *result_len);
+
 #ifdef __cplusplus
 }
 #endif
+
 
 #endif /* CMUX_RD_FFI_H */

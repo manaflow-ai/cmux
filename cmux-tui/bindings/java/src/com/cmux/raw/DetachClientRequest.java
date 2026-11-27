@@ -37,7 +37,7 @@ public final class DetachClientRequest implements WireValue {
             builder.by(rawBy == null ? null : SizeDetachActor.fromWire(rawBy));
         }
         Object rawClient = Wire.required(object, "client");
-        builder.client(Wire.immutableJson(rawClient));
+        builder.client(Wire.immutableJson(ProtocolSupport.nonNull(rawClient, "DetachClientRequest.client")));
         Object rawSurface = Wire.optional(object, "surface");
         if (!Wire.isMissing(rawSurface)) {
             builder.surface(rawSurface == null ? null : Wire.uint64(rawSurface, "DetachClientRequest.surface"));

@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudPlace
 import CmuxNextDaemon
 import Foundation
 
@@ -16,9 +17,15 @@ import Foundation
 /// (``CloudAccessRevokes``). The polling stops with no moved chat and nothing to revoke; a move
 /// starts it again.
 ///
+/// With `cloud.addFolderLive` (on by default) every Cloud chat this Mac shows gets its cards too, not
+/// only moved ones (a chat started on the machine grants under the machine's first work root), and
+/// Allow or Always also puts the shared folder among the chat's folders (`answer --attach`), so the
+/// agent reads it from its next turn on. Deny stays the default: nothing goes without the click.
+/// Each answer is logged with its chat's session id.
+///
 /// The ask's text comes from the machine (its path and reason); the card names the machine, not
 /// the chat, as the asker, since the session an ask names is the machine's claim. Only asks of the
-/// sessions this Mac moved there are shown, each in that session's own tab.
+/// sessions this Mac shows there are shown, each in that session's own tab.
 @MainActor
 final class CloudAccessAsks {
     /// The cards' owner in ``AgentToolCards``.
@@ -46,7 +53,7 @@ final class CloudAccessAsks {
     func start(services: AppServices) {
         guard loop == nil else { return }
         loop = Task { @MainActor [weak self, weak services] in
-            // wakeup-allow: polls triage only while a moved chat or a revoke waits (the loop then ends); the machine pushes no access request
+            // wakeup-allow: polls triage only while a shown Cloud chat or a revoke waits (the loop then ends); the machine pushes no access request
             while !Task.isCancelled {
                 guard let pause = await self?.poll(services) else { return }
                 // wakeup-allow: the poll's pause (accessPoll, or a machine's backoff), only while the loop above runs
@@ -65,8 +72,18 @@ final class CloudAccessAsks {
         // task-owner: one revoke round; CloudAccessRevokes keeps what is left for the poll loop
         Task { @MainActor [weak services] in
             guard let services else { return }
-            await revokes.run(CloudAccessCLI(binary: binary), services: services)
+            await Self.revoke(revokes, CloudAccessCLI(binary: binary), services: services)
         }
+    }
+
+    /// One round of `revokes` (``CloudAccessRevokes``) over this app's machines.
+    private static func revoke(_ revokes: CloudAccessRevokes, _ cli: CloudAccessCLI, services: AppServices) async {
+        let logger = services.cloud.logger
+        await revokes.run(cli, socket: { id in
+            guard let machine = services.machines.session(id) else { return nil }
+            let path = await machine.daemon.connection?.endpoint?.socketPath
+            return .some(path)
+        }, log: { logger.error("cloud access revoke: \($0, privacy: .public)") })
     }
 
     /// One round over the machines; how long to wait before the next, nil to stop.
@@ -77,9 +94,9 @@ final class CloudAccessAsks {
         for entry in services.cloud.movedChats.all() where entry.broughtBack != nil {
             revokes.add(CloudAccessRevokes.Chat(machineID: entry.machineID, session: entry.session))
         }
-        await revokes.run(cli, services: services)
+        await Self.revoke(revokes, cli, services: services)
         // Read after the await, with no await before a stop: a move recorded meanwhile keeps the loop going.
-        let chats = services.cloud.movedChats.all().filter { $0.broughtBack == nil }
+        let chats = Self.chats(services)
         // Turned off by the organization: no request goes out, and the cards go.
         guard !chats.isEmpty, !services.machines.isFeatureDisabled(.cloud) else {
             asks = [:]
@@ -93,7 +110,7 @@ final class CloudAccessAsks {
         for (machineID, machineChats) in Dictionary(grouping: chats, by: \.machineID).sorted(by: { $0.key < $1.key }) {
             guard let machine = services.machines.session(machineID), let socket = await machine.daemon.connection?.endpoint?.socketPath else { continue }
             let sessions = Array(Set(machineChats.map(\.session))).sorted()
-            for chat in machineChats { if let tab = Self.tab(of: chat, on: machine, services: services) { liveTabs.insert(tab) } }
+            for chat in machineChats { if let tab = chat.tab ?? chat.moved.flatMap({ Self.tab(of: $0, on: machine, services: services) }) { liveTabs.insert(tab) } }
             if let wait = backoff[machineID], ContinuousClock.now < wait.until {
                 for (tab, list) in asks where list.contains(where: { $0.machineID == machineID }) { next[tab] = list }
                 continue
@@ -122,8 +139,8 @@ final class CloudAccessAsks {
             if answer.failures > 0 { services.cloud.logger.error("cloud access triage: \(answer.failures) requests failed") }
             let listed = answer.asks.map { ($0.session, CloudAccessAsk.Asked.file($0)) } + answer.secrets.map { ($0.session, CloudAccessAsk.Asked.secret($0)) }
             for (session, asked) in listed {
-                guard let chat = machineChats.first(where: { $0.session == session }), let tab = Self.tab(of: chat, on: machine, services: services),
-                      let root = Self.remoteRoot(chat.remoteFolder, roots: setup.workRoots) else { continue }
+                guard let chat = machineChats.first(where: { $0.session == session }),
+                      let tab = chat.tab ?? chat.moved.flatMap({ Self.tab(of: $0, on: machine, services: services) }), let root = chat.remoteRoot else { continue }
                 next[tab, default: []].append(CloudAccessAsk(asked: asked, host: chat.host, session: chat.session, machineID: machineID,
                                                              machineName: machine.machine.title, socket: socket, remoteRoot: root))
             }
@@ -156,10 +173,47 @@ final class CloudAccessAsks {
         }
     }
 
-    /// Whether `ask`'s chat is still on its machine: a chat brought back (or coming back) is never answered.
+    /// Whether `ask`'s chat is still on its machine: a chat brought back (or coming back) is never
+    /// answered, nor one whose tab is gone or whose setting went off.
     private static func isLive(_ ask: CloudAccessAsk, services: AppServices) -> Bool {
-        guard let entry = services.cloud.movedChats.entry(host: ask.host, session: ask.session) else { return false }
-        return entry.broughtBack == nil && entry.machineID == ask.machineID
+        if let entry = services.cloud.movedChats.entry(host: ask.host, session: ask.session) {
+            return entry.broughtBack == nil && entry.machineID == ask.machineID
+        }
+        guard CloudUploads.addFolderIsOn(services) else { return false }
+        return chats(services).contains { $0.machineID == ask.machineID && $0.host == ask.host && $0.session == ask.session }
+    }
+
+    /// A chat whose asks this Mac shows: a moved one (``CloudMovedChats``) or, with
+    /// `cloud.addFolderLive`, any other chat tab of a Cloud machine.
+    struct Chat {
+        var host: String
+        var session: String
+        var machineID: String
+        /// Where its grants go on the machine; nil when there is no work root.
+        var remoteRoot: String?
+        /// Its tab, known for a chat found by its tab; a moved chat's is looked up.
+        var tab: String?
+        var moved: CloudMovedChats.Entry?
+    }
+
+    /// The chats whose asks this Mac shows now.
+    static func chats(_ services: AppServices) -> [Chat] {
+        let setup = services.cloud.move
+        let moved = services.cloud.movedChats.all().filter { $0.broughtBack == nil }
+        var chats = moved.map { Chat(host: $0.host, session: $0.session, machineID: $0.machineID, remoteRoot: setup.workRoot(of: $0.remoteFolder), moved: $0) }
+        guard CloudUploads.addFolderIsOn(services), let root = setup.workRoots.first else { return chats }
+        let known = Set(chats.map { "\($0.host)\n\($0.session)" })
+        let tabs = services.agentTabs
+        for machine in services.machines.cloud where machine.daemon.connection != nil {
+            guard let host = AgentTabStore.registryHost(of: machine.daemon) else { continue }
+            for tab in machine.daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
+                guard let record = tab.agentSession, record.host == host,
+                      let session = record.session ?? tabs.sessions[tabs.tabKey(tab.id, machine: machine.daemon.machineID)],
+                      !known.contains("\(host)\n\(session)") else { continue }
+                chats.append(Chat(host: host, session: session, machineID: machine.machineID, remoteRoot: root, tab: tab.id))
+            }
+        }
+        return chats
     }
 
     /// Sets each tab's cards (the asks of chats still on their machines, then one failed answer),
@@ -197,15 +251,20 @@ final class CloudAccessAsks {
         revokes.answerStarted(chat)
         asks[tab]?.removeAll { $0.card == card }
         render(services: services)
-        let logger = services.cloud.logger
+        let logger = services.cloud.logger, attach = CloudUploads.addFolderIsOn(services)
         // task-owner: one person's answer, bounded by the CLI's timeout; `answering` tracks it
         Task { @MainActor [weak self, weak services] in
             let answer: CloudAccessCLI.Answer
             do {
                 answer = try await CloudAccessCLI(binary: binary).answer(socket: ask.socket, machine: ask.machineID, session: ask.session,
-                                                                         request: id, remoteRoot: ask.remoteRoot, how: how)
+                                                                         request: id, remoteRoot: ask.remoteRoot, how: how, attach: attach)
             } catch {
                 answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
+            }
+            // Each answer, with its chat's session id (never the path or a secret).
+            logger.info("cloud access answer: session \(ask.session, privacy: .public) request \(id, privacy: .public) \(action.rawValue, privacy: .public) ok \(answer.ok) attached \(answer.attachedApplied ?? "-", privacy: .public)")
+            if let attachError = answer.attachError {
+                logger.error("cloud access answer: session \(ask.session, privacy: .public) attach failed: \(attachError, privacy: .public)")
             }
             guard let self else { return }
             answering.remove(id)
@@ -229,12 +288,7 @@ final class CloudAccessAsks {
         let tabs = services.agentTabs
         return machine.daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { tab in
             guard let record = tab.agentSession, record.host == chat.host else { return false }
-            return (record.session ?? tabs.sessions[tabs.resolve(tab.id)]) == chat.session
+            return (record.session ?? tabs.sessions[tabs.tabKey(tab.id, machine: machine.daemon.machineID)]) == chat.session
         }?.id
-    }
-
-    /// The work root (``CloudMoveSetup/workRoots``) the chat's synced folder is under.
-    static func remoteRoot(_ folder: String, roots: [String]) -> String? {
-        roots.first { folder.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/") }
     }
 }

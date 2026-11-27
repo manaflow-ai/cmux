@@ -1,6 +1,6 @@
 /// What the menu bar menu shows besides its fixed rows, read each time it opens: Computer Use,
-/// the Unread and Running chats, who is signed in, how many agents work or wait, and whether a
-/// downloaded update waits.
+/// the Unread and Running chats, who is signed in, whether cmux keeps the Mac awake, how many
+/// agents work or wait, and whether a downloaded update waits.
 ///
 /// The App fills it from Cloud auth, the daemon store and the updater (`MenuBarExtraHost`); tests
 /// build one by hand.
@@ -16,13 +16,17 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
         public var lines: [String]
         /// The selected team's name; its row opens the team picker.
         public var team: String?
+        /// The selected team's icon: a person for the person's own team, people for a shared one.
+        public var teamSymbol: String
 
         /// - Parameters:
         ///   - lines: Who is signed in, top to bottom.
         ///   - team: The selected team, nil without one.
-        public init(lines: [String], team: String? = nil) {
+        ///   - teamSymbol: The team row's SF Symbol (the account menu's and Switch Active Team's).
+        public init(lines: [String], team: String? = nil, teamSymbol: String = "person.2") {
             self.lines = lines
             self.team = team
+            self.teamSymbol = teamSymbol
         }
     }
 
@@ -59,35 +63,70 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
         }
     }
 
-    /// Computer Use on this Mac: a session that drives an app, or the feature ready with none.
+    /// Computer Use on this Mac: the agent sessions cmux Remote's worker reports (who acts, on which
+    /// app), or the feature ready with none.
     public struct ComputerUse: Sendable, Hashable {
-        /// The newest live session, nil when Computer Use is on and nothing drives an app.
-        public var session: Session?
+        /// The sessions that acted, newest action first; empty when no agent used an app.
+        public var sessions: [Session]
+        /// The newest session, nil when Computer Use is on and nothing drives an app.
+        public var session: Session? { sessions.first }
 
-        /// A live session.
+        /// An agent session of the worker.
         public struct Session: Sendable, Hashable {
             public var id: String
-            /// The app it drives (its name and bundle id), nil before its first act.
+            /// The agent's name ("Claude Code"), nil when the worker has none.
+            public var agent: String?
+            /// The app it drives (its name and bundle id), nil when the worker does not know it.
             public var appName: String?
             public var bundleID: String?
-            /// The person took over: the agent waits until Hand Back.
-            public var paused: Bool
+            /// It acted within the last 2 s.
+            public var acting: Bool
+            /// The person stopped its Computer Use (the menu's Stop); Resume lets it act again.
+            public var stopped: Bool
 
-            public init(id: String, appName: String? = nil, bundleID: String? = nil, paused: Bool = false) {
+            public init(id: String, agent: String? = nil, appName: String? = nil, bundleID: String? = nil, acting: Bool = false,
+                        stopped: Bool = false) {
                 self.id = id
+                self.agent = agent
                 self.appName = appName
                 self.bundleID = bundleID
-                self.paused = paused
+                self.acting = acting
+                self.stopped = stopped
             }
         }
 
-        public init(session: Session? = nil) {
-            self.session = session
+        /// The floating live preview panel (`computerUse.floatingPreview`, prototype): nil while the
+        /// setting is off (no row), else whether the panel shows now (the row hides or shows it).
+        public var floatingPreview: Bool?
+
+        public init(sessions: [Session] = [], floatingPreview: Bool? = nil) {
+            self.sessions = sessions
+            self.floatingPreview = floatingPreview
+        }
+
+        public init(session: Session?) {
+            self.init(sessions: session.map { [$0] } ?? [])
+        }
+    }
+
+    /// cmux holds off idle sleep (`KeepAwakeService`): the line that says so and why.
+    public struct KeepingAwake: Sendable, Hashable {
+        /// Terminal commands that keep it awake (`sessions.keepAwakeForCommands`); 0 hides their line.
+        public var commands: Int
+        /// The setting behind the hold (`sessions.keepAwake`, `phone.keepAwake`), which the line
+        /// opens; nil (the Keep Mac Awake action alone) leaves it a plain line.
+        public var setting: String?
+
+        public init(commands: Int = 0, setting: String? = nil) {
+            self.commands = commands
+            self.setting = setting
         }
     }
 
     /// Computer Use, nil when it is off or not set up: the menu then has no Computer Use row.
     public var computerUse: ComputerUse?
+    /// cmux keeps the Mac awake, nil when it does not: no line.
+    public var keepingAwake: KeepingAwake?
     /// The agent chats with a result nobody has read, newest first.
     public var unread: Chats
     /// The agent chats running a turn, newest first.
@@ -102,6 +141,8 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     public var updateReady: Bool
     /// Show/Hide All Windows' system-wide key is on (`app.globalHotKey`): Open cmux shows it.
     public var showsGlobalKey: Bool
+    /// What Sign In signs in to ("Signs in to cmux.com"), the line under it while signed out; nil hides it.
+    public var signInBackend: String?
 
     /// - Parameters:
     ///   - account: The signed-in account, nil when signed out.
@@ -112,10 +153,15 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     ///   - computerUse: Computer Use's row, nil for none.
     ///   - unread: The Unread list; empty hides the section.
     ///   - running: The Running list; empty hides the section.
+    ///   - keepingAwake: cmux keeps the Mac awake; nil hides the line.
+    ///   - signInBackend: What Sign In signs in to, shown under it while signed out; nil hides it.
     public init(account: Account? = nil, agentsWorking: Int = 0, agentsNeedingInput: Int = 0,
                 updateReady: Bool = false, showsGlobalKey: Bool = false, computerUse: ComputerUse? = nil,
-                unread: Chats = Chats(), running: Chats = Chats()) {
+                unread: Chats = Chats(), running: Chats = Chats(), keepingAwake: KeepingAwake? = nil,
+                signInBackend: String? = nil) {
+        self.signInBackend = signInBackend
         self.computerUse = computerUse
+        self.keepingAwake = keepingAwake
         self.unread = unread
         self.running = running
         self.account = account

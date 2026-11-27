@@ -3,8 +3,8 @@
 // cmux#38051: the goal row over the composer (TaskGoalStrip.tsx) stands in the composer's column,
 // on the card's two edges, at every pane width. It was a band the pane's width wide (padding by the
 // page edge only), so in a wide pane a Claude Code loop's wake prompt ran past the transcript's
-// column from one side of the pane to the other. And a self-wake loop shows only when it checks
-// back: its prompt (job ids, links, steps) never paints, opened or not, outside the column.
+// column from one side of the pane to the other. (A /loop's wake-up chip is gone: Leo, 2026-11-14,
+// "what even is this? idk if we shuold have this"; TaskGoalStrip.test.tsx covers it.)
 //
 // Real gallery frames (agent-pane.composer-look) in real Chromium from Playwright; CI fails the file
 // when it cannot launch (requireBrowserLane).
@@ -23,7 +23,7 @@ await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
   // A wide pane (the column is capped, so the gutters are wide), a normal one, a narrow one and one
   // under the composer's 298px narrow outset (--acpmux-stack-outset).
   const WIDTHS = [1800, 900, 420, 300];
-  const VARIANTS = ["loop-wakeup", "loop-wakeup-open", "loop-cron", "goal-stalled", "claude-loop-steps"];
+  const VARIANTS = ["goal-stalled", "claude-loop-steps"];
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -76,7 +76,7 @@ await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
     };
   }
 
-  test("the goal row takes the composer card's edges at every width, and a loop shows no wake prompt", async () => {
+  test("the goal row takes the composer card's edges at every width", async () => {
     const offenders: string[] = [];
     for (const width of WIDTHS) {
       for (const variant of VARIANTS) {
@@ -88,19 +88,6 @@ await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
             offenders.push(
               `${where}: goal ${m.goal.left}..${m.goal.right}, composer ${m.composer.left}..${m.composer.right}`,
             );
-          if (variant.startsWith("loop-wakeup")) {
-            // The gallery clock runs from GALLERY_NOW once the frame loads: a slow load can round to 14.
-            if (!/^Checking back in 1[45] min\.$/.test(m.text)) offenders.push(`${where}: the chip reads "${m.text}"`);
-            if (/b2mqa7gwr|github\.com|Steps:/.test(m.text))
-              offenders.push(`${where}: the wake prompt paints in the row`);
-          }
-          if (variant === "loop-cron" && m.text !== "Repeats every 5 minutes")
-            offenders.push(`${where}: the chip reads "${m.text}"`);
-          if (variant === "loop-wakeup-open") {
-            if (!m.details) offenders.push(`${where}: the prompt did not open on demand`);
-            else if (m.details.left < m.goal.left - 1 || m.details.right > m.goal.right + 1)
-              offenders.push(`${where}: the opened prompt ${m.details.left}..${m.details.right} leaves the row`);
-          }
         } finally {
           await page.close();
         }

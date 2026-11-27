@@ -28,10 +28,26 @@ public final class AgentPaneShell {
     static let drainAfterExit: Duration = .milliseconds(250)
     /// Shell mode's Tab (`shell.complete`); tests replace it.
     var completion = AgentPaneShellCompletion()
+    /// A chat on another machine (Cloud, SSH) runs its commands there, never on this Mac: the
+    /// app sets this to the link of the chat's machine (``AgentPaneMachineShell``), read at each
+    /// run. Nil, or a nil link, and such a chat's command does not run.
+    public var machine: (@MainActor () -> (any AgentPaneMachineShell)?)?
+    /// This pane's name on a machine's daemon, which caps running commands per pane.
+    let machineScope = UUID().uuidString
+    /// Commands started on a chat's machine, oldest first, each with the link it went to and
+    /// whether a read saw it end. Only an ended one is forgotten past ``maximumKept``.
+    private var machineRuns: [(id: String, link: any AgentPaneMachineShell, ended: Bool)] = []
+    /// The pane closed: a command whose start answers after this is stopped at once.
+    private var closed = false
 
     public nonisolated struct Exit: Equatable, Sendable {
         public var code: Int32?
         public var signal: Int32?
+
+        public init(code: Int32? = nil, signal: Int32? = nil) {
+            self.code = code
+            self.signal = signal
+        }
     }
 
     /// One `shell.read` answer: output from `after` (complete UTF-8 only while it runs), the
@@ -42,6 +58,13 @@ public final class AgentPaneShell {
         public var next: Int
         public var truncated: Bool
         public var exit: Exit?
+
+        public init(output: String, next: Int, truncated: Bool, exit: Exit?) {
+            self.output = output
+            self.next = next
+            self.truncated = truncated
+            self.exit = exit
+        }
     }
 
     public nonisolated enum Failure: Error, Equatable, Sendable {
@@ -208,14 +231,44 @@ public final class AgentPaneShell {
     }
 
     /// A command ran in this pane (running, or its output kept): closing the pane ends it or drops its output.
-    public var hasRuns: Bool { !runs.isEmpty }
+    public var hasRuns: Bool { !runs.isEmpty || !machineRuns.isEmpty }
 
-    /// Ends every running command (the pane closed): hangup, as a closed terminal sends.
+    /// Ends every running command (the pane closed): hangup, as a closed terminal sends. A
+    /// command on a chat's machine is stopped there (Ctrl-C, then SIGTERM and SIGKILL).
     public func terminateAll() {
         for run in runs.values where run.exit == nil {
             kill(-run.pid, SIGHUP)
             kill(-run.pid, SIGCONT)
         }
+        closed = true
+        for (id, link, ended) in machineRuns where !ended {
+            // task-owner: one bounded request; a command that already ended is left as it is.
+            Task { await link.stopShell(id) }
+        }
+    }
+
+    /// `id` runs on a chat's machine through `link`; reads and Stop for it go there.
+    /// A start that answers after the pane closed is stopped there, so it outlives no pane.
+    func noteMachineRun(_ id: String, on link: any AgentPaneMachineShell) {
+        if closed {
+            // task-owner: one bounded request, for a command no pane shows.
+            Task { await link.stopShell(id) }
+            return
+        }
+        machineRuns.append((id, link, false))
+        while machineRuns.count > Self.maximumKept, let index = machineRuns.firstIndex(where: { $0.ended }) {
+            machineRuns.remove(at: index)
+        }
+    }
+
+    /// A read saw `id` end on its machine: it may now be forgotten, and closing the pane leaves it.
+    func noteMachineExit(_ id: String) {
+        if let index = machineRuns.lastIndex(where: { $0.id == id }) { machineRuns[index].ended = true }
+    }
+
+    /// The link of a command started on a chat's machine; nil for one of this Mac.
+    func machineShell(of id: String) -> (any AgentPaneMachineShell)? {
+        machineRuns.last { $0.id == id }?.link
     }
 
     private func receive(_ event: Event, for id: String) {
@@ -319,4 +372,13 @@ public final class AgentPaneShell {
         }
         return count
     }
+}
+
+/// Shell mode on a chat's machine: its daemon runs the command (cmux-tui `shell_runs.rs`,
+/// `shell-run`, `shell-read`, `shell-stop`) with the same bounds and Stop as ``AgentPaneShell``.
+/// Refusals throw ``AgentPaneShell/Failure``.
+public protocol AgentPaneMachineShell: AnyObject {
+    func runShell(_ command: String, cwd: String?, scope: String) async throws -> String
+    func readShell(_ id: String, after: Int) async throws -> AgentPaneShell.Chunk
+    func stopShell(_ id: String) async
 }

@@ -20,10 +20,16 @@ import CmuxNextWakeups
 /// of turning solid (Leo 2026-11-08: "it turns from glass when it's unhovered into
 /// opaque when it does get hovered. I feel like we should be able to keep it as
 /// glass though, right?"). It is the card's size and its open preview's, and runs
-/// the page's preview motion with it (``MotionGate/cardCurve``).
+/// the page's preview motion with it (``MotionGate/cardCurve``). It shows only while
+/// the card stands over rows (an open or closing preview, a held or settling card): at
+/// rest the page's material is the card's one glass (Leo 2026-11-27: "there's a glass
+/// back that shouldnt be there").
 ///
-/// Resting on the card opens its hover preview, a scrollable list of the update's
-/// changes in the same glass (Leo 2026-11-07: "a quick access scroll through of
+/// Resting on the card opens its changes beside the sidebar, in the app's one hover card window
+/// (``SidebarUpdatedNotesPopover``; Lawrence 2026-11-07, on the list that grew up over the
+/// sidebar: "i dont like how it expands upwards"). The look before, kept as a Debug choice
+/// (``UpdatedCardPreviewMode/above``), opens a hover preview in the card itself, a scrollable list
+/// of the update's changes in the same glass (Leo 2026-11-07: "a quick access scroll through of
 /// what's new. Right in that bottom left of the sidebar area"). The page decides
 /// when (it hears the pointer from this view's tracking area,
 /// ``SidebarSurfaceIsland/setPointerInside(_:)``) and asks for the room above the
@@ -50,7 +56,11 @@ final class SidebarUpdatedCardHost: NSView {
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 10 }, label: "")
     /// The pointer is on the card: its x shows.
     private(set) var isHovered = false
-    private var hoverArea: NSTrackingArea?
+    /// The hover owner (`PointerHover`): hover is where the pointer is now, over the card's glass or its
+    /// closing preview, recomputed whenever the glass moves. A tracking area on the whole view, room
+    /// included, sent no exit when the view shrank under a still pointer, so the page kept hearing
+    /// "inside" over the rows and reopened the list (Leo 2026-11-08: "flicker upon hovering over what's new").
+    private var pointerHover: PointerHover?
     /// The frost behind the page: the card and its open preview, at the composer's corner. Only the
     /// material: the page paints the composer's tint over it.
     let glass = GlassPanelView(cornerRadius: LayoutGrid.composerRadius) // glass-level-allow: the material only; the page paints the composer's popover-level tint over it
@@ -73,8 +83,21 @@ final class SidebarUpdatedCardHost: NSView {
             island?.close()
             pageReported = false
             island = card == nil ? nil : surfaces?.island(.updated)
+            notes.tearDown()
+            notes.surfaces = surfaces
+            prepareNotes()
             isHidden = card == nil || island == nil
         }
+    }
+    /// The card's changes beside the sidebar (``UpdatedCardPreviewMode/beside``, the shipped look).
+    let notes = SidebarUpdatedNotesPopover()
+    /// Where the card shows its changes, read when the card shows (Debug Settings
+    /// `sidebar.updatedCard.preview`; the page reads the same look from the theme).
+    private(set) var previewMode = UpdatedCardPreviewMode.shipped
+
+    /// Makes (or closes) the changes' popover page for the card's look.
+    private func prepareNotes() {
+        notes.prepare(in: self, enabled: card != nil && previewMode.opensBeside)
     }
     var island: (any SidebarSurfaceIsland)? {
         didSet {
@@ -82,6 +105,8 @@ final class SidebarUpdatedCardHost: NSView {
             guard let island else { return }
             island.view.frame = bounds
             island.view.autoresizingMask = [.width, .height]
+            // Undrawn until the page reports its words (``drawn``).
+            island.view.alphaValue = drawn ? 1 : 0
             // Over the glass and under the x: the page never covers it.
             addSubview(island.view, positioned: .above, relativeTo: glass)
             island.onHeightChange = { [weak self] in self?.pageDidReportHeight() }
@@ -233,7 +258,24 @@ final class SidebarUpdatedCardHost: NSView {
     /// shows, never on a spring; later changes (the notes of a new build) still spring.
     private(set) var landsAtOnce = false
     /// The page has reported a height since the card showed.
-    private var pageReported = false
+    private var pageReported = false {
+        didSet { if pageReported != oldValue { showDrawn() } }
+    }
+
+    /// The card draws (its glass, its page and its x) once its page has reported its words: before
+    /// that the page is still loading and the glass would stand blank for up to a second at launch
+    /// (Leo 2026-11-09: "it should have the updated to Nightly already loaded in, instead of just
+    /// having a blank glass bit"). The page reports as soon as it has the host's data, its title
+    /// final and its change line a quiet loading line one line tall (webviews surface.tsx), so the
+    /// card appears whole. The room is the card's from its first frame all the same (``height``).
+    var drawn: Bool { pageReported }
+
+    /// Shows or hides the glass and the page for ``drawn``, together and without motion.
+    private func showDrawn() {
+        Motion.withoutAnimation { island?.view.alphaValue = drawn ? 1 : 0 }
+        needsLayout = true
+        pointerHover?.refresh()
+    }
 
     /// The sidebar laid the card out at its height without motion.
     func landed() { landsAtOnce = false }
@@ -253,18 +295,19 @@ final class SidebarUpdatedCardHost: NSView {
     /// The card's sizes at the sidebar's density (Lawrence 2026-11-01: "the card must reflect my
     /// compactness level"): the page reads the same ones (`--cmux-sidebar-card-*`, WebTheme).
     static var metrics: SidebarCardMetrics { SidebarRowTokens.current.card }
-    /// The x's side and its inset from the card's top right: on the title line, inside the padding.
+    /// The x's side.
     static var closeSide: CGFloat { metrics.closeSide }
-    static var closeInset: NSSize {
-        let m = metrics
-        return NSSize(width: max(m.paddingX - 2, 0), height: max(m.paddingY - 2, 0))
-    }
+    /// The x's inset from the card's top and trailing side: in the card's corner, concentric with the glass
+    /// (Lawrence 2026-11-15: the x was not concentric with the card's corner).
+    var closeInset: CGFloat { Metrics.cornerControl(outerRadius: glass.cornerRadius, side: Self.closeSide).padding }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         isHidden = true
         setAccessibilityElement(false)
         closeButton.showsLabelToolTip = false
+        // A light x: a round hover fill, never a box (Lawrence 2026-11-07, "the X sits in a heavy box").
+        closeButton.isRound = true
         closeButton.takesKeyFocus = true
         closeButton.takesFirstClick = true
         closeButton.setAccessibilityIdentifier("cmux.sidebar.updated.close")
@@ -273,6 +316,12 @@ final class SidebarUpdatedCardHost: NSView {
         closeButton.alphaValue = 0
         glass.isHidden = true
         addSubview(glass)
+        let hover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
+        hover.region = { [weak self] _ in
+            guard let self, drawn else { return .zero }
+            return closingFrame.map { glassFrame.union($0) } ?? glassFrame
+        }
+        pointerHover = hover
         addSubview(closeButton)
     }
 
@@ -287,9 +336,11 @@ final class SidebarUpdatedCardHost: NSView {
         guard card != self.card else { return }
         // A card that shows (at launch, after the update) takes its room at once.
         if card != nil, self.card == nil { (landsAtOnce, pageReported, heldHeight, holdArmed, pendingRememberedHeight) = (true, false, 0, false, nil) }
+        if card != nil, self.card == nil { previewMode = UpdatedCardPreviewMode.tunable.value }
         self.card = card
         closeButton.label = card?.dismissLabel ?? ""
         if card != nil, island == nil { island = surfaces?.island(.updated) }
+        prepareNotes()
         if card == nil {
             if let island {
                 // The card went away (dismissed): its page goes too (cx-asynu).
@@ -303,6 +354,7 @@ final class SidebarUpdatedCardHost: NSView {
             // A card that comes back starts at its rest, not on the way from an old drop.
             settleX.reset()
             settleY.reset()
+            standsOffRest = false
             // A card that comes back starts without its x until the pointer moves onto it.
             isHovered = false
             setHoverShown(closeButton, false, fades: false)
@@ -327,7 +379,20 @@ final class SidebarUpdatedCardHost: NSView {
             return heldHeight > 0 ? held : Self.rememberedHeight(width: slotWidth > 0 ? slotWidth : bounds.width)
         }
         let content = island.contentHeight
-        return content > 0 ? max(content, held) : 0
+        // The hold lasts while the words load; once they are final the card is as tall as they are (u51892
+        // review F1: the card's height varies with its change line, so a taller card remembered from the last
+        // showing stood with a blank band above shorter words, its x above their title).
+        guard content > 0 else { return 0 }
+        return island.contentSettled ? content : max(content, held)
+    }
+
+    /// The top of the page's card box (its `.wn-card-rest`) in this view: the page stands its card on the
+    /// view's resting edge (surface.css), so at the bottom, with the preview closed, the words' box is the
+    /// page's reported height up from the bottom even while the slot holds more room than that.
+    private var wordsTop: CGFloat {
+        let card = cardRect
+        guard anchor != .top, !previewIsOpen, let content = island?.contentHeight, content > 0 else { return card.minY }
+        return max(card.minY, bounds.maxY - content)
     }
 
     /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce
@@ -337,6 +402,7 @@ final class SidebarUpdatedCardHost: NSView {
         isHovered = hovered
         setHoverShown(closeButton, hovered && card != nil, fades: window != nil)
         island?.setPointerInside(hovered && card != nil)
+        notes.cardHovered(hovered && card != nil)
     }
 
     /// A hidden card is not under the pointer: hidden by the slot (a card of higher priority took it)
@@ -346,8 +412,10 @@ final class SidebarUpdatedCardHost: NSView {
         didSet {
             if isHidden, !oldValue {
                 pointerLeft()
+                notes.hide()
                 hideEndsDrag()
             }
+            pointerHover?.refresh()
         }
     }
 
@@ -356,6 +424,7 @@ final class SidebarUpdatedCardHost: NSView {
         isHovered = false
         setHoverShown(closeButton, false, fades: false)
         island?.setPointerInside(false)
+        notes.cardHovered(false)
     }
 
     /// The room the open hover preview needs from the card's resting edge (the card and the preview's
@@ -369,13 +438,16 @@ final class SidebarUpdatedCardHost: NSView {
     /// slot keeps only ``height`` of room; the rest stands over the list.
     var frameHeight: CGFloat { max(height, overlayHeight) }
 
-    /// The x's top: centered on the card's title line (the first of its two centered lines), inside
-    /// the card's own height: at the bottom of the view, or at its top for a card resting at the top
-    /// (its open preview grows downward).
-    var closeTop: CGFloat {
-        let m = Self.metrics, card = height > 0 ? height : bounds.height
-        let titleCenter = card / 2 - (m.gap + m.noteSize * 1.3) / 2
-        return (anchor == .top ? 0 : bounds.height - card) + max(Self.closeInset.height, (titleCenter - Self.closeSide / 2).rounded())
+    /// The hover preview is open: the page asked for room past the card's own height.
+    var previewIsOpen: Bool { overlayHeight > height + 0.5 }
+
+    /// The card's own rect in the view: the header leads the view for a card resting at the top and while the
+    /// hover preview is open (the page lays its header first, Lawrence 2026-11-07: "a header (Updated to
+    /// <version>, What's New link, close), then the items"); else the card is at the bottom of the view.
+    var cardRect: NSRect {
+        let card = height > 0 ? height : bounds.height
+        let headerOnTop = anchor == .top || previewIsOpen
+        return NSRect(x: 0, y: headerOnTop ? 0 : bounds.height - card, width: bounds.width, height: card)
     }
 
     /// Whether the x shows now (proofs).
@@ -389,10 +461,29 @@ final class SidebarUpdatedCardHost: NSView {
 
     override func layout() {
         super.layout()
-        let side = Self.closeSide
-        closeButton.frame = NSRect(x: bounds.width - Self.closeInset.width - side, y: closeTop,
-                                   width: side, height: side).integral
         layoutGlass()
+        // On the title line, at the corner's trailing inset (the glass laid out first: its corner follows the zoom).
+        let corner = Metrics.cornerControl(outerRadius: glass.cornerRadius, side: Self.closeSide)
+        let rect = cardRect
+        var words = rect
+        (words.origin.y, words.size.height) = (wordsTop, rect.maxY - wordsTop)
+        closeButton.frame = Self.closeFrame(corner: corner.topTrailingFrame(side: Self.closeSide, in: rect, flipped: true), card: words,
+                                            titleLineMid: card == nil ? 0 : island?.titleLineMid ?? 0)
+        closeButton.concentricRadius = corner.childRadius
+    }
+
+    /// The x's frame in the card at `card` (flipped), from its concentric frame in the corner (`corner`): at the
+    /// corner's trailing inset, and centered on the
+    /// title line `titleLineMid` points down from the card's top (u51892, 2026-11-23: "why the x icon
+    /// is not aligned vertically with the Updated to Nightly thing? let's put it on the right side in line
+    /// with the Updated to Nightly"). The corner's concentric inset from the top sat the x below the title's
+    /// capitals, and further below once the card grew for its lines. Before the page reports its title line
+    /// (0), the x keeps the concentric corner. It never stands past the card's top.
+    static func closeFrame(corner: NSRect, card: NSRect, titleLineMid: CGFloat) -> NSRect {
+        guard titleLineMid > 0 else { return corner }
+        var frame = corner
+        frame.origin.y = max(card.minY, card.minY + titleLineMid - corner.height / 2)
+        return frame
     }
 
     /// The glass behind the card and its open preview, on the card's resting edge. A preview that opens
@@ -403,10 +494,14 @@ final class SidebarUpdatedCardHost: NSView {
         let preview = card == nil ? 0 : island?.previewHeight ?? 0
         let tall = min(bounds.height, (height > 0 ? height : bounds.height) + preview)
         let next = NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - tall, width: bounds.width, height: tall)
-        glass.isHidden = card == nil || tall <= 0
+        // The frost only where the card stands over the sidebar's rows (an open preview, a held or settling
+        // card): at rest the card has its own room and the page's material is the card's one glass, so a
+        // second panel under it was a glass back the card should not have (Leo 2026-11-27, ask-d2dd4431bf).
+        defer { glass.isHidden = card == nil || tall <= 0 || !drawn || !frosts(preview: preview) }
         // The composer's corner at the page's zoom: the page's corner grows with the interface scale.
-        glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1)
+        glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1) // concentric-allow: the composer's own corner under the page's card, which wears it too
         guard next != glassFrame else { return }
+        defer { pointerHover?.refresh() }
         let moves = preview != glassPreview && window != nil && !glassFrame.isEmpty
         if preview != glassPreview {
             // A new open or close: the latest one decides what the card holds.
@@ -420,9 +515,22 @@ final class SidebarUpdatedCardHost: NSView {
         // is simply there, and so is the glass (review F1 of #38117).
         Motion.web.animateCard(in: self, { glass.animator().frame = next }) { [weak self] in
             // An earlier motion's end leaves a later close's hold alone.
-            if self?.glassMotion == motion { self?.closingHeight = nil }
+            guard let self, glassMotion == motion else { return }
+            closingHeight = nil
+            // The close has ended: the card is at rest, without its frost.
+            if !frosts(preview: glassPreview) { glass.isHidden = true }
+            pointerHover?.refresh()
         }
     }
+
+    /// The card stands off its rest (held, or springing back from a drop): over the rows, so it frosts them.
+    var standsOffRest = false {
+        didSet { if standsOffRest != oldValue { needsLayout = true } }
+    }
+
+    /// Whether the native frost shows under the page: only while the card or its open preview stands over the
+    /// rows, which the page's own blur cannot reach (Leo 2026-11-08: "we should be able to keep it as glass").
+    func frosts(preview: CGFloat) -> Bool { preview > 0 || closingHeight != nil || heldOffset != nil || standsOffRest }
 
     /// Whether the card's glass covers `windowPoint`: the rows under it light nothing and open no card
     /// (``SidebarListView/hoverOccluded``).
@@ -433,7 +541,7 @@ final class SidebarUpdatedCardHost: NSView {
 
     /// The card owns `point` (this view's coordinates): on its glass, or on the preview still closing.
     private func owns(_ point: NSPoint) -> Bool {
-        glassFrame.contains(point) || closingFrame?.contains(point) == true
+        drawn && (glassFrame.contains(point) || closingFrame?.contains(point) == true)
     }
 
     /// The view grown for the preview's room takes the pointer only where the card's glass is: a
@@ -441,24 +549,5 @@ final class SidebarUpdatedCardHost: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let superview, owns(convert(point, from: superview)) else { return nil }
         return super.hitTest(point)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverArea { removeTrackingArea(hoverArea) }
-        // Active in the active app, not only the key window: a Chromium page's window may hold the key.
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        hoverArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        setHovered(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        setHovered(false)
     }
 }

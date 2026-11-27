@@ -504,7 +504,7 @@
    "tag": "nightly",
    "applicationSupport": "/Users/u/Library/Application Support"
   },
-  "expect": "/Users/u/Library/Application Support/cmux/tags/nightly/tui"
+  "expect": "/Users/u/Library/Application Support/cmux-next/tags/nightly/tui"
  },
  {
   "name": "an unusable tag's state directory is default",
@@ -513,7 +513,7 @@
    "tag": "..",
    "applicationSupport": "/A"
   },
-  "expect": "/A/cmux/tags/default/tui"
+  "expect": "/A/cmux-next/tags/default/tui"
  },
  {
   "name": "the channel builds",

@@ -56,6 +56,8 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         router_owner_fifo: None,
         cwd_pin: None,
         orphan_exit: None,
+        prompt_suggestions_managed: None,
+        holder: None,
     }
 }
 

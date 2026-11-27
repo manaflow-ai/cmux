@@ -12,7 +12,7 @@
 //! whose SYN came with no key is reset, never matched by address.
 
 use std::collections::hash_map::RandomState;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{BuildHasher, Hasher};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -31,12 +31,51 @@ use tokio_util::sync::PollSender;
 use crate::config::InterfaceAddress;
 use crate::device::VirtualDevice;
 use crate::error::WgError;
+use crate::send_gate::{SendGate, SendPacer};
 use crate::stream::{Outbound, WgStream};
 use crate::wire::{ip_address, socket_addr};
 
-/// Per-socket receive and transmit buffers. Terminal traffic is small; the
-/// bulk lane (screen replay) benefits from a full window.
-const SOCKET_BUFFER_BYTES: usize = 256 * 1024;
+/// Per-socket receive and transmit buffers, by default: the most one stream's
+/// window may grow to. A stream moves at most one window per round trip, so
+/// the old fixed 256 KiB held bulk to about 21 Mbit/s at 100 ms; 4 MiB is
+/// about 335 Mbit/s there. How much of it a stream keeps in flight is sized
+/// from its path ([`crate::send_gate::SendPacer::send_window`]), so short
+/// paths keep the 256 KiB flight that served them. The buffers
+/// are zeroed allocations the OS maps on first touch, and smoltcp's ring
+/// starts over at its front whenever it drains, so a stream that never has
+/// more than a few KiB queued (a terminal) only ever touches its first pages.
+/// Keystrokes do not queue behind a larger send buffer: [`crate::send_gate`]
+/// holds the unsent bytes at its low-water mark, not at the buffer's size.
+pub(crate) const DEFAULT_STREAM_WINDOW: usize = 4 << 20;
+/// The smallest and largest window [`STREAM_WINDOW_ENV`] may ask for.
+/// The largest stays under the underlay's [`crate::RECEIVE_BUFFER`], so one
+/// window of datagrams never overflows the peer's UDP socket
+/// (`tests/receive_buffer.rs`).
+pub(crate) const MIN_STREAM_WINDOW: usize = 64 * 1024;
+pub(crate) const MAX_STREAM_WINDOW: usize = 6 << 20;
+/// Overrides [`DEFAULT_STREAM_WINDOW`] for new connections, in bytes (a `K`
+/// or `M` suffix is KiB or MiB), clamped to
+/// [`MIN_STREAM_WINDOW`]..=[`MAX_STREAM_WINDOW`]. For benches and tuning.
+pub const STREAM_WINDOW_ENV: &str = "CMUX_WG_STREAM_WINDOW";
+/// Set to `1` (or `on`, `true`) to carry data on tunnel TCP SYNs: a connect
+/// holds its SYN up to [`SYN_DATA_HOLD`] for the first write, which rides
+/// on it, and a listener reads a SYN's data and replies once its SYN|ACK is
+/// out. Off by default. A peer without it acknowledges only the SYN and the
+/// data is sent again after the handshake, once.
+pub const SYN_DATA_ENV: &str = "CMUX_WG_SYN_DATA";
+/// How long a connect with [`SYN_DATA_ENV`] holds its SYN for a first write.
+pub(crate) const SYN_DATA_HOLD: Duration = Duration::from_millis(30);
+/// How long a SYN carrying a first write waits for the writes right behind
+/// it, within [`SYN_DATA_HOLD`]. The link's first bytes reach the socket as
+/// two writes (62 and 304 bytes on the relay bench); a poll between them sent
+/// the SYN with the first alone, and the Mac answered the rest a round trip
+/// later (3 of 6 relay runs at rtt-400).
+pub(crate) const SYN_DATA_COALESCE: Duration = Duration::from_millis(5);
+
+/// Whether [`SYN_DATA_ENV`] is on.
+pub(crate) fn syn_data_from_env() -> bool {
+    std::env::var(SYN_DATA_ENV).is_ok_and(|value| matches!(value.trim(), "1" | "on" | "true"))
+}
 /// Largest chunk moved from a smoltcp socket into a stream at once.
 pub(crate) const INBOUND_CHUNK_BYTES: usize = 16 * 1024;
 /// Queued chunks per direction per connection before backpressure.
@@ -55,6 +94,35 @@ pub(crate) const TCP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Probe each idle TCP connection before its receive timeout. WireGuard
 /// keepalives and application heartbeats on another lane do not elicit its ACKs.
 const TCP_KEEP_ALIVE: Duration = Duration::from_secs(15);
+/// The floor under the retransmission timeout once an RTT is measured:
+/// Linux's `TCP_RTO_MIN`. smoltcp defaults to RFC 6298's 1 s, which turns one
+/// lost segment at the tail of a frame into a 1 s stall. Linux peers run
+/// with the same floor against each other's delayed ACKs, and smoltcp delays
+/// an ACK by 10 ms.
+const TCP_MIN_RTO: Duration = Duration::from_millis(200);
+/// The floor under the retransmission timeout before a connection has an
+/// RTT sample, which is what a lost SYN or SYN-ACK waits. smoltcp defaults to
+/// RFC 6298's 1 s, so one lost SYN held a cold dial a full second (3% of them
+/// on a lossy phone link). Above it the timeout is twice the path's round
+/// trip ([`rto_for_path`]): a fixed 300 ms resent every SYN on a 400 ms path
+/// before its answer could arrive, and Karn then took no RTT sample from it.
+pub(crate) const TCP_INITIAL_RTO: Duration = Duration::from_millis(300);
+/// The initial RTO when the path's round trip is not known: smoltcp's own
+/// default, RFC 6298 (2.1).
+pub(crate) const TCP_UNKNOWN_PATH_RTO: Duration = Duration::from_secs(1);
+
+/// The retransmission timeout a new connection starts with, from the path's
+/// round trip as the tunnel last measured it: `max(300 ms, 2 * rtt)`, the
+/// margin `crate::handshake_retry` gives a handshake, or 1 s with none. An
+/// RTO of one RTT would fire about half the time on a jittery path.
+pub(crate) fn rto_for_path(path_rtt: Option<Duration>) -> Duration {
+    path_rtt.map_or(TCP_UNKNOWN_PATH_RTO, |rtt| (rtt * 2).max(TCP_INITIAL_RTO))
+}
+/// How long a peer may hold an ACK, in the tail-loss probe timeout
+/// (`2 * SRTT` plus this). smoltcp peers delay ACKs 10 ms; the margin covers
+/// a kernel peer's first delayed ACK. A probe sent too early costs one
+/// segment resent.
+const TCP_PROBE_ACK_DELAY: Duration = Duration::from_millis(25);
 /// The ephemeral port range (IANA 49152-65535); allocation starts at a random
 /// port inside it and wraps, as a real stack does.
 pub(crate) const FIRST_EPHEMERAL_PORT: u16 = 49_152;
@@ -69,6 +137,26 @@ pub(crate) const LINK_TCP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// connection is accepted; past this bound the ones without a half-open
 /// socket are dropped, and a SYN that still finds no room is dropped too.
 const MAX_SYN_ORIGINS: usize = 1024;
+
+/// The window [`STREAM_WINDOW_ENV`] asks for, else [`DEFAULT_STREAM_WINDOW`].
+fn stream_window_from_env() -> usize {
+    std::env::var(STREAM_WINDOW_ENV)
+        .ok()
+        .and_then(|value| parse_window(&value))
+        .unwrap_or(DEFAULT_STREAM_WINDOW)
+}
+
+/// `value` as bytes (`262144`, `256K`, `4M`), clamped to the allowed range.
+pub(crate) fn parse_window(value: &str) -> Option<usize> {
+    let value = value.trim();
+    let (digits, unit) = match value.as_bytes().last()? {
+        b'k' | b'K' => (&value[..value.len() - 1], 1 << 10),
+        b'm' | b'M' => (&value[..value.len() - 1], 1 << 20),
+        _ => (value, 1),
+    };
+    let bytes = digits.trim().parse::<usize>().ok()?.checked_mul(unit)?;
+    Some(bytes.clamp(MIN_STREAM_WINDOW, MAX_STREAM_WINDOW))
+}
 
 /// A peer's public key, the tag of a connection in a mesh.
 pub(crate) type PeerKey = [u8; 32];
@@ -110,9 +198,22 @@ pub(crate) struct Conn {
     /// Head of the outbound queue not yet accepted by smoltcp.
     pub(crate) pending_write: Option<Bytes>,
     pub(crate) outbound_closed: bool,
+    /// The peer's FIN arrived: a socket that ends after this ended cleanly,
+    /// one that ends without it was reset or timed out.
+    pub(crate) remote_fin: bool,
+    /// Bytes taken from the socket after it closed, before the owner read
+    /// them (TIME-WAIT's timer would clear the socket's buffer).
+    pub(crate) drained: VecDeque<Bytes>,
     /// Set before the connection is dropped for a reason the owner must see
-    /// as an error (its peer was removed).
+    /// as an error (its peer was removed, or the socket was reset or timed
+    /// out before the peer's FIN).
     pub(crate) reset: Arc<AtomicBool>,
+    /// Measures the delivery rate and holds the stream's writes at the
+    /// low-water mark of unsent bytes ([`crate::send_gate`]).
+    pub(crate) send: SendPacer,
+    /// This stream's fresh bytes the driver's pacer holds, as of its last
+    /// pass ([`TcpStack::set_pacer_held`]).
+    pub(crate) pacer_held: usize,
 }
 
 pub(crate) struct Listener {
@@ -137,7 +238,29 @@ pub(crate) struct TcpStack {
     pub(crate) syn_origins: Option<HashMap<FlowKey, PeerKey>>,
     /// [`TcpStack::close_all`] ran: each connection closes after what its owner had queued.
     pub(crate) closing: bool,
+    /// Congestion control for new connections: Cubic, or none when ultra
+    /// mode holds the rate through loss (`CMUX_WG_ULTRA_CC=none`).
+    pub(crate) congestion: tcp::CongestionControl,
+    /// Receive and transmit buffer bytes of each new connection: its window.
+    pub(crate) stream_window: usize,
+    /// [`TcpStack::set_hold`]: how long a peer that went silent on purpose
+    /// is waited for, while it is held.
+    hold: Option<Duration>,
+    /// After a hold is released, when the usual user timeout comes back
+    /// ([`HOLD_RELEASE_GRACE`]).
+    release_at: Option<Instant>,
+    /// The RTO new sockets start with before their first RTT sample
+    /// ([`TcpStack::set_path_rtt`]). A stack whose owner never reports a
+    /// path round trip (the mesh) keeps [`TCP_INITIAL_RTO`].
+    initial_rto: Duration,
 }
+
+/// How long a released hold keeps its long timeout. A connection idle
+/// through the hold (an input lane with no keystroke yet) last heard its
+/// peer minutes ago, and its user timeout counts from then: restored at once,
+/// it would abort at the next poll. The keepalive probe that the release
+/// sends at once is answered well inside this, which makes the peer recent.
+const HOLD_RELEASE_GRACE: Duration = Duration::from_secs(30);
 
 impl TcpStack {
     /// An interface holding `addresses`. `tagged` turns on per-peer tags.
@@ -182,7 +305,86 @@ impl TcpStack {
             next_port: random_ephemeral_port(),
             syn_origins: tagged.then(HashMap::new),
             closing: false,
+            congestion: crate::ultra::congestion_from_env(),
+            stream_window: stream_window_from_env(),
+            hold: None,
+            release_at: None,
+            initial_rto: TCP_INITIAL_RTO,
         })
+    }
+
+    /// Hold every connection for a peer that goes silent on purpose (a phone
+    /// suspended in the background): no keepalive probe goes out, data whose
+    /// ACK was lost is not retransmitted, and a connection is aborted only
+    /// after `hold` without a segment from the peer instead of its usual user
+    /// timeout. `None` releases it: the keepalive comes back at once (its
+    /// first probe goes out now), unacknowledged data is resent at once, and
+    /// the usual user timeout [`HOLD_RELEASE_GRACE`] later, once that probe's
+    /// answer has made the peer recent again.
+    pub(crate) fn set_hold(&mut self, hold: Option<Duration>) {
+        let held = self.hold.or(hold);
+        self.hold = hold;
+        self.release_at = match hold {
+            Some(_) => None,
+            None => held.map(|_| Instant::now() + HOLD_RELEASE_GRACE),
+        };
+        for conn in &self.conns {
+            let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
+            match (hold, held) {
+                (Some(hold), _) => {
+                    apply_hold(socket, Some(hold));
+                    socket.set_retransmit_paused(true);
+                }
+                // Released: probe and resend now, keep the long timeout for
+                // the grace.
+                (None, Some(_)) => {
+                    socket.set_keep_alive(Some(smol_duration(TCP_KEEP_ALIVE)));
+                    socket.set_retransmit_paused(false);
+                }
+                (None, None) => {}
+            }
+        }
+    }
+
+    /// Start tracking a connection the stack just admitted (accepted or
+    /// dialed). One admitted while held is held like the others (a late
+    /// input lane's SYN can arrive after the park): no keepalive, no
+    /// retransmission, and the hold's timeout instead of its user timeout.
+    pub(crate) fn admit(&mut self, conn: Conn) {
+        if let Some(hold) = self.hold {
+            let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
+            apply_hold(socket, Some(hold));
+            socket.set_retransmit_paused(true);
+        }
+        self.conns.push(conn);
+    }
+
+    /// The path's round trip as the tunnel last measured it (`None`: not
+    /// known yet). New sockets, and the listeners' spares made ahead of time,
+    /// start with [`rto_for_path`] of it. A socket that already has an RTT
+    /// sample, or backed off, keeps its own; one waiting on a segment sent
+    /// before keeps that segment's deadline.
+    pub(crate) fn set_path_rtt(&mut self, rtt: Option<Duration>) {
+        let rto = rto_for_path(rtt);
+        if rto == self.initial_rto {
+            return;
+        }
+        self.initial_rto = rto;
+        let handles = self.conns.iter().map(|conn| conn.handle);
+        let spares = self.listeners.iter().flat_map(|listener| listener.handles.iter().copied());
+        for handle in handles.chain(spares) {
+            self.sockets.get_mut::<tcp::Socket>(handle).set_initial_rto(smol_duration(rto));
+        }
+    }
+
+    /// The hold in force ([`TcpStack::set_hold`]).
+    pub(crate) fn hold(&self) -> Option<Duration> {
+        self.hold
+    }
+
+    /// When the stack must step to end a released hold's grace.
+    pub(crate) fn release_deadline(&self) -> Option<Instant> {
+        self.release_at
     }
 
     pub(crate) fn now(&self) -> SmolInstant {
@@ -197,6 +399,25 @@ impl TcpStack {
         self.iface.poll(now, &mut self.device, &mut self.sockets);
     }
 
+    /// The tunnel moved to another route: every connection with data in
+    /// flight resends it at once, with its RTO back at the RTT estimate.
+    pub(crate) fn path_changed(&mut self) {
+        for conn in &self.conns {
+            self.sockets.get_mut::<tcp::Socket>(conn.handle).path_changed();
+        }
+    }
+
+    /// Ultra mode began repairing this tunnel's losses (Auto turned it on at
+    /// the first loss): the losses that turned it on, and any other of data
+    /// already in flight, cut no congestion window, and a cut one already
+    /// made is undone. Repair covers the link from here on, as it covers a
+    /// tunnel that started in Always, whose TCP never sees those losses.
+    pub(crate) fn link_repairs_losses(&mut self) {
+        for conn in &self.conns {
+            self.sockets.get_mut::<tcp::Socket>(conn.handle).link_repairs_losses();
+        }
+    }
+
     /// When smoltcp next wants a poll, or `None` to wait for an event.
     pub(crate) fn poll_delay(&mut self) -> Option<Duration> {
         let now = self.now();
@@ -208,12 +429,87 @@ impl TcpStack {
     /// One pass: poll, accept, move bytes between sockets and streams, then
     /// poll again so anything the streams produced is emitted in the same
     /// pass. Returns whether a byte moved, so the engine can pass again.
+    /// Trace only (`CMUX_WG_STALL_TRACE`): every connection's socket and
+    /// channel state, and the device queues, one line each.
+    pub(crate) fn trace_state(&self) -> Vec<String> {
+        let mut lines = vec![format!(
+            "device rx={} tx={} conns={} listeners={}",
+            self.device.rx_len(),
+            self.device.tx_len(),
+            self.conns.len(),
+            self.listeners.len()
+        )];
+        for conn in &self.conns {
+            let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+            let inbound =
+                conn.inbound.as_ref().map(|sender| STREAM_CHANNEL_DEPTH - sender.capacity());
+            lines.push(format!(
+                "conn remote={} local={:?} state={:?} inbound_fill={:?} outbound_len={} pending_write={:?} outbound_closed={} remote_fin={} drained={} send_queue={} recv_queue={} unsent={} srtt={:?} send_window_cap={:?} sack_recovery={} timeout={:?}",
+                conn.remote,
+                socket.local_endpoint(),
+                socket.state(),
+                inbound,
+                conn.outbound.len(),
+                conn.pending_write.as_ref().map(Bytes::len),
+                conn.outbound_closed,
+                conn.remote_fin,
+                conn.drained.len(),
+                socket.send_queue(),
+                socket.recv_queue(),
+                socket.unsent_queue(),
+                socket.smoothed_rtt(),
+                socket.send_window_cap(),
+                socket.sack_recovery(),
+                socket.timeout()
+            ));
+        }
+        lines
+    }
+
     pub(crate) fn step(&mut self) -> bool {
+        if self.release_at.is_some_and(|at| Instant::now() >= at) {
+            self.release_at = None;
+            for conn in &self.conns {
+                apply_hold(self.sockets.get_mut::<tcp::Socket>(conn.handle), None);
+            }
+        }
         self.poll();
         self.process_listeners();
         let progressed = self.process_conns();
         self.poll();
+        self.update_send_gates();
         progressed
+    }
+
+    /// Tell each stream how many of its bytes TCP has not sent yet and its
+    /// low-water mark, after the poll that sent what the window allowed;
+    /// a writer held at the mark is woken once there is room.
+    fn update_send_gates(&mut self) {
+        let now = Instant::now();
+        for conn in &mut self.conns {
+            let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
+            let srtt = socket.smoothed_rtt().map(|srtt| Duration::from_micros(srtt.total_micros()));
+            let unsent = socket.unsent_queue() + conn.pacer_held;
+            conn.send.update(now, socket.send_queue(), unsent, srtt);
+            // The buffer is the most a stream may use; the path decides how
+            // much it does (`SendPacer::send_window`).
+            socket.set_send_window_cap(Some(conn.send.send_window(socket.send_capacity())));
+        }
+    }
+
+    /// After the driver moved the stack's output into its pacer and sent
+    /// what the pace allowed: each stream's fresh bytes the pacer still holds
+    /// (`held(local, remote)`, [`crate::pacing::Pacer::held`]) count as unsent
+    /// for its send gate. smoltcp counts them in flight, so without this a
+    /// bulk stream's backlog behind the delay window grew in the pacer to its
+    /// whole send window (3 s at 1 MB/s on lte), and a keystroke's echo
+    /// written on the same stream waited behind all of it.
+    pub(crate) fn set_pacer_held(&mut self, held: impl Fn(SocketAddr, SocketAddr) -> usize) {
+        for conn in &mut self.conns {
+            let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+            conn.pacer_held = socket_flow(socket).map_or(0, |(local, remote)| held(local, remote));
+        }
+        self.update_send_gates();
     }
 
     /// Queue a decrypted packet for the next poll. In tagged mode `origin` is
@@ -265,15 +561,41 @@ impl TcpStack {
         self.next_port
     }
 
-    /// A socket that gives up after `timeout` without an ACK from the peer.
-    pub(crate) fn new_socket(timeout: Duration) -> tcp::Socket<'static> {
+    /// A socket that gives up after `timeout` without an ACK from the peer,
+    /// and waits `initial_rto` for one before its first RTT sample.
+    pub(crate) fn new_socket(
+        timeout: Duration,
+        congestion: tcp::CongestionControl,
+        initial_rto: Duration,
+        window: usize,
+    ) -> tcp::Socket<'static> {
+        // The receive buffer's size fixes the window scale the SYN offers.
         let mut socket = tcp::Socket::new(
-            tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
-            tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
+            tcp::SocketBuffer::new(vec![0u8; window]),
+            tcp::SocketBuffer::new(vec![0u8; window]),
         );
         // Keystrokes are latency-bound; the OS dial path disables Nagle too.
         socket.set_nagle_enabled(false);
-        socket.set_congestion_control(tcp::CongestionControl::Cubic);
+        if syn_data_from_env() {
+            socket.set_syn_data(true);
+            socket.set_syn_data_hold(smol_duration(SYN_DATA_HOLD));
+            socket.set_syn_data_coalesce(smol_duration(SYN_DATA_COALESCE));
+        }
+        socket.set_congestion_control(congestion);
+        socket.set_min_rto(smoltcp::time::Duration::from_micros(
+            u64::try_from(TCP_MIN_RTO.as_micros()).unwrap_or(u64::MAX),
+        ));
+        socket.set_initial_rto(smol_duration(initial_rto));
+        // A lone lost segment is resent after about two round trips, not the RTO.
+        socket.set_tail_loss_probe(Some(smoltcp::time::Duration::from_micros(
+            u64::try_from(TCP_PROBE_ACK_DELAY.as_micros()).unwrap_or(u64::MAX),
+        )));
+        // Under repeated loss, resend only the holes the peer's SACK blocks
+        // show, several per round trip, with one window cut per episode.
+        socket.set_sack_recovery(true);
+        // An underlay path smaller than the tunnel MTU that silently drops
+        // full segments: after two timeouts in a row, send 1280 byte packets.
+        socket.set_black_hole_fallback(true);
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(timeout.as_micros()).unwrap_or(u64::MAX),
         )));
@@ -297,7 +619,9 @@ impl TcpStack {
         }
         let port = self.allocate_port();
         let local = SocketAddr::new(local_ip, port);
-        let mut socket = Self::new_socket(user_timeout(remote.port()));
+        let timeout = user_timeout(remote.port());
+        let mut socket =
+            Self::new_socket(timeout, self.congestion, self.initial_rto, self.stream_window);
         let result = socket.connect(
             self.iface.context(),
             IpEndpoint::new(ip_address(remote.ip()), remote.port()),
@@ -309,7 +633,7 @@ impl TcpStack {
         }
         let handle = self.sockets.add(socket);
         let (conn, stream) = self.bridge(handle, local, remote, peer);
-        self.conns.push(Conn { pending_stream: Some((Handoff::Connect(reply), stream)), ..conn });
+        self.admit(Conn { pending_stream: Some((Handoff::Connect(reply), stream)), ..conn });
     }
 
     pub(crate) fn begin_listen(&mut self, port: u16) -> Result<mpsc::Receiver<Accepted>, WgError> {
@@ -326,7 +650,9 @@ impl TcpStack {
     }
 
     pub(crate) fn listening_socket(&mut self, port: u16) -> Result<SocketHandle, WgError> {
-        let mut socket = Self::new_socket(user_timeout(port));
+        let timeout = user_timeout(port);
+        let mut socket =
+            Self::new_socket(timeout, self.congestion, self.initial_rto, self.stream_window);
         socket
             .listen(IpListenEndpoint::from(port))
             .map_err(|error| WgError::Stack(format!("{error}")))?;
@@ -345,6 +671,7 @@ impl TcpStack {
         let (inbound_tx, inbound_rx) = mpsc::channel(STREAM_CHANNEL_DEPTH);
         let (outbound_tx, outbound_rx) = mpsc::channel(STREAM_CHANNEL_DEPTH);
         let reset = Arc::new(AtomicBool::new(false));
+        let gate = Arc::new(SendGate::default());
         let stream = WgStream {
             local,
             remote,
@@ -354,6 +681,7 @@ impl TcpStack {
             wake: Arc::clone(&self.wake),
             shutdown_sent: false,
             reset: Arc::clone(&reset),
+            gate: Arc::clone(&gate),
         };
         let conn = Conn {
             handle,
@@ -364,7 +692,11 @@ impl TcpStack {
             outbound: outbound_rx,
             pending_write: None,
             outbound_closed: false,
+            remote_fin: false,
+            drained: VecDeque::new(),
             reset,
+            send: SendPacer::new(gate),
+            pacer_held: 0,
         };
         (conn, stream)
     }
@@ -380,6 +712,26 @@ fn syn_flow(packet: &[u8]) -> Option<FlowKey> {
     let local = SocketAddr::new(segment.destination.0, segment.destination.1);
     let remote = SocketAddr::new(segment.source.0, segment.source.1);
     Some((local, remote))
+}
+
+/// A held socket sends no keepalive probe and waits `hold` for its peer; an
+/// unheld one has the keepalive and user timeout it was created with.
+fn apply_hold(socket: &mut tcp::Socket<'static>, hold: Option<Duration>) {
+    let (timeout, keep_alive) = match hold {
+        Some(hold) => (hold, None),
+        None => {
+            let timeout = socket_flow(socket).map_or(TCP_TIMEOUT, |(local, remote)| {
+                user_timeout(local.port()).max(user_timeout(remote.port()))
+            });
+            (timeout, Some(TCP_KEEP_ALIVE))
+        }
+    };
+    socket.set_timeout(Some(smol_duration(timeout)));
+    socket.set_keep_alive(keep_alive.map(smol_duration));
+}
+
+fn smol_duration(duration: Duration) -> smoltcp::time::Duration {
+    smoltcp::time::Duration::from_micros(u64::try_from(duration.as_micros()).unwrap_or(u64::MAX))
 }
 
 /// A socket's flow, once it has both endpoints.
@@ -398,3 +750,7 @@ fn half_open_flows(sockets: &SocketSet<'_>, listeners: &[Listener]) -> HashSet<F
 
 #[path = "tcp_bridge.rs"]
 mod bridge;
+
+#[cfg(test)]
+#[path = "tcp_stack_rto_tests.rs"]
+mod rto_tests;

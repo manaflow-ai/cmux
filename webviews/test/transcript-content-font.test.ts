@@ -2,10 +2,10 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import type { ViteDevServer } from "vite";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-content-font.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -14,6 +14,12 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
   const baseRoot = process.env.CMUX_FONT_BASE_ROOT;
   let vite: ViteDevServer;
   const browsers: { engine: string; browser: Browser }[] = [];
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) is left out; GitHub Actions still fails the file (probeEngineOrSkip).
+  const engines: Record<string, BrowserType> = {};
+  for (const [name, engine] of Object.entries({ chromium, webkit }))
+    if (await probeEngineOrSkip("transcript-content-font.test.ts", name, engine)) engines[name] = engine;
+  if (Object.keys(engines).length === 0) return;
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({
@@ -22,7 +28,7 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    for (const [engine, launcher] of Object.entries({ chromium, webkit }))
+    for (const [engine, launcher] of Object.entries(engines))
       browsers.push({ engine, browser: await launcher.launch({ headless: true }) });
     await warmGalleryFrame(vite, entry, { browser: browsers[0]!.browser });
     if (capture) await mkdir(capture, { recursive: true });
@@ -98,7 +104,9 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
               [".cv-shell__body", 12],
               [".cv-shell__exit", 13],
               [".cv-tool-output", 12],
-              [".cv-command__line", 12.5],
+              // A command's line is the row's own text, as every row's label (Lucas, 2026-11-14: the
+              // "Ran" command in the same font as the rows).
+              [".cv-command__line", 14],
               [".cv-command__meta", 12],
               [".cv-code-plain", 12],
               [".cv-footnotes", 12.5],
@@ -126,9 +134,17 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
               [390, 1.25],
             ] as const) {
               await page.setViewportSize({ width, height: 1100 });
-              await page.evaluate((zoom) => {
-                document.documentElement.style.zoom = String(zoom);
-              }, zoom);
+              // Measured a frame after the resize: a sideways box takes its thin scrollbar's lane
+              // (`data-cmux-sideways`, sideways.ts) from a ResizeObserver callback, which runs before
+              // the frame paints but after this script; read sooner, its bar sits in the eighth line.
+              await page.evaluate(
+                (zoom) =>
+                  new Promise<void>((done) => {
+                    document.documentElement.style.zoom = String(zoom);
+                    requestAnimationFrame(() => requestAnimationFrame(() => done()));
+                  }),
+                zoom,
+              );
               if (size === 14 && width === 760) {
                 for (const [selector, height] of [
                   [".cv-codeblock__header", 45.5],

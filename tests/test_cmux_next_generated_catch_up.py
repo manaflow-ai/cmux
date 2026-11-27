@@ -12,12 +12,23 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/generated_catch_up.py"
@@ -28,6 +39,12 @@ KEYWISE_DRIVERS = {
     "cmux-baseline-v1": "scripts/merge-baseline.py",
     "cmux-capabilities-v1": "scripts/merge-daemon-capabilities.py",
     "cmux-insertions-v1": "scripts/merge-insertions.py",
+    # Cargo.lock: package-wise, written in cargo's own order (scripts/merge-cargo-lock.py).
+    "cmux-cargo-lock-v1": "scripts/merge-cargo-lock.py",
+    # The Mac-only exports (settings schema, docs/mdm): a three-way merge, never one side.
+    "cmux-export-v1": "scripts/merge-insertions.py",
+    # Generated files: three-way when clean, else this branch's copy for the rebuild (never `true`).
+    "cmux-generated-v1": "scripts/merge-insertions.py",
 }
 WORKFLOW = ROOT / ".github/workflows/cmux-next-generated-catch-up.yml"
 
@@ -51,7 +68,7 @@ def pr(number, **overrides):
 class GeneratedPaths(unittest.TestCase):
     def setUp(self):
         self.catch_up = load()
-        self.patterns = self.catch_up.generated_patterns((ROOT / ".gitattributes").read_text(encoding="utf-8"))
+        self.patterns = self.catch_up.merge_rules((ROOT / ".gitattributes").read_text(encoding="utf-8"))
 
     def test_the_bundles_and_strings_tables_are_generated(self):
         for path in (
@@ -61,6 +78,8 @@ class GeneratedPaths(unittest.TestCase):
             "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
+            # Every other generated family (scripts/cmux-next/generated_merge.py), the page router included.
+            "webviews/src/pages/shared/generated/pageRouter.ts",
         ):
             self.assertTrue(self.catch_up.is_generated(path, self.patterns), path)
 
@@ -68,7 +87,9 @@ class GeneratedPaths(unittest.TestCase):
         for path in (
             "webviews/src/agent-session/acpmux/App.tsx",
             "webviews/src/agent-session/acpmux/Localizable.xcstrings",
-            "webviews/src/protocol/generated/types.ts",
+            # Hand-written files inside a generated directory, taken back out by a later `!merge`.
+            "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java",
+            "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel.swift",
             ".gitattributes",
         ):
@@ -198,9 +219,10 @@ class Workflow(unittest.TestCase):
 
     def test_the_write_token_is_contents_only_on_an_ephemeral_runner(self):
         job = self.doc["jobs"]["catch-up"]
-        # A Blacksmith VM runs one job and is destroyed; no variable can move
-        # the write token to a reused mini.
-        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}")
+        # The repair JIT label (#48727: a one-job GCP VM, deleted after the job) or, with its switch
+        # off, a Blacksmith VM that runs one job and is destroyed; no variable can move the write
+        # token to a reused mini.
+        self.assertEqual(workflow_jobs.runs_on_cells(job), ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}"])
         mint = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/create-github-app-token"))
         self.assertEqual(mint["with"].get("permission-contents"), "write")
         self.assertNotIn("permission-pull-requests", mint["with"])
@@ -242,7 +264,7 @@ class SelectiveCheckout(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="catch-up-refs-") as tmp:
             root = Path(tmp)
             remote = root / "origin.git"
-            git(root, "init", "--quiet", "--bare", str(remote))
+            git_fixture_env.init_repo(remote, "--bare", cwd=root)
             git(remote, "config", "uploadpack.allowFilter", "true")
             maker = root / "maker"
             git(root, "clone", "-q", f"file://{remote}", str(maker))
@@ -301,7 +323,7 @@ class KeyWiseDrivers(unittest.TestCase):
 
     def test_every_keywise_driver_in_gitattributes_is_registered_from_the_base(self):
         named = set(re.findall(r"merge=([\w.-]+)", (ROOT / ".gitattributes").read_text(encoding="utf-8")))
-        self.assertEqual(named - {"cmux-generated-v1"}, set(KEYWISE_DRIVERS))
+        self.assertEqual(named, set(KEYWISE_DRIVERS))
         trusted = self.step("Check out the base's catch-up script")["with"]["sparse-checkout"].split()
         script = self.step("Merge feat-cmux-next")["run"]
         for driver, path in KEYWISE_DRIVERS.items():
@@ -363,9 +385,9 @@ class KeyWiseDrivers(unittest.TestCase):
         self.git(repo, "remote", "add", "origin", str(repo))
         output = tmp / "output"
         output.touch()
-        env = {"PATH": os.environ["PATH"], "HOME": str(tmp), "BASE_SHA": base, "BRANCH": "lane", "PR_NUMBER": "7",
+        env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": str(tmp), "BASE_SHA": base, "BRANCH": "lane", "PR_NUMBER": "7",
                "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(tmp / "summary"), "RUNNER_TEMP": str(tmp),
-               "GIT_CONFIG_GLOBAL": str(tmp / "gitconfig"), "GIT_CONFIG_NOSYSTEM": "1"}
+               "GIT_CONFIG_GLOBAL": str(tmp / "gitconfig"), "GIT_CONFIG_NOSYSTEM": "1"})
         (tmp / "gitconfig").write_text("[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n")
         result = subprocess.run(["bash", "-e", "-c", self.step("Merge feat-cmux-next")["run"]], cwd=repo, env=env,
                                 capture_output=True, text=True, timeout=60)
@@ -426,7 +448,7 @@ class MergeFailures(unittest.TestCase):
         """A remote where the base and the lane both change `shared` (merging cleanly, which writes
         a new blob locally) and the base also changes, adds and removes other files."""
         remote = self.tmp / "origin.git"
-        self.git(self.tmp, "init", "-q", "--bare", str(remote))
+        git_fixture_env.init_repo(remote, "--bare", cwd=self.tmp, env=self.env())
         self.git(remote, "config", "uploadpack.allowFilter", "true")
         self.git(remote, "config", "uploadpack.allowAnySHA1InWant", "true")
         maker = self.tmp / "maker"

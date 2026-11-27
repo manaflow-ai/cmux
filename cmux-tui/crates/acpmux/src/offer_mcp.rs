@@ -4,7 +4,7 @@
 //! shows a chip, and the person starts the parallel chat or dismisses it.
 //! Codex gets the same server through its MCP config.
 //!
-//! `suggest_tasks` (cx-lo9yf) offers 1 to [`MAX_TASKS`] follow-ups at the end
+//! `suggest_tasks` (cx-lo9yf) offers one or more follow-ups at the end
 //! of a turn: one `_acpmux/offer_session` per task, all with one fresh
 //! `groupId`, which the chat shows as one card.
 
@@ -18,8 +18,6 @@ use serde_json::{Value, json};
 pub const SERVER_NAME: &str = "cmux-sessions";
 /// The session that offers, set in this server's own env.
 pub const SESSION_ENV: &str = "ACPMUX_OFFER_SESSION";
-/// Most tasks one `suggest_tasks` call offers.
-pub const MAX_TASKS: usize = 5;
 /// Longest offer title, in characters after trimming (`hub/offers.rs` refuses longer).
 pub const MAX_TITLE_CHARS: usize = 80;
 /// Longest offer prompt, in characters after trimming.
@@ -28,7 +26,7 @@ pub const MAX_PROMPT_CHARS: usize = 20_000;
 fn tools() -> Value {
     json!([{
         "name": "offer_session",
-        "description": "Offer the user a new chat, running in parallel, for work you noticed that is outside the task at hand (a bug, a follow-up, a cleanup). cmux shows the offer as a chip in this chat; if the user accepts, a new agent session starts with your prompt (in a new git worktree when worktree is true) while this chat goes on. Returns at once: do not wait for an answer, and do not do that work here. If the user starts it, it becomes your sub-session (get_session and wait_for_sessions read it) and its reply comes back to this chat as a message when its first turn ends. Offer only work the user is likely to want, at most a few per task (a chat holds at most 8 open offers). Use it for one suggestion in the middle of a turn; for follow-ups at the end of a turn, use suggest_tasks.",
+        "description": "Offer the user a new chat, running in parallel, for work you noticed that is outside the task at hand (a bug, a follow-up, a cleanup). cmux shows the offer as a chip in this chat; if the user accepts, a new agent session starts with your prompt (in a new git worktree when worktree is true) while this chat goes on. Returns at once: do not wait for an answer, and do not do that work here. If the user starts it, it becomes your sub-session (get_session and wait_for_sessions read it) and its reply comes back to this chat as a message when its first turn ends. Offer only work the user is likely to want, at most a few per task. Use it for one suggestion in the middle of a turn; for follow-ups at the end of a turn, use suggest_tasks.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -43,14 +41,13 @@ fn tools() -> Value {
         }
     }, {
         "name": "suggest_tasks",
-        "description": "At the end of a turn, suggest up to 5 follow-up tasks (usually 2 or more) the user may want to run next, each in its own new chat in parallel: independent work your turn led to (tests or docs for what you built, a related bug you saw, the next step of a plan). cmux shows them together as one card in this chat; the user starts any or all of them, or has you do one here. Returns at once: do not do these tasks yourself and do not wait for an answer; end your turn with your usual summary. Suggest only tasks that stand alone and that the user is likely to want, not steps of the current task. Each prompt must carry its own context: a new chat starts with none of this chat's history. A started task becomes your sub-session, and when its first turn ends its reply comes back to this chat as a message. For one suggestion in the middle of a turn, use offer_session instead.",
+        "description": "At the end of a turn, suggest a few follow-up tasks (usually 2 to 5) the user may want to run next, each in its own new chat in parallel: independent work your turn led to (tests or docs for what you built, a related bug you saw, the next step of a plan). cmux shows them together as one card in this chat; the user starts any or all of them, or has you do one here. Returns at once: do not do these tasks yourself and do not wait for an answer; end your turn with your usual summary. Suggest only tasks that stand alone and that the user is likely to want, not steps of the current task. Each prompt must carry its own context: a new chat starts with none of this chat's history. A started task becomes your sub-session, and when its first turn ends its reply comes back to this chat as a message. For one suggestion in the middle of a turn, use offer_session instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "tasks": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": MAX_TASKS,
                     "description": "The tasks, most useful first.",
                     "items": {
                         "type": "object",
@@ -71,22 +68,28 @@ fn tools() -> Value {
 }
 
 /// What the server tells the agent once, at `initialize` (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "Work the user did not ask for: suggest it with offer_session (one task) \
-or suggest_tasks (a few at once) and let the user start it; start a session yourself only when the \
-user asked for one. When you notice side work the user would likely want (a bug, a follow-up, a \
-cleanup) that does not belong in this task, offer it instead of doing it inline or only mentioning \
-it: the chat draws it as a card the user starts as a new chat, or has you do here.";
+pub const INSTRUCTIONS: &str = "Side work the user did not ask for (a bug, a follow-up, a \
+cleanup): offer it with offer_session (one task) or suggest_tasks (several) instead of doing it \
+inline or only mentioning it; start a session yourself only when the user asked for one.";
 
-/// Runs the server on stdin and stdout.
-pub async fn run() -> Result<()> {
-    crate::secret_mcp::serve(
+/// The server for the session in its env, its calls on `daemon`'s connection
+/// (`tools_mcp.rs`: one process serves it with acpmux's other servers).
+pub(crate) fn served(
+    daemon: &std::sync::Arc<crate::tools_mcp::Daemon>,
+) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
         SERVER_NAME,
         SESSION_ENV,
         tools(),
         Some(INSTRUCTIONS.to_owned()),
+        daemon,
         |daemon, session, params| async move { call(&daemon, &session, &params).await },
     )
-    .await
+}
+
+/// Runs the server on stdin and stdout.
+pub async fn run() -> Result<()> {
+    crate::tools_mcp::serve_one(served).await
 }
 
 async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
@@ -115,8 +118,8 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
 /// Offers each task of `arguments.tasks` under one fresh group id.
 async fn suggest_tasks(daemon: &Client, session: &str, arguments: &Value) -> Value {
     let tasks = match arguments.get("tasks").and_then(Value::as_array) {
-        Some(tasks) if (1..=MAX_TASKS).contains(&tasks.len()) => tasks,
-        _ => return error_result(format!("tasks must list 1 to {MAX_TASKS} tasks")),
+        Some(tasks) if !tasks.is_empty() => tasks,
+        _ => return error_result("tasks must list at least one task".to_owned()),
     };
     // Checked before any is offered, so a bad task leaves no partial card.
     for (n, task) in tasks.iter().enumerate() {
@@ -124,7 +127,7 @@ async fn suggest_tasks(daemon: &Client, session: &str, arguments: &Value) -> Val
             return error_result(format!("task {} {e} (none was offered)", n + 1));
         }
     }
-    let nonce: String = crate::hub::person::new_nonce().chars().take(16).collect();
+    let nonce: String = crate::person_tokens::new_nonce().chars().take(16).collect();
     let group = format!("g-{nonce}");
     let mut offered = Vec::new();
     for (n, task) in tasks.iter().enumerate() {
@@ -173,31 +176,5 @@ fn check_task(task: &Value) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_task_is_checked_as_the_daemon_checks_it() {
-        let task = |title: &str| json!({"title": title, "prompt": "Do it."});
-        assert_eq!(check_task(&task("Fix the flaky upload test")), Ok(()));
-        assert_eq!(check_task(&task(&"é".repeat(MAX_TITLE_CHARS))), Ok(()));
-        let long = check_task(&task(&"a".repeat(MAX_TITLE_CHARS + 1)));
-        assert_eq!(long, Err("title must be 1 to 80 characters".to_owned()));
-        assert!(check_task(&task("   ")).is_err());
-        assert!(check_task(&json!({"title": "No prompt"})).is_err());
-        assert!(check_task(&json!("Fix it")).is_err());
-    }
-
-    #[test]
-    fn both_titles_carry_the_limit_in_the_schema() {
-        let tools = tools();
-        let titles = [
-            &tools[0]["inputSchema"]["properties"]["title"],
-            &tools[1]["inputSchema"]["properties"]["tasks"]["items"]["properties"]["title"],
-        ];
-        for title in titles {
-            assert_eq!(title["maxLength"], MAX_TITLE_CHARS, "{title}");
-            assert_eq!(title["minLength"], 1, "{title}");
-        }
-    }
-}
+#[path = "offer_mcp_tests.rs"]
+mod tests;

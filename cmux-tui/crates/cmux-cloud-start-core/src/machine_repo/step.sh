@@ -5,10 +5,10 @@ set -u
 d=$(cd "$(dirname "$0")" && pwd)
 url='@URL@'; ref='@REF@'; dir="$HOME/@DIRECTORY@"; github=@GITHUB@
 host='@HOST@'; key="credential.https://$host"
-cred=none; helper=""; status=failed; sha=""; why=""; fresh=""
+cred=none; helper=""; rewrite=""; status=failed; sha=""; why=""; fresh=""; tip=""; warm=""; fill=none
 result() {
-  printf '{"status":"%s","url":"%s","ref":"%s","dir":"%s","credential":"%s","sha":"%s"}\n' \
-    "$status" "$url" "$ref" "$dir" "$cred" "$sha" >"$d/repo-status.json.tmp" && mv -f "$d/repo-status.json.tmp" "$d/repo-status.json"
+  printf '{"status":"%s","url":"%s","ref":"%s","dir":"%s","credential":"%s","sha":"%s","fill":"%s"}\n' \
+    "$status" "$url" "$ref" "$dir" "$cred" "$sha" "$fill" >"$d/repo-status.json.tmp" && mv -f "$d/repo-status.json.tmp" "$d/repo-status.json"
 }
 die() { status=failed; result; echo "cmux repo: $1" >&2; exit 1; }
 # Nothing inherited or configured may ask another credential source or log a request (git's
@@ -24,9 +24,23 @@ if [ "$github" = 1 ] && [ -x "$HOME/.local/bin/lane-gh-credential" ] &&
   git config --global --includes --get-all credential.https://github.com.helper 2>/dev/null | grep -qxF -- "$lane"; then
   creds="lane-gh"
 fi
-if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && cm=$(command -v cmux); then creds="$creds cmux-github"; fi
+# The machine's cmux: the PATH's, else the store's (the path the image's git config names). The
+# bootstrap runner's PATH is systemd's default, which has no store folder in it.
+cm=$(command -v cmux) || { [ -x /opt/cmux/current/bin/cmux ] && cm=/opt/cmux/current/bin/cmux; } || cm=""
+# The platform edge (cmux-platform GitHubEgress.ts): where the machine's platform name resolves
+# (its edge rule writes the hosts entry), git reaches github.com through the platform, which adds
+# the repository token on the way out. No helper runs and no token ever reaches this machine.
+edge="https://platform.cmux.internal/v1/cloud/git/github.com/"
+# The person's own GitHub login, carried from their Mac (`git-host-tokens-v1`): `cmux github
+# credential` answers it first when it reaches the repository, so that path goes before the edge.
+own="$HOME/.config/cmux/git-hosts/github.com"
+if [ "$github" = 1 ] && [ -f "$own" ] && [ -n "$cm" ]; then creds="$creds cmux-github"; fi
+if [ "$github" = 1 ] && getent hosts platform.cmux.internal >/dev/null 2>&1; then creds="$creds edge"; fi
+if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && [ -n "$cm" ] && ! [ -f "$own" ]; then
+  creds="$creds cmux-github"
+fi
 # Off GitHub: the person's token for this host, sealed to the machine (`cmux gitlab credential`).
-if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ] && cm=$(command -v cmux); then creds="cmux-gitlab"; fi
+if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ] && [ -n "$cm" ]; then creds="cmux-gitlab"; fi
 creds="$creds anonymous"
 # From here git reads no user or system config (a username that is a secret, an askpass, a
 # helper, a trace target): the chosen helper comes on the command line.
@@ -39,6 +53,10 @@ use() {
     cmux-gitlab) helper="!'$cm' gitlab credential" ;;
     *) helper="" ;;
   esac
+  case "$1" in
+    edge) rewrite="url.$edge.insteadOf=https://github.com/" ;;
+    *) rewrite="" ;;
+  esac
 }
 # An empty credential.helper on the command line drops every helper git read before it (a
 # checkout's own config may hold one); the chosen one comes after it, so only it is asked.
@@ -47,6 +65,7 @@ g() {
   if [ -n "$helper" ]; then
     set -- -c "$key.helper=$helper" -c "$key.useHttpPath=true" "$@"
   fi
+  if [ -n "$rewrite" ]; then set -- -c "$rewrite" "$@"; fi
   git -c credential.helper= -c core.askPass= -c credential.username= -c "$key.username=" "$@"
 }
 # A clone or fetch with each path until one works; the checkout after it keeps that path.
@@ -75,6 +94,91 @@ switch() {
     why="no branch, tag or commit $ref in $url"; return 1
   fi || { why="cannot check out $ref"; return 1; }
 }
+root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }
+# A clone of the default branch is cloned head first: one commit's trees, the root files
+# (AGENTS.md, CLAUDE.md, lockfiles) and the harness folders, in about a second where the whole
+# clone takes tens (microsoft/vscode: 1.0 s against 28 s). The rest of the tree comes in the
+# background (`fill`) under `cmux repo hold`, which keeps every agent tool waiting until the tree
+# is whole while a Claude start goes ahead at the head. A machine whose cmux has no `repo hold`,
+# or no systemd-run, clones the whole repository as before. So does a start with a bootstrap
+# script (anything but machine_bootstrap.rs `NO_SCRIPT`): the runner runs it right after this
+# step, and nothing holds it at the barrier.
+head_dirs=".agents .claude .codex .cursor .gemini .github .vscode .devcontainer"
+# The start runs no bootstrap script of its own (machine_bootstrap.rs `NO_SCRIPT`).
+no_script() { printf '#!/bin/sh\nexit 0\n' | cmp -s - "$d/script"; }
+holder() {
+  no_script &&
+    { hx=$(command -v cmux-tui) || hx=$(command -v cmux); } && "$hx" repo hold --help >/dev/null 2>&1 &&
+    command -v systemd-run >/dev/null 2>&1
+}
+# The checkout's barrier, by `cmux repo wait DIR 0` (`repo_hold.rs`): `ready` (or no barrier),
+# `failed` (a fill that died: the tree may be whole but no tool may run), `busy` (a fill holds it),
+# or `none` on a machine whose cmux has no `repo wait`.
+wx=$(command -v cmux-tui || command -v cmux) || wx=""
+barrier() {
+  [ -n "$wx" ] || { echo none; return; }
+  c=0; "$wx" repo wait "$dir" 0 >/dev/null 2>&1 || c=$?
+  case $c in 0) echo ready ;; 1) echo failed ;; 124) echo busy ;; *) echo none ;; esac
+}
+# The history fetch (`unshallow`) holds this while it runs, so a later start leaves it alone.
+history_lock="$dir/.git/cmux-history.lock"
+history_busy() { [ -f "$history_lock" ] && ! flock -n "$history_lock" true; }
+# The whole tree and the history, now. A checkout whose barrier failed is filled under it
+# (`repo hold-run`, which opens it only when the fill succeeds), so its tools may run again.
+fill_now() {
+  if [ "$state" = failed ] && [ -n "$wx" ] && "$wx" repo hold --help >/dev/null 2>&1; then
+    "$wx" repo hold-run "$dir" -- "$d/repo" fill-now "$cred" >&2
+  else
+    "$d/repo" fill-now "$cred"
+  fi
+}
+# The fill (or a warm start's `refresh`), in its own scope: the bootstrap's unit ends with this
+# runner, and the hold outlives it. The hold is taken before this returns, so no chat starts on
+# the folder before it.
+fill_later() {
+  mode=${1:-fill}
+  if root systemd-run --scope --quiet --collect --unit="cmux-repo-$mode-$(date +%s)-$$" \
+    runuser -u "$(id -un)" -- env HOME="$HOME" PATH="$PATH" "$hx" repo hold "$dir" -- "$d/repo" "$mode" "$cred"; then
+    fill=background
+  elif [ "$mode" = refresh ]; then
+    echo "cmux repo: cannot update $dir in the background; updating it now" >&2
+    refresh || die "$why"
+    # The start kept its helper and read its commit before this update: both again, after it.
+    keep_helper
+    sha=$(g -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
+  else
+    echo "cmux repo: cannot fill $dir in the background; filling it now" >&2
+    fill_now || die "cannot check out all of $url"
+    fill=done
+  fi
+}
+# Run by `cmux repo hold` (`fill_later`): the whole tree, then, once the barrier is open, the history.
+# The fill takes the history lock before the barrier opens and hands it (fd 9) to the history
+# fetch, so no later start finds the checkout open with the fetch not yet holding it.
+if [ "${1:-}" = fill ]; then
+  use "${2:-anonymous}"
+  # Appended to, never truncated: a symlink planted there is removed, not followed.
+  { [ ! -L "$history_lock" ] || rm -f "$history_lock"; } && exec 9>>"$history_lock" || exit 1
+  if command -v flock >/dev/null 2>&1; then flock 9 || exit 1; fi
+  g -C "$dir" sparse-checkout disable || exit 1
+  setsid "$d/repo" unshallow "${2:-anonymous}" </dev/null >>"$d/bootstrap.log" 2>&1 &
+  exit 0
+fi
+# Run by `fill`, with the history lock it holds on fd 9.
+if [ "${1:-}" = unshallow ]; then
+  use "${2:-anonymous}"
+  [ "$(g -C "$dir" rev-parse --is-shallow-repository)" = true ] || exit 0
+  g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin
+  exit
+fi
+# `fill_now`'s fill, run by itself or under `repo hold-run`.
+if [ "${1:-}" = fill-now ]; then
+  use "${2:-anonymous}"
+  g -C "$dir" sparse-checkout disable || exit 1
+  [ "$(g -C "$dir" rev-parse --is-shallow-repository)" = true ] || exit 0
+  g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin
+  exit
+fi
 # Fast-forward the checked-out branch to its upstream; a branch with local commits is kept.
 forward() {
   up=$(g -C "$dir" rev-parse --verify --quiet '@{u}') || return 0
@@ -84,6 +188,74 @@ forward() {
     status=kept
   fi
 }
+# The checkout keeps the cmux path it cloned with, so the agent's own push and pull there
+# work (the token is minted or read per git process, never written to the checkout), unless
+# it has a helper of its own for the host. The empty value first drops a global helper for
+# the host in this checkout only.
+keep_helper() {
+  if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; } && ! git -C "$dir" config --local --get-all "$key.helper" >/dev/null; then
+    git -C "$dir" config --local --add "$key.helper" "" &&
+      git -C "$dir" config --local --add "$key.helper" "$helper" &&
+      git -C "$dir" config --local "$key.useHttpPath" true ||
+      echo "cmux repo: cannot keep the $host path in $dir, so a push there needs credentials" >&2
+  fi
+  # Through the edge: the checkout keeps the rewrite (a URL, no secret), so its push and pull go
+  # the same way, unless it rewrites github.com itself.
+  if [ "$cred" = edge ] && ! git -C "$dir" config --local --get-regexp '^url\..*\.insteadof$' >/dev/null; then
+    git -C "$dir" config --local "url.$edge.insteadOf" https://github.com/ ||
+      echo "cmux repo: cannot keep the platform edge path in $dir, so a push there needs credentials" >&2
+  fi
+}
+# A warm start's update inline, when no hold can run it behind the chat: the update a start
+# on an existing checkout has always made (fetch, then fast-forward one with no local changes).
+refresh() {
+  net -C "$dir" fetch --quiet --tags origin
+  changes=$(g -C "$dir" status --porcelain) || { why="cannot read $dir"; return 1; }
+  [ -n "$changes" ] || forward
+}
+# Run by `cmux repo hold` (`fill_later refresh`): the chat starts on the checkout as it was, and
+# its tools wait at the barrier until the update ends. It holds the history lock, as a fill does.
+# An update that cannot fast-forward leaves the checkout as it was (a refused `merge --ff-only`
+# changes nothing), so the barrier opens on it instead of keeping the chat's tools waiting.
+if [ "${1:-}" = refresh ]; then
+  { [ ! -L "$history_lock" ] || rm -f "$history_lock"; } && exec 9>>"$history_lock" || exit 1
+  if command -v flock >/dev/null 2>&1; then flock 9 || exit 1; fi
+  # Each path in turn, as `net` does, but a fetch no path can make keeps the checkout as it
+  # was: it never ends this run by `net`'s exit, which would leave the barrier failed (and
+  # rewrite repo-status.json under the start that wrote it).
+  for c in $creds; do
+    use "$c"
+    if g -C "$dir" fetch --quiet --tags origin; then
+      keep_helper
+      changes=$(g -C "$dir" status --porcelain) && { [ -n "$changes" ] || forward || echo "cmux repo: $why; $dir is kept as it was" >&2; }
+      # A checkout from the repo archive holds one commit: its history comes after the barrier
+      # opens, under the lock this run hands it (fd 9), as a fill's does.
+      if [ "$(g -C "$dir" rev-parse --is-shallow-repository)" = true ]; then
+        setsid "$d/repo" unshallow "$c" </dev/null >>"$d/bootstrap.log" 2>&1 &
+      fi
+      exit 0
+    fi
+  done
+  echo "cmux repo: cannot fetch $url; $dir is kept as it was" >&2
+  exit 0
+fi
+# A new checkout from the machine's repo archive store (hq RFD 0065 piece 2, `cmux repo
+# from-archive`): the `.git`-only archive, its increment bundle and a checkout with 16 workers,
+# in place of a clone from the host. Only when the machine names a store (CMUX_REPO_ARCHIVE_STORE
+# or /etc/cmux/repo-archive.json; none by default, and then nothing here runs) and its cmux has
+# the verb. A store without this repo or ref (a tag, a commit) answers 3 and leaves nothing, so
+# the clone below runs as before, with its credential paths.
+from_archive() {
+  { [ -n "${CMUX_REPO_ARCHIVE_STORE:-}" ] || [ -f /etc/cmux/repo-archive.json ]; } || return 1
+  [ -n "$wx" ] && "$wx" repo from-archive --help >/dev/null 2>&1 || return 1
+  "$wx" repo from-archive --archive-only --url "$url" --at "$dir" --branch "$ref" >/dev/null || {
+    rm -rf "$dir"
+    return 1
+  }
+  # The store keys the repo by its name: the checkout's origin is this start's URL, as a clone's is.
+  g -C "$dir" remote set-url origin "$url" || { rm -rf "$dir"; return 1; }
+}
+sparse() { [ "$(git -C "$dir" config --bool core.sparseCheckout 2>/dev/null)" = true ] && [ -f "$dir/.git/info/sparse-checkout" ]; }
 if [ -d "$dir/.git" ]; then
   [ "$(git -C "$dir" remote get-url origin 2>/dev/null)" = "$url" ] || die "$dir holds another repository"
   # A clone cut short (no commit checked out) is cloned again.
@@ -92,30 +264,86 @@ if [ -d "$dir/.git" ]; then
     rm -rf "$dir"
   fi
 fi
+state=none
 if [ -d "$dir/.git" ]; then
-  net -C "$dir" fetch --quiet --tags origin
+  state=$(barrier)
+  # A fill or history fetch from an earlier start still runs in it: nothing here fetches, switches
+  # or fills beside it (its git locks would fail this start). A start that needs nothing more than
+  # the checkout as it is (no ref, no script of its own) leaves it to that one: its chat's tools
+  # wait at the barrier. Any other waits for it first (a script runs on the tree right after this
+  # step, and a ref skipped now would be skipped by every identical start after it). So does one
+  # whose barrier failed: a history fetch can outlive its fill, and only a start opens the barrier.
+  if [ "$state" = busy ] || history_busy; then
+    if [ "$state" != failed ] && [ -z "$ref" ] && no_script; then
+      echo "cmux repo: $dir is still being filled by an earlier start; it is left to that one" >&2
+      [ "$state" = busy ] && fill=background
+      status=kept; sha=$(git -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
+      result; exit 0
+    fi
+    echo "cmux repo: waiting for an earlier start's fill of $dir" >&2
+    if [ "$state" = busy ]; then
+      c=0; "$wx" repo wait "$dir" 1800 >/dev/null 2>&1 || c=$?
+      case $c in 0) state=ready ;; 1) state=failed ;; *) die "$dir is still being filled after 30 min" ;; esac
+    fi
+    [ ! -f "$history_lock" ] || flock -w 1800 "$history_lock" true || die "$dir is still fetching its history after 30 min"
+  fi
   status=updated
-  # A checkout with local changes stays as it is.
-  changes=$(g -C "$dir" status --porcelain) || die "cannot read $dir"
-  if [ -n "$changes" ]; then status=kept; else switch && forward || die "$why"; fi
+  if [ -z "$ref" ] && [ "$state" = ready ] && ! sparse && holder; then
+    # A warm start on a whole checkout: no network round trip before the first reply. The fetch
+    # and fast-forward run behind the chat under the hold (`refresh`), and its tools wait for them.
+    warm=1
+  else
+    net -C "$dir" fetch --quiet --tags origin
+    # A checkout with local changes stays as it is.
+    changes=$(g -C "$dir" status --porcelain) || die "cannot read $dir"
+    if [ -n "$changes" ]; then status=kept; else switch && forward || die "$why"; fi
+  fi
+  # A head-first clone whose fill did not finish (still sparse, or a barrier its fill left failed
+  # after the tree was whole): fill it again, under the barrier.
+  if sparse || [ "$state" = failed ]; then
+    if holder; then tip=1; else
+      fill_now || die "cannot check out all of $url"
+      fill=done
+    fi
+  fi
 elif [ -e "$dir" ]; then
   die "$dir exists and is not a git checkout"
 else
   mkdir -p "$(dirname "$dir")"
   fresh=1
-  net clone --quiet --filter=blob:none "$url" "$dir"
-  switch || { rm -rf "$dir"; die "$why"; }
+  if from_archive; then
+    # The archive is a few minutes behind the host: the chat starts on it and the fetch and
+    # fast-forward run behind it under the hold (`refresh`, which then fetches the history the
+    # depth-1 archive lacks), as a warm start's do. With no hold, both happen now.
+    echo "cmux repo: $dir is checked out from the repo archive store" >&2
+    if holder; then warm=1; else
+      net -C "$dir" fetch --quiet --tags origin
+      forward || { rm -rf "$dir"; die "$why"; }
+      g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin ||
+        echo "cmux repo: cannot fetch the history of $url; $dir keeps one commit of it" >&2
+    fi
+  elif [ -z "$ref" ] && holder; then
+    net clone --quiet --depth 1 --filter=blob:none --sparse "$url" "$dir"
+    # A depth-1 clone fetches only the default branch from then on; every branch, as a whole
+    # clone has, so the history fill and a later start's `@branch` see them all.
+    g -C "$dir" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' ||
+      { rm -rf "$dir"; die "cannot track the branches of $url"; }
+    # shellcheck disable=SC2086 # one word per folder
+    if g -C "$dir" sparse-checkout add $head_dirs; then
+      tip=1
+    else
+      # A harness folder that is a symlink or a file is no sparse folder: the whole tree, now.
+      g -C "$dir" sparse-checkout disable && g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin ||
+        { rm -rf "$dir"; die "cannot check out all of $url"; }
+      fill=done
+    fi
+  else
+    net clone --quiet --filter=blob:none "$url" "$dir"
+    switch || { rm -rf "$dir"; die "$why"; }
+  fi
   status=cloned
 fi
-# The checkout keeps the cmux path it cloned with, so the agent's own push and pull there
-# work (the token is minted or read per git process, never written to the checkout), unless
-# it has a helper of its own for the host. The empty value first drops a global helper for
-# the host in this checkout only.
-if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; } && ! git -C "$dir" config --local --get-all "$key.helper" >/dev/null; then
-  git -C "$dir" config --local --add "$key.helper" "" &&
-    git -C "$dir" config --local --add "$key.helper" "$helper" &&
-    git -C "$dir" config --local "$key.useHttpPath" true ||
-    echo "cmux repo: cannot keep the $host path in $dir, so a push there needs credentials" >&2
-fi
+keep_helper
 sha=$(g -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
+if [ -n "$tip" ]; then fill_later; elif [ -n "$warm" ]; then fill_later refresh; fi
 result

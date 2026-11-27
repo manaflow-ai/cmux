@@ -4,9 +4,70 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { CloudEnvironment, EnvironmentSection } from "./environmentModel";
 
-type Props = { section: EnvironmentSection; failure?: boolean; full?: boolean };
+type Props = {
+  section: EnvironmentSection;
+  failure?: boolean;
+  full?: boolean;
+  delivery?: boolean;
+  many?: boolean;
+  /** PACKAGE_TOKEN as stored before every secret needed a host: no hosts, so it loads invalid. */
+  legacy?: boolean;
+  /** The environment read stays down: the sheet reads it again on its own. */
+  readDown?: boolean;
+  /** The suggested setup script's read stays down: the sheet reads it again on its own. */
+  deriveDown?: boolean;
+};
 const ready: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cloud-environment-sheet .env-fields"));
+};
+const hostsField = (index: number) => ({ selector: `.env-secret:nth-of-type(${index + 1}) .env-secret-hosts input` });
+const headerOpen: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.click({ selector: ".env-secret:nth-of-type(3) .env-disclosure" });
+  await ctx.waitFor(() => ctx.document.querySelector('.env-disclosure[aria-expanded="true"]'));
+};
+const invalidHost: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.type(", https://api.example.com/v1", hostsField(0));
+  await ctx.click({ selector: ".env-primary" });
+  await ctx.waitFor(() => ctx.document.querySelector(".env-secret .env-error"));
+};
+const deliveryEdit: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.type(", uploads.github.com", hostsField(1));
+  await ctx.waitFor(() =>
+    Array.from(ctx.document.querySelectorAll<HTMLInputElement>(".env-secret-hosts input")).some((input) =>
+      input.value.includes("uploads.github.com"),
+    ),
+  );
+};
+const newHostless: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.click({ selector: ".env-add" });
+  await ctx.type("DEPLOY_KEY", { selector: '.env-secret:last-of-type input[aria-label="Secret name"]' });
+  await ctx.type("deploy-key-value", { selector: '.env-secret:last-of-type input[type="password"]' });
+  await ctx.click({ selector: ".env-primary" });
+  await ctx.waitFor(() => ctx.document.querySelector(".env-secret:last-of-type .env-error"));
+};
+const firstHosts: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.type("registry.npmjs.org", hostsField(0));
+  await ctx.click({ selector: ".env-heading h2" });
+  await ctx.waitFor(() => ctx.document.querySelector(".env-secret .env-error"));
+};
+const manyExpanded: Play = async (ctx) => {
+  await ready(ctx);
+  const selector = '.env-secret > .env-disclosure[aria-expanded="false"]';
+  const closed = () => ctx.document.querySelector(selector);
+  while (closed()) await ctx.click({ selector });
+  await ctx.waitFor(() => !closed());
+};
+// The stage's zero grace (lasting.ts setLastingGrace) shows the quiet line at once.
+const stillTrying: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cloud-environment-sheet .env-still-trying"));
+};
+const deriveStillTrying: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cloud-environment-sheet .env-derive-still-trying"));
 };
 const saveFailure: Play = async (ctx) => {
   await ready(ctx);
@@ -29,7 +90,16 @@ export default componentEntry<Props>({
       import("../shared/i18n"),
       import("./generated/strings.json"),
     ]);
-    return function EnvironmentGallery({ section, failure, full }: Props) {
+    return function EnvironmentGallery({
+      section,
+      failure,
+      full,
+      delivery,
+      many,
+      legacy,
+      readDown,
+      deriveDown,
+    }: Props) {
       const [strings] = useState(() => createStrings(table));
       const [store] = useState(() => {
         let environment: CloudEnvironment = {
@@ -42,7 +112,34 @@ export default componentEntry<Props>({
             { name: "NODE_ENV", value: "development" },
             { name: "LOG_LEVEL", value: "info" },
           ],
-          secrets: [{ name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z" }],
+          secrets: [
+            legacy
+              ? { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z" }
+              : { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z", hosts: ["registry.npmjs.org"] },
+            ...(delivery
+              ? [
+                  // The default header (absent): Authorization: Bearer {value}.
+                  { name: "GITHUB_TOKEN", updated_at: "2026-11-01T00:00:00Z", hosts: ["api.github.com"] },
+                  {
+                    name: "SEARCH_KEY",
+                    updated_at: "2026-11-01T00:00:00Z",
+                    hosts: ["search.example.com", "search-eu.example.com"],
+                    header: { name: "x-api-key", format: "{value}" },
+                  },
+                ]
+              : []),
+            ...(many
+              ? ["STRIPE_KEY", "SENTRY_TOKEN", "OPENAI_KEY", "LINEAR_TOKEN", "SLACK_TOKEN", "VERCEL_TOKEN"].map(
+                  (name, index) => ({
+                    name,
+                    updated_at: "2026-11-01T00:00:00Z",
+                    hosts: [`api${index}.example.com`, `uploads${index}.example.com`],
+                  }),
+                )
+              : []),
+          ],
+          // This service keeps where each secret goes (cmux-platform#1008), so the delivery controls show.
+          secret_routes: true,
           network: {
             mode: full ? "full" : "limited",
             package_managers: true,
@@ -53,7 +150,10 @@ export default componentEntry<Props>({
           updated_by: "user_example",
         };
         return new EnvironmentStore({
-          list: async () => [environment],
+          list: async () => {
+            if (readDown) throw new Error("Simulated read failure");
+            return [environment];
+          },
           get: async () => environment,
           update: async (_id, patch) => {
             if (failure) throw new Error("Simulated save failure");
@@ -69,12 +169,20 @@ export default componentEntry<Props>({
                     !patch.remove_secrets?.includes(secret.name) &&
                     !patch.set_secrets?.some((set) => set.name === secret.name),
                 ),
-                ...(patch.set_secrets ?? []).map(({ name }) => ({ name, updated_at: "2026-11-01T00:01:00Z" })),
+                ...(patch.set_secrets ?? []).map(({ name, hosts, header }) => ({
+                  name,
+                  updated_at: "2026-11-01T00:01:00Z",
+                  ...(hosts ? { hosts } : {}),
+                  ...(header ? { header } : {}),
+                })),
               ],
             };
             return environment;
           },
-          derive: async () => ({ setup: { script: "#!/bin/bash\nset -euo pipefail\nnpm ci\nnpm run build\n" } }),
+          derive: async () => {
+            if (deriveDown) throw new Error("Simulated derive failure");
+            return { setup: { script: "#!/bin/bash\nset -euo pipefail\nnpm ci\nnpm run build\n" } };
+          },
         });
       });
       useEffect(() => {
@@ -111,12 +219,63 @@ export default componentEntry<Props>({
       props: { section: "secrets" },
       play: ready,
     },
+    "secret-hosts": {
+      note: "Secrets sent only to their hosts: the default Authorization header, and a custom one.",
+      props: { section: "secrets", delivery: true },
+      play: ready,
+    },
+    "secret-header-open": {
+      note: "The Header disclosure open on a secret with a custom header name and format.",
+      props: { section: "secrets", delivery: true },
+      play: headerOpen,
+    },
+    "secret-invalid-host": {
+      note: "A URL typed as a host: the inline error under the row, and Save refuses it.",
+      props: { section: "secrets", delivery: true },
+      play: invalidHost,
+    },
+    "secret-delivery-edit": {
+      note: "A host added to a stored secret with its value left empty: Save sends only where it goes.",
+      props: { section: "secrets", delivery: true },
+      play: deliveryEdit,
+    },
+    "secret-no-hosts": {
+      note: "A secret stored before every secret needed a host: it loads invalid until it gets one.",
+      props: { section: "secrets", delivery: true, legacy: true },
+      play: ready,
+    },
+    "secret-new-no-hosts": {
+      note: "A new secret with a name and value but no host: the inline error, and Save refuses it.",
+      props: { section: "secrets", delivery: true },
+      play: newHostless,
+    },
+    "secret-first-hosts": {
+      note: "A secret stored without hosts given its first host: the row asks for its value again.",
+      props: { section: "secrets", delivery: true, legacy: true },
+      play: firstHosts,
+    },
+    "secret-many-expanded": {
+      note: "Nine secrets, every header open: the fields scroll between the fixed heading and actions.",
+      props: { section: "secrets", delivery: true, many: true },
+      play: manyExpanded,
+    },
     variables: {
       note: "Environment variable names and editable values.",
       props: { section: "variables" },
       play: ready,
     },
+    "read-still-trying": {
+      note: "The environment read keeps failing: the sheet reads it again on its own and, once that lasts, says so in one quiet line with no button.",
+      props: { section: "overview", readDown: true },
+      play: stillTrying,
+    },
+    "derive-still-trying": {
+      note: "The suggested setup script keeps failing: read again on its own, one quiet line, and the editor stays open to write one's own.",
+      props: { section: "script", deriveDown: true },
+      play: deriveStillTrying,
+    },
     "save-failure": {
+      // retry-prompt-ok: a save of the person's edits; Save stays theirs to press again.
       note: "A failed save keeps the script draft and offers retry.",
       props: { section: "script", failure: true },
       play: saveFailure,

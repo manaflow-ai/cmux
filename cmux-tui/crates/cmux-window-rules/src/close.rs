@@ -7,7 +7,8 @@
 //! what each terminal [`reads`] names runs, then asks [`warning`] for the
 //! question. Cmd-Shift-T reopens every close, so the undo toast is only for a
 //! close that is costly to get back ([`toast`]; Lawrence 2026-10-12: "this
-//! toast shows up too often").
+//! toast shows up too often"; 2026-11-09: one idle terminal's toast is an
+//! unnecessary dialog).
 
 use serde::{Deserialize, Serialize};
 
@@ -83,33 +84,17 @@ pub fn reopens_free(tab: &ClosingTab) -> bool {
 pub enum Toast {
     Show,
     Skip,
-    /// Shows only if one of these live terminals (indices into the closing
-    /// tabs) runs a program.
-    AskTerminals {
-        terminals: Vec<usize>,
-    },
 }
 
 /// The toast decision for closing `tabs` together: several real tabs in one
-/// gesture, an agent at work, or a new chat's unsent text show it; a
-/// terminal shows it only if it runs a program; one idle tab and tabs that
-/// reopen free never do.
+/// gesture, an agent at work, or a new chat's unsent text show it. One tab
+/// that is not working (an idle terminal, a terminal running a program, a
+/// page) never does: Cmd-Z and Reopen Closed bring it back, and the close's
+/// own question (`app.warnBeforeClosingTab`) is where a program is named.
 pub fn toast(tabs: &[ClosingTab]) -> Toast {
-    let real: Vec<(usize, &ClosingTab)> =
-        tabs.iter().enumerate().filter(|(_, tab)| !reopens_free(tab)).collect();
-    if real.len() >= 2 {
-        return Toast::Show;
-    }
-    let working = |tab: &ClosingTab| tab.agent_at_work || tab.status_working || tab.unsent_draft;
-    if real.iter().any(|(_, tab)| working(tab)) {
-        return Toast::Show;
-    }
-    let terminals: Vec<usize> = real
-        .into_iter()
-        .filter(|(_, tab)| tab.kind == TabKind::Pty)
-        .map(|(index, _)| index)
-        .collect();
-    if terminals.is_empty() { Toast::Skip } else { Toast::AskTerminals { terminals } }
+    let real: Vec<&ClosingTab> = tabs.iter().filter(|tab| !reopens_free(tab)).collect();
+    let working = |tab: &&ClosingTab| tab.agent_at_work || tab.status_working || tab.unsent_draft;
+    if real.len() >= 2 || real.iter().any(working) { Toast::Show } else { Toast::Skip }
 }
 
 /// The close warning settings. Both are required on the wire: the app's
@@ -125,8 +110,8 @@ pub struct Warnings {
 }
 
 /// What a close must read before it knows its question.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Reads {
     /// The working agents of the closing live terminals, as the question names
     /// them (nil: an unnamed agent, "The agent").
@@ -220,6 +205,42 @@ pub fn warning(
         return Some(Warning::Programs { programs, unanswered });
     }
     None
+}
+
+/// What a close knows of one closing terminal before the daemon's read
+/// ([`runs_known_program`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProgramFacts {
+    /// Its shell reported a running command (OSC 133 C) at this time.
+    pub command_since_ms: Option<u64>,
+    /// Its shell shows a prompt since this time.
+    pub prompt_since_ms: Option<u64>,
+    /// An agent reports from it (hooks): `Some(true)` once its session ended (`done`).
+    pub agent_done: Option<bool>,
+    /// It reports a program status (OSC 7501 `programStatus`).
+    pub program_status: bool,
+}
+
+/// A terminal known to run a program in front: its shell reported a running
+/// command, or an agent reports from it (idle between turns too, but not
+/// `done`, its session's end) or it reports a program status, while no prompt
+/// shows. An agent launched as the terminal's program has no shell to report
+/// a command; a shell back at its prompt after its agent quit shows the prompt.
+pub fn runs_known_program(tab: &ProgramFacts) -> bool {
+    tab.command_since_ms.is_some()
+        || tab.prompt_since_ms.is_none() && (tab.agent_done == Some(false) || tab.program_status)
+}
+
+/// Whether the close's question is known before the daemon's read: an agent
+/// at work in a closing terminal (with `warn_agent`), or a read terminal (one
+/// of `reads.others`, indices into `tabs`) known to run a program in front.
+/// Such a close keeps its tabs in place through the read and the question; a
+/// shell at its prompt is not known, so that close takes its tabs out at once
+/// (SL-3, #31875).
+pub fn known_to_ask(reads: &Reads, tabs: &[ProgramFacts], warnings: Warnings) -> bool {
+    warnings.warn_agent && !reads.agents.is_empty()
+        || reads.others.iter().any(|&index| tabs.get(index).is_some_and(runs_known_program))
 }
 
 #[cfg(test)]

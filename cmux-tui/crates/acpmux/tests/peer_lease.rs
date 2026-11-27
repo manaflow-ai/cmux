@@ -242,12 +242,14 @@ async fn a_peer_lease_never_takes_a_saved_peers_name() {
     cfg.peers.insert(
         "cloud-vm".into(),
         acpmux::config::PeerConfig {
+            link_host: None,
             wireguard: None,
             url: "ws://127.0.0.1:1".into(),
             token: None,
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     let a = hub(cfg);
@@ -330,12 +332,14 @@ async fn a_reload_takes_a_saved_peers_vm_boundary_back() {
         cfg.peers.insert(
             "vm".into(),
             acpmux::config::PeerConfig {
+                link_host: None,
                 wireguard: None,
                 url: "ws://127.0.0.1:1".into(),
                 token: None,
                 peer_token: None,
                 vm_boundary: on,
                 github_broker: false,
+                group: None,
             },
         );
         cfg.save().unwrap();
@@ -369,8 +373,10 @@ async fn a_vm_boundary_lease_forwards_the_boundary_for_the_persons_own_clients_o
         let (received_tx, mut received_rx) = mpsc::channel(8);
         let server = tokio::spawn(async move {
             let (tcp, _) = listener.accept().await.unwrap();
-            let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
-            while let Some(Ok(Ws::Text(text))) = ws.next().await {
+            let mut ws = acpmux::server::accept_ws(tcp).await.unwrap();
+            // Non-text frames (the client's pings, #38015) are not requests: skip them.
+            while let Some(Ok(frame)) = ws.next().await {
+                let Ws::Text(text) = frame else { continue };
                 let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else {
                     continue;
                 };

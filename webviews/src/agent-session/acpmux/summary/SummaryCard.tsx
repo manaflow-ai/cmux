@@ -4,6 +4,7 @@ import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
 import { chatUnderGlass, summaryGlass } from "../chatUnderGlass";
 import { usePresence } from "../../../ui/presence";
+import { SplitEdge } from "../../../ui/SplitEdge";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -15,10 +16,13 @@ import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SubagentStatusList } from "./SubagentStatusList";
+import { CountLine } from "./LiveCount";
 import { SUBSESSION_STATUS, subagentStatus, waitingSubagents } from "./subagentStatusListModel";
 import { sessionStatus } from "../session-info/childSessionRowsModel";
+import { orderedCountParts } from "../session-info/subagentsSectionModel";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
+import type { ResumeActions } from "../subagents/ResumeControl";
 import { startedChatsOutsideSubsessions } from "./startedChatsOutsideSubsessions";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { ChatToolsControl } from "./SourcesAddMenu";
@@ -105,6 +109,8 @@ export function SummaryCard({
     onOpen: (id: string) => void;
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
+    /// Resume on a stopped subagent's row (subagents/ResumeControl.tsx); none where the chat can't.
+    resume?: ResumeActions;
   };
   /// The chat's sub-sessions (subagents/subsessions.ts `subsessionRows`), listed after its
   /// subagents, and how a row opens one's chat beside this one.
@@ -223,7 +229,10 @@ export function SummaryCard({
     // intentionally invisible until it has content, but removing it from the flex row would make
     // the composer jump sideways when the first subagent or tool result is received.
     return card.reserve ? (
-      <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline" />
+      <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline">
+        {/* Reserves the dragged width too, so the column never changes width when its rows arrive. */}
+        <SummaryColumnEdge />
+      </aside>
     ) : null;
   }
   const count = (status: string) =>
@@ -238,14 +247,19 @@ export function SummaryCard({
   const runningCommands = commands.filter((command) => command.state === "running").length;
   // A started chat whose turn runs is a running subagent too: one word, as the tray says.
   const runningCount = count("running") + children.filter((child) => sessionStatus(child) === "running").length;
-  const counts = [
-    waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
-    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
-    runningCommands > 0 && t("turn.working.commands", { n: runningCommands }),
-    count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
-    count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
-    count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
-  ].filter(Boolean);
+  // What runs is its mark and its number (LiveCount.tsx); what waits on the person keeps its word, and
+  // a failure reads right after it (the shared order).
+  const counts = orderedCountParts(
+    {
+      waiting: waitingCount,
+      failed: count("failed"),
+      running: runningCount,
+      stopped: count("stopped"),
+      done: count("done"),
+    },
+    t,
+    { after: { running: [runningCommands > 0 && t("turn.working.commands", { n: runningCommands })] } },
+  );
   const title = t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
@@ -271,6 +285,7 @@ export function SummaryCard({
         data-placement={card.column ? "inline" : "popover"}
         data-collapsed={!card.column && card.collapsed ? "" : undefined}
       >
+        {card.column && <SummaryColumnEdge />}
         {/* No title row in either placement (Leo: "iv easked so many times to not have titling"): the inline
             column keeps a head only for its live counts, so it never draws an empty band. */}
         {(tab || !card.column || counts.length > 0) && (
@@ -332,7 +347,9 @@ export function SummaryCard({
             {/* The popover has no title row, but folded it keeps the live counts in view (its body, where Subagents
               carries them, is gone). */}
             {!tab && (card.column || card.collapsed) && counts.length > 0 && (
-              <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
+              <span className="acpmux-summary-card__counts">
+                <CountLine parts={counts} />
+              </span>
             )}
             {!card.column && (
               <button
@@ -357,7 +374,7 @@ export function SummaryCard({
               <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
               {environment && <EnvironmentSection {...environment} />}
             </section>
-            <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} />
+            <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} resume={subagents.resume} />
           </div>
         )}
         {open && !onSubagents && (
@@ -370,7 +387,7 @@ export function SummaryCard({
             {subagentList && (
               <SubagentStatusList
                 agents={agents}
-                counts={!card.column ? counts.join(" · ") : undefined}
+                counts={!card.column ? counts : undefined}
                 waiting={waiting}
                 current={subagents.current}
                 onOpen={subagents.onOpen}
@@ -383,6 +400,7 @@ export function SummaryCard({
                 sessions={children}
                 onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
                 stack={agents.length === 0 ? summary?.subagents : undefined}
+                resume={subagents.resume}
               />
             )}
             {summary && (
@@ -431,5 +449,20 @@ export function SummaryCard({
         />
       )}
     </>
+  );
+}
+
+/// The inline column's left edge, the divider between it and the chat: it drags as a split does
+/// (ui/SplitEdge.tsx), setting the column's width on the shell, where the header's push reads it too.
+function SummaryColumnEdge() {
+  return (
+    <SplitEdge
+      side="left"
+      property="--acpmux-summary-column-width"
+      storageKey="cmux.agentPane.summary.width"
+      min={240}
+      max={480}
+      on="parent"
+    />
   );
 }

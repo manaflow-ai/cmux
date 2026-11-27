@@ -27,7 +27,6 @@ use tokio::sync::mpsc;
 use tokio::sync::{Mutex as AsyncMutex, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
-use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
 use tokio_util::sync::CancellationToken;
@@ -607,7 +606,12 @@ async fn relay_session(
     let websocket_config = WebSocketConfig::default()
         .max_message_size(Some(MAX_INBOUND_FRAME_BYTES))
         .max_frame_size(Some(MAX_INBOUND_FRAME_BYTES));
-    let connect = connect_async_with_config(socket_url.as_str(), Some(websocket_config), true);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        socket_url.as_str(),
+        Some(websocket_config),
+        true,
+        "chatmux_relay::session",
+    );
     let (socket, _response) = tokio::select! {
         biased;
         _ = cancellation.cancelled() => return Ok(false),
@@ -886,9 +890,16 @@ async fn relay_session(
                         if !state.managed
                             && (configured != local_trust || local_trust == Trust::Autonomous)
                         {
-                            config.pending_trust = Some(local_trust.as_str().to_owned());
-                            save(config, config_path);
+                            let pending = Some(local_trust.as_str().to_owned());
+                            if config.pending_trust != pending {
+                                config.pending_trust = pending;
+                                save(config, config_path);
+                            }
                         }
+                        let owner_changed = hello
+                            .owner_user_id
+                            .as_ref()
+                            .is_some_and(|owner| config.owner_user_id.as_ref() != Some(owner));
                         if let Some(owner) = hello.owner_user_id {
                             config.owner_user_id = Some(owner);
                         }
@@ -955,9 +966,16 @@ async fn relay_session(
                                 break Ok(connected);
                             }
                         } else if !state.managed {
-                            config.trust = Some(local_trust.as_str().to_owned());
-                            config.pending_trust = None;
-                            save(config, config_path);
+                            // A reconnect that settles the trust already saved writes no config.
+                            let trust = Some(local_trust.as_str().to_owned());
+                            if owner_changed
+                                || config.trust != trust
+                                || config.pending_trust.is_some()
+                            {
+                                config.trust = trust;
+                                config.pending_trust = None;
+                                save(config, config_path);
+                            }
                         } else {
                             config.trust = Some(hello.trust.clone());
                         }
@@ -1071,7 +1089,7 @@ async fn relay_session(
                                     "actionId": action_id,
                                     "ok": false,
                                     "code": "busy",
-                                    "message": "relay is busy; retry this action",
+                                    "message": "relay is busy: too many actions are running, so this one was not started",
                                 });
                                 let size = serde_json::to_string(&result)
                                     .map(|text| text.len() as u64)
@@ -1182,7 +1200,7 @@ async fn relay_session(
                                             "type": "pty_error",
                                             "ptyId": id,
                                             "code": "busy",
-                                            "message": if is_slow { "relay is busy; retry this terminal request" } else { "relay is busy; retry this terminal command" },
+                                            "message": if is_slow { "relay is busy: too many terminal requests are queued, so this one was not run" } else { "relay is busy: too many terminal commands are queued, so this one was not run" },
                                         }))
                                         .or_else(|| raw.get("requestId").and_then(Value::as_str).map(|id| serde_json::json!({
                                             "version": PTY_PROTOCOL_VERSION,
@@ -1190,7 +1208,7 @@ async fn relay_session(
                                             "requestId": id,
                                             "surfaces": [],
                                             "code": "busy",
-                                            "message": "relay is busy; retry this terminal request",
+                                            "message": "relay is busy: too many terminal requests are queued, so this one was not run",
                                         })));
                                     if let Some(reply) = reply {
                                         // This response is mandatory. Send it directly so a full

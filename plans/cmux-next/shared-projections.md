@@ -115,6 +115,11 @@ cmux-next workflow's script tests.
 
 - **Harness health on every focus** (`harnesses/HarnessesScreen.tsx`): re-reads to catch a Sign In
   run in a terminal; it should re-read only once one ran, as `App.tsx` `healthStale` does.
+- **Worktree pill on show** (`acpmux/header/worktreePillModel.ts`): a chat that started or ended a
+  turn while nobody saw it reads `git.status` once as it shows (the read it held back), because
+  nothing tells the page that a folder's worktree or branch changed. It goes away when the host
+  owns each folder's worktree and pushes it to the pages that show the folder, as it pushes the
+  PR pill; the page then has no listener and no read of its own.
 - **Start mode on return** (`startMode.ts`): fixed. acpmux watches the settings file
   (`hub/settings_watch.rs`) and sends `_acpmux/start_mode_changed` when
   `agents.defaultPermissionMode` changes, so `watchPage` is gone.

@@ -49,6 +49,8 @@ const CLI_FLAGS: &[&str] = &[
     "no-wait",
     "interactive",
     "focus",
+    // `run_action` reads `--no-focus` as the run's `focus: false` (and the action's `focus` when it takes one).
+    "no-focus",
     "target",
     "arg",
     "json",
@@ -80,6 +82,12 @@ const GLOBAL_FLAG_ARGUMENTS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Flags `app::run_action` rewrites into another argument before the request goes out
+/// (`cli/app.rs`): `--contents-file FILE` is sent as `contents` (the file's text, so it
+/// never sits in argv), `--yes` as `confirm`. A call site using one is checked against the
+/// argument the app gets, not the flag's own name.
+const REWRITTEN_FLAGS: &[(&str, &str)] = &[("contents-file", "contents"), ("yes", "confirm")];
+
 /// Flags a CLI scope takes for itself before the words reach the app: `chat
 /// send`'s `--from`/`--as` (the sender label) and `--class` are read by
 /// chief/chat_scope.rs, which rewrites the words without them.
@@ -92,6 +100,7 @@ struct Action {
 }
 
 fn repo_root() -> PathBuf {
+    // affected-reads: plans/cmux-next/action-surfaces.json cmux-tui
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
@@ -531,7 +540,12 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
                         *name == actions[action].cli_name && flags.contains(&flag)
                     });
                     if !CLI_FLAGS.contains(&flag) && !scope_flag {
-                        report(*line, action, wire_name(flag), &mut drift);
+                        let sent =
+                            REWRITTEN_FLAGS.iter().find(|(cli, _)| *cli == flag).map_or_else(
+                                || wire_name(flag),
+                                |(_, argument)| (*argument).to_owned(),
+                            );
+                        report(*line, action, sent, &mut drift);
                     }
                 }
             }
@@ -567,9 +581,13 @@ fn reaches_app(cli_name: &str) -> bool {
 #[test]
 fn every_cli_call_site_sends_only_arguments_its_action_takes() {
     let actions = actions();
+    // A catalog request row's CLI is the mux grammar's own verb, which maps its flags itself
+    // (`catalog_request_tests` checks it sends the row's request): not this contract's.
+    let requests = super::action_surface_parity::catalog_request_cli_names();
+    let reaches = |cli_name: &str| !requests.contains(cli_name) && reaches_app(cli_name);
     let mut drift = Vec::new();
     for file in source_files() {
-        drift.extend(drift_in(&file, &actions, &reaches_app));
+        drift.extend(drift_in(&file, &actions, &reaches));
     }
     let lines = drift
         .iter()
@@ -678,18 +696,13 @@ fn encoded(words: &[String]) -> Value {
 }
 
 /// The requests the CLI's encoder builds, which the app's `ArgumentActionContractTests` validate against
-/// its catalog: `cmux cloud start-chat`'s relay request as `cloud_start_chat` builds it, and, for each
-/// action the CLI offers, its CLI name with every argument given as its `--flag`.
+/// its catalog: for each action the CLI offers, its CLI name with every argument given as its `--flag`.
 fn cli_requests() -> Value {
     let path = repo_root().join("plans/cmux-next/action-surfaces.json");
     let root: Value =
         serde_json::from_str(&std::fs::read_to_string(&path).expect("action-surfaces.json"))
             .unwrap();
     let mut requests = Vec::new();
-    let relay = super::super::cloud_start_chat::tests::contract_relay_words();
-    requests.push(
-        serde_json::json!({"source": "cmux cloud start-chat (relay)", "params": encoded(&relay)}),
-    );
     for action in root["actions"].as_array().expect("actions") {
         let Some(cli_name) = action["cli_name"].as_str().filter(|_| action["cli"] == "offered")
         else {

@@ -85,11 +85,19 @@ cmux_next_cas_failed() {
 # Usage: cmux_next_runtime_cas_failed <log>
 cmux_next_runtime_cas_failed() {
   [[ -f "$1" ]] || return 1
-  local diag='^([^[:space:]]+: )?(fatal )?error: ' errors
+  # An explicit module precompile reports its CAS failure on its own line after the error
+  # ("error: There was an error precompiling module ..." then "CAS operation failed: corrupt object '<hash>'";
+  # run 42527779911), so that line counts as a diagnostic too.
+  # A compiler that crashes reading the CAS ("error: fatal error encountered during compilation", then a stack
+  # through llvm::cas::CASBackedFileSystem::openFileForRead; run 42535989825) names the cache only in its stack
+  # frames, so a frame inside llvm::cas counts as a diagnostic too. A crash elsewhere has no such frame.
+  local diag='^(([^[:space:]]+: )?(fatal )?error: |CAS operation failed: |[0-9]+ +swift-frontend +0x[0-9a-f]+ llvm::cas::)' errors
   errors="$(awk '/^xcodebuild exit status:/ { exit } { print }' "$1" | grep -E "$diag" || true)"
   # A cached module whose CAS object reads back corrupt ("module file X.pcm not found: unloadable casid ...:
-  # corrupt object '<hash>'", then "clang importer creation failed"; run 42100189059) is the cache failing too.
-  grep -Eqi "CAS error(:| encountered during)|cannot (create|open) (the )?CAS|failed to (load .* from CAS|open .*CAS|replay cached diagnostics)|cannot create cache key for compilation|((compilation|remote) cache).*(error|failed|unavailable)|((remote service|cache plugin).*(error|failed|unavailable))|unloadable casid|corrupt object '[0-9a-f]+'" <<<"$errors"
+  # corrupt object '<hash>'", then "clang importer creation failed"; run 42100189059) is the cache failing too,
+  # as is one whose object the CAS no longer holds ("module file X.pcm not found: missing module cache key ...:
+  # module file is not available in the CAS"; run 42524304475).
+  grep -Eqi "CAS error(:| encountered during)|cannot (create|open) (the )?CAS|failed to (load .* from CAS|open .*CAS|replay cached diagnostics)|cannot create cache key for compilation|((compilation|remote) cache).*(error|failed|unavailable)|((remote service|cache plugin).*(error|failed|unavailable))|unloadable casid|corrupt object '[0-9a-f]+'|missing module cache key|not available in the CAS|^CAS operation failed: |swift-frontend +0x[0-9a-f]+ llvm::cas::" <<<"$errors"
 }
 
 # Drop the CAS (after a cache failure, or when it is over the bound). A CAS
@@ -115,4 +123,18 @@ cmux_next_cas_bound() {
     cmux_next_cas_drop "$2"
   fi
   return 0
+}
+
+# Whether xcodebuild's build service (SWBBuildService) crashed in the middle of the
+# build. Xcode prints "error: unexpected service error: The Xcode build system has
+# crashed. Build again to continue." and ends with status 65, the same status as a
+# compile error, even though no source file failed. nightly-next run 46020152626
+# (8b6d15df0, ultra1, 2026-11-27) died this way with no compile error in the tree.
+# The next build gets a new build service, so a caller that already allows one
+# retry should spend it here too.
+# Usage: cmux_next_build_service_crashed <log>
+cmux_next_build_service_crashed() {
+  [[ -f "$1" ]] || return 1
+  awk '/^xcodebuild exit status:/ { exit } { print }' "$1" \
+    | grep -Eq 'The Xcode build system has crashed|unexpected service error: .*(crashed|Build again)'
 }

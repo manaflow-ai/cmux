@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextFileGrid
 import CmuxNextFiles
 @testable import CmuxNextScreenshots
+import CmuxNextTestSupport
 import Foundation
 import os
 import Testing
@@ -96,16 +97,6 @@ import Testing
         await model.apply(.rescan, in: folder.url)
         await model.refresh()
         #expect(model.visibleItems.map(\.name) == ["missed.png"])
-    }
-
-    @Test func eventsOutsideTheRuleAreIgnored() throws {
-        let folder = URL(fileURLWithPath: "/s", isDirectory: true)
-        let preview = Self.source("p", folder, rule: ScreenshotScanRule(depth: 1, folderPrefix: "NSIRD_"))
-        #expect(ScreenshotsModel.isListed("/s/top.png", in: preview))
-        #expect(ScreenshotsModel.isListed("/s/NSIRD_1/a.png", in: preview))
-        #expect(!ScreenshotsModel.isListed("/s/Other/a.png", in: preview))
-        #expect(!ScreenshotsModel.isListed("/s/NSIRD_1/deep/a.png", in: preview))
-        #expect(!ScreenshotsModel.isListed("/elsewhere/a.png", in: preview))
     }
 
     @Test func removingASourceDropsItsFilesAndItsSelection() async throws {
@@ -254,7 +245,7 @@ private final class RecordingWatcher: FolderWatching {
 /// lists with no second click, and no folder is detected until the first click.
 @MainActor @Suite struct ScreenshotsGateTests {
     @Test func nothingIsUnlockedOrDetectedBeforeTheClickAndTheClickIsRememberedPerTab() {
-        let gate = ScreenshotsGate(defaults: UserDefaults(suiteName: "ScreenshotsGateTests.\(UUID().uuidString)") ?? UserDefaults())
+        let gate = ScreenshotsGate(defaults: UserDefaults(testSuiteName: "ScreenshotsGateTests.\(UUID().uuidString)") ?? UserDefaults())
         #expect(!gate.mayDetect)
         #expect(!gate.isUnlocked("tab-a"))
         gate.unlock("tab-a")

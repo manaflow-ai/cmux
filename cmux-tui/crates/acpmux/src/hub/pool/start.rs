@@ -70,6 +70,8 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // The mode the process runs in: a profile may pin its own (`spawn_mode`).
+            let mode = crate::claude_stdio::spawn_mode(profile, &mode).to_owned();
             (
                 Some((plan.program, plan.args)),
                 Some(agent_host::TranslatorSpec {
@@ -83,6 +85,8 @@ impl Hub {
                     ),
                     recap: current_option(draft, crate::claude_stdio::RECAP_OPTION),
                     claude_session_id: Some(fresh_id),
+                    stop_condition: false,
+                    resumes_cut_turn: false,
                 }),
             )
         } else {
@@ -94,13 +98,14 @@ impl Hub {
             draft.remote_origin || crate::login_env::machine_env_fresh_before_spawn().await,
             "machine environment changed; login env refresh failed"
         );
-        let cmd = crate::agent::harness_command(
+        let cmd = crate::agent::harness_command_ready(
             &draft.harness,
             profile,
             &draft.cwd,
             command_line,
             Some((&session_id, &name)),
-        )?;
+        )
+        .await?;
         let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
         let dir = pool_dir();
@@ -112,6 +117,8 @@ impl Hub {
         // The class it runs at once a chat's start took it, from the harness's own env: its
         // profile's value as resolved (`cpu_class.rs`). Until then it stays at normal class.
         let run_class = crate::cpu_class::CpuClass::for_session(
+            profile.kind,
+            &profile.argv,
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut host_spec = agent_host::SpawnSpec {
@@ -129,7 +136,17 @@ impl Hub {
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
             orphan_exit: None,
+            prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
+            holder: None,
         };
+        // The agent holder (`agent_host/custody.rs`), as for a session's own host.
+        #[cfg(unix)]
+        if crate::agent_host::custody::holder_on()
+            && host_spec.translator.is_none()
+            && !host_spec.codex_bridge
+        {
+            host_spec.holder = Some(agent_host::HolderSpec::default());
+        }
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
             anyhow::bail!("the daemon is stopping");
@@ -223,7 +240,14 @@ impl Hub {
             }
         };
         let started = async {
-            let init = child.request(method::INITIALIZE, initialize_params()).await?;
+            let init = crate::hub::acp_version::initialize(&child, initialize_params()).await?;
+            // An agent signed in by its key says so first (`acp_key_auth.rs`).
+            let family = crate::config::derive_family(&draft.harness, &spec.spawn);
+            if let Some(params) = crate::acp_key_auth::authenticate_params(&family, &init, |k| {
+                crate::acp_key_auth::launch_var(&spec.spawn.env, &family, k)
+            }) {
+                child.request(method::AUTHENTICATE, params).await?;
+            }
             let new_result = if claude {
                 None
             } else {
@@ -231,7 +255,15 @@ impl Hub {
                     child
                         .request(
                             method::SESSION_NEW,
-                            self.acp_params(&session_id, draft, &spec.spawn, None, &child),
+                            self.acp_params(
+                                &session_id,
+                                draft,
+                                &spec.spawn,
+                                None,
+                                &child,
+                                &spec.answer,
+                                &init,
+                            ),
                         )
                         .await?,
                 )
@@ -277,6 +309,7 @@ impl Hub {
             reported_off,
             started: latch.clone(),
             claimed_under: None,
+            codex_answer: None,
         };
         // An off this start began under, or that began while it ran, holds though an unset
         // followed (review 73): an agent that came up in full access then is not kept.

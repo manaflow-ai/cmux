@@ -1,6 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
-import CmuxNextDesign
+public import CmuxNextDesign
 public import CmuxNextHome
 public import CmuxNextHomeModel
 public import Foundation
@@ -29,8 +29,6 @@ import os
 public final class HomeDock {
     /// The page tab the dock holds: the Messages and Channels views of Home.
     public static let page = WorkspaceModel.homeDockPage
-    /// The page tab the dock held before the two views (hq-ec's `home-channels` page alone).
-    static let legacyPage = "home-channels"
     /// Classic Home: the top page, with the Chief tab in the hidden home workspace. Only
     /// `CMUX_NEXT_CLASSIC_HOME=1` at launch selects it (the GUI checks of the native Home,
     /// scripts/cmux-next/home_classic.py); its Labs setting `labs.classicHome` is retired. Read once
@@ -82,9 +80,24 @@ public final class HomeDock {
         return nil
     }
 
-    /// Whether `pane` is in a left dock column with the agent chat role on `screen`.
-    static func isDocked(_ pane: PaneModel, on screen: ScreenModel) -> Bool {
-        dockColumn(pane, on: screen) != nil
+    /// Home's page tab is in its dock, where it stays (`dock.page_is_docked`).
+    public static func pageIsDocked(in home: WorkspaceModel) -> Bool {
+        dockRule("dock.page_is_docked", HomeRequest(home), fallback: false)
+    }
+
+    /// Home shows from its saved state (launch-shell-first.md, piece 3): once `home`'s page is
+    /// mounted in its dock (called after an on-screen workspace's apply), `.home` is ready. The page
+    /// draws its list and last Chief from the Home cache, or its empty first frame on a first
+    /// install, and the Chief owner fills it in under it: the reveal never waits for the owner's
+    /// first page or the deadline. Classic Home keeps its first-page path. True when it marked.
+    /// `dock.reveal_when_docked`; the cheap checks first, since it runs after every apply.
+    @MainActor public static func revealWhenDocked(_ home: WorkspaceModel, reveal: LaunchReveal) -> Bool {
+        guard home.kind == "home", !reveal.isReady(.home) else { return false }
+        var request = HomeRequest(home)
+        request.classic = classic
+        guard dockRule("dock.reveal_when_docked", request, fallback: false) else { return false }
+        reveal.markReady(.home)
+        return true
     }
 
     /// One connect: the page tab in the home's left chat dock, and the home's Chief conversation
@@ -120,25 +133,19 @@ public final class HomeDock {
         }
         // The tree reports a just-created tab after its event.
         guard let placed = await shown({ workspace().flatMap(Self.pageTab(in:)) }), !Task.isCancelled else { return "page tab not shown" }
-        let chiefs = Set((workspace()?.screens ?? []).flatMap { screen in
-            screen.panes.flatMap { pane in pane.tabs.filter { Self.isChiefTab($0) || Self.isLegacyDockTab($0, in: pane, on: screen) } }
-        }.map(\.surface))
-        let docked = Self.isDocked(placed.pane, on: placed.screen)
-        // A daemon that keeps a lone pinned dock: the dock is pinned in the move, and nothing is
-        // left on its right (`pinned-dock-alone-v1`).
-        let alone = store.supports(DaemonCapability.pinnedDock.rawValue) && store.supports(DaemonCapability.pinnedDockAlone.rawValue)
-        // What stays on the dock's screen once the page and the Chief tabs leave it: an older
-        // daemon undocks a screen without a scrolling column, so there the move leaves a terminal.
-        let stays = placed.screen.panes.flatMap(\.tabs).contains { $0.surface != placed.tab.surface && !chiefs.contains($0.surface) }
-        if !chiefs.isEmpty, stays || !docked { try await connection.closeTabs(Array(chiefs), endTerminals: false) }
-        if docked {
+        // The Chief and legacy dock tabs to close, whether the page is docked, and what the move leaves (`dock.ensure_plan`).
+        let plan = dockRule("dock.ensure_plan", HomeRequest(workspace(), store: store), fallback: EnsurePlan(step: "gone"))
+        guard plan.step == "place" else { return "page tab not shown" }
+        let closeTabs = plan.closeTabs ?? [], alone = plan.alone ?? false
+        if !closeTabs.isEmpty { try await connection.closeTabs(closeTabs.map(SurfaceID.init(rawValue:)), endTerminals: false) }
+        if plan.docked == true {
             let pinned = try await pin(connection, store: store, workspace: workspace)
             let tabs = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: pinned != nil)
             let cleared = alone ? try await closePlaceholder(connection, workspace: workspace) : nil
             let steps = [pinned, tabs, cleared].compactMap { $0 }
             return steps.isEmpty ? "home dock present" : steps.joined(separator: ", ")
         }
-        let respawn: SplitRespawn? = stays || alone ? nil : .terminal(SpawnOptions(workspace: workspace()?.key))
+        let respawn: SplitRespawn? = plan.respawnTerminal == true ? .terminal(SpawnOptions(workspace: workspace()?.key)) : nil
         moveInFlight = true
         defer { moveInFlight = false }
         let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
@@ -146,7 +153,7 @@ public final class HomeDock {
         }
         guard moved else { return "home dock move failed (see the app log)" }
         // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
-        _ = await shown { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }
+        _ = await shown { workspace().flatMap { Self.pageIsDocked(in: $0) ? true : nil } }
         _ = try await pin(connection, store: store, workspace: workspace)
         _ = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: true)
         return "home dock made"
@@ -159,14 +166,17 @@ public final class HomeDock {
     /// to do (pinned already, an older daemon, the dock not shown).
     private func pin(_ connection: DaemonConnection, store: DaemonStore,
                      workspace: @MainActor @Sendable () -> WorkspaceModel?) async throws -> String? {
-        guard store.supports(DaemonCapability.pinnedDock.rawValue),
-              let placed = workspace().flatMap(Self.pageTab(in:)),
-              let dock = Self.dockColumn(placed.pane, on: placed.screen)?.dock, !dock.isPinned else { return nil }
-        if placed.pane.tabs.first?.surface != placed.tab.surface {
+        let home = workspace()
+        guard let plan = dockRule("dock.pin_plan", HomeRequest(home, store: store), fallback: PinPlan?.none),
+              // The dock as the tree has it (its mode too), sent back pinned.
+              let dock = home?.screens.lazy.flatMap(\.columns).first(where: { $0.layout.paneIDs.contains { $0.rawValue == plan.pane } })?.dock
+        else { return nil }
+        let pane = PaneID(rawValue: plan.pane)
+        if plan.moveFirst {
             // The pinned tab is the column's first tab: the page goes first before the pin.
-            _ = try await connection.moveTab(placed.tab.surface, to: placed.pane.handle, index: 0)
+            _ = try await connection.moveTab(SurfaceID(rawValue: plan.surface), to: pane, index: 0)
         }
-        _ = try await connection.request(SetColumnDockRequest(pane: placed.pane.handle, dock: dock, pinned: true))
+        _ = try await connection.request(SetColumnDockRequest(pane: pane, dock: dock, pinned: true))
         return "home dock pinned"
     }
 
@@ -205,23 +215,28 @@ public final class HomeDock {
         // This step (a connect's, or the wait's own) supersedes a wait for the ids.
         allowTabsWait?.cancel()
         allowTabsWait = nil
-        guard store.supports(DaemonCapability.pinnedDock.rawValue), fresh || !defaults.bool(forKey: Self.dockTakesTabsKey),
-              let placed = workspace().flatMap(Self.pageTab(in:)),
-              let dock = Self.dockColumn(placed.pane, on: placed.screen)?.dock else { return nil }
-        // A dock just pinned may not show its pin in the tree yet; the daemon has it (the pin replied).
-        if dock.allowsTabs, dock.isPinned {
+        var request = HomeRequest(workspace(), store: store)
+        request.fresh = fresh
+        request.dockTakesTabs = defaults.bool(forKey: Self.dockTakesTabsKey)
+        let plan = dockRule("dock.allow_tabs_plan", request, fallback: AllowTabsPlan(action: "none"))
+        switch plan.action {
+        case "record":
+            // A dock just pinned may not show its pin in the tree yet; the daemon has it (the pin replied).
             defaults.set(true, forKey: Self.dockTakesTabsKey)
             return nil
-        }
-        guard let screen = placed.screen.resourceID, let pane = placed.pane.resourceID else {
+        case "waitForIds":
             // The step runs again when the tree first reports the ids (FC-1: it waited for the next connect, and the
             // dock took no tab for the whole launch). Event-driven: the store's records, no timer.
             allowTabsWhenIdentified(store: store, workspace: workspace, fresh: fresh, allow: allow)
             return "home dock allow_tabs waits for resource ids"
+        case "allow":
+            guard let screen = plan.screen, let pane = plan.pane else { return nil }
+            try await allow(ResourceID(rawValue: screen), ResourceID(rawValue: pane))
+            defaults.set(true, forKey: Self.dockTakesTabsKey)
+            return "home dock takes tabs"
+        default:
+            return nil
         }
-        try await allow(screen, pane)
-        defaults.set(true, forKey: Self.dockTakesTabsKey)
-        return "home dock takes tabs"
     }
 
     /// Runs the allow-tabs step again once Home's page is in a dock whose screen and pane have their resource ids, or
@@ -233,8 +248,7 @@ public final class HomeDock {
         // event-driven (Observation of the store's records), no timer.
         allowTabsWait = Task { [weak self] in
             let identified: @MainActor @Sendable () -> Bool? = {
-                guard let placed = workspace().flatMap(Self.pageTab(in:)) else { return false }
-                return placed.screen.resourceID != nil && placed.pane.resourceID != nil ? true : nil
+                dockRule("dock.ids_ready", HomeRequest(workspace()), fallback: Bool?.some(false))
             }
             // `self?.shown` holds this HomeDock across the await on purpose: a window Home makes a HomeDock per connect
             // (`WindowHomes.ensureDock`) and keeps none, so the wait is what keeps it until the ids come or the page goes.
@@ -251,55 +265,17 @@ public final class HomeDock {
     /// alone; a column with anything real in it is kept as it was. Never again after that check.
     func closePlaceholder(_ connection: DaemonConnection,
                           workspace: @MainActor @Sendable () -> WorkspaceModel?) async throws -> String? {
-        guard !placeholderChecked, !defaults.bool(forKey: Self.placeholderCheckedKey),
-              let placed = workspace().flatMap(Self.pageTab(in:)) else { return nil }
+        var request = HomeRequest(workspace())
+        request.checked = placeholderChecked
+        request.checkedEver = defaults.bool(forKey: Self.placeholderCheckedKey)
+        request.home = NSHomeDirectory()
+        let plan = dockRule("dock.placeholder_plan", request, fallback: PlaceholderPlan(markChecked: false, close: nil))
+        guard plan.markChecked else { return nil }
         placeholderChecked = true
         defaults.set(true, forKey: Self.placeholderCheckedKey)
-        guard let shell = Self.placeholderShell(on: placed.screen, home: NSHomeDirectory()) else { return nil }
-        _ = try await connection.closeTabs([shell.surface], endTerminals: true)
+        guard let shell = plan.close else { return nil }
+        _ = try await connection.closeTabs([SurfaceID(rawValue: shell)], endTerminals: true)
         return "home placeholder shell closed"
-    }
-
-    /// The one tab right of the Home dock on `screen` when it is a placeholder shell, else nil.
-    static func placeholderShell(on screen: ScreenModel, home: String) -> TabModel? {
-        let dockPanes = Set(screen.columns.filter { $0.dock != nil }.flatMap(\.layout.paneIDs))
-        guard screen.columns.contains(where: { $0.dock?.isPinned == true }) else { return nil }
-        let right = screen.panes.filter { !dockPanes.contains($0.handle) }.flatMap(\.tabs)
-        guard right.count == 1, let tab = right.first, isPlaceholderShell(tab, home: home) else { return nil }
-        return tab
-    }
-
-    /// A shell nobody used: a live local terminal at a prompt in the home folder, unnamed, with no
-    /// agent, program status, running command, unread mark or keep-layout record, titled by its
-    /// folder ("~"). It is what the dock move left on Home's right before `pinned-dock-alone-v1`.
-    static func isPlaceholderShell(_ tab: TabModel, home: String) -> Bool {
-        guard tab.kind == .pty, !tab.dead, tab.name == nil, tab.agent == nil, tab.agentSession == nil,
-              tab.commandSinceMs == nil, tab.programStatus.isEmpty, tab.relaunch == nil, tab.remote == nil,
-              !tab.showsUnread, !tab.pinned, tab.tabGroup == nil else { return false }
-        let folder = home.hasSuffix("/") ? String(home.dropLast()) : home
-        // A shell whose folder is unknown is not known to be the placeholder.
-        let atHome = tab.cwd.map { $0 == folder || $0 == folder + "/" } ?? false
-        let title = tab.title.trimmingCharacters(in: .whitespaces)
-        return atHome && (title.isEmpty || title == "~" || title == folder)
-    }
-
-    /// The left chat dock column holding `pane` on `screen`, if any.
-    static func dockColumn(_ pane: PaneModel, on screen: ScreenModel) -> ColumnSnapshot? {
-        screen.columns.first { column in
-            column.dock?.edge == .left && column.dock?.role == .agentChat && column.layout.paneIDs.contains(pane.handle)
-        }
-    }
-
-    /// A Chief conversation tab: a conversation tab whose source is a conversation (not a page or
-    /// an agent session). In the home workspace only Home makes them (`new-conversation-tab`).
-    public static func isChiefTab(_ tab: TabModel) -> Bool {
-        tab.kind == .conversation && tab.page == nil && tab.agentSession == nil && tab.snapshot.conversation?.conversation != nil
-    }
-
-    /// The old dock's `home-channels` page tab (before the switch): only one in the left chat dock,
-    /// so a Channels tab the person opened on the right stays.
-    static func isLegacyDockTab(_ tab: TabModel, in pane: PaneModel, on screen: ScreenModel) -> Bool {
-        tab.page == legacyPage && isDocked(pane, on: screen)
     }
 
     /// The first non-nil value of `read`, observed; nil when cancelled first.
@@ -329,7 +305,7 @@ public final class HomeDock {
     /// app's own daemon connection, with no workspace (the home workspace). The daemon picks the
     /// pane and the tab; nothing is decided here. Other schemes open nothing, as before.
     public func openLink(_ url: URL, on connection: DaemonConnection?) {
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+        guard dockRule("dock.opens_link", ["scheme": url.scheme], fallback: false) else { return }
         guard let connection else {
             logger.error("home link: no daemon connection")
             return
@@ -340,6 +316,60 @@ public final class HomeDock {
             do { try await WorkspaceOpenURLClient(connection).openOnHome(url.absoluteString) } catch {
                 logger.error("home link: workspace.open_url: \(String(describing: error), privacy: .public)")
             }
+        }
+    }
+
+    /// The request of the `dock.*` Home ops: the home's tree and the flags each plan reads.
+    nonisolated struct HomeRequest: Encodable {
+        nonisolated struct Capabilities: Encodable {
+            var pinnedDock = false
+            var pinnedDockAlone = false
+        }
+
+        var workspace: DockWorkspace?
+        var capabilities = Capabilities()
+        var fresh = false
+        var dockTakesTabs = false
+        var checked = false
+        var checkedEver = false
+        var home = ""
+        var classic = false
+        var ready = false
+    }
+
+    private nonisolated struct EnsurePlan: Decodable {
+        var step: String
+        var closeTabs: [UInt64]?
+        var docked: Bool?
+        var alone: Bool?
+        var respawnTerminal: Bool?
+    }
+
+    private nonisolated struct PinPlan: Decodable {
+        var moveFirst: Bool
+        var surface: UInt64
+        var pane: UInt64
+    }
+
+    private nonisolated struct AllowTabsPlan: Decodable {
+        var action: String
+        var screen: String?
+        var pane: String?
+    }
+
+    private nonisolated struct PlaceholderPlan: Decodable {
+        var markChecked: Bool
+        var close: UInt64?
+    }
+}
+
+extension HomeDock.HomeRequest {
+    /// The request for `home` (none: the workspace is gone), with the daemon's dock capabilities when `store` is given.
+    @MainActor init(_ home: WorkspaceModel?, store: DaemonStore? = nil) {
+        workspace = home.map(DockWorkspace.init)
+        if let store {
+            capabilities = Capabilities(pinnedDock: store.supports(DaemonCapability.pinnedDock.rawValue),
+                                        pinnedDockAlone: store.supports(DaemonCapability.pinnedDockAlone.rawValue))
         }
     }
 }

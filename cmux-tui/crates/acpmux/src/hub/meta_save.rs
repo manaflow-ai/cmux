@@ -20,10 +20,14 @@
 //! A request whose answer reports a change ([`Hub::save_meta_answered`]) waits until its version
 //! is durable; a commit that fails fails the request (`store.save_failed`), and the change stays
 //! in memory for the next commit, which a change that came during the failed one gets at once.
-//! A change no request answers for ([`Hub::save_meta`]) takes its version and returns: the
-//! writer at work (or this caller, when none is) commits it. A request that changed nothing
-//! (the chat was unread already) waits for every earlier change ([`Hub::meta_barrier`]). The
-//! shutdown's flush waits for each chat's commit before the store is sealed.
+//! A change no request answers for ([`Hub::save_meta`]) also returns once its version is
+//! durable, and a failed commit is only logged: before, it returned at once while another
+//! commit of the chat ran, so a request that answered after it (a stop that closed the chat, a
+//! sub-session's limits) or a line that showed it (a generated title) could come before the
+//! write, and a hard exit in between lost a change the person saw (agent-service-v2, "Write at
+//! the event": metadata, title and status snapshots before their reply). A request that changed
+//! nothing (the chat was unread already) waits for every earlier change ([`Hub::meta_barrier`]).
+//! The shutdown's flush waits for each chat's commit before the store is sealed.
 //!
 //! A kept change (a draft, a name: [`ShowAfter::Written`], `store/durability.rs`) is committed with
 //! [`Hub::save_meta_kept`]: its answer waits until the copy is saved, as any answered change does,
@@ -81,6 +85,64 @@ struct WriterState {
     kept: u64,
     /// The target of the newest copy saved durable.
     synced: u64,
+    /// What the last successful save held ([`Saved::of`]), or the value read from the store before
+    /// startup repairs. Versions count commits, so alone they miss direct changes such as log
+    /// catch-up. Not the copy: a whole second `SessionMeta` per chat, kept only for the shutdown's
+    /// compare, was about 13 kB a chat (12.8 MB of acpmux's live heap at 1,000 chats, CMUX-571).
+    saved: Option<Saved>,
+}
+
+/// A save, as the shutdown compares it. `Store`: the digest the store returned for what it wrote
+/// ([`crate::store::Store::save_digest`], the journal's), compared with the store's digest of
+/// memory: the save made it from the hashes it computes for its patch anyway, so a save costs
+/// nothing more. Before it (#57984) every save serialized the chat a second time and hashed that
+/// with SHA-256, about half of a save's CPU (`meta_save_bench.rs`), only for this compare.
+/// `Own`, for a store that keeps no digest: the SHA-256 of the metadata's JSON without its large
+/// parts (what `session.json` holds), and the parts themselves as the shared copies the chat holds
+/// (an `Arc` each, never a copy of the value). Holding them keeps their memory from being reused,
+/// so a changed part is a different copy or different content, never the same one. Equal metadata
+/// gives an equal `Saved`; a map in a `Value` field may serialize in another order than an equal
+/// one, which reads as a change and only costs a save. `None` when the metadata cannot be
+/// serialized, which reads as a change too.
+#[derive(Debug, PartialEq)]
+pub(super) enum Saved {
+    Store(crate::store::MetaDigest),
+    Own {
+        digest: [u8; 32],
+        commands: Option<crate::store::SharedValue>,
+        rows: crate::store::SharedRows,
+    },
+}
+
+impl Saved {
+    pub(super) fn of(meta: &SessionMeta) -> Option<Self> {
+        use sha2::{Digest, Sha256};
+        struct Hashing(Sha256);
+        impl std::io::Write for Hashing {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.update(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut hashing = Hashing(Sha256::new());
+        crate::store::to_writer_without_parts(&mut hashing, meta).ok()?;
+        Some(Self::Own {
+            digest: hashing.0.finalize().into(),
+            commands: meta.available_commands.clone(),
+            rows: meta.tools.rows.clone(),
+        })
+    }
+
+    /// Whether `meta` is what this save held.
+    fn holds(&self, meta: &SessionMeta, store: &dyn crate::store::Store) -> bool {
+        match self {
+            Self::Store(digest) => store.digest(meta).as_ref() == Some(digest),
+            Self::Own { .. } => Self::of(meta).as_ref() == Some(self),
+        }
+    }
 }
 
 /// Whether a commit waits for its version to be durable.
@@ -91,6 +153,28 @@ pub(super) enum Wait {
 }
 
 impl MetaWriter {
+    /// A successful save of `meta`, with the digest the store returned for it, if any.
+    pub(super) fn note_saved(&self, meta: &SessionMeta, digest: Option<crate::store::MetaDigest>) {
+        let saved = match digest {
+            Some(digest) => Some(Saved::Store(digest)),
+            None => Saved::of(meta),
+        };
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).saved = saved;
+    }
+
+    /// A writer in flight must get a later version even if memory matches the last save:
+    /// its older copy may differ from a change made and then taken back meanwhile.
+    /// Successful kept copies are synced by the final store flush, without another save.
+    pub(super) fn needs_flush(&self, session: &Session, store: &dyn crate::store::Store) -> bool {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.writing
+            || state.requested > state.durable
+            || state
+                .saved
+                .as_ref()
+                .is_none_or(|saved| !session.read_meta(|meta| saved.holds(meta, store)))
+    }
+
     /// Takes the next version for the change the caller just made, and commits it: as the
     /// writer, when none is at work; else it waits for the writer (`Wait::Durable`) or returns
     /// (`Wait::No`). `write` copies the metadata and writes the copy.
@@ -279,9 +363,10 @@ impl MetaWriter {
 }
 
 impl Hub {
-    /// Commits a change no request answers for; a failed commit is logged.
+    /// Commits a change no request answers for: returns once it is durable, so what the caller
+    /// sends next comes after the write (module text); a failed commit is logged.
     pub(super) fn save_meta(&self, session: &Session) {
-        if let Err(e) = self.commit_meta(session, Wait::No, ShowAfter::Durable) {
+        if let Err(e) = self.commit_meta(session, Wait::Durable, ShowAfter::Durable) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
         }
     }
@@ -324,10 +409,17 @@ impl Hub {
 
     /// The commit of the change just made to `session`'s metadata (module text).
     fn commit_meta(&self, session: &Session, wait: Wait, keep: ShowAfter) -> Result<()> {
-        // A metadata change can affect another closed row too (for example a child's count in its
-        // parent). Mark every cached projection stale before the writer is scheduled; the next
-        // full build then observes the in-memory change even while this write is queued.
-        self.events.summary_generation.fetch_add(1, Ordering::SeqCst);
+        // Mark the cached rows the change may reach stale before the writer is scheduled; the
+        // next full build then observes the in-memory change even while this write is queued.
+        // Its own row always. Every row only when what other rows read of it changed (whether it
+        // is a listed parent, its lineage: `views::parent_print_of`); a child's count in its
+        // parent follows the status (`subsessions.generation`). Before, every commit (each turn's
+        // end, title and usage) rebuilt every closed row on the next list: ~3,000 of them.
+        let print = session.read_meta(super::views::parent_print_of);
+        if session.parent_print.swap(print, Ordering::SeqCst) != print {
+            self.events.summary_generation.fetch_add(1, Ordering::SeqCst);
+        }
+        session.summary_gen.fetch_add(1, Ordering::SeqCst);
         session.meta_writer.commit_as(wait, keep, &|keep| self.write_snapshot(session, keep))
     }
 
@@ -341,6 +433,9 @@ impl Hub {
             return Ok(());
         }
         let meta = session.meta();
+        // Every other change of a ledgered field (a generated title, a workspace move, the
+        // account, the branch) reaches the ledger with the save that carries it.
+        self.ledger.note_session_info(&session.id, super::ledger::TurnContext::of(&meta).info);
         if meta.status != SessionStatus::Closed {
             self.remove_cached_closed_summary(&session.id);
         }
@@ -353,17 +448,17 @@ impl Hub {
             let _ = arrived.send(());
             let _ = release.recv();
         }
-        let saved = match keep {
-            ShowAfter::Durable => self.store.save(&meta),
-            ShowAfter::Written => self.store.save_kept(&meta),
-        };
+        let saved = self.store.save_digest(&meta, keep);
+        if let Ok(digest) = saved {
+            session.meta_writer.note_saved(&meta, digest);
+        }
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)
             && let Err(e) = self.store.delete(&session.id)
         {
             tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
         }
-        saved
+        saved.map(drop)
     }
 }
 
@@ -413,3 +508,8 @@ fn hold_seam(session_id: &str) {
 #[cfg(test)]
 #[path = "meta_save_tests.rs"]
 mod tests;
+
+// Times CPU with getrusage, which windows-gnu libc lacks.
+#[cfg(all(test, unix))]
+#[path = "meta_save_bench.rs"]
+mod bench;

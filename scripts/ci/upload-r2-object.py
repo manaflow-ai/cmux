@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import hashlib
 import hmac
@@ -9,6 +10,7 @@ import http.client
 import json
 import mimetypes
 import os
+import re
 import signal
 import sys
 import time
@@ -139,6 +141,7 @@ def _build_signed_request(
     request_headers = {name.title(): value for name, value in headers.items() if name != "host"}
     request_headers["Authorization"] = authorization
     request_body = body if method not in {"GET", "HEAD"} else None
+    # user-agent: R2's signed S3 API, no CDN
     return urllib.request.Request(url, data=request_body, headers=request_headers, method=method)
 
 
@@ -159,7 +162,7 @@ def _etag_of_planned_object(
     planned from (--replace-sha256), for an If-Match write."""
 
     get = _build_signed_request(args, b"", amz_date, method="GET")
-    with _open_signed_request(get, timeout=120) as response:
+    with _read_back_deadline(), _open_signed_request(get, timeout=120) as response:
         existing = response.read()
         etag = response.headers.get("ETag")
     actual_digest = hashlib.sha256(existing).hexdigest()
@@ -189,18 +192,19 @@ def _read_existing_object(
 ) -> bool:
     """Return true when an existing immutable object has the same bytes."""
 
-    head = _build_signed_request(args, b"", amz_date, method="HEAD")
-    try:
-        with _open_signed_request(head, timeout=30) as response:
-            response.read()
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return False
-        raise
+    with _read_back_deadline():
+        head = _build_signed_request(args, b"", amz_date, method="HEAD")
+        try:
+            with _open_signed_request(head, timeout=30) as response:
+                response.read()
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return False
+            raise
 
-    get = _build_signed_request(args, b"", amz_date, method="GET")
-    with _open_signed_request(get, timeout=120) as response:
-        existing = response.read()
+        get = _build_signed_request(args, b"", amz_date, method="GET")
+        with _open_signed_request(get, timeout=120) as response:
+            existing = response.read()
     actual_digest = hashlib.sha256(existing).hexdigest()
     if actual_digest != expected_digest:
         raise ImmutableConflict(
@@ -225,6 +229,16 @@ def main() -> int:
         "--write-once",
         action="store_true",
         help="Refuse to overwrite an immutable object; accept an identical existing object",
+    )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Read an immutable object and exit without writing. Requires --expected-sha256.",
+    )
+    parser.add_argument(
+        "--expected-sha256",
+        metavar="HEX",
+        help="Expected SHA-256 for --preflight-only",
     )
     parser.add_argument(
         "--conflict-exit-code",
@@ -255,6 +269,10 @@ def main() -> int:
         parser.error("--file and --cache-control are required for an upload")
     if args.replace_sha256 and args.write_once:
         parser.error("--replace-sha256 and --write-once are exclusive")
+    if args.preflight_only and (not args.expected_sha256 or not re.fullmatch(r"[0-9a-f]{64}", args.expected_sha256)):
+        parser.error("--preflight-only requires a 64-character lowercase --expected-sha256")
+    if args.preflight_only and args.replace_sha256:
+        parser.error("--preflight-only and --replace-sha256 are exclusive")
     if not args.content_type:
         content_type, encoding = mimetypes.guess_type(args.file)
         # A compressed file is not the unencoded type returned by guess_type.
@@ -269,6 +287,18 @@ def main() -> int:
         amz_date = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     body_digest = hashlib.sha256(body).hexdigest()
+    if args.preflight_only:
+        amz_date = os.environ.get("CMUX_R2_UPLOAD_AMZ_DATE")
+        if not amz_date:
+            amz_date = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        try:
+            present = _read_existing_object(args, amz_date=amz_date, expected_digest=args.expected_sha256)
+        except ImmutableConflict as error:
+            _report_immutable_conflict(error)
+            return 1
+        print(json.dumps({"key": args.key, "expected_sha256": args.expected_sha256,
+                          "present": present, "preflight_only": True}, sort_keys=True))
+        return 0
     if args.dry_run_json:
         request = _build_signed_request(
             args,
@@ -310,7 +340,7 @@ def main() -> int:
                 return conflict_code
             sys.stderr.write(f"R2 upload failed: HTTP {error.code} {error.reason}\n")
             return 1
-        except (OSError, RuntimeError) as error:
+        except (OSError, RuntimeError, DownloadDeadline) as error:
             sys.stderr.write(f"R2 upload failed: {error}\n")
             return 1
 
@@ -326,7 +356,7 @@ def main() -> int:
             amz_date = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         try:
             return _upload_once(args, body, amz_date, body_digest)
-        except (urllib.error.HTTPError, OSError, http.client.HTTPException) as error:
+        except (urllib.error.HTTPError, OSError, http.client.HTTPException, DownloadDeadline) as error:
             if attempt == attempts or not _transient(error):
                 return _report_upload_error(args, error, amz_date, body_digest)
             sys.stderr.write(
@@ -343,6 +373,29 @@ class DownloadDeadline(Exception):
     """A download attempt ran past its deadline. Not an OSError: the socket
     layer (create_connection over several addresses, urllib's open) catches
     OSError and would go on past an expired one-shot alarm."""
+
+
+@contextlib.contextmanager
+def _read_back_deadline():
+    """The download deadline, for the reads an upload makes: the write-once
+    read-back of an object that is already there, and the --replace-sha256
+    read. Their socket timeout bounds only an idle gap, so a read that trickles
+    never ended: the cmux-tui publish of e133d1c5234d sat 73 min in the
+    read-back of a 30 MB binary until the job was cancelled, and the nightly
+    that waited for its tree failed (runs 42637934072, 42638931588). Expiry is
+    transient: the attempt is retried, then fails."""
+    seconds = float(os.environ.get("CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS", "300"))
+
+    def expire(_signum, _frame):
+        raise DownloadDeadline(f"the read-back did not finish within {seconds:g}s, too slow")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def _download(args: argparse.Namespace) -> int:
@@ -450,7 +503,8 @@ def _report_upload_error(args: argparse.Namespace, error: BaseException, amz_dat
                 ):
                     print(f"Already present with matching digest: s3://{args.bucket}/{args.key}")
                     return 0
-            except (urllib.error.HTTPError, RuntimeError, OSError, http.client.HTTPException) as retry_error:
+            except (urllib.error.HTTPError, RuntimeError, OSError, http.client.HTTPException,
+                    DownloadDeadline) as retry_error:
                 if isinstance(retry_error, ImmutableConflict):
                     if args.conflict_exit_code is not None:
                         sys.stderr.write(f"another publisher wrote it first: {retry_error}\n")
@@ -461,7 +515,7 @@ def _report_upload_error(args: argparse.Namespace, error: BaseException, amz_dat
         sys.stderr.write(f"R2 upload failed: HTTP {error.code} {error.reason}\n")
         sys.stderr.write(error.read().decode("utf-8", errors="replace"))
         return 1
-    except (OSError, RuntimeError, http.client.HTTPException) as error:
+    except (OSError, RuntimeError, http.client.HTTPException, DownloadDeadline) as error:
         if isinstance(error, ImmutableConflict):
             if args.conflict_exit_code is not None:
                 sys.stderr.write(f"another publisher wrote it first: {error}\n")

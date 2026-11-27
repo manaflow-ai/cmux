@@ -16,21 +16,25 @@ import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { ChangelogStore, compareVersions, type UpdateSpan } from "./store";
 import type { ReleaseNotes } from "./types";
-import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
+import type { ChangelogTarget, RecentBuildRow, UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
+import { UpdatedNotes } from "./UpdatedNotes";
 import { rememberRow, type CardDragHost, type CardPlace, type CardRow } from "./updatedCardDrag";
 import "../shared/pageBase.css";
 import "../../ui/glass/composerMaterial.css";
 import "./updateSurfaces.css";
 import "./surface.css";
 
-export type SurfaceKind = "ready" | "updated";
+/** `updated-notes`: the Updated card's changes in a popover beside the sidebar (UpdatedNotes.tsx). */
+export type SurfaceKind = "ready" | "updated" | "updated-notes";
 
 export const SurfaceOps = {
   get: "cmux.changelog.surface.get",
   size: "cmux.changelog.surface.size",
   openChangelog: "cmux.changelog.surface.openChangelog",
   dismiss: "cmux.changelog.surface.dismiss",
+  goBack: "cmux.changelog.surface.goBack",
+  builds: "cmux.changelog.surface.builds",
   stream: "cmux.changelog.surface.changes",
   /** The sidebar host's word on where the pointer is: `{inside: boolean}` (the Updated card). */
   pointer: "cmux.changelog.surface.pointer",
@@ -51,8 +55,24 @@ function isCardPlace(value: unknown): value is CardPlace {
 
 /** `#/surface/ready` -> "ready"; null for any other route. */
 export function parseSurface(hash: string): SurfaceKind | null {
-  const match = /^#\/surface\/(ready|updated)\b/.exec(hash);
+  const match = /^#\/surface\/(ready|updated-notes|updated)\b/.exec(hash);
   return match ? (match[1] as SurfaceKind) : null;
+}
+
+/** The Updated card's title line's middle, CSS px down from the top of the card's own box (its
+    `.wn-card-rest`, else the page's root), to a quarter pixel; 0 with no title. The host centers its
+    native x on it (SidebarUpdatedCardHost.closeFrame; u51892, 2026-11-23: "why the x icon is not
+    aligned vertically with the Updated to Nightly thing? let's put it on the right side in line with the
+    Updated to Nightly"): the x took the corner's concentric inset, which sat it below the title line, and
+    lower still once the card grew. The title is trimmed to its capitals (updateSurfaces.css), so its box's
+    middle is the capitals' middle, where the eye reads the line's center. */
+export function cardTitleMid(root: HTMLElement): number {
+  const title = root.querySelector<HTMLElement>(".wn-card-title");
+  if (!title) return 0;
+  const box = (title.closest<HTMLElement>(".wn-card-rest") ?? root).getBoundingClientRect();
+  const line = title.getBoundingClientRect();
+  if (line.height <= 0) return 0;
+  return Math.max(0, Math.round((line.top + line.height / 2 - box.top) * 4) / 4);
 }
 
 export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client: PageClient | null): void {
@@ -64,13 +84,28 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   // the lens draws no wallpaper copy over it, not even around a tooltip's glass.
   if (kind === "updated") document.documentElement.setAttribute(NATIVE_GLASS_ATTRIBUTE, "");
   const call = (op: string, params: unknown = {}) => void client?.call(op, params).catch(() => undefined);
+  // A row (the card's list, or its changes beside the sidebar) opens What's New at its change. Only a
+  // row's target goes to the host: a button's click event passed along is not one.
+  const openChangelog = (target?: ChangelogTarget) =>
+    call(SurfaceOps.openChangelog, {
+      ...(typeof target?.area === "string" ? { area: target.area } : {}),
+      ...(typeof target?.title === "string" ? { title: target.title } : {}),
+    });
+  // The Updated card's changes go back to an earlier build (GoBack.tsx); the host answers.
+  const goBack = (build?: string) =>
+    (
+      client?.call<{ failure?: string | null }>(SurfaceOps.goBack, build ? { build } : {}) ?? Promise.resolve(null)
+    ).then((answer) => answer?.failure ?? null);
+  const builds = () =>
+    (client?.call<{ builds?: RecentBuildRow[] }>(SurfaceOps.builds, { limit: 6 }) ?? Promise.resolve(null)).then(
+      (answer) => answer?.builds ?? [],
+    );
   const actions: UpdateSurfaceActions =
     kind === "updated"
-      ? {
-          openChangelog: () => call(SurfaceOps.openChangelog),
-          dismiss: () => call(SurfaceOps.dismiss),
-        }
-      : { openChangelog: () => call(SurfaceOps.openChangelog) };
+      ? { openChangelog, dismiss: () => call(SurfaceOps.dismiss) }
+      : kind === "updated-notes"
+        ? { openChangelog, goBack, builds }
+        : { openChangelog };
   // The sidebar host draws the Updated card's x natively (SidebarUpdatedCardHost: WebKit shows no
   // hover and takes no first click while a Chromium page's window has the key). Escape closes the
   // card once the page has the keyboard (a click into it).
@@ -82,7 +117,9 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     });
   }
   const react = createRoot(root);
-  const spans = kind === "updated" && client ? new SpanNotes(client, () => render(latest)) : null;
+  // Every surface reads the notes of every build the update spans: the card sums them up, the
+  // popovers list every change (Leo 2026-11-05: "i can't even scroll through the changes").
+  const spans = client ? new SpanNotes(client, () => render(latest)) : null;
   let latest: UpdateHighlights | null = null;
   // The Updated card's hover preview: where the host says the pointer is, and the room the open
   // preview asks for above the card's slot (reported with the card's height).
@@ -111,14 +148,21 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   };
   const render = (data: UpdateHighlights | null) => {
     latest = data;
-    // Committed now, not on React's next task: the size below reads these rows. The card's page is
-    // hidden until it reports (the host shows it once it has a height), so it gets no animation frame
-    // to report from, and its rows may already have their size (no resize to observe).
+    // Committed now, not on React's next task: the size below reads these rows. The host draws the
+    // card's page only once it reports, so the report must not wait for an animation frame, and its
+    // rows may already have their size (no resize to observe).
     flushSync(() =>
       react.render(
         <UiProvider container={root} dir={languageDirection(strings.language)} overlayPosition="fixed">
           {data === null ? null : kind === "ready" ? (
-            <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
+            <UpdateReadyHighlights
+              data={data}
+              span={spans?.notes(data.changelog)}
+              strings={strings}
+              actions={actions}
+            />
+          ) : kind === "updated-notes" ? (
+            <UpdatedNotes data={data} span={spans?.notes(data.changelog)} strings={strings} actions={actions} />
           ) : (
             <UpdatedCard
               data={data}
@@ -132,6 +176,7 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
               onPreviewGlass={previewGlass}
               anchor={place?.anchor}
               drag={place ? drag : undefined}
+              notesLoading={spans !== null && !spans.settled}
             />
           )}
         </UiProvider>,
@@ -141,18 +186,27 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     report();
   };
   // The host sizes the popover or the card slot to the content; 0 while there is nothing.
-  // A scrolling card (the popover) reports its whole content, not the part the page view shows.
+  // A scrolling card (the popover) reports its whole content, not the part the page view shows, up
+  // to its hover-card cap (--wn-pop-max): a long update never makes it taller than that.
   // A short popover (`.wn-pop-brief`, no change list) also reports its own width, so the host is as
   // wide as its lines (Leo 2026-11-03: "stretched out wasted space"); 0 fills the host's width.
-  // The Updated card reports its height once its words are final (the notes of the update's span
-  // loaded, or none will): the host lays the card out at the first height it hears, so a first
-  // report from the host's items, then the span's summary, moved the sidebar's list twice on a
-  // relaunch (Leo 2026-11-04: "the restarted after nightly update does too many layout shifts").
-  const settled = () => spans === null || spans.settled;
+  // The Updated card reports its height as soon as it has its data: its title is final then, and
+  // its change line holds its one line with a quiet indicator until the span's notes come (or the
+  // load gives up and the host's items stand in), so the words swap in at the same height. The host
+  // draws the card (its glass and this page) only from that first report, so the card never shows
+  // as blank glass while this page loads (Leo 2026-11-09: "it should have the updated to Nightly
+  // already loaded in, instead of just having a blank glass bit"). It once waited for the notes to
+  // report at all, since the host's items and then the span's summary moved the sidebar's list twice
+  // (Leo 2026-11-04); the held line keeps that fixed.
+  // The changes beside the sidebar report once their list is final. The popover waits for nothing:
+  // it opens on a hover with the host's items, and its list grows under the cap when the span's
+  // notes come (they load as the update stages, before any hover).
+  const settled = () => kind === "ready" || spans === null || spans.settled;
   let reported = "";
   const report = () => {
-    if (!settled()) return;
     if (kind === "updated") {
+      // Nothing to show yet: the host keeps the card undrawn, not drawn and then emptied.
+      if (latest === null && reported === "") return;
       // The card's own height, without its hover preview (the slot keeps the card's room while the
       // preview opens over the list), the room the open preview asks for (`overlay`, 0 closed), and
       // the preview's height once open (`preview`, 0 closing), the host's glass behind the page.
@@ -160,15 +214,28 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
       // read one pixel over the card's (49 for 48), so the slot grew a pixel and moved the list.
       const open = root.querySelector<HTMLElement>(".wn-preview")?.getBoundingClientRect().height ?? 0;
       const height = Math.round(root.getBoundingClientRect().height - open);
-      const key = `${height}x0x${overlay}x${glass}`;
+      const title = cardTitleMid(root);
+      // Its words are final (the span's notes answered; not the host's items standing in after the 1.5 s
+      // settle, which late notes still replace): the host holds the height it remembered from the last
+      // showing only until then, so a shorter card gives the room back once, instead of standing with a
+      // blank band above its words (u51892 review F1).
+      const final = spans === null || spans.done;
+      const key = `${height}x0x${overlay}x${glass}x${title}x${final}`;
       if (key === reported) return;
       reported = key;
-      call(SurfaceOps.size, { height, width: 0, overlay, preview: glass });
+      call(SurfaceOps.size, { height, width: 0, overlay, preview: glass, title, settled: final });
       return;
     }
-    const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
-    const height = Math.ceil(Math.max(root.getBoundingClientRect().height, card?.scrollHeight ?? 0));
-    const width = card?.classList.contains("wn-pop-brief") ? Math.ceil(card.getBoundingClientRect().width) : 0;
+    if (!settled()) return;
+    const scroller = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
+    const pop = root.querySelector<HTMLElement>(".wn-pop");
+    // The whole content: what shows, plus what the scroller hides past its edge.
+    const whole = root.getBoundingClientRect().height + (scroller ? scroller.scrollHeight - scroller.clientHeight : 0);
+    // Read through the page's own window: the surface may mount in a document that isn't the global one.
+    const style = pop ? root.ownerDocument.defaultView?.getComputedStyle(pop) : undefined;
+    const cap = style ? Number.parseFloat(style.getPropertyValue("--wn-pop-max")) : Number.NaN;
+    const height = Math.ceil(Number.isFinite(cap) ? Math.min(whole, cap) : whole);
+    const width = pop?.classList.contains("wn-pop-brief") ? Math.ceil(pop.getBoundingClientRect().width) : 0;
     const key = `${height}x${width}`;
     if (key === reported) return;
     reported = key;
@@ -213,7 +280,8 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
 /** The notes of an update's span (after `from`, up to `to`), newest first, loaded once per span;
     undefined until every build in it has loaded or is unavailable, and when none loaded (an
     older host without `cmux.changelog.*` here): the card then reads the host's items. */
-/** How long the Updated card waits for its span's notes before it reports the host's items. */
+/** How long the Updated card's change line waits for its span's notes before the host's items stand in
+    (its loading indicator never stays longer). */
 export const SPAN_SETTLE_MS = 1500;
 
 export class SpanNotes {
@@ -222,6 +290,9 @@ export class SpanNotes {
   private loaded: ReleaseNotes[] | undefined;
   /** The span's notes loaded, failed, came back empty or took too long: the card's words are final. */
   settled = false;
+  /** The span's notes answered (loaded, failed or came back empty), not only took too long: no later
+      words will replace these. The host holds its remembered height until then (u51892 review F1). */
+  done = false;
 
   constructor(
     private readonly client: PageClient,
@@ -244,6 +315,7 @@ export class SpanNotes {
   private load(key: string, span: UpdateSpan): void {
     this.key = key;
     this.loaded = undefined;
+    this.done = false;
     // A new span's words are not final until its own notes answer.
     this.settled = false;
     const store = new ChangelogStore(this.client);
@@ -266,6 +338,7 @@ export class SpanNotes {
       .catch(() => undefined)
       .finally(() => {
         if (this.store !== store) return;
+        this.done = true;
         if (this.settled) this.onChange();
         else this.settle();
       });

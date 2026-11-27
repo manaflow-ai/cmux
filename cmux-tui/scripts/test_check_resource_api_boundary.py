@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import importlib.util
-import hashlib
 import io
 import json
 import sys
@@ -295,6 +294,23 @@ impl ResourceOperation {{
 
 
 class PublicBoundaryScanTests(unittest.TestCase):
+    def test_rust_test_modules_are_not_public_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            for root in ("bindings/rust/src", "crates/cmux-tui/src/cli/customize"):
+                for name in ("tests.rs", "surface_test.rs", "surfaces_tests.rs"):
+                    write(tui / root / name, 'const HELP: &str = "cmux attach-surface";\n')
+                # Similar production filenames still expose public vocabulary.
+                for name in ("surfaces.rs", "tests_support.rs"):
+                    write(tui / root / name, 'const HELP: &str = "cmux attach-surface";\n')
+
+            diagnostics, scanned = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(scanned, 4)
+            self.assertEqual(len(diagnostics), 4)
+            self.assertEqual({item.path.name for item in diagnostics}, {"surfaces.rs", "tests_support.rs"})
+            self.assertTrue(all(item.code == "boundary.surface" for item in diagnostics))
+
     def test_raw_internal_and_manifest_generated_occurrences_are_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
@@ -321,6 +337,17 @@ class PublicBoundaryScanTests(unittest.TestCase):
 
             self.assertEqual(diagnostics, [])
             self.assertEqual(scanned, 1)
+
+    def test_rust_test_suffix_is_outside_public_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = tui / "crates/cmux-tui/src/cli/search_tests.rs"
+            write(path, 'const FIXTURE: &str = "surface";\n')
+
+            diagnostics, scanned = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(diagnostics, [])
+            self.assertEqual(scanned, 0)
 
     def test_public_leaks_report_precise_file_and_line(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -389,6 +416,104 @@ fn internal() { let surface_id: u64 = 4; }
             self.assertEqual(diagnostics[0].code, "boundary.surface")
             self.assertEqual(diagnostics[0].line, 1)
 
+    def test_inline_test_module_preserves_public_diagnostics_on_both_sides(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            source = (
+                'const BEFORE: &str = "attach surface";\n'
+                '# [ cfg (test) ] pub(crate) mod fixtures {\n'
+                '    fn fixture() { let _ = r#"} surface_id {"#; }\n'
+                '}\n'
+                'const AFTER: &str = "detach surface";\n'
+            )
+            for root in ("bindings/rust/src", "crates/cmux-tui/src/cli"):
+                write(tui / root / "example_impl.rs", source)
+
+            findings, scanned = CHECKER.scan_public_boundaries(tui)
+            self.assertEqual(scanned, 2)
+            self.assertEqual(
+                [(item.line, item.code) for item in findings],
+                [(1, "boundary.surface"), (5, "boundary.surface")] * 2,
+            )
+
+    def test_customization_topics_and_resource_selectors_in_one_help_literal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            source = 'const HELP: &str = "cmux customize docs [SURFACE]: customization surfaces; attach surface by surface_id or pane:3";\n'
+            path = tui / "crates/cmux-tui/src/cli/customize.rs"
+            write(path, source)
+
+            findings, _ = CHECKER.scan_public_boundaries(tui)
+            self.assertEqual(
+                [(item.column, item.code) for item in findings],
+                [(source.index(word) + 1, code) for word, code in
+                 (("surface by", "boundary.surface"), ("surface_id", "boundary.surface"),
+                  ("pane:3", "boundary.short-id"))],
+            )
+
+    def test_ui_field_exemptions_require_the_corresponding_producer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            root = tui / "crates/cmux-tui/src/cli"
+            cases = {
+                "customize/docs.rs": (
+                    'json!({ "surfaces": all.iter().map(surface_json).collect::<Vec<_>>() });',
+                    'json!({ "surfaces": terminal_ids });',
+                ),
+                "ext/headless.rs": (
+                    'context["surface"] = json!("widget");',
+                    'context["surface"] = json!(terminal_id);',
+                ),
+                "mcp/customize_tools.rs": (
+                    'name: "customize_docs", verb: "docs", description: "settings surface", '
+                    'argument: Some(("surface", false, Kind::Text, "One surface, like sidebar or section.")),',
+                    'name: "attach", verb: "attach", description: "attach", argument: Some(("surface", true)),',
+                ),
+            }
+            for name, (valid, invalid) in cases.items():
+                write(root / name, valid + "\n" + invalid + "\n")
+
+            findings, scanned = CHECKER.scan_public_boundaries(tui)
+            self.assertEqual(scanned, len(cases))
+            self.assertEqual(
+                [(item.path.relative_to(root).as_posix(), item.line, item.code) for item in findings],
+                [(name, 2, "boundary.surface") for name in sorted(cases)],
+            )
+
+    def test_cli_quotes_in_chars_and_comments_do_not_open_strings(self) -> None:
+        prefixes = [
+            "let quote = '\"'; let surface = 1;",
+            "let quote = b'\"'; let surface = 1;",
+            r"let quote = '\''; let surface = 1;",
+            r"let quote = '\u{22}'; let surface = 1;",
+            '// a lone " surface quote\nlet surface = 1;',
+            '/* " surface /* nested " */ still a comment */ let surface = 1;',
+            "fn borrow<'a>(surface: &'a str) {}",
+        ]
+        for prefix in prefixes:
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as directory:
+                tui = Path(directory)
+                path = tui / "crates/cmux-tui/src/main.rs"
+                write(path, prefix + '\nconst HELP: &str = "cmux surface list";\n')
+                diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+                self.assertEqual([(item.code, item.line) for item in diagnostics], [
+                    ("boundary.surface", prefix.count('\n') + 2),
+                ])
+
+    def test_cli_comment_markers_inside_strings_remain_public(self) -> None:
+        strings = [
+            '"// surface"', '"/* surface */"',
+            'r#"// \" surface"#', 'br#"/* \" surface */"#',
+            'cr#"/* \" surface */"#',
+        ]
+        for literal in strings:
+            with self.subTest(literal=literal), tempfile.TemporaryDirectory() as directory:
+                tui = Path(directory)
+                path = tui / "crates/cmux-tui/src/main.rs"
+                write(path, f'const HELP = {literal};\n')
+                diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+                self.assertEqual([item.code for item in diagnostics], ["boundary.surface"])
+
     def test_cli_compile_time_paths_are_not_public_resource_names(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
@@ -410,6 +535,66 @@ fn internal() { let surface_id: u64 = 4; }
                 ("boundary.surface", 4),
                 ("boundary.surface", 5),
             ])
+
+    def test_cli_module_paths_are_not_public_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = tui / "crates/cmux-tui/src/cli/customize/pr.rs"
+            write(path, '\n'.join([
+                'const HELP: &str = "cmux attach-surface";',
+                '#[cfg(test)]',
+                '#[path = "surfaces_tests.rs"]',
+                'mod surfaces_tests;',
+                '#[path = r#"surfaces_impl.rs"#]',
+                'mod implementation;',
+                '# [ path = "surface_helpers.rs" ]',
+                'mod helpers;',
+                '#[doc = "cmux surface list"]',
+                'const RAW_HELP: &str = r#"cmux surface list"#;',
+            ]) + '\n')
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual([(item.code, item.line) for item in diagnostics], [
+                ("boundary.surface", 1),
+                ("boundary.surface", 9),
+                ("boundary.surface", 10),
+            ])
+
+    def test_cli_allows_terminal_identity_env_names_from_the_rust_table_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            write(
+                tui / CHECKER.TERMINAL_IDENTITY_ENV_SOURCE,
+                """\
+pub const EXCLUDED_KEYS: [&str; 3] = [
+    "PWD",
+    "CMUX_SURFACE_ID",
+    "CMUX_TAB_ID",
+];
+""",
+            )
+            write(
+                tui / "crates/cmux-tui/src/cli/last_chat.rs",
+                """\
+const KEYS: [&str; 2] = ["CMUX_TUI_TERMINAL_ID", "CMUX_SURFACE_ID"];
+const MADE_UP: &str = "CMUX_SURFACE_NAME";
+const HELP: &str = "cmux list-surfaces";
+""",
+            )
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(
+                CHECKER.terminal_identity_env_names(tui),
+                frozenset({"CMUX_SURFACE_ID", "CMUX_TAB_ID"}),
+            )
+            self.assertEqual([item.line for item in diagnostics], [2, 3])
+            self.assertEqual({item.code for item in diagnostics}, {"boundary.surface"})
+            self.assertIn("EXCLUDED_KEYS", diagnostics[0].message)
+
+    def test_live_terminal_identity_env_table_names_cmux_surface_id(self) -> None:
+        self.assertIn("CMUX_SURFACE_ID", CHECKER.terminal_identity_env_names(CHECKER.TUI))
 
     def test_cli_allows_relay_transport_slot_but_rejects_resource_slot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1219,94 +1404,6 @@ class ContractRegistryTests(unittest.TestCase):
 
             self.assertTrue(any("forbidden public identity field" in item for item in messages), messages)
             self.assertTrue(any("RendererGrantResult.fields.token must be sensitive" in item for item in messages), messages)
-
-    def test_sdk_descriptor_operation_class_drift_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            tui = Path(directory)
-            matching_contract(tui, ["workspace.list"])
-            write(
-                tui / "bindings/python/.cmux-resource-api.json",
-                json.dumps(
-                    {
-                        "protocol": "cmux.protocol/2",
-                        "catalog_sha256": hashlib.sha256(
-                            json.dumps(
-                                json.loads(
-                                    (tui / "spec/resource-operations-v2.json").read_text(
-                                        encoding="utf-8"
-                                    )
-                                ),
-                                sort_keys=True,
-                                separators=(",", ":"),
-                                ensure_ascii=False,
-                            ).encode("utf-8")
-                        ).hexdigest(),
-                        "operations": {
-                            "workspace.list": {"class": "mutation"},
-                        },
-                    },
-                    indent=2,
-                )
-                + "\n",
-            )
-
-            diagnostics = CHECKER.check_contracts(tui)
-
-            self.assertTrue(
-                any(
-                    item.code == "boundary.operation-class"
-                    and "SDK descriptor" in item.message
-                    for item in diagnostics
-                ),
-                diagnostics,
-            )
-
-    def test_sdk_descriptor_catalog_hash_drift_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            tui = Path(directory)
-            matching_contract(tui, ["workspace.list"])
-            write(
-                tui / "bindings/python/.cmux-resource-api.json",
-                json.dumps(
-                    {
-                        "protocol": "cmux.protocol/2",
-                        "catalog_sha256": "0" * 64,
-                        "operations": {
-                            "workspace.list": {"class": "read"},
-                        },
-                    },
-                    indent=2,
-                )
-                + "\n",
-            )
-
-            diagnostics = CHECKER.check_contracts(tui)
-
-            self.assertTrue(
-                any(
-                    item.code == "boundary.sdk-descriptor"
-                    and "catalog_sha256" in item.message
-                    for item in diagnostics
-                ),
-                diagnostics,
-            )
-
-    def test_existing_high_level_sdk_requires_catalog_descriptor(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            tui = Path(directory)
-            matching_contract(tui, ["workspace.list"])
-            write(tui / "bindings/python/cmux/__init__.py", "")
-
-            diagnostics = CHECKER.check_contracts(tui)
-
-            self.assertTrue(
-                any(
-                    item.code == "boundary.sdk-descriptor"
-                    and "python high-level SDK is missing" in item.message
-                    for item in diagnostics
-                ),
-                diagnostics,
-            )
 
 
 if __name__ == "__main__":

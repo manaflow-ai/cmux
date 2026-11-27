@@ -26,6 +26,30 @@ GEN = load("gen_settings_sources", "scripts/cmux-next/gen-settings-sources.py")
 DRAFT = load("settings_source_from_export", "scripts/cmux-next/settings-source-from-export.py")
 
 
+class GeneratorSectionFilesTests(unittest.TestCase):
+    def test_every_section_source_has_one_generator_file(self):
+        sources = {path.name for path in (ROOT / "schemas/settings/source").glob("*.json")
+                   if "lists" in json.loads(path.read_text(encoding="utf-8"))}
+        self.assertEqual(sorted(sources), sorted(Path(section["source"]).name for section in GEN.SECTIONS))
+
+    def test_a_generator_file_names_its_own_source(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / GEN.GENERATOR_DIR
+            folder.mkdir(parents=True)
+            entry = {"source": "schemas/settings/source/other.json", "swift": GEN.SCHEMA_DIR + "/X.generated.swift",
+                     "type": "XSettingsSchema", "lists": {"x": ["descriptors", None]}}
+            (folder / "x.json").write_text(json.dumps(entry), encoding="utf-8")
+            saved, GEN.ROOT = GEN.ROOT, root
+            try:
+                with self.assertRaises(SystemExit):
+                    GEN.load_generator_sections()
+                entry["source"] = "schemas/settings/source/x.json"
+                (folder / "x.json").write_text(json.dumps(entry), encoding="utf-8")
+                self.assertEqual(GEN.load_generator_sections()[0]["lists"], {"x": ("descriptors", None)})
+            finally:
+                GEN.ROOT = saved
+
+
 class SettingsSourceFromExportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

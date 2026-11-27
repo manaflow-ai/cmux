@@ -34,7 +34,7 @@ def definitions(path, names):
 GOLDEN = definitions(ROOT.parent / "ci/frame-pacing/golden.py", {"EPS", "THRESHOLDS", "motion", "percentile"})
 MEASURE = definitions(ROOT / "pane-perf-terminal.py",
                       {"WINDOW_ACTIONS", "WINDOW_RESTORE", "WINDOW_TARGET_HZ", "WINDOW_REFRESH_TOLERANCE", "WINDOW_MAX_STEP", "WINDOW_MIN_INTERMEDIATE",
-                       "finite_nonnegative", "first_window", "measure"})
+                       "finite_nonnegative", "first_window", "moving_frames", "traced_at_rest", "measure"})
 
 
 def measured(values=None, *, name="window-zoom", refresh=PERIOD, monitor_refresh=PERIOD,
@@ -60,8 +60,10 @@ def measured(values=None, *, name="window-zoom", refresh=PERIOD, monitor_refresh
             return frames
         return {}
 
-    namespace = {"math": math, "opts": SimpleNamespace(browser=False), "time": SimpleNamespace(sleep=lambda _: None),
+    namespace = {"math": math, "opts": SimpleNamespace(browser=False), "time": SimpleNamespace(sleep=lambda _: None, time=lambda: 0.0),
                  "rpc": rpc, "perform": lambda _: action_error,
+                 # traced_at_rest() waits for the trace to hold frames; the synthetic trace has them already
+                 "wait_until": lambda *_args, **_kwargs: True,
                  # measure() records background daemon CPU (bench_background); a stub, so the test runs no ps
                  "bench_background": SimpleNamespace(sample=lambda: {}, delta=lambda _before: {"by_name": {}, "total_s": 0.0,
                                                                                   "limit_s": 1.0, "over_limit": False})}

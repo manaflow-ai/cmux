@@ -21,6 +21,9 @@ export type ChatMenuItem =
       /// bare letter on the row's right reads as meaningless (design/menus.md, Leo 2026-10-31).
       accelerator?: string;
       disabled?: boolean;
+      /// Drawn in the danger colour (Delete Machine…; a paused machine's near delete date), and the
+      /// native menu's destructive role.
+      destructive?: boolean;
       onSelect?: (event?: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => void;
       children?: ChatMenuChild[];
     };

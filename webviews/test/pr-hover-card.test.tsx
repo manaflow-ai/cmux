@@ -6,6 +6,7 @@
 // what the chat already knows.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
 const scope = globalThis as Record<string, unknown>;
@@ -46,7 +47,8 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -87,10 +89,9 @@ function expectFullCard(card: HTMLElement | null) {
   const text = card!.textContent ?? "";
   expect(text).toContain(TITLE);
   expect(text).toContain("manaflow-ai/leo-workspace#634");
-  // The glyph follows the PR state and the status row names it for quick scanning.
+  // The glyph follows the PR state with an accessible label (no redundant visible state word).
   expect(card!.querySelector(".acpmux-pr-card__glyph svg")?.getAttribute("aria-label")).toBe("Draft");
-  expect(card!.querySelector(".acpmux-pr-card__state")?.textContent).toBe("Draft");
-  expect(shownText(card!)).toContain("Draft");
+  expect(card!.querySelector(".acpmux-pr-card__state")).toBeNull();
   expect(text).toContain("teamleaderleo");
   expect(card!.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
     "7 of 9 checks passed, 2 failing",
@@ -98,13 +99,6 @@ function expectFullCard(card: HTMLElement | null) {
   // In words, as CI checks (Leo 2026-11-07: "The check mark, the X mark, whatever. What does that mean?").
   expect(card!.querySelector(".acpmux-pr-card__checksName")?.textContent).toBe("Checks");
   expect(card!.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("2 failed");
-}
-
-/** The card's text as it shows: no svg titles and no screen-reader-only words. */
-function shownText(element: Element): string {
-  const copy = element.cloneNode(true) as Element;
-  for (const hidden of copy.querySelectorAll("title, .acpmux-pr-card__sr")) hidden.remove();
-  return copy.textContent ?? "";
 }
 
 test("a pull request chip in a reply opens the same card", async () => {
@@ -129,7 +123,7 @@ test("a pull request chip in a reply opens the same card", async () => {
   const card = element.querySelector<HTMLElement>(".cv-link-preview.acpmux-pr-card");
   expectFullCard(card);
   // It keeps the link card's Open, and its title sits in the head beside the GitHub mark.
-  expect(card!.querySelector("button")?.textContent).toContain("Open");
+  expect(card!.querySelector(".cv-link-preview__split .cv-link-preview__open")?.textContent).toContain("Open");
   const head = card!.querySelector<HTMLElement>(".cv-link-preview__head")!;
   // The head's icon is the pull request glyph in its state's colour (draft here).
   expect(head.querySelector('.cv-link-preview__icon .acpmux-pr-card__glyph[data-state="draft"] svg')).not.toBeNull();
@@ -194,6 +188,11 @@ test("the card's chrome is quiet: borderless buttons, no divider, no underline, 
   expect(open).not.toContain("box-shadow");
   expect(rule(".cv-link-preview .acpmux-open-in")).toContain("box-shadow:none");
   expect(rule(".cv-link-preview__head")).not.toContain("border");
+  // The Open | chevron split is plain controls on the card's glass, not a framed capsule of its own
+  // (Leo 2026-11-22: "doubled up glass/wack looking glass"): no frame, fill, rim, shadow or blur.
+  const split = rule(".cv-link-preview__split");
+  expect(split).not.toMatch(/border|background|box-shadow|backdrop-filter/);
+  expect(styles).not.toMatch(/\.cv-link-preview__split[^{}]*\{[^}]*(backdrop-filter|box-shadow)/);
   expect(rule(".acpmux-pr-card__lines")).toContain("display:inline-flex");
   // Glass: the shared liquid glass (.ui-glass) paints the card, so the card itself sets no fill;
   // its level is the popover glass every hover card wears (glass.css GLASS LEVELS), never its own.
@@ -202,4 +201,138 @@ test("the card's chrome is quiet: borderless buttons, no divider, no underline, 
   expect(card).not.toContain("box-shadow");
   expect(rule(".cv-link-preview.ui-card")).toContain("--glass-elevation:");
   expect(styles).not.toMatch(/\.cv-link-preview[^{}]*\{[^}]*--glass-(tint|backdrop):/);
+});
+
+// Leo 2026-11-22, a GitHub card that read "teamleaderleo/leo-workspace#7909" as its title and again as
+// the link under it: a line under the title that only repeats it is left out; one that says more stays.
+test("a line that repeats the card's title is left out, one that differs stays", async () => {
+  const { repeatsTitle } = await import("../src/agent-session/acpmux/chips/linkHoverCardModel");
+  expect(repeatsTitle("teamleaderleo/leo-workspace#7909", "teamleaderleo/leo-workspace#7909")).toBe(true);
+  expect(repeatsTitle("Example.test/Guide", "https://www.example.test/guide/")).toBe(true);
+  expect(repeatsTitle("A  title ", "a title")).toBe(true);
+  expect(repeatsTitle("Fix the hover card", "teamleaderleo/leo-workspace#7909")).toBe(false);
+  expect(repeatsTitle(undefined, "x")).toBe(false);
+
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { resetLinkStore, seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { resetPullRequestStore } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
+  const element = dom.window.document.getElementById("root")!;
+  const show = async (href: string, answerTitle: string) => {
+    resetLinkStore();
+    resetPullRequestStore();
+    setChipHost(async (method) =>
+      method === "pr.inspect" ? { pullRequest: { ...answer.pullRequest, title: answerTitle } } : undefined,
+    );
+    const root = createRoot(element);
+    await act(async () =>
+      root.render(
+        <UiProvider container={element}>
+          <UrlChip href={href}>{href}</UrlChip>
+        </UiProvider>,
+      ),
+    );
+    await act(async () => element.querySelector<HTMLElement>("a.cv-chip")!.focus());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const card = element.querySelector<HTMLElement>(".cv-link-preview")!;
+    const seen = {
+      title: card.querySelector(".cv-link-preview__site")?.textContent,
+      refs: [...card.querySelectorAll(".acpmux-pr-card__ref")].map((ref) => ref.textContent),
+      target: card.querySelector(".cv-link-preview__target")?.textContent ?? null,
+    };
+    await act(async () => root.unmount());
+    return seen;
+  };
+  try {
+    // No title read: the head is titled by owner/repo#N, so the link under it would say it again.
+    expect(await show(URL, "")).toEqual({ title: "manaflow-ai/leo-workspace#634", refs: [], target: null });
+    // A title of its own: owner/repo#N under it says more, and stays.
+    expect(await show(URL, TITLE)).toEqual({ title: TITLE, refs: ["manaflow-ai/leo-workspace#634"], target: null });
+    // A web page whose title is its own address: the address line under it is left out.
+    const page = "https://docs.example.test/guide/intro";
+    seedLinkStore({ sites: { [page]: { title: "docs.example.test/guide/intro" } } });
+    resetPullRequestStore();
+    setChipHost(async () => undefined);
+    const root = createRoot(element);
+    await act(async () =>
+      root.render(
+        <UiProvider container={element}>
+          <UrlChip href={page}>{page}</UrlChip>
+        </UiProvider>,
+      ),
+    );
+    await act(async () => element.querySelector<HTMLElement>("a.cv-chip")!.focus());
+    const card = element.querySelector<HTMLElement>(".cv-link-preview")!;
+    expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("docs.example.test/guide/intro");
+    expect(card.querySelector(".cv-link-preview__target")).toBeNull();
+    await act(async () => root.unmount());
+  } finally {
+    setChipHost(undefined);
+  }
+});
+
+// Review from link: a pull request's card has a quiet Review beside Open that asks the pane's own
+// `pr.review` action (App.tsx) for a side chat reviewing it. An issue has none, a read-only
+// transcript has none, and a page without that action (the changelog) has none.
+test("a pull request's card offers Review; an issue's, a read-only one's and a page without the action do not", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { TranscriptReadOnly } = await import("../src/agent-session/acpmux/conversation/readOnly");
+  const win = dom.window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> };
+  const reviews: unknown[] = [];
+  const host = await rig();
+  const element = dom.window.document.getElementById("root")!;
+  const cardFor = async (href: string, { readOnly = false } = {}) => {
+    resetLinkStore();
+    const root = createRoot(element);
+    await act(async () =>
+      root.render(
+        <UiProvider container={element}>
+          <TranscriptReadOnly.Provider value={readOnly}>
+            <UrlChip href={href}>{href}</UrlChip>
+          </TranscriptReadOnly.Provider>
+        </UiProvider>,
+      ),
+    );
+    await act(async () => element.querySelector<HTMLElement>("a.cv-chip")!.focus());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const card = element.querySelector<HTMLElement>(".cv-link-preview");
+    return { card, review: card?.querySelector<HTMLButtonElement>(".cv-link-preview__review") ?? null, root };
+  };
+  try {
+    win.cmuxAcpmuxActions = { "pr.review": async (params) => void reviews.push(params) };
+    const pull = await cardFor(URL);
+    expect(pull.review?.textContent).toBe("Review");
+    // Open keeps its place at the row's end; Review sits before it.
+    const head = pull.card!.querySelector(".cv-link-preview__head")!;
+    expect(head.lastElementChild?.classList.contains("cv-link-preview__split")).toBe(true);
+    await act(async () => pull.review!.click());
+    expect(reviews).toEqual([{ url: URL }]);
+    await act(async () => pull.root.unmount());
+
+    const issue = await cardFor("https://github.com/manaflow-ai/leo-workspace/issues/77");
+    expect(issue.card).not.toBeNull();
+    expect(issue.review).toBeNull();
+    await act(async () => issue.root.unmount());
+
+    const shared = await cardFor(URL, { readOnly: true });
+    expect(shared.card).not.toBeNull();
+    expect(shared.review).toBeNull();
+    await act(async () => shared.root.unmount());
+
+    delete win.cmuxAcpmuxActions;
+    const changelog = await cardFor(URL);
+    expect(changelog.card).not.toBeNull();
+    expect(changelog.review).toBeNull();
+    await act(async () => changelog.root.unmount());
+  } finally {
+    delete win.cmuxAcpmuxActions;
+    host.done();
+  }
 });

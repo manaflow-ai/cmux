@@ -1,15 +1,55 @@
+import type { StatusItem } from "./composerStatusModel";
+import { readPeerLinkDetail, type PeerLinkDetail } from "./linkState";
 import type { PeerLinkState } from "./protocol/generated/types";
 
 /// Every state acpmux sends (peer_link.rs `PeerState::as_str`). Notes carry the protocol's
-/// `PeerLinkState`; `_acpmux/peers` also says `restarting` while the peer's daemon restarts, and a
-/// snapshot that dropped that row would leave the picker no state, so it would read the peer as ready.
-type LinkState = PeerLinkState | "restarting";
-const STATES = new Set<unknown>(["connecting", "connected", "degraded", "reconnecting", "restarting", "offline"]);
-type Link = { state: LinkState; connected: boolean; lastSeen: number | undefined; error: string | undefined };
+/// `PeerLinkState`; `_acpmux/peers` also says `restarting` during a restart and `idle` when the
+/// peer will dial on use. Keep both in the authoritative snapshot for the machine picker.
+type LinkState = PeerLinkState | "restarting" | "idle";
+const STATES = new Set<unknown>([
+  "connecting",
+  "connected",
+  "degraded",
+  "reconnecting",
+  "restarting",
+  "offline",
+  "idle",
+]);
+/// `detail`: acpmux's whole link state (`link`, `carrier`, `cause`, `downReason`, `since`, `nextRetryAt`, `status`), what the pane
+/// draws (linkState.ts); `state` stays the older word every other reader compares.
+type Link = {
+  state: LinkState;
+  connected: boolean;
+  lastSeen: number | undefined;
+  error: string | undefined;
+  detail: PeerLinkDetail | undefined;
+};
 type VersionedLink = { link: Link; revision: number };
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-const same = (a: Link | undefined, b: Link) => a?.state === b.state && a.lastSeen === b.lastSeen && a.error === b.error;
+/// The link's dot item (`status`), field by field: a new one redraws the dot.
+const sameStatus = (a: StatusItem | undefined, b: StatusItem | undefined) =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.kind === b.kind &&
+    a.level === b.level &&
+    a.words === b.words &&
+    a.subject === b.subject &&
+    a.since === b.since &&
+    a.until === b.until &&
+    a.showAt === b.showAt &&
+    a.action === b.action);
+const same = (a: Link | undefined, b: Link) =>
+  a?.state === b.state &&
+  a.lastSeen === b.lastSeen &&
+  a.error === b.error &&
+  a.detail?.link === b.detail?.link &&
+  a.detail?.carrier === b.detail?.carrier &&
+  a.detail?.cause === b.detail?.cause &&
+  a.detail?.downReason === b.detail?.downReason &&
+  a.detail?.nextRetryAt === b.detail?.nextRetryAt &&
+  sameStatus(a.detail?.status, b.detail?.status);
 
 /// One local/app connection's snapshot and pushed state. The daemon names both proven origins
 /// `local`; a peer daemon's connection never hears this host's peer inventory (#26860).
@@ -120,5 +160,7 @@ function observation(value: Record<string, unknown>): Link | undefined {
     // A full observation clears old nullable values when overlaid on an older status read.
     lastSeen: typeof value.lastSeen === "number" && Number.isFinite(value.lastSeen) ? value.lastSeen : undefined,
     error: typeof value.error === "string" ? value.error : undefined,
+    // Only a daemon that sends `link` has a whole state to draw; an older one's `state` says it.
+    detail: "link" in value ? readPeerLinkDetail(value) : undefined,
   };
 }

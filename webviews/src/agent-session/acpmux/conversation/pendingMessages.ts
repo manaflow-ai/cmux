@@ -7,7 +7,9 @@
 //   running turn gives up as it is drawn (turns.ts `pending`);
 // - a message queued behind the running turn (queuedMessages.ts, kind `QUEUED_MESSAGE`).
 // The group has one id while messages wait, so one that arrives after it was drawn joins it, and it
-// stays open or closed as the person left it. Opened, its messages are grouped by the session that
+// stays open or closed as the person left it. Each time it comes, after none waited, it is a new
+// frame (`frame`), so it enters as news (openBreakpoint.ts `waitsNow`): drawn under its one id as
+// known, it popped in whole at a turn's end (agent-pane-turn-end-motion). Opened, its messages are grouped by the session that
 // sent them, in the order each session first wrote; each is its own received line (its ⋯ menu kept).
 // Once the agent reads a message it leaves the group and draws where it was read.
 // The same delivery is shown once by its prompt id (or its row id when the prompt id is absent).
@@ -17,6 +19,7 @@
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
 import { batchLaneNotices, flattenInboxRows, noticeOf } from "./laneNoticeBatches";
+import { PrefixFilter } from "./prefixFlatMap";
 import { isLiveLine, PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
 
 /// The group's row id: one while any message waits.
@@ -48,16 +51,21 @@ export function dedupeMessages(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[]
   return out ?? rows;
 }
 
+const waitingReads = new PrefixFilter<AcpmuxRow>((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row));
+
 /// Rows Find searches for waiting messages. The transcript draws the same messages through
 /// `pendingMessagesRow`, which deduplicates them, so Find must search that same set or it can
 /// select a duplicate row id that is not present in the rendered group.
+
 export function searchablePendingRows(
   sourceRows: readonly AcpmuxRow[],
   queuedRows: readonly AcpmuxRow[],
 ): readonly AcpmuxRow[] {
   const raw = queuedRows.length ? [...sourceRows, ...queuedRows] : sourceRows;
   const all = flattenInboxRows(raw);
-  const waiting = all.filter((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row));
+  // Read again past the rows a snapshot kept only (prefixFlatMap.ts): Find's rows are made on
+  // every snapshot, and a long chat waits on no message most of the time.
+  const waiting = waitingReads.read(all).items;
   if (waiting.length === 0) return all;
   const kept = new Set(dedupeMessages(waiting));
   const visible = flattenInboxRows([...kept]);
@@ -69,9 +77,12 @@ export function searchablePendingRows(
     .concat(visible.filter((row) => !kept.has(row)));
 }
 
-/// The key a message's sender is grouped under.
+/// The key a message's sender is grouped under: its chat here, else what its chat is asked for by
+/// (a relayed sender's `MACHINE/SESSION`), else its name. Two machines' chats can share a name.
 export const senderKey = (row: AcpmuxRow) =>
-  row.incoming?.kind === "message" ? (row.incoming.message.sessionId ?? row.incoming.message.name) : row.id;
+  row.incoming?.kind === "message"
+    ? (row.incoming.message.sessionId ?? row.incoming.message.lookup ?? row.incoming.message.name)
+    : row.id;
 
 /// The group's messages by sender, each sender once in the order it first wrote, its messages oldest first.
 export function bySender(rows: readonly AcpmuxRow[]): { key: string; rows: AcpmuxRow[] }[] {
@@ -96,6 +107,8 @@ export function withWaitingRows(rows: AcpmuxRow[], waiting: readonly AcpmuxRow[]
 }
 
 let version = 0;
+/// Counts the group's comings, each its own frame.
+let comings = 0;
 
 /// The one group row of the waiting messages (`steers`, then `queued`), or undefined when none wait.
 /// `last`: the previous result, given back while it holds the same rows.
@@ -116,6 +129,8 @@ export function pendingMessagesRow(
   const displayRows = flat ? flattened : batchLaneNotices(flattened);
   return {
     id: PENDING_MESSAGES_ROW_ID,
+    // The frame of this coming, kept while messages wait (`last`); none waited before: a new one.
+    frame: last?.frame ?? `${PENDING_MESSAGES_ROW_ID}@${++comings}`,
     version: ++version,
     at: members[0]!.at,
     kind: PENDING_MESSAGES,

@@ -1,6 +1,11 @@
 export type ActivityStatus = "active" | "idle" | "paused" | { ended: string };
 export type ActivityConnection = "connected" | "not_started" | "not_set_up" | "unreachable";
-export type ActivityFrame = { blob: string; width: number; height: number; expired?: boolean };
+export type ActivityFrame = {
+  blob: string;
+  width: number;
+  height: number;
+  expired?: boolean;
+};
 export type ActivityEvent = {
   seq: number;
   time: number;
@@ -36,7 +41,12 @@ export type ActivitySession = {
   errors: number;
   foregroundOnly: boolean;
 };
-export type ActivityGroup = { id: string; name: string; connection: ActivityConnection; sessions: ActivitySession[] };
+export type ActivityGroup = {
+  id: string;
+  name: string;
+  connection: ActivityConnection;
+  sessions: ActivitySession[];
+};
 export type ActivityState = {
   sessionsByMachine: Record<string, ActivitySession[]>;
   machineNames: Record<string, string>;
@@ -46,6 +56,8 @@ export type ActivityState = {
   scrubSeq?: number;
   /** The frame viewer is open over the timeline or grid (this page only; the host never sends it). */
   viewing?: boolean;
+  /** The viewer fills the page (Full Screen; this page only, the host never sends it). */
+  fullFrame?: boolean;
   filter: string;
   watching: string[];
   lastOperationError?: string;
@@ -79,6 +91,8 @@ export type ActivityState = {
     previous: string;
     next: string;
     close: string;
+    fullScreen: string;
+    exitFullScreen: string;
     stepClick: string;
     stepType: string;
     stepKeys: string;
@@ -273,22 +287,102 @@ export function step(state: ActivityState, delta: number, framesOnly = false): A
   return reduceActivity(state, { type: "scrub", seq: events[clamped].seq });
 }
 
+/** A session is the same when every field the page reads is: a fixed list of comparisons, no key walk. */
+function sameSession(a: ActivitySession, b: ActivitySession): boolean {
+  return (
+    a.id === b.id &&
+    a.machine === b.machine &&
+    a.machineName === b.machineName &&
+    a.label === b.label &&
+    a.agentKind === b.agentKind &&
+    a.agentName === b.agentName &&
+    a.attribution === b.attribution &&
+    a.workspaceTitle === b.workspaceTitle &&
+    a.terminalTitle === b.terminalTitle &&
+    a.colorHex === b.colorHex &&
+    a.startedAt === b.startedAt &&
+    a.lastActionAt === b.lastActionAt &&
+    a.endedAt === b.endedAt &&
+    a.acts === b.acts &&
+    a.observes === b.observes &&
+    a.errors === b.errors &&
+    a.foregroundOnly === b.foregroundOnly &&
+    (a.status === b.status ||
+      (typeof a.status === "object" && typeof b.status === "object" && a.status.ended === b.status.ended)) &&
+    a.targetApps.length === b.targetApps.length &&
+    a.targetApps.every((app, index) => app === b.targetApps[index])
+  );
+}
+
+/** `next`, keeping `prev`'s object for every entry whose value is equal, and `prev` itself when all are. */
+function shareRecord<V>(prev: Record<string, V>, next: Record<string, V>, share: (a: V, b: V) => V) {
+  let same = true;
+  let count = 0;
+  const out: Record<string, V> = {};
+  for (const key in next) {
+    count += 1;
+    const value = key in prev ? share(prev[key], next[key]) : next[key];
+    if (value !== prev[key]) same = false;
+    out[key] = value;
+  }
+  if (same) for (const _ in prev) if (--count < 0) same = false;
+  return same && count === 0 ? prev : out;
+}
+
+function shareSessions(prev: ActivitySession[], next: ActivitySession[]): ActivitySession[] {
+  if (prev === next) return prev;
+  // Sessions are matched by position: the host sends each machine's list in a stable order.
+  let same = prev.length === next.length;
+  const out = next.map((session, index) => {
+    const before = prev[index];
+    if (before && sameSession(before, session)) return before;
+    same = false;
+    return session;
+  });
+  return same ? prev : out;
+}
+
+/** Structural sharing (TanStack Query's `structuralSharing`, replaceEqualDeep), cut to the inputs of
+ * `groups`: the host pushes its whole state, freshly deserialized, on every change (an event, a frame),
+ * so without it a snapshot whose session list did not move hands `groups` new objects and every session
+ * is filtered and sorted again. Equal values keep the previous objects; only what changed is new. */
+function sharedListInputs(state: ActivityState, incoming: Partial<ActivityState>): Partial<ActivityState> {
+  const shared: Partial<ActivityState> = {};
+  if (incoming.sessionsByMachine)
+    shared.sessionsByMachine = shareRecord(state.sessionsByMachine, incoming.sessionsByMachine, shareSessions);
+  if (incoming.machineNames)
+    shared.machineNames = shareRecord(state.machineNames, incoming.machineNames, (a, b) => (a === b ? a : b));
+  if (incoming.connections)
+    shared.connections = shareRecord(state.connections, incoming.connections, (a, b) => (a === b ? a : b));
+  return shared;
+}
+
 export function reduceActivity(state: ActivityState, action: any): ActivityState {
   let next = state;
-  if (action.type === "snapshot")
+  if (action.type === "snapshot") {
+    const incoming = action.state ?? {};
     next = {
       ...state,
-      ...action.state,
+      ...incoming,
+      ...sharedListInputs(state, incoming),
       filter: state.filter,
       layout: state.layout,
     };
+  }
   if (action.type === "sessions") {
-    const sessionsByMachine = { ...state.sessionsByMachine, [action.machine]: action.sessions };
+    const sessionsByMachine = {
+      ...state.sessionsByMachine,
+      [action.machine]: action.sessions,
+    };
     const all = (Object.values(sessionsByMachine) as ActivitySession[][]).flat();
     const selected =
       state.selectedSessionID && all.some((s) => s.id === state.selectedSessionID)
         ? state.selectedSessionID
-        : groups({ ...state, sessionsByMachine, selectedSessionID: undefined }).flatMap((g) => g.sessions)[0]?.id;
+        : groups({
+            ...state,
+            sessionsByMachine,
+            selectedSessionID: undefined,
+          }).flatMap((g) => g.sessions)[0]?.id;
     next = {
       ...state,
       sessionsByMachine,
@@ -296,7 +390,10 @@ export function reduceActivity(state: ActivityState, action: any): ActivityState
         ...state.machineNames,
         [action.machine]: action.sessions[0]?.machineName ?? state.machineNames[action.machine],
       },
-      connections: { ...state.connections, [action.machine]: state.connections[action.machine] ?? "connected" },
+      connections: {
+        ...state.connections,
+        [action.machine]: state.connections[action.machine] ?? "connected",
+      },
       selectedSessionID: selected,
       scrubSeq: selected === state.selectedSessionID ? state.scrubSeq : undefined,
     };
@@ -305,10 +402,22 @@ export function reduceActivity(state: ActivityState, action: any): ActivityState
     const current = state.eventsBySession[action.session] ?? [];
     const nextSeq = current.at(-1)?.seq === undefined ? 0 : current.at(-1)!.seq + 1;
     const additions = action.events.filter((event: ActivityEvent) => event.seq >= nextSeq);
-    next = { ...state, eventsBySession: { ...state.eventsBySession, [action.session]: [...current, ...additions] } };
+    next = {
+      ...state,
+      eventsBySession: {
+        ...state.eventsBySession,
+        [action.session]: [...current, ...additions],
+      },
+    };
   }
   if (action.type === "connection")
-    next = { ...state, connections: { ...state.connections, [action.machine]: action.connection } };
+    next = {
+      ...state,
+      connections: {
+        ...state.connections,
+        [action.machine]: action.connection,
+      },
+    };
   if (action.type === "select") next = { ...state, selectedSessionID: action.id, scrubSeq: undefined };
   // A frame clicked in the timeline or grid: its session, that frame, and the viewer over the page.
   if (action.type === "open")
@@ -316,7 +425,8 @@ export function reduceActivity(state: ActivityState, action: any): ActivityState
       ...reduceActivity(reduceActivity(state, { type: "select", id: action.id }), { type: "scrub", seq: action.seq }),
       viewing: true,
     };
-  if (action.type === "close") next = { ...state, viewing: false };
+  if (action.type === "close") next = { ...state, viewing: false, fullFrame: false };
+  if (action.type === "full") next = { ...state, fullFrame: action.on };
   if (action.type === "filter") next = { ...state, filter: action.value };
   if (action.type === "layout") next = { ...state, layout: action.value };
   if (action.type === "scrub") {
@@ -369,6 +479,8 @@ export const initialActivityState = (): ActivityState => ({
     previous: "Previous",
     next: "Next",
     close: "Close",
+    fullScreen: "Full Screen",
+    exitFullScreen: "Exit Full Screen",
     stepClick: "Click",
     stepType: "Type",
     stepKeys: "Press Keys",

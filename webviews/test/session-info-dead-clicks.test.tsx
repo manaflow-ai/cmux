@@ -9,15 +9,16 @@
 // - a chevron (`disclosure.*`) is drawn only inside something that clicks;
 // - a disabled button never takes a hover background (a rule's `:hover` that would match it), so
 //   what cannot be clicked never looks as if it could.
-// A background task's row opens its terminal in a chat on this Mac; a peer's (SSH) or Cloud chat's
-// has none, so the row shows the Bash call that started it, or, with no call to show, is not a
-// button at all and says why (cmux#24116's audit).
+// A background task's row opens its terminal in a chat on this Mac or a Cloud chat (on its machine);
+// a peer's (SSH) chat's has none, so the row shows the Bash call that started it, or, with no call
+// to show, is not a button at all and says why (cmux#24116's audit).
 // Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
 // session-info-compact-default.test.tsx's.
 import { afterAll, expect, setSystemTime, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
   url: "http://localhost/",
@@ -61,7 +62,7 @@ setSystemTime(new Date("2026-10-21T12:00:00Z"));
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
+const { setPaneLanguage, translatorFor } = await import("../src/agent-session/acpmux/i18n");
 const { SessionInfo } = await import("../src/agent-session/acpmux/session-info/SessionInfo");
 const { resetSessionInfoState, setSessionInfoMore } =
   await import("../src/agent-session/acpmux/session-info/sessionInfoState");
@@ -73,14 +74,10 @@ type TrayItem = import("../src/agent-session/acpmux/subagents/runningTray").Tray
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 type AcpmuxRow = import("../src/agent-session/acpmux/model").AcpmuxRow;
 
-afterAll(() => {
+afterAll(async () => {
   setSystemTime();
   setPaneLanguage("en");
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
@@ -110,6 +107,10 @@ let terminalOpens = true;
 
 /// A fresh place to draw into.
 function mount(): HTMLElement {
+  // A view tall enough for every row of the fixture: a long list mounts the rows in view and its
+  // overscan (WindowedRows.tsx; session-info-windowed-rows-renders.test.tsx counts that window), and
+  // jsdom, which has no layout, cannot scroll to the rest. Every line has to be there to be clicked.
+  Object.defineProperty(dom.window, "innerHeight", { configurable: true, value: 8_000 });
   const container = dom.window.document.createElement("main");
   dom.window.document.body.replaceChildren(container);
   return container;
@@ -305,6 +306,12 @@ test("every line of the tray, and its header, does something", async () => {
   await settle();
   // Five items start folded to the header; clicking it opens them, and then each line is clicked.
   expect(loneChevrons(container)).toEqual([]);
+  // Folded, the header draws one icon per subagent and chat, and a click on one opens it (HatFaces.tsx,
+  // #49824): the two chats' icons are there to click.
+  const sessionFaces = [...container.querySelectorAll(".acpmux-hat-face")].filter((face) =>
+    /^(summary-panel|priority-view),/.test(face.getAttribute("aria-label") ?? ""),
+  );
+  expect(sessionFaces).toHaveLength(2);
   const { dead } = await deadClicks(container, calls);
   expect(dead).toEqual([]);
   for (const handler of ["onOpen", "onOpenCommand", "onOpenSession"]) expect(calls).toContain(handler);
@@ -328,8 +335,9 @@ test("every line of the tray, and its header, does something", async () => {
     await act(async () => item.click());
   }
   for (const handler of ["stop", "stopProcess"]) expect(calls).toContain(handler);
-  // The session lines open their session (App.tsx `openOfferChat`), never nothing.
-  expect(calls.filter((call) => call === "onOpenSession")).toHaveLength(2);
+  // The session lines open their session (App.tsx `openOfferChat`), never nothing, and so do their
+  // icons in the folded header: two lines and two icons.
+  expect(calls.filter((call) => call === "onOpenSession")).toHaveLength(4);
   expect(hoverOnDisabled(container)).toEqual([]);
   await act(async () => root.unmount());
 });
@@ -391,10 +399,7 @@ async function tasksOf(place: Partial<NonNullable<SessionInfoProps["summary"]>>,
   return { container, root, row };
 }
 
-for (const [label, place] of [
-  ["an SSH peer's", { peer: "huge-blue", host: "huge-blue" }],
-  ["a Cloud", { host: "cloud-vm-1", hostKind: "cloud" as const }],
-] as const)
+for (const [label, place] of [["an SSH peer's", { peer: "huge-blue", host: "huge-blue" }]] as const)
   test(`${label} chat's background task row shows its Bash call, or is not clickable and says why`, async () => {
     const calls: string[] = [];
     native.length = 0;
@@ -409,34 +414,44 @@ for (const [label, place] of [
     // A command whose call is not loaded has nothing to open: not a button, and it says why.
     const cargo = row("cargo watch");
     expect(cargo.disabled).toBe(true);
-    expect(cargo.closest("li")?.getAttribute("title") ?? "").not.toBe("");
+    // It says why as text on the row, not a title: a disabled row gets no hover (TasksSection.tsx).
+    expect(cargo.querySelector(".acpmux-session-info-task__why")?.textContent).toBe(
+      translatorFor("en")("sessionInfo.tasks.noTerminal.remote"),
+    );
+    expect(cargo.closest("li")?.hasAttribute("title")).toBe(false);
     const { dead } = await deadClicks(container, calls);
     expect(dead).toEqual([]);
     expect(hoverOnDisabled(container)).toEqual([]);
     await act(async () => root.unmount());
   });
 
-test("a local chat's background task row opens its terminal, else its Bash call", async () => {
-  const calls: string[] = [];
-  native.length = 0;
-  const { root, row } = await tasksOf({}, calls);
-  await act(async () => row("pytest -x").click());
-  await settle();
-  expect(native).toContain("chat.processTerminal");
-  expect(calls).not.toContain("onShowCall");
-  // Its call not loaded, it still tries the terminal.
-  expect(row("cargo watch").disabled).toBe(false);
-  // The host refuses (no hook): the row shows the call instead.
-  terminalOpens = false;
-  try {
+// "Whatever works on a local chat should work on a Cloud chat" (Leo, cmuxterm-hq#7856): a Cloud
+// chat's terminal opens on its machine (AgentPaneProcessViewer `onChatMachine`).
+for (const [label, place] of [
+  ["a local", {}],
+  ["a Cloud", { host: "cloud-vm-1", hostKind: "cloud" as const }],
+] as const)
+  test(`${label} chat's background task row opens its terminal, else its Bash call`, async () => {
+    const calls: string[] = [];
+    native.length = 0;
+    const { root, row } = await tasksOf(place, calls);
     await act(async () => row("pytest -x").click());
     await settle();
-    expect(calls).toContain("onShowCall");
-  } finally {
-    terminalOpens = true;
-  }
-  await act(async () => root.unmount());
-});
+    expect(native).toContain("chat.processTerminal");
+    expect(calls).not.toContain("onShowCall");
+    // Its call not loaded, it still tries the terminal.
+    expect(row("cargo watch").disabled).toBe(false);
+    // The host refuses (no hook): the row shows the call instead.
+    terminalOpens = false;
+    try {
+      await act(async () => row("pytest -x").click());
+      await settle();
+      expect(calls).toContain("onShowCall");
+    } finally {
+      terminalOpens = true;
+    }
+    await act(async () => root.unmount());
+  });
 
 test("the tray's command line opens the terminal, else the Bash call, else says it opened nothing", async () => {
   native.length = 0;

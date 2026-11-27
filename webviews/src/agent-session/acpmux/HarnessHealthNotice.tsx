@@ -1,5 +1,8 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Spinner } from "./conversation/icons";
+import { CloudSignIn } from "./conversation/CloudSignIn";
+import { ErrorDetails } from "./conversation/ErrorDetails";
+import type { CloudSignIn as CloudSignInActions } from "./cloudAgentLogin";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { useT } from "./i18n";
 import { useNoticeTurn } from "./noticeSlotModel";
 import { type HarnessHealth, needsLogin, skip, type UpdateOffer, skipped } from "./harnessHealthNoticeModel";
@@ -12,7 +15,7 @@ type Native = (method: string, params: Record<string, unknown>) => Promise<unkno
 /// Where an update started from this card is (cx-1mbnu), for the card it was started from.
 type Progress =
   | { key: string; phase: "updating" }
-  | { key: string; phase: "updated"; version: string; restarting?: boolean; error?: string }
+  | { key: string; phase: "updated"; version: string; restarting?: boolean; restartFailed?: boolean; error?: string }
   | { key: string; phase: "waiting"; version: string }
   | { key: string; phase: "failed"; error: string };
 
@@ -29,6 +32,10 @@ const message = (error: unknown) => (error instanceof Error ? error.message.trim
 /// starts it, the host runs it in place (`harness.update`) while the line says so (the lowest
 /// tier, so it never covers an error), then Restart Chat (`harness.restart`) to use the new
 /// version. An update that needs sudo is left to Settings > Agents, which shows its command.
+/// Where this Mac's daemon runs the agent's own login (`signIn`, cloudAgentLogin.ts
+/// `localAgentLogin`), Log In is the sign-in card instead: the page beside the chat and the code in
+/// the card, no terminal tab (logins done right; Leo, 2026-11-22: "this is simply logins, done
+/// righr."). Without it the login runs in the terminal tab as before.
 export function HarnessHealthNotice({
   health,
   harness,
@@ -36,6 +43,7 @@ export function HarnessHealthNotice({
   cwd,
   open,
   native,
+  signIn,
   turnRunning = false,
   onUpdated,
   onOffer,
@@ -48,6 +56,8 @@ export function HarnessHealthNotice({
   cwd?: string;
   open: Open;
   native: Native;
+  /// The agent's own login on this Mac, in the card; none: Log In runs the login in a terminal tab.
+  signIn?: CloudSignInActions;
   /// Whether the chat's turn is running: a restart the host holds for it happens when it ends.
   turnRunning?: boolean;
   /// The update is in use (or the restart is waiting on the turn): read the agent's health again.
@@ -89,7 +99,7 @@ export function HarnessHealthNotice({
   // The offer (an outdated CLI nobody started updating) goes to the model chip, never this line.
   const offering = ours && kind === "outdated" && !state && key !== dismissed;
   const offerKey = offering ? key : undefined;
-  const actions = useRef({ start: () => {}, skip: () => {} });
+  const actions = useRef<{ start(reply?: Promise<unknown>): void; skip(): void }>({ start: () => {}, skip: () => {} });
   const offerOut = useRef(onOffer);
   offerOut.current = onOffer;
   const offerId = health?.id;
@@ -106,6 +116,7 @@ export function HarnessHealthNotice({
       version: offerVersion,
       latest: offerLatest,
       update: () => actions.current.start(),
+      updateWith: (reply) => actions.current.start(reply),
       skip: () => actions.current.skip(),
     });
   }, [offerKey, offerId, offerVersion, offerLatest, name]);
@@ -122,11 +133,12 @@ export function HarnessHealthNotice({
   const run = (text: string) => open({ kind: "terminal", text, ...(cwd ? { cwd } : {}), run: true });
   const id = health.id;
   const latest = health.latest ?? "";
-  const failed = (error: string) =>
-    setProgress({ key, phase: "failed", error: error || t("harness.updateFailedGeneric") });
-  const startUpdate = () => {
+  // The updater's own words are Details; none is no Details, never a stand-in sentence there.
+  const failed = (error: string) => setProgress({ key, phase: "failed", error });
+  // `reply`: an update the model menus' Update all already asked of the host, for this agent.
+  const startUpdate = (reply?: Promise<unknown>) => {
     setProgress({ key, phase: "updating" });
-    native("harness.update", { id }).then(
+    (reply ?? native("harness.update", { id })).then(
       (value) => {
         const reply = record(value);
         if (reply.ok === true)
@@ -148,7 +160,7 @@ export function HarnessHealthNotice({
         const later = typeof reply.after_turn === "number" ? reply.after_turn : 0;
         if (typeof reply.failed === "number" && reply.failed > 0) {
           const error = typeof reply.error === "string" ? reply.error.trim() : "";
-          setProgress({ key, phase: "updated", version, error: error || t("harness.restartFailedGeneric") });
+          setProgress({ key, phase: "updated", version, error, restartFailed: true });
           return;
         }
         if (later > 0) {
@@ -159,13 +171,7 @@ export function HarnessHealthNotice({
         setProgress(undefined);
         onUpdated?.();
       },
-      (error: unknown) =>
-        setProgress({
-          key,
-          phase: "updated",
-          version,
-          error: message(error) || t("harness.restartFailedGeneric"),
-        }),
+      (error: unknown) => setProgress({ key, phase: "updated", version, error: message(error), restartFailed: true }),
     );
   };
   actions.current = {
@@ -184,17 +190,23 @@ export function HarnessHealthNotice({
   );
   let text: string;
   let buttons: ReactNode;
+  // What failed, in the updater's or the host's own words, for Details.
+  let detail: string | undefined;
   if (kind === "signedOut") {
-    text = health.auth === "expired" ? t("turn.authExpired") : t("harness.signedOut", { agent: name });
-    buttons = (
+    // Names whose sign-in it is and the one fix, as the composer's notice does (sessionAuth.ts).
+    text = t(health.auth === "expired" ? "auth.login.expired" : "auth.login.signedOut", { agent: name });
+    buttons = signIn ? (
+      <CloudSignIn signIn={signIn} rowId={undefined} prompt={undefined} />
+    ) : (
       <button type="button" data-notice-action="login" onClick={() => run(signedOut!)}>
-        {t("harness.logIn")}
+        {t("auth.fix.signInTo", { name })}
       </button>
     );
   } else if (state?.phase === "updated") {
-    text = state.error
-      ? t("harness.restartFailed", { error: state.error })
+    text = state.restartFailed
+      ? t("harness.restartFailedShort")
       : t("harness.updated", { agent: name, version: state.version });
+    detail = state.restartFailed ? state.error || undefined : undefined;
     buttons = (
       <button
         type="button"
@@ -209,11 +221,22 @@ export function HarnessHealthNotice({
     text = t("harness.restartAfterTurn", { version: state.version });
     buttons = null;
   } else if (state?.phase === "failed") {
-    text = t("harness.updateFailed", { agent: name, error: state.error });
+    text = t("harness.updateFailedShort", { agent: name });
+    detail = state.error || undefined;
+    // Update in Terminal runs the same command where its output and any password prompt show.
+    const command = health.update?.command;
     buttons = (
-      <button type="button" data-notice-action="retry" onClick={startUpdate}>
-        {t("harness.tryAgain")}
-      </button>
+      <>
+        {command && (
+          <button type="button" data-notice-action="terminal" onClick={() => run(command)}>
+            {t("harness.updateInTerminal")}
+          </button>
+        )}
+        <button type="button" data-notice-action="retry" onClick={() => startUpdate()}>
+          {/* retry-prompt-ok: runs the agent's updater again (an install). */}
+          {t("harness.tryAgain")}
+        </button>
+      </>
     );
   } else {
     // Only an update the person started reaches here (the offer is the chip's).
@@ -232,13 +255,14 @@ export function HarnessHealthNotice({
         {/* The spinner trails the text, so starting or finishing work never moves the words. */}
         <p className="acpmux-host-error-message">
           {text}
-          {busy && <Spinner size={12} className="acpmux-harness-spinner" loading />}
+          {busy && <WaitSpinner size={12} className="acpmux-harness-spinner" loading />}
         </p>
         {/* Not Now leads, so Restart Chat or Try Again appearing or going never moves it. */}
         <div className="acpmux-host-error-actions">
           {notNow}
           {buttons}
         </div>
+        {detail && <ErrorDetails text={detail} className="acpmux-host-error-details" />}
       </div>
     </output>
   );

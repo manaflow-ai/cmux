@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextCompat
 import CmuxNextFiles
+import CmuxNextPages
 import CmuxNextTestSupport
 import Foundation
 import Testing

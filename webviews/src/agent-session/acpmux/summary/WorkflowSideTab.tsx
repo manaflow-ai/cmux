@@ -4,6 +4,7 @@ import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { StateMark } from "./StateMark";
 import { rowIconSize } from "../icons/iconSize";
 import { phaseAgents, tally } from "./foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
@@ -11,6 +12,7 @@ import { useNow } from "../subagents/subagentGroupModel";
 import { WorkflowAgentRow } from "../session-info/WorkflowTasks";
 import { StopButton } from "../session-info/TasksSection";
 import "./WorkflowSideTab.css";
+import { Clock } from "../../../ui/Typography";
 
 export type WorkflowSideTabLayout = "timeline" | "lanes" | "table";
 
@@ -148,7 +150,7 @@ function Lanes({
         <section key={phase.id} className="acpmux-workflow-side-tab__lane" data-state={phase.state}>
           <header>
             <span>{phaseLabel(t, phase)}</span>
-            <span>{stateLabel(t, phase.state)}</span>
+            <StateMark state={phase.state} label={stateLabel(t, phase.state)} mark />
           </header>
           <PhaseAgents workflow={workflow} phase={phase} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         </section>
@@ -192,7 +194,9 @@ function Table({
                   />
                 </ul>
               </td>
-              <td>{stateLabel(t, agent.state)}</td>
+              <td>
+                <StateMark state={agent.state} label={stateLabel(t, agent.state)} mark />
+              </td>
             </tr>
           )),
         )}
@@ -207,12 +211,17 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
   const elapsed = elapsedFor(workflow, now);
   const counts = tally(workflow.agents);
   return (
-    <aside className="acpmux-workflow-side-tab" data-layout={layout} aria-label={workflow.title}>
+    <aside
+      className="acpmux-workflow-side-tab ui-glass"
+      data-glass-level="popover"
+      data-layout={layout}
+      aria-label={workflow.title}
+    >
       <header className="acpmux-workflow-side-tab__head">
         <div className="acpmux-workflow-side-tab__title">
           <Icon name="agent.session" size={ROW_ICON} row />
           <span>{t("workflow.kind")}</span>
-          <strong title={workflow.title}>{workflow.title}</strong>
+          <strong>{workflow.title}</strong>
         </div>
         <button
           type="button"
@@ -232,9 +241,13 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
             ) : (
               <Icon name={workflow.state === "completed" ? "status.complete" : "status.error"} size={ROW_ICON} row />
             )}
-            {stateLabel(t, workflow.state)}
+            <StateMark state={workflow.state} label={stateLabel(t, workflow.state)} />
           </span>
-          {elapsed !== undefined && <time>{formatDuration(elapsed)}</time>}
+          {elapsed !== undefined && (
+            <time>
+              <Clock text={formatDuration(elapsed)} />
+            </time>
+          )}
           <span>
             {counts.done}/{counts.total} {t("subagents.pill", { n: counts.total })}
           </span>

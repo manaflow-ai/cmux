@@ -4,6 +4,7 @@
 // skipped. A disk change reloads the page when there are no local edits and raises the conflict
 // banner when there are.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { markUnsavedEdits } from "../shared/pageHealth";
 import type { SourceMap } from "./sourceMap";
 import type { DiffViewerAppearance } from "../../appearance";
 import { markdownBehavior } from "./settings";
@@ -47,6 +48,8 @@ export interface MarkdownState {
   source: string;
   /** Bumped when the document is replaced from outside (load, reload), so source views re-read. */
   revision: number;
+  /** The editor's document has a runnable shell block (runbook.ts): the toolbar shows Run all. */
+  runnable: boolean;
   /** The page's look: `markdown` settings, theme.css and the terminal appearance. */
   look: { settings: unknown; themeCSS: string | undefined; appearance: DiffViewerAppearance | undefined };
   /** Link history (files followed in this page): whether `back` and `forward` go anywhere. */
@@ -61,6 +64,10 @@ export interface MarkdownState {
   navigationFailed: string | null;
   /** Why the file did not open, as the host says it (its machine is offline); null: the generic message. */
   failure: string | null;
+  /** The failed read may clear by reading again (a lost link, a machine offline: a retryable refusal); the
+   *  page reads again on its own and says nothing until it lasts. False: the file cannot open (not found,
+   *  too large, not allowed), said at once. */
+  transient: boolean;
   /** The file's machine stopped answering (the host's reason); the page keeps what it last read. */
   unavailable: string | null;
 }
@@ -123,12 +130,14 @@ export class MarkdownStore {
     conflict: null,
     source: "",
     revision: 0,
+    runnable: false,
     look: { settings: undefined, themeCSS: undefined, appearance: undefined },
     canBack: false,
     canForward: false,
     navigating: null,
     navigationFailed: null,
     failure: null,
+    transient: false,
     unavailable: null,
   };
   private history: { entries: HistoryEntry[]; index: number } = { entries: [], index: -1 };
@@ -191,14 +200,24 @@ export class MarkdownStore {
 
   private set(patch: Partial<MarkdownState>): void {
     this.state = { ...this.state, ...patch };
+    // Text not on disk holds the page against app health's repair reloads (pageHealth.ts).
+    if ("status" in patch) markUnsavedEdits(this.state.status !== "saved");
     for (const listener of this.listeners) listener();
+  }
+
+  /** The host reports the owner link: back up while the page is disconnected, it reads again (a
+   * launch or a daemon restart drops the link for a few seconds; the page never said so). */
+  linkChanged(connected: boolean): void {
+    if (connected && this.state.phase === "disconnected") void this.start();
   }
 
   /** Loads the config and starts watching the file. */
   async start(): Promise<void> {
     const client = this.client;
     if (!client) return this.set({ phase: "disconnected" });
-    this.set({ phase: "loading" });
+    // Reading again after a failure keeps the failed state until the answer, so the page's automatic
+    // asks never flash the loading frame.
+    if (this.state.phase !== "failed" && this.state.phase !== "disconnected") this.set({ phase: "loading" });
     let config: MarkdownConfig;
     try {
       const value = await client.call<unknown>(MARKDOWN_CONFIG_OP, {});
@@ -217,6 +236,7 @@ export class MarkdownStore {
       return this.set({
         phase: isPageError(error) && error.code === "cmux.protocol.closed" ? "disconnected" : "failed",
         failure: isPageError(error) && error.code === MARKDOWN_UNAVAILABLE ? error.message : null,
+        transient: isPageError(error) && (error.retryable || error.code.startsWith("cmux.protocol.")),
       });
     }
     await this.loadConfig(client, config);
@@ -349,6 +369,11 @@ export class MarkdownStore {
   }
 
   /** The editor mounted (or unmounted, with null). A loaded file goes into it. */
+  /** The editor read a document (`MarkdownEditor` `onRunnable`). */
+  setRunnable(runnable: boolean): void {
+    if (runnable !== this.state.runnable) this.set({ runnable });
+  }
+
   attachEditor(editor: DocumentEditor | null): void {
     this.editor = editor;
     if (!editor || this.state.phase !== "ready") return;
@@ -366,7 +391,8 @@ export class MarkdownStore {
   edited(): void {
     if (this.state.readOnly || this.state.phase !== "ready") return;
     this.reporter.edited();
-    if (this.state.status !== "saving") this.set({ status: "edited" });
+    // Only a change of status: a set on each keystroke rendered the whole page again (5 ms a key).
+    if (this.state.status !== "saving" && this.state.status !== "edited") this.set({ status: "edited" });
     this.cancelAutosave?.();
     if (this.state.conflict) return;
     this.cancelAutosave = this.schedule(() => {

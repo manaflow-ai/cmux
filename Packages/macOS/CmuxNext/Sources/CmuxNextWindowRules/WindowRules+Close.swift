@@ -41,17 +41,17 @@ extension WindowRules {
     public nonisolated enum Toast: Decodable, Equatable, Sendable {
         case show
         case skip
-        /// Shows only if one of these live terminals (indices into the closing tabs) runs a program.
-        case askTerminals([Int])
 
-        private enum CodingKeys: String, CodingKey { case decision, terminals }
+        private enum CodingKeys: String, CodingKey { case decision }
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             switch try container.decode(String.self, forKey: .decision) {
             case "show": self = .show
             case "skip": self = .skip
-            case "askTerminals": self = .askTerminals(try container.decode([Int].self, forKey: .terminals))
+            // Transitional: the FFI pinned before cmux-window-rules dropped `AskTerminals` answers it for exactly
+            // the tabs the new rule closes with no toast (one tab, none working). Remove after the re-pin.
+            case "askTerminals": self = .skip
             case let other: throw DecodingError.dataCorruptedError(forKey: .decision, in: container, debugDescription: "toast \(other)")
             }
         }
@@ -69,7 +69,7 @@ extension WindowRules {
     }
 
     /// What a close reads before it knows its question.
-    public nonisolated struct Reads: Decodable, Equatable, Sendable {
+    public nonisolated struct Reads: Codable, Equatable, Sendable {
         /// The closing terminals' working agents as the question names them (nil: "The agent").
         public var agents: [String?]
         /// The closing live terminals with no working agent (indices into the closing tabs): asked what each runs.
@@ -78,6 +78,35 @@ extension WindowRules {
         public init(agents: [String?], others: [Int]) {
             self.agents = agents
             self.others = others
+        }
+
+        /// Whether the close's question is known before the daemon's read: an agent at work in a closing terminal (with
+        /// `warnAgent`; `agents` lists them whatever the setting says), or a read terminal known to run a program in front
+        /// (`close::runs_known_program`). Such a close keeps its tabs in place through the read and the question, and they
+        /// leave only on Close (a tab that left, then came back with the question, read as closed). A shell at its prompt
+        /// or without integration is not known: only the read can tell, so that close still takes its tabs out in the
+        /// key's turn (SL-3, #31875).
+        /// The rule is Rust's (cmux-window-rules `close::known_to_ask`); nil from the FFI is not known, as a shell at its
+        /// prompt: the read still asks.
+        @MainActor public func knownToAsk(_ tabs: [TabModel], _ warnings: Warnings) -> Bool {
+            struct Facts: Encodable { var reads: Reads; var tabs: [ProgramFacts]; var warnTab, warnAgent: Bool }
+            struct Reply: Decodable { var ask: Bool }
+            let facts = Facts(reads: self, tabs: tabs.map(ProgramFacts.init), warnTab: warnings.warnTab, warnAgent: warnings.warnAgent)
+            return WindowRules().call("window_close_known_to_ask", facts, as: Reply.self)?.ask ?? false
+        }
+
+        /// What `close::runs_known_program` reads of a terminal: its shell's running command (OSC 133 C) and prompt, its
+        /// agent (hooks; `done` at its session's end) and OSC 7501 `programStatus`.
+        struct ProgramFacts: Encodable {
+            var commandSinceMs, promptSinceMs: UInt64?
+            var agentDone: Bool?
+            var programStatus: Bool
+
+            @MainActor init(_ tab: TabModel) {
+                (commandSinceMs, promptSinceMs) = (tab.commandSinceMs, tab.promptSinceMs)
+                agentDone = tab.agent.map { $0.state == .done }
+                programStatus = !tab.programStatus.isEmpty
+            }
         }
     }
 

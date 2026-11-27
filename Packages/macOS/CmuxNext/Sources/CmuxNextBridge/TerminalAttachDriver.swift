@@ -71,8 +71,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     /// in a row (the App passes a capped ``Backoff``). Throws when cancelled.
     public typealias BackoffDelay = @Sendable (_ failedReconnects: Int) async throws -> Void
 
-    /// `restoring`: the view attaches to a terminal that already runs
-    /// (``TerminalAttachMachine/init(initialSize:visible:restoring:)``).
+    /// `restoring`: the view attaches to a terminal that already runs; `creating`: to one the daemon has
+    /// not confirmed yet (``TerminalAttachMachine/init(initialSize:visible:restoring:creating:)``).
     /// `onGridSent`: told each grid this view sends to the PTY (a claim or a take over of the live link),
     /// in reduction order under the reducer's lock, as the effect is queued (the applier sends it right
     /// after, in order); never a resize the machine dropped (no live link, hidden, or the grid it already
@@ -81,6 +81,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         initialSize: CellSize,
         visible: Bool = true,
         restoring: Bool = false,
+        creating: Bool = false,
         outputHighWater: Int = 1 << 20,
         opener: @escaping Opener,
         onFailure: @escaping @Sendable (any Error) -> Void = { _ in },
@@ -90,7 +91,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         backoffDelay: @escaping BackoffDelay = { _ in },
         onGridSent: GridSent? = nil
     ) {
-        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring)))
+        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring, creating: creating)))
         queue = TerminalStepQueue(highWater: outputHighWater)
         self.opener = opener
         self.onFailure = onFailure
@@ -137,6 +138,13 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     /// The daemon reports the terminal running again after a dead report.
     public func processRevived() { send(.processRevived) }
     public func close() { send(.close) }
+    /// Closes, handing back the input queued while attaching (``TerminalAttachMachine/takeQueuedInput()``)
+    /// instead of dropping it; taken and closed under one lock, so no key slips between the two.
+    public func closeHandingOffInput() -> [Data] {
+        var held: [Data] = []
+        send(.close) { held = $0.machine.takeQueuedInput() }
+        return held
+    }
     /// The view's local history did not match the host's: ask the live link
     /// for READY + history (`snapshot-request`, reason gap). Not a machine
     /// event: the link and its geometry stay as they are.
@@ -151,8 +159,9 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 
     // MARK: Reducer and applier
 
-    private func send(_ event: Machine.Event) {
+    private func send(_ event: Machine.Event, first: ((inout Core) -> Void)? = nil) {
         var batch = core.withLock { core -> [Machine.Effect] in
+            first?(&core)
             let effects = core.machine.reduce(event)
             if let onGridSent { Self.reportGrids(effects, of: core.machine, to: onGridSent) }
             core.outbox += effects

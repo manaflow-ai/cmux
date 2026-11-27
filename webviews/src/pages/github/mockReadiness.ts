@@ -17,7 +17,13 @@ const receipt = (verdict: string, sha: string, findings: string[]) =>
     ...findings,
   ].join("\n");
 
-export const mockBlockedDetails: PullRequestDetails = {
+const counted = (details: PullRequestDetails): PullRequestDetails => ({
+  ...details,
+  conversationTotal: details.conversation.length,
+  conversationRead: details.conversation.length,
+});
+
+export const mockBlockedDetails: PullRequestDetails = counted({
   ...mockDetails,
   body: [mockDetails.body, "", "HOLD: waiting for the nightly cut", "", FOOTER].join("\n"),
   viewer: "octocat",
@@ -45,6 +51,7 @@ export const mockBlockedDetails: PullRequestDetails = {
           body: "Does this run before or after the drop animation ends?",
           url: "https://github.com/example/app/pull/482#discussion_r1",
           resolved: true,
+          thread: "PRRT_r1",
         },
         {
           path: "Sources/Sidebar/SidebarSelection.swift",
@@ -52,6 +59,7 @@ export const mockBlockedDetails: PullRequestDetails = {
           body: "What happens when the selected row is filtered out?",
           url: "https://github.com/example/app/pull/482#discussion_r2",
           resolved: false,
+          thread: "PRRT_r2",
         },
       ],
     },
@@ -77,8 +85,9 @@ export const mockBlockedDetails: PullRequestDetails = {
       comments: [],
     },
   ],
-  conversationTotal: 4,
-};
+  conversationTotal: 0,
+  conversationRead: 0,
+});
 
 export const mockBlocked: PullRequestReply = {
   pullRequest: { ...mockPullRequest, baseRef: "feat-cmux-next", labels: ["sidebar", "risk:normal"] },
@@ -87,7 +96,7 @@ export const mockBlocked: PullRequestReply = {
 
 export const mockBlockedChecks: DashboardChecks = mockChecks;
 
-export const mockReadyDetails: PullRequestDetails = {
+export const mockReadyDetails: PullRequestDetails = counted({
   ...mockDetails,
   body: [mockDetails.body, "", FOOTER].join("\n"),
   viewer: "octocat",
@@ -103,8 +112,9 @@ export const mockReadyDetails: PullRequestDetails = {
       comments: [],
     },
   ],
-  conversationTotal: 4,
-};
+  conversationTotal: 0,
+  conversationRead: 0,
+});
 
 export const mockReady: PullRequestReply = {
   pullRequest: {

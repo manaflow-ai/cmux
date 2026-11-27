@@ -9,7 +9,8 @@
 //   need reconnecting, each failed one with a Reconnect where acpmux reconnects it (ConnectorsSection).
 //   Context and Connectors are one row each until opened.
 // - What it made: Changes, the pull requests it opened, touched or named, in any repository
-//   (ChangesSection); Outputs, the files and artifacts it produced (OutputsSection).
+//   (ChangesSection); Outputs, the pull requests, issues and commits, files and artifacts it produced
+//   (OutputsSection).
 // - What it runs: Subagents, each running subagent and started chat on its own line, the ended ones
 //   folded into one row: the harness's subagents and the chats its agent started, a Cloud VM's or
 //   another machine's included (SubagentsSection); Background tasks, the dev servers it runs first
@@ -37,6 +38,7 @@
 // "Subagent · <name>" with a back button (subagentScope.ts, SubagentScopeHeader.tsx).
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { useConnectionQuiet } from "../../../ui/lasting";
 import "../../../ui/controls.css";
 import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
@@ -59,8 +61,12 @@ import { ConnectorsSection } from "./ConnectorsSection";
 import { summarizeConnectors } from "./connectorState";
 import { useIMessage, type IMessageView } from "./imessage";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
+import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
+
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
 import { sectionOrder, tuckedSections } from "./sectionOrder";
+import { withoutHiddenSections } from "./shownSections";
+import { useSessionInfoHiddenSections } from "../chatDisplay";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
 import {
@@ -80,14 +86,17 @@ import type { OutputArtifact } from "./outputsSectionModel";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
-import { AlsoHereSection } from "./AlsoHereSection";
-import { useAlsoHere } from "./alsoHereSectionModel";
+import type { ResumeActions } from "../subagents/ResumeControl";
+import { CarriedSection, carriedSummary } from "./CarriedSection";
+import { useCarried, type ReadCarried, type ResolveCarried } from "./carriedSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
 import { chatOutputs } from "./chatOutputs";
+import { producedLinks, type ProducedLink } from "./producedLinks";
+import { openOnGitHub } from "./pullRequestDiff";
 import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
-import { ProgressSection } from "./ProgressSection";
-import { planDone, type SessionInfoPlan } from "./progressSectionModel";
+import { AgentSideRows } from "./AgentSideRows";
+import type { AgentSideRow } from "./agentSide";
 import { attributeCommands } from "../summary/workflowView";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, type UsageOwnRowLayout } from "./UsageSection";
@@ -100,7 +109,6 @@ import { subagentProgress } from "../subagents/subagentProgress";
 import { type UsageEntry } from "./usageEntries";
 import type { ChatPlace } from "../chatMachine";
 import { samePanelProps } from "./samePanelProps";
-import type { AlsoHere } from "./alsoHere";
 import "./sessionInfo.css";
 import {
   type SessionInfoPlacement,
@@ -112,6 +120,8 @@ import {
   openOutputFile,
 } from "./sessionInfoModel";
 import { tooltipProps } from "../shortcuts";
+import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
+import { useLiveSummary } from "../liveSummary";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -174,6 +184,9 @@ export function SessionInfoPanel({
   // Pushed beside the chat, or in the empty gutter, its sections sit on the pane with no card behind
   // them, as the native panel draws it (#32661; Leo, 2026-11-02: "we still HAVE AN ASININE BACKGROUND").
   const glass = placement === "overlay" && (foot !== undefined || onDismiss !== undefined);
+  // Inline (a band atop the transcript, in the chat's flow): the column's width, no drag handle (CSS), no
+  // glass and no cut out of the transcript, which runs under it, not behind it.
+  const inline = placement === "inline";
   // Floating over the chat (the narrow pane's Summary popover), the chat under it blurs itself there in
   // a see-through Chromium page (ui/glass/seeThroughBlur.ts), as WebKit's backdrop draws it, so its
   // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
@@ -182,7 +195,11 @@ export function SessionInfoPanel({
   // The transcript leaves the panel's box out while it shows (chatCut.ts), so nothing scrolls under
   // it: its pixels hold still while the chat scrolls (Leo, 2026-11-03: "the session info thing not
   // flicker EVER when im scrolling"). Its place re-measures when it moves.
-  useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
+  useChatCut(
+    frame,
+    !inline && !presence?.leaving,
+    `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`,
+  );
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   // Only a foot that goes down (the composer's stack shrank) glides. One that rises (the stack grew: the
@@ -246,7 +263,7 @@ export function SessionInfoPanel({
       data-foot-moves={footKnown && footSettled && !footRises ? "" : undefined}
       style={
         {
-          width,
+          width: inline ? undefined : width,
           // Pushing, its enter and exit run its right margin from minus this (sessionInfo.css).
           "--acpmux-session-info-width": `${width}px`,
           ...(under ? { "--acpmux-session-info-top": under } : {}),
@@ -259,6 +276,7 @@ export function SessionInfoPanel({
     >
       <div
         className="acpmux-session-info__resize"
+        {...RESIZE_HANDLE_PROPS}
         aria-hidden="true"
         onPointerDown={(event) => {
           if (event.button !== 0 || !frame.current) return;
@@ -330,9 +348,11 @@ export const MemoSessionInfoSections = memo(function MemoSessionInfoSections(pro
   return <SessionInfo {...props} />;
 });
 
+const NO_AGENT_SIDE: readonly AgentSideRow[] = [];
+
 /// The sections for one chat.
 export function SessionInfo({
-  summary,
+  summary: drawnSummary,
   machineName,
   peerKinds,
   place,
@@ -343,15 +363,17 @@ export function SessionInfo({
   documents = [],
   rows = [],
   outputFiles,
-  plan,
+  produced: givenProduced,
   toolCalls,
   agents = [],
   waiting = new Set(),
   onOpenSubagent,
+  resumeSubagent,
   statuses = {},
   processes = [],
   listed = false,
   transcriptTasks = [],
+  agentSide = NO_AGENT_SIDE,
   sessions = [],
   workflows = [],
   onStopWorkflow,
@@ -365,23 +387,26 @@ export function SessionInfo({
   sections,
   onSection,
   onOpenSourceFile,
+  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
   onOpenDocument,
   remoteControl,
+  cloud,
   onSaveEnvironment,
   onReconnectMcp,
+  readCarried,
+  onResolveCarried,
   onCompact,
-  onViewPrompt,
   onOpenFolder,
   edits,
   onOpenChanges,
   onOpenOutputFile,
   onShowCall,
+  onShowTurn,
   allSessions,
   usageSessions = allSessions,
-  alsoHere: shownAlsoHere,
   onOpenChat,
   onShowUsage,
   usageOwnRowLayout,
@@ -414,14 +439,17 @@ export function SessionInfo({
   rows?: readonly AcpmuxRow[];
   /// What the chat made for the person (chatOutputs.ts), where the caller reads it; else read from `rows`.
   outputFiles?: ReturnType<typeof chatOutputs>;
-  /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
-  plan?: SessionInfoPlan;
+  /// The pull requests, issues and commits the chat produced (producedLinks.ts), where the caller reads
+  /// them; else read from `rows`.
+  produced?: readonly ProducedLink[];
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
   /// from `rows`.
   toolCalls?: ReadonlySet<string>;
   agents?: readonly Subagent[];
   waiting?: ReadonlySet<string>;
   onOpenSubagent?: (id: string) => void;
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx).
+  resumeSubagent?: ResumeActions;
   /// What the App read of the pull requests, by URL.
   statuses?: Readonly<Record<string, SessionInfoPullRequestStatus>>;
   /// The chat's background processes, in the order they started.
@@ -432,6 +460,8 @@ export function SessionInfo({
   /// The background commands the transcript knows (sessionSummary `backgroundTasks`): Claude's
   /// background Bash, Ctrl-B's included, which the registry may not list.
   transcriptTasks?: readonly SummaryBackgroundTask[];
+  /// What waits on the agent's side, not the person's (agentSide.ts): plain rows at the section's foot.
+  agentSide?: readonly AgentSideRow[];
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
@@ -453,27 +483,33 @@ export function SessionInfo({
   sections?: SessionInfoSections;
   onSection?: (id: SessionInfoSectionId, open: boolean) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  /// Removes one of the chat's additional directories and restarts it with the remaining folders.
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
   readPromptImage?: (id: string) => Promise<string | undefined>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  cloud?: SessionInfoCloudControl;
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Carried memory (CarriedSection.tsx): reads `_acpmux/agent_home` while the section is open, and
+  /// sends `_acpmux/agent_home_resolve` on Accept or Drop. Unset (Quick Chat, a subagent's panel): no section.
+  readCarried?: ReadCarried;
+  onResolveCarried?: ResolveCarried;
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
-  /// Context's View Prompt (useSessionInfo's).
+  /// Context's View Prompt (useSessionInfo's): no longer drawn (Lucas, 2026-11-23: "remove this button").
   onViewPrompt?: () => void;
   /// Every chat acpmux lists, this Mac's and its peers', for Usage (UsageSection.tsx); unset in a
   /// subagent's own panel.
   allSessions?: readonly AcpmuxSessionEntry[];
   /// In place of `allSessions`, what the sections draw of it (SessionInfoPresence): Usage's chats
-  /// (usageEntries.ts) and the chats working here (alsoHere.ts).
+  /// (usageEntries.ts).
   usageSessions?: readonly UsageEntry[];
-  alsoHere?: readonly AlsoHere[];
-  /// Opens one of them.
+  /// Opens a chat (a Usage row).
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
   /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
@@ -494,6 +530,7 @@ export function SessionInfo({
   /// Shows the Bash call that started a background command in the transcript: what its row opens
   /// in a chat whose terminal cannot open here (TasksSection).
   onShowCall?: (toolCallId: string) => boolean;
+  onShowTurn?: (turnId: string) => void;
   /// The body's first line: whose panel it is (a subagent's, SubagentBanner).
   banner?: ReactNode;
   /// The subagent it lists: its Context is the tokens and tool uses the harness reports for it.
@@ -513,10 +550,14 @@ export function SessionInfo({
   imessage?: IMessageView | false;
 }) {
   const t = useT();
+  // A usage update reaches the sections without the pane (liveSummary.ts).
+  const summary = useLiveSummary(drawnSummary);
   const liveIMessage = useIMessage(imessageFixture === undefined);
   const imessage = imessageFixture || liveIMessage;
   const language = usePaneLanguage();
   const sessionInfoState = useSessionInfoState();
+  // The sections the person turned off in Settings (shownSections.ts): never drawn.
+  const hiddenSections = useSessionInfoHiddenSections();
   const showMore = more ?? sessionInfoState.more;
   const setMore = onMore ?? setSessionInfoMore;
   const stored = sessionInfoState.sections;
@@ -608,6 +649,7 @@ export function SessionInfo({
   // deliverables its file tools created, never its code edits (the Changes row has those).
   const cwd = summary?.cwd;
   const madeFiles = useMemo(() => outputFiles ?? chatOutputs(rows, cwd), [outputFiles, rows, cwd]);
+  const produced = useMemo(() => givenProduced ?? producedLinks(rows, repository), [givenProduced, rows, repository]);
   // A file made and then deleted drops off, as the host answers for it (only on this Mac: another
   // machine's files are asked about nowhere).
   const missing = useMissingPaths(
@@ -618,7 +660,9 @@ export function SessionInfo({
     [madeFiles, missing],
   );
   const mcp = summary?.mcpServers ?? [];
-  const connectorSummary = summarizeConnectors(mcp);
+  // "N connecting" waits the shared bound: a server that connects within it reads loaded throughout.
+  const connectorsPendingShown = useConnectionQuiet(mcp.some((server) => server.status === "pending"));
+  const connectorSummary = summarizeConnectors(mcp, connectorsPendingShown);
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
   // shows nothing.
@@ -666,6 +710,7 @@ export function SessionInfo({
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}
+        cloud={cloud}
         // No grant rows: Revoke Granted Access in the chat menu lists them (Lucas, 2026-11-05: ChatGPT's
         // panel has none, and "Trusted this chat's private folder" read as noise).
         onSave={onSaveEnvironment}
@@ -677,33 +722,14 @@ export function SessionInfo({
       />
     </SessionInfoSection>
   );
-  // Context is one line, the window's share on a meter and its tokens used of its size; a click unfolds
-  // its breakdown from Messages down (Lucas, 2026-11-06: "clicking on context should no longer open the
-  // context modal. instead it will just expand"). The composer's context card's Details opens Session
+  // Context's head is its title alone; a click unfolds the share used with its tokens, the bar and the
+  // breakdown, as Claude Code desktop's card (Lucas, 2026-11-23: "move the tokens and percentage to the
+  // context bar"; 2026-11-06: "clicking on context should no longer open the context modal. instead it
+  // will just expand"). The composer's context card's Details opens Session
   // Info on it, unfolded and lit (App.tsx `onOpenContext`, as main has it).
-  const contextTokens = new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 });
   const context = known ? (
-    <SessionInfoSection
-      id="context"
-      title={t("rail.context")}
-      open={state.context}
-      onOpenChange={fold("context")}
-      meta={
-        <>
-          <span className="acpmux-session-info-meter" aria-hidden="true">
-            <span style={{ width: `${percent}%` }} />
-          </span>
-          {value(`${contextTokens.format(usage.used)} / ${contextTokens.format(usage.size)}`)}
-        </>
-      }
-    >
-      <ContextSection
-        usage={usage}
-        percent={percent}
-        breakdown={summary?.contextBreakdown}
-        rowsOnly
-        onViewPrompt={onViewPrompt}
-      />
+    <SessionInfoSection id="context" title={t("rail.context")} open={state.context} onOpenChange={fold("context")}>
+      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} />
     </SessionInfoSection>
   ) : (
     progress.length > 0 && (
@@ -738,6 +764,32 @@ export function SessionInfo({
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />
     </SessionInfoSection>
   );
+  // Carried memory: only in the chat's own panel, read while it is open (and once for its header
+  // value as it is drawn, so the folded line says what waits).
+  const carriedRead = useCarried(readCarried, Boolean(readCarried), chatId ?? "");
+  const carriedHome = carriedRead.home;
+  const carriedValue = carriedSummary(t, carriedHome, carriedRead.failed);
+  const carriedOpens = Boolean(carriedHome?.configured || carriedRead.failed);
+  const carried = readCarried && (
+    <SessionInfoSection
+      id="carried"
+      title={t("rail.carried")}
+      open={carriedOpens && state.carried}
+      onOpenChange={carriedOpens ? fold("carried") : undefined}
+      meta={carriedValue ? value(carriedValue) : undefined}
+    >
+      <CarriedSection
+        home={carriedHome}
+        failed={carriedRead.failed}
+        onResolve={onResolveCarried}
+        onSettled={(resolution) => {
+          carriedRead.settle(resolution);
+          carriedRead.reload();
+        }}
+        locale={language}
+      />
+    </SessionInfoSection>
+  );
   const changes = pullRequests.length > 0 && (
     <SessionInfoSection
       id="changes"
@@ -764,6 +816,7 @@ export function SessionInfo({
         folders={folders}
         cwd={summary?.cwd}
         onOpenFile={onOpenSourceFile}
+        onRemoveFolder={onRemoveFolder}
         onOpenBeside={onOpenUrl}
         onOpenImage={onOpenImage}
         readImage={readPromptImage}
@@ -774,8 +827,11 @@ export function SessionInfo({
   );
   // The rows Outputs lists (OutputsSection): its documents, the gallery's one row and its files.
   const outputCount =
-    outputs.length + (onOpenDocument ? documents.length : 0) + (artifacts > 0 && rows.length > 0 ? 1 : 0);
-  const outputsShown = outputs.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;
+    produced.length +
+    outputs.length +
+    (onOpenDocument ? documents.length : 0) +
+    (artifacts > 0 && rows.length > 0 ? 1 : 0);
+  const outputsShown = produced.length + outputs.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;
   const outputsSection = outputsShown && (
     <SessionInfoSection
       id="outputs"
@@ -785,6 +841,9 @@ export function SessionInfo({
       meta={outputCount > 0 ? value(String(outputCount)) : undefined}
     >
       <OutputsSection
+        produced={produced}
+        repository={repository}
+        onOpenProduced={openOnGitHub}
         files={outputs}
         artifacts={artifacts}
         documents={documents}
@@ -794,27 +853,6 @@ export function SessionInfo({
         onOpenFile={local ? (onOpenOutputFile ?? ((path) => void openOutputFile(path))) : undefined}
         onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
       />
-    </SessionInfoSection>
-  );
-  // The agent's plan, live: its steps done of its steps, on Context's meter.
-  const planSteps = plan?.entries.length ?? 0;
-  const stepsDone = plan ? planDone(plan) : 0;
-  const progressSection = plan && planSteps > 0 && (
-    <SessionInfoSection
-      id="progress"
-      title={t("sessionInfo.progress")}
-      open={state.progress ?? true}
-      onOpenChange={fold("progress")}
-      meta={
-        <>
-          {value(t("sessionInfo.progress.count", { done: stepsDone, total: planSteps }))}
-          <span className="acpmux-session-info-meter" aria-hidden="true">
-            <span style={{ width: `${Math.round((stepsDone / planSteps) * 100)}%` }} />
-          </span>
-        </>
-      }
-    >
-      <ProgressSection plan={plan} />
     </SessionInfoSection>
   );
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
@@ -840,6 +878,7 @@ export function SessionInfo({
           agents={listedAgents}
           waiting={waiting}
           onOpen={onOpenSubagent}
+          resume={resumeSubagent}
           sessions={sessions}
           onOpenSession={onOpenSession}
           harness={summary?.harness}
@@ -852,28 +891,14 @@ export function SessionInfo({
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
   // A command a workflow's agent started is listed under that agent, not as the chat's own.
   const { own: ownCommands, workflows: workflowCommands } = attributeCommands(commands, workflows);
-  // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
-  // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
-  const ownAlsoHere = useAlsoHere(chatId, shownAlsoHere ? undefined : allSessions);
-  const alsoHereRows = shownAlsoHere ?? ownAlsoHere;
-  const alsoHereSection = alsoHereRows.length > 0 && (
-    <SessionInfoSection
-      id="alsoHere"
-      title={t("sessionInfo.alsoHere")}
-      open={state.alsoHere}
-      onOpenChange={fold("alsoHere")}
-      meta={value(String(alsoHereRows.length))}
-    >
-      <AlsoHereSection rows={alsoHereRows} onOpen={onOpenChat} />
-    </SessionInfoSection>
-  );
-  const tasks = servers.length + commands.length + scheduled.length + workflows.length > 0 && (
+  const tasks = servers.length + commands.length + scheduled.length + workflows.length + agentSide.length > 0 && (
     <SessionInfoSection
       id="tasks"
       title={t("summary.backgroundTasks")}
       open={state.tasks}
       onOpenChange={fold("tasks")}
-      meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
+      // The number of what runs, no word (Leo, 2026-11-23: ""running" doesn't need text").
+      meta={running > 0 ? value(String(running)) : undefined}
     >
       {workflows.length > 0 && (
         <WorkflowTasks
@@ -896,14 +921,16 @@ export function SessionInfo({
           onShowCall={onShowCall}
         />
       )}
+      {agentSide.length > 0 && <AgentSideRows rows={agentSide} />}
     </SessionInfoSection>
   );
   // Usage shows once acpmux reports what this chat or any listed chat spends.
   const ownUsage = summary?.usageStats;
+  const timeBreakdown = summary?.timeBreakdown;
   const usageValue = usageMeta(t, ownUsage, language);
   const planLimits = typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined;
   // acpmux reads a chat's spend from its harness records, so a new chat has none for a few minutes.
-  const hasUsage = Boolean(ownUsage || anyUsage || planLimits);
+  const hasUsage = Boolean(ownUsage || anyUsage || planLimits || timeBreakdown);
   const usageSection = (hasUsage || !agent) && (
     <SessionInfoSection
       id="usage"
@@ -920,10 +947,12 @@ export function SessionInfo({
         chatId={chatId}
         onOpen={onOpenChat}
         onCompact={onCompact}
-        onShowSubagents={subagentsSection ? showSubagents : undefined}
+        onShowSubagents={subagentsSection && !hiddenSections.includes("subagents") ? showSubagents : undefined}
         locale={language}
         ownRowLayout={usageOwnRowLayout}
         cacheLayout={usageCacheLayout}
+        timeBreakdown={timeBreakdown}
+        onShowTurn={onShowTurn}
       />
     </SessionInfoSection>
   );
@@ -935,20 +964,22 @@ export function SessionInfo({
         look={compactLook}
         more={compactLook !== "more" || showMore}
         onMoreChange={compactLook === "more" ? setMore : undefined}
-        sections={{
-          environment,
-          context,
-          usage: usageSection,
-          connectors,
-          changes,
-          sources: sourcesSection,
-          outputs: outputsSection,
-          progress: progressSection,
-          subagents: subagentsSection,
-          tasks,
-          alsoHere: alsoHereSection,
-          ...appNodes,
-        }}
+        sections={withoutHiddenSections(
+          {
+            environment,
+            context,
+            usage: usageSection,
+            connectors,
+            carried,
+            changes,
+            sources: sourcesSection,
+            outputs: outputsSection,
+            subagents: subagentsSection,
+            tasks,
+            ...appNodes,
+          },
+          hiddenSections,
+        )}
       />
       {gallery && (
         <GalleryDialog

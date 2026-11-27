@@ -12,6 +12,7 @@ enum IntentUndo: Equatable {
     case screenColor(screen: ScreenID, color: String?)
     case screenIcon(screen: ScreenID, icon: String?)
     case screenPinned(screen: ScreenID, pinned: Bool)
+    case dividerVisible(screen: ScreenID, split: SplitID, visible: Bool)
     case workspaceName(key: WorkspaceKey, name: String)
     case workspaceColor(key: WorkspaceKey, color: String?)
     /// The workspace's daemon-order index and group before the apply.
@@ -37,13 +38,17 @@ enum IntentUndo: Equatable {
     indirect case guessedTab(hidden: HiddenTab, provisional: IntentUndo?)
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
-    case createdWorkspace(key: WorkspaceKey, inserted: Bool)
+    case createdWorkspace(key: WorkspaceKey, inserted: Bool, hidden: HiddenScreens)
     /// What a dock's overlay changed (``ProvisionalDock``).
     case dockTab(ProvisionalDock.Undo)
     /// A creation whose stand-in tab the person closed while the creation goes on (a dock's fresh tab,
     /// ``CancelledCreation/closeStandIn(_:in:)``): its overlay without the stand-in, then the daemon's fresh tab
     /// hidden once the records hold it.
     indirect case closedStandIn(overlay: IntentUndo?, hidden: HiddenTab?)
+    /// The pane the screen showed zoomed before the apply (nil: none).
+    case screenZoom(screen: ScreenID, pane: PaneID?)
+    /// The two panes a swap exchanged in the screen's tree; the same exchange again is its inverse.
+    case swappedPanes(screen: ScreenID, first: PaneID, second: PaneID)
 }
 
 extension IntentUndo {
@@ -102,6 +107,11 @@ struct PendingIntent {
     /// A script batch's intent held back by its ``StoreStage``: in the log (ordered with the rest)
     /// but not shown, and never due, until the stage commits.
     var held = false
+    /// The slow request log's clock when the intent was shown (``SlowRequestLog/uptime``); 0: no log.
+    var shownAt: UInt64 = 0
+    /// A tab move's place by the tabs beside it, read after its first apply: each later apply puts the tab there
+    /// again, so the move's index is not used on a list that changed meanwhile (``TabMovePlace``).
+    var movePlace: TabMovePlace?
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
@@ -131,10 +141,11 @@ struct IntentLog {
 
     /// Appends a new intent. False when the transaction is already pending
     /// or already settled (an id is never reused).
-    mutating func append(_ intent: Intent, transaction: ClientTransactionID, held: Bool = false) -> Bool {
+    mutating func append(_ intent: Intent, transaction: ClientTransactionID, held: Bool = false, shownAt: UInt64 = 0) -> Bool {
         guard !contains(transaction), !wasSettled(transaction) else { return false }
         var entry = PendingIntent(transaction: transaction, kind: intent)
         entry.held = held
+        entry.shownAt = shownAt
         entries.append(entry)
         return true
     }
@@ -247,6 +258,7 @@ struct IntentLog {
     private static let replacedStandInLimit = 64
 
     func replacement(ofStandIn id: String) -> SurfaceID? { replacedStandIns.last { $0.standIn == id }?.surface }
+    func standIn(replacedBy surface: SurfaceID) -> String? { replacedStandIns.last { $0.surface == surface }?.standIn }
 
     /// The daemon tabs the person closed lately (bounded, newest last), still known after their close settled: a new
     /// tab's move that waits for its tab to be listed stops waiting for one already closed (``DaemonStore/closedLately(_:)``).
@@ -261,6 +273,19 @@ struct IntentLog {
     /// The tabs on `surfaces` are not closed after all (their close was rejected).
     mutating func forgetClosed(_ surfaces: Set<SurfaceID>) {
         closedTabs.removeAll { surfaces.contains($0.surface) }
+    }
+
+    /// The created tabs still to report to the app, oldest first: the stand-in's tab id, whether it is a page tab
+    /// (the store has one report for each kind) and the daemon's tab. The daemon's tab of a creation arrives while
+    /// the pending intents are lifted, so the app hears of it when that apply ends (``OverlayReports``).
+    private var createdToReport: [(id: String, page: Bool, tab: TabModel)] = []
+
+    mutating func noteCreatedToReport(_ id: String, page: Bool, tab: TabModel) { createdToReport.append((id, page, tab)) }
+
+    /// The created tabs to report now; none is left to report after this call.
+    mutating func takeCreatedToReport() -> [(id: String, page: Bool, tab: TabModel)] {
+        defer { createdToReport = [] }
+        return createdToReport
     }
 
     /// Whether daemon surface `surface` took a recently created stand-in's place.
@@ -345,6 +370,14 @@ struct IntentLog {
     @discardableResult
     mutating func setUndo(_ undo: IntentUndo?, at index: Int) -> Bool {
         entries.modify(checked: index) { $0.undo = undo }
+    }
+
+    /// What an apply of entry `index` left (``IntentOverlay/show(_:in:)``): its inverse, and a tab move's place.
+    mutating func setShown(_ shown: (undo: IntentUndo?, place: TabMovePlace?), at index: Int) -> Bool {
+        entries.modify(checked: index) { entry in
+            entry.undo = shown.undo
+            entry.movePlace = shown.place
+        }
     }
 
     private mutating func noteSettled(_ transaction: ClientTransactionID) {

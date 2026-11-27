@@ -4,16 +4,19 @@
 // strange."). It is the chat's own composer (Composer.tsx, ComposerBox.tsx): the same glass card,
 // spacing and quiet row as a started chat, and the folder and computer are the location strip's chips
 // (ComposerContext.tsx) a few px over the card, as the New Tab draws them. The card keeps its own
-// four corners and whole rim. A chat in the workspace's private folder says so in the folder chip's
-// menu, whose Add folder… is the host's workspace folder sheet; no sentence stands over the card.
+// four corners and whole rim. For a chat in the workspace's private folder the folder chip's menu
+// offers Add project…, which leads to the host's workspace folder sheet; no sentence stands over the card, and no
+// note line sits under the menu's actions.
 // `started` and `started-codex` are chats after their first send, to set beside; the `alt-*`
 // variants are the strip's Debug styles (agentPane.debug.topStripStyle) over the same component.
+// `centered` and `centered-codex` are Settings' Empty Chat Message Box set to Center
+// (agentPane.emptyChatComposerPosition): the composer in the pane's middle, nothing over it.
 // test/new-chat-composer.test.ts measures it.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
-import { setComposerLook } from "./composerLook";
 import type { AcpmuxSnapshot } from "./model";
+import { setComposerSettings } from "./composerSettings";
 
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
 
@@ -41,14 +44,15 @@ function fresh(fields: Partial<NonNullable<AcpmuxSnapshot["summary"]>> = {}, ext
 /// (`workspace.chooseFolder`).
 const PRIVATE = { newSession: true, cwd: AGENT_HOME, chooseFolder: true, workspaceContext: true };
 
-const codexLook = async (ctx: PlayContext) => {
-  setComposerLook("codex", { remember: false });
-  await ctx.waitFor(() => ctx.document.querySelector('[data-composer-look="codex"]'));
-};
-
 const openFolderMenu = async (ctx: PlayContext) => {
   await ctx.click({ selector: '.acpmux-composer-strip [aria-label="Folder"]' });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
+};
+
+/// Settings' Empty Chat Message Box set to Center, as the host's `composer` event carries it.
+const centerComposer = async (ctx: PlayContext) => {
+  setComposerSettings({ emptyChatComposerPosition: "center" });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-main[data-empty-chat-composer="center"]'));
 };
 
 /// A started chat on `harness`, after its first send.
@@ -74,43 +78,43 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/FolderPopover.tsx#FolderPopover"],
   variants: {
     claude: {
+      composerLook: "claude",
       note: "Cmd-I's new chat in the workspace's private folder, Claude's look: the chat's own card, the folder and computer chips over it, no sentence above.",
       ready: PRIVATE,
       snapshot: fresh(),
     },
     codex: {
+      composerLook: "codex",
       note: "The same new chat on Codex, in Codex's look: the folder and computer tray tucked under the same card.",
       ready: PRIVATE,
       snapshot: fresh({ harness: "codex", model: "gpt-6-astra" }),
-      play: codexLook,
     },
     project: {
       note: "A new chat in a project on this Mac: the folder chip names it, the branch at the strip's end.",
-      ready: { newSession: true, cwd: CWD },
       snapshot: fresh({ cwd: CWD, branch: "main" }),
     },
     remote: {
       note: "A new chat on another machine: its computer chip in that machine's color; no private folder there.",
-      ready: { newSession: true, cwd: "/home/dev/src/relay" },
       snapshot: fresh(
         { cwd: "/home/dev/src/relay", peer: "studio-mac", host: "studio-mac" },
         { peers: ["studio-mac"], peerKinds: { "studio-mac": "ssh" } },
       ),
     },
     "folder-menu": {
-      note: "Play: open the folder chip: the private-folder note and Add folder… are in its menu.",
+      note: "Add project… is the only pinned action below the folders.",
       ready: PRIVATE,
       snapshot: fresh(),
       play: openFolderMenu,
     },
     "choose-folder": {
-      note: "Play: the folder chip's Add folder… opens the host's workspace folder sheet, as the old sentence's link did.",
+      note: "From Add project…, Folder on this Mac opens the workspace folder sheet.",
       ready: PRIVATE,
       snapshot: fresh(),
       native: { "workspace.chooseFolder": { cwd: CWD } },
       play: async (ctx) => {
         await openFolderMenu(ctx);
-        await ctx.click({ selector: '.acpmux-location-menu [data-choose=""]' });
+        await ctx.click({ role: "option", name: "Add project…" });
+        await ctx.click({ role: "option", name: /^Folder on this Mac/ });
         await ctx.waitFor(() => LOG(ctx).some(({ method }) => method === "workspace.chooseFolder"));
       },
     },
@@ -120,7 +124,7 @@ export default agentPaneEntry({
       snapshot: noChat([]),
       checks: {
         anchorMovePx: { value: 160, reason: "The pasted chip grows the card, then the first send clears it." },
-        layoutShiftMax: { value: 0.2, reason: "The hero leaves and the first turn mounts on the send." },
+        layoutShiftMax: { value: 0.2, reason: "The first turn mounts on the send." },
         longFrameFailMs: { value: 150, reason: "The mock daemon's first session and the first turn share a frame." },
       },
       play: async (ctx) => {
@@ -131,7 +135,7 @@ export default agentPaneEntry({
         const data = new view.DataTransfer();
         data.setData(
           "text/plain",
-          Array.from({ length: 130 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`).join(
+          Array.from({ length: 600 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`).join(
             "\n",
           ),
         );
@@ -147,13 +151,28 @@ export default agentPaneEntry({
       },
     },
     started: {
+      composerLook: "claude",
       note: "The same composer after a chat's first send, to set beside the new chat: the same card.",
       snapshot: startedChat(),
     },
     "started-codex": {
+      composerLook: "codex",
       note: "A started Codex chat in Codex's look, to set beside `codex`: the same card.",
       snapshot: startedChat("codex"),
-      play: codexLook,
+    },
+    centered: {
+      composerLook: "claude",
+      note: "Settings: Empty Chat Message Box set to Center. The new chat's composer sits in the pane's middle with no question over it, as on the New Tab page.",
+      ready: PRIVATE,
+      snapshot: fresh(),
+      play: centerComposer,
+    },
+    "centered-codex": {
+      composerLook: "codex",
+      note: "The same centred new chat in Codex's look.",
+      ready: PRIVATE,
+      snapshot: fresh({ harness: "codex", model: "gpt-6-astra" }),
+      play: centerComposer,
     },
     "alt-bump": {
       note: "Alternative (Debug: Composer top strip style Bump): the chips in a closed rim of their own over the card.",

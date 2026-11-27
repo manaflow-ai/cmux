@@ -4,7 +4,9 @@ public nonisolated enum CloseFocusPolicy: String, Hashable, Sendable, Codable, C
     /// The previous pane in the same column, else the next one there; when
     /// the column goes, the column to the left, else the one to the right.
     case previousNeighbor
-    /// The most recently focused surviving pane, else `previousNeighbor`.
+    /// The most recently focused surviving pane, else `previousNeighbor`. The default: cmux
+    /// classic's Bonsplit rule (`SplitViewController.closePane` returns to the pane the user
+    /// used last, as Zellij and tmux do; issue 38194).
     case mostRecent
 
     /// Parses the cmux.json value (case-insensitive raw value).

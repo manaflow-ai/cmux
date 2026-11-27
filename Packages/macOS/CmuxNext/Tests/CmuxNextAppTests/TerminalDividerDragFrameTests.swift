@@ -46,7 +46,9 @@ struct TerminalDividerDragFrameTests {
             view.handleDrag(kind: .split("x"), event: .moved(CGPoint(x: start.x - CGFloat(move) * 6, y: start.y), []))
             _ = screen.root.advanceFrame(1.0 / 120)
             screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
-            await Rig.commit()
+            // One move per display refresh, as a person's drag arrives (RESIZE P0 14): 20 moves in one commit each took
+            // about 12 ms, less than the 3 refreshes a new size may wait for its program's redraw.
+            await Rig.refreshOfTime()
             frames.append(screen.sessions.map(Sample.init))
         }
         let dragFrames = frames.count

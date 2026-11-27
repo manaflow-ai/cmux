@@ -1,7 +1,7 @@
 import CmuxNextCompat
-import CmuxNextFeed
 import CmuxNextUpdater
 import Foundation
+import CmuxNextFeedClient
 
 /// Installed updates in the Feed (Leo 2026-10-20): the first launch of a new cmux version posts
 /// one notice with the version it came from, its top changes and the rest's count, built from the

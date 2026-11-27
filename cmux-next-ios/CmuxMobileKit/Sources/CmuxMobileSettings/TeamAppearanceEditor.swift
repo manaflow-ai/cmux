@@ -90,7 +90,7 @@ public struct TeamAppearanceEditor: View {
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: customFocused) { _, focused in
                     guard focused else { return }
-                    withAnimation(theme.motion.smooth.animation) { proxy.scrollTo("character", anchor: .bottom) }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { proxy.scrollTo("character", anchor: .bottom) }
                 }
             }
             }
@@ -153,8 +153,8 @@ public struct TeamAppearanceEditor: View {
         let size: CGFloat = customFocused ? 48 : 72
         return TeamAvatar(name: team.name, colorHex: appearance.colorHex, emoji: emoji, size: size, transparent: appearance.isTransparent)
             .clipShape(.rect(cornerRadius: size * 20 / 72, style: .continuous))
-            .animation(theme.motion.snap.animation, value: appearance)
-            .animation(theme.motion.smooth.animation, value: customFocused)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: appearance)
+            .animation(theme.motion.smooth.animation.unlessReduceMotion, value: customFocused)
     }
 
     /// 13 swatches and Transparent in 7 columns of 44 pt (7 x 44 + 6 x 6 = 344 pt).
@@ -174,9 +174,12 @@ public struct TeamAppearanceEditor: View {
                             Circle().strokeBorder(theme.colors.label, lineWidth: 3).opacity(selected ? 1 : 0)
                         }
                         .frame(width: 44, height: 44)
+                        // The wash is a 44 pt disc around the selection ring, so a selected
+                        // swatch shows its press too.
+                        .cmuxMobilePressBackground(Color.clear, in: .circle)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFillInLabel)
                 .accessibilityLabel(Text(color.name))
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
@@ -207,9 +210,10 @@ public struct TeamAppearanceEditor: View {
                 Circle().strokeBorder(theme.colors.label, lineWidth: 3).opacity(selected ? 1 : 0)
             }
             .frame(width: 44, height: 44)
+            .cmuxMobilePressBackground(Color.clear, in: .circle)
             .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFillInLabel)
         .disabled(!available)
         .opacity(available ? 1 : 0.35)
         .accessibilityLabel(Text("Transparent"))
@@ -241,7 +245,7 @@ public struct TeamAppearanceEditor: View {
                 .padding(.horizontal, 16)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .animation(theme.motion.snap.animation, value: mode)
+        .animation(theme.motion.snap.animation.unlessReduceMotion, value: mode)
         .onChange(of: mode) { _, newMode in
             applyGlyph()
             customFocused = newMode == .custom && customText.isEmpty
@@ -269,7 +273,7 @@ public struct TeamAppearanceEditor: View {
                         .frame(minHeight: theme.metrics.settingsRowHeight)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(mode == option ? .isSelected : [])
                     if option != GlyphMode.allCases.last { Divider().padding(.leading, 16) }
                 }

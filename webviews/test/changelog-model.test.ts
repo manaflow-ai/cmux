@@ -1,7 +1,8 @@
 // A nightly digest built from summary lines carries each line as both title and summary
 // (scripts/cmux-next/release-notes.py). The page must show the line once, not "Title  Title".
 import { expect, test } from "bun:test";
-import { releaseView } from "../src/pages/changelog/model";
+import { highlightMedia, releaseView } from "../src/pages/changelog/model";
+import { parseCompareMode } from "../src/pages/changelog/store";
 import type { ReleaseNotes, WhatsNewEntry } from "../src/pages/changelog/types";
 
 function entry(id: string, title: string, summary: string): WhatsNewEntry {
@@ -179,4 +180,60 @@ test("a reviewed entry keeps its words and its summary", () => {
       "Everything comes back where you left it.",
     ],
   ]);
+});
+
+// A highlight's before/after pair (release-notes.py add_gallery_media): [after, before], each with its role.
+const after = { url: "data:image/png;base64,QUZURVI=", kind: "image", alt: "The sidebar now", role: "after" as const };
+const before = {
+  url: "data:image/png;base64,QkVGT1JF",
+  kind: "image",
+  alt: "The sidebar before",
+  role: "before" as const,
+};
+
+test("a before/after pair shows the after with its before", () => {
+  expect(highlightMedia([after, before])).toEqual({
+    light: after.url,
+    dark: after.url,
+    alt: after.alt,
+    video: false,
+    before: { src: before.url, alt: before.alt },
+  });
+  // The order does not choose the main picture: the after does.
+  expect(highlightMedia([before, after])?.light).toBe(after.url);
+});
+
+test("a lone picture has no before", () => {
+  const lone = { url: "data:image/png;base64,TE9ORQ==", kind: "image", alt: "A picture" };
+  expect(highlightMedia([lone])).toEqual({ light: lone.url, dark: lone.url, alt: lone.alt, video: false });
+});
+
+test("a before alone shows no picture", () => {
+  expect(highlightMedia([before])).toBeUndefined();
+});
+
+test("a before whose source the page cannot show is dropped, and the after stays", () => {
+  const remote = { ...before, url: "https://example.com/before.png" };
+  expect(highlightMedia([after, remote])).toEqual({ light: after.url, dark: after.url, alt: after.alt, video: false });
+});
+
+test("a release's highlight carries its pair to the view", () => {
+  const view = releaseView(
+    {
+      build: "3911762409401",
+      shortVersion: "1.0.0-nightly.3911762409401",
+      date: "2026-10-18",
+      highlights: [{ id: "sidebar", title: "A calmer sidebar", body: "Rows line up.", media: [after, before] }],
+      changes: [],
+    },
+    "en",
+  );
+  expect(view.hero?.media?.before).toEqual({ src: before.url, alt: before.alt });
+});
+
+test("the route names the compare mode; the dragged split by default", () => {
+  expect(parseCompareMode("#/?compare=side")).toBe("side");
+  expect(parseCompareMode("#/?compare=toggle")).toBe("toggle");
+  expect(parseCompareMode("#/?compare=other")).toBe("slider");
+  expect(parseCompareMode("")).toBe("slider");
 });

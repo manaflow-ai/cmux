@@ -16,8 +16,15 @@
 use crate::cli::host_steps::{Step, StepResult, StepState};
 use crate::cli::hosts::{self, DAEMON_BIN, REMOTE_HOME, Remote};
 use anyhow::{Result, anyhow, bail};
+use cmux_json::JsonGet as _;
+use cmux_process::{Command, Stdio};
 use serde_json::{Map, Value, json};
-use std::process::{Command, Stdio};
+use std::io::Read;
+use std::time::Duration;
+use std::time::Instant;
+
+use super::host_join_doctor::JoinStep;
+use super::host_steps::StepState as JoinStepState;
 
 /// The agents this checks: id, display name, the vendor's install page.
 const AGENTS: [(&str, &str, &str); 2] = [
@@ -35,7 +42,7 @@ const CODEX_LOGIN_PORT: u16 = 1455;
 /// bounded where the machine has `timeout`. One `agent\tID\tPATH\tSTATUS` line per agent:
 /// STATUS 0 signed in, 1 signed out, anything else unknown, empty when not installed.
 /// cmux's managed Codex lives in the machine's acpmux home, [`REMOTE_HOME`].
-fn probe_script() -> String {
+pub(crate) fn probe_script() -> String {
     format!(
         r#"printf 'os\t%s\n' "$(uname -s)"; t=; command -v timeout >/dev/null 2>&1 && t="timeout 20"; for a in claude codex; do p=$(command -v "$a" 2>/dev/null); for c in "$HOME/.local/bin/$a" {REMOTE_HOME}/codex-runtime/current/"$a"; do [ -z "$p" ] && [ -x "$c" ] && p=$c; done; s=; if [ -n "$p" ]; then case $a in claude) o=$($t "$p" auth status </dev/null 2>/dev/null); s=$?; case $o in *'"loggedIn":true'*|*'"loggedIn": true'*) s=0 ;; *'"loggedIn":false'*|*'"loggedIn": false'*) s=1 ;; *) [ "$s" -eq 0 ] && s=9 ;; esac ;; codex) o=$($t "$p" login status </dev/null 2>&1); s=$?; if [ "$s" -ne 0 ]; then case $o in *"ot logged in"*) s=1 ;; *) s=9 ;; esac; fi ;; esac; fi; printf 'agent\t%s\t%s\t%s\n' "$a" "$p" "$s"; done"#
     )
@@ -90,12 +97,56 @@ pub(crate) fn probe(r: &dyn Remote) -> Result<Found> {
     Ok(parse(&out.stdout))
 }
 
+/// Run the same bounded, read-only agent probe locally as the remote doctor runs over SSH.
+/// Authentication status commands write only to the captured pipe; their output is reduced to
+/// booleans before it is returned to the caller.
+pub(crate) fn local_probe() -> Option<Found> {
+    let mut command = Command::new("/bin/sh");
+    command
+        .args(["-c", &probe_script()])
+        .env_remove("CMUX_CLOUD_ACCESS_TOKEN")
+        .env_remove("CMUX_JOIN")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = command.spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::Builder::new()
+        .name("acpmux-agent-probe-reader".into())
+        .spawn(move || {
+            let mut text = String::new();
+            let _ = stdout.read_to_string(&mut text);
+            text
+        })
+        .ok()?;
+    let status = match child.wait_timeout(Duration::from_secs(20)) {
+        Ok(Some(status)) => status,
+        Ok(None) | Err(_) => {
+            // The shell may have a harness child holding stdout open. Kill only
+            // the process group created above, then reap both the shell and its
+            // reader so a timed-out doctor cannot leak a process or pipe.
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            return None;
+        }
+    };
+    let text = reader.join().ok()?;
+    status.success().then(|| parse(&text))
+}
+
 /// Whether `acpmux harness install ID` can install it on a machine with this kernel: Claude
-/// Code's installer runs on macOS and Linux; the managed Codex release is macOS only.
+/// Code and the managed Codex release both support macOS and Linux.
 fn installable(id: &str, os: &str) -> bool {
     match id {
         "claude" => matches!(os, "Darwin" | "Linux"),
-        "codex" => os == "Darwin",
+        "codex" => matches!(os, "Darwin" | "Linux"),
         _ => false,
     }
 }
@@ -103,6 +154,10 @@ fn installable(id: &str, os: &str) -> bool {
 /// One agent's JSON: its state and the offers for it (`install`, `login`: commands this machine
 /// runs, each only when the person starts it; `installPage` when acpmux cannot install it there).
 pub(crate) fn agent_json(machine: &str, os: &str, a: &Agent) -> Value {
+    agent_json_for(machine, os, a, false)
+}
+
+fn agent_json_for(machine: &str, os: &str, a: &Agent, local: bool) -> Value {
     let (_, name, page) = AGENTS.iter().find(|(id, ..)| *id == a.id).copied().unwrap_or_default();
     let mut v = Map::new();
     v.insert("id".into(), json!(a.id));
@@ -113,21 +168,61 @@ pub(crate) fn agent_json(machine: &str, os: &str, a: &Agent) -> Value {
     let machine = crate::harness_health::channel::quote(machine);
     if a.path.is_none() {
         if installable(&a.id, os) {
-            let cmd = format!("acpmux machine agents {machine} --install {}", a.id);
+            let cmd = if local {
+                format!("acpmux harness install {}", a.id)
+            } else {
+                format!("acpmux machine agents {machine} --install {}", a.id)
+            };
             v.insert("install".into(), json!(cmd));
+            v.insert("next".into(), json!(cmd));
         } else {
             v.insert("installPage".into(), json!(page));
+            v.insert("next".into(), json!(page));
         }
     } else if a.signed_in != Some(true) {
-        let cmd = format!("acpmux machine agents {machine} --login {}", a.id);
+        let cmd = if local {
+            format!("acpmux harness login {}", a.id)
+        } else {
+            format!("acpmux machine agents {machine} --login {}", a.id)
+        };
         v.insert("login".into(), json!(cmd));
+        v.insert("next".into(), json!(cmd));
     }
     Value::Object(v)
 }
 
-/// One string field of an agent's JSON.
-fn field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(Value::as_str)
+/// The local join doctor’s per-harness readiness row. The command in `next` is intentionally a
+/// foreground action for the person; merely checking status never installs or signs in.
+pub(crate) fn local_step(machine: &str) -> Option<JoinStep> {
+    let found = local_probe()?;
+    let agents: Vec<Value> =
+        found.agents.iter().map(|a| agent_json_for(machine, &found.os, a, true)).collect();
+    let detail = found
+        .agents
+        .iter()
+        .zip(&agents)
+        .map(|(a, v)| {
+            let name = v.get_str("name").unwrap_or(&a.id);
+            match (a.path.is_some(), a.signed_in) {
+                (false, _) => format!("{name} not installed"),
+                (true, Some(true)) => format!("{name} signed in"),
+                (true, Some(false)) => format!("{name} not signed in"),
+                (true, None) => format!("{name} installed (sign-in unknown)"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    let ready = found.agents.iter().any(|a| a.path.is_some() && a.signed_in == Some(true));
+    let next = agents.iter().find_map(|v| v.get_str("next")).map(str::to_owned);
+    let mut step = JoinStep::new(
+        "agents",
+        if ready { JoinStepState::Ok } else { JoinStepState::Warn },
+        detail,
+    );
+    if !ready && let Some(next) = next {
+        step = step.with_fix(format!("Next: `{next}`"));
+    }
+    Some(step.with_data(json!({"agents": agents})))
 }
 
 /// Enroll's and doctor's `agents` step: ok when one agent is ready there, else a warning whose
@@ -147,6 +242,73 @@ pub(crate) fn step(r: &dyn Remote, machine: &str) -> StepResult {
     step_of(machine, &found)
 }
 
+/// Install every missing agent during `host enroll`. Installation is safe and
+/// non-secret; signing in remains a separate person action. Each completed
+/// install is emitted as its own progress row so the Add Machine UI can show
+/// how long it took.
+pub(crate) fn install_missing(
+    r: &dyn Remote,
+    machine: &str,
+    emit: &mut dyn FnMut(&StepResult),
+) -> Result<()> {
+    let found = probe(r)?;
+    install_missing_with(&found, machine, |id| install_over_ssh(r, id), emit);
+    Ok(())
+}
+
+fn install_missing_with<F>(
+    found: &Found,
+    machine: &str,
+    mut install: F,
+    emit: &mut dyn FnMut(&StepResult),
+) where
+    F: FnMut(&str) -> Result<()>,
+{
+    for agent in &found.agents {
+        if agent.path.is_some() {
+            continue;
+        }
+        let (_, name, _) =
+            AGENTS.iter().find(|(id, ..)| *id == agent.id).copied().unwrap_or_default();
+        let started = Instant::now();
+        let result = install(&agent.id);
+        let seconds = started.elapsed().as_secs_f64();
+        match result {
+            Ok(()) => emit(&StepResult::new(
+                Step::Agents,
+                StepState::Fixed,
+                format!("installed {name} in {seconds:.3}s"),
+            )),
+            Err(error) => emit(
+                &StepResult::new(
+                    Step::Agents,
+                    StepState::Warn,
+                    format!("{name} install failed after {seconds:.3}s: {error:#}"),
+                )
+                .with_fix(format!("Run `acpmux machine agents {machine} --install {}`.", agent.id)),
+            ),
+        }
+    }
+}
+
+fn install_over_ssh(r: &dyn Remote, id: &str) -> Result<()> {
+    let argv = hosts::ssh_argv(r.host(), &format!("{DAEMON_BIN} --json harness install {id}"))?;
+    let out = Command::new("ssh")
+        .args(argv)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let error = String::from_utf8_lossy(&out.stderr);
+    if error.contains("unrecognized subcommand") || error.contains("unexpected argument") {
+        bail!("{DAEMON_BIN} cannot install agents yet; update the machine first")
+    }
+    bail!("ssh install exited {}: {}", out.status, error.trim())
+}
+
 fn step_of(machine: &str, found: &Found) -> StepResult {
     let agents: Vec<Value> =
         found.agents.iter().map(|a| agent_json(machine, &found.os, a)).collect();
@@ -155,7 +317,7 @@ fn step_of(machine: &str, found: &Found) -> StepResult {
         .iter()
         .zip(&agents)
         .map(|(a, v)| {
-            let name = field(v, "name").unwrap_or(&a.id);
+            let name = v.get_str("name").unwrap_or(&a.id);
             match (a.path.is_some(), a.signed_in) {
                 (false, _) => format!("{name} not installed"),
                 (true, Some(true)) => format!("{name} signed in"),
@@ -172,11 +334,11 @@ fn step_of(machine: &str, found: &Found) -> StepResult {
     );
     if !ready {
         let offer = agents.iter().find_map(|v| {
-            let name = field(v, "name")?;
-            if let Some(cmd) = field(v, "login") {
+            let name = v.get_str("name")?;
+            if let Some(cmd) = v.get_str("login") {
                 return Some(format!("Sign in to {name} there: `{cmd}`."));
             }
-            field(v, "install").map(|cmd| format!("Install {name} there: `{cmd}`."))
+            v.get_str("install").map(|cmd| format!("Install {name} there: `{cmd}`."))
         });
         result = result.with_fix(
             offer.unwrap_or_else(|| "Install Claude Code or Codex on the machine.".into()),
@@ -262,133 +424,5 @@ pub(crate) fn run(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const LINUX: &str =
-        "os\tLinux\nagent\tclaude\t/home/leo/.local/bin/claude\t1\nagent\tcodex\t\t\n";
-
-    #[test]
-    fn the_probe_lines_read_back() {
-        let found = parse(LINUX);
-        assert_eq!(found.os, "Linux");
-        assert_eq!(
-            found.agents,
-            vec![
-                Agent {
-                    id: "claude".into(),
-                    path: Some("/home/leo/.local/bin/claude".into()),
-                    signed_in: Some(false)
-                },
-                Agent { id: "codex".into(), path: None, signed_in: None },
-            ]
-        );
-        let unknown = parse("agent\tcodex\t/usr/bin/codex\t9\nagent\tother\t/x\t0\n");
-        assert_eq!(unknown.agents.len(), 1);
-        assert_eq!(unknown.agents[0].signed_in, None);
-    }
-
-    #[test]
-    fn offers_follow_the_state_and_never_install_codex_off_macos() {
-        let found = parse(LINUX);
-        let claude = agent_json("hb", "Linux", &found.agents[0]);
-        assert_eq!(claude["login"], "acpmux machine agents hb --login claude");
-        assert!(claude.get("install").is_none());
-        let codex = agent_json("hb", "Linux", &found.agents[1]);
-        assert!(codex.get("install").is_none() && codex.get("login").is_none());
-        assert_eq!(codex["installPage"], "https://developers.openai.com/codex/cli");
-        let mac_codex = agent_json("mini", "Darwin", &found.agents[1]);
-        assert_eq!(mac_codex["install"], "acpmux machine agents mini --install codex");
-        let ready = Agent { id: "claude".into(), path: Some("/c".into()), signed_in: Some(true) };
-        let v = agent_json("hb", "Linux", &ready);
-        assert!(v.get("login").is_none() && v.get("install").is_none());
-    }
-
-    #[test]
-    fn the_step_warns_with_the_first_offer_and_is_ok_once_one_agent_is_ready() {
-        let step = step_of("hb", &parse(LINUX));
-        assert_eq!(step.state, StepState::Warn);
-        assert_eq!(step.detail, "Claude Code not signed in; Codex not installed");
-        assert_eq!(
-            step.fix.as_deref(),
-            Some("Sign in to Claude Code there: `acpmux machine agents hb --login claude`.")
-        );
-        assert_eq!(step.data.as_ref().unwrap()["agents"].as_array().unwrap().len(), 2);
-        assert!(step.healthy());
-        let ok = step_of("hb", &parse("os\tLinux\nagent\tclaude\t/c\t0\nagent\tcodex\t\t\n"));
-        assert_eq!(ok.state, StepState::Ok);
-        assert!(ok.fix.is_none());
-        let none = step_of("hb", &parse("os\tLinux\nagent\tclaude\t\t\nagent\tcodex\t\t\n"));
-        assert_eq!(
-            none.fix.as_deref(),
-            Some("Install Claude Code there: `acpmux machine agents hb --install claude`.")
-        );
-    }
-
-    #[test]
-    fn codex_login_forwards_its_callback_port_and_claude_does_not() {
-        let codex = login_argv("leo@box", "codex").unwrap();
-        assert_eq!(
-            &codex[..5],
-            ["-t", "-o", "ExitOnForwardFailure=yes", "-L", "1455:localhost:1455"]
-        );
-        assert!(codex.last().unwrap().contains("~/.local/bin/acpmux harness login codex"));
-        let claude = login_argv("leo@box", "claude").unwrap();
-        assert_eq!(claude[0], "-t");
-        assert!(!claude.iter().any(|a| a == "-L"));
-        assert!(login_argv("-oProxyCommand=x", "claude").is_err());
-        assert!(known("gemini").is_err());
-    }
-
-    #[test]
-    fn the_probe_runs_under_sh_and_reports_each_agent() {
-        // No agents on PATH and an empty home: both lines say "not installed".
-        let home = tempfile::tempdir().unwrap();
-        let out = Command::new("/bin/sh")
-            .arg("-c")
-            .arg(probe_script())
-            .env("HOME", home.path())
-            .env("PATH", "/usr/bin:/bin")
-            .output()
-            .unwrap();
-        let found = parse(&String::from_utf8_lossy(&out.stdout));
-        assert!(!found.os.is_empty());
-        let ids: Vec<&str> = found.agents.iter().map(|a| a.id.as_str()).collect();
-        assert_eq!(ids, ["claude", "codex"]);
-        // A fake signed-in claude in ~/.local/bin is found off PATH.
-        let bin = home.path().join(".local/bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        let fake = |logged_in: bool| {
-            format!(
-                "#!/bin/sh\n[ \"$1 $2\" = 'auth status' ] && printf '{{\"loggedIn\":{logged_in}}}\\n'\n"
-            )
-        };
-        std::fs::write(bin.join("claude"), fake(true)).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755))
-                .unwrap();
-        }
-        let out = Command::new("/bin/sh")
-            .arg("-c")
-            .arg(probe_script())
-            .env("HOME", home.path())
-            .env("PATH", "/usr/bin:/bin")
-            .output()
-            .unwrap();
-        let found = parse(&String::from_utf8_lossy(&out.stdout));
-        assert_eq!(found.agents[0].signed_in, Some(true), "{found:?}");
-        // `claude auth status` can exit 0 signed out: its JSON's loggedIn decides.
-        std::fs::write(bin.join("claude"), fake(false)).unwrap();
-        let out = Command::new("/bin/sh")
-            .arg("-c")
-            .arg(probe_script())
-            .env("HOME", home.path())
-            .env("PATH", "/usr/bin:/bin")
-            .output()
-            .unwrap();
-        let found = parse(&String::from_utf8_lossy(&out.stdout));
-        assert_eq!(found.agents[0].signed_in, Some(false), "{found:?}");
-    }
-}
+#[path = "host_agents_tests.rs"]
+mod tests;

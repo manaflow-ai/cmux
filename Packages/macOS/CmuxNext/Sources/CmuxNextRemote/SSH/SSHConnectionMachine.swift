@@ -2,12 +2,13 @@ public import Foundation
 
 /// The connection lifecycle of one SSH machine, as a pure reducer. It owns
 /// only the decision whether an attempt may run now (``mayAttempt``) and
-/// what the machine shows (``status``); the timing of attempts belongs to
-/// the daemon loop (`DaemonService.start(remote:)`: capped `Backoff` after a
-/// failure, then events only). Nothing here polls.
+/// what the machine shows (``status``). A running link client redials by
+/// itself (the only layer that does, cmuxterm-hq#7766); the daemon loop
+/// (`DaemonService.start(remote:followsLink:)`) makes one attempt per drop
+/// and then waits for the link's state or an event. Nothing here polls.
 ///
-/// - A network failure keeps the gate open: the shared backoff paces the
-///   retries and a network change, wake or activation retries at once.
+/// - A network failure keeps the gate open: a wake, activation or a
+///   person's Reconnect retries at once.
 /// - An authentication or host key failure closes the gate: retrying can
 ///   not fix a key, and hammering sshd can lock the account. The user
 ///   reconnecting, the app becoming active (they may have fixed their agent
@@ -32,6 +33,15 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case installing
         case installFailed(String)
         case failed(String)
+
+        /// An attempt is under way: connecting, reconnecting, or a first dial whose last try was
+        /// unreachable and which the link redials.
+        public var isDialing: Bool {
+            switch self {
+            case .connecting, .reconnecting, .unreachable: true
+            default: false
+            }
+        }
 
         /// A first connection needs a visible recovery action, even while the
         /// underlying link remains eligible for automatic network retries.

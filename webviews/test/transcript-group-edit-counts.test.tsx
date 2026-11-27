@@ -9,6 +9,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -29,12 +30,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const command = (n: number, output = `line ${n}\n`, status = "completed"): AcpmuxActivity => ({
@@ -88,6 +86,17 @@ test("a run's summary line sums its edits: green added, red removed", async () =
   // The totals sit outside the part that cuts with an ellipsis.
   expect(line.querySelector(".cv-tool__summary .cv-tool__counts")).toBeNull();
   expect(line.querySelector(".cv-tool__text.has-counts")).not.toBeNull();
+});
+
+test("a lone described edit keeps its prose label and its diff counts", async () => {
+  const item = edit("named-edit", "/repo/src/helper.ts", "old\n", "new\n");
+  item.tool = { ...item.tool!, description: "Fix the retry limit" };
+  await draw([item], 2);
+  const line = host.querySelector('[data-tool-group="group:edits:named-edit"]')!;
+  expect(line.querySelector(".cv-tool__summary")?.textContent).toBe("Fix the retry limit");
+  expect(line.querySelector(".cv-tool__summary code")).toBeNull();
+  expect(line.querySelector(".cv-edit-diff__add")?.textContent).toBe("+1");
+  expect(line.querySelector(".cv-edit-diff__del")?.textContent).toBe("-1");
 });
 
 test("added lines only: no red count", async () => {

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -34,8 +35,7 @@ struct ScreensPage: View {
                 set: { shown in if !shown { source.renamingScreen = nil } }
             ), presenting: source.renamingScreen) { screen in
                 TextField(source.screenTitle(screen), text: $screenName)
-                    // Names are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("screens.rename.field")
                 Button("Cancel", role: .cancel) {}
@@ -56,7 +56,8 @@ struct ScreensPage: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let screens = source.workspace?.screens, !screens.isEmpty {
+        if let workspace = source.workspace, workspace.layout != nil, !workspace.screens.isEmpty {
+            let screens = workspace.screens
             List {
                 ForEach(Array(screens.enumerated()), id: \.element.id) { index, screen in
                     Section {
@@ -75,6 +76,13 @@ struct ScreensPage: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
+        } else if source.workspace?.layout == nil, source.awaitsMacList {
+            // The Mac's list is on its way: loading, never "No Screens Yet".
+            // placeholder-ok: this workspace has never had a cached screen list.
+            CmuxSpinner(label: Text("Loading screens from \(source.macName)…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("screens.loading")
+                .placeholderBound("screens.loading", .milliseconds(2000))
         } else {
             ContentUnavailableView("No Screens Yet", systemImage: "rectangle.stack",
                                    description: Text("\(source.macName) hasn't listed this workspace's screens."))

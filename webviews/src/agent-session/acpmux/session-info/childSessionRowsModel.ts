@@ -1,5 +1,5 @@
 import { type StringKey, type Translate } from "../i18n";
-import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { retryLabel, sessionRetry, sessionRetryKey, type RetryQuiet } from "../subagents/retryState";
 import type { StartedSession, StartedState } from "../started/startedSessions";
 import type { SubagentStatus } from "../summary/subagentStatusListModel";
 
@@ -12,6 +12,11 @@ const SESSION_STATE: Record<StartedState, { word: StringKey; status: SubagentSta
   idle: { word: "subagents.state.completed", status: "done" },
 };
 
+/// A sub-session whose last turn was stopped reads stopped, not done (it offers Resume).
+const STOPPED = { word: "subagents.state.cancelled", status: "stopped" } as const;
+const stateOf = (child: StartedSession) =>
+  child.state === "idle" && child.stoppedAt !== undefined ? STOPPED : SESSION_STATE[child.state];
+
 /// The retry acpmux waits to run for a started chat's failed turn (retryState.ts ``sessionRetry``).
 const retryOf = (child: StartedSession) => {
   const phase = sessionRetry(child);
@@ -21,15 +26,26 @@ const retryOf = (child: StartedSession) => {
 /// A started chat's status as a subagent's reads, for the counts and the Active and Done lists: one
 /// acpmux retries is running again.
 export const sessionStatus = (child: StartedSession): SubagentStatus =>
-  retryOf(child) ? "running" : SESSION_STATE[child.state].status;
+  retryOf(child) ? "running" : stateOf(child).status;
 
-/// A started chat's state in words ("Running", "Done", "Retrying (2/4) after a capacity error"), as
-/// its row says it, and whether it works (the turning ring) while acpmux retries it.
-export function sessionStateText(t: Translate, child: StartedSession): { text: string; working: boolean } {
+/// A started chat's state in words ("Done", "Retrying (2/4) after a capacity error" once the retry has
+/// waited the shared bound), as its row says it, and whether it works (the turning ring): while it runs
+/// (no word), or while acpmux retries it. `connectionQuiet`: the drawing component's
+/// `useConnectionQuietKeys`.
+export function sessionStateText(
+  t: Translate,
+  child: StartedSession,
+  connectionQuiet: RetryQuiet,
+): { text: string; working: boolean; word: string } {
+  const word = t(stateOf(child).word);
   const retry = retryOf(child);
-  return retry
-    ? { text: retryLabel(t, retry), working: true }
-    : { text: t(SESSION_STATE[child.state].word), working: false };
+  const lasting = connectionQuiet(sessionRetryKey(child.sessionId), retry !== undefined);
+  // A retry inside the bound reads as running: the turning ring, no word.
+  if (retry) return { text: lasting ? retryLabel(t, retry) : "", working: true, word };
+  // Running is the turning ring, never a word (Leo, 2026-11-23: "\"running\" doesn't need text. it can
+  // usually just be. you can put symbols for state.").
+  if (stateOf(child).status === "running") return { text: "", working: true, word };
+  return { text: word, working: false, word };
 }
 
 /// The started chats in list order: waiting on the person first, then running, failed and idle,

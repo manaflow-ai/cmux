@@ -11,9 +11,24 @@ public final class PaneModel: Identifiable {
     /// Daemon default tab; the window keeps its own selection.
     public internal(set) var defaultTabIndex: Int
     public internal(set) var focusedAt: UInt64
-    public internal(set) var tabs: [TabModel] { didSet { adoptUnread(); noteFirstTab() } }
-    /// The first tab, set only when it is another tab (``tabs`` didSet): an observer of the first tab (a window's
-    /// Home, `WorkspaceModel.isWindowHome`) does not wake for a tab added after it in the pane.
+    /// The tabs in order. A write while the store holds the list (``holdTabs()``) changes the record at once and
+    /// publishes nothing: ``publishHeldTabs()`` publishes the net change one time.
+    public internal(set) var tabs: [TabModel] {
+        get {
+            access(keyPath: \.tabs)
+            return tabList
+        }
+        set { writeTabs { $0 = newValue } }
+    }
+    @ObservationIgnored private var tabList: [TabModel]
+    /// The list as it was published when the store began holding it (``holdTabs()``); nil while not held.
+    @ObservationIgnored private var tabsBeforeHold: [TabModel]?
+    /// The stand-in tabs that the overlay's lift took out while the list is held, by surface: the restore of the same
+    /// lift puts the same record back (``takeLiftedTab(_:)``).
+    @ObservationIgnored private var liftedTabs: [SurfaceID: TabModel] = [:]
+    /// The first tab, set only when it is another tab (at each write of ``tabs``; while the store holds the list, one
+    /// time at the hold's end): an observer of the first tab (a window's Home, `WorkspaceModel.isWindowHome`) does not
+    /// wake for a tab added after it in the pane.
     public private(set) var firstTab: TabModel?
     public internal(set) var tabGroups: [TabGroupModel]
     /// Group spans over `tabs`, recomputed only when tabs or groups change.
@@ -26,12 +41,54 @@ public final class PaneModel: Identifiable {
         name = s.name
         defaultTabIndex = s.activeTab
         focusedAt = s.focusedAt
-        tabs = s.tabs.map(TabModel.init)
+        tabList = s.tabs.map(TabModel.init)
         tabGroups = s.tabGroups.map(TabGroupModel.init)
         recomputeSpans()
         adoptUnread()
         noteFirstTab()
     }
+
+    /// Each write of the tab list. Not held: one publication, then the list's own work (the unread count and the first
+    /// tab; the caller computes the group spans). Held: the record changes and nothing else, and the hold's end does
+    /// the rest one time.
+    private func writeTabs(_ change: (inout [TabModel]) -> Void) {
+        guard tabsBeforeHold == nil else { return change(&tabList) }
+        withMutation(keyPath: \.tabs) { change(&tabList) }
+        adoptUnread()
+        noteFirstTab()
+    }
+
+    /// Holds the publication of ``tabs`` and the list's own work (the unread count, the first tab, the group spans)
+    /// until ``publishHeldTabs()`` (``DaemonStore/withOverlayLifted(writer:snapshot:_:)``): a write still changes the
+    /// record at once. Returns false when the list was held already.
+    func holdTabs() -> Bool {
+        guard tabsBeforeHold == nil else { return false }
+        tabsBeforeHold = tabList
+        return true
+    }
+
+    /// Ends the hold: publishes the list one time when it is not the same records in the same order as at the hold's
+    /// start, then does the list's own work one time.
+    func publishHeldTabs() {
+        guard let before = tabsBeforeHold else { return }
+        tabsBeforeHold = nil
+        liftedTabs = [:]
+        if !before.elementsEqual(tabList, by: ===) { withMutation(keyPath: \.tabs) {} }
+        adoptUnread()
+        noteFirstTab()
+        recomputeSpans()
+    }
+
+    /// Takes the stand-in tab `surface` out for the overlay's lift. While the list is held the pane keeps the record
+    /// for the restore of the same lift (``takeLiftedTab(_:)``).
+    func liftTab(surface: SurfaceID) -> TabModel? {
+        guard let tab = removeTab(surface: surface) else { return nil }
+        if tabsBeforeHold != nil { liftedTabs[surface] = tab }
+        return tab
+    }
+
+    /// The record that this hold's lift took out for `surface`, one time; nil when it took none.
+    func takeLiftedTab(_ surface: SurfaceID) -> TabModel? { liftedTabs.removeValue(forKey: surface) }
 
     /// Keeps ``firstTab`` (a write only when the first tab is another one).
     private func noteFirstTab() {
@@ -78,16 +135,17 @@ public final class PaneModel: Identifiable {
     }
 
     func insertTab(_ tab: TabModel, at index: Int) {
-        tabs.insert(tab, at: min(max(index, 0), tabs.count))
+        writeTabs { $0.insert(tab, at: min(max(index, 0), $0.count)) }
         recomputeSpans()
     }
 
     @discardableResult
     func removeTab(surface: SurfaceID) -> TabModel? {
         guard let index = tabs.firstIndex(where: { $0.surface == surface }) else { return nil }
-        let tab = tabs.remove(at: index)
+        var removed: TabModel?
+        writeTabs { removed = $0.remove(at: index) }
         recomputeSpans()
-        return tab
+        return removed
     }
 
     /// Takes this record of a tab out (by identity: two records of one surface can meet in a move).
@@ -109,6 +167,8 @@ public final class PaneModel: Identifiable {
     }
 
     func recomputeSpans() {
+        // Held: the hold's end computes the spans one time.
+        guard tabsBeforeHold == nil else { return }
         var spans: [TabGroupSpan] = []
         var open: (group: TabGroupID, start: Int)?
         for (index, tab) in tabs.enumerated() {

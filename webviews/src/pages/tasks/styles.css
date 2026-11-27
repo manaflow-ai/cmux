@@ -11,20 +11,6 @@
   --tasks-success: var(--cmux-app-success, #3fa34d);
 }
 
-.tasks-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  font-size: var(--text-caption);
-  color: var(--page-text-2);
-  background: color-mix(in srgb, var(--tasks-attention) 8%, transparent);
-}
-
-.tasks-banner .tasks-dot {
-  color: var(--tasks-attention);
-}
-
 .tasks-scope-bar {
   display: flex;
   align-items: center;
@@ -51,7 +37,7 @@
   background: transparent;
   color: var(--page-text-2);
   padding: 0 4px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
   font-size: var(--text-caption);
   font-weight: var(--weight-regular);
@@ -223,7 +209,7 @@
   height: 28px;
   padding: 0 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -325,7 +311,7 @@
 }
 
 .tasks-assignee.agent {
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   color: var(--tasks-ansi-5, var(--page-text-2));
   background: color-mix(in srgb, var(--tasks-ansi-5, var(--page-text-2)) 22%, transparent);
 }
@@ -357,24 +343,36 @@
   color: var(--page-text-2);
 }
 
-/* Inbox: the list and the detail side by side. */
+/* Inbox: the list and the detail side by side. Dragging the detail's edge (SplitEdge sets
+   --tasks-detail-width here) fixes the detail and gives the list the rest; the two flex values read
+   invalid while that is unset, so the defaults hold. */
 .tasks-inbox {
+  --tasks-detail-flex: 0 1 var(--tasks-detail-width);
+  --tasks-list-flex: 1 1 calc(var(--tasks-detail-width) * 0);
   display: flex;
   flex: 1;
   min-height: 0;
 }
 
 .tasks-inbox-list {
-  flex: 0 1 460px;
+  flex: var(--tasks-list-flex, 0 1 460px);
   min-width: 320px;
   padding-top: 4px;
 }
 
+/* Still, so its edge stays put while the detail scrolls inside it. */
 .tasks-detail-pane {
-  flex: 1 1 320px;
+  position: relative;
+  display: flex;
+  flex: var(--tasks-detail-flex, 1 1 320px);
+  min-width: 0;
+  border-inline-start: 1px solid var(--page-separator);
+}
+
+.tasks-detail-scroll {
+  flex: 1;
   min-width: 0;
   overflow: auto;
-  border-inline-start: 1px solid var(--page-separator);
 }
 
 .tasks-detail {
@@ -402,7 +400,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: color-mix(in srgb, var(--page-hover) 50%, transparent);
 }
 
@@ -490,7 +488,7 @@
   flex-direction: column;
   min-height: 0;
   padding: 8px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: color-mix(in srgb, var(--page-hover) 35%, transparent);
   transition: background-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
@@ -609,7 +607,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--page-hover);
   color: var(--page-text);
   user-select: text;

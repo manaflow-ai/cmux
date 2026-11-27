@@ -26,6 +26,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var approvals: (any HomeApprovalDeciding)?
     var approvalWrites: [HomeApprovalWriteGate] = []
     var approvalCards: [String: HomeApprovalDisplay] = [:]
+    /// Each failed-turn card's Details and Copy state, by message (HomeProjection+TurnFailure).
+    var turnFailureCards: [ID: HomeTurnFailureRowProvider.Local] = [:]
+    /// Copy error's destination: the general pasteboard; tests record it.
+    var copyText: @MainActor (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
     var approvalLatestEvent: TimeInterval = -1
     var isPersonApprovalEvent: (NSEvent) -> Bool = { _ in false }
     let homeStore: HomeStore
@@ -47,6 +54,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var shownNotice: String? { sendNotice ?? notice }
     /// The Chief's activity line under the transcript (`chief-live-v1`).
     let liveLine = HomeLiveLine()
+    /// The wait for the next minute a working agent's pill time changes (HomeProjection+AgentClock); nil: none waits.
+    var agentClock: Task<Void, Never>?
+    /// When ``agentClock`` wakes; a refresh with the same next minute keeps the wait it has.
+    var agentClockDue: Date?
     /// The status line's details, made on the first click.
     private(set) var turnPopover: HomeTurnStatusPopover?
     /// The window is key and visible: the read cursor may advance.
@@ -61,6 +72,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // morph and the bubbles are MessagesLab's.
     /// The "+" button.
     var onPickAttachments: () -> Void = {}
+    /// The "+" button's menu, shown at the button (`anchor`); nil: the "+" opens the file picker.
+    var onPlusMenu: ((NSView) -> Void)?
     /// A paste or a drop; true when taken.
     var onAttachmentPasteboard: (NSPasteboard) -> Bool = { _ in false }
     /// The words beside the attachments a taken paste carries; nil when none.
@@ -77,6 +90,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onAttachmentRefusal: (HomeAttachmentError) -> Void = { _ in }
     /// The field's text changed.
     var onDraftTextChange: () -> Void = {}
+    /// The ids of the field's chips (``draftAttachmentIDs``), in order, each time they change: a chip
+    /// added or removed, or the draft sent (design mode takes a pick off the page once its chip left).
+    var onDraftAttachmentsChange: ([String]) -> Void = { _ in }
+    /// What `onDraftAttachmentsChange` last heard, so a key typed reports nothing.
+    private var reportedDraftIDs: [String] = []
     /// Forward… on a bubble (u5402): the host asks where its text goes; nil offers no Forward….
     var onForward: ((String) -> Void)?
     /// Retry a committed person message in a Chief conversation. The app
@@ -95,9 +113,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let tableShimmer = HomeTableShimmer()
     /// Inline video playback in the bubbles.
     let video = HomeVideo()
-    /// Prepared attachments in the field by content hash (the chips are
-    /// MessagesLab's draft; a removed chip's entry is ignored).
-    private var drafts: [String: LocalAttachment] = [:]
+    /// Prepared attachments in the field by chip id (the chips are MessagesLab's draft; a removed
+    /// chip's entry is ignored). Each paste or drop is a chip of its own: the same picture pasted
+    /// three times is three chips, each sent (https://github.com/manaflow-ai/cmux/issues/50984), so
+    /// a chip's id is its content hash only for the first copy (``draftChipID(for:)``).
+    private var drafts: [ID: LocalAttachment] = [:]
     /// The last launch's attachments are going back in the field: each one
     /// is not written back on its own, the whole field is once they are in.
     private var restoringDraftAttachments = false
@@ -181,6 +201,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func start() {
         controller.approvalDecision = { [weak self] ref, allow in _ = self?.decideApproval(ref, allow: allow) }
+        controller.turnFailureAction = { [weak self] ref, action in self?.turnFailureAction(ref, action) }
         refresh()
         noteObservedInputs()
         observe()
@@ -192,15 +213,21 @@ final class HomeProjection: @preconcurrency ChatIntents {
         stopped = true
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
+        agentClock?.cancel()
+        agentClock = nil
         turnPopover?.close()
         controller.intents = nil
         controller.approvalDecision = nil
+        controller.turnFailureAction = nil
     }
 
     // MARK: HomeStore -> projection
 
     func refresh() {
-        defer { refreshApprovalStates() }
+        defer {
+            refreshApprovalStates()
+            refreshTurnFailureStates()
+        }
         refreshPasses += 1
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
@@ -222,6 +249,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         passStep("liveLine", &mark)
         revealIfLoaded()
         passStep("reveal", &mark)
+        scheduleAgentClock()
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -504,10 +532,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         homeStore.setDraft("", for: conversation)
         homeStore.setDraftAttachments([], for: conversation)
-        for a in attachments {
-            media.useLocal(a.files, for: a.ref.hash)
-            drafts[a.ref.hash] = nil
-        }
+        for a in attachments { media.useLocal(a.files, for: a.ref.hash) }
+        // The field is empty and its undo forgotten: no chip it had, sent or deleted, comes back.
+        drafts.removeAll()
+        reportDraftAttachments(draftAttachments)
         let homeStore = self.homeStore, conversation = self.conversation
         let plain = pieces.map(\.part)
         // Messages' link rule: URL-only lines are cards whose previews this Mac attaches. Each text's
@@ -581,21 +609,44 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// A prepared attachment enters the field as MessagesLab's chip, with its
     /// bubble picture made first (the morph and the bubble show it at once).
+    /// The same picture again is another chip, never folded into the first (#50984).
     func addDraft(_ attachment: LocalAttachment) async {
-        let hash = attachment.ref.hash
-        guard !stopped, controller.store?.state.ui.draft.attachments.contains(where: { $0.id == hash }) == false else { return }
+        guard !stopped, controller.store != nil else { return }
         await media.prepare(attachment)
         restoreDraft(attachment)
+    }
+
+    /// The content hash of chip `id` (``draftChipID(for:)``): the id without its copy's `#N`. A bubble
+    /// that flew from the field keeps its chips' ids; HomeStore's item names each copy by its hash.
+    static func contentHash(ofChip id: ID) -> String {
+        guard let mark = id.lastIndex(of: "#") else { return id }
+        let copy = id.suffix(from: mark).dropFirst()
+        let numbered = !copy.isEmpty && copy.allSatisfy({ $0.isASCII && $0.isNumber })
+        return numbered ? String(id.prefix(upTo: mark)) : id
+    }
+
+    /// The id of a new chip for `hash`: the hash for its first copy in the field, `hash#2`, `hash#3`…
+    /// for each other, never one the field or a deleted chip an undo can bring back still holds.
+    func draftChipID(for hash: String) -> ID {
+        let shown = Set(controller.store?.state.ui.draft.attachments.map(\.id) ?? [])
+        var id = hash, copy = 1
+        while shown.contains(id) || drafts[id] != nil {
+            copy += 1
+            id = "\(hash)#\(copy)"
+        }
+        return id
     }
 
     /// `offset`: where in the field's text (UTF-16) the attachment goes; nil: the caret, or the end
     /// when the field does not show this draft's text yet.
     private func restoreDraft(_ attachment: LocalAttachment, at offset: Int? = nil) {
         let hash = attachment.ref.hash
-        guard !stopped, let store = controller.store, !store.state.ui.draft.attachments.contains(where: { $0.id == hash }) else { return }
-        drafts[hash] = attachment
-        // In the field's text (Draft+InlineMarks.swift).
-        let picture = HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil)
+        guard !stopped, controller.store != nil else { return }
+        let id = draftChipID(for: hash)
+        drafts[id] = attachment
+        // In the field's text (Draft+InlineMarks.swift), under the chip's own id.
+        var picture = HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil)
+        picture.id = id
         controller.dispatch(.attachAt(picture, offset ?? controller.composeCaret()))
         saveDraft()
     }
@@ -606,7 +657,17 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private func saveDraft() {
         guard !stopped, !restoringDraftAttachments, let store = controller.store else { return }
         homeStore.setDraft(store.state.ui.draft.text, for: conversation)
-        homeStore.setDraftAttachments(draftAttachments, for: conversation)
+        let attachments = draftAttachments
+        homeStore.setDraftAttachments(attachments, for: conversation)
+        reportDraftAttachments(attachments)
+    }
+
+    /// Tells the host the field's chips (their ids) when they differ from what it last heard.
+    private func reportDraftAttachments(_ attachments: [LocalAttachment]) {
+        let ids = draftAttachmentIDs
+        guard ids != reportedDraftIDs else { return }
+        reportedDraftIDs = ids
+        onDraftAttachmentsChange(ids)
     }
 
     /// The field's attachments from the cache, once, into a field without any, each at its mark
@@ -646,11 +707,18 @@ final class HomeProjection: @preconcurrency ChatIntents {
         (controller.store?.state.ui.draft.attachments ?? []).compactMap { drafts[$0.id] }
     }
 
+    /// The ids of the field's chips, in order: one per paste or drop, two copies of one picture
+    /// two ids (``draftChipID(for:)``).
+    var draftAttachmentIDs: [ID] {
+        (controller.store?.state.ui.draft.attachments ?? []).compactMap { drafts[$0.id] == nil ? nil : $0.id }
+    }
+
     var isRestoringDraftAttachments: Bool { restoringDraftAttachments }
 
-    func removeDraft(_ hash: String) {
-        drafts[hash] = nil
-        controller.dispatch(.removeDraftAttachment(hash))
+    /// Takes chip `id` out of the field (a chip's id is its hash, or `hash#N` for another copy).
+    func removeDraft(_ id: ID) {
+        drafts[id] = nil
+        controller.dispatch(.removeDraftAttachment(id))
         saveDraft()
     }
 
@@ -670,6 +738,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
             let id = HomeMapping.id(item, aliases: aliases)
             guard let message = store.state.message(id) else { continue }
             refreshTablePictures(item, id: id, in: message)
+            // A picture the message holds twice is refreshed once, every copy at that time: no search
+            // of `updates` for repeats, which grew with a long chat's refresh (review of #51108).
+            var refreshed: Set<String> = []
+            // Copies under one id (`.cmuxSetAttachments` updates every part of it) take one update.
+            var queued: Set<ID> = []
             for part in item.parts {
                 if case .linkPreview(let link) = part {
                     refreshLinkPicture(link, in: message)
@@ -677,13 +750,15 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 }
                 guard case .attachment(let ref) = part else { continue }
                 media.request(ref)
-                guard !tableHashes(item).contains(ref.hash) else { continue }
+                guard !tableHashes(item).contains(ref.hash), refreshed.insert(ref.hash).inserted else { continue }
                 let want = HomeMapping.attachment(ref, picture: media.asset(ref.hash), progress: Self.shownProgress(item, ref))
-                let have = message.parts.lazy.compactMap { p -> Attachment? in
-                    if case let .attachment(a) = p, a.id == ref.hash { return a }
-                    return nil
-                }.first
-                if let have, have != want { updates.append((id: id, attachment: want)) }
+                // Every copy of the picture in the message (the same one sent twice, #50984), each
+                // under its own id: `hash` from HomeStore's item, `hash#2` in the bubble that flew.
+                for case let .attachment(have) in message.parts where Self.contentHash(ofChip: have.id) == ref.hash {
+                    var shown = want
+                    shown.id = have.id
+                    if have != shown, queued.insert(shown.id).inserted { updates.append((id: id, attachment: shown)) }
+                }
             }
         }
     }
@@ -696,7 +771,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
     }
 
-    /// The table cards that name `source` (a path or web picture whose thumbnail arrived) draw again with it.
+    /// The table cards and picture bubbles that name `source` (a path or web picture whose thumbnail arrived) draw again with it.
     func refreshTablePictures(source: String) {
         guard !stopped, let store = controller.store else { return }
         for item in shown where !item.isRetracted && HomeMapping.isAgent(item.author, shownSummary) {
@@ -706,7 +781,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             }
             let id = HomeMapping.id(item, aliases: aliases)
             guard names, let message = store.state.message(id) else { continue }
-            redrawTableCards(item, id: id, in: message)
+            redrawPictures(item, id: id, in: message)
         }
         tableShimmer.place()
     }
@@ -714,16 +789,33 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// A table card whose pictures changed (one became ready) draws again with them, in place.
     private func refreshTablePictures(_ item: TranscriptItem, id: ID, in message: Message) {
         guard !tableHashes(item).isEmpty else { return }
-        redrawTableCards(item, id: id, in: message)
+        redrawPictures(item, id: id, in: message)
     }
 
-    private func redrawTableCards(_ item: TranscriptItem, id: ID, in message: Message) {
+    /// `item`'s table cards and Markdown picture bubbles (HomeMapping.pictureParts) draw again, in place, with the
+    /// pictures that are ready now. A picture whose file could not be made shows as its words instead: its bubble
+    /// goes, so the rows map again.
+    private func redrawPictures(_ item: TranscriptItem, id: ID, in message: Message) {
         let parts = HomeMapping.projectedParts(item, summary: shownSummary, media: core.media, links: core.links).parts
+        func isPicture(_ part: Part?) -> Bool {
+            if case let .attachment(a)? = part { return HomeMapping.pictureSource(a.id) != nil }
+            return false
+        }
+        guard parts.count == message.parts.count else {
+            if message.parts.contains(where: isPicture) { rebuild() }
+            return
+        }
+        var pictured = message.parts
         for (index, part) in parts.enumerated() {
+            if isPicture(part), isPicture(message.parts[checked: index]), message.parts[checked: index] != part {
+                pictured.update(at: index) { $0 = part }
+                continue
+            }
             guard case let .custom(want) = part, want.kind == HomeTableRowProvider.kind,
                   case let .custom(have)? = message.parts[checked: index], have.kind == want.kind, have != want else { continue }
             controller.dispatch(.setCustomPart(id, index, want))
         }
+        if pictured != message.parts { controller.dispatch(.cmuxSetParts(id, pictured)) }
     }
 
     /// A link preview's picture, fetched by its hash like an attachment's
@@ -784,6 +876,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func pickAttachments() { onPickAttachments() }
+    func plusClicked(anchor: NSView) {
+        if let onPlusMenu { onPlusMenu(anchor) } else { onPickAttachments() }
+    }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
     func attachmentPasteText(from pasteboard: NSPasteboard) -> String? { onAttachmentPasteText(pasteboard) }
@@ -794,6 +889,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let opener = HomeAttachmentOpen(folder: HomeMedia.directory)
         return (try? opener.namedCopy(of: local.fileURL, name: local.ref.name, hash: local.ref.hash)) ?? local.fileURL
     }
+    /// A picture the person deleted keeps its prepared file here until a send or `removeDraft`:
+    /// Edit > Undo can put it back in the field, and the send still has its file.
+    func canRestoreDraftAttachment(_ id: ID) -> Bool { drafts[id] != nil }
     func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (onAttachmentDrop ?? onAttachmentPasteboard)(pasteboard) }
     func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (acceptsAttachmentDrop ?? acceptsAttachmentDrag)(pasteboard) }
     func attachmentDropTargeted(_ targeted: Bool) { onAttachmentDropTarget(targeted) }
@@ -814,7 +912,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func draftChanged() {
-        if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
+        // The user moved on. (No notice, no localized lookup: this runs on every key.)
+        if let notice = sendNotice, notice == CmuxStrings.threadRootNotReady { sendNotice = nil }
         // The text with its marks, and the attachments (Delete or a cut can take a chip with the text).
         saveDraft()
         // My typing dots for the other members (HomeStore+Typing); off once the field is empty.
@@ -871,8 +970,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     private func attachmentRef(_ message: ID, _ attachment: ID) -> AttachmentRef? {
-        item(message)?.parts.lazy.compactMap { p -> AttachmentRef? in
-            if case .attachment(let r) = p, r.hash == attachment { return r }
+        let hash = Self.contentHash(ofChip: attachment)
+        return item(message)?.parts.lazy.compactMap { p -> AttachmentRef? in
+            if case .attachment(let r) = p, r.hash == hash { return r }
             return nil
         }.first
     }

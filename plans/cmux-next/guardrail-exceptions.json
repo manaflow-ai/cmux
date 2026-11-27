@@ -22,14 +22,34 @@
       "expiry": "2026-11-21"
     },
     {
-      "date": "2026-11-05",
+      "date": "2026-11-23",
       "rule": "app-size",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSession+RelayChat.swift",
-      "why": "cmux#36846: a new App file for the same reviewed reason as its app_lines entry in plans/cmux-next/arch-exceptions/relay-chat-harness-login.json. cloud relay-chat runs the start-session harness login step before the relay send (Leo: \"we have the daemon, we have the token, we have the thing that can just send it over the authentication ... just fix it\"). The App part is the binding over App-only types (AppActionContext, CloudHandlers, CloudStartSession, CloudMachineSession.harnessLogin): the login step before relay.chat/relay.answer, its 15 s share of the result deadline, the typed undelivered refusals and their four localized strings; the login rules stay in Rust (cmux-cloud-start-core) and CmuxNextCloudCredentials, the relay stream in CmuxNextCloud.",
-      "author": "lane/relay-chat-harness-login (claude opus)",
-      "owner": "lane/relay-chat-harness-login",
-      "receipt": "Review (codex gpt-6-astra high): SHIP at 1551a86243536d2081eb715b983ac2d72e466432",
-      "expiry": "2026-12-05"
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/RemoteHandlers+Ports.swift",
+      "why": "Step B of host-switch and port-forwarding (Leo 2026-11-19: \"'parity' means stuff like being able to add hosts and whatnot to the sidebar\"): a new App file binding catalog actions. The wire encoding, decoding and admin client already live in CmuxNextRemote; this file reads App-only types (SSHMachineSession, AppActionContext, CloudHandlers.answer, AppServices.hostsSidebar, the RemoteStrings tables), so it cannot move to a package without a dependency on CmuxNextApp.",
+      "author": "claude lane host-switch-step-b",
+      "owner": "the next remote-handlers move into a domain package",
+      "receipt": "Review (claude subagent a64603613387590c1): SHIP at 487900e055916d77c20e942e9ac19796d8edbf47",
+      "expiry": "2026-12-23"
+    },
+    {
+      "date": "2026-11-23",
+      "rule": "app-size",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/RemoteHandlers+Switch.swift",
+      "why": "Step B of host-switch and port-forwarding (Leo 2026-11-19: \"'parity' means stuff like being able to add hosts and whatnot to the sidebar\"): a new App file binding catalog actions. The wire encoding, decoding and admin client already live in CmuxNextRemote; this file reads App-only types (SSHMachineSession, AppActionContext, CloudHandlers.answer, AppServices.hostsSidebar, the RemoteStrings tables), so it cannot move to a package without a dependency on CmuxNextApp.",
+      "author": "claude lane host-switch-step-b",
+      "owner": "the next remote-handlers move into a domain package",
+      "receipt": "Review (claude subagent a64603613387590c1): SHIP at 487900e055916d77c20e942e9ac19796d8edbf47",
+      "expiry": "2026-12-23"
+    },
+    {
+      "date": "2026-11-23",
+      "rule": "app-size",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemotePortStrings.swift",
+      "why": "Step B of host-switch and port-forwarding (Leo 2026-11-19: \"'parity' means stuff like being able to add hosts and whatnot to the sidebar\"): a new App file binding catalog actions. The wire encoding, decoding and admin client already live in CmuxNextRemote; this file reads App-only types (SSHMachineSession, AppActionContext, CloudHandlers.answer, AppServices.hostsSidebar, the RemoteStrings tables), so it cannot move to a package without a dependency on CmuxNextApp.",
+      "author": "claude lane host-switch-step-b",
+      "owner": "the next remote-handlers move into a domain package",
+      "receipt": "Review (claude subagent a64603613387590c1): SHIP at 487900e055916d77c20e942e9ac19796d8edbf47",
+      "expiry": "2026-12-23"
     }
   ]
 }

@@ -29,13 +29,17 @@ This evaluates each publishing job's `if` with GitHub's expression rules for
 a feat-cmux-next push and for other refs, and walks its `needs`.
 """
 
+import json
 import os
 import re
 import sys
+from pathlib import Path
 
 import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
 DAEMON = "cmux-next-daemon-tests"
 KEY = "8729cadfd262d8c13cad8f8ad5d7d54ca4984e01"
@@ -49,8 +53,7 @@ def _check(ok, message):
 
 
 def jobs():
-    with open(WORKFLOW, encoding="utf-8") as handle:
-        return yaml.safe_load(handle)["jobs"]
+    return workflow_jobs.jobs(Path(WORKFLOW))
 
 
 def needs(job):
@@ -130,7 +133,7 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
 
 
 def windows_pass(job):
-    return (job.get("env") or {}).get("CMUX_TUI_PUBLISH_PASS") == "windows"
+    return workflow_jobs.resolve(job).env.get("CMUX_TUI_PUBLISH_PASS") == "windows"
 
 
 def publishers(all_jobs, windows=False):
@@ -150,6 +153,210 @@ def runs(all_jobs, name, values):
         return evaluate(job.get("if", "true"), values)
     except KeyError:
         return False
+
+
+def built_nothing(ref, state, adopt_result="success"):
+    """A push whose tree a lane run already published (the PR-first merge): no build, no publish."""
+    values = context(ref, daemon_result=None)
+    values.update({
+        "needs.tree-preflight.outputs.tree_ready": "true",
+        "needs.tree-preflight.outputs.run_macos": "false",
+        "needs.tree-preflight.outputs.owns_key": "false",
+        "needs.tree-owner-wait.outputs.takeover": "false",
+        "needs.build.result": "skipped",
+        "needs.publish.result": "skipped",
+        "needs.verify-publish.result": "skipped",
+        "needs.adopt-commit-manifest.result": adopt_result,
+        "needs.adopt-commit-manifest.outputs.state": state,
+    })
+    return values
+
+
+def linux_release_sign_downloads_over_the_runner_token(all_jobs):
+    """2026-11-27, run 45994285415 (nightly-next 80d30ecb): linux-release-sign.sh's gh run download got
+    HTTP 403 "API rate limit exceeded for installation", the step's warning kept the job green, the
+    commit's release.json was never written, and linux-nightly stayed on 0a6830e6. Both jobs that run
+    the script download this run's Linux build with actions/download-artifact first (the runner's
+    artifact token, not the installation's REST budget) and hand it over in LINUX_RELEASE_ARTIFACTS."""
+    for name, sign_step in (("sign-nightly-linux-release", "Sign and upload the Linux release file"),
+                            ("point-machine-channel", "Sign and upload the channel")):
+        steps = all_jobs[name]["steps"]
+        names = [step.get("name") for step in steps]
+        download = next((step for step in steps if step.get("name") == "Download this run's Linux build"), {})
+        sign = next((step for step in steps if step.get("name") == sign_step), {})
+        _check(str(download.get("uses", "")).startswith("actions/download-artifact@")
+               and download.get("with", {}).get("pattern") == "cmux-tui-*-unknown-linux-musl"
+               and sign_step in names and names.index("Download this run's Linux build") < names.index(sign_step),
+               f"{name} downloads this run's Linux build with actions/download-artifact before signing")
+        _check(sign.get("env", {}).get("LINUX_RELEASE_ARTIFACTS") == download.get("with", {}).get("path")
+               == "${{ runner.temp }}/linux-release-artifacts",
+               f"{name} hands the downloaded build to linux-release-sign.sh")
+    script = Path(ROOT, "scripts/ci/linux-release-sign.sh").read_text()
+    _check("LINUX_RELEASE_ARTIFACTS" in script and "for attempt in" in script,
+           "linux-release-sign.sh reads LINUX_RELEASE_ARTIFACTS and retries its gh fallback")
+
+
+def machine_channel_follows_an_adopted_manifest(all_jobs):
+    """2026-11-13, 93d73d7b (the squash merge of #42609, run 43479235288): its tree was published by
+    the lane head's run, so build, publish and verify-publish skipped, and both Cloud machine
+    channel jobs with them. adopt-commit-manifest wrote cmux-tui/<sha>/manifest.json at 18:07:54Z, and
+    the channel stayed on the previous commit until the next build at 18:22Z. The channel moves from
+    the adopted manifest too, onto the fat cmux-tui/<sha>/ names that manifest serves: a run that
+    builds nothing has no machine/ copy of its commit (only cmux-machine-channel.yml uploads one,
+    from this run's build), and updater/channel.rs allowed_urls accepts both paths."""
+    channel_jobs = ("point-machine-channel",)
+    feat = "refs/heads/feat-cmux-next"
+
+    for state in ("adopted", "present"):
+        moving = [name for name in channel_jobs if runs(all_jobs, name, built_nothing(feat, state))]
+        _check(moving == ["point-machine-channel"],
+               f"a feat-cmux-next push whose tree was ready (manifest {state}) points the machine channel ({moving})")
+    for state, result in (("pending", "success"), ("missing", "success"), ("", "failure"), ("", "skipped")):
+        moving = [name for name in channel_jobs if runs(all_jobs, name, built_nothing(feat, state, result))]
+        _check(not moving, f"no commit manifest (adopt {result}, state {state or 'none'}): the channel stays ({moving})")
+    for ref in ("refs/heads/main", "refs/heads/codex/some-lane", "refs/heads/nightly-next"):
+        moving = [name for name in channel_jobs if runs(all_jobs, name, built_nothing(ref, "adopted"))]
+        _check(not moving, f"only feat-cmux-next moves the machine channel, not {ref} ({moving})")
+
+    # The run that built and published still points after verify-publish, as before.
+    built = context(feat, daemon_result=None)
+    built.update({"needs.verify-publish.result": "success", "needs.adopt-commit-manifest.result": "skipped",
+                  "needs.adopt-commit-manifest.outputs.state": ""})
+    _check(runs(all_jobs, "point-machine-channel", built), "a published feat-cmux-next build points the machine channel")
+
+    job = all_jobs["point-machine-channel"]
+    _check("adopt-commit-manifest" in needs(job), f"point-machine-channel follows adopt-commit-manifest ({needs(job)})")
+    step = next((step for step in job["steps"] if step.get("name") == "Sign and upload the channel"), {})
+    script, env = step.get("run", ""), step.get("env", {})
+    point = script.split("scripts/ci/cmux-machine-channel-point.sh", 1)[0]
+    _check("cmux-tui/$GITHUB_SHA/manifest.json" in point and "--manifest" in point and "--machine-path" not in point,
+           "its payload comes from this commit's manifest, onto the fat cmux-tui/<sha>/ names (no --machine-path)")
+    # The signed Linux release file signs only this run's own build artifacts: a run that built
+    # nothing has none, so it signs nothing (and logs no warning for it).
+    _check('[[ VERIFY_PUBLISH != success ]]' in script.replace('"', "").replace("$", ""),
+           "the Linux release file is signed only by a run that built and published")
+    _check(env.get("VERIFY_PUBLISH") == "${{ needs.verify-publish.result }}",
+           "the step reads verify-publish's result")
+    # 2026-11-15: an adopted tree moved the channel from the thin build of its tree to the fat build of
+    # the same source, and every Cloud machine updated to identical code. The Cloud machine call keeps
+    # a channel whose commit has this commit's tree key (cmux-machine-channel-point.sh --same-tree,
+    # tests/test_cmux_machine_channel.py CloudMachinePoint); the Linux release file's call does not.
+    calls = [line.strip() for line in script.splitlines()
+             if line.strip().startswith("scripts/ci/cmux-machine-channel-point.sh")]
+    _check(calls[:1] == ['scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir" --same-tree'],
+           f"point-machine-channel keeps a channel of the same tree key ({calls[:1]})")
+    # #60636 moved the Linux release file's call into scripts/ci/linux-release-sign.sh: the step calls the
+    # Cloud machine point directly, then runs that script, whose own call never takes --same-tree.
+    sign = Path(ROOT, "scripts/ci/linux-release-sign.sh").read_text()
+    sign_calls = [line.strip() for line in sign.splitlines()
+                  if line.strip().startswith("scripts/ci/cmux-machine-channel-point.sh")]
+    _check(len(calls) == 1 and "scripts/ci/linux-release-sign.sh" in script
+           and len(sign_calls) == 1 and "--same-tree" not in sign_calls[0],
+           f"only the Cloud machine call takes --same-tree ({calls}, {sign_calls})")
+    channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())["jobs"]
+    for name in ("point-x86_64", "point-linux"):
+        _check(not any("--same-tree" in str(step.get("run", "")) for step in channel[name]["steps"]),
+               f"cmux-machine-channel.yml's {name} moves by its new build, as before")
+    # The same-tree rule computes the tree key of the commit the channel names, so the job's checkout
+    # holds history (the full checkout's fetch-depth), not a sparse or single-commit one.
+    checkout = next(step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
+    _check("sparse-checkout" not in checkout.get("with", {}) and int(checkout["with"].get("fetch-depth", 1)) > 1,
+           "point-machine-channel checks out the tree key inputs with history")
+
+    # The fat URL the manifest payload names is the first of the two the updater accepts.
+    rust = Path(ROOT, "cmux-tui/crates/cmux-host/src/updater/channel.rs").read_text(encoding="utf-8")
+    _check('format!("{FILES_PREFIX}{commit}/{published_name}")' in rust
+           and 'pub const FILES_PREFIX: &str = "https://files.cmux.com/cmux-tui/";' in rust,
+           "updater/channel.rs allowed_urls accepts https://files.cmux.com/cmux-tui/<commit>/<name>")
+    payload_py = Path(ROOT, "scripts/ci/cmux-machine-channel.py").read_text(encoding="utf-8")
+    _check('FILES = "https://files.cmux.com/cmux-tui"' in payload_py
+           and "url = f\"{FILES}/{args.commit}/{'machine/' if args.machine_path else ''}{published}\"" in payload_py,
+           "cmux-machine-channel.py names <FILES>/<commit>/<name> without --machine-path")
+
+
+def coalesce_marks_only_a_window_without_a_tree(all_jobs):
+    """coalesce-failed re-opens a window only when its run published no tree.
+
+    The marker lets the window's next push build again (base-coalesce.yml, RETRIES a
+    window). On 2026-11-26 the 01:00Z window's runs 45733047134, 45737327859,
+    45738040164 and 45739215246 each published their tree (publish-tree jobs
+    139634472081, 139646177676, 139646593847) and failed only
+    cmux-next-daemon-tests, so every one marked the window failed and the next push
+    rebuilt the whole tree on the nightly pool: four full builds for one window,
+    and a window whose retries were spent then built nothing for its newest head.
+    A daemon-test or Windows red is not fixed by rebuilding the tree; the next
+    window's run tests the key again (tree-preflight daemon_tested).
+    """
+    job = all_jobs["coalesce-failed"]
+    names = needs(job)
+    expression = str(job["if"]).replace("needs.*.result", "needs.ALL.result")
+    held_expression = str(job.get("with", {}).get("held", "false"))
+
+    def outcome(claimed="true", **results):
+        """(marks, held): whether the job runs, and whether it saves a held marker."""
+        values = {"needs.coalesce.outputs.claimed": claimed}
+        for name in names:
+            values[f"needs.{name}.result"] = results.get(name.replace("-", "_"), "success")
+        values["needs.ALL.result"] = [values[f"needs.{name}.result"] for name in names]
+        marks = evaluate(expression, values)
+        held = held_expression not in ("false", "False") and evaluate(held_expression, values)
+        return marks, held
+
+    _check("publish-tree" in names, "coalesce-failed waits for publish-tree")
+    _check(not outcome()[0], "a green claimed run leaves its window as it is")
+    _check(not outcome(claimed="false", build_linux="failure", publish_tree="skipped")[0],
+           "a run that did not claim the window never marks it")
+    for result in ("failure", "cancelled"):
+        for leg in ("cmux_next_daemon_tests", "build_windows"):
+            _check(outcome(**{leg: result}) == (True, True),
+                   f"{leg} {result} after the tree published: a held marker, so no full rebuild and no REST fallback")
+        _check(outcome(build_linux=result, publish_tree="skipped") == (True, False),
+               f"Linux build {result}, no tree: the window's next push builds again")
+        _check(outcome(build=result, publish_tree="skipped") == (True, False),
+               f"macOS build {result}, no tree: the window's next push builds again")
+        _check(outcome(tree_preflight=result, build_linux="skipped", build="skipped", publish_tree="skipped")
+               == (True, False), f"tree-preflight {result}: the window's next push builds again")
+        _check(outcome(publish_tree=result) == (True, False),
+               f"publish-tree {result}: the window's next push builds again")
+    base_coalesce_holds_a_held_window()
+
+
+def _step(workflow_jobs_, job, name):
+    for step in workflow_jobs_[job]["steps"]:
+        if step.get("name") == name:
+            return step["run"]
+    raise KeyError(f"{job}: no step {name!r}")
+
+
+def base_coalesce_holds_a_held_window():
+    """base-coalesce saves held-RUNID for `held`, and the window's next push reads it as held."""
+    import subprocess
+    import tempfile
+
+    coalesce = workflow_jobs.jobs(Path(ROOT, ".github", "workflows", "base-coalesce.yml"))
+    name_marker = _step(coalesce, "mark", "Name the marker")
+    read_marker = _step(coalesce, "coalesce", "Did this window's run fail?")
+
+    def run(script, **env):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp, "out")
+            out.write_text("")
+            full = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(out), "GITHUB_RUN_ID": "45738040164",
+                    "RETRIES": "3", **env}
+            done = subprocess.run(["bash", "-c", script], cwd=tmp, env=full, capture_output=True, text=True)
+            return done.returncode, out.read_text(), done.stdout
+
+    for held, want in (("true", "key=29400060-held-45738040164"), ("false", "key=29400060-1-45738040164")):
+        rc, out, _ = run(name_marker, WINDOW="29400060", ROUND="1", HELD=held)
+        _check(rc == 0 and want in out, f"mark with held={held} names {want} ({out.strip()!r})")
+    rc, out, said = run(read_marker, WINDOW="29400060", MARKER="base-coalesce-cmux-tui-artifacts-f-29400060-held-45738040164",
+                        START="", WORKFLOW_REF="", GH_TOKEN="")
+    _check(rc == 0 and "retry=" not in out and "holds" in said,
+           f"a held marker holds the window: no retry, no REST lookup ({out.strip()!r} {said.strip()!r})")
+    rc, out, _ = run(read_marker, WINDOW="29400060", MARKER="base-coalesce-cmux-tui-artifacts-f-29400060-0-45733047134",
+                     START="", WORKFLOW_REF="", GH_TOKEN="")
+    _check(rc == 0 and "retry=45733047134" in out and "round=1" in out,
+           f"a failed marker still lets the next push build again ({out.strip()!r})")
 
 
 def main():
@@ -245,16 +452,24 @@ def main():
     _check(DAEMON not in all_needs(all_jobs, "mark-tree-commits"),
            f"mark-tree-commits does not wait for the daemon tests ({sorted(all_needs(all_jobs, 'mark-tree-commits'))})")
     _check(set(tree_publishers) <= set(needs(mark)), f"mark-tree-commits follows every tree publisher ({needs(mark)})")
-    for event in ("push", "workflow_dispatch"):
-        for published in ("success", "skipped"):
-            values = context("refs/heads/feat-cmux-next", event=event, daemon_result=None)
-            values.update({f"needs.{name}.result": published for name in tree_publishers})
-            _check(runs(all_jobs, "mark-tree-commits", values),
-                   f"a feat-cmux-next {event} marks its commits with publish {published}, its daemon tests still queued")
-        failed = context("refs/heads/feat-cmux-next", event=event, daemon_result=None)
-        failed.update({f"needs.{name}.result": "failure" for name in tree_publishers})
-        _check(not runs(all_jobs, "mark-tree-commits", failed),
-               f"a feat-cmux-next {event} whose publish failed marks nothing")
+    # A nightly-next push marks too: it publishes the build commit's tree while that commit's
+    # feat-cmux-next run coalesced into it (run 45987983838 waited 17.9 min for the marker).
+    for ref in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next"):
+        branch = ref.rsplit("/", 1)[-1]
+        for event in ("push", "workflow_dispatch"):
+            for published in ("success", "skipped"):
+                values = context(ref, event=event, daemon_result=None)
+                values.update({f"needs.{name}.result": published for name in tree_publishers})
+                _check(runs(all_jobs, "mark-tree-commits", values),
+                       f"a {branch} {event} marks its commits with publish {published}, its daemon tests still queued")
+            failed = context(ref, event=event, daemon_result=None)
+            failed.update({f"needs.{name}.result": "failure" for name in tree_publishers})
+            _check(not runs(all_jobs, "mark-tree-commits", failed),
+                   f"a {branch} {event} whose publish failed marks nothing")
+    for ref in ("refs/heads/main", "refs/heads/lane/x"):
+        values = context(ref, event="push", daemon_result=None)
+        values.update({f"needs.{name}.result": "success" for name in tree_publishers})
+        _check(not runs(all_jobs, "mark-tree-commits", values), f"a {ref} push marks nothing")
 
     # The run that ends unpublished still reports, whichever job would have published.
     notify = all_jobs["notify-unpublished-tree"]
@@ -268,7 +483,10 @@ def main():
         _check("build-windows" not in all_needs(all_jobs, name), f"{name} does not wait for build-windows")
     _check(all_jobs["build"]["with"].get("include_windows") is False,
            "the macOS and Linux build call builds no Windows target")
-    windows_with = all_jobs["build-windows"]["with"]
+    # build-windows reads what it builds from the keyed profile file (cmux-tui-build-profiles.json).
+    profile_ref = "${{ fromJSON(needs.tree-preflight.outputs.build_profiles).windows.%s }}"
+    windows_profile = json.loads(Path(ROOT, "scripts/cmux-next/cmux-tui-build-profiles.json").read_text(encoding="utf-8"))["windows"]
+    windows_with = {k: windows_profile[k] if v == profile_ref % k else v for k, v in all_jobs["build-windows"]["with"].items()}
     _check(windows_with.get("include_windows") is True and windows_with.get("target_set") == "windows",
            "build-windows builds only the Windows target")
     windows_publishers = publishers(all_jobs, windows=True)
@@ -283,6 +501,10 @@ def main():
            and windows_pass(all_jobs["publish-windows"])
            and "needs.build-windows.outputs.windows_built == 'true'" in str(all_jobs["publish-windows"]["if"]),
            "publish-windows runs publish's own steps, only for a Windows build that uploaded its artifact")
+
+    machine_channel_follows_an_adopted_manifest(all_jobs)
+    linux_release_sign_downloads_over_the_runner_token(all_jobs)
+    coalesce_marks_only_a_window_without_a_tree(all_jobs)
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

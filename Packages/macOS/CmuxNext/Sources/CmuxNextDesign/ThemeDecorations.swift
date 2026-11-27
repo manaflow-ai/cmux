@@ -9,14 +9,22 @@ public import CmuxNextDesignTokens
 /// `data-cmux-decoration-<slot>="<name>"` on `<html>`, and draw the decoration themselves. An
 /// empty set sends nothing, so a page's payload and markup are what they were before slots.
 ///
-/// One slot and one decoration so far: the "cmux Updated!" card's doodle (``updateDoodle``, a
-/// hand-drawn "you're on ...!" pointing at What's New, after the Yab browser's). Later fillers
+/// Three slots so far: the "cmux Updated!" card's doodle (``updateDoodle``, a hand-drawn "you're
+/// on ...!" pointing at What's New, after the Yab browser's), and the Debug look of the same card's
+/// change list (``UpdatedCardPreviewMode``) and of its changes popover (``UpdatedNotesLook``), both
+/// compare-only choices, not decorations. Later fillers
 /// (a theme of its own, Leo's "cat ears on the composer") add a slot here and fill it.
 public nonisolated struct ThemeDecorations: Equatable, Sendable {
     /// A place in the chrome a decoration can fill.
     public enum Slot: String, CaseIterable, Sendable {
         /// The "cmux Updated!" card in the sidebar (UpdateSurfaces.tsx `UpdatedCard`).
         case updatedCard = "updated-card"
+        /// Where the Updated card shows the update's changes (``UpdatedCardPreviewMode``): filled
+        /// only with a look other than the shipped one, so the shipped page reads no attribute.
+        case updatedCardPreview = "updated-card-preview"
+        /// How the Updated card's changes stand in their popover (``UpdatedNotesLook``): filled only
+        /// with a look other than the shipped one.
+        case updatedNotesLook = "updated-notes-look"
     }
 
     /// The decoration name in each filled slot.
@@ -29,7 +37,12 @@ public nonisolated struct ThemeDecorations: Equatable, Sendable {
     /// The decorations the app draws now: the Debug toggles' (DEV and NIGHTLY builds; Release
     /// keeps every slot empty).
     public static var current: ThemeDecorations {
-        ThemeDecorations(updateDoodle.value ? [.updatedCard: "doodle"] : [:])
+        var filled: [Slot: String] = updateDoodle.value ? [.updatedCard: "doodle"] : [:]
+        let preview = UpdatedCardPreviewMode.tunable.value
+        if preview != .shipped { filled[.updatedCardPreview] = preview.rawValue }
+        let notesLook = UpdatedNotesLook.tunable.value
+        if notesLook != .shipped { filled[.updatedNotesLook] = notesLook.rawValue }
+        return ThemeDecorations(filled)
     }
 
     /// `slot` to decoration name, as the page reads them (empty without decorations).
@@ -46,5 +59,5 @@ public nonisolated struct ThemeDecorations: Equatable, Sendable {
         help: "After an update, the \"cmux Updated!\" card draws a hand-drawn note pointing at What's New, with \"got it\" to dismiss it. Applies to the next card that shows.",
         default: false, code: "ThemeDecorations.updateDoodle")
 
-    public static var tunables: [TunableDescriptor] { [updateDoodle.descriptor] }
+    public static var tunables: [TunableDescriptor] { [updateDoodle.descriptor, UpdatedCardPreviewMode.tunable.descriptor, UpdatedNotesLook.tunable.descriptor] }
 }

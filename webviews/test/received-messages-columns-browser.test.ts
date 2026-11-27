@@ -8,7 +8,7 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -42,6 +42,15 @@ await requireBrowserLane("received-messages-columns-browser.test.ts", async () =
     await vite?.close();
   });
 
+  /** Another agent's message in a finished turn folds into its "Worked for" like work (turns.ts
+   * `isOwnSteer`, #37710/#41597), so the "Received N messages" row draws once that is open. The
+   * level-1 and level-2 plays open it themselves; the collapsed variant leaves it closed. */
+  const openWorked = async (page: Page) => {
+    const closed = page.locator(".cv-worked[aria-expanded='false']");
+    if (await closed.count()) await closed.first().click();
+    await page.locator(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle").first().waitFor();
+  };
+
   const open = async (variant: string) => {
     const page = await browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2 });
     const port = (vite!.httpServer!.address() as { port: number }).port;
@@ -50,6 +59,7 @@ await requireBrowserLane("received-messages-columns-browser.test.ts", async () =
       timeout: 120_000,
     });
     await page.evaluate(() => document.fonts.ready);
+    await openWorked(page);
     await page.mouse.move(0, 0);
     return page;
   };
@@ -97,7 +107,7 @@ await requireBrowserLane("received-messages-columns-browser.test.ts", async () =
         };
         const head = document.querySelector(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle")!;
         const icon = head.querySelector(":scope > .cv-tool__icon")!;
-        const lines = [...document.querySelectorAll(".cv-lane-batch__body .cv-received > .cv-disclosure__line")].filter(
+        const lines = [...document.querySelectorAll(".cv-lane-batch__body .cv-received > .cv-agentmsg__line")].filter(
           visible,
         );
         return {

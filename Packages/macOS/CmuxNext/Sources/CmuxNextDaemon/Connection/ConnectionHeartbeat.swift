@@ -1,3 +1,4 @@
+internal import CCmuxDaemonConnFFI
 import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
@@ -20,15 +21,22 @@ import CmuxNextCompat
 /// daemon answers; only EOF, a socket error or the process's exit end it. A
 /// bridged connection, whose daemon this Mac cannot see, still closes after its
 /// misses, which emits `.disconnected` and reconnects.
+///
+/// The counting is Rust's (`cmux_heartbeat_*`, cmux-daemon-conn-core src/heartbeat.rs); the timer, the ask
+/// and the observer stay here.
 final class ConnectionHeartbeat: Sendable {
     private let timer: DemandTimer
-    /// Unanswered asks in a row and the run they belong to.
-    private let state = Mutex((misses: 0, run: UInt64(0), answering: true))
+    /// Unanswered asks in a row, the run they belong to and ``answering`` (`CmuxHeartbeat`).
+    private let state = Mutex(cmux_heartbeat_new())
     /// Told each change of ``answering``, outside the lock (``observeAnswering(_:)``).
     private let observer = Mutex<(@Sendable (Bool) -> Void)?>(nil)
+    /// The waits ``untilSilent(_:)`` ends at the next not-answering verdict, by id.
+    private let silentWaits = Mutex<(next: UInt64, ends: [UInt64: @Sendable () -> Void])>((0, [:]))
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
-        timer = DemandTimer(owner: "DaemonConnection.heartbeat", clock: clock)
+        // An ask may go up to 5 s early on a wake that already happened (``WakeCoalescer``): at idle the
+        // heartbeat costs no wake of its own (0.07/s on cmux20-bench, 2026-11-25).
+        timer = DemandTimer(owner: "DaemonConnection.heartbeat", clock: clock, early: .seconds(5))
     }
 
     /// False while the daemon left `misses` asks in a row unanswered and its connection stays open
@@ -40,37 +48,61 @@ final class ConnectionHeartbeat: Sendable {
     /// can probe it then (``DaemonRecovery`` runs one `server ensure` per call); nil stops. The value is a hint
     /// of the moment: read ``answering`` for the current one.
     func observeAnswering(_ observer: (@Sendable (Bool) -> Void)?) {
-        self.observer.withLock { $0 = observer }
+        self.observer.store(observer)
     }
 
-    /// Sets ``answering`` for run `run` (any run when nil) and tells the observer when it changed, and at
-    /// every unanswered ask past the misses.
-    private func setAnswering(_ answering: Bool, run: UInt64?) {
-        let tell = state.withLock { state -> Bool in
-            guard run.map({ $0 == state.run }) ?? true else { return false }
-            let changed = state.answering != answering
-            state.answering = answering
-            return changed || !answering
+    private func tell(_ answering: Bool) {
+        if let observer = observer.load() { observer(answering) }
+    }
+
+    /// `work`'s value, or nil once this heartbeat finds the daemon not answering while it waits: its
+    /// next verdict past the misses (`heartbeat` x `heartbeatMisses` of silence on `identify`, which
+    /// the daemon answers before its connection's queue), so silence ends the wait and slowness never
+    /// does. Only for a wait with no side effect (the sync barrier's `identify`): `work` goes on to
+    /// its reply or the connection's end unwatched. With no heartbeat running it waits as `work` does.
+    func untilSilent<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T? {
+        let wait = SilentWait<T>()
+        let id = silentWaits.withLock { waits -> UInt64 in
+            waits.next &+= 1
+            waits.ends[waits.next] = { wait.finish(.success(nil)) }
+            return waits.next
         }
-        if tell, let observer = observer.withLock({ $0 }) { observer(answering) }
+        defer { _ = silentWaits.withLock { $0.ends.removeValue(forKey: id) } }
+        // task-owner: the request's own wait; ends with its reply or the connection's end
+        Task {
+            do { wait.finish(.success(try await work())) } catch { wait.finish(.failure(error)) }
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { wait.store($0) }
+        } onCancel: {
+            wait.finish(.failure(CancellationError()))
+        }
+    }
+
+    private func endSilentWaits() {
+        let ends = silentWaits.withLock { waits in
+            defer { waits.ends = [:] }
+            return Array(waits.ends.values)
+        }
+        for end in ends { end() }
     }
 
     /// Starts asking on `transport`; a later start (a reconnect) or `stop`
     /// ends the earlier run, and a closed transport ends it after its misses.
     func start(_ transport: LineTransport, every interval: Duration, misses limit: Int) {
-        let run = state.withLock { state -> UInt64 in
-            state.misses = 0
-            state.run &+= 1
-            return state.run
+        let (run, told) = state.withLock { beat -> (UInt64, Bool) in
+            var told = false
+            let run = cmux_heartbeat_start(&beat, &told)
+            return (run, told)
         }
-        setAnswering(true, run: nil)
+        if told { tell(true) }
         schedule(transport, every: interval, misses: limit, run: run)
     }
 
     func stop() {
-        state.withLock { $0.run &+= 1 }
+        let told = state.withLock { cmux_heartbeat_stop(&$0) }
         timer.cancel()
-        setAnswering(true, run: nil)
+        if told { tell(true) }
     }
 
     private func schedule(_ transport: LineTransport, every interval: Duration, misses limit: Int, run: UInt64) {
@@ -84,17 +116,54 @@ final class ConnectionHeartbeat: Sendable {
         let answered = (try? await transport.request(cmd: IdentifyRequest.command, timeout: interval) { id in
             try WireCoding.encodeRequest(IdentifyRequest(), id: id)
         }) != nil
-        let missed = state.withLock { state -> Bool? in
-            guard state.run == run else { return nil }
-            state.misses = answered ? 0 : state.misses + 1
-            return state.misses >= limit
-        }
-        guard let missed else { return }
-        if missed, !transport.peerProcessIsAlive {
+        let peerAlive = transport.peerProcessIsAlive
+        let step = state.withLock { cmux_heartbeat_tick(&$0, run, answered, Int64(clamping: limit), peerAlive) }
+        switch step.action {
+        case 1: // missed, and its daemon is not alive
             transport.close()
+        case 2:
+            if step.tell { tell(step.answering) }
+            if !step.answering { endSilentWaits() }
+            schedule(transport, every: interval, misses: limit, run: run)
+        default: // a later start or a stop ended the run
             return
         }
-        if answered || missed { setAnswering(answered, run: run) }
-        schedule(transport, every: interval, misses: limit, run: run)
+    }
+}
+
+/// One ``ConnectionHeartbeat/untilSilent(_:)`` wait: the first end (the work's, the silence's or the
+/// caller's cancel) resumes it.
+private final class SilentWait<T: Sendable>: Sendable {
+    private enum State {
+        case idle
+        case waiting(CheckedContinuation<T?, any Error>)
+        case ended(Result<T?, any Error>)
+    }
+
+    private let state = Mutex(State.idle)
+
+    func store(_ continuation: CheckedContinuation<T?, any Error>) {
+        let ended: Result<T?, any Error>? = state.withLock { state in
+            if case .ended(let result) = state { return result }
+            state = .waiting(continuation)
+            return nil
+        }
+        if let ended { continuation.resume(with: ended) }
+    }
+
+    func finish(_ result: Result<T?, any Error>) {
+        let waiting: CheckedContinuation<T?, any Error>? = state.withLock { state in
+            switch state {
+            case .ended:
+                return nil
+            case .waiting(let continuation):
+                state = .ended(result)
+                return continuation
+            case .idle:
+                state = .ended(result)
+                return nil
+            }
+        }
+        waiting?.resume(with: result)
     }
 }

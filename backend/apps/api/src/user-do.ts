@@ -1,7 +1,8 @@
+import { envForObject } from "./build-space.ts"
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { mcpScopesForGrant } from "./mcp-grant.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
-import { conversation as homeConversation, inbox as homeInbox, invites, user as homeUser } from "@cmux/home-core"
+import { appkv, conversation as homeConversation, inbox as homeInbox, invites, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import * as quota from "./home-attachment-quota.ts"
 import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
@@ -13,18 +14,27 @@ import { chiefActive, grantFor, inboxRefusalFor, installActive, liveInstallGrant
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, HOSTED_DEFAULT_KEY, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
 import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
 import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
+import { appKvMaySubscribe, readAppKvOp } from "./user-appkv.ts"
+import { memberCheck, stackHealDeps, type MemberCheck, type StackHealDeps } from "./stack-team-heal.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 import { installAuthorityVersion } from "./domains/user-authority.ts"
-import { DEFAULT_CHIEF_BIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
-import { deliverSignupChief, type DefaultMachinePlatform } from "./user-chief-provision.ts"
+import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_REBIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
+import {
+  deliverSignupChief,
+  rebindDefaultChief,
+  type DefaultMachinePlatform,
+  type RebindReply,
+  backfillDefaultChief,
+  platformInSpace,
+} from "./user-chief-provision.ts";
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
@@ -32,7 +42,7 @@ const CHALLENGE_TTL_MS = 2 * 60_000
 /** networkIdentity's answer: public key, kind, live grant expiry and op classes, and the install authority version. */
 export interface NetworkIdentityView { key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> }
 
-export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "auth.forbidden" | "validation.invalid"; message: string }
+export type RedeemResult = ({ ok: true; readonly bound_machine?: string } & InstallClaims) | { ok: false; code: "auth.forbidden" | "validation.invalid" | "owner.unreachable"; message: string }
 
 /**
  * UserDO: the user's installs, devices, grants and revocation (identity spec
@@ -47,15 +57,19 @@ export class UserDO extends OwnerDO<UserState> {
   protected override checksInstallRevocation = false
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
   private readonly inbox: SecondaryStream<homeInbox.InboxHead>
+  /** Third stream `appkv:<user>` (cmuxterm-hq#12221): synced app storage, one row per (app, key) (user-appkv.ts). */
+  private readonly appkv: SecondaryStream<appkv.AppKvHead>
   /** Home push queue (home-push.ts): one row per conversation, the dedupe for redelivered and coalesced bumps. */
   private readonly homePush: HomePushQueue
 
   /** Sends one Home alert (APNs, as FeedDO); tests replace it inside the object. */
   protected homePushSender = apnsHomePushSender(this.env)
   /** Signup's server-only service binding (replaced inside the object in integration tests). */
-  protected signupPlatform = () => this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined
+  /** The platform's default machine, asked in this object's build space (`platformInSpace`). */
+  protected signupPlatform = () => platformInSpace(this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined, this.env.BUILD_SPACE)
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_team_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, team TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
@@ -70,8 +84,38 @@ export class UserDO extends OwnerDO<UserState> {
       engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
       // A chief token (principal.agent) never reads the owner's inbox: it holds the owner's DM previews (cx-59n8.11).
-      maySubscribe: (_head, principal, entity) => principal.user === entity && principal.agent === undefined && !isMachineInstallKind(principal.install_kind) && !(principal.install !== undefined && isMachineInstallKind(this.existing()?.currentState.installs[principal.install]?.kind))
+      maySubscribe: (_head, principal, entity) => principal.user === entity && principal.agent === undefined && !isMachineInstallKind(principal.install_kind) && !(principal.install !== undefined && isMachineInstallKind(this.existing()?.currentState.installs[principal.install]?.kind)) && inboxRefusalFor(this.existing()!.currentState, entity, principal, "inbox.list") === undefined
     }, (ws, a) => this.socketLive(ws, a))
+    this.appkv = new SecondaryStream(ctx, this.sqlStore, {
+      prefix: "appkv",
+      tablePrefix: "appkv_",
+      // The reducer validates the untrusted params; the gate is this person's own session or install (user-appkv.ts).
+      domain: appkv.makeAppKvDomain((principal, op) => this.appKvRefusal(principal, op)) as Domain<appkv.AppKvHead>,
+      // Rows are ordered by the revision of their last write: a snapshot carries the newest rows, `appkv.list` pages all.
+      engine: { rowMode: { snapshotTable: appkv.TABLE_ITEM, snapshotTail: appkv.APPKV_SNAPSHOT_ROWS } },
+      owns: (op) => op.startsWith("appkv."),
+      // As the inbox: the person only, never a chief token or a machine (Cloud VM) install. A snapshot
+      // hands over every row, so the subscriber also needs what `appkv.list` needs: an active install
+      // whose grant has the read class (an install narrowed to mutate-own may write, never read).
+      maySubscribe: (_head, principal, entity) =>
+        appKvMaySubscribe(principal, entity, (install) => this.existing()?.currentState.installs[install]?.kind) && this.appKvRefusal(principal, "appkv.list") === undefined
+    }, (ws, a) => this.socketLive(ws, a))
+  }
+
+  /** Synced app storage calls: this user's session, or an active non-machine install whose grant covers the op; never a chief token. */
+  private appKvRefusal(principal: Principal, op: string): { code: string; message: string } | undefined {
+    if (principal.agent !== undefined) return { code: "auth.forbidden", message: "a chief token cannot use the owner's synced app storage" }
+    const engine = this.existing()
+    if (!engine) return { code: "auth.forbidden", message: "unknown user" }
+    const entity = engine.stream.slice("user:".length)
+    if (principal.user !== entity) return { code: "auth.forbidden", message: "not this user's synced app storage" }
+    return inboxRefusalFor(engine.currentState, entity, principal, op)
+  }
+
+  /** The appkv engine of the bound user, opened on first use (also after hibernation). */
+  private boundAppKv() {
+    const engine = this.existing()
+    return engine ? this.appkv.open(engine.stream.slice("user:".length)) : undefined
   }
 
   /** The inbox engine of the bound user, opened on first use (also after hibernation). */
@@ -95,10 +139,19 @@ export class UserDO extends OwnerDO<UserState> {
       } catch {}
       return true
     }
-    if (!this.inbox.handles(frame)) return false
+    const stream = this.inbox.handles(frame) ? this.inbox : this.appkv.handles(frame) ? this.appkv : undefined
+    if (!stream) return false
     const engine = this.existing()
     if (!engine) return false
-    this.inbox.onFrame(ws, a, engine.stream.slice("user:".length), frame)
+    const entity = engine.stream.slice("user:".length)
+    // A frame naming another user's appkv stream is refused, never answered from this user's.
+    if (stream === this.appkv && typeof frame.stream === "string" && frame.stream !== `appkv:${entity}`) {
+      try {
+        ws.send(JSON.stringify({ t: "error", code: "auth.forbidden", message: `not allowed on ${frame.stream}` }))
+      } catch {}
+      return true
+    }
+    stream.onFrame(ws, a, entity, frame)
     this.scheduleAlarm()
     return true
   }
@@ -117,10 +170,12 @@ export class UserDO extends OwnerDO<UserState> {
 
   protected override nextWakeAt(): number | null {
     this.boundInbox()
+    this.boundAppKv()
     const inbox = this.inbox.nextWakeAt()
+    const appKv = this.appkv.nextWakeAt()
     const pending = krlDueAt(this.boundEngine?.currentState, this.krlRetry, Date.now())
     const closes = nextCloseAt(this.ctx.storage.sql, this.closeRetryAt)
-    const times = [inbox, pending, closes, this.homePush.nextDueAt()].filter((t): t is number => t !== null)
+    const times = [inbox, appKv, pending, closes, this.homePush.nextDueAt()].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 
@@ -178,6 +233,29 @@ export class UserDO extends OwnerDO<UserState> {
     })
   }
 
+  /**
+   * The default Chief's brain asks this when its stored VM no longer answers (chief-default-hand.ts): the platform
+   * names the current VM of the same logical machine, and only that is bound (DO RPC, no route reaches it).
+   */
+  async rebindDefaultChief(entity: string, agent: string): Promise<RebindReply> {
+    if (!this.isBound(entity)) return { ok: false, code: "chief.machine.not_default", retryable: false }
+    return rebindDefaultChief(this.signupPlatform(), entity, agent,
+      () => this.isBound(entity) ? this.bind(entity).currentState : undefined,
+      (machine, key) => this.submitSystem(DEFAULT_CHIEF_REBIND, machine, key, defaultChiefIdentity(entity)))
+  }
+
+  /** An account older than signup provisioning gets the same outbox once, after its ensure (user-chief-provision.ts). */
+  private backfillDefaultChief() {
+    try {
+      const engine = this.existing()
+      if (!engine) return
+      const entity = engine.stream.slice("user:".length)
+      backfillDefaultChief(this.env, engine.currentState, (op, key) => this.submitSystem(op, {}, key, defaultChiefIdentity(entity)))
+    } catch {
+      // The ensure already committed; a later ensure tries again.
+    }
+  }
+
   private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
 
   /** Closes a revoked install's sockets on every other owner (instant revocation). */
@@ -226,6 +304,7 @@ export class UserDO extends OwnerDO<UserState> {
   protected override afterOp(principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, params?: unknown) {
     super.afterOp(principal, op, frames, params)
     this.closeRevoked(op, frames)
+    if (op === "user.ensure" && frames.some((f) => f.t === "result")) this.backfillDefaultChief()
     const engine = op === "inbox.bump" && principal.kind === "system" ? this.existing() : undefined
     if (engine) decideHomePush(this.homePush, engine.stream.slice("user:".length), frames, params)
   }
@@ -254,6 +333,28 @@ export class UserDO extends OwnerDO<UserState> {
   protected override onPrune(): void {
     this.boundInbox()
     this.inbox.prune(Date.now())
+    this.boundAppKv()
+    this.appkv.prune(Date.now())
+  }
+
+  /** RPC: a synced app storage write (`appkv.set`, `appkv.delete`) from the person's session or install. */
+  async submitAppKv(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    this.bind(entity)
+    const refused = this.appKvRefusal(principal, frame.op)
+    if (refused) return { frames: [{ t: "reject", tx: "", idempotency_key: frame.idempotency_key, code: refused.code, message: refused.message, retryable: false, replayed: false } as OwnerFrame] }
+    this.appkv.open(entity)
+    const frames: Array<OwnerFrame> = []
+    this.appkv.submit(principal, frame, (f) => frames.push(f))
+    this.scheduleAlarm()
+    return { frames }
+  }
+
+  /** RPC: synced app storage reads (`appkv.list`), the same callers as the writes. */
+  async readAppKv(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
+    this.bind(entity)
+    const refused = this.appKvRefusal(principal, op)
+    if (refused) return { ok: false, code: refused.code, message: refused.message }
+    return readAppKvOp(this.appkv, entity, op, params)
   }
 
   /** RPC: an inbox op (pin, mute, archive, mark unread) from the user's session or install. */
@@ -514,7 +615,7 @@ export class UserDO extends OwnerDO<UserState> {
     const u = this.existing()?.currentState.user
     return Boolean(u && u.id === entity && u.email_verified === true && isCompanyEmail(u.email))
   }
-  async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
+  async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id
   /** TeamDO's identity check only: an active daemon's public key, scoped to its existing team and grant. */
   async serverKey(entity: string, install: string, grant: string, team: string): Promise<JsonWebKey | null> {
     const engine = this.existing()
@@ -629,11 +730,33 @@ export class UserDO extends OwnerDO<UserState> {
     return grant && grant.revoked_at === null ? (inst.public_jwk as JsonWebKey) : null
   }
 
-  /** Live membership authority used only after the caller proves possession of its install key. */
-  protected tokenTeamMember = (team: string, user: string): Promise<string | null> =>
-    this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).memberRole(team, user)
+  /**
+   * Live membership authority used only after the caller proves possession of its install key: TeamDO,
+   * healed from Stack when TeamDO does not know a person Stack lists in the team (stack-team-heal.ts), within
+   * its budget; a heal past it goes on here, so the app's next mint finds the team synced.
+   */
+  protected tokenTeamMember = (team: string, user: string, stackUser: string | undefined): Promise<MemberCheck> =>
+    memberCheck(this.env, team, user, stackUser, this.stackHeal ?? stackHealDeps(this.env), { background: (p) => this.ctx.waitUntil(p) })
+  /** How the heal reads Stack; tests set a fake Stack here. */
+  protected stackHeal: StackHealDeps | undefined
 
   /** One-time challenge + ES256 signature by the install key + revocation check. */
+  /**
+   * A VM install's sign-in through its machine's platform edge (MachineEdgeSignin): cmux-platform has verified the
+   * edge header Freestyle injects for `machine`, so no install-key signature is asked. Only a live `vm` install bound
+   * to that team and machine, under its own live vm-self grant, answers; the claims never carry `edge`.
+   */
+  async edgeRedeem(entity: string, install: string, grant: string, team: string, machine: string): Promise<RedeemResult> {
+    const engine = this.existing()
+    const refused = { ok: false as const, code: "auth.forbidden" as const, message: "machine install unknown, revoked or not bound to this machine" }
+    if (!engine || engine.stream !== `user:${entity}`) return refused
+    const state = engine.currentState, inst = state.installs[install], held = state.grants[grant]
+    if (!state.user || state.user.id !== entity || !inst || inst.revoked_at !== null || inst.kind !== "vm" || inst.grant !== grant || inst.bound_team !== team || inst.bound_machine !== machine) return refused
+    if (!held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("vm-self")) return refused
+    const emailDomain = emailDomainOf(state.user.email)
+    return { ok: true, user: entity, team, install, grant, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), vm: true as const }
+  }
+
   async redeem(entity: string, install: string, nonce: string, signature: string, agent?: string): Promise<RedeemResult> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false, code: "auth.forbidden", message: "challenge unknown, used or expired" }
@@ -653,8 +776,12 @@ export class UserDO extends OwnerDO<UserState> {
     if (!ok) return { ok: false, code: "auth.forbidden", message: "bad signature" }
     // Membership is checked only after proof of possession; the nonce, not a request header, selects the team.
     if (row.team !== null && row.team !== state.user.personal_team) {
-      const role = await this.tokenTeamMember(row.team, entity)
-      if (!role) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
+      const check = await this.tokenTeamMember(row.team, entity, state.user.stack_user_id).catch((e: unknown) => {
+        console.error(JSON.stringify({ msg: "token team membership unreachable", team: row.team, error: String(e).slice(0, 200) }))
+        return { pending: "reading the team's membership" }
+      })
+      if ("pending" in check) return { ok: false, code: "owner.unreachable", message: `team membership is not confirmed yet (${check.pending}); retry` }
+      if (!check.role) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
     }
     // Re-read after all awaits: revocation, expiry or replacement may have committed during verification or membership lookup.
     const now = engine.currentState
@@ -670,7 +797,7 @@ export class UserDO extends OwnerDO<UserState> {
     // non-CLI credentials cannot acquire MCP authority by supplying a scope in the request.
     const scopes = this.env.PLATFORM_AGENT_GATEWAY === "on" && ["development", "test"].includes(this.env.ENVIRONMENT) && agent === undefined
       ? mcpScopesForGrant(current.kind, held.op_classes) : []
-    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(scopes.length ? { scope: scopes.join(" ") } : {}), ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
+    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(scopes.length ? { scope: scopes.join(" ") } : {}), ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const, ...(current.bound_machine ? { bound_machine: current.bound_machine } : {}) } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
   }
 }
 

@@ -309,8 +309,7 @@ impl Handoffs {
             let write = || -> Result<()> {
                 #[cfg(unix)]
                 {
-                    use std::os::unix::fs::DirBuilderExt;
-                    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+                    crate::home_fs::create_dir_all(dir, 0o700)?;
                 }
                 #[cfg(windows)]
                 crate::owner_only::create_dir_all(dir)?;
@@ -361,7 +360,7 @@ impl Hub {
     fn handoff_view(&self, r: &Record) -> Value {
         let coverage = r.coverage();
         let side = |s: &Side| {
-            let live = self.sessions.lock().unwrap().get(&s.session_id).cloned();
+            let live = self.session_get(&s.session_id);
             let enforcement = live
                 .map(|l| self.session_enforcement(&l.meta()))
                 .unwrap_or_else(|| s.enforcement.clone());

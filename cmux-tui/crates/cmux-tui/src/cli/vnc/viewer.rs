@@ -815,6 +815,8 @@ impl Viewer {
                 let left = until.saturating_duration_since(Instant::now()).as_secs_f32();
                 format!("{reason} · reconnecting in {left:.1}s")
             }
+            // retry-prompt-ok: automatic reconnects already ran or cannot pass (wrong password,
+            // repeated protocol errors, --no-reconnect); the key is the person's own call after fixing it
             State::Stopped(reason) => format!("{reason} · Ctrl-] r to retry"),
         };
         format!("{state}{mode} · Ctrl-] q quit")
@@ -931,7 +933,7 @@ fn current_pane() -> Pane {
 
 /// Terminals known to report SGR-Pixels mouse positions (cmux's terminals are Ghostty).
 fn terminal_reports_pixels() -> bool {
-    matches!(std::env::var("TERM_PROGRAM").as_deref(), Ok("ghostty" | "WezTerm"))
+    matches!(std::env::var("TERM_PROGRAM").as_deref(), Ok("cmux" | "ghostty" | "WezTerm"))
         || std::env::var_os("KITTY_WINDOW_ID").is_some()
 }
 

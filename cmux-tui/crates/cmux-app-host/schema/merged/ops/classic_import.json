@@ -1,0 +1,15 @@
+{
+  "family": "classic_import",
+  "ops": {
+    "classic_import.plan": {
+      "source": "local",
+      "class": "read",
+      "digest": "fbd4a04f0b02334d"
+    },
+    "classic_import.record": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "6e84f9caecc518c9"
+    }
+  }
+}

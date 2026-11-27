@@ -6,6 +6,7 @@ import { useState, type CSSProperties } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { UiProvider } from "../../ui/UiProvider";
+import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { APP_ACTION_RUN, HomeChannelsPage, NEW_CLOUD_MACHINE } from "./HomeChannelsPage";
@@ -15,6 +16,8 @@ import { CURRENT_SELECTION_OP, type HomeSelection } from "./hostSelection";
 import { ana, MockHomeProvider, sam, type MockDraft, type MockRuns } from "./mockProvider";
 import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
+import type { SendLaterStyle } from "./SendLater";
+import { resetDetails } from "./presentation";
 import { HomeChannelsStore } from "./store";
 import { CHIEF_HARNESSES, DEFAULT_CHIEF_TOOLS } from "./types";
 
@@ -35,6 +38,8 @@ type Props = {
   refuseInbox?: boolean;
   /** Adds #media: images, a video with its poster and a PDF. */
   media?: boolean;
+  /** #media's video plays (a sample MP4); without it its link cannot be had. */
+  video?: boolean;
   /** Adds #launch, a channel two teammates share; Ana types in it. */
   teammates?: boolean;
   /** The theme's terminal selection color, as the app sets `--cmux-text-selection`. */
@@ -53,10 +58,16 @@ type Props = {
   hostBridge?: boolean;
   /** A cmux link the page opens (as the Messages view's switch does through the hash). */
   link?: string;
+  /** The Cloud inbox read fails with this reason: the rows stay and the list says why. */
+  cloudError?: string;
   /** Where the list shows New Cloud Machine (needs `hostBridge`: only the app host runs it). */
   cloudEntry?: CloudEntryLook;
   /** The app does not run the action (turned off): its `cmux.app.action.run` answers `ran: false`. */
   cloudNotRun?: boolean;
+  /** Where the composer puts Send Later. */
+  sendLater?: SendLaterStyle;
+  /** The Chief DM has two scheduled messages of mine, one the owner could not send. */
+  scheduled?: boolean;
 };
 
 /** The app's side of the page bridge, in the gallery frame. The page's own calls and subscribes
@@ -120,6 +131,7 @@ function HomeChannelsGallery({
   runs = "none",
   refuseInbox = false,
   media = false,
+  video = false,
   teammates = false,
   terminalSelection,
   route,
@@ -131,11 +143,25 @@ function HomeChannelsGallery({
   link,
   cloudEntry,
   cloudNotRun = false,
+  cloudError,
+  sendLater,
+  scheduled = false,
 }: Props) {
   const [store] = useState(() => {
+    // Every variant starts at the ladder's default: a level another variant picked stays in its own.
+    resetDetails();
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
     if (provider) provider.hostGrants = hostGrants;
+    if (provider && video) provider.videoUrl = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
     if (provider && extraChief) provider.addChief("Release Chief");
+    if (provider && cloudError) provider.cloudError = cloudError;
+    if (provider && scheduled) {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      provider.schedule("c-chief", "Morning: summarize what the agents shipped overnight.", tomorrow.getTime());
+      provider.schedule("c-chief", "Check the release build.", Date.now() - 600_000, "agent_rate");
+    }
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
     if (hostBridge) {
       const bridge = new GalleryBridgeHost();
@@ -167,7 +193,13 @@ function HomeChannelsGallery({
     >
       {root ? (
         <UiProvider container={root}>
-          <HomeChannelsPage store={store} strings={strings} pane={width ? pane : undefined} cloudEntry={cloudEntry} />
+          <HomeChannelsPage
+            store={store}
+            strings={strings}
+            pane={width ? pane : undefined}
+            cloudEntry={cloudEntry}
+            sendLaterStyle={sendLater}
+          />
         </UiProvider>
       ) : null}
     </div>
@@ -250,6 +282,8 @@ export default componentEntry<Props>({
     "pages/home-channels/GoalStrip.tsx#GoalStrip",
     "pages/home-channels/LiveTyping.tsx#LiveTyping",
     "pages/home-channels/AttachmentViews.tsx",
+    "pages/home-channels/SendLater.tsx#SendLaterPicker",
+    "pages/home-channels/ScheduledStrip.tsx#ScheduledStrip",
   ],
   load: async () => HomeChannelsGallery,
   styles: async () => {
@@ -423,6 +457,62 @@ export default componentEntry<Props>({
         );
       },
     },
+    "attachments-lightbox-video": {
+      note: "Leo 2026-11-04: \"i can neither preview a vid in place nor have it pop up anymore :(\". A video's Expand opens it in the lightbox, paused with its Play and length (the agent chat's player); it still plays in place.",
+      props: { select: "c-media", media: true, video: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("src")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+      },
+    },
+    "attachments-lightbox-video-playing": {
+      note: "Play in the lightbox: the video plays large with sound and the player's controls; the inline copy pauses.",
+      props: { select: "c-media", media: true, video: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("src")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+        await ctx.click({ selector: ".hc-lightbox .cv-media__poster" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__frame.is-playing"));
+      },
+    },
+    "attachments-lightbox-arrow-to-video": {
+      note: "From the first image, Left arrow wraps to the message's video (images, then videos): the lightbox steps among both.",
+      props: { select: "c-media", media: true, video: true },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "The arrow key swaps the lightbox's image for the video, which has its own size.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
+        await ctx.click({ selector: ".hc-att-image" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox img"));
+        await ctx.press("ArrowLeft");
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent === "run-recording.mp4",
+        );
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+      },
+    },
+    "attachments-lightbox-video-unavailable": {
+      note: "A video whose link cannot be had (an owner without attachment reads): the lightbox shows its poster and says it cannot play here.",
+      props: { select: "c-media", media: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox-unread.failed img"));
+      },
+    },
     "attachments-composer": {
       note: "Files pasted into the composer show in its tray with their progress, then are ready to send.",
       props: { select: "c-media", media: true },
@@ -510,6 +600,17 @@ export default componentEntry<Props>({
         );
       },
     },
+    "cloud-unreachable": {
+      note: "A Cloud inbox read failed: the rows stay (the last good list) and the list says why while the page retries.",
+      props: { select: "c-chief", cloudError: "timed out after 10 s" },
+      play: async (ctx) => {
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector("[data-cloud-error]") !== null &&
+            ctx.document.querySelector('[data-list-row="c-design"]') !== null,
+        );
+      },
+    },
     hover: {
       note: "Hovering a message shows its card: quick reactions, Add reaction, Reply in thread, More.",
       props: { select: "c-release" },
@@ -560,6 +661,51 @@ export default componentEntry<Props>({
         await ctx.click({ role: "button", name: "Bold" });
         await ctx.type("Ship the fix today", field);
         await ctx.waitFor(() => ctx.document.querySelector(".lg-main .hc-composer strong"));
+      },
+    },
+    "send-later-clock": {
+      note: "Send Later, variant A: a clock among the composer's tools opens the time picker (presets with their times, a date and time field).",
+      props: { select: "c-chief", sendLater: "clock" },
+      play: async (ctx) => {
+        const field = { selector: ".lg-main .hc-composer [contenteditable]" };
+        await ctx.waitFor(() => ctx.document.querySelector(field.selector));
+        await ctx.click(field);
+        await ctx.type("Standup notes for the team", field);
+        await ctx.click({ role: "button", name: "Send Later…" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-later .hc-later-row"));
+      },
+    },
+    "send-later-split": {
+      note: "Send Later, variant B: a segment on the Send button opens the same time picker.",
+      props: { select: "c-chief", sendLater: "split" },
+      play: async (ctx) => {
+        const field = { selector: ".lg-main .hc-composer [contenteditable]" };
+        await ctx.waitFor(() => ctx.document.querySelector(field.selector));
+        await ctx.click(field);
+        await ctx.type("Standup notes for the team", field);
+        await ctx.click({ selector: ".lg-main .hc-send-later" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-later .hc-later-row"));
+      },
+    },
+    scheduled: {
+      note: "My scheduled messages above the composer: one waits for tomorrow morning, one the owner could not send (Not sent). Each has Edit, Change Time, Send Now and Cancel.",
+      props: { select: "c-chief", scheduled: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main .hc-scheduled-row").length === 2);
+      },
+    },
+    "scheduled-send-now": {
+      note: "Send Now on a scheduled message: it leaves the list and shows in the conversation at once.",
+      props: { select: "c-chief", scheduled: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main .hc-scheduled-row").length === 2);
+        await ctx.click({ selector: ".lg-main .hc-scheduled-row:last-child button:nth-last-of-type(2)" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main .hc-scheduled-row").length === 1);
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".lg-main .hc-md")].some((node) =>
+            node.textContent?.includes("Check the release build."),
+          ),
+        );
       },
     },
     emoji: {
@@ -791,6 +937,26 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
       },
     },
+    ...Object.fromEntries(
+      (
+        [
+          ["normal", "Normal", "the run's steps sit above the reply, each tool group folded."],
+          ["thinking", "Thinking", "the steps above the reply with the thought opened, tool groups folded."],
+          ["verbose", "Verbose", "the steps above the reply with the thought and every tool group opened."],
+        ] as const
+      ).map(([level, label, shows]) => [
+        `detail-${level}`,
+        {
+          note: `The header's detail ladder (Messages, Normal, Thinking, Verbose; the agent chat menu's four levels) at ${label}: ${shows}`,
+          props: { select: "c-chief", runs: "done" },
+          play: async (ctx: PlayContext) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".lg-presentation"));
+            await ctx.click({ role: "button", name: label });
+            await ctx.waitFor(() => ctx.document.querySelector(".lg-run-transcript"));
+          },
+        },
+      ]),
+    ),
     "run-phone": {
       note: "The Chief conversation on a phone, including its Work control.",
       props: { width: 390, pane: "conversation", select: "c-chief", runs: "done" },

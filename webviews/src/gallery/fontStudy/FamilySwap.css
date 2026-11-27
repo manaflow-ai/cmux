@@ -1,0 +1,83 @@
+/* The family swap sheet (FamilySwap.tsx): one row per line, never wrapping, so a row's height is the
+   line box of the faces in it. */
+.family-swap {
+  --swap-bg: #ffffff;
+  --swap-fg: #1d1d1f;
+  --swap-muted: #6e6e73;
+  --swap-rule: rgb(0 0 0 / 10%);
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 16px 24px 24px;
+  background: var(--swap-bg);
+  color: var(--swap-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  .family-swap {
+    --swap-bg: #1e1e1e;
+    --swap-fg: #e8e8ea;
+    --swap-muted: #98989d;
+    --swap-rule: rgb(255 255 255 / 12%);
+  }
+}
+
+.family-swap-bar {
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--swap-rule);
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+.family-swap-button {
+  font: inherit;
+  padding: var(--grid-half-step) var(--ds-space-3);
+  border: 1px solid var(--swap-rule);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+
+.family-swap-button:active {
+  background: var(--swap-rule);
+}
+
+.family-swap-now {
+  font-weight: 600;
+}
+
+.family-swap-shift,
+.family-swap-top {
+  color: var(--swap-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.family-swap-sheet {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px;
+  column-gap: 12px;
+}
+
+.family-swap-row {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+  box-shadow: inset 0 -1px 0 var(--swap-rule);
+}
+
+.family-swap-row code {
+  font-size: 0.875em;
+}
+
+.family-swap-top {
+  align-self: start;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  text-align: right;
+}

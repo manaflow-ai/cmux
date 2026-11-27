@@ -2,12 +2,13 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// The update from classic cmux (hq#1870 parity audit, cx-x5bdq): shortcuts a
 /// person recorded in classic's Settings lived in classic's preferences
-/// (`shortcut.<action id>`), not in `cmux.json`. Next's launch import brings
+/// (`shortcut.<action id>`), not in `cmux.json`. The accepted import brings
 /// them over once, under next's ID for a renamed action; a binding in
 /// `cmux.json` wins, and a key next can't bind stays behind.
 @MainActor @Suite(.serialized) struct ClassicShortcutsUpgradeTests {
@@ -30,11 +31,12 @@ import Testing
         // The stable channel never recorded one; the person used nightly.
         let names = ["stable", "nightly", "next"].map { "cn-classic-shortcuts-\($0)-\(UUID().uuidString)" }
         defer { names.forEach(UserDefaults().removePersistentDomain(forName:)) }
-        let stable = try #require(UserDefaults(suiteName: names[0]))
-        let nightly = try #require(UserDefaults(suiteName: names[1]))
-        let next = try #require(UserDefaults(suiteName: names[2]))
+        let stable = try #require(UserDefaults(testSuiteName: names[0]))
+        let nightly = try #require(UserDefaults(testSuiteName: names[1]))
+        let next = try #require(UserDefaults(testSuiteName: names[2]))
         nightly.set(try Self.stored("b", command: true, option: true, control: true), forKey: "shortcut.toggleSidebar")
-        nightly.set(try Self.stored("h", command: true, option: true, control: true), forKey: "shortcut.showWindowHints")
+        // Ctrl-Opt-Cmd-H is Previous Space in next, so a free hyper key stands in for a recorded one.
+        nightly.set(try Self.stored("y", command: true, option: true, control: true), forKey: "shortcut.showWindowHints")
         nightly.set(try Self.stored("b", control: true, chordKey: "p"), forKey: "shortcut.commandPalette")
         nightly.set(try Self.stored(""), forKey: "shortcut.closeTab")
         nightly.set(try Self.stored("k", command: true, option: true), forKey: "shortcut.nextSurface")
@@ -46,16 +48,23 @@ import Testing
         nightly.set(try Self.stored(",", command: true), forKey: "shortcut.toggleFullScreen")
 
         let defaults = ActionRegistry.standard()
-        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
+        next.set(true, forKey: "browserDisabledOverride")
         await settings.reload()
+        await settings.runLaunchMigrations(marker: next)
+        #expect(next.object(forKey: ClassicShortcutImport.importedKey) == nil)
+        #expect(next.object(forKey: ClassicPreferenceImport.importedKey) == nil)
+        #expect(try await settings.file.value(at: LinkRouting.enabledPath) == nil)
+        try await settings.importClassicPreferences(from: [next], marker: next)
+        #expect(try await settings.file.value(at: LinkRouting.enabledPath) == .bool(false))
         try await settings.importClassicShortcuts(from: [stable, nightly], marker: next)
         let registry = settings.applier.registry
 
         #expect(registry.effectiveShortcut(for: "toggleSidebar") == Shortcut("b", modifiers: [.command, .option, .control]))
         // Classic's Show Window Hints is next's hints.show.
-        #expect(registry.effectiveShortcut(for: "hints.show") == Shortcut("h", modifiers: [.command, .option, .control]))
+        #expect(registry.effectiveShortcut(for: "hints.show") == Shortcut("y", modifiers: [.command, .option, .control]))
         #expect(registry.chordOverrides["commandPalette"] == ShortcutChord(Shortcut("b", modifiers: [.control]),
                                                                           Shortcut("p", modifiers: [])))
         #expect(registry.effectiveShortcut(for: "closeTab") == nil)

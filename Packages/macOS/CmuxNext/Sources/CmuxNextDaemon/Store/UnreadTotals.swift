@@ -10,13 +10,18 @@ public struct UnreadTotals: Sendable, Equatable {
     public var tabs = 0
     /// The conversation ids of unread conversation tabs, with the number of tabs that show each.
     public var conversations: [String: Int] = [:]
+    /// The workspaces the person marked unread, whatever their tabs: a terminal key reads this
+    /// count, not a walk of every workspace, to know whether any mark may need clearing.
+    public var markedWorkspaces = 0
 
     /// - Parameters:
     ///   - tabs: The workspaces' unread count.
     ///   - conversations: Unread conversation tabs by conversation id.
-    public init(tabs: Int = 0, conversations: [String: Int] = [:]) {
+    ///   - markedWorkspaces: The workspaces marked unread.
+    public init(tabs: Int = 0, conversations: [String: Int] = [:], markedWorkspaces: Int = 0) {
         self.tabs = tabs
         self.conversations = conversations
+        self.markedWorkspaces = markedWorkspaces
     }
 
     /// The Dock badge: ``tabs``, plus one for each of Home's unread conversations (`homeUnread`,
@@ -30,6 +35,18 @@ public struct UnreadTotals: Sendable, Equatable {
 
     mutating func add(_ other: UnreadTotals) {
         tabs += other.tabs
+        markedWorkspaces += other.markedWorkspaces
         for (id, count) in other.conversations { conversations[id, default: 0] += count }
+    }
+
+    /// Takes `other` out (a workspace that left, or the old count of one that changed); a conversation no tab counts
+    /// any more leaves the map, so the totals equal a count from scratch.
+    mutating func subtract(_ other: UnreadTotals) {
+        tabs -= other.tabs
+        markedWorkspaces -= other.markedWorkspaces
+        for (id, count) in other.conversations {
+            let left = (conversations[id] ?? 0) - count
+            conversations[id] = left > 0 ? left : nil
+        }
     }
 }

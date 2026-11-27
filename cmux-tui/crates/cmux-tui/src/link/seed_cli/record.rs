@@ -48,6 +48,33 @@ pub(super) struct Record {
     /// Older records lack a stash base. Refuse ambiguous deltas instead of dropping stashes.
     #[serde(default)]
     pub(super) stash_known: bool,
+    /// For a seed that answered at its head: the machine's job that still filled the
+    /// checkout then. A `--since-last` waits for it to be done before it sends a delta
+    /// (`settle_fill`), since the machine refuses one into a checkout not yet whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) filling: Option<String>,
+    /// A hop's waiting record only ([`super::hop`]): the state a move's own export left on
+    /// the second machine, which its frozen pass builds on. Never kept past the commit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) hop: Option<HopState>,
+    /// A copy's base record when `CMUX_LINK_SNAPSHOT_BASE` is on: the snapshot commit of the
+    /// folder as the copy sent it (`seed/snapshot.rs`), in this folder's snapshot store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) snapshot: Option<String>,
+}
+
+/// What a hop's bulk pass left on the second machine ([`Record::hop`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct HopState {
+    pub(super) head: String,
+    pub(super) index: String,
+    pub(super) work: String,
+    #[serde(default)]
+    pub(super) stash: Option<String>,
+    /// The second machine had the folder before the move (a chat moving back): a retry
+    /// never deletes it.
+    #[serde(default)]
+    pub(super) into_existing: bool,
 }
 
 fn path_of(local: &Path, remote_root: &str) -> anyhow::Result<PathBuf> {
@@ -95,4 +122,15 @@ pub(super) fn save(local: &Path, remote_root: &str, record: &Record) -> anyhow::
     file.write_all(&serde_json::to_vec(record)?)?;
     file.sync_all()?;
     std::fs::rename(&part, &path).with_context(|| format!("cannot write {}", path.display()))
+}
+
+/// Drops the record of `local` pushed to `remote_root`; nothing when there is none.
+pub(super) fn forget(local: &Path, remote_root: &str) -> anyhow::Result<()> {
+    let path = path_of(local, remote_root)?;
+    match std::fs::remove_file(&path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(error).with_context(|| format!("cannot remove {}", path.display()))
+        }
+        _ => Ok(()),
+    }
 }

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { LASTING_MS, setLastingGrace } from "../../ui/lasting";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
-import { agentsState, computerUseState, importState } from "./fixtures";
+import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
 import table from "./generated/strings.json";
 import { OnboardingPage } from "./Onboarding";
 import { OPS, type OnboardingState } from "./ops";
@@ -10,13 +11,17 @@ import { OnboardingStore } from "./store";
 
 const strings = createStrings(table, ["en"]);
 
-function render(state: OnboardingState, look?: AgentsLook): string {
+function render(state: OnboardingState, look?: AgentsLook, online?: boolean): string {
   const store = new OnboardingStore(null, state);
-  return renderToStaticMarkup(<OnboardingPage store={store} strings={strings} agentsLook={look} />);
+  return renderToStaticMarkup(<OnboardingPage store={store} strings={strings} agentsLook={look} online={online} />);
 }
 
 /** Text with tags removed, so assertions read what a person reads (hidden sizing labels are attributes). */
-const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+const text = (html: string) =>
+  html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ");
 
 describe("agents", () => {
   test("title, line, each agent with its sign-in, and Skip / Continue", () => {
@@ -38,7 +43,9 @@ describe("agents", () => {
   });
   test("the status line for each state", () => {
     expect(text(render(agentsState("checking")))).toContain("Checking…");
-    expect(text(render(agentsState("none")))).toContain("No agent CLIs found on this Mac.");
+    expect(text(render(agentsState("none")))).toContain(
+      "No agent CLIs found on this Mac. Install Claude Code or Codex, then sign in from Settings.",
+    );
     expect(text(render(agentsState("signingIn")))).toContain(
       "Finish signing in in the terminal tab, then come back here.",
     );
@@ -63,6 +70,31 @@ describe("agents", () => {
   });
 });
 
+describe("offline", () => {
+  const line = "This Mac is offline. Sign-ins and installs work once it’s back.";
+  test("one line under the title on every scaffold step once offline has lasted", () => {
+    // A static render has no time to pass: a zero grace stands for an outage past the quiet bound
+    // (offline.test.tsx checks the bound itself).
+    setLastingGrace(0);
+    try {
+      for (const state of [agentsState("mixed"), importState("ready"), makeItYoursState("fresh")]) {
+        const html = render(state, undefined, false);
+        expect(html.split('class="onb-offline"').length - 1).toBe(1);
+        expect(text(html)).toContain(line);
+      }
+    } finally {
+      setLastingGrace(LASTING_MS);
+    }
+  });
+  test("a blip (offline under the quiet bound) draws no offline line", () => {
+    expect(render(agentsState("mixed"), undefined, false)).not.toContain("onb-offline");
+  });
+  test("online (and server markup with no window) draws no offline line", () => {
+    expect(render(agentsState("mixed"), undefined, true)).not.toContain("onb-offline");
+    expect(render(agentsState("mixed"))).not.toContain("onb-offline");
+  });
+});
+
 describe("import", () => {
   test("idle: Find Browsers, no empty rows drawn, not looked for yet", () => {
     const html = render(importState("idle"));
@@ -73,36 +105,36 @@ describe("import", () => {
     expect(html.match(/data-state="slot"/g)).toBeNull();
     expect(html).toContain("data-empty");
   });
-  test("detecting keeps the slots and disables the primary", () => {
+  test("detecting keeps three icon placeholders and disables the primary", () => {
     const html = render(importState("detecting"));
-    expect(html.match(/data-state="slot"/g)?.length).toBe(4);
+    expect(html.match(/class="onb-express-icon" data-empty=""/g)?.length).toBe(3);
     expect(text(html)).toContain("Looking for browsers…");
     expect(html).toMatch(/data-primary="detecting"[^>]*disabled/);
   });
-  test("ready: profiles, Full Disk Access, an awaiting browser, the kinds, Keep in sync", () => {
-    const words = text(render(importState("ready")));
-    expect(words).toContain("Personal");
-    expect(words).toContain("Needs Full Disk Access");
+  test("ready: one summary with the checked browser and kinds, the grant asks, and the list one click away", () => {
+    const html = render(importState("ready"));
+    const words = text(html);
+    expect(words).toContain("Bring over your browsing from Northwind.");
+    expect(words).toContain("Bookmarks · History · Sign-ins");
+    expect(words).toContain("Meridian needs Full Disk Access");
     expect(words).toContain("Open System Settings");
-    expect(words).toContain("No access yet");
+    expect(words).toContain("Orbit needs access to its folder");
     expect(words).toContain("Allow Access…");
-    for (const kind of ["Bookmarks", "History", "Open Tabs", "Sign-ins", "Search Engine", "Passwords"])
-      expect(words).toContain(kind);
-    expect(words).toContain("Keep history in sync");
+    expect(words).toContain("Choose Browsers and Data…");
     expect(words).toContain("Import from Another Browser…");
+    expect(html).not.toContain("onb-import-row");
   });
-  test("importing shows the running counts and Waiting", () => {
+  test("importing names the profile being read and sums the counts so far", () => {
     const words = text(render(importState("importing")));
-    expect(words).toContain("Bookmarks 204 · History 8,311 · Search Engine");
-    expect(words).toContain("Bookmarks 37");
-    expect(words).toContain("Waiting");
+    expect(words).toContain("Importing Northwind · Work…");
+    expect(words).toContain("History 8,311");
   });
-  test("finished sums it up", () => {
+  test("finished with a failed profile sums it up over the list, whose rows say why", () => {
     const html = render(importState("finished"));
-    expect(text(html)).toContain(
-      "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine Passwords skipped: 9 Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
-    );
     expect(html).toContain('title="The profile’s history database is locked by the browser."');
+    expect(text(html)).toContain(
+      "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine. Passwords skipped: 9. Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
+    );
   });
   test("the folder explainer replaces the list", () => {
     const html = render(importState("accessRefused"));
@@ -148,6 +180,45 @@ describe("computer use", () => {
   });
   test("off: the note", () => {
     expect(text(render(computerUseState("off")))).toContain("Computer Use is off.");
+  });
+  const footnote =
+    "Computer Use runs in its own helper app. You can quit or reopen it without closing cmux or your terminals.";
+  test("the footnote under the grants says the helper runs on its own", () => {
+    expect(text(render(computerUseState("fresh")))).toContain(footnote);
+    expect(text(render(computerUseState("allGranted")))).toContain(footnote);
+  });
+  test("a note on why Allow cannot help takes the footnote's place", () => {
+    const words = text(render(computerUseState("helperFailed")));
+    expect(words).toContain("The cmux Computer Use helper did not respond.");
+    expect(words).not.toContain(footnote);
+  });
+  test("finished: the done view replaces the head and rows", () => {
+    const html = render(computerUseState("finished"));
+    const words = text(html);
+    expect(words).toContain("Computer Use Is Ready");
+    expect(words).toContain("Setup is complete. Agents can now use apps on your Mac.");
+    expect(words).not.toContain("Turn On Computer Use");
+    expect(html).not.toContain('class="onb-grant"');
+    expect(words).not.toContain(footnote);
+    expect(words).toContain("Done");
+  });
+  test("opened with every grant on: the rows and the ready line, no done view", () => {
+    const words = text(render(computerUseState("allGranted")));
+    expect(words).toContain("Turn On Computer Use");
+    expect(words).not.toContain("Computer Use Is Ready");
+  });
+  test("screenshots just allowed: its row asks to allow screen capture, the bypass warning expected", () => {
+    const html = render(computerUseState("confirmingCapture"));
+    const words = text(html);
+    expect(words).toContain("macOS asks for confirmation. Allow screen capture.");
+    expect(words).toContain("The system “bypass” warning is expected here.");
+    expect(words).not.toContain("Lets agents see the window they work in");
+    expect(words).toContain("Lets agents click and type in your apps");
+  });
+  test("no capture note before Screenshots was allowed here", () => {
+    const words = text(render(computerUseState("oneGranted")));
+    expect(words).not.toContain("macOS asks for confirmation.");
+    expect(words).toContain("Lets agents see the window they work in");
   });
 });
 

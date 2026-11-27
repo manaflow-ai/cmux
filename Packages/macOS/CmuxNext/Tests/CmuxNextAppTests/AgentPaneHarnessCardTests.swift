@@ -97,6 +97,82 @@ struct AgentPaneHarnessCardTests {
         #expect(await host.restarts == 0)
     }
 
+    // MARK: An agent service that is not running
+
+    /// A host whose prewarm starts the agent service at `path` (nothing listens there before),
+    /// counting its calls.
+    private actor StartingHost: AgentPaneHostProviding {
+        let path: String
+        let reply: [String: Any]
+        private var started: OneAnswerAcpmux?
+        private(set) var starts = 0
+        init(path: String, reply: [String: Any]) {
+            self.path = path
+            self.reply = reply
+        }
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+        func prewarm() async throws {
+            starts += 1
+            started = try OneAnswerAcpmux(reply: reply, path: path)
+        }
+    }
+
+    /// A stopped agent service is started by the app and asked once more: the card gets its
+    /// answer, never "The agent service is not running. Try again in a moment."
+    @Test func aStoppedServiceIsStartedAndTheUpdateGoesThrough() async throws {
+        let path = "/tmp/cmux-harness-late-\(getpid())-\(UInt32.random(in: 0 ... .max)).sock"
+        let host = StartingHost(path: path, reply: ["result": ["results": [["id": "claude", "ok": true, "version": "2.0"]]]])
+        let model = AgentPaneModel(host: host)
+        model.transport.acpmuxSocket = path
+        let reply = await Self.update(model)
+        #expect(reply["error"] == nil, "\(reply)")
+        #expect((reply["value"] as? [String: Any])?["version"] as? String == "2.0", "\(reply)")
+        #expect(await host.starts == 1)
+    }
+
+    /// A service that answers is never started again: a refusal of its own stays the answer.
+    @Test func anAnsweringServiceIsNotStarted() async throws {
+        let acpmux = try OneAnswerAcpmux(reply: ["error": ["code": -32000, "message": "the updater failed"]])
+        let host = StartingHost(path: "/nonexistent", reply: [:])
+        let model = AgentPaneModel(host: host)
+        model.transport.acpmuxSocket = acpmux.path
+        let reply = await Self.update(model)
+        #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == "the updater failed", "\(reply)")
+        #expect(await host.starts == 0)
+    }
+
+    // MARK: Update all (Harness updates available)
+
+    /// One click on Update all runs every listed agent's update in one acpmux call: the click is
+    /// spent once, and each agent gets its own answer.
+    @Test func updateAllRunsEveryAgentOnOneClick() async throws {
+        let acpmux = try OneAnswerAcpmux(reply: ["result": ["results": [
+            ["id": "codex", "ok": true, "version": "0.167.2"],
+            ["id": "opencode", "ok": false, "error": "npm error code EACCES"],
+        ]]])
+        let model = AgentPaneModel(host: NoHost())
+        model.transport.acpmuxSocket = acpmux.path
+        model.transport.gestures.record()
+        let reply = await model.respond(to: AgentPaneRequest(body: ["method": "harness.update", "params": ["ids": ["codex", "opencode"]]]))
+        let results = (reply["value"] as? [String: Any])?["results"] as? [[String: Any]] ?? []
+        #expect(results.map { $0["id"] as? String } == ["codex", "opencode"], "\(reply)")
+        #expect(results.first?["ok"] as? Bool == true && results.first?["version"] as? String == "0.167.2", "\(reply)")
+        #expect(results.last?["ok"] as? Bool == false && results.last?["error"] as? String == "npm error code EACCES", "\(reply)")
+    }
+
+    /// `ids` takes only harness ids, never a command, and no repeats.
+    @Test func updateAllRefusesAnythingButHarnessIds() {
+        for ids: Any in [[], ["codex", "codex"], ["codex", "rm -rf /"], [1], "codex"] {
+            let request = AgentPaneRequest(body: ["method": "harness.update", "params": ["ids": ids]])
+            if case .harnessUpdate = request { Issue.record("accepted \(ids)") }
+        }
+        if case .harnessUpdate(let ids, let each) = AgentPaneRequest(body: ["method": "harness.update", "params": ["id": "claude"]]) {
+            #expect(ids == ["claude"] && !each)
+        } else {
+            Issue.record("refused one id")
+        }
+    }
+
     /// A Chief-owned chat's daemon is the Chief home's: the router never restarts it, even when
     /// that host may start daemons; a local chat's goes to this Mac's host.
     @Test func theRouterNeverRestartsAChiefChatsDaemon() async {
@@ -115,8 +191,9 @@ nonisolated final class OneAnswerAcpmux {
     let path: String
     private let listener: Int32
 
-    init(reply: [String: Any]) throws {
-        path = "/tmp/cmux-harness-\(getpid())-\(UInt32.random(in: 0 ... .max)).sock"
+    init(reply: [String: Any], path: String? = nil) throws {
+        self.path = path ?? "/tmp/cmux-harness-\(getpid())-\(UInt32.random(in: 0 ... .max)).sock"
+        let path = self.path
         unlink(path)
         let server = socket(AF_UNIX, SOCK_STREAM, 0)
         listener = server

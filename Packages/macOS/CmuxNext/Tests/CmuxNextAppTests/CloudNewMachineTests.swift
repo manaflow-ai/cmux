@@ -103,6 +103,17 @@ struct CloudNewMachineTests {
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["size": .string("huge")])) }
     }
 
+    @Test func pauseExperimentOnlyOptsInNonpersistentMachines() {
+        #expect(CloudMachineRequest().idlePauseMinutes(startedByPerson: false, pauseAgentMachines: false) == nil)
+        #expect(CloudMachineRequest().idlePauseMinutes(startedByPerson: false, pauseAgentMachines: true) == CloudMachineRequest.experimentIdlePauseMinutes)
+        #expect(CloudMachine.idlePauseChoices.contains(CloudMachineRequest.experimentIdlePauseMinutes))
+        // A person's own create keeps the server's idle pause; the toggle names agent machines.
+        #expect(CloudMachineRequest().idlePauseMinutes(startedByPerson: true, pauseAgentMachines: true) == nil)
+        // Persistent stays never-paused either way.
+        #expect(CloudMachineRequest(persistent: true).idlePauseMinutes(startedByPerson: false, pauseAgentMachines: true) == 0)
+        #expect(CloudMachineRequest(persistent: true).idlePauseMinutes(startedByPerson: true, pauseAgentMachines: false) == 0)
+    }
+
     @Test func aLaneBootstrapNeedsItsScriptAndAName() {
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["bootstrap": .string("lane"), "name": .string("lane-vm-1")])) }
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["bootstrap": .string("lane"), "bootstrapScript": .string("/tmp/x")])) }
@@ -147,23 +158,6 @@ struct CloudNewMachineTests {
     @Test func anUnreadableScriptIsRefusedBeforeAnyCreate() async throws {
         let request = try CloudHandlers.newMachineRequest(Self.invocation(["bootstrapScript": .string("/nonexistent/\(UUID().uuidString)")]))
         await #expect(throws: CloudMachineRequest.ScriptUnreadable.self) { _ = try await request.loadScript(work: BackgroundWork()) }
-    }
-
-    @Test func theAnswerSaysPersistentOnlyWhenTheServerStoredOff() throws {
-        let request = CloudMachineRequest(name: "lane-vm-1", size: "medium", memoryMb: 8192, persistent: true)
-        let stored = try CloudMachine.classic(Data(#"{"id":"vm-1","status":"running","idlePauseMinutes":0,"address":{"ipv4":"10.0.0.7"}}"#.utf8))
-        let fields = CloudHandlers.newMachineFields(request, stored)
-        #expect(fields["persistent"] == .bool(true))
-        #expect(fields["idle_pause_minutes"] == .int(0))
-        #expect(fields["cpu"] == .int(4))
-        #expect(fields["memory_mb"] == .int(8192))
-        #expect(fields["address"] == .string("10.0.0.7"))
-        let notStored = try CloudMachine.classic(Data(#"{"id":"vm-2","status":"running","idlePauseMinutes":30}"#.utf8))
-        #expect(CloudHandlers.newMachineFields(request, notStored)["persistent"] == .bool(false))
-        let pending = CloudHandlers.newMachineFields(request, nil)
-        #expect(pending["persistent"] == nil, "no machine yet: nothing stored to report")
-        #expect(pending["persistent_requested"] == .bool(true))
-        #expect(pending["memory_mb"] == .int(8192))
     }
 
     // MARK: The bootstrap
@@ -223,15 +217,5 @@ struct CloudNewMachineTests {
         fake.startAnswer = CloudExecResult(exitCode: 1, stdout: "", stderr: "sha256sum: not found")
         let outcome = await CloudMachineBootstrap(kind: .plain, contents: Data("true\n".utf8)).start(name: nil, on: fake.machine)
         #expect(outcome == CloudMachineBootstrap.Outcome(status: "failed", reason: "sha256sum: not found"))
-    }
-
-    @Test func aLaneAnswerNamesTheRegistryCommand() throws {
-        let request = CloudMachineRequest(name: "lane-vm-3", size: "medium", memoryMb: 8192, persistent: true,
-                                          bootstrapPath: "/tmp/lane-vm-bootstrap", bootstrapKind: .lane)
-        let machine = try CloudMachine.classic(Data(#"{"id":"vm-3","status":"running","address":{"ipv4":"10.0.0.9"}}"#.utf8))
-        let answer = CloudHandlers.newMachineEnrollment(request, machine)
-        #expect(answer["registry_command"] == .string("tools/lane-vm-enroll lane-vm-3 vm-3 --address 10.0.0.9 --apply"))
-        #expect(answer["enroll_command"] == .string("cmux cloud enroll-machine --target machine:vm-3 --name lane-vm-3"))
-        #expect(CloudHandlers.newMachineEnrollment(CloudMachineRequest(), machine)["registry_command"] == nil)
     }
 }

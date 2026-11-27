@@ -24,8 +24,8 @@ struct CloudAuthLaunchSignInTests {
         #expect(CloudAuth.launchSignIn(configuration: nightly, environment: file).signIn
             == .init(devAuth: false, autoLogin: true, replacesSession: false, memoryOnly: true))
         #expect(CloudAuth.launchSignIn(configuration: nightly, environment: [:]).signIn == .noSignIn)
-        #expect(CloudAuth.tokenStore(configuration: nightly, nightlySession: nil, memoryOnly: true) is MemoryStackTokenStore)
-        #expect(!(CloudAuth.tokenStore(configuration: nightly, nightlySession: nil) is MemoryStackTokenStore))
+        #expect(CloudAuth.tokenStore(configuration: nightly, memoryOnly: true) is MemoryStackTokenStore)
+        #expect(!(CloudAuth.tokenStore(configuration: nightly) is MemoryStackTokenStore))
     }
 
     /// A debug build reads the ambient account files; a signed build only the explicit one.
@@ -33,7 +33,7 @@ struct CloudAuthLaunchSignInTests {
         let staging = resolve("com.cmuxterm.app.debug.mytag", debug: true)
         let ambient = CloudAuth.launchSignIn(configuration: staging, environment: [:], home: "/h")
         #expect(ambient.signIn == .init(devAuth: true, autoLogin: true, replacesSession: false))
-        #expect(ambient.paths == ["/h/.config/cmux/dev-account", "/h/.secrets/cmuxterm-dev.env", "/h/.secrets/cmux.env"])
+        #expect(ambient.paths == ["/h/.config/cmux-next/dev-account", "/h/.secrets/cmuxterm-dev.env", "/h/.secrets/cmux.env"])
         let dev = resolve("com.cmuxterm.app.debug.next", debug: false)
         #expect(CloudAuth.launchSignIn(configuration: dev, environment: file, home: "/h").paths == [file["CMUX_AUTH_CREDENTIALS_FILE"]])
         // A file that is not this user's 0600 regular file is never read for its account.

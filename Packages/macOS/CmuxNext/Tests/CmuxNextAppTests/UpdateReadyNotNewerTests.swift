@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -14,7 +15,7 @@ import Testing
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.update-ready-not-newer", shortVersion: "1.0.0",
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
-        let defaults = UserDefaults(suiteName: "UpdateReadyNotNewerTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "UpdateReadyNotNewerTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false

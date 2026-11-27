@@ -88,6 +88,32 @@ struct AgentPaneGitWorktreeTests {
         #expect(sent.calls.isEmpty)
     }
 
+    /// A new Cloud or SSH chat (cmuxterm-hq#7856): New Worktree runs on that chat's machine,
+    /// through its daemon's link, in the folder as that machine names it. This Mac's disk is
+    /// never read (the folder exists only there), and a link that is this Mac's makes nothing.
+    @Test func aRemoteChatsWorktreeIsMadeOnItsMachine() async throws {
+        let (model, sent, _) = try Self.rig()
+        let vmFolder = "/home/cmux/work/app-\(UUID().uuidString)"
+        model.remoteChat = true
+        model.gitWritesHere = { true }
+        model.gitWritesOnChatMachine = { false }
+        model.transport.gestures.record()
+        let here = await model.respond(to: Self.request(["cwd": vmFolder, "idempotency_key": "k1"]))
+        #expect(here["ok"] as? Bool == false)
+        #expect(sent.calls.isEmpty)
+        model.gitWritesOnChatMachine = { true }
+        model.transport.gestures.record()
+        let reply = await model.respond(to: Self.request(["cwd": vmFolder, "idempotency_key": "k2"]))
+        #expect(reply["ok"] as? Bool == true, "\(reply)")
+        #expect(sent.calls.count == 1)
+        #expect(sent.calls.first?.0 == .worktree(cwd: vmFolder, name: nil, key: "k2"))
+        #expect(sent.calls.first?.1 == vmFolder)
+        // Page script alone makes none there either.
+        let unclicked = await model.respond(to: Self.request(["cwd": vmFolder, "idempotency_key": "k3"]))
+        #expect(unclicked["ok"] as? Bool == false)
+        #expect(sent.calls.count == 1)
+    }
+
     /// The chat's session lives in a worktree of this Mac.
     private actor WorktreeHost: AgentPaneHostProviding {
         let folder: AgentPaneSessionFolder

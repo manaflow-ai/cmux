@@ -37,7 +37,6 @@ final class BookmarkService {
     @ObservationIgnored var fetching: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var homeObservation: Task<Void, Never>?
     @ObservationIgnored var barObservation: Task<Void, Never>?
-    @ObservationIgnored var faviconObservation: Task<Void, Never>?
     /// Stored folder icons a bar drew the folder symbol for while they load (``followFolderIcons()``).
     var awaitedFolderIcons: Set<String> = []
     @ObservationIgnored var folderIconObservation: Task<Void, Never>?
@@ -54,11 +53,9 @@ final class BookmarkService {
     final class WeakChrome {
         weak var entry: BrowserEntry?
         let bar: BookmarksBarView
-        let source: BookmarkBarSourceAdapter
-        init(entry: BrowserEntry, bar: BookmarksBarView, source: BookmarkBarSourceAdapter) {
+        init(entry: BrowserEntry, bar: BookmarksBarView) {
             self.entry = entry
             self.bar = bar
-            self.source = source
         }
     }
 
@@ -121,37 +118,43 @@ final class BookmarkService {
 
     // MARK: Writing
 
-    /// Applies `operation` to `profile`'s tree and sends it to the daemon.
-    /// Validation errors throw before anything changes; so does an edit
-    /// before the home daemon serves bookmarks (it has nowhere to go).
+    /// Applies `operations` in order to `profile`'s tree in one `bookmarks_apply` call (one
+    /// result each; a refused one changes nothing), sends each that changed something to the
+    /// daemon and redraws once. Before the home daemon serves bookmarks, an edit is refused.
     @discardableResult
-    func apply(_ operation: BookmarkOperation, profile: String) throws -> BookmarkChange {
+    func apply(_ operations: [BookmarkOperation], profile: String) throws -> [Result<BookmarkChange, BookmarkError>] {
         guard usesDaemon else { throw DaemonError.notConnected }
         var tree = tree(profile)
-        let change = try tree.apply(operation)
-        guard !change.isEmpty || isImport(operation) else { return change }
+        let results = try tree.apply(operations)
+        let sent = BookmarkOperation.sent(operations, results)
+        guard !sent.isEmpty else { return results }
         trees[profile] = tree
-        if case .create(let node, _) = operation { lastFolder[profile] = node.parent }
-        send(operation, profile: profile)
+        for operation in sent {
+            if case .create(let node, _) = operation { lastFolder[profile] = node.parent }
+            send(operation, profile: profile)
+        }
         changed(profiles: [profile])
-        return change
+        return results
     }
+
+    @discardableResult
+    func apply(_ operation: BookmarkOperation, profile: String) throws -> BookmarkChange {
+        guard let result = try apply([operation], profile: profile).first else { throw BookmarkError.unavailable }
+        return try result.get()
+    }
+
+    /// The home daemon's routed `bookmarks.*` ops (codec, imports, search, rank).
+    var routed: BookmarkRoutedClient { BookmarkRoutedClient(connection: services.machines.local.connection) }
 
     /// Marks a bookmark as used now (opened from any bookmark surface).
     func touch(_ id: String, profile: String) {
         try? apply(.update(id: id, lastUsed: .set(Date())), profile: profile)
     }
 
-    private func isImport(_ operation: BookmarkOperation) -> Bool {
-        if case .importDrafts = operation { return true }
-        return false
-    }
-
-    /// Every view of `profiles` redraws (stars, bars, manager pages).
+    /// Every view of `profiles` redraws (stars, bars; the manager page follows the daemon's events).
     func changed(profiles: Set<String>) {
         generation &+= 1
         refreshChromes(profiles: profiles)
-        services.bookmarkPages.reload(profiles: profiles)
         chromium?.treesChanged(profiles)
     }
 

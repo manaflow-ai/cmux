@@ -5,10 +5,14 @@ public import Foundation
 public nonisolated struct HistoryRead: Sendable {
     public var entries: [HistoryEntry]
     public var unavailable: Bool
+    /// The kinds whose entries are not complete yet (``DaemonHistoryList/pendingKinds``): the list is
+    /// short for now, and the reader shows that and reads again.
+    public var pending: Set<HistoryEntry.Kind>
 
-    public init(entries: [HistoryEntry], unavailable: Bool = false) {
+    public init(entries: [HistoryEntry], unavailable: Bool = false, pending: Set<HistoryEntry.Kind> = []) {
         self.entries = entries
         self.unavailable = unavailable
+        self.pending = pending
     }
 
     /// What a list says under its rows, so an empty query never reads "No Results" and a failed read is never hidden.
@@ -17,23 +21,28 @@ public nonisolated struct HistoryRead: Sendable {
         public let title: String
         public let detail: String?
         public let symbol: String
-        /// The read did not answer: choosing the row reads again.
+        /// The read did not answer; the reader reads again by itself (no Try Again: Leo, 2026-11-22, "vacuous
+        /// decisions like that should be just done").
         public let canRetry: Bool
     }
 
-    /// Unanswered (with or without the rows other owners gave): Try Again. An unfiltered Recently Closed
-    /// with no rows: nothing was closed. Else nil (the rows, or the list's own "No Results" for a search).
+    /// Unanswered (with or without the rows other owners gave): failed, read again by itself. Not complete yet (``pending``, with
+    /// or without rows, also for a read with a text): still loading, and the reader reads again by itself. An unfiltered
+    /// Recently Closed with no rows: nothing was closed. Else nil (the rows, or the list's own "No Results" for a search).
+    /// The palette filters its rows by the typed text itself, so there this row shows only before the person types.
     public func status(_ query: HistoryQuery) -> Status? {
         if unavailable {
-            return Status(id: "history.status.unavailable", title: HistoryStrings.readFailed, detail: HistoryStrings.readFailedHint,
+            return Status(id: "history.status.unavailable", title: HistoryStrings.readFailed, detail: nil,
                           symbol: "exclamationmark.triangle", canRetry: true)
+        }
+        if !pending.isEmpty {
+            return Status(id: "history.status.pending", title: HistoryStrings.stillLoading, detail: nil,
+                          symbol: "hourglass", canRetry: false)
         }
         guard entries.isEmpty, query.kinds == [.closed], query.text.isEmpty, query.range == .all else { return nil }
         return Status(id: "history.status.empty", title: HistoryStrings.menuNothingClosed, detail: nil, symbol: "clock.arrow.circlepath",
                       canRetry: false)
     }
-
-    public static var tryAgain: String { HistoryStrings.tryAgain }
 }
 
 extension TitlebarHistoryClosedSection {

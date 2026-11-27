@@ -15,12 +15,20 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 PR = yaml.safe_load((ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text())
@@ -56,7 +64,10 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
 
     def test_the_mac_job_regenerates_the_settings_exports_into_the_artifact(self):
         regenerate = step(PR, "action-exports", "Regenerate the settings exports")
-        self.assertEqual(regenerate["if"], "needs.action-areas.outputs.settings == 'true'")
+        # A skipped Linux job or its explicit fallback needs a Mac; an ordinary failure does not.
+        self.assertEqual(regenerate["if"], "needs.action-areas.outputs.settings == 'true' && "
+                                           "(needs.settings-exports-linux.result == 'skipped' || "
+                                           "needs.settings-exports-linux.outputs.fallback == 'true')")
         self.assertIn("regenerate-settings-exports.sh", regenerate["run"])
         work = Path(tempfile.mkdtemp())
         temp = work / "runner-temp"
@@ -78,7 +89,12 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertIn("needs.action-exports.outputs.exports == 'true'", download["if"])
         env = step(PR, "repair", "Repair")["env"]
         self.assertIn("needs.action-areas.outputs.settings", env["SETTINGS"])
-        self.assertEqual(env["SETTINGS_VERIFIED"], "${{ needs.action-exports.outputs.settings-verified }}")
+        # A pack from the same merge commit's cmux-next generated-files job counts as verified exports too
+        # (tests/test_base_autofix_pushed_exports.py PrAutofixTakesTheGeneratedFilesPack).
+        # So does the Linux settings exports job's own verdict.
+        self.assertEqual(env["SETTINGS_VERIFIED"], "${{ (needs.generated-exports.outputs.hit == 'true' || "
+                                                   "needs.settings-exports-linux.outputs.verified == 'true') && 'true' || "
+                                                   "needs.action-exports.outputs.settings-verified }}")
 
 
 class ExportGuardBehavior(unittest.TestCase):
@@ -271,6 +287,30 @@ class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
                 args = self.repair_args(doc, job, SETTINGS_EXPORTS, SHORTCUTS="true")
                 self.assertIn("--docs-shortcuts", args)
 
+    def test_a_setup_that_did_not_finish_leaves_its_repairs(self):
+        # The PR job bounds Setup Bun and the Rust toolchain (continue-on-error): a failed setup drops the repairs
+        # that run its tool and says so, and keeps the rest.
+        args = self.repair_args(PR, "repair", ("plans/cmux-next/action-surfaces.json", *SETTINGS_EXPORTS),
+                                ACTIONS="true", EXPORTS_VERIFIED="true", CLOUD="true", FMT="true",
+                                BUN_SETUP="failure", RUST_SETUP="failure")
+        self.assertIn("--generated", args)
+        self.assertNotIn("--docs-shortcuts", args)
+        self.assertNotIn("--app-host", args)
+        self.assertNotIn("--cloud-clients", args)
+        self.assertIn("--no-fmt", args)
+        args = self.repair_args(PR, "repair", SETTINGS_EXPORTS, SHORTCUTS="true", FMT="true",
+                                BUN_SETUP="success", RUST_SETUP="success")
+        self.assertIn("--docs-shortcuts", args)
+        self.assertNotIn("--no-fmt", args)
+
+    def test_setups_are_bounded_and_node_is_for_vp_fmt_only(self):
+        steps = {s.get("name"): s for s in PR["jobs"]["repair"]["steps"]}
+        for name in ("Setup Node", "Setup Bun", "Set up pinned cmux-tui Rust"):
+            with self.subTest(step=name):
+                self.assertTrue(steps[name].get("continue-on-error"))
+                self.assertLessEqual(int(steps[name]["timeout-minutes"]), 5)
+        self.assertNotIn("strings", steps["Setup Node"]["if"])
+
 
 class FleetBundleHandsBackEveryExport(unittest.TestCase):
     """2026-10-25: a lane ran regenerate-settings-exports.sh as a fleet step for #24923. A step returns one
@@ -290,7 +330,8 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
         repo, bin_dir = work / "repo", work / "bin"
         for rel in ("scripts/cmux-next/regenerate-settings-exports.sh", "scripts/cmux-next/lib/fleet-only.sh",
                     "scripts/cmux-next/lib/warm-swiftpm.sh", "scripts/ci/swift-test-debug-info.sh",
-                    "scripts/ci/swiftpm-binary-module-guard.sh", "scripts/cmux-next/settings-exports.txt"):
+                    "scripts/ci/swiftpm-binary-module-guard.sh", "scripts/ci/github-egress-direct.sh",
+                    "scripts/cmux-next/settings-exports.txt"):
             (repo / rel).parent.mkdir(parents=True, exist_ok=True)
             (repo / rel).write_bytes((ROOT / rel).read_bytes())
             (repo / rel).chmod(0o755)
@@ -310,13 +351,22 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
             (repo / rel).parent.mkdir(parents=True, exist_ok=True)
             (repo / rel).write_text("old\n")
         bin_dir.mkdir()
-        # swift test writes the exports from the package directory, as the export tests do.
+        # This fixture supplies a fake Swift compiler, not a Mac toolchain.
+        (bin_dir / "uname").write_text("#!/bin/sh\necho Linux\n")
+        (bin_dir / "uname").chmod(0o755)
+        # swift build builds the CmuxNextSettingsExport tool, which writes the exports under the root it is given
+        # (#56009: a small export tool, not the whole test bundle).
+        swift_bin = work / "swift-bin"
+        swift_bin.mkdir()
+        (swift_bin / "CmuxNextSettingsExport").write_text(
+            "#!/usr/bin/env bash\n"
+            "for f in " + " ".join(self.EXPORTS if rewrites else self.EXPORTS[1:])
+            + '; do echo new > "$1/$f"; done\n')
+        (swift_bin / "CmuxNextSettingsExport").chmod(0o755)
         (bin_dir / "swift").write_text(
             "#!/usr/bin/env bash\n"
-            'if [[ " $* " == *" --show-bin-path "* ]]; then echo /nonexistent; exit 0; fi\n'
-            '[[ "$1" == test ]] || exit 0\n'
-            "for f in " + " ".join(self.EXPORTS if rewrites else self.EXPORTS[1:])
-            + '; do echo new > "../../../$f"; done\n')
+            f'if [[ " $* " == *" --show-bin-path "* ]]; then echo {shlex.quote(str(swift_bin))}; fi\n'
+            "exit 0\n")
         (bin_dir / "bun").write_text(
             '#!/usr/bin/env bash\necho "$*" > "$(git rev-parse --show-toplevel)/../bun-args"\n'
             "echo new > web/data/next-docs/settings-reference.generated.json\n")
@@ -326,7 +376,7 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
         subprocess.run(git + ["init", "-q"], check=True)
         subprocess.run(git + ["add", "-A"], check=True)
         subprocess.run(git + ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base"], check=True)
-        env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "CMUX_CI_STEP_KEY": "test"}
+        env = git_fixture_env.fixture_env({"PATH": f"{bin_dir}:{os.environ['PATH']}", "CMUX_CI_STEP_KEY": "test"})
         return repo, env
 
     def run_script(self, repo: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess:

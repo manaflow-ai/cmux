@@ -1,0 +1,17 @@
+/* The gallery's stand-in for the sidebar list's gap: a strip at the sidebar's width on the sidebar's
+   backdrop. `sc-gallery-hover` draws a row's hover without a pointer (the hover variant). */
+.sidebar-chats-gallery {
+  display: flex;
+  justify-content: center;
+  padding: var(--ds-space-5);
+  background: var(--cmux-surface-background);
+}
+
+.sidebar-chats-gallery-strip {
+  width: 100%;
+  max-width: 340px;
+}
+
+.sc-row.sc-gallery-hover {
+  background: var(--cmux-hover);
+}

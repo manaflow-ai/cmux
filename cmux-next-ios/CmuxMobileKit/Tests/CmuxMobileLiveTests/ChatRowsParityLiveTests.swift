@@ -50,6 +50,38 @@ import Testing
         #expect(attachments.map(\.recordedImageID) == ["img2"])
     }
 
+    /// Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop up anymore :(" and
+    /// 2026-10-25: "also why dont we have previews of videos we should". A video a prompt sent (this
+    /// phone's after a reload, or the Mac's) comes back from its record: its frames note gives its
+    /// name, length and size, its link its path on the Mac, and its first frame its poster.
+    @Test func userMessageRebuildsItsSentVideo() throws {
+        let user = try json(#"""
+        {"seq":4,"dir":"mux","kind":"user_message","msg":{"turnId":"t","promptId":"p","text":"what happens here?\nFrames from the video clip.mov (0:08, 640×360), in order, at: 0:01.0, 0:05.0.\nclip.mov frame at 0:01.0\nclip.mov frame at 0:05.0","images":[{"id":"img1","name":"clip.mov frame at 0:01.0"},{"id":"img3","name":"clip.mov frame at 0:05.0"},{"id":"img2","name":"photo.png"}],"inlineParts":[{"kind":"text","text":"what happens here?"},{"kind":"file","name":"clip.mov","uri":"file:///Users/me/Movies/my%20clip/clip.mov","mimeType":"video/quicktime"},{"kind":"text","text":"Frames from the video clip.mov (0:08, 640×360), in order, at: 0:01.0, 0:05.0."},{"kind":"text","text":"clip.mov frame at 0:01.0"},{"kind":"image","id":"img1","name":"clip.mov frame at 0:01.0","mimeType":"image/jpeg"},{"kind":"text","text":"clip.mov frame at 0:05.0"},{"kind":"image","id":"img3","name":"clip.mov frame at 0:05.0","mimeType":"image/jpeg"},{"kind":"image","id":"img2","name":"photo.png","mimeType":"image/png"}]}}
+        """#)
+        guard case .userMessage(let text, _, _, let attachments, _)? = records.map(user).first else { Issue.record("no user message"); return }
+        #expect(text == "what happens here?")
+        #expect(attachments.map(\.name) == ["photo.png", "clip.mov"])
+        let video = try #require(attachments.last)
+        #expect(video.kind == .file)
+        #expect(video.video?.durationMs == 8_000)
+        #expect(video.video?.width == 640 && video.video?.height == 360)
+        // Its path on the Mac (the preview reads it over `file-preview`) and its first frame as its poster.
+        #expect(video.macPath == "/Users/me/Movies/my clip/clip.mov")
+        #expect(video.posterID == "img1")
+        #expect(video.picture?.recordedImageID == "img1")
+    }
+
+    /// A video linked with no frames note (its frames were never read) stays a chip that opens it.
+    @Test func userMessageKeepsAVideoLinkWithoutFrames() throws {
+        let user = try json(#"""
+        {"seq":4,"dir":"mux","kind":"user_message","msg":{"turnId":"t","promptId":"p","text":"look","inlineParts":[{"kind":"text","text":"look"},{"kind":"file","name":"clip.mp4","uri":"file:///w/clip.mp4"},{"kind":"file","name":"notes.txt","uri":"file:///w/notes.txt"}]}}
+        """#)
+        guard case .userMessage(_, _, _, let attachments, _)? = records.map(user).first else { Issue.record("no user message"); return }
+        #expect(attachments.map(\.name) == ["clip.mp4"])
+        #expect(attachments.first?.video == nil)
+        #expect(attachments.first?.macPath == "/w/clip.mp4")
+    }
+
     @Test @MainActor func videoGoesAsItsLinkThenItsFrames() {
         let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let video = AgentAttachment(id: "v", kind: .file, name: "clip.mov", fileURL: URL(fileURLWithPath: "/tmp/clip.mov"), byteCount: 900,

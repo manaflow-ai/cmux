@@ -18,6 +18,16 @@ kept and no GitHub request is made, also in a dry run; the in-process run_report
 Run: python3 -I scripts/cmux-next/tests/test_perf_cron_arch_report.py (not a CI job)."""
 import contextlib, copy, importlib.util, io, json, os, subprocess, tempfile, time, unittest, urllib.error
 from unittest import mock
+import importlib.util  # noqa: E402
+import os  # noqa: E402
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("perf_cron_arch_report", os.path.join(HERE, "..", "perf-cron-arch-report.py"))
@@ -633,6 +643,8 @@ class ArchReportTests(unittest.TestCase):
         # transitive closure of its local `.package(path:)` dependencies, so the one fetch covers a Shared package.
         with open(os.path.join(HERE, "..", "arch_counts.py")) as f:
             self.write(report.COUNTS_SCRIPT, f.read())
+        with open(os.path.join(HERE, "..", "git_batch.py")) as f:
+            self.write(report.COUNTS_HELPER, f.read())
         manifest = 'import PackageDescription\nlet package = Package(name: "{}", dependencies: [{}], targets: [])\n'
         self.write("Packages/macOS/CmuxNext/Package.swift",
                    manifest.format("CmuxNext", '.package(path: "../../Shared/Kit")'))
@@ -647,7 +659,8 @@ class ArchReportTests(unittest.TestCase):
             names = {name for _, name in report.count_files(report.Deadline(60), self.repo, sha)}
         for path in ("Packages/Shared/Kit/Package.swift", "Packages/Shared/Kit/Sources/Kit/Kit.swift",
                      "Packages/Shared/Deep/Package.swift", "Packages/Shared/Deep/Sources/Deep/Deep.swift",
-                     f"{SOURCES}/CmuxNextApp/App.swift", report.COUNTS_SCRIPT, report.RATCHET_PATH):
+                     f"{SOURCES}/CmuxNextApp/App.swift", report.COUNTS_SCRIPT, report.COUNTS_HELPER,
+                     report.RATCHET_PATH):
             self.assertIn(path, names)
         self.assertNotIn("Packages/Shared/Other/Sources/Other/Other.swift", names, "not linked: not read")
 

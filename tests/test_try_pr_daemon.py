@@ -17,6 +17,13 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ["scripts/cmux-next/try-pr.sh", "scripts/cmux-next/side-instance.sh", "scripts/cmux-next/live_apply.py"]
@@ -80,7 +87,7 @@ class TryPrDaemonTests(unittest.TestCase):
         git(work, "add", "-A")
         git(work, *ident, "commit", "-q", "-m", "base")
         self.base = git(work, "rev-parse", "HEAD")
-        subprocess.run(["git", "clone", "-q", "--bare", str(work), str(origin)], check=True)
+        git_fixture_env.clone_repo(work, origin, "--bare")
         self.work, self.origin, self.ident = work, origin, ident
         self.checkout = self.tmp / "checkout"
         subprocess.run(["git", "clone", "-q", str(origin), str(self.checkout)], check=True)
@@ -142,6 +149,50 @@ class TryPrDaemonTests(unittest.TestCase):
         self.assertIn("its web UI is patched in too", out.stdout)
         self.assertEqual(self.calls_of("web-overlay.sh"), ["web-overlay.sh follow 1"])
 
+    # Fix list item 3: a nightly behind the PR's base sees the base's Swift in the plan's `left`. Every open
+    # daemon PR was refused for that; the daemon fits (no FFI or linked Rust), so it goes in and the Swift
+    # is named as left out.
+    def test_an_app_behind_the_base_takes_the_daemon_and_names_the_swift_left_out(self):
+        self.push_pr(RUST)
+        swift = "Packages/macOS/Sources/CmuxNextApp/App.swift"
+        self.write_plan(left={"swift-live": [swift], "rebuild": ["Resources/Info.plist"], "strings": ["x.xcstrings"]})
+        out = self.try_pr("--here")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("daemon swapped: your app runs #1's daemon", out.stdout)
+        self.assertIn("daemon only; Swift left out", out.stdout)
+        self.assertIn("swift-live: " + swift, out.stdout)
+        self.assertIn("rebuild: Resources/Info.plist", out.stdout)
+        self.assertNotIn("refused", out.stdout)
+        self.assertEqual(self.calls_of("cmux-ci"), [], "no dev build")
+        apply = [c for c in self.calls_of("hot-apply") if " apply " in f" {c} "]
+        self.assertEqual(len(apply), 1)
+        self.assertIn("--branch --parts rust", apply[0])
+
+    def test_an_app_behind_the_base_leaves_the_base_s_web_out_with_its_swift(self):
+        self.push_pr(RUST)
+        self.write_plan(left={"swift-live": ["A.swift"], "web (not published for a branch)": ["webviews/src/base.ts"]})
+        out = self.try_pr("--here")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("web: webviews/src/base.ts", out.stdout)
+        self.assertEqual(self.calls_of("web-overlay.sh"), [], "no branch web over Swift the app lacks")
+
+    def test_an_app_behind_the_base_refuses_the_pr_s_own_web_over_swift_it_lacks(self):
+        self.push_pr(RUST, WEB)
+        self.write_plan(left={"swift-live": ["A.swift"], "web (not published for a branch)": [WEB]})
+        out = self.try_pr("--here", "--no-build")
+        self.assertIn("daemon swap refused", out.stdout)
+        self.assertIn("web UI on Swift this app lacks: " + WEB, out.stdout)
+        self.assertIn("so a dev build", out.stdout)
+        self.assertFalse([c for c in self.calls_of("hot-apply") if " apply " in f" {c} "])
+
+    def test_an_app_behind_the_base_still_refuses_rust_the_app_links(self):
+        self.push_pr(RUST)
+        self.write_plan(parts=(), left={"swift-live": ["A.swift"], "Rust the app links (FFI)": [RUST]})
+        out = self.try_pr("--here", "--no-build")
+        self.assertIn("daemon swap refused", out.stdout)
+        self.assertIn("Rust the app links (FFI): " + RUST, out.stdout)
+        self.assertNotIn("swift-live", out.stdout.split("daemon swap refused")[1].split("so a dev build")[0])
+
     def test_rust_the_app_links_is_refused_for_the_dev_build(self):
         self.push_pr(RUST)
         self.write_plan(parts=(), left={"Rust the app links (FFI)": [RUST]})
@@ -151,6 +202,26 @@ class TryPrDaemonTests(unittest.TestCase):
         self.assertIn("so a dev build", out.stdout)
         self.assertIn("run again without --no-build", out.stdout)
         self.assertFalse([c for c in self.calls_of("hot-apply") if " apply " in f" {c} "])
+
+    def test_the_dev_build_a_person_opens_targets_production(self):
+        # Leo: "why is the stuff so weird to log in to dev builds?" A build a person opens signs in to cmux.com;
+        # an agent's build and --dev-backend keep the offline dev backend.
+        self.push_pr(RUST)
+        self.write_plan(parts=(), left={"Rust the app links (FFI)": [RUST]})
+        person = {k: v for k, v in self.env.items() if k != "CLAUDECODE" and not k.startswith("CODEX_")}
+        for env, extra, flag in ((person, (), "--production"),
+                                 (person, ("--dev-backend",), "--backend-mode local"),
+                                 ({**person, "CLAUDECODE": "1"}, (), "--backend-mode local"),
+                                 ({**person, "CODEX_THREAD_ID": "t"}, (), "--backend-mode local")):
+            with self.subTest(extra=extra, agent="CLAUDECODE" in env or "CODEX_THREAD_ID" in env):
+                self.env = env
+                out = self.try_pr("--here", "--dry-run", *extra)
+                self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+                build = next(line for line in out.stdout.splitlines() if line.startswith("would run:") and " build cmux " in line)
+                self.assertIn(flag, build)
+                other = "--backend-mode" if flag == "--production" else "--production"
+                self.assertNotIn(other, build)
+                self.assertIn("backend: production" if flag == "--production" else "backend: local dev backend", out.stdout)
 
     def test_an_app_with_rust_the_branch_lacks_is_refused(self):
         self.push_pr(RUST)
@@ -201,15 +272,20 @@ class TryPrDaemonTests(unittest.TestCase):
         self.assertIn("did not open", out.stdout)
         self.assertEqual(self.calls_of("cmux-ci"), [], "no dev build after the daemon went in")
 
-    def test_a_dev_copy_with_web_is_refused_before_anything_changes(self):
+    def test_a_dev_copy_takes_the_daemon_and_the_web_part(self):
+        # Every build reads web-dev.json since cmux#36173, so a copy of DEV takes the web overlay too.
         self.push_pr(RUST, WEB)
         self.write_plan(left={"web (not published for a branch)": [WEB]})
+        self.stub_side_instance()
         with open(self.app / "Contents/Info.plist", "wb") as handle:
             plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.next", "CFBundleVersion": "1",
                            "CMUXCommit": self.base}, handle)
         out = self.try_pr("--no-build")
-        self.assertIn("a copy of cmux NEXT DEV cannot load it", out.stdout)
-        self.assertFalse([c for c in self.calls_of("hot-apply") if " apply " in f" {c} "])
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertTrue([c for c in self.calls_of("hot-apply") if " apply " in f" {c} "])
+        self.assertIn("its web UI is patched in too", out.stdout)
+        # The side copy's dev server takes its own port (20000 + N % 10000).
+        self.assertEqual(self.calls_of("web-overlay.sh")[-1:], ["web-overlay.sh follow 1 --port 20001"])
 
     def test_a_side_instance_gets_its_own_copy_swapped_before_it_opens(self):
         self.push_pr(RUST)

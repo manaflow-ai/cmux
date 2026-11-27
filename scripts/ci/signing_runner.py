@@ -95,13 +95,16 @@ def slot_label(label: str) -> bool:
     return bool(NIGHTLY_SLOT_LABEL.fullmatch(label)) or label == SIGNER_LABEL
 
 ENABLED_VALUE = "1"
-# The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS; tests/test_ci_signing_owned_mac.py keeps the
-# lists equal): the workflow file and the job's display name (its `name:` or id; a matrix adds " (...)").
+# The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS): the workflow file and the job's display name
+# (its `name:` or id; a matrix adds " (...)"). The one copy in this repository: tests/test_ci_signing_owned_mac.py
+# reads it (picker_signing_jobs) and fails on any job that reads this script's owned pick and is not here.
+# publish-nightly-next-github is not one: it uploads on GitHub-hosted Ubuntu and never takes an owned Mac.
 SIGNING_JOBS = {
     "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization",
-                    "generate-nightly-deltas", "publish-nightly", "publish-nightly-next-github"),
+                    "generate-nightly-deltas", "publish-nightly",
+                    "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
+                    "nightly-next-pkg", "sign-live-code-variant", "nightly-next-deltas"),
     "release.yml": ("build-sign-notarize",),
-    "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),
 }
 # At most this many minis are held for signing at once (the coordinator's cap, 2026-10-29): a drained mini is taken
@@ -399,8 +402,8 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
             kept.append(blacksmith_picker.read_snapshot(lambda: reader(token, repo), "signing runner", sleep=sleep))
         return kept[0]
 
-    # `owned` is nightly.yml's signing pick: it may name only the signer (SIGNER_LABEL). release.yml, the DEV daily and
-    # the repair workflow keep their own owned pick.
+    # `owned` is nightly.yml's signing pick: it may name only the signer (SIGNER_LABEL). release.yml and the DEV daily
+    # keep their own owned pick.
     owned, owned_why = owned_pick(env, read_runners, read_jobs, read_snapshot, now, sleep, bounded,
                                   signer_only=list(argv[:1]) == ["owned"])
     # A shared pool label is only safe once the controller can prove every eligible listener has the

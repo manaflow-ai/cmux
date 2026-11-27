@@ -8,7 +8,7 @@ mod store;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use engine::{Backend, Catalog, Failure, Repo, add, list};
+pub(crate) use engine::{Backend, Catalog, Failure, Repo, add, list, normalize};
 pub(crate) use runtime::handle;
 
 pub const OPERATIONS: &[&str] = &[
@@ -22,7 +22,11 @@ pub const OPERATIONS: &[&str] = &[
 ];
 
 pub fn frame_command(line: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    frame_command_of(&serde_json::from_str(line).ok()?)
+}
+
+/// [`frame_command`] of a line already parsed.
+pub fn frame_command_of(value: &serde_json::Value) -> Option<String> {
     if value.get("protocol").is_some() {
         return None;
     }

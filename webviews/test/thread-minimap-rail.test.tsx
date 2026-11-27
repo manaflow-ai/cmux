@@ -9,6 +9,7 @@ import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -61,6 +62,17 @@ const VIEWPORT = 600;
 let paneWidth = 1040;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => paneWidth });
+// The scroller's content height is its spacer's (the transcript sizes it inline). jsdom reports 0, which
+// put every offset past the scroller's end: since #48114 that reads as the browser's spring back at the
+// end, never the reader's own scroll up, so the rail's browse, drag and jump paths never ran here.
+Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
+  configurable: true,
+  get(this: HTMLElement) {
+    const spacer = this.querySelector<HTMLElement>(":scope > .acpmux-spacer, :scope > * > .acpmux-spacer");
+    const height = spacer ? Number.parseFloat(spacer.style.height) : Number.NaN;
+    return Number.isFinite(height) ? Math.max(height, VIEWPORT) : VIEWPORT;
+  },
+});
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
@@ -90,13 +102,9 @@ setBookmarkTransport({
   },
 });
 
-afterAll(() => {
+afterAll(async () => {
   setBookmarkTransport(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -113,6 +121,13 @@ const chat = (count: number) =>
     { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
   ]).flat();
 
+// The rail places its list in the frame after the commit that moved its band (#54847), so a check of the
+// list's offset waits that frame out too, as a browser would have painted it by then.
+const nextFrame = () =>
+  act(async () => {
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+  });
+
 async function mount(prompts: number) {
   const root = createRoot(document.getElementById("root")!);
   await act(async () =>
@@ -126,11 +141,20 @@ async function mount(prompts: number) {
     ),
   );
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const scrolled = () => act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+  // The minimap places its band in the frame after a scroll event, as a browser runs it.
+  const scrolled = async () => {
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+    });
+    await nextFrame();
+  };
   await act(async () => {
     scroller.scrollTop = 0;
     scroller.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
   });
+  await nextFrame();
   return { root, scroller, scrolled, unmount: () => act(async () => root.unmount()) };
 }
 
@@ -347,8 +371,8 @@ test("focus in the card keeps it; Escape there or focus leaving rail and card cl
 test("the rail never outgrows a short transcript", async () => {
   const { railHeight, RAIL_HEIGHTS } = await import("../src/agent-session/acpmux/threadMinimap/model");
   // 60 prompts in an 820 px window over a 200 px transcript: the rail fits the transcript, less the
-  // mask's 18 px bands and 4 px past each.
-  expect(railHeight(60, 820, 200)).toBe(200 - 22 - 22);
+  // mask's 24 px top band and 4 px past each end (the foot has no band since 2026-11-17).
+  expect(railHeight(60, 820, 200)).toBe(200 - 28 - 4);
   // Not measured yet: the window caps it alone.
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
   // The visible transcript band no longer controls the rail's initial height.
@@ -367,11 +391,12 @@ test("the rail is never taller than 480 px, whatever the prompt count or the pan
   for (const band of [1, 24, 50, 1000]) expect(railHeight(1000, 1000, 1000, 1000, band)).toBe(480);
 });
 
-test("the rail keeps one tick pitch at every prompt count, as tall as its ticks up to 480 px, at one top", async () => {
+test("the rail keeps one tick pitch at every prompt count, as tall as its ticks up to 480 px, on one middle", async () => {
   // Leo, 2026-11-05, on a rail whose ticks sat 20 px apart in a fixed 480 px box: "the rail, ok keep it at
   // this max size, but don't reduce the density. y'all reduced the density". The ticks go back to the
-  // 10 px pitch in a rail as tall as they are, and it never shifts as it grows ("i just don't like it
-  // when the thing shifts").
+  // 10 px pitch in a rail as tall as they are. Its middle is the view's middle at every count (Lucas,
+  // 2026-11-17: "always vertically aligned, and is on the vertical center of the screen"), so it grows
+  // at both ends and its middle never shifts.
   const drawn: { count: number; pitch: number; height: number; top: number }[] = [];
   for (const count of [3, 13, 24, 100]) {
     const view = await mount(count);
@@ -391,7 +416,8 @@ test("the rail keeps one tick pitch at every prompt count, as tall as its ticks 
   expect(drawn.map(({ count, pitch, height }) => ({ count, pitch, height }))).toEqual(
     [3, 13, 24, 100].map((count) => ({ count, pitch: 10, height: Math.min(count * 10, 480) })),
   );
-  expect(new Set(drawn.map(({ top }) => top)).size).toBe(1);
+  const middles = drawn.map(({ top, height }) => top + height / 2);
+  expect(Math.max(...middles) - Math.min(...middles)).toBeLessThanOrEqual(1);
 });
 
 test("wheel browsing belongs to the rail and is not snapped back by transcript scrolling", async () => {
@@ -414,8 +440,40 @@ test("wheel browsing belongs to the rail and is not snapped back by transcript s
     await act(async () => {
       view.scroller.scrollTop = 500;
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
     expect(list.scrollTop).toBe(240);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("wheel browsing fades both ends from the rail's position while the transcript stays put", async () => {
+  const count = 120;
+  const view = await mount(count);
+  try {
+    const rail = document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
+    const list = rail.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const pitch = Number.parseFloat(list.style.getPropertyValue("--acpmux-minimap-pitch"));
+    const end = count * pitch - Number.parseFloat(rail.style.height);
+    expect(end).toBeGreaterThan(0);
+    // Browse away from the latest message, then return to it. The highlighted prompts stay at the end.
+    view.scroller.scrollTop =
+      Number.parseFloat(document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    await view.scrolled();
+    const transcriptTop = view.scroller.scrollTop;
+    expect(list.scrollTop).toBe(end);
+    await act(async () => list.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true })));
+    for (const [offset, top, bottom] of [
+      [end / 2, true, true],
+      [0, false, true],
+      [end, true, false],
+    ] as const) {
+      list.scrollTop = offset;
+      await act(async () => list.dispatchEvent(new dom.window.Event("scroll", { bubbles: true })));
+      expect([list.hasAttribute("data-fade-top"), list.hasAttribute("data-fade-bottom")]).toEqual([top, bottom]);
+      expect(view.scroller.scrollTop).toBe(transcriptTop);
+    }
   } finally {
     await view.unmount();
   }
@@ -587,11 +645,19 @@ test("a rail browsed in one chat follows the reader again in the next chat the t
     await act(async () => {
       view.scroller.scrollTop = 5000;
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
     await act(async () => {
       view.scroller.scrollTop = 0;
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
+    // Two jumps that far inside 120 ms read as a fling, whose rail catches up once at rest: wait for it.
+    await act(async () => {
+      // fixed-wait: the 120 ms fling-rest window is the behavior under test, on jsdom's real timers.
+      await new Promise((resolve) => setTimeout(resolve, 160));
+    });
+    await nextFrame();
     expect(list().scrollTop).toBe(0);
   } finally {
     await view.unmount();

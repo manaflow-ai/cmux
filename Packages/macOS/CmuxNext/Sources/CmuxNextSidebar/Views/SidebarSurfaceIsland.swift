@@ -1,10 +1,15 @@
 public import AppKit
 
-/// The two update surfaces the What's New design draws in React
-/// (cx-urd.61.2): the staged update's highlights in the card's hover
-/// popover, and the "cmux Updated!" card after an update.
+/// The update surfaces the What's New design draws in React (cx-urd.61.2): the staged
+/// update's highlights in the card's hover popover, the "cmux Updated!" card after an update,
+/// and that card's changes in the same kind of popover beside the sidebar
+/// (``UpdatedCardPreviewMode/beside``).
 public enum SidebarUpdateSurfaceKind: String, Sendable {
     case ready, updated
+    case updatedNotes = "updated-notes"
+
+    /// The surface shows the last update (the Updated card and its popover), not a staged one.
+    public var showsLastUpdate: Bool { self != .ready }
 }
 
 /// One React surface the App mounts in a sidebar host (a page view). The
@@ -31,6 +36,13 @@ public protocol SidebarSurfaceIsland: AnyObject {
     /// The height, in points, the Updated card's hover preview has once open; 0 from the moment it
     /// starts to close. The host's glass behind the page runs the page's motion to it.
     var previewHeight: CGFloat { get }
+    /// The Updated card's title line's middle, in points down from the top of the card's own box; 0 until
+    /// the page reports it (the host then keeps its x in the card's corner).
+    var titleLineMid: CGFloat { get }
+    /// The Updated card's words were final at its last report (its notes
+    /// answered); the host holds its remembered height only until then. False for a page that does not say:
+    /// the hold stays, as before.
+    var contentSettled: Bool { get }
     /// Points per CSS px of the page (its interface scale); 1 for a surface that is not zoomed.
     var zoom: CGFloat { get }
     /// Tells the page whether the pointer is on its view (the host's tracking area): WebKit sends a
@@ -47,6 +59,8 @@ extension SidebarSurfaceIsland {
     public var contentWidth: CGFloat { 0 }
     public var overlayHeight: CGFloat { 0 }
     public var previewHeight: CGFloat { 0 }
+    public var titleLineMid: CGFloat { 0 }
+    public var contentSettled: Bool { false }
     public var zoom: CGFloat { 1 }
     public func setPointerInside(_ inside: Bool) {}
     public var onDrag: ((SidebarCardDrag) -> Void)? {
@@ -189,6 +203,47 @@ extension SidebarViewComponents {
                 "parked": String(updateCardView.highlights?.view.superview === updateCardView.parking),
                 "window": String(updateCardView.window != nil),
                 "hiddenAncestor": String(updateCardView.isHiddenOrHasHiddenAncestor)]
+    }
+
+    /// Proofs (`debug.update_surfaces {action: "hover-updated"}`): puts the pointer on the
+    /// Updated card as a hover would (its x shows; its look's changes open, beside the sidebar or
+    /// in the card) and opens the popover now, without the rest; what shows.
+    public func debugHoverUpdatedCard() -> [String: String] {
+        updatedCardView.setHovered(true)
+        updatedCardView.notes.show(force: true)
+        return ["look": updatedCardView.previewMode.rawValue,
+                "notesShown": String(updatedCardView.notes.isShown),
+                "notesPage": String(updatedCardView.notes.island != nil),
+                "notesHeight": String(Double(updatedCardView.notes.island?.contentHeight ?? -1)),
+                "updatedCard": String(updatedCardView.card != nil)]
+    }
+
+    /// Hover timing proofs (scripts/cmux-next/hovercard-delay-live.py, `debug.update_surfaces`):
+    /// "card-point" answers the staged update card's middle in window coordinates (bottom-left
+    /// origin) while it shows, and whether its highlights card shows; "pull-request-badge" gives
+    /// workspace `workspace` a pull request badge with one fixture pull request, as the session tree
+    /// feed would (`off`: takes it back), and answers the badge's middle and whether its card shows.
+    public func debugHoverTimingProbe(_ action: String, workspace: String?, off: Bool) -> [String: String] {
+        func answer(_ point: CGPoint?, shown: Bool) -> [String: String] {
+            ["x": point.map { String(Double($0.x)) } ?? "", "y": point.map { String(Double($0.y)) } ?? "", "shown": String(shown)]
+        }
+        guard action == "pull-request-badge" else {
+            let card = updateCardView
+            let drawn = card.card != nil && card.window != nil && !card.isHiddenOrHasHiddenAncestor
+            return answer(drawn ? card.convert(CGPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil) : nil, shown: card.notesAreShown)
+                .merging(["card": String(drawn)]) { _, new in new }
+        }
+        guard let workspace else { return ["error": "workspace is required"] }
+        let tree = SidebarSessionTree.shared, id = WorkspaceID(workspace)
+        if off {
+            tree.pullRequests[id] = nil
+        } else if tree.pullRequests[id]?.items.isEmpty != false {
+            tree.pullRequests[id] = SidebarPullRequestBadge.combining(items: [SidebarPullRequestItem(
+                url: "https://github.com/example/repo/pull/1", repository: "example/repo", number: 1,
+                title: "Fixture pull request", state: .passing, additions: 12, deletions: 3)])
+        }
+        window?.contentView?.layoutSubtreeIfNeeded()
+        return answer(debugPullRequestBadgeCenterInWindow(workspace: workspace), shown: SidebarPullRequestCardController.shared.isPresented)
     }
 
     /// Proofs (`debug.update_surfaces {action: "state"}`): which update

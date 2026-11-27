@@ -27,9 +27,28 @@
 //!   process up.
 //! - Only after `MIN_TURNS` turns, and `TURNS_BETWEEN` more since the last
 //!   recap (Claude Code's own limits), so a short chat gets none.
-//! - The person shows the chat again after `AWAY` or more: the recap is
-//!   logged as a `mux` `recap` record (`{text, awayMs}`), which clients draw
-//!   as a recap row. A turn since it was asked makes it stale: it is dropped.
+//! - Only when a person's own prompt started a turn since the last ask
+//!   (`Hub::recap_turn_started`, `inbox::persons_prompt`): a chat that only
+//!   other agents, notices and triggers drive is the Chief's to report, and its
+//!   recaps were 87% of all recaps on the team gateway (6,202 a day, about
+//!   $0.13 each at list price, mostly cache misses: sr2 audit 2026-11-20).
+//! - `AWAY` after the person left, while the chat is still not shown (or as
+//!   soon as the answer comes, when that is later), the recap is logged as a
+//!   `mux` `recap` record (`{text, awayMs, since}`), which clients draw with
+//!   the "New since you looked" divider at `since` (`seen.rs`). It is in the
+//!   chat before the person looks, so their return draws it in place instead
+//!   of pushing the transcript up a card's height as it lands (Leo wants no
+//!   shift or jump on return, c-b966807d26). One answered only after the
+//!   person is back is logged then, as before. A turn since it was asked
+//!   makes one not logged yet stale: it is dropped. One already logged stays
+//!   where it was written, above the turn that came after it.
+//!
+//! - One recap per chat (Leo, 2026-11-11, of a chat with eight stacked recaps that all said the
+//!   same thing: "oh shit this is way too much"). The chat's current recap is kept on its
+//!   metadata (`SessionMeta::away_recap`), across restarts: a recap that names no fact the
+//!   current one does not (`facts`) is never written, and a newer one replaces it (`replaces` on
+//!   its record names the old record, which clients stop drawing). Its dismissal
+//!   (`Hub::dismiss_recap`) is kept there too, so a recap with nothing new never comes back.
 //!
 //! The recap never goes to the model as a prompt and is never in Claude
 //! Code's transcript. `agents.chats.sessionRecap` (the app's chat settings
@@ -69,14 +88,80 @@ pub(crate) struct Away {
     asked_at_turns: Option<u64>,
     /// The recap made while the person was away, and the turn count it describes.
     ready: Option<(String, u64)>,
-    /// The turn count of the last recap shown.
-    shown_at_turns: Option<u64>,
+    /// A person's own prompt started a turn since the last recap was asked
+    /// (`recap_turn_started`); none is asked for without one.
+    person_turn: bool,
 }
 
 /// The saved `sessionRecap` (`chat-settings.json`), on when there is none.
 pub(super) fn saved_setting() -> bool {
     crate::chats::ChatSettings::load(&crate::config::home().join("chat-settings.json"))
         .session_recap
+}
+
+/// What a recap names, to tell a recap with something new from one that says the same thing in
+/// other words (each recap is a fresh model answer, so its wording changes every time): PR and
+/// issue numbers (`cmux#34338` and `#34338` alike), paths, file names and names with digits in
+/// them (`leo1024rd`). A recap that names none of these is its words. Sorted, each once.
+pub(crate) fn facts(text: &str) -> Vec<String> {
+    let mut found = std::collections::BTreeSet::new();
+    let edge = |c: char| !(c.is_alphanumeric() || matches!(c, '#' | '/' | '~' | '_' | '-'));
+    for word in text.split(|c: char| {
+        c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '`' | '"' | '\'' | '[' | ']')
+    }) {
+        let word = word.trim_matches(edge);
+        if word.is_empty() {
+            continue;
+        }
+        let number =
+            word.split_once('#').map(|(_, n)| n.trim_end_matches(|c: char| !c.is_ascii_digit()));
+        if let Some(digits) =
+            number.filter(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_digit()))
+        {
+            found.insert(format!("#{digits}"));
+        } else if (word.starts_with('/') || word.starts_with("~/")) && word.len() > 2 {
+            found.insert(word.trim_end_matches('/').to_owned());
+        } else if word.chars().any(|c| c.is_ascii_digit())
+            && word.chars().any(char::is_alphabetic)
+            && word.len() >= 4
+        {
+            found.insert(word.to_lowercase());
+        } else if let Some((stem, ext)) = word.rsplit_once('.')
+            && stem.len() >= 2
+            && (1..=5).contains(&ext.len())
+            && ext.chars().all(|c| c.is_ascii_alphabetic())
+            && stem.chars().any(char::is_alphabetic)
+        {
+            found.insert(word.to_lowercase());
+        }
+    }
+    if found.is_empty() {
+        let words: Vec<String> = text
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect();
+        found.insert(format!("text:{}", digest_of(&words)));
+    }
+    found.into_iter().collect()
+}
+
+/// A stable hash of `facts` (FNV-1a), the same on every run and machine.
+pub(crate) fn digest_of(facts: &[String]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for fact in facts {
+        for byte in fact.bytes().chain([0]) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
+/// Whether a recap naming `facts` says nothing the chat's current recap does not: then it is
+/// never written, whether the current one shows or was dismissed.
+pub(crate) fn nothing_new(current: Option<&crate::store::AwayRecap>, facts: &[String]) -> bool {
+    current.is_some_and(|current| facts.iter().all(|fact| current.facts.contains(fact)))
 }
 
 /// Trimmed and capped recap text, or None for an empty answer.
@@ -126,6 +211,12 @@ impl Hub {
         session.away.lock().unwrap_or_else(|e| e.into_inner()).seen = true;
     }
 
+    /// Whether a person has shown `session` since the daemon started (`recap_person_shows`), not
+    /// only an agent's subscription.
+    pub(super) fn person_has_shown(&self, session: &Session) -> bool {
+        session.away.lock().unwrap_or_else(|e| e.into_inner()).seen
+    }
+
     /// Whether a person has shown chat `id` since the daemon started (`recap_person_shows`).
     #[doc(hidden)]
     pub fn recap_person_seen(&self, id: &str) -> bool {
@@ -133,7 +224,8 @@ impl Hub {
     }
 
     /// Whether some client shows `session` changed (`seen.rs`). Leaving it starts the away
-    /// period; showing it again after `AWAY` logs the recap made meanwhile.
+    /// period; showing it again after `AWAY` logs the recap made meanwhile, when it was not
+    /// logged already (`recap_due_now`).
     pub(super) fn recap_visibility(&self, session: &Session) {
         let now = self.clock_now();
         let shown = self.shown(session);
@@ -152,19 +244,127 @@ impl Hub {
         if away_for < AWAY {
             return;
         }
-        let turns = session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count;
-        let Some((text, at_turns)) = away.ready.take() else { return };
+        let Some(ready) = away.ready.take() else { return };
+        drop(away);
+        self.log_recap(session, ready, away_for);
+    }
+
+    /// The recap of `session` is made, or its log time came: logs it when the person has been
+    /// away `AWAY` and still is; else, while they are away, at `AWAY` (the recap timer).
+    fn recap_due_now(&self, session: &Session) {
+        let now = self.clock_now();
+        let mut away = session.away.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(left_at) = away.left_at else { return };
+        if away.ready.is_none() {
+            return;
+        }
+        let at = left_at + AWAY.as_nanos() as u64;
+        if now < at {
+            drop(away);
+            self.recap_due.lock().unwrap_or_else(|e| e.into_inner()).insert(session.id.clone(), at);
+            self.recap_wake.notify_one();
+            return;
+        }
+        let Some(ready) = away.ready.take() else { return };
+        drop(away);
+        self.log_recap(session, ready, Duration::from_nanos(now.saturating_sub(left_at)));
+    }
+
+    /// Logs `ready` (its text and the turn count it describes) as the chat's recap: none when a
+    /// turn came since, recaps are off, or it names nothing the current recap does not.
+    fn log_recap(&self, session: &Session, ready: (String, u64), away_for: Duration) {
+        let (text, at_turns) = ready;
+        let (turns, since) = session.read_meta(|meta| (meta.turn_count, meta.seen_seq));
         if at_turns != turns || !self.recap_applies(session) {
             return;
         }
-        away.shown_at_turns = Some(turns);
-        drop(away);
-        self.append(
-            session,
-            "mux",
-            "recap",
-            json!({"text": text, "awayMs": away_for.as_millis() as u64}),
-        );
+        let facts = facts(&text);
+        let current = session.read_meta(|meta| meta.away_recap.clone());
+        if nothing_new(current.as_ref(), &facts) {
+            // The same recap again in other words: none is written, and the next waits
+            // `TURNS_BETWEEN` turns from here.
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).away_recap =
+                current.map(|current| crate::store::AwayRecap { turns, ..current });
+            self.save_meta(session);
+            return;
+        }
+        let digest = digest_of(&facts);
+        let mut msg = json!({
+            "text": text,
+            "awayMs": away_for.as_millis() as u64,
+            // `since`: where the person left off, so a client draws the recap with its
+            // "New since you looked" divider instead of twice (`seen.rs`).
+            "since": since,
+            "digest": digest,
+        });
+        // The recap it replaces: a client draws only the newest. `msg` is the object built just
+        // above; inserting through `as_object_mut` keeps the panic ratchet's indexing count flat.
+        if let (Some(old), Some(fields)) = (&current, msg.as_object_mut()) {
+            fields.insert("replaces".to_owned(), json!(old.seq));
+        }
+        let record = self.append(session, "mux", "recap", msg);
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).away_recap =
+            Some(crate::store::AwayRecap {
+                seq: record.seq,
+                digest,
+                facts,
+                turns,
+                dismissed: false,
+            });
+        self.save_meta(session);
+    }
+
+    /// The person pressed the × of the recap logged at `seq`: kept on
+    /// the chat, so a recap with no new fact is never written after it, across restarts. A recap
+    /// older than the chat's current one is already replaced; one from before recaps were kept
+    /// (`away_recap` None) becomes the current one, dismissed.
+    pub fn dismiss_recap(&self, id: &str, seq: u64) -> Result<(), RpcError> {
+        let session = &*self.resolve(id)?;
+        let current = session.read_meta(|meta| meta.away_recap.clone());
+        let recap = match current {
+            Some(current) if current.seq == seq => {
+                crate::store::AwayRecap { dismissed: true, ..current }
+            }
+            Some(current) if current.seq > seq => return Ok(()),
+            _ => {
+                let record = self
+                    .events(&session.id, seq.saturating_sub(1), 1)
+                    .map_err(|e| RpcError::internal(e.to_string()))?
+                    .into_iter()
+                    .find(|r| r.seq == seq && r.dir == "mux" && r.kind == "recap")
+                    .ok_or_else(|| RpcError::invalid_params(format!("no recap at {seq}")))?;
+                let text = record.msg.get("text").and_then(Value::as_str).unwrap_or_default();
+                let facts = facts(text);
+                let turns = session.read_meta(|meta| meta.turn_count);
+                crate::store::AwayRecap {
+                    seq,
+                    digest: digest_of(&facts),
+                    facts,
+                    turns,
+                    dismissed: true,
+                }
+            }
+        };
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).away_recap = Some(recap);
+        self.save_meta_answered(session)
+    }
+
+    /// Forgets what this daemon run knew of `id`'s away state, as a restart does; what the chat
+    /// keeps on disk (`SessionMeta::away_recap`) stays. For tests.
+    #[doc(hidden)]
+    pub fn recap_forget_run(&self, id: &str) {
+        if let Ok(session) = self.resolve(id) {
+            *session.away.lock().unwrap_or_else(|e| e.into_inner()) = Away::default();
+        }
+    }
+
+    /// A turn of `session` starts; `by_person`: a person's own prompt started it
+    /// (`inbox::persons_prompt`, not a trigger's delivery). Only such a turn makes a recap
+    /// worth asking for.
+    pub(super) fn recap_turn_started(&self, session: &Session, by_person: bool) {
+        if by_person {
+            session.away.lock().unwrap_or_else(|e| e.into_inner()).person_turn = true;
+        }
     }
 
     /// A turn of `session` ended: a recap made before it is stale, and one is asked for
@@ -195,7 +395,7 @@ impl Hub {
     }
 
     /// Whether `session` wants a recap now: still away, idle, enough turns since the last one,
-    /// none made or asked for this turn.
+    /// a person's own turn since the last ask, none made or asked for this turn.
     fn wants_recap(&self, session: &Session) -> Option<u64> {
         if !self.recap_applies(session) || self.shown(session) {
             return None;
@@ -206,14 +406,17 @@ impl Hub {
         if !idle {
             return None;
         }
-        let turns = session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count;
+        let (turns, last) =
+            session.read_meta(|meta| (meta.turn_count, meta.away_recap.as_ref().map(|r| r.turns)));
         let away = session.away.lock().unwrap_or_else(|e| e.into_inner());
-        let enough = match away.shown_at_turns {
+        // From the chat's kept recap, so a restart does not start the count again.
+        let enough = match last {
             Some(last) => turns >= last + TURNS_BETWEEN,
             None => turns >= MIN_TURNS,
         };
         let asked = away.asked_at_turns == Some(turns);
-        (away.left_at.is_some() && enough && !asked && !away.asking).then_some(turns)
+        (away.left_at.is_some() && enough && away.person_turn && !asked && !away.asking)
+            .then_some(turns)
     }
 
     /// The idle reaper is about to stop the process of `session` (`idle.rs`): when it wants a
@@ -238,6 +441,7 @@ impl Hub {
             let mut away = session.away.lock().unwrap_or_else(|e| e.into_inner());
             away.asking = true;
             away.asked_at_turns = Some(turns);
+            away.person_turn = false;
         }
         let answer = child.request_within(crate::claude_stdio::RECAP, json!({}), TIMEOUT).await;
         let text = match answer {
@@ -257,6 +461,8 @@ impl Hub {
         // A turn that began while it was asked makes it stale.
         if let Some(text) = text.filter(|_| now_turns == turns && away.left_at.is_some()) {
             away.ready = Some((text, turns));
+            drop(away);
+            self.recap_due_now(session);
         }
     }
 
@@ -264,11 +470,19 @@ impl Hub {
     pub(super) fn watch_recaps(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("recap-events", async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    // Turns may have ended unheard: every idle chat's recap is scheduled again,
+                    // which does nothing for one that wants none (rework stage 3, E4).
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        let Some(hub) = hub.upgrade() else { return };
+                        for session in hub.lagged_reader("recap-events", n) {
+                            hub.schedule_recap(&session);
+                        }
+                        continue;
+                    }
                     Err(broadcast::error::RecvError::Closed) => return,
                 };
                 let rec = &ev.record;
@@ -283,7 +497,7 @@ impl Hub {
         });
         let hub = Arc::downgrade(self);
         let wake = self.recap_wake.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("recap-timer", async move {
             loop {
                 let next = {
                     let Some(hub) = hub.upgrade() else { return };
@@ -302,6 +516,11 @@ impl Hub {
                     };
                     for id in due {
                         let Ok(session) = hub.resolve(&id) else { continue };
+                        // A recap made and waiting for `AWAY`: logged now, while still away.
+                        if session.away.lock().unwrap_or_else(|e| e.into_inner()).ready.is_some() {
+                            hub.recap_due_now(&session);
+                            continue;
+                        }
                         let Some(turns) = hub.wants_recap(&session) else { continue };
                         let hub = hub.clone();
                         tokio::spawn(async move { hub.ask_recap(&session, turns).await });

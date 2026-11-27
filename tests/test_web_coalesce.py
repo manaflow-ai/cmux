@@ -2,13 +2,14 @@
 """cmux-next-web.yml's coalesced push runs (scripts/ci/web_coalesce.py) and their bisect.
 
 The decision (claude-sr2-coord, 2026-11-03): coalesce the push runs to the newest tip when (1) a run still starts
-at least every 30 minutes of landings (15 until 2026-11-04), (2) a red coalesced run bisects only its failing named tests over the commits
+at least every 120 minutes of landings (15 until 2026-11-04, 30 until 2026-11-21), (2) a red coalesced run bisects only its failing named tests over the commits
 it skipped, so test_reds.py still names the first red commit and its pull request, and (3) the PR-time webview
 verdict (react-apps-base-check) is unchanged.
 """
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import io
 import json
 import os
@@ -22,6 +23,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -62,14 +70,14 @@ class WaitTests(unittest.TestCase):
                                    out=str(out))
             with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
                     redirect_stdout(io.StringIO()) as printed:
-                coalesce.wait(args, sleep=lambda s: None, clock=lambda: 1000.0)
+                coalesce.wait(args, clock=lambda: 1000.0)
             self.assertIn(f"base={coalesce.EVERYTHING}\n", output.read_text())
             self.assertIn("every web check", printed.getvalue())
             marker = coalesce.read_last(str(out))
             self.assertEqual(marker["covered"], {A: coalesce.EVERYTHING})
             self.assertEqual(coalesce.plan_wait(marker, A, B, 1001.0, 900, attempt=2), (0.0, coalesce.EVERYTHING))
 
-    def test_a_push_inside_the_window_waits_for_it_and_routes_from_the_last_covered_commit(self):
+    def test_a_push_inside_the_window_is_planned_from_the_last_covered_commit(self):
         last = {"sha": B, "started": 1000.0}
         self.assertEqual(coalesce.plan_wait(last, A, C, 1000.0 + 300, 900), (600.0, B))
         # Past the window: no wait, and still everything since the last covered commit.
@@ -97,122 +105,111 @@ class WaitTests(unittest.TestCase):
             args = SimpleNamespace(off=False, hold_minutes=15, last=str(marker), sha=A, before=B, out=str(marker),
                                    attempt=2)
             with redirect_stdout(io.StringIO()):
-                coalesce.wait(args, sleep=lambda s: None, clock=lambda: 2100.0)
+                coalesce.wait(args, clock=lambda: 2100.0)
             self.assertEqual(json.loads(marker.read_text()), kept)
 
-    def test_wait_sleeps_records_the_push_and_outputs_its_base(self):
+    def run_wait(self, last, sha, before, now, tick=False, off=False, attempt=1):
+        """One `wait` call: (the outputs it wrote, the marker it wrote, what it printed)."""
         with tempfile.TemporaryDirectory() as tmp:
-            last, out, output = Path(tmp, "last.json"), Path(tmp, "new/last.json"), Path(tmp, "output")
-            last.write_text(json.dumps({"sha": B, "started": 1000.0}))
-            slept = []
-            clock = iter([1100.0, 1900.0])
-            args = SimpleNamespace(off=False, hold_minutes=15, last=str(last), sha=A, before=C, out=str(out))
-            os.environ["GITHUB_OUTPUT"] = str(output)
-            try:
-                with redirect_stdout(io.StringIO()):
-                    coalesce.wait(args, sleep=slept.append, clock=lambda: next(clock))
-            finally:
-                del os.environ["GITHUB_OUTPUT"]
-            self.assertEqual(slept, [800.0])
-            self.assertEqual(json.loads(out.read_text()), {"sha": A, "started": 1900.0, "covered": {A: B}})
-            self.assertEqual(output.read_text(), f"base={B}\nrun=true\n")
-
-    def run_wait(self, last, sha, before, now, end, tip):
-        """One `wait` call: (the outputs it wrote, the marker it wrote, slept seconds)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            marker, out, output = Path(tmp, "last.json"), Path(tmp, "new.json"), Path(tmp, "output")
-            marker.write_text(json.dumps(last))
+            marker, out, output = Path(tmp, "last.json"), Path(tmp, "new/last.json"), Path(tmp, "output")
+            if last is not None:
+                marker.write_text(json.dumps(last))
             output.write_text("")
-            slept = []
-            clock = iter([now, end])
-            args = SimpleNamespace(off=False, hold_minutes=15, last=str(marker), sha=sha, before=before, out=str(out),
-                                   attempt=1, ref="refs/heads/feat-cmux-next")
-            with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), redirect_stdout(io.StringIO()):
-                coalesce.wait(args, sleep=slept.append, clock=lambda: next(clock), tip=lambda ref: tip)
+            args = SimpleNamespace(off=off, hold_minutes=15, last=str(marker), sha=sha, before=before, out=str(out),
+                                   attempt=attempt, tick=tick)
+            with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
+                    redirect_stdout(io.StringIO()) as printed:
+                coalesce.wait(args, clock=lambda: now)
             got = dict(line.split("=", 1) for line in output.read_text().splitlines())
-            return got, json.loads(out.read_text()), slept
+            return got, json.loads(out.read_text()), printed.getvalue()
 
-    def test_a_job_that_slept_yields_when_the_branch_moved_on(self):
+    def test_the_wait_never_sleeps(self):
+        # 2026-11-21: the coalesce job slept out the window on a runner, about 700 runner-minutes a day.
+        self.assertNotIn("sleep", inspect.signature(coalesce.wait).parameters)
+        with unittest.mock.patch.object(coalesce.time, "sleep", side_effect=AssertionError("slept")):
+            for tick in (False, True):
+                self.run_wait({"sha": B, "started": 1000.0, "covered": {B: D}}, A, C, 1100.0, tick=tick)
+
+    def test_a_push_inside_the_window_yields_at_once_and_records_nothing(self):
+        last = {"sha": B, "started": 1000.0, "covered": {B: D}}
+        got, marker, printed = self.run_wait(last, A, C, 1100.0)
+        self.assertEqual((got["run"], got["base"]), ("false", ""))
+        self.assertEqual(marker, last)  # the first push or tick after the window routes from B, so A is checked there
+        self.assertIn("no runner held", printed)
+
+    def test_a_push_past_the_window_records_the_push_and_outputs_its_base(self):
+        got, marker, _ = self.run_wait({"sha": B, "started": 1000.0}, A, C, 1900.0)
+        self.assertEqual(marker, {"sha": A, "started": 1900.0, "covered": {A: B}})
+        self.assertEqual((got["run"], got["base"]), ("true", B))
+
+    def test_a_tick_runs_the_uncovered_tip_once_the_window_passed(self):
         last = {"sha": A, "started": 0.0, "covered": {A: D}}
-        got, marker, slept = self.run_wait(last, B, A, 60.0, 900.0, tip=C)
-        self.assertEqual((got["run"], got["base"], slept), ("false", "", [840.0]))
-        self.assertEqual(marker, last)  # nothing recorded: the newer push's run covers B
-        # Still the tip: it runs.
-        got, marker, _ = self.run_wait(last, B, A, 60.0, 900.0, tip=B)
-        self.assertEqual((got["run"], got["base"], marker["sha"]), ("true", A, B))
-        # The tip unreadable: it runs, as before.
-        got, _, _ = self.run_wait(last, B, A, 60.0, 900.0, tip=None)
-        self.assertEqual(got["run"], "true")
+        got, marker, _ = self.run_wait(last, C, "", 905.0, tick=True)
+        self.assertEqual((got["run"], got["base"], marker["sha"], marker["covered"][C]), ("true", A, C, A))
+        # Inside the window it yields like a push.
+        got, marker, _ = self.run_wait(last, C, "", 300.0, tick=True)
+        self.assertEqual((got["run"], marker), ("false", last))
 
-    def test_a_job_that_did_not_sleep_never_yields(self):
-        # Past the deadline it runs at once whatever landed since, so a window always ends in a run.
-        last = {"sha": A, "started": 0.0, "covered": {A: D}}
-        got, marker, slept = self.run_wait(last, C, B, 905.0, 905.0, tip="e" * 40)
-        self.assertEqual((got["run"], got["base"], slept, marker["sha"]), ("true", A, [], C))
+    def test_a_tick_on_a_covered_tip_yields(self):
+        # The tip already ran (the last covered push, or one covered earlier): a tick re-runs nothing however old.
+        last = {"sha": A, "started": 0.0, "covered": {B: D, A: B}}
+        for tip in (A, B):
+            got, marker, printed = self.run_wait(last, tip, "", 99999.0, tick=True)
+            self.assertEqual((got["run"], got["base"], marker), ("false", "", last))
+            self.assertIn("already covered", printed)
+        # A re-run of a tick's run still runs, from the range its first attempt checked.
+        got, _, _ = self.run_wait(last, A, "", 99999.0, tick=True, attempt=2)
+        self.assertEqual((got["run"], got["base"]), ("true", B))
 
-    def simulate(self, arrivals, marker, hold=900.0, startup=10.0):
-        """The coalesce group as GitHub runs it (cancel-in-progress false): one job runs at a time, and a push's job
-        waits pending behind it, replacing the pending one before it; a job out of pending is never cancelled. It
-        starts STARTUP after the group frees, reads the newest marker, sleeps to the deadline, then yields when the
-        branch moved past its push, else runs and records. ARRIVALS: (time, sha, push base), ascending. Returns the runs:
-        (start time, sha, the base they route from)."""
-        runs, saved, free, pending = [], marker, 0.0, None
-        events = list(arrivals)
-        i = 0
-        while i < len(events) or pending:
-            if pending is None:
-                pending, i = events[i], i + 1
-            # Pushes landing while the group is busy replace this job while it is still pending. Once the group is
-            # free it leaves pending (queued for a runner), and nothing replaces it; STARTUP is that runner's pickup.
-            while i < len(events) and events[i][0] < free:
-                pending, i = events[i], i + 1
-            at, sha, before = pending
-            start = max(at, free) + startup
-            pending = None
-            seconds, _ = coalesce.plan_wait(saved, sha, before, start, hold)
-            end = start + seconds
-            tip = max((e for e in events if e[0] <= end), key=lambda e: e[0])[1]
-            got, record, _ = self.run_wait(saved, sha, before, start, end, tip)
-            free = end
+    def test_a_tick_with_coalescing_off_runs_nothing(self):
+        # Every push runs its own checks then: a tick would only repeat the tip's.
+        got, _, _ = self.run_wait({"sha": B, "started": 0.0}, A, "", 99999.0, tick=True, off=True)
+        self.assertEqual(got["run"], "false")
+
+    def test_a_tick_with_no_marker_runs_every_web_check(self):
+        got, marker, _ = self.run_wait(None, A, "", 1000.0, tick=True)
+        self.assertEqual((got["run"], got["base"], marker["covered"]), ("true", coalesce.EVERYTHING, {A: coalesce.EVERYTHING}))
+
+    def simulate(self, pushes, marker, hold=900.0, tick_every=300.0, until=None):
+        """Pushes and ticks in time order, each deciding at once from the newest marker (the coalesce group runs
+        one at a time, in seconds, so each reads the one before it saved). PUSHES: (time, sha, push base),
+        ascending; a tick every TICK_EVERY seconds runs on the tip then. Returns the runs: (time, sha, base)."""
+        until = until if until is not None else pushes[-1][0] + hold + 2 * tick_every
+        events = [(at, sha, before, False) for at, sha, before in pushes]
+        events += [(n * tick_every, None, "", True) for n in range(1, int(until // tick_every) + 1)]
+        events.sort(key=lambda e: (e[0], e[3]))
+        runs, saved, tip = [], marker, marker["sha"]
+        for at, sha, before, tick in events:
+            sha = tip if tick else sha
+            tip = sha
+            got, record, _ = self.run_wait(saved, sha, before, at, tick=tick)
             if got["run"] == "true":
-                runs.append((end, sha, got["base"]))
+                runs.append((at, sha, got["base"]))
                 saved = record
         return runs
 
-    def test_a_push_arriving_while_a_coalesce_job_sleeps_runs_when_the_window_ends(self):
-        # #33872: A ran at 0; B lands at 60 and C at 120. B's job sleeps; C's waits pending. At 900 B yields, and C runs
-        # at once from A: one run, every landing since A, and no push waits a second window (before: B at 900, C at
-        # 1800).
+    def test_a_quiet_tail_is_checked_by_the_first_tick_after_the_window(self):
+        # A ran at 0; B lands at 60 and C at 120, then nothing. Both yield; the tick at 900, as the window ends, runs C from A:
+        # one run covering every landing since A, and nothing slept.
         marker = {"sha": A, "started": 0.0, "covered": {A: D}}
         runs = self.simulate([(60.0, B, A), (120.0, C, B)], marker)
-        self.assertEqual([(sha, base) for _, sha, base in runs], [(C, A)])
-        self.assertLess(runs[0][0], 900.0 + 60)
+        self.assertEqual(runs, [(900.0, C, A)])
 
     def test_pushes_without_pause_never_starve_the_checks(self):
-        # Reviews of #34028: whatever the job startup (10 s, 70 s), a push a minute still gets a run every window,
-        # each from the run before, and the last push is checked.
+        # A push a minute: a run every window (the first push after it), each from the run before, and the last
+        # push is checked by a tick.
         shas = [f"{n:040x}" for n in range(1, 62)]
-        arrivals = [(60.0 * n, shas[n], shas[n - 1]) for n in range(1, 61)]
-        for startup in (10.0, 70.0):
-            with self.subTest(startup=startup):
-                runs = self.simulate(arrivals, {"sha": shas[0], "started": 0.0, "covered": {shas[0]: D}},
-                                     startup=startup)
-                gaps = [b[0] - a[0] for a, b in zip(runs, runs[1:])]
-                self.assertTrue(all(gap <= 900.0 + 2 * startup for gap in gaps), gaps)
-                self.assertGreaterEqual(len(runs), 4)
-                self.assertEqual([base for _, _, base in runs[1:]], [sha for _, sha, _ in runs[:-1]])
-                self.assertEqual(runs[-1][1], shas[60])
+        pushes = [(60.0 * n, shas[n], shas[n - 1]) for n in range(1, 61)]
+        runs = self.simulate(pushes, {"sha": shas[0], "started": 0.0, "covered": {shas[0]: D}})
+        gaps = [b[0] - a[0] for a, b in zip(runs, runs[1:])]
+        self.assertTrue(all(gap <= 900.0 + 300.0 for gap in gaps), gaps)
+        self.assertGreaterEqual(len(runs), 4)
+        self.assertEqual([base for _, _, base in runs[1:]], [sha for _, sha, _ in runs[:-1]])
+        self.assertEqual(runs[-1][1], shas[60])
 
-    def test_the_off_switch_never_waits(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            last = Path(tmp, "last.json")
-            last.write_text(json.dumps({"sha": B, "started": 1000.0}))
-            slept = []
-            args = SimpleNamespace(off=True, hold_minutes=15, last=str(last), sha=A, before=C,
-                                   out=str(Path(tmp, "o.json")))
-            with redirect_stdout(io.StringIO()):
-                coalesce.wait(args, sleep=slept.append, clock=lambda: 1001.0)
-            self.assertEqual(slept, [])
+    def test_the_off_switch_runs_every_push_at_once(self):
+        got, _, _ = self.run_wait({"sha": B, "started": 1000.0}, A, C, 1001.0, off=True)
+        self.assertEqual((got["run"], got["base"]), ("true", C))
 
     def test_an_unreadable_marker_is_no_marker(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -357,6 +354,33 @@ class BisectTests(unittest.TestCase):
         self.assertNotIn(base, probed)
         self.assertEqual(report["lines"], [line for line in printed.splitlines() if line.startswith("web bisect: ")
                                            and "probing" not in line and "nothing" not in line])
+
+    def test_the_report_names_each_culprit_for_a_reader_that_acts_on_it(self):
+        base, culprit, _, probed, report = self.run_bisect()
+        self.assertEqual(report["schema"], "web-bisect/2")
+        self.assertEqual(report["culprits"], [{"sha": culprit, "pr": 103, "subject": "break a (#103)",
+                                               "files": ["src/a.test.ts"]}])
+        verdicts = {v["file"]: v for v in report["verdicts"]}
+        self.assertEqual(verdicts["src/a.test.ts"]["verdict"], "culprit")
+        self.assertEqual(verdicts["src/a.test.ts"]["culprit"]["sha"], culprit)
+        self.assertEqual(verdicts["src/old.test.ts"], {"file": "src/old.test.ts", "verdict": "base-red",
+                                                       "culprit": None, "green": None})
+        # One entry a probe run, with its seconds: the bisect's cost per culprit is their sum.
+        self.assertEqual([p["sha"] for p in report["probes"]], probed)
+        self.assertTrue(all(isinstance(p["seconds"], int) and p["files"] == 1 for p in report["probes"]))
+
+    def test_a_flaky_or_unpinned_red_names_no_culprit(self):
+        _, _, _, _, report = self.run_bisect(flaky_history=True)
+        self.assertEqual(report["culprits"], [])
+        self.assertEqual({v["file"]: v["verdict"] for v in report["verdicts"]}["src/a.test.ts"], "flaky")
+        _, _, _, _, report = self.run_bisect_again(timed_out=True)
+        self.assertEqual(report["culprits"], [])
+        self.assertIn({v["file"]: v["verdict"] for v in report["verdicts"]}["src/a.test.ts"], ("unresolved", "base-red"))
+
+    def run_bisect_again(self, **kw):
+        self.tmp.cleanup()
+        self.tmp = tempfile.TemporaryDirectory()
+        return self.run_bisect(**kw)
 
     def test_a_test_already_red_at_the_base_in_the_same_file_does_not_move_the_first_red(self):
         _, culprit, printed, probed, _ = self.run_bisect(old_red_in_file=True)
@@ -517,13 +541,18 @@ class ProbeTests(unittest.TestCase):
         self.assertIn('"$runner/ensure-system-chrome.sh"', block)
         self.assertLess(text.index("CMUX_CHROME_HEADLESS_SHELL="), text.index('bash "$runner/run-webviews-tests.sh"'))
         self.assertIn('CMUX_WEB_TEST_STATES="$out.states"', text)
+        # #40115: an older commit's probe draws the shards' font, from the runner's copy (the commit may lack it).
+        self.assertLess(text.index('"$runner/pin-browser-test-font.sh"'), text.index("cd webviews || exit 0"))
         with tempfile.TemporaryDirectory() as tmp:
             helper = Path(tmp, "ensure-system-chrome.sh")
             helper.write_text("#!/usr/bin/env bash\necho 'system Chrome 142 at /opt/chrome'\n"
                               "echo 'CMUX_CHROME_HEADLESS_SHELL=/cache/chrome-headless-shell'\n")
             helper.chmod(0o755)
+            pin = Path(tmp, "pin-browser-test-font.sh")
+            pin.write_text("#!/usr/bin/env bash\necho 'pin-browser-test-font: the UI font stack draws Inter'\n")
+            pin.chmod(0o755)
             got = subprocess.run(["bash", "-c", f"runner={tmp}\n{block}\nprintf '%s' \"$CMUX_CHROME_HEADLESS_SHELL\""],
-                                 capture_output=True, text=True, check=True, env={"PATH": os.environ["PATH"]})
+                                 capture_output=True, text=True, check=True, env=git_fixture_env.fixture_env({"PATH": os.environ["PATH"]}))
             self.assertTrue(got.stdout.endswith("/cache/chrome-headless-shell"), got.stdout)
 
 
@@ -558,29 +587,31 @@ class WorkflowTests(unittest.TestCase):
         job = self.web["jobs"]["coalesce"]
         self.assertIs(job["concurrency"]["cancel-in-progress"], False)
         self.assertIn("'cmux-next-web-coalesce'", job["concurrency"]["group"])
-        # A dispatch, another branch and the off switch get a group of their own.
-        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
-                      job["concurrency"]["group"])
+        # A push and the tick share it; any other dispatch, another branch and the off switch get a group of their own.
+        self.assertIn("(github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.tick) && "
+                      "github.ref == 'refs/heads/feat-cmux-next'", job["concurrency"]["group"])
+        self.assertIs(self.web[True]["workflow_dispatch"]["inputs"]["tick"]["default"], False)
         self.assertIn("vars.NEXT_WEB_COALESCE", job["concurrency"]["group"])
         # #34158: a re-run's own group, so a newer push's pending job never replaces it.
-        shared, own = job["concurrency"]["group"].split("||", 1)
+        shared, own = job["concurrency"]["group"].split("|| format(", 1)
         self.assertIn("github.run_attempt == '1'", shared)
         self.assertIn("github.run_attempt", own)
         # ... and it never saves a marker, so a late save cannot roll the newest one back.
         save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
         self.assertIn("github.run_attempt == '1'", save["if"])
-        self.assertIn("--hold-minutes 30", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
-        # The sleep, then a few minutes of work; the decision's bound on the window is 30 minutes.
-        self.assertEqual(coalesce.HOLD_MINUTES, 30.0)
-        self.assertLessEqual(job["timeout-minutes"], 35)
+        self.assertIn("--hold-minutes 120", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
+        # A few seconds of work and no sleep; the window is 120 minutes (CI time map, 2026-11-21).
+        self.assertEqual(coalesce.HOLD_MINUTES, 120.0)
+        self.assertLessEqual(job["timeout-minutes"], 5)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)
         self.assertNotIn("cancel-in-progress: true", WEB.read_text())
 
     def test_a_yielded_job_runs_no_checks_and_records_nothing(self):
-        # #33872: the job that slept yields to a newer push (run=false): no web checks, no marker.
+        # A push inside the window, or a tick on a covered tip, yields (run=false): no web checks, no marker.
         job = self.web["jobs"]["coalesce"]
         wait = next(s for s in job["steps"] if s.get("id") == "wait")
-        self.assertIn('--ref "$GITHUB_REF"', wait["run"])
+        self.assertIn("--tick", wait["run"])
+        self.assertEqual(job["env"]["TICK"], "${{ github.event_name == 'workflow_dispatch' && inputs.tick && '1' || '0' }}")
         self.assertEqual(job["outputs"]["run"], "${{ steps.wait.outputs.run }}")
         save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
         self.assertIn("steps.wait.outputs.run == 'true'", save["if"])
@@ -605,7 +636,8 @@ class WorkflowTests(unittest.TestCase):
             finally:
                 del sys.modules[spec.name]
             self.assertTrue(copied.WEB_BUNDLE_KEY.is_file(), copied.WEB_BUNDLE_KEY)
-            for name in ("run-webviews-tests.sh", "web_coalesce.py", "web-bisect-probe.sh", "webviews_test_history.py"):
+            for name in ("run-webviews-tests.sh", "web_coalesce.py", "web-bisect-probe.sh", "webviews_test_history.py",
+                         "pin-browser-test-font.sh"):
                 self.assertTrue(Path(tmp + runner, name).is_file(), name)
 
     def test_the_marker_is_restored_from_and_saved_to_one_path(self):
@@ -623,14 +655,15 @@ class WorkflowTests(unittest.TestCase):
     def test_the_web_checks_route_from_the_last_covered_commit(self):
         web = self.web["jobs"]["web"]
         self.assertEqual(web["needs"], "coalesce")
-        self.assertEqual(web["with"]["push_base"], "${{ github.event_name == 'push' && needs.coalesce.outputs.base || '' }}")
+        self.assertEqual(web["with"]["push_base"], "${{ (github.event_name == 'push' || github.event_name == "
+                         "'workflow_dispatch' && inputs.tick) && needs.coalesce.outputs.base || '' }}")
 
     def test_the_bisect_runs_on_a_red_push_and_never_fails(self):
         job = self.web["jobs"]["web-bisect"]
         self.assertIn("needs.web.result == 'failure'", job["if"])
         # A run of every web check has no covered range to bisect.
         self.assertIn(f"needs.coalesce.outputs.base != '{coalesce.EVERYTHING}'", job["if"])
-        self.assertIn("github.event_name == 'push'", job["if"])
+        self.assertIn("(github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.tick)", job["if"])
         checkout = next(s for s in job["steps"] if s.get("name") == "Checkout with history")
         self.assertIs(checkout["with"]["persist-credentials"], False)
         lkg = next(s for s in job["steps"] if s.get("name") == "Read last-known-green")
@@ -650,7 +683,24 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("web-lint", self.lint["jobs"])
         self.assertEqual(self.lint["concurrency"]["group"], "cmux-next-web-lint-${{ github.sha }}")
         self.assertNotIn("web-lint", self.web["jobs"])
-        self.assertNotIn("needs", self.lint["jobs"]["web-lint"])
+        # #53869 (Leo, 11-24): push runs coalesce to one per 30-minute window, so web-lint needs `coalesce` only.
+        self.assertEqual(self.lint["jobs"]["web-lint"].get("needs"), "coalesce")
+
+    def test_every_push_typechecks_the_whole_webviews_tree(self):
+        # cmux#49052 (2026-11-22): a rename elsewhere broke webviews' types, and the range lint skips webviews on a
+        # push that did not change it. Leo: "Every push to main gets a webview type check, so a break shows up on the
+        # status board within minutes." #54107 (CI v2 step 5) moved the whole-tree check out of
+        # cmux-next-web-lint.yml into the step table's `webviews-typecheck`, which runs on the merge commit.
+        self.assertNotIn("webviews-typecheck", self.lint["jobs"])
+        import tomllib  # noqa: PLC0415
+        step = tomllib.loads((ROOT / "ci/steps.toml").read_text())["step"]["webviews-typecheck"]
+        self.assertEqual(step["title"], "Webviews typecheck (whole tree)")
+        self.assertNotEqual(step.get("blocks"), False)
+        self.assertIn("webviews/**", step["inputs"])
+        self.assertIn("cd webviews", step["run"])
+        self.assertIn("bun run typecheck", step["run"])
+        scripts = json.loads((ROOT / "webviews/package.json").read_text())["scripts"]
+        self.assertIn("vp check", scripts["typecheck"])
 
     def test_an_unknown_covered_range_runs_every_web_subarea(self):
         import web_subareas  # noqa: PLC0415
@@ -671,11 +721,14 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(output.read_text(), everything.read_text())
 
     def test_the_pull_request_webview_verdict_is_untouched(self):
-        # Condition 3: react-apps-base-check runs on pull requests only, from the head shards' own results.
+        # Condition 3: react-apps-base-check runs on pull requests only, from the head shards' own results (and the
+        # early base replay of the same merge parent, a pull-request-only job too).
         ci_web = yaml.safe_load(CI_WEB.read_text())
         base = ci_web["jobs"]["react-apps-base-check"]
         self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard"])
         self.assertTrue(base["if"].startswith("${{ github.event_name == 'pull_request'"))
+        self.assertTrue(ci_web["jobs"]["react-apps-base-early"]["if"].startswith(
+            "${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')"))
 
 
 if __name__ == "__main__":

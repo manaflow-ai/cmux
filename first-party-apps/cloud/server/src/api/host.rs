@@ -20,7 +20,8 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// `cmux.host.link.get {}` -> `{binary, hub_socket, state_dir, socket_dir, device_name}`.
+/// `cmux.host.link.get {}` -> `{state_dir, socket_dir, device_name, ...}` (the daemon also
+/// sends `binary` and `hub_socket`, which this server no longer reads).
 pub const LINK_GET: &str = "cmux.host.link.get";
 /// `cmux.host.link.changed`: the same shape as the `link.get` answer.
 pub const LINK_CHANGED: &str = "cmux.host.link.changed";

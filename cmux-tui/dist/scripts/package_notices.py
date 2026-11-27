@@ -8,10 +8,14 @@
   package_notices.py check-data
   package_notices.py check-windows-toolchain [--gcc GCC]
   package_notices.py check-windows-binary BINARY [BINARY ...]
+  package_notices.py windows-toolchain-archive
+  package_notices.py check-windows-sysroot SYSROOT [--cc CC]
   package_notices.py check-darwin-binary BINARY [BINARY ...]
 
 `generate` writes DIR/<kind>-<rust target>.md for kind `cmux-tui` (bin/cmux-tui
-and bin/cmux-tui-hook: npm cmux-tui-<os>-<cpu>, every wheel) and `relay`
+and bin/cmux-tui-hook, on macOS and Linux bin/cmux-agent-screen-detection, and
+on Linux bin/cmux-tui-host, a binary of the same cmux-tui crate:
+npm cmux-tui-<os>-<cpu>, every wheel) and `relay`
 (bin/chatmux-relay and bin/cmux-tui: npm cmux-relay-<os>-<cpu>). package_npm.py
 and package_pypi.py copy them into the packages; validate_package_contract.py
 fails a package without its notice or with a different one.
@@ -29,6 +33,10 @@ Each notice names everything the static binaries link, for that target:
   - the Ghostty shell integration scripts that cmux-tui embeds with include_str!
     (every target; rows in build-support/notices/ghostty/shell-integration.json,
     bash-preexec's MIT text, Kitty-derived files under the package's GPL LICENSE),
+  - the agent screen-detection plugin (kind cmux-tui, macOS and Linux): the
+    crates of its own Cargo workspace (cmux-tui/bindings/examples/
+    rust-agent-screen-detection/Cargo.lock) and the Apache-2.0 text of its
+    herdr-derived manifests and sources (manifests/LICENSE, ATTRIBUTIONS.md),
   - Linux musl targets: musl's COPYRIGHT (package-notices.json),
   - Windows (x86_64-pc-windows-gnu): the static mingw-w64 13.0.0 CRT and the
     GCC 15.2.0 runtime (libgcc_eh, crtbegin) of the one reviewed toolchain,
@@ -89,6 +97,35 @@ KINDS = {
     "cmux-tui": {"roots": ("cmux-tui",), "binaries": ("bin/cmux-tui", "bin/cmux-tui-hook")},
     "relay": {"roots": ("chatmux-relay", "cmux-tui"), "binaries": ("bin/chatmux-relay", "bin/cmux-tui")},
 }
+# The agent screen-detection plugin the daemon runs from beside its own
+# executable (Unix only): its own Cargo workspace, GPL-3.0-or-later AND
+# Apache-2.0 (herdr-derived manifests and sources).
+SCREEN_DETECTION = "cmux-agent-screen-detection"
+SCREEN_DETECTION_DIR = ROOT / "cmux-tui/bindings/examples/rust-agent-screen-detection"
+SCREEN_DETECTION_APACHE = SCREEN_DETECTION_DIR / "manifests/LICENSE"
+
+
+def ships_screen_detection(kind: str, rust_target: str) -> bool:
+    """Whether the packages of `kind` for `rust_target` carry bin/cmux-agent-screen-detection."""
+    return kind == "cmux-tui" and not rust_target.endswith("-windows-gnu")
+
+
+def ships_terminal_host(kind: str, rust_target: str) -> bool:
+    """Whether the packages of `kind` for `rust_target` name bin/cmux-tui-host in their notice.
+
+    The Linux packages ship the slim terminal host (CMUX-571), a binary of the
+    cmux-tui crate, so its crates are already the notice's crates.
+    """
+    return kind == "cmux-tui" and rust_target.endswith("-unknown-linux-musl")
+
+
+def kind_binaries(kind: str, rust_target: str) -> tuple[str, ...]:
+    binaries = KINDS[kind]["binaries"]
+    if ships_screen_detection(kind, rust_target):
+        binaries = (*binaries, f"bin/{SCREEN_DETECTION}")
+    if ships_terminal_host(kind, rust_target):
+        binaries = (*binaries, "bin/cmux-tui-host")
+    return binaries
 
 
 class NoticeError(RuntimeError):
@@ -248,6 +285,33 @@ def windows_toolchain_problems(gcc_version: str, predefined_macros: str, inputs:
     return problems
 
 
+def windows_toolchain_archive(inputs: Inputs) -> tuple[str, str]:
+    """The reviewed MinGW-Builds archive's URL and sha256, from the review's own toolchain text:
+    the Linux cross-build (scripts/ci/windows-gnu-cross-build.sh) links against exactly this archive."""
+    win, _ = _reviewed_windows(inputs)
+    match = re.search(r"\((https://\S+\.7z), sha256 ([0-9a-f]{64})\)", win["toolchain"])
+    if not match:
+        raise ValueError("package-notices.json windows_gnu toolchain names no archive URL and sha256")
+    return match.group(1), match.group(2)
+
+
+def windows_sysroot_problems(sysroot: Path, predefined_macros: str, inputs: Inputs) -> list[str]:
+    """A Linux cross-build's sysroot (the reviewed archive, unpacked; its sha256 is checked before
+    unpacking): the C compiler's <_mingw.h> must be the reviewed mingw-w64 and UCRT, and the GCC
+    runtime libraries must be the reviewed GCC's. clang compiles the C code there, so the binaries
+    carry no GCC ident (check-windows-binary accepts none); the runtime archives are the reviewed ones."""
+    win, _ = _reviewed_windows(inputs)
+    problems = [p for p in windows_toolchain_problems(f"x ({win['gcc_build']}) {win['gcc_version']}", predefined_macros, inputs)]
+    gcc_lib = sysroot / "lib" / "gcc" / "x86_64-w64-mingw32" / win["gcc_version"]
+    for name in ("libgcc.a", "libgcc_eh.a"):
+        if not (gcc_lib / name).is_file():
+            problems.append(f"{gcc_lib / name} is missing: the sysroot is not the reviewed GCC {win['gcc_version']} runtime")
+    for name in ("crt2.o", "libmingw32.a", "libmingwex.a", "libucrt.a"):
+        if not (sysroot / "x86_64-w64-mingw32" / "lib" / name).is_file():
+            problems.append(f"the sysroot has no x86_64-w64-mingw32/lib/{name}")
+    return problems
+
+
 def windows_binary_problems(binary: bytes, inputs: Inputs) -> list[str]:
     """Every GCC ident in a packaged Windows binary (from C objects that gcc
     compiled) must be the reviewed toolchain's; a binary may have none."""
@@ -337,7 +401,7 @@ def compose(kind: str, rust_target: str, crates_markdown: str, inputs: Inputs) -
     if rust_target not in TARGETS:
         raise NoticeError(f"unknown target {rust_target}")
     zig_target = TARGETS[rust_target]
-    spec = KINDS[kind]
+    binaries = kind_binaries(kind, rust_target)
     rust = next((r for r in inputs.toolchains.rust if r.version == inputs.rust_version), None)
     if rust is None:
         raise NoticeError(f"toolchains.json has no Rust {inputs.rust_version} (cmux-tui/rust-toolchain.toml)")
@@ -346,9 +410,9 @@ def compose(kind: str, rust_target: str, crates_markdown: str, inputs: Inputs) -
     if graph is None:
         raise NoticeError(f"vt-link-graph.json has no {zig_target}")
     out = [
-        f"# Third-party notices: {', '.join(spec['binaries'])} ({rust_target})\n\n",
+        f"# Third-party notices: {', '.join(binaries)} ({rust_target})\n\n",
         "<!-- Generated by cmux-tui/dist/scripts/package_notices.py; do not edit. -->\n\n",
-        f"The binaries of this package ({', '.join(spec['binaries'])}) are cmux, licensed under "
+        f"The binaries of this package ({', '.join(binaries)}) are cmux, licensed under "
         "GPL-3.0-or-later (LICENSE). They are statically linked and contain the third-party code below.\n\n",
         f"## Rust standard library (rustc {rust.version})\n\n",
         "std, core, alloc, compiler_builtins and the crates they vendor, as the Rust project lists them in "
@@ -426,11 +490,51 @@ def compose(kind: str, rust_target: str, crates_markdown: str, inputs: Inputs) -
             "licensed under the MIT license:\n\n"
         )
         out.append(_block(f"musl {musl['version']} COPYRIGHT", _read(NOTICES / musl["file"], musl["sha256"], "musl")))
+    if ships_screen_detection(kind, rust_target):
+        out.append(f"## herdr agent-detection material (bin/{SCREEN_DETECTION})\n\n")
+        out.append(
+            f"bin/{SCREEN_DETECTION} is licensed under GPL-3.0-or-later AND Apache-2.0: the cmux code is "
+            "GPL-3.0-or-later (LICENSE), and its agent manifests and the detector sources adapted from herdr "
+            "(https://github.com/ogulcancelik/herdr) are Apache-2.0. Upstream ships no NOTICE file. The source "
+            "paths, upstream commit and changes are listed in "
+            "cmux-tui/bindings/examples/rust-agent-screen-detection/ATTRIBUTIONS.md.\n\n"
+        )
+        out.append(_block("herdr Apache License 2.0 (manifests/LICENSE)", SCREEN_DETECTION_APACHE.read_text(encoding="utf-8")))
     out.append(crates_markdown.rstrip("\n") + "\n")
     return "".join(out)
 
 
 def crates_markdown(kind: str, rust_target: str, cache: Path, source_tag: str) -> str:
+    text = _cmux_tui_crates_markdown(kind, rust_target, cache, source_tag)
+    if ships_screen_detection(kind, rust_target):
+        text = text.rstrip("\n") + "\n\n" + _screen_detection_crates_markdown(rust_target, cache, source_tag)
+    return text
+
+
+def _screen_detection_crates_markdown(rust_target: str, cache: Path, source_tag: str) -> str:
+    """The crates of bin/cmux-agent-screen-detection, from its own Cargo workspace."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "crates.md"
+        rel = SCREEN_DETECTION_DIR.relative_to(ROOT).as_posix()
+        command = [
+            sys.executable, str(BUILD_SUPPORT / "rust_notices.py"),
+            "--lock", str(SCREEN_DETECTION_DIR / "Cargo.lock"), "--lock-label", f"{rel}/Cargo.lock",
+            "--workspace", str(SCREEN_DETECTION_DIR), "--repo-root", str(ROOT),
+            "--first-party", "cmux-tui/bindings/*", "--first-party", "cmux-tui/bindings/examples/*",
+            "--first-party-license", str(ROOT / "cmux-tui/dist/npm/cmux/LICENSE"),
+            "--reviewed", str(BUILD_SUPPORT / "reviewed.json"),
+            "--source-tag", source_tag, "--target", rust_target,
+            "--format", "markdown", "--section-id", "rust-crates-agent-screen-detection",
+            "--title", f"Rust crates: bin/{SCREEN_DETECTION} ({rust_target})",
+            "--root", SCREEN_DETECTION, "--out", str(out),
+        ]
+        result = subprocess.run(command, env={**os.environ, "CARGO_HOME": str(cache)}, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise NoticeError(f"rust_notices.py failed for {SCREEN_DETECTION} {rust_target}:\n{result.stderr}")
+        return out.read_text(encoding="utf-8")
+
+
+def _cmux_tui_crates_markdown(kind: str, rust_target: str, cache: Path, source_tag: str) -> str:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "crates.md"
         command = [
@@ -438,6 +542,8 @@ def crates_markdown(kind: str, rust_target: str, cache: Path, source_tag: str) -
             "--lock", str(ROOT / "cmux-tui/Cargo.lock"), "--lock-label", "cmux-tui/Cargo.lock",
             "--workspace", str(ROOT / "cmux-tui"), "--repo-root", str(ROOT),
             "--first-party", "cmux-tui/crates/*", "--first-party", "cmux-tui/bindings/*",
+            # cmux vm's own workspace (GPL-3.0-or-later): cmux-tui links cmux-vm in process.
+            "--first-party", "workers/cmux-vm/cli/crates/*",
             "--first-party-license", str(ROOT / "cmux-tui/dist/npm/cmux/LICENSE"),
             "--reviewed", str(BUILD_SUPPORT / "reviewed.json"),
             "--source-tag", source_tag, "--target", rust_target,
@@ -464,7 +570,8 @@ def generate(args: argparse.Namespace) -> int:
         if target not in TARGETS:
             raise NoticeError(f"unknown target {target}")
     fetch = subprocess.run(
-        [sys.executable, str(BUILD_SUPPORT / "fetch_crates.py"), "--cache", str(args.cache), "--lock", str(ROOT / "cmux-tui/Cargo.lock")],
+        [sys.executable, str(BUILD_SUPPORT / "fetch_crates.py"), "--cache", str(args.cache), "--lock", str(ROOT / "cmux-tui/Cargo.lock"),
+         "--lock", str(SCREEN_DETECTION_DIR / "Cargo.lock")],
         capture_output=True, text=True,
     )
     if fetch.returncode != 0:
@@ -489,6 +596,10 @@ def main(argv: list[str]) -> int:
     sub.add_parser("check-data")
     check_toolchain = sub.add_parser("check-windows-toolchain")
     check_toolchain.add_argument("--gcc", default="x86_64-w64-mingw32-gcc", help="the linker rustc uses for x86_64-pc-windows-gnu")
+    sub.add_parser("windows-toolchain-archive")
+    check_sysroot = sub.add_parser("check-windows-sysroot")
+    check_sysroot.add_argument("sysroot", type=Path)
+    check_sysroot.add_argument("--cc", default="x86_64-w64-mingw32-cc", help="the C compiler wrapper the cross-build uses")
     check_windows = sub.add_parser("check-windows-binary")
     check_windows.add_argument("binaries", type=Path, nargs="+")
     check_darwin = sub.add_parser("check-darwin-binary")
@@ -508,6 +619,20 @@ def main(argv: list[str]) -> int:
                 print(f"package_notices: error: {problem}", file=sys.stderr)
             if not problems:
                 print(f"package_notices: {version.splitlines()[0]} is the reviewed Windows runtime toolchain")
+            return 1 if problems else 0
+        if args.command == "windows-toolchain-archive":
+            print(*windows_toolchain_archive(load_inputs()))
+            return 0
+        if args.command == "check-windows-sysroot":
+            macros = subprocess.run(
+                [args.cc, "-dM", "-E", "-x", "c", "-"], input="#include <_mingw.h>\n",
+                capture_output=True, text=True, check=True,
+            ).stdout
+            problems = windows_sysroot_problems(args.sysroot, macros, load_inputs())
+            for problem in problems:
+                print(f"package_notices: error: {problem}", file=sys.stderr)
+            if not problems:
+                print(f"package_notices: {args.sysroot} is the reviewed Windows runtime (mingw-w64, UCRT, GCC runtime)")
             return 1 if problems else 0
         if args.command == "check-windows-binary":
             inputs = load_inputs()

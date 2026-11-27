@@ -1,4 +1,5 @@
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -62,7 +63,7 @@ import Testing
         document = Document(workspaces: ["fresh", "old", "older"])
         host.active = ["fresh": Self.start.addingTimeInterval(-1 * Self.day), "old": Self.start.addingTimeInterval(-4 * Self.day),
                        "older": Self.start.addingTimeInterval(-40 * Self.day)]
-        let defaults = UserDefaults(suiteName: "AutoArchiveCoordinatorTests.\(UUID().uuidString)") ?? UserDefaults()
+        let defaults = UserDefaults(testSuiteName: "AutoArchiveCoordinatorTests.\(UUID().uuidString)") ?? UserDefaults()
         let document = document
         let now = Self.start
         coordinator = AutoArchiveCoordinator(host: host, document: { document }, ledgerStore: AutoArchiveLedgerStore(defaults: defaults),
@@ -198,7 +199,7 @@ import Testing
     let coordinator: AutoArchiveCoordinator
 
     init() {
-        let defaults = UserDefaults(suiteName: "BulkArchiveByHandTests.\(UUID().uuidString)") ?? UserDefaults()
+        let defaults = UserDefaults(testSuiteName: "BulkArchiveByHandTests.\(UUID().uuidString)") ?? UserDefaults()
         let document = document
         coordinator = AutoArchiveCoordinator(host: host, document: { document }, ledgerStore: AutoArchiveLedgerStore(defaults: defaults),
                                              now: { AutoArchiveCoordinatorTests.start })

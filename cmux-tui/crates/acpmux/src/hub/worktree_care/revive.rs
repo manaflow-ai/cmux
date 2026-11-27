@@ -3,7 +3,7 @@
 use crate::git_state::{GitState, WorktreeOrigin, linked_worktree};
 use crate::hub::{Hub, Session};
 use crate::rpc::RpcError;
-use crate::subsession_worktree::{add_without_config, git_by};
+use crate::subsession_worktree::{add_without_config, git_by, git_repo_write_by};
 use serde_json::json;
 use std::path::Path;
 use std::sync::Arc;
@@ -87,6 +87,13 @@ impl Hub {
                         "cwd": cwd, "error": format!("{result:?}")
                     }),
                 );
+                // Only a git that ran out of time (`subsession_worktree.rs` `output_by`) may do
+                // better on the next try; a missing repository, a branch and commit that are gone
+                // or a refused `worktree add` answer the same until the folder or its record
+                // changes, so retries until then cost one stat (`worktree_care.rs` `gone`).
+                if !matches!(&result, Ok(Err(why)) if why.contains("in time")) {
+                    super::gone::mark(&cwd, &meta.worktree, NOT_RECREATED);
+                }
             }
         }
         Err(folder_missing(&meta))
@@ -112,17 +119,11 @@ impl Hub {
     }
 }
 
+const NOT_RECREATED: &str =
+    "could not be recreated, so its agent cannot start until the worktree is back";
+
 fn folder_missing(meta: &crate::store::SessionMeta) -> RpcError {
-    RpcError::internal(format!(
-        "session.folder_missing: the folder of {} ({}) could not be recreated; retry after the worktree is back",
-        meta.name,
-        meta.cwd.display()
-    ))
-    .with_data(json!({
-        "reason": "session.folder_missing",
-        "folder": meta.cwd,
-        "retryable": true,
-    }))
+    super::folder_missing(&meta.name, &meta.cwd, NOT_RECREATED)
 }
 
 fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
@@ -134,7 +135,9 @@ fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
     }
     let by = Instant::now() + Duration::from_secs(60);
     let git = |args: &[&str]| git_by(&w.common_dir, args, by);
-    git(&["worktree", "prune"])?;
+    // Under the repository's lock: a model race's add in this process at the same time can see
+    // the worktree list change under it.
+    git_repo_write_by(&w.common_dir, &["worktree", "prune"], by)?;
     let root = w.root.to_string_lossy();
     let commit = |r: &str| git(&["rev-parse", "--verify", "--quiet", &format!("{r}^{{commit}}")]);
     let add = |args: &[&str], at: &str| add_without_config(&w.common_dir, args, &w.root, at, by);

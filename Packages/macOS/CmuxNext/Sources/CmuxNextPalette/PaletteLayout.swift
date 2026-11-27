@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextDesign
 
 /// Palette geometry derived from the shared Design tokens. Every value is
@@ -8,30 +9,67 @@ enum PaletteLayout {
     /// Result rows visible without scrolling. A count, not a size.
     static let visibleRows: CGFloat = 10
 
-    static var width: CGFloat { Metrics.paletteWidth }
+    /// The result list's column: today's panel width.
+    static var listWidth: CGFloat { Metrics.paletteWidth }
+    /// The v2 category rail left of the list (`PaletteV2Look.rail`); zero otherwise. The panel's experiments are the
+    /// open palette's (`PaletteModel.experiments`, read on every open); all off, the panel is today's.
+    static func railWidth(_ experiments: PaletteExperiments) -> CGFloat {
+        experiments.look.showsRail ? (Metrics.paletteWidth * 0.3).rounded() : 0
+    }
+    /// The detail pane right of the list (`experiments.palettePreview`); zero otherwise.
+    static func previewWidth(_ experiments: PaletteExperiments) -> CGFloat {
+        experiments.preview ? (Metrics.paletteWidth * 0.75).rounded() : 0
+    }
+    /// The v2 scope bar under the field (`PaletteV2Look.scoped`); zero otherwise.
+    static func scopeBarHeight(_ experiments: PaletteExperiments) -> CGFloat {
+        experiments.look.showsScopeBar ? rowHeight : 0
+    }
+    /// Today's panel width (every experiment off).
+    static var width: CGFloat { width(PaletteExperiments()) }
+    static func width(_ experiments: PaletteExperiments) -> CGFloat {
+        railWidth(experiments) + listWidth + previewWidth(experiments)
+    }
     static var searchHeight: CGFloat { Metrics.paletteSearchHeight + textGrowth(Typography.search) }
     static var rowHeight: CGFloat { Metrics.paletteRowHeight + textGrowth(Typography.body) }
     static var headerRowHeight: CGFloat { Metrics.sidebarHeaderHeight + textGrowth(Typography.header) }
     static var footerHeight: CGFloat { rowHeight }
     static var listInset: CGFloat { Metrics.space2 }
     static var listHeight: CGFloat { rowHeight * visibleRows + listInset * 2 }
-    static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
-    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
-    static var height: CGFloat { searchHeight + listHeight + footerHeight + 2 * Metrics.dividerThickness }
+    /// A row highlight's corner (the selected row, a hovered one): a tab's shape, as a tab pill and a
+    /// sidebar workspace row (Lawrence 2026-11-13, msg 31442: "make cmd shift p roundness same
+    /// roundness as tabs").
+    static var rowCornerRadius: CGFloat { Metrics.tabCornerRadius }
+    /// The panel's corner: concentric with the rows it holds, the row corner plus ``listInset``, the
+    /// one gap at the rows' sides and above the first and below the last (Lawrence 2026-11-13, msg
+    /// 31478: "density of selected cmd shift p row needs to be concentric"). The panel holds its rows
+    /// as a card holds its tabs, at every density.
+    static var cornerRadius: CGFloat { Metrics.corners.nested(in: rowCornerRadius, inset: -listInset) }
+    /// Today's panel height (every experiment off).
+    static var height: CGFloat { height(PaletteExperiments()) }
+    static func height(_ experiments: PaletteExperiments) -> CGFloat {
+        searchHeight + scopeBarHeight(experiments) + listHeight + footerHeight + 2 * Metrics.dividerThickness
+    }
     static var horizontalPadding: CGFloat { Metrics.space5 }
+    /// Where everything at a row's or the field's right ends (a key, a kind label, the field's
+    /// "Search Workspaces ⇥" hint), from the panel's right edge: the rows' side inset plus the room an
+    /// icon box leaves around its glyph, so the right column mirrors the icons' ink on the left
+    /// (Lawrence 2026-11-15: "search workspaces looks bad", three right edges in one panel).
+    static var trailingInset: CGFloat { listInset + Metrics.space4 + (iconBox - Metrics.iconSize) / 2 }
 
     /// Transparent margin around the panel so the shadow and the open
     /// animation are never clipped by the window.
     static var shadowMargin: CGFloat { Metrics.space6 * 2 }
 
-    static var windowSize: CGSize {
-        CGSize(width: width + 2 * shadowMargin, height: height + 2 * shadowMargin)
+    /// Today's window (every experiment off).
+    static var windowSize: CGSize { windowSize(PaletteExperiments()) }
+    static func windowSize(_ experiments: PaletteExperiments) -> CGSize {
+        CGSize(width: width(experiments) + 2 * shadowMargin, height: height(experiments) + 2 * shadowMargin)
     }
 
-    static var actionsMenuWidth: CGFloat { width / 2 - Metrics.space6 }
+    static var actionsMenuWidth: CGFloat { listWidth / 2 - Metrics.space6 }
     static var actionsMenuRowHeight: CGFloat { rowHeight - Metrics.space2 }
     static var keycapSize: CGFloat { Metrics.iconSize + Metrics.space2 + textGrowth(Typography.shortcut) }
-    static var keycapCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: Metrics.itemCornerRadius, inset: Metrics.space1) }
+    static var keycapCornerRadius: CGFloat { Metrics.buttonCornerRadius(nestedIn: rowCornerRadius, inset: Metrics.space1) }
     static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
 
     /// How much larger the palette's text draws than the size its density's heights are made for:
@@ -100,6 +138,18 @@ enum PaletteText {
         return ceil(natural * scale) / scale
     }
 
+    /// The y of a `height`-tall frame for `field` (in its superview's unflipped coordinates) that puts
+    /// the middle of its capitals on `midY`. Centering the frame (the line box) instead puts text of
+    /// different sizes on different lines: the box's room above the capitals and below the baseline
+    /// differ, and by a different amount at each size, so the footer's 13 pt "Run Command" sat lower
+    /// than its 11 pt "Search" and "Actions" (#48512). The baseline comes from the field itself
+    /// (`firstBaselineOffsetFromTop`, at `height`), so it holds for any font the label draws in.
+    static func capCenteredY(_ field: NSTextField, height: CGFloat, midY: CGFloat) -> CGFloat {
+        guard let font = field.font else { return midY - height / 2 }
+        if field.frame.height != height { field.setFrameSize(NSSize(width: field.frame.width, height: height)) }
+        return midY - font.capHeight / 2 - (height - field.firstBaselineOffsetFromTop)
+    }
+
     /// Width that shows the whole string. `intrinsicContentSize` of a
     /// truncating label is unreliable after its value changes. At least the cell's own width
     /// without bounds, which adds its text padding: `space2` alone is less than that padding at
@@ -108,6 +158,14 @@ enum PaletteText {
         let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         let cell = ceil(field.cell?.cellSize(forBounds: unbounded).width ?? 0)
         return max(cell, ceil(field.attributedStringValue.size().width) + Metrics.space2)
+    }
+
+    /// How far a label's cell draws its text in from the frame's side: the frame of a right-aligned
+    /// label ends that far past the text's right end.
+    static func textInset(_ field: NSTextField) -> CGFloat {
+        let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        let cell = field.cell?.cellSize(forBounds: unbounded).width ?? 0
+        return max(0, (cell - field.attributedStringValue.size().width) / 2)
     }
 
     /// Configured SF Symbol images, made once per name and size: rows are
@@ -125,7 +183,10 @@ enum PaletteText {
         let key = SymbolKey(name: name, size: size)
         if let cached = symbols[key] { return cached }
         let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else {
+        guard let image = NSImage.packOverride(forSymbol: name, pointSize: size)
+            ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+            // `brand:<id>`: a brand's mark (GitHub) as a template, tinted like the symbols, its circle as wide as a symbol's ring.
+            ?? (name.hasPrefix("brand:") ? AgentBrandCatalog.templateImage(brand: String(name.dropFirst(6)), size: size, fill: 1) : nil) else {
             return nil
         }
         if symbols.count >= 1_024 { symbols.removeAll() }

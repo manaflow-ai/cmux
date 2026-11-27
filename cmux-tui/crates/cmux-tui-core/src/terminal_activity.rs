@@ -29,11 +29,26 @@
 //! publishes it. `cmux terminal <t> wait --until prompt|idle` waits on these
 //! facts (cx-6so.14).
 //!
+//! `last_command` is the last command the shell finished: its exit code from
+//! OSC 133 `D;<code>` (absent when the shell sent none, or the next prompt
+//! came without a `D`), when it finished and, when its `C` was seen, when it
+//! started (`terminal-exit-status-v1`). A shell without integration never
+//! publishes it, so a missing field means "unknown", never success. It is not
+//! part of the terminal-host handoff, so a daemon that adopts a terminal
+//! after a restart learns it from the next command.
+//!
 //! `last_output` is when the terminal last printed anything, with or
 //! without shell integration. Reads (`terminal.list`, `terminal.show`) and
 //! every other publish carry the exact time; output on its own pushes an
 //! upsert at most once per `OUTPUT_PUBLISH_INTERVAL_MS`, so a streaming
 //! command does not commit a revision per chunk.
+//!
+//! `last_input` is when a client last wrote input to the terminal through
+//! the resource API (`terminal.input.write`, `terminal.input.keys`). It is
+//! read-time only: it never publishes a change by itself. `cmux terminal <t>
+//! wait --until idle` uses it as the input's sequence point, so an idle
+//! state the terminal had before that input does not end the wait (W5-R,
+//! bench round 4 item 10).
 
 use crate::shell_history::ShellMark;
 use serde_json::{Value, json};
@@ -99,6 +114,16 @@ pub struct ShellActivitySnapshot {
     pub(crate) prompt_since_ms: Option<u64>,
 }
 
+/// The last command a shell finished (OSC 133 `C` .. `D`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LastCommand {
+    /// The exit status `D` reported; `None` when it reported none.
+    pub(crate) exit_code: Option<i32>,
+    /// When its `C` mark arrived, if this terminal saw it.
+    pub(crate) started_at_ms: Option<u64>,
+    pub(crate) finished_at_ms: u64,
+}
+
 /// The shell command state of one terminal, from OSC 133 marks and the
 /// terminal modes the command set.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -112,8 +137,13 @@ pub(crate) struct ShellActivity {
     prompt_since_ms: Option<u64>,
     /// When the terminal last printed anything.
     last_output_ms: Option<u64>,
+    /// When a client last wrote input through the resource API.
+    last_input_ms: Option<u64>,
+    /// The last command the shell finished.
+    last_command: Option<LastCommand>,
     published: (Option<u64>, bool, Option<u64>),
     published_output_ms: Option<u64>,
+    published_last_command: Option<LastCommand>,
 }
 
 impl ShellActivity {
@@ -127,17 +157,36 @@ impl ShellActivity {
                 self.prompt_since_ms = None;
                 false
             }
-            ShellMark::CommandEnd { .. } => {
-                self.end();
+            ShellMark::CommandEnd { exit_code } => {
+                self.finish(exit_code, now_ms);
                 false
             }
             ShellMark::PromptStart => {
+                // A prompt without `D` (some shells skip it on ^C): the
+                // command ended, its status unknown.
+                if self.busy_since_ms.is_some() {
+                    self.finish(None, now_ms);
+                }
                 self.end();
                 self.prompt_since_ms.get_or_insert(now_ms);
                 true
             }
             ShellMark::InputStart => false,
         }
+    }
+
+    fn finish(&mut self, exit_code: Option<i32>, now_ms: u64) {
+        self.last_command = Some(LastCommand {
+            exit_code,
+            started_at_ms: self.busy_since_ms,
+            finished_at_ms: now_ms,
+        });
+        self.end();
+    }
+
+    /// The last command the shell finished, if one did.
+    pub(crate) fn last_command(&self) -> Option<LastCommand> {
+        self.last_command
     }
 
     fn end(&mut self) {
@@ -188,6 +237,16 @@ impl ShellActivity {
         self.last_output_ms
     }
 
+    /// Notes input a client wrote at `now_ms`.
+    pub(crate) fn note_input(&mut self, now_ms: u64) {
+        self.last_input_ms = Some(now_ms);
+    }
+
+    /// When a client last wrote input, if one did.
+    pub(crate) fn last_input(&self) -> Option<u64> {
+        self.last_input_ms
+    }
+
     /// The state a terminal host hands to the daemon that adopts it.
     #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn snapshot(&self) -> ShellActivitySnapshot {
@@ -213,15 +272,42 @@ impl ShellActivity {
     pub(crate) fn keep_output_of(&mut self, previous: &ShellActivity) {
         self.last_output_ms = previous.last_output_ms;
         self.published_output_ms = previous.published_output_ms;
+        self.last_input_ms = previous.last_input_ms;
+        // Nor the last command: a reconnect to the same host keeps it.
+        if self.last_command.is_none() {
+            self.last_command = previous.last_command;
+            self.published_last_command = previous.published_last_command;
+        }
     }
 
     /// Whether the command or prompt fact changed, or the last output moved
     /// a whole interval past the one published, since the last call (marks
     /// it taken).
+    #[cfg(test)]
     pub(crate) fn take_change(&mut self) -> bool {
-        let changed = self.has_change();
+        let edge = self.take_edge_change();
+        self.take_output_change() || edge
+    }
+
+    /// Whether the command or prompt fact changed since the last call (marks
+    /// it taken): a durable edge, one terminal upsert commit. The commit
+    /// carries the last output too, so that is marked with it.
+    pub(crate) fn take_edge_change(&mut self) -> bool {
+        let changed = self.has_edge_change();
         if changed {
             self.published = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
+            self.published_output_ms = self.last_output_ms;
+            self.published_last_command = self.last_command;
+        }
+        changed
+    }
+
+    /// Whether the last output moved a whole interval past the one published
+    /// (marks it taken): a live fact, sent to the open streams and never
+    /// committed.
+    pub(crate) fn take_output_change(&mut self) -> bool {
+        let changed = self.has_output_change();
+        if changed {
             self.published_output_ms = self.last_output_ms;
         }
         changed
@@ -230,14 +316,21 @@ impl ShellActivity {
     /// Whether `take_change` would report a change now; marks nothing. The
     /// output reader asks this, and the terminal publisher takes the change.
     pub(crate) fn has_change(&self) -> bool {
-        let output_moved = match (self.last_output_ms, self.published_output_ms) {
+        self.has_edge_change() || self.has_output_change()
+    }
+
+    fn has_edge_change(&self) -> bool {
+        (self.busy_since_ms, self.interactive, self.prompt_since_ms) != self.published
+            || self.last_command != self.published_last_command
+    }
+
+    fn has_output_change(&self) -> bool {
+        match (self.last_output_ms, self.published_output_ms) {
             (Some(last), Some(published)) => {
                 last < published || last - published >= OUTPUT_PUBLISH_INTERVAL_MS
             }
             (last, published) => last != published,
-        };
-        (self.busy_since_ms, self.interactive, self.prompt_since_ms) != self.published
-            || output_moved
+        }
     }
 }
 
@@ -251,8 +344,27 @@ pub(crate) fn prompt_json(since_ms: u64) -> Value {
     json!({"since_ms": since_ms.to_string()})
 }
 
+/// The `last_command` field of a terminal record: `exit_code` only when the
+/// shell reported one.
+pub(crate) fn last_command_json(last: LastCommand) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert("finished_at_ms".into(), json!(last.finished_at_ms.to_string()));
+    if let Some(code) = last.exit_code {
+        value.insert("exit_code".into(), json!(code));
+    }
+    if let Some(started) = last.started_at_ms {
+        value.insert("started_at_ms".into(), json!(started.to_string()));
+    }
+    Value::Object(value)
+}
+
 /// The `last_output` field of a terminal record.
 pub(crate) fn last_output_json(at_ms: u64) -> Value {
+    json!({"at_ms": at_ms.to_string()})
+}
+
+/// The `last_input` field of a terminal record.
+pub(crate) fn last_input_json(at_ms: u64) -> Value {
     json!({"at_ms": at_ms.to_string()})
 }
 
@@ -262,76 +374,5 @@ pub(crate) fn busy_json(since_ms: u64) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_first_output_publishes_and_a_burst_publishes_at_most_once_per_interval() {
-        let mut activity = ShellActivity::default();
-        assert_eq!(activity.last_output(), None);
-        assert!(!activity.take_change());
-
-        activity.note_output(10_000);
-        assert_eq!(activity.last_output(), Some(10_000));
-        assert!(activity.take_change(), "the first output publishes");
-
-        // More output inside the interval is read on demand, not pushed.
-        activity.note_output(10_000 + OUTPUT_PUBLISH_INTERVAL_MS - 1);
-        assert_eq!(activity.last_output(), Some(10_000 + OUTPUT_PUBLISH_INTERVAL_MS - 1));
-        assert!(!activity.take_change());
-
-        activity.note_output(10_000 + OUTPUT_PUBLISH_INTERVAL_MS);
-        assert!(activity.take_change(), "output a whole interval later publishes");
-        assert!(!activity.take_change());
-    }
-
-    #[test]
-    fn a_prompt_publish_carries_the_latest_output_and_restarts_the_interval() {
-        let mut activity = ShellActivity::default();
-        activity.note_output(1_000);
-        assert!(activity.take_change());
-        activity.note_output(2_000);
-        assert!(!activity.take_change());
-
-        // The command ends at a new prompt: that publish names 2_000, so
-        // output just after it waits a whole interval from there.
-        activity.observe(ShellMark::PromptStart, 2_000);
-        assert!(activity.take_change());
-        activity.note_output(2_000 + OUTPUT_PUBLISH_INTERVAL_MS - 1);
-        assert!(!activity.take_change());
-    }
-
-    #[test]
-    fn restoring_a_host_state_keeps_the_last_output() {
-        let mut previous = ShellActivity::default();
-        previous.note_output(7_000);
-        assert!(previous.take_change());
-
-        let mut restored = ShellActivity::default();
-        restored.restore(previous.snapshot());
-        restored.keep_output_of(&previous);
-        assert_eq!(restored.last_output(), Some(7_000));
-        // The output was already published: no push now, and the next one
-        // still waits a whole interval from 7_000.
-        assert!(!restored.take_change());
-        restored.note_output(7_000 + OUTPUT_PUBLISH_INTERVAL_MS - 1);
-        assert!(!restored.take_change());
-        restored.note_output(7_000 + OUTPUT_PUBLISH_INTERVAL_MS);
-        assert!(restored.take_change());
-    }
-
-    #[test]
-    fn a_clock_that_steps_back_still_records_the_output() {
-        let mut activity = ShellActivity::default();
-        activity.note_output(50_000);
-        assert!(activity.take_change());
-        activity.note_output(40_000);
-        assert_eq!(activity.last_output(), Some(40_000));
-        assert!(activity.take_change(), "a time before the published one publishes");
-    }
-
-    #[test]
-    fn last_output_json_names_the_time_as_a_decimal_string() {
-        assert_eq!(last_output_json(1_792_000_000_123), json!({"at_ms": "1792000000123"}));
-    }
-}
+#[path = "terminal_activity_tests.rs"]
+mod tests;

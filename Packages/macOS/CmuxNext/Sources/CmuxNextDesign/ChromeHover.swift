@@ -43,6 +43,11 @@ public final class ChromeHover {
     public var state = State() {
         didSet { if state != oldValue { refresh() } }
     }
+    /// Off: no fill in any state (``ChromeHoverStyle/glyph``); the view's glyph ink carries hover and press. The
+    /// keyboard focus ring still draws.
+    public var paintsFill = true {
+        didSet { if paintsFill != oldValue { refresh(animated: false) } }
+    }
 
     /// - Parameter tracking: `.activeAlways` for window chrome (hover shows
     ///   in a background window, as in the sidebar), `.activeInKeyWindow`
@@ -62,6 +67,13 @@ public final class ChromeHover {
         view.layer?.insertSublayer(fill, at: 0)
     }
 
+    /// The fill's corner: a control nested in a rounded container sets the container's concentric child corner
+    /// (``ConcentricContainer/childRadius``) here.
+    public var cornerRadius: CGFloat {
+        get { fill.cornerRadius }
+        set { fill.cornerRadius = newValue }
+    }
+
     /// Whether the fill is the view's own backing layer (under its content).
     public var drawsBehindContent: Bool { fill === view?.layer }
 
@@ -72,7 +84,11 @@ public final class ChromeHover {
     public static func fillColor(_ state: State, rest: NSColor? = nil) -> NSColor? {
         if state.pressed { return Palette.pressedFill }
         if state.selected { return Palette.selectionFill }
-        if state.lit { return rest == nil ? Palette.hoverFill : raisedHoverFill }
+        if state.lit {
+            // A look's `appearance.metrics.toolbarButtonActiveFill`: the text color at that share (Claude's 14%).
+            if let share = DesignSettings.shared.overrides[.toolbarButtonActiveFill] { return Palette.textPrimary.withAlphaComponent(share) }
+            return rest == nil ? Palette.hoverFill : raisedHoverFill
+        }
         // Calm mode (`ui.calm`): the pointer paints no hover fill.
         guard state.hovering, DesignSettings.shared.showsHoverFills else { return rest }
         return rest == nil ? Palette.hoverFill : raisedHoverFill
@@ -173,7 +189,7 @@ public final class ChromeHover {
         guard let view else { return }
         view.performWithTheme {
             // `paint` eases from the color at alpha 0, so the first hover fades in too.
-            Self.paint(fill, Self.fillColor(state), animated: animated, pressed: state.pressed)
+            Self.paint(fill, paintsFill ? Self.fillColor(state) : nil, animated: animated, pressed: state.pressed)
             Motion.feedback.transaction(nil) {
                 fill.borderColor = Palette.focusRing.cgColor
                 fill.borderWidth = state.focused ? Metrics.lineWidth(1.5) : 0

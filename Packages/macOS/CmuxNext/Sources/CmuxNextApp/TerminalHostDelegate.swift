@@ -76,7 +76,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
         guard case .url(let safeURL)? = TerminalLinkResolver().resolve(url.absoluteString, cwd: nil, allowsLocalFiles: false) else { return false }
         let request = linkRequest(session)
-        Task { @MainActor [weak self] in self?.openWeb(safeURL, request) }
+        Task { @MainActor [weak self] in await self?.openWeb(safeURL, request) }
         return true
     }
 
@@ -97,7 +97,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 TerminalLinkResolver().resolve(text, cwd: cwd, allowsLocalFiles: canOpenLocalFiles)
             }.value
             switch target {
-            case .url(let url)?: self?.openWeb(url, request)
+            case .url(let url)?: await self?.openWeb(url, request)
             case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
             case .file(let url, isDirectory: false)?:
                 // `src/app.ts:3:5` opens the editor at line 3, column 5.
@@ -132,7 +132,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                                          at: position)
             return
         }
-        if case .url(let url)? = TerminalLinkResolver().resolve(text, cwd: nil, allowsLocalFiles: false) { openWeb(url, request) }
+        if case .url(let url)? = TerminalLinkResolver().resolve(text, cwd: nil, allowsLocalFiles: false) { await openWeb(url, request) }
     }
 
     /// The daemon of the machine whose files `session`'s output names, when that is not this Mac: a
@@ -184,7 +184,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
 
     /// Cmd-Option asks for cmux (a profile), so only the external rules and host list route it out;
     /// every other link goes through the shared rule (``LinkRouter``).
-    private func openWeb(_ url: URL, _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) {
+    private func openWeb(_ url: URL, _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) async {
+        // An app whose opener takes the link (`cmux.opener/1`; the daemon picks it) opens it instead.
+        if !request.option, let apps = services?.apps.client, await apps.openLink(url) != nil { return }
         if let services, url.scheme == "http" || url.scheme == "https", request.option, services.browserProfiles.ordered.count > 1,
            LinkRouter.shared.target(for: url, explicit: true) == .cmuxBrowser {
             services.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
@@ -201,18 +203,21 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     private static func routeLinks(to services: AppServices) {
         let router = LinkRouter.shared
         router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
-        router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
+        router.textEditor = { [weak services] in guard let services else { return "" }; let set = services.settings?.snapshot.textEditor.application ?? ""; return set.isEmpty ? services.editorCatalog.application()?.path ?? "" : set } // else editor.default's
         router.appLink = { [weak services] url, click in services.map { CmuxAppLinks.open(url, services: $0, click: click) } ?? false }
         // A click in a chat or page view opens beside the pane showing it (not the focused pane).
         router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
         router.openInCmux = { [weak services] url, background, source in
             guard let services else { return }
-            // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
-            guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
+            // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place; behind in a caller's workspace no window shows.
+            guard let pane = services.linkOpener.source(tab: source) else {
+                if case .hidden(let tab) = services.linkOpener.route(tab: source), services.registry.perform("openBrowser", invocation: .opening(url, behind: tab)) { return }
+                services.externalOpen.perform(.browserTab(url)); return }
             // A link clicked in an agent chat (its chips) reuses the page's tab on the right, as its card's Open does.
-            let fromChat = source.map(services.agentTabs.isAgentTab) ?? false
+            let fromChat = source.map { services.agentTabs.isAgentTab($0) } ?? false
             services.linkOpener.openWeb(url, from: pane, background: background, reusesTab: fromChat)
         }
+        router.openProgramLink = { [weak services] url, source in services?.linkOpener.source(tab: source).map { $0.services.linkOpener.openWeb(url, from: $0, background: true, revealing: true) } ?? false }
     }
 
     /// The tab showing `session`, or nil (the focused pane) for a surface the

@@ -7,16 +7,18 @@ name: cmux-next terminal suites
 #   corpus suites, with ghostty-vt-sys, cmux-pty, cmux-terminal-sizing,
 #   cmux-terminal-client and cmux-encode (the crates of
 #   scripts/ci/cmux-tui-rust-check.sh terminal, which a fleet step runs by hand).
-# - the shared Swift terminal packages (CmuxTerminalSizing, CmuxTerminalStream,
-#   CmuxTerminalClient), which ci-macos.yml tests on pull requests only.
+# - the shared Swift terminal packages (CmuxTerminalSizing, CmuxTerminalStream),
+#   which ci-macos.yml tests on pull requests only.
 # The Linux jobs run on Blacksmith 32 vCPU: the crates except cmux-pty (OS-specific
-# code) and one test whose golden digests were recorded on macOS, and the three
-# pure-Swift packages' tests. The two Mac jobs keep what Linux cannot stand in for:
-# cmux-pty, that corpus test, and the
-# CmuxTerminalClientKit FFI target, which needs the xcframework. They run on the
-# owned Mac minis (CI_SIDE_LANE_RUNNER, as cmux-tui.yml's macOS job); without that
-# variable they skip.
+# code) and one test whose golden digests were recorded on macOS, and the two
+# pure-Swift packages' tests. The Mac job keeps what Linux cannot stand in for:
+# cmux-pty and that corpus test. It runs on the owned Mac minis
+# (CI_SIDE_LANE_RUNNER, as cmux-tui.yml's macOS job); without that variable it
+# skips.
 
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 on:
   push:
     branches: [feat-cmux-next]
@@ -28,12 +30,15 @@ on:
       - cmux-tui/crates/cmux-terminal-sizing/**
       - cmux-tui/crates/cmux-terminal-client/**
       - cmux-tui/crates/cmux-encode/**
+      - cmux-tui/crates/cmux-terminal-projection/**
       - cmux-tui/Cargo.lock
       - schemas/terminal-corpus/**
       - Packages/Shared/CmuxTerminalSizing/**
       - Packages/Shared/CmuxTerminalStream/**
-      - Packages/Shared/CmuxTerminalClient/**
       - .github/workflows/cmux-next-terminal.yml
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
   workflow_dispatch:
 
 permissions:
@@ -43,17 +48,21 @@ concurrency:
   group: cmux-next-terminal-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
 
   rust-terminal-linux:
-    name: terminal crates (portable)
-    if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    name: terminal crates (portable)${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -81,24 +90,42 @@ jobs:
             -p cmux-terminal-client -p cmux-encode \
             -- --skip terminal_corpus_snapshots_encode_ready_and_complete
 
+      # The iPhone's terminal projection against Ghostty's VT core, cell by
+      # cell: the Mac's grid, and a real resize to each phone size (Leo,
+      # 2026-11-22: "that the resizing behaviour is indeed the same as it
+      # would've been if the recalc and resize had truly happened on the
+      # mac."). The per-case tables go to the job summary.
+      - name: cargo test (terminal projection parity)
+        working-directory: cmux-tui
+        run: |
+          export ZIG="$CMUX_ZIG"
+          out="$RUNNER_TEMP/parity"
+          status=0
+          # instant_perf (small vs god, cmux-next-ios/design/instant-perf.md) runs alone after.
+          PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection -- --nocapture --test-threads=2 --skip projection_small_vs_god || status=$?
+          CMUX_INSTANT_PERF_OUT="$out" cargo test --locked --release -p cmux-terminal-projection --test instant_perf -- --nocapture || status=$?
+          PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection --test bench -- --ignored --nocapture layout_change || status=$?
+          for f in "$out/parity.md" "$out/resize.md" "$out/phone_width.md" "$out/layout.md"; do
+            [ -f "$f" ] && { cat "$f"; echo; } >> "$GITHUB_STEP_SUMMARY"
+          done
+          python3 ../cmux-next-ios/scripts/instant_perf_table.py "$out" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$status"
+
   swift-terminal-linux:
-    name: Swift terminal packages (portable)
-    if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    name: Swift terminal packages (portable)${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     container: swift:6.2-noble
-    env:
-      # CmuxTerminalClient without the FFI xcframework: its pure Swift model target.
-      CMUX_TERMINAL_CLIENT_MODEL_ONLY: "1"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
       - name: swift test (terminal packages)
         run: |
           status=0
-          for package in CmuxTerminalSizing CmuxTerminalStream CmuxTerminalClient; do
+          for package in CmuxTerminalSizing CmuxTerminalStream; do
             echo "::group::$package"
             swift test --package-path "Packages/Shared/$package" || { echo "::error::$package failed"; status=1; }
             echo "::endgroup::"
@@ -107,14 +134,14 @@ jobs:
 
   rust-terminal:
     name: terminal crates (cmux-pty and corpus snapshot, macOS)
-    if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != '' && github.event_name != 'pull_request') }}
     # The bot's third attempt leaves the minis, as in ci-macos.yml, so a refused run cannot loop there.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 40
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -152,25 +179,3 @@ jobs:
           "$ZIG" version
           cargo test --locked --no-fail-fast -p cmux-pty
           cargo test --locked -p ghostty-vt --test terminal_corpus
-
-  swift-terminal:
-    name: Swift terminal packages (CmuxTerminalClient FFI, macOS)
-    if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
-    # The bot's third attempt leaves the minis, as in ci-macos.yml, so a refused run cannot loop there.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Drop stale submodule checkouts (self-hosted reused workspace)
-        run: scripts/ci/reset-stale-submodules.sh
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # The Linux job runs Sizing, Stream and the Client model target; the Client package's
-      # FFI target (CmuxTerminalClientKit, over the xcframework) only builds here.
-      - name: swift test (CmuxTerminalClient with the FFI target)
-        run: swift test --package-path Packages/Shared/CmuxTerminalClient

@@ -1,10 +1,12 @@
 // cmux-web-test-timeout: 300
-// Lawrence: "model picker too tall". The model popup is capped at 259px and the available room.
-// Its rail, model list and settings scroll independently while search and update stay in view.
+// Lawrence: "model picker too tall". The model popup keeps to one default height and the available
+// room: since #41212 (Lucas 2026-11-12: "we should have a default fixed height") that height is
+// measured to fit six effort levels and Fast (`data-fit-height`), not a flat 259px.
+// Its rail, model list and effort levels scroll independently while search and update stay in view.
 // The account avatar opens a card: its active account heads it, and its other accounts scroll
 // to the real last row without running past the window or reserving an empty spacer.
 // Real Chromium and WebKit (the app's engine) on the gallery stage at a short window. CI fails the
-// file when it cannot launch them (requireBrowserLane). Locally:
+// file when it cannot launch them (probeEngineOrSkip); elsewhere an engine that cannot launch skips. Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/model-menu-bounded-height.test.ts
 // CMUX_MODEL_MENU_SHOTS=DIR also saves each case's PNG there.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -13,7 +15,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -21,19 +23,9 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
   for (const engine of [
     ["chromium", chromium],
     ["webkit", webkit],
-  ] as [string, BrowserType][]) {
-    try {
-      await (await engine[1].launch({ headless: true })).close();
-      engines.push(engine);
-    } catch {
-      console.warn(`model menu bounded height: ${engine[0]} cannot launch here`);
-    }
-  }
-  if (engines.length !== 2) {
-    throw new Error(
-      `model menu bounded height requires Chromium and WebKit; launched ${engines.map(([name]) => name).join(", ") || "none"}`,
-    );
-  }
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("model-menu-bounded-height.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
 
   const ENTRY = "agent-pane.model-picker";
   const MANY = "quick-menu-many-profiles";
@@ -133,7 +125,18 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
           rows: rows.length,
           scrolls: list.scrollHeight > list.clientHeight + 1,
           lastRow: last.textContent ?? "",
-          lastRowShown: inside(box(last), box(list)) && inWindow(box(last)),
+          // Scrolled to its end, the last row is whole inside its list. A list shorter than one row
+          // (the effort levels between Reasoning and the pinned Fast in a 120px room, #41212) shows
+          // as much of it as it can: the row's end on the list's end.
+          lastRowShown:
+            inWindow(box(last)) &&
+            (inside(box(last), box(list)) ||
+              (list.clientHeight < box(last).height &&
+                list.scrollTop >= list.scrollHeight - list.clientHeight - 1 &&
+                Math.abs(
+                  box(last).bottom - (box(list).bottom - Number.parseFloat(getComputedStyle(list).paddingBottom)),
+                ) <= 1)),
+          where: `row ${JSON.stringify(box(last))} in list ${JSON.stringify(box(list))} scrollTop ${list.scrollTop}/${list.scrollHeight - list.clientHeight}`,
         };
       };
       const frameBox = box(frame);
@@ -149,7 +152,13 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
         search: inside(box(search), frameBox),
         footerPresent: !!footer,
         footer: !footer || inside(box(footer), frameBox),
-        columns: [...body.querySelectorAll<HTMLElement>(":scope > .acpmux-cols-list")].map((list) => ({
+        fitHeight: Number(frame.dataset.fitHeight),
+        // The rail and the models (.acpmux-cols-lists), and the effort column's levels, which scroll
+        // between its Reasoning heading and Fast (.acpmux-cols-tune-scroll, #41212).
+        columns: [
+          ...body.querySelectorAll<HTMLElement>(":scope > .acpmux-cols-lists > .acpmux-cols-list"),
+          ...body.querySelectorAll<HTMLElement>(":scope > .acpmux-cols-tune > .acpmux-cols-tune-scroll"),
+        ].map((list) => ({
           ...scrollEnd(list, [...list.querySelectorAll<HTMLElement>("[role]")]),
           box: box(list),
           overflow: getComputedStyle(list).overflowY,
@@ -171,7 +180,8 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
     });
 
   const expectBounded = (layout: Awaited<ReturnType<typeof measure>>) => {
-    expect(layout.frame.height, "the columns keep their 259px cap").toBeLessThanOrEqual(259.5);
+    expect(Number.isFinite(layout.fitHeight), "the menu measured its default height").toBe(true);
+    expect(layout.frame.height, "the columns keep their default height").toBeLessThanOrEqual(layout.fitHeight + 0.5);
     if (Number.isFinite(layout.available))
       expect(layout.frame.height, "the columns fit their published room").toBeLessThanOrEqual(layout.available + 0.5);
     expect(layout.popup.top, "the popup starts inside the window").toBeGreaterThanOrEqual(-0.5);
@@ -184,7 +194,7 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       expect(column.overflow).toMatch(/auto|scroll/);
       expect(column.inside, "the column is inside the frame").toBe(true);
       expect(column.rows, "the fixture exercises each column").toBeGreaterThan(0);
-      expect(column.lastRowShown, `the column scrolls to its last row (${column.lastRow})`).toBe(true);
+      expect(column.lastRowShown, `the column scrolls to its last row (${column.lastRow}): ${column.where}`).toBe(true);
     }
     expect(layout.account.box.top, "the card starts inside the window").toBeGreaterThanOrEqual(-0.5);
     expect(layout.account.box.bottom, "the card ends inside the window").toBeLessThanOrEqual(layout.windowHeight + 0.5);

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+@testable import CmuxNextAppCore
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -26,10 +27,17 @@ struct CmdNPrebuiltWorkspaceViewTests {
             let workspacesBefore = Set(store.workspaces.map(\.id))
             // Chrome builds the next tab's renderer at a quiet moment, not at the key: the window may build the next
             // Cmd-N's view after this test made this Mac's host known, and before the key.
-            try await PasswordManagerRouteTests.until({ Self.descendants(of: window.contentView).contains { $0 is WorkspaceContentView && $0 !== before } },
+            try await PasswordManagerRouteTests.until({ services.windows.active?.reservedContent.ready != nil },
                                                       within: .seconds(10),
                                                       report: { "Cmd-N built its workspace view in the key's turn: it was not in the window before the key" })
             let viewsBeforeKey = Set(Self.descendants(of: window.contentView).map(ObjectIdentifier.init))
+            let reserved = try #require(services.windows.active?.reservedContent.ready)
+            let host = try #require(services.windows.active?.root.contentHost)
+            #expect(!reserved.contentView.isHidden, "a hidden renderer cannot pre-render its full-width frame")
+            #expect(reserved.contentView.alphaValue == 0)
+            #expect(reserved.contentView.isParkedOffScreen)
+            #expect(reserved.contentView.frame.size == host.bounds.size)
+            #expect(!reserved.contentView.frame.intersects(host.bounds))
 
             let work = services.registry.capturingWork {
                 _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
@@ -43,6 +51,10 @@ struct CmdNPrebuiltWorkspaceViewTests {
             #expect(shown.focusedPane != nil, "the view built before the key has no pane controller")
             #expect(viewsBeforeKey.contains(ObjectIdentifier(shown.contentView)),
                     "Cmd-N built its workspace view in the key's turn: it was not in the window before the key")
+            #expect(shown === reserved, "Cmd-N did not use the reserved workspace")
+            #expect(shown.contentView.alphaValue == 1)
+            #expect(!shown.contentView.isParkedOffScreen)
+            #expect(shown.contentView.frame == host.bounds, "showing the pre-rendered workspace changed its size")
             for task in work { _ = await task.value }
         }
     }
@@ -107,8 +119,9 @@ struct CmdNPrebuiltWorkspaceViewTests {
             try await PasswordManagerRouteTests.until({
                 services.windows.active?.workspaceContent?.workspace.id == key && services.windows.active?.workspaceContent?.focusedPane != nil
             }, within: .seconds(2), report: { "the window shows no focused pane of Cmd-N's workspace" })
-            // Let the refill's later steps run.
-            try await Task.sleep(for: .milliseconds(500))
+            // The refill's later steps run (and any refill after the key): the slot settles before the check.
+            try await PasswordManagerRouteTests.until({ !controller.reservedContent.isFilling },
+                                                      within: .seconds(10), report: { "the window's refill never settled" })
             let shown = try #require(controller.workspaceContent)
             #expect(controller.reservedContent.ready?.workspace !== shown.workspace, "the refill built a second view of the shown workspace")
             let views = controller.root.contentHost.subviews.filter { $0 is WorkspaceContentView }

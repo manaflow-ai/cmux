@@ -9,6 +9,7 @@
 // passive markup in srcdoc with the nonce'd frame script that refuses link clicks, and a frame that
 // leaves its document anyway shows the source. Other dev pages show their source only.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SplitEdge, useSplitOpenResize } from "../../../ui/SplitEdge";
 import { useT } from "../i18n";
 import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import {
@@ -108,6 +109,9 @@ export function ArtifactPanel({
     const timer = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(timer);
   }, [copied]);
+  // Opening the panel narrows the chat and its composer beside it, and closing it widens them again: a
+  // split's resize (schemas/layout-motion/contract.json `resize`), one move of each box.
+  useSplitOpenResize("side panel");
   // Closing hands focus back to what opened the panel (an Open button in the transcript): the panel
   // unmounts with focus inside it, which would otherwise drop to the page.
   useEffect(() => {
@@ -134,10 +138,22 @@ export function ArtifactPanel({
         onClose();
       }}
     >
+      {/* Its left edge is the split's divider and drags as one (ui/SplitEdge.tsx). The width is a share of
+          the pane set on the shell, where the Background tasks column and the header's push read it too,
+          so everything beside the chat moves with the edge. */}
+      <SplitEdge
+        side="left"
+        property="--acpmux-artifact-share"
+        storageKey="cmux.agentPane.artifact.share"
+        unit="vw"
+        min={20}
+        max={80}
+        on="parent"
+      />
       <div className="acpmux-artifact-bar">
         <span className="acpmux-artifact-title">{title}</span>
         {pinned && (
-          <span className="acpmux-artifact-source" title={sourceTitle}>
+          <span className="acpmux-artifact-source">
             {t("sidebar.pinned")}
             {sourceTitle ? ` · ${sourceTitle}` : ""}
           </span>

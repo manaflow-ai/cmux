@@ -52,6 +52,8 @@ public struct Palette {
     /// The scrim's alpha: the most a translucent band over the window's
     /// backdrop may cover (the Home header's top fade peaks there).
     public static var legibilityScrimOpacity: CGFloat { CGFloat(ThemeTokens.legibilityScrimOpacity) }
+    /// How much the dim over the other panes covers them around a zoom (``ThemeTokens/zoomDim``).
+    public static var zoomDim: CGFloat { CGFloat((ThemeContext.active ?? ThemeScope.app.tokens).zoomDim) }
     /// The veil's alpha over an unfocused pane (``ThemeTokens/inactivePaneDim``).
     public static var inactivePaneDim: CGFloat { CGFloat((ThemeContext.active ?? ThemeScope.app.tokens).inactivePaneDim) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
@@ -76,17 +78,54 @@ public struct Palette {
     /// backdrop to `stripBackground` (the inset sidebar panel beside the rail).
     public static var stripStep: NSColor { color(\.stripStep, dynamic: PaletteDynamic.stripStep) }
 
+    /// Black at `dark` (a dark theme) or `light` (a light one) over the sidebar, so it reads a step dimmer than the
+    /// panes, as the Codex sidebar's under-surface does (`SidebarStyle.surfaceDim`); nil at 0, or when the chrome
+    /// around a curved main pane is already shaded (``Metrics/mainPaneChromeShadeBase(isDark:)``: a title
+    /// area contrast of 0 softens that shade away, it does not bring this dim back).
+    public static func sidebarDim(dark: Double, light: Double) -> NSColor? {
+        let isDark = (ThemeContext.active ?? ThemeScope.app.tokens).isDark
+        guard Metrics.mainPaneChromeShadeBase(isDark: isDark) == 0 else { return nil }
+        let alpha = CGFloat(isDark ? dark : light)
+        return alpha > 0 ? NSColor.black.withAlphaComponent(alpha) : nil
+    }
+
     /// Primary text.
     public static var textPrimary: NSColor { color(\.textPrimary, dynamic: PaletteDynamic.textPrimary) }
     /// Secondary text, captions, inactive tab titles.
     public static var textSecondary: NSColor { color(\.textSecondary, dynamic: PaletteDynamic.textSecondary) }
     /// Hints, placeholders, disabled glyphs.
     public static var textTertiary: NSColor { color(\.textTertiary, dynamic: PaletteDynamic.textTertiary) }
+    /// A sidebar row's title (``ThemeTokens/sidebarTitle``): the primary text a little softer, as the Codex
+    /// sidebar's titles are, still 4.5:1 on every row fill.
+    public static var sidebarTitle: NSColor { (ThemeContext.active ?? ThemeScope.app.tokens).sidebarTitle.nsColor }
 
     /// Hover fill for rows and tabs.
     public static var hoverFill: NSColor { color(\.hoverFill, dynamic: PaletteDynamic.hoverFill) }
+    /// A grouped form's rows at rest (an info panel's groups, ``ThemeTokens/groupFill``); not a hover state.
+    public static var groupFill: NSColor { color(\.groupFill, dynamic: PaletteDynamic.groupFill) }
+    /// A grouped form's edge where its fill could not be full strength (``ThemeTokens/groupStroke``).
+    /// Clear under `appearance.borders` none (`Borders`).
+    public static var groupStroke: NSColor { Borders.color(color(\.groupStroke, dynamic: PaletteDynamic.groupStroke)) }
     /// Selected row or tab fill. Replaces the system blue selection.
     public static var selectionFill: NSColor { color(\.selectionFill, dynamic: PaletteDynamic.selectionFill) }
+    /// The selected folder tab (the flush corner's tab that runs into the content card, `TabCell`): the
+    /// content's own glass, never a fill of its own. It paints what the content paints (``paneFill``): the
+    /// surface, opaque, in an opaque window, and clear over a see-through one (a translucent theme, a
+    /// background picture), where the chrome's shade leaves a hole under the tab
+    /// (`MainPaneChromeShadeView.update(card:radius:alpha:squareTopCorners:folders:)`), so the tab shows the
+    /// window's one backdrop and tint exactly as the content below it does, and the tab row around it
+    /// shows the same backdrop under the shade. Leo, 2026-11-11: "the glass for the selected top area,
+    /// it's not the same kind of transparency as the other bit." Until then the tab laid the window's
+    /// tint over the shade a second time, so it read as a solid pill on the glass.
+    ///
+    /// nil where the content's surface would not stand out of the chrome around it: a shade under
+    /// ``Metrics/folderTabMinimumShade`` (a chrome that shares the content's surface, or a title area
+    /// contrast near 0). The tab keeps ``selectionFill`` there, so a selected tab always reads as selected.
+    public static var folderTabFill: NSColor? {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        guard Metrics.mainPaneChromeShade(isDark: tokens.isDark, tokens: tokens) >= Metrics.folderTabMinimumShade else { return nil }
+        return paneFill
+    }
     /// Multi-selected rows that are not the active one.
     public static var secondarySelectionFill: NSColor { color(\.secondarySelectionFill, dynamic: PaletteDynamic.secondarySelectionFill) }
     /// Pressed buttons.

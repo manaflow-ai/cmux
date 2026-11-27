@@ -1,4 +1,4 @@
-
+public import Foundation
 
 public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
     public let id: String
@@ -19,6 +19,15 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
     public var keywords: [String]
     /// The row's place in the active window's sidebar, top first (0), nil when the sidebar does not draw it.
     public var sidebarRank: Int?
+    /// When the person last focused or used one of the workspace's tabs, nil when never: a recent
+    /// workspace wins equal and near-equal matches (``PaletteRecencyPrior``).
+    public var lastUsed: Date?
+    /// How many tabs the workspace holds, nil when the source does not say (the preview pane's Tabs).
+    public var tabCount: Int?
+    /// How many of them run an agent (a chat or a terminal agent), nil when the source does not say.
+    public var agentCount: Int?
+    /// The git branch of its folder, nil when unknown.
+    public var branch: String?
 
     /// The words that find a workspace whose one tab Go to Workspace folds into its row (a lone
     /// tab is its workspace; Leo 2026-11-03: "some of these are way too duplicated"): the tab's
@@ -28,9 +37,35 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
             + NavigationPaletteProvider.sessionWords(session.map { PaletteNavigationEntry.acpPrefix + $0 })
     }
 
+    /// Whether a tab titled `title` only repeats its workspace's name `workspace` (case, accents and
+    /// edge spaces aside): Go to Workspace lists such a tab as its workspace's row when it is the
+    /// only one, and its words find that row.
+    public static func repeatsName(_ title: String, of workspace: String) -> Bool {
+        func folded(_ text: String) -> String {
+            text.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        }
+        let name = folded(workspace)
+        return !name.isEmpty && folded(title) == name
+    }
+
+    /// The one of `tabs` whose title (`title(tab)`) repeats the workspace's name `name`, nil when none
+    /// or several do: Go to Workspace lists that tab as the workspace's row, so its words find that row.
+    public static func loneRepeat<Tab>(_ tabs: [Tab], of name: String, title: (Tab) -> String) -> Tab? {
+        var found: Tab?
+        for tab in tabs where repeatsName(title(tab), of: name) {
+            guard found == nil else { return nil }
+            found = tab
+        }
+        return found
+    }
+
     public init(id: String, title: String, directory: String? = nil, isSelected: Bool = false, unreadCount: Int = 0,
                 groupName: String? = nil, machineName: String? = nil, agentID: String? = nil, keywords: [String] = [],
-                sidebarRank: Int? = nil) {
+                sidebarRank: Int? = nil, lastUsed: Date? = nil, tabCount: Int? = nil, agentCount: Int? = nil, branch: String? = nil) {
+        self.tabCount = tabCount
+        self.agentCount = agentCount
+        self.branch = branch
+        self.lastUsed = lastUsed
         self.keywords = keywords
         self.sidebarRank = sidebarRank
         self.machineName = machineName
@@ -53,9 +88,16 @@ public protocol PaletteWorkspaceSource: AnyObject {
     func selectWorkspace(id: String)
     func renameWorkspace(id: String, to title: String)
     func closeWorkspace(id: String)
+    /// Follows the workspace list: `changed` runs after each change from this call on (a workspace added,
+    /// removed or renamed), so an open Go to Workspace lists it. Returns a token; dropping it ends the follow.
+    /// Nil: the source never changes while the palette shows.
+    func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject?
 }
 
 public extension PaletteWorkspaceSource {
+    /// A source that never changes while the palette shows (tests, small fakes).
+    func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject? { nil }
+
     /// A source with no lookup of its own (tests, small fakes) answers from its list.
     func hasWorkspace(id: String) -> Bool { workspaces.contains { $0.id == id } }
 }

@@ -2,9 +2,10 @@
 // stage, the agent pane runs on the gallery's stand-in for the app's pane bridge; this test wraps
 // that bridge so `popup.show/update/hide` are recorded and answered as the app's host does
 // (WebPopupHost), and sends the host's events back as the app does (the `cmux-popup` event).
-// In a 600x360 window the composer's commands list has no room above the prompt (at 400px its
-// capped 296px list just fits over the prompt once the gallery's cascade matched the app's,
-// a5393bc0de6f, so it rightly stays in the page there):
+// Since 7dce733f50c5 the commands list opens on the side with more room and shrinks to fit it,
+// leaving the page only when even that side holds fewer than three rows (listPlacement's
+// LIST_FLOOR_PX); at 600x360 it now fits over the prompt and rightly stays in the page. In a
+// 600x180 window it has no such room:
 // - its rows go to the host, every one of them, and the page's list goes invisible without moving
 //   the transcript or the composer;
 // - the keyboard stays in the prompt: ArrowDown moves the host's highlight;
@@ -99,8 +100,8 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     await vite?.close();
   });
 
-  test("a 600x360 window sends the commands list past its edge, keyboard and pick intact", async () => {
-    const page = await stage("agent-pane.composer", "slash-menu-full", { width: 600, height: 360 });
+  test("a 600x180 window sends the commands list past its edge, keyboard and pick intact", async () => {
+    const page = await stage("agent-pane.composer", "slash-menu-full", { width: 600, height: 180 });
     // The variant's play opened the list before the recorder; clear the prompt and open it again.
     await page.click("[contenteditable='true']");
     await page.keyboard.press("Backspace");
@@ -109,14 +110,35 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     const under = [".acpmux-scroll", ".acpmux-composer-box"];
     const before = await boxes(page, under);
     await page.keyboard.type("/");
-    await page.waitForSelector("#acpmux-slash-menu[data-escaped]", { state: "attached", timeout: 10_000 });
+    // The glass shell escapes; the listbox (the id) is its rows' viewport inside it.
+    await page
+      .waitForSelector("[data-escaped] > #acpmux-slash-menu", { state: "attached", timeout: 10_000 })
+      .catch(async (error) => {
+        // Diagnostic: where the list stood instead, and the room it had.
+        console.log(
+          "popup-escape: slash list placement",
+          await page.evaluate(() => {
+            const list = document.querySelector("#acpmux-slash-menu");
+            const box = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
+            return {
+              viewport: innerHeight,
+              list: list?.getBoundingClientRect().toJSON(),
+              shell: list?.parentElement && Object.assign({}, list.parentElement.dataset),
+              box: box?.toJSON(),
+            };
+          }),
+        );
+        throw error;
+      });
     const rows = await page.locator("#acpmux-slash-menu [role=option]").count();
     const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
     expect(show?.params).toMatchObject({ kind: "list", side: "top", highlighted: "0" });
     expect(show?.params.items as unknown[] | undefined).toHaveLength(rows);
     expect(rows).toBeGreaterThan(1);
     // The page's list is invisible and moved nothing.
-    expect(await page.$eval("#acpmux-slash-menu", (list) => getComputedStyle(list).opacity)).toBe("0");
+    expect(
+      await page.$eval("[data-escaped] > #acpmux-slash-menu", (list) => getComputedStyle(list.parentElement!).opacity),
+    ).toBe("0");
     expect(await boxes(page, under)).toEqual(before);
     // The prompt keeps the keyboard; the host's highlight follows.
     await page.keyboard.press("ArrowDown");
@@ -296,19 +318,32 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     return labels;
   };
 
-  test("a short window sends the New Tab suggestions past its edge", async () => {
-    const page = await stage("agent-pane.new-tab", "typed-tab-match", { width: 600, height: 260 });
-    // The default (Cards) template's field heads the page, so its rows open under it.
-    const labels = await checkSuggestions(page, ".nt-field .acpmux-md", ".nt-rows", "release");
-    expect(labels).toContain("Release notes cmux.dev");
-    await page.close();
-  });
+  /** New Tab's suggestions stay in the page in a short window: no native panel (it draws text rows only, so the
+      glyphs, the Return hint and the create strip went with it; 2026-11-16), every row the page's own, the list
+      inside the window. */
+  const checkSuggestionsStayInPage = async (page: Page, query: string) => {
+    const field = ".nt-field .acpmux-md";
+    await page.click(field);
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
+    await page.waitForSelector(".nt-rows [role=option]", { state: "detached" });
+    await recordPopups(page);
+    await page.keyboard.type(query);
+    await page.waitForSelector(".nt-rows [role=option]", { state: "attached", timeout: 10_000 });
+    expect(await page.locator(".nt-rows[data-escaped], [data-escaped] > .nt-rows").count()).toBe(0);
+    expect((await popupCalls(page)).some((call) => call.method === "popup.show")).toBe(false);
+    // The glyphs the native panel dropped are drawn.
+    expect(await page.locator(".nt-rows .nt-row-glyph").count()).toBeGreaterThan(0);
+    const box = await page.locator(".nt-rows").boundingBox();
+    const viewport = page.viewportSize();
+    expect(box && viewport && box.y >= 0 && box.y + box.height <= viewport.height + 0.5).toBe(true);
+    return page.locator(".nt-rows [role=option]").allTextContents();
+  };
 
-  test("a short window sends the stage layout's New Tab suggestions past its edge, above the composer", async () => {
-    const page = await stage("agent-pane.new-tab", "typed-tab-match-stage", { width: 600, height: 260 });
-    // Default's stage layout keeps the composer at the foot of the page, so its rows open above it.
-    const labels = await checkSuggestions(page, ".nt-field .acpmux-md", ".nt-rows", "release", "top");
-    expect(labels).toContain("Release notes cmux.dev");
+  test("a short window keeps the New Tab suggestions in the page", async () => {
+    const page = await stage("agent-pane.new-tab", "typed-tab-match", { width: 600, height: 260 });
+    const labels = await checkSuggestionsStayInPage(page, "release");
+    expect(labels.join(" ")).toContain("Release notes");
     await page.close();
   });
 

@@ -4,12 +4,22 @@ import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/toolRowModel";
-import { permissionDiffs, shellCommand } from "../direct";
+import { useAutoRetry } from "../autoRetry";
+import { permissionDiffs } from "../permissionMessage";
+import { shellCommand } from "../toolActivity";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
+import { permissionKeyAction } from "./prompt";
 import { ProposedEdits } from "./ProposedEdits";
+import { focusRoute } from "../../../ui/focusRoute";
+import { HoldRing, holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./HoldButton";
+import { holdApplies, holdSettings } from "./holdToApprove";
+import type { HoldScope } from "./holdToApprove.experiment";
+
+/// Each answer's letter, as the single card's (prompt.ts PERMISSION_LETTERS).
+const LETTERS: Record<PermissionDecision, string> = { allow_once: "y", allow_chat: "a", deny: "n" };
 
 /// What a receipt says was answered.
 const choices: Record<PermissionDecision, StringKey> = {
@@ -44,14 +54,18 @@ type Props = {
   onRetry(): void;
   onRevoke(): void;
   onRefresh(): void;
+  /// Hold to approve's scope and hold time, in place of the experiments' (holdToApprove.experiment.ts).
+  /// The pane passes none; the gallery and tests do.
+  hold?: { scope: HoldScope; durationMs: number; reduced?: boolean };
 };
 
 const record = (value: unknown) =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : undefined);
 
-/// What one request asks, as its row names it: a verb and the command, path, address or pattern
-/// the call carries (in the code face), else the agent's title for it.
+/// What one request asks, as its row names it: what the call does in the agent's words when it
+/// says (acpmux's `summary`, a shell call's description), else a verb and the command, path,
+/// address or pattern the call carries (in the code face), else the agent's title for it.
 function askOf(item: PermissionGroupItem, fallback: string) {
   const request = record(item.request);
   const subject = record(request?.subject);
@@ -64,7 +78,9 @@ function askOf(item: PermissionGroupItem, fallback: string) {
   const paths = (Array.isArray(tool?.locations) ? tool.locations : [])
     .map((location) => text(record(location)?.path))
     .filter((path): path is string => path !== undefined);
-  const command = kind === "execute" ? text(shellCommand(input)) : undefined;
+  // acpmux's copy drops the line it put before a subagent's command to name the caller.
+  const command = kind === "execute" ? (text(item.command) ?? text(shellCommand(input))) : undefined;
+  const summary = text(item.summary);
   const path = paths[0] ?? text(input?.file_path) ?? text(input?.path);
   const named =
     kind === "execute"
@@ -80,15 +96,16 @@ function askOf(item: PermissionGroupItem, fallback: string) {
     tool,
     kind,
     // The title already says what the call does ("Edit upload.sh"): no verb before it.
-    verb: named !== undefined ? verbs[kind ?? ""] : undefined,
+    verb: summary === undefined && named !== undefined ? verbs[kind ?? ""] : undefined,
     subject:
+      summary ??
       named ??
       (typeof tool?.title === "string" ? mcpTitleName(tool.title) : undefined) ??
       text(subjectCommand?.title) ??
       requestTitle ??
       text(tool?.title) ??
       fallback,
-    code: named !== undefined,
+    code: summary === undefined && named !== undefined,
     command,
     cwd: text(input?.cwd),
     scope:
@@ -103,6 +120,65 @@ function askOf(item: PermissionGroupItem, fallback: string) {
     paths,
     input: tool?.rawInput,
   };
+}
+
+/// One answer of a waiting group. Under hold to approve (HoldButton.tsx) an allow answers after a
+/// held press, never a click; it registers its hold so the panel's keys (y, a, Return) can run it.
+function AnswerButton({
+  holdKey,
+  identity,
+  label,
+  className,
+  keyshortcuts,
+  disabled,
+  holds,
+  durationMs,
+  reduced,
+  holdDescription,
+  onRespond,
+  register,
+}: {
+  holdKey: string;
+  /// What a hold answers: the group, its revision and the decision. A hold answers only the identity
+  /// it started on, so a new revision or group needs a new press.
+  identity: string;
+  label: string;
+  className: string;
+  keyshortcuts?: string;
+  disabled: boolean;
+  holds: boolean;
+  durationMs: number;
+  reduced?: boolean;
+  holdDescription: string;
+  onRespond(): void;
+  register(key: string, hold: HoldControl | undefined): void;
+}) {
+  const hold = useHoldToApprove({
+    enabled: holds,
+    identity,
+    durationMs,
+    disabled,
+    reducedOverride: reduced,
+    onComplete: onRespond,
+  });
+  useEffect(() => {
+    register(holdKey, hold);
+    return () => register(holdKey, undefined);
+  });
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-keyshortcuts={keyshortcuts}
+      disabled={disabled}
+      onClick={onRespond}
+      {...(hold ? holdButtonProps(hold, holdDescription) : {})}
+      title={hold ? holdTitle(undefined, holdDescription) : undefined}
+    >
+      {hold && <HoldRing hold={hold} />}
+      {label}
+    </button>
+  );
 }
 
 /// One request: a row like the transcript's tool rows (its glyph, verb and what it names, on one
@@ -178,8 +254,17 @@ function AskRow({
   );
 }
 
-export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh }: Props) {
+export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh, hold }: Props) {
   const t = useT();
+  // Hold to approve (HoldButton.tsx, off unless its experiment is on), read once per panel.
+  const [experimentHold] = useState(holdSettings);
+  const holdConfig = hold ?? experimentHold;
+  /// Each allow button's hold, by `<groupId>:<decision>`, for the panel's keys.
+  const holds = useRef(new Map<string, HoldControl>());
+  const registerHold = (key: string, control: HoldControl | undefined) => {
+    if (control) holds.current.set(key, control);
+    else holds.current.delete(key);
+  };
   const shortcuts = {
     allow_once: useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce),
     allow_chat: useShortcut(SHORTCUT_ACTIONS.permissionAllowChat),
@@ -194,6 +279,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   pendingRef.current = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
   const callbacks = useRef({ onRespond, onRetry, onRevoke, onRefresh });
   callbacks.current = { onRespond, onRetry, onRevoke, onRefresh };
+  const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     const handlers = new Map<string, EventListener>([
       ["permissionAllowOnce", () => respondToPending("allow_once")],
@@ -204,15 +290,41 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       ["permissionRefresh", runRefresh],
       ["permissionExpand", () => setExpandSignal((value) => value + 1)],
     ]);
-    function respondToPending(decision: PermissionDecision) {
+    /// The pending group `decision` would answer now, if any.
+    function pendingFor(decision: PermissionDecision) {
       const current = stateRef.current;
-      if (!current.supported || current.busy || current.loading || current.ready === false || current.uncertain) return;
-      if (decision !== "deny" && current.allowRefused) return;
-      const group = pendingRef.current.find(
+      if (!current.supported || current.busy || current.loading || current.ready === false || current.uncertain)
+        return undefined;
+      if (decision !== "deny" && current.allowRefused) return undefined;
+      return pendingRef.current.find(
         (candidate) => candidate.state === "pending" && candidate.decisions.includes(decision),
       );
-      if (group) callbacks.current.onRespond(group.groupId, group.revision, decision);
     }
+    /// Whether a pending group took `decision`. `event` is the key that asked, absent for an app
+    /// shortcut's page event: under hold to approve a held key runs the button's hold, and a page
+    /// event, which cannot be held, puts the keyboard on the button.
+    function respondToPending(decision: PermissionDecision, event?: KeyboardEvent): boolean {
+      const group = pendingFor(decision);
+      if (!group) return false;
+      const hold = holds.current.get(`${group.groupId}:${decision}`);
+      if (hold) {
+        if (event) hold.holdKey(event);
+        else focusRoute(hold.ref.current, "person", "an app allow shortcut under hold to approve");
+        return true;
+      }
+      callbacks.current.onRespond(group.groupId, group.revision, decision);
+      return true;
+    }
+    // The single card's keys (prompt.ts permissionKeyAction): y, a and n, Return and Esc, with
+    // nothing focused, focus in the panel or in an empty composer. Capture, as the card's.
+    const onKey = (event: KeyboardEvent) => {
+      const action = permissionKeyAction(event, panel.current, false);
+      if (!action || action === "closeFeedback") return;
+      if (!respondToPending(action === "allow_always" ? "allow_chat" : action, event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener("keydown", onKey, true);
     function runRetry() {
       const current = stateRef.current;
       if (current.supported && current.uncertain && !current.busy && !current.loading) callbacks.current.onRetry();
@@ -235,6 +347,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
     }
     for (const [name, handler] of handlers) window.addEventListener(`cmux-acpmux-${name}`, handler);
     return () => {
+      document.removeEventListener("keydown", onKey, true);
       for (const [name, handler] of handlers) window.removeEventListener(`cmux-acpmux-${name}`, handler);
     };
   }, []);
@@ -246,11 +359,25 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   useEffect(() => {
     if (!working && answered) setEnded(answered);
   }, [working, answered]);
+  // The chat's permission requests could not be read (`ready` false, nothing in doubt): they are read
+  // again on its own (autoRetry.ts), never behind a Refresh button, since a read has no cost (Leo,
+  // 2026-11-22: "vacuous decisions like that should be just done"). Nothing shows at first; past
+  // the deadline, one quiet line. A failed answer (the read is fine) keeps its words and Refresh,
+  // and an answer in doubt keeps Check and retry, which sends the person's decision again.
+  const reading = state.supported && !state.ready && !state.uncertain && (!!state.error || state.loading);
+  const readFailed = reading && !!state.error;
+  const { stillTrying } = useAutoRetry(readFailed ? state.error : undefined, onRefresh, {
+    busy: state.loading || state.busy,
+  });
   if (!state.supported) return null;
   const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
   const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
-  if (!pending.length && !receipt && !state.error) return null;
+  const still = reading && stillTrying;
+  if (!pending.length && !receipt && !still && (!state.error || readFailed)) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
+  // The group the keys answer (respondToPending): the first one waiting, whose answers list the
+  // letters. No keycap is drawn: the pending command is one quiet row (Leo 2026-10-14), its answers small.
+  const keyed = pending.find((group) => group.state === "pending");
   // acpmux refuses this reader's group allows (a chat on another machine, whose daemon allows only
   // from its own app): no Allow or Always that cannot count, and the reason in plain words.
   const allowRefused = state.allowRefused
@@ -258,27 +385,42 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
     : undefined;
   return (
     <section
+      ref={panel}
       className="acpmux-permission acpmux-permission-panel"
       aria-label={t("permission.title")}
       aria-busy={state.busy}
     >
       {pending.map((group) => {
+        const groupHolds = holdApplies(
+          holdConfig.scope,
+          group.items.map((item) => {
+            const ask = askOf(item, "");
+            return { kind: ask.kind, command: ask.command };
+          }),
+        );
         const buttons =
           group.state === "pending" ? (
             <div className="acpmux-ask-actions">
               {answers
                 .filter(([decision]) => group.decisions.includes(decision) && (!allowRefused || decision === "deny"))
                 .map(([decision, label]) => (
-                  <button
+                  <AnswerButton
                     key={decision}
-                    type="button"
+                    holdKey={`${group.groupId}:${decision}`}
+                    identity={`${group.groupId}\u0000${group.revision}\u0000${decision}`}
+                    label={t(label)}
                     className={`acpmux-ask-action${decision === "allow_once" ? " is-primary" : decision === "allow_chat" ? " is-secondary" : ""}`}
-                    aria-keyshortcuts={shortcuts[decision] || undefined}
+                    keyshortcuts={
+                      [group === keyed && LETTERS[decision], shortcuts[decision]].filter(Boolean).join(" ") || undefined
+                    }
                     disabled={disabled}
-                    onClick={() => onRespond(group.groupId, group.revision, decision)}
-                  >
-                    {t(label)}
-                  </button>
+                    holds={groupHolds && decision !== "deny"}
+                    durationMs={holdConfig.durationMs}
+                    reduced={hold?.reduced}
+                    holdDescription={t("permission.holdToAllow")}
+                    onRespond={() => onRespond(group.groupId, group.revision, decision)}
+                    register={registerHold}
+                  />
                 ))}
             </div>
           ) : undefined;
@@ -323,17 +465,25 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
           ))}
         </details>
       )}
-      {state.error && (
-        <div className="acpmux-permission-error" role="alert">
-          <span>{state.error}</span>
-          <button disabled={state.busy || state.loading} onClick={state.uncertain ? onRetry : onRefresh}>
-            {withShortcut(
-              state.uncertain ? t("permission.checkRetry") : t("permission.refresh"),
-              state.uncertain ? retryShortcut : refreshShortcut,
-            )}
-          </button>
-        </div>
-      )}
+      {reading
+        ? still && (
+            <p className="acpmux-permission-coverage" data-still-trying="">
+              {t("permission.stillReading")}
+            </p>
+          )
+        : state.error && (
+            <div className="acpmux-permission-error" role="alert">
+              <span>{state.error}</span>
+              {/* retry-prompt-ok: Check and retry sends the person's permission decision again (it may run a
+                tool); Refresh follows a failed answer, which the person reviews before answering again. */}
+              <button disabled={state.busy || state.loading} onClick={state.uncertain ? onRetry : onRefresh}>
+                {withShortcut(
+                  state.uncertain ? t("permission.checkRetry") : t("permission.refresh"),
+                  state.uncertain ? retryShortcut : refreshShortcut,
+                )}
+              </button>
+            </div>
+          )}
     </section>
   );
 }

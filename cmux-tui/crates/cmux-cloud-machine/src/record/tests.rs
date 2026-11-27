@@ -181,6 +181,61 @@ fn next_records_carry_creator_and_team() {
 }
 
 #[test]
+fn a_next_record_carries_its_size() {
+    let machine = next(json!({
+        "id": "vm_s", "status": "running", "size": {"cpu": 4, "memory_mb": 16384, "disk_mb": 65536}
+    }));
+    let size = machine.size.clone().unwrap();
+    assert_eq!((size.cpu, size.memory_mb, size.storage_mb), (Some(4), Some(16384), Some(65536)));
+    assert_eq!(size.name, None);
+    // The app's JSON (CloudMachine.swift `Size`) names them as the classic record does.
+    let text = serde_json::to_value(&machine).unwrap();
+    assert_eq!(text["size"]["memoryMb"], 16384);
+    assert_eq!(text["size"]["storageMb"], 65536);
+    // A malformed field drops only itself; no readable field, or no size, is no size.
+    let partial = next(
+        json!({"id": "vm_s", "status": "running", "size": {"cpu": "four", "memory_mb": 4096}}),
+    );
+    assert_eq!(partial.size.unwrap().memory_mb, Some(4096));
+    assert_eq!(next(json!({"id": "vm_s", "size": {"cpu": "four"}})).size, None);
+    assert_eq!(next(json!({"id": "vm_s", "size": null})).size, None);
+    assert_eq!(next(json!({"id": "vm_s"})).size, None);
+}
+
+#[test]
+fn a_next_record_carries_the_guests_disk_report() {
+    let record = next(json!({"id": "vm_d", "status": "running", "disk_health": {"total_mb": 20480,
+        "used_mb": 10240, "free_mb": 10240, "system_mb": 4096, "project_mb": 5120, "caches_mb": 1024}}));
+    let disk = record.disk.unwrap();
+    assert_eq!(disk.used_bytes, Some(10 << 30));
+    assert_eq!(disk.caches_bytes, Some(1 << 30));
+    // The app decodes it from the record's JSON as the report's own names.
+    let encoded = serde_json::to_value(&record).unwrap();
+    assert_eq!(encoded["disk"]["project_bytes"], json!(5u64 << 30));
+    // No sample yet, or one it cannot read: no disk, nothing else dropped.
+    assert_eq!(next(json!({"id": "vm_d"})).disk, None);
+    assert_eq!(next(json!({"id": "vm_d", "disk_health": "soon"})).disk, None);
+}
+
+#[test]
+fn a_next_record_carries_when_a_paused_machine_is_deleted() {
+    let paused = next(json!({"id": "vm_p", "status": "paused", "evict_at": 1_800_000_000_000_i64}));
+    assert_eq!(paused.evict_at, Some(1_800_000_000_000.0));
+    // Warn mode or an older server: null or absent; a malformed value drops only itself.
+    for value in [json!(null), json!("soon"), json!(-1)] {
+        assert_eq!(
+            next(json!({"id": "vm_p", "status": "paused", "evict_at": value})).evict_at,
+            None
+        );
+    }
+    assert_eq!(next(json!({"id": "vm_p", "status": "paused"})).evict_at, None);
+    // The app's JSON (CloudMachine.swift `evictAt`) keeps it.
+    let text = serde_json::to_value(&paused).unwrap();
+    assert_eq!(text["evictAt"], 1_800_000_000_000.0);
+    assert_eq!(serde_json::from_value::<Machine>(text).unwrap(), paused);
+}
+
+#[test]
 fn the_record_carries_why_it_is_paused_and_its_idle_timeout() {
     let idle =
         classic(r#"{"id":"vm-1","status":"paused","pauseReason":"idle","idlePauseMinutes":30}"#);
@@ -379,6 +434,40 @@ fn the_shown_name_decides_agent_infrastructure() {
     assert!(!named(Some("quiet-rose-finch"), Some("fs-example-2"), "vm-2"));
     assert!(named(None, Some("sr2-probe"), "vm-3"));
     assert!(!named(None, None, "fs-vm-4"), "no name: the id is not a name");
+}
+
+#[test]
+fn a_start_chat_name_is_generated_and_a_persons_name_is_not() {
+    let name = chat_machine_name("800dd580cab0487c9f1e2d3c4b5a6978");
+    assert_eq!(name, "chat-800dd580cab0487c");
+    for generated in [name.as_str(), "CHAT-800DD580CAB0487C", " chat-0123456789abcdef "] {
+        assert!(is_generated_name(generated), "{generated}");
+    }
+    for person in [
+        "chat-room",
+        "chat-800dd580",
+        "chat-800dd580cab0487c1",
+        "chat-zzzzzzzzzzzzzzzz",
+        "Build box",
+        "",
+    ] {
+        assert!(!is_generated_name(person), "{person}");
+    }
+}
+
+#[test]
+fn the_human_name_skips_a_generated_name_and_the_id() {
+    let named = |display: Option<&str>, slug: Option<&str>| {
+        let mut machine = Machine::new("vm_8f2c1a", Status::Running);
+        machine.display_name = display.map(Into::into);
+        machine.slug = slug.map(Into::into);
+        facts(&machine, None).human_name
+    };
+    assert_eq!(named(Some("Build box"), None), Some("Build box".into()));
+    assert_eq!(named(None, Some("kind-aqua-sandpiper")), Some("kind-aqua-sandpiper".into()));
+    assert_eq!(named(Some("chat-800dd580cab0487c"), None), None);
+    assert_eq!(named(Some("chat-800dd580cab0487c"), Some("kind-aqua-sandpiper")), None);
+    assert_eq!(named(None, None), None, "the id is never a human name");
 }
 
 #[test]

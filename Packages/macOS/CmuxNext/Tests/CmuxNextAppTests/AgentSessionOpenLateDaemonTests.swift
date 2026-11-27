@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextTabs
 import Darwin
 import Foundation
 import Testing
@@ -127,8 +128,8 @@ struct AgentSessionOpenLateDaemonTests {
         try await Task.sleep(for: .seconds(1))
         await Self.caughtUp(services)
         let onSession = Self.tabs(on: session, in: store)
-        let linked = created.map { tabs.linkedSessions.contains($0.key) } ?? false
-        let bound = created.flatMap { tabs.sessions[$0.key] }
+        let linked = created.map { tabs.linkedSessions.contains(AgentTabKey(machine: services.daemon.machineID, key: $0.key)) } ?? false
+        let bound = created.flatMap { tabs.sessions[AgentTabKey(machine: services.daemon.machineID, key: $0.key)] }
         let after = Self.daemonTabs(store)
         await launched.stop()
 

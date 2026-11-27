@@ -2,13 +2,20 @@
    One size while it shows: the people list scrolls in a fixed band and the status line keeps its
    room, so nothing moves when a row comes or goes or a step fails. */
 .share-dialog-popup {
+  --ui-dialog-padding: var(--ds-space-5);
   width: min(480px, calc(100vw - 32px));
 }
 .share-dialog {
+  /* A person row's height (the row button's padding around a control), and an access request
+     row's (one line wide, two narrow): the bands' heights come from them. */
+  --share-row: calc(var(--ds-control-primary) + 2 * var(--ds-space-1));
+  --share-ask-row: var(--share-row);
+  --share-ask-heading: var(--ds-space-4);
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-3);
-  padding: var(--ds-space-5);
+  padding: var(--ui-dialog-padding, var(--ds-space-5));
   color: var(--ui-fg);
   font-size: var(--text-body);
 }
@@ -56,6 +63,65 @@
   padding: 0;
   overflow-y: auto;
   list-style: none;
+}
+/* Access requests (RFD 0077 D5): above People with access, a band of at most two rows that
+   scrolls past them. The people band gives up exactly the room the requests take (their heading,
+   rows and gaps), so the dialog is one height with no request, one, or many. */
+.share-dialog__requests-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--share-ask-heading);
+  line-height: var(--share-ask-heading);
+}
+.share-dialog__count {
+  padding-inline: var(--ds-space-1);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-hover);
+  font-variant-numeric: tabular-nums;
+}
+.share-dialog__asks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.share-dialog__requests[data-rows="1"] .share-dialog__asks {
+  height: var(--share-ask-row);
+}
+.share-dialog__requests[data-rows="2"] .share-dialog__asks {
+  height: calc(2 * var(--share-ask-row) + var(--ds-space-1));
+}
+.share-dialog__ask {
+  gap: var(--ds-space-2);
+  height: var(--share-ask-row);
+  padding-inline: var(--ds-space-2);
+}
+.share-dialog__section[data-asks="1"] .share-dialog__people {
+  height: max(
+    var(--share-row),
+    calc(
+      4 * var(--share-row) + 3 * var(--ds-space-1) - var(--share-ask-heading) - var(--ds-space-2) - var(--share-ask-row) -
+        var(--ds-space-3)
+    )
+  );
+}
+.share-dialog__section[data-asks="2"] .share-dialog__people {
+  height: max(
+    var(--share-row),
+    calc(
+      4 * var(--share-row) + 2 * var(--ds-space-1) - var(--share-ask-heading) - var(--ds-space-2) -
+        2 * var(--share-ask-row) - var(--ds-space-3)
+    )
+  );
+}
+/* A row keeps its height in the fixed band (the band scrolls); shrinking it to fit laid a second
+   line over the next row. */
+.share-dialog__person {
+  flex: none;
 }
 .share-dialog__person,
 .share-dialog__row {
@@ -138,6 +204,12 @@
   color: var(--ui-fg-2);
   font-size: var(--text-detail);
 }
+/* A person's hint stays one line, so every row in the band keeps one height. */
+.share-dialog__person .share-dialog__hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .share-dialog__fixed-role {
   color: var(--ui-fg-2);
   font-size: var(--text-detail);
@@ -168,4 +240,70 @@
 }
 .share-dialog__role > .ui-select-button {
   width: calc(3 * var(--ds-space-6));
+}
+.share-dialog__status[data-hint] {
+  color: var(--ui-fg-2);
+}
+
+.share-dialog__remove-mark {
+  display: none;
+}
+/* Narrow (a 280 px window): the field takes its own line above the role and Invite, a row drops its
+   face, and Remove is an x, so the address keeps the room. */
+@container (max-width: 360px) {
+  .share-dialog__add {
+    flex-wrap: wrap;
+  }
+  .share-dialog__field {
+    flex-basis: 100%;
+  }
+  .share-dialog__role {
+    flex: 1;
+  }
+  .share-dialog__person-pick > .cv-face,
+  .share-dialog__person--owner > .cv-face,
+  .share-dialog__ask > .cv-face {
+    display: none;
+  }
+  /* A request is two lines narrow: who on the first, the role, Approve and the x under it, so a
+     long name or address keeps the width and the row keeps one height. */
+  /* The query container cannot query itself; set the row size on its sections so both
+     the requests band and the people band's remaining space inherit the narrow height. */
+  .share-dialog__section {
+    --share-ask-row: calc(2 * var(--ds-control-primary) + var(--ds-space-2) + var(--ds-space-1));
+  }
+  .share-dialog__ask {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    /* The first line holds the name and the address under it. */
+    grid-template-rows: calc(var(--ds-control-primary) + var(--ds-space-2)) var(--ds-control-primary);
+    row-gap: var(--ds-space-1);
+    column-gap: var(--ds-space-1);
+  }
+  .share-dialog__ask > .share-dialog__who {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+  .share-dialog__ask > .share-dialog__ask-role {
+    min-width: 0;
+    justify-self: stretch;
+  }
+  .share-dialog__ask-role > .ui-select-button {
+    width: 100%;
+  }
+  .share-dialog__person,
+  .share-dialog__person-pick {
+    gap: var(--ds-space-1);
+  }
+  .share-dialog__remove {
+    flex: none;
+    width: var(--ds-control-primary);
+    padding-inline: 0;
+  }
+  .share-dialog__remove-mark {
+    display: inline-flex;
+  }
+  .share-dialog__remove-word {
+    display: none;
+  }
 }

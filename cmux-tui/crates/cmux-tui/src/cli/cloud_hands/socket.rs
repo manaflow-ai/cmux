@@ -11,6 +11,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
+// timeout: a WebSocket upgrade that never completes fails the connect.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 /// The subscribe answer is the user owner's snapshot (up to about 1.5 MB).
 const MAX_MESSAGE: usize = 8 << 20;
@@ -45,10 +46,16 @@ pub(super) async fn session(
     if let Some(version) = app_version.and_then(|v| HeaderValue::from_str(v).ok()) {
         headers.insert("x-cmux-client-version", version);
     }
+    cmux_build_space::insert(headers).map_err(|e| e.to_string())?;
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE))
         .max_frame_size(Some(MAX_MESSAGE));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui::cli::cloud_hands::socket",
+    );
     let (mut stream, _) = tokio::time::timeout(HANDSHAKE_TIMEOUT, connect)
         .await
         .map_err(|_| "handshake timed out".to_owned())?

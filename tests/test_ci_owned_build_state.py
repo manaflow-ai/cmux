@@ -19,7 +19,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 
 import owned_build_state as state  # noqa: E402
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 OWNED = "startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')"
 
@@ -1081,11 +1089,11 @@ class WorkflowCommandLines(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             (base / "derived").mkdir()
-            env = {"PATH": "/usr/bin:/bin", "CMUX_OWNED_STATE_ROOT": str(base / "store"),
+            env = git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "CMUX_OWNED_STATE_ROOT": str(base / "store"),
                    "CMUX_COMPILE_ADMISSION_DERIVED_DATA": str(base / "derived"),
                    "CMUX_CI_CANONICAL_SRC": str(base / "src"), "FINGERPRINT": "fp",
                    "MERGED_ONTO": "a" * 40, "RUNNER_NAME": "runner", "RUNNER_TEMP": str(base),
-                   "CMUX_PRODUCT_RUNNER": "glaeda-root-std-xcode-26.6", "HOME": str(base)}
+                   "CMUX_PRODUCT_RUNNER": "glaeda-root-std-xcode-26.6", "HOME": str(base)})
             for step in calls:
                 script = step["run"]
                 # The fingerprint comes from Xcode; stand in for it.
@@ -1106,7 +1114,7 @@ class Wiring(unittest.TestCase):
     """Only an owned runner keeps state, and it never uploads it."""
 
     def setUp(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
+        workflow = workflow_jobs.document(ROOT / ".github/workflows/ci-macos.yml")
         self.job = workflow["jobs"]["macos-compile-admission"]
         self.steps = self.job["steps"]
         self.names = [step.get("name") for step in self.steps]
@@ -1130,7 +1138,7 @@ class Wiring(unittest.TestCase):
                      self.step("Keep this owned Mac's DerivedData"), self.step("Keep this owned Mac's build state")):
             self.assertIs(step.get("continue-on-error"), True, step["name"])
             self.assertNotIn("uses", step, step["name"])
-        self.assertEqual(self.job["env"]["CMUX_OWNED_STATE_ROOT"], "/Users/Shared/cmux-build-fleet/ci")
+        self.assertEqual(workflow_jobs.resolve(self.job).env["CMUX_OWNED_STATE_ROOT"], "/Users/Shared/cmux-build-fleet/ci")
 
     def test_a_warm_mac_skips_the_seed_and_the_package_cache(self):
         self.assertIn("steps.owned-state.outputs.warm != 'true'", self.by_id["seed-derived-data"]["if"])
@@ -1197,9 +1205,9 @@ class Wiring(unittest.TestCase):
             helper = Path(tmp, "helper-glaeda-canonical-root")
             helper.write_text("#!/bin/sh\nexit 0\n")
             helper.chmod(0o755)
-            env = {"PATH": os.environ["PATH"], "GITHUB_ENV": str(env_file), "GITHUB_OUTPUT": str(out_file),
+            env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "GITHUB_ENV": str(env_file), "GITHUB_OUTPUT": str(out_file),
                    "RUNNER_TEMP": tmp, "CMUX_CI_CANONICAL_ROOT_HELPER": str(helper),
-                   "CMUX_PRODUCT_RUNNER": runner, "CMUX_OWNED_STATE_ROOT": "/Users/Shared/cmux-build-fleet/ci"}
+                   "CMUX_PRODUCT_RUNNER": runner, "CMUX_OWNED_STATE_ROOT": "/Users/Shared/cmux-build-fleet/ci"})
             if root is not None:
                 env["CMUX_CI_CANONICAL_ROOT"] = root
             result = subprocess.run(["bash", "-c", self.by_id["build-slot"]["run"]], env=env,

@@ -4,17 +4,23 @@
 // 2026-11-07: "you can either just paste it and it just becomes this, like, .txt, kind of like an
 // attachment, um, or you can just make it raw"): Expand puts it back in the prompt to edit, Keep as
 // .txt sends it as a file. Paste as Plain Text keeps a raw paste. In the sent bubble every paste
-// reads as the prompt's own text under its one fold (conversation/sentPasteLook.experiment.ts). It
+// reads as the prompt's own text under its one fold (conversation/PromptText.tsx). It
 // goes to the agent as text: its own ACP text block
 // after the prompt's, marked `_meta.cmux.pasted` so the transcript can tell it from what was typed.
 import type { ComposerAttachment, PromptBlock } from "./attachments";
 import { pasteName, type PasteRange } from "./conversation/promptCollapse";
 
-/// A paste of more words than this is a chip: a page or two of prose stays in the prompt.
-export const PASTE_CHIP_WORDS = 750;
+/// A paste of more words than this is a chip. Dictation is the person's words, not a document: a
+/// dictation app pastes 200 to 3,000 characters a run, and a ten-minute dictation runs about 1,500
+/// words (~9,000 characters), so a chip there split the person's message into cards (ask-14d16a6247;
+/// Leo, 2026-11-07: "Like just don't separate these out."). 3,500 words is about seven pages of
+/// prose (~20,000 characters), past any dictation: a document, a log or a transcript. It was 750
+/// (#31226, which raised it from 20 lines / 2,000 characters for "a page or two of prose").
+export const PASTE_CHIP_WORDS = 3_500;
 /// A paste of more characters than this is a chip, for text with few spaces to count words by
-/// (minified code, base64, CJK). It is well past what 750 words of prose take (~4,500).
-export const PASTE_CHIP_CHARS = 10_000;
+/// (minified code, base64, CJK): about what 3,500 words of prose take, and over six times the top of
+/// the dictation range. The field draws far more than this as literal text (HUGE_PROMPT_CHARS).
+export const PASTE_CHIP_CHARS = 20_000;
 /// A paste longer than this goes as a file, never as text in the prompt or a chip that holds it:
 /// past it a prompt's text block is more than an agent's message carries (acpmux's 31 MiB) and the
 /// field could not lay it out (Leo, 2026-10-25: "arbitarrily large file sizes the composer should

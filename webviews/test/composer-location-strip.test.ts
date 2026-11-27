@@ -14,15 +14,19 @@
 //   - the folder popover filters with its search field and tells duplicate names apart;
 //   - the folder popover folds a repository's worktrees under one row (Austin 2026-10-20: each cmux
 //     worktree listed as a project of its own), opened by → or the count and found by branch;
-//   - design panel (compact composer): the strip's first and last marks line up with the prompt's
-//     edges, with no gap where it stands inside the card's corner; no "·" floats between folder
+//   - design panel (compact composer): the strip's first mark lines up with the prompt's leading
+//     edge, with no gap where it stands inside the card's corner; no "·" floats between folder
 //     and computer; in a narrow pane the folder cuts in the middle ("atl…web"), the computer shows
-//     its icon alone (named by its tooltip and label) and the branch keeps its name.
+//     its icon alone (named by its tooltip and label) and the branch keeps its name;
+//   - the chat composer's branch is not in the strip: it sits in the quiet row under the card, which
+//     holds still as the draft grows (ask-f87d5d43b4, Leo 2026-11-22: "this still being at the top
+//     of the composer as it grows is the same issue").
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -51,6 +55,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     "agent-pane.composer-context": "src/agent-session/acpmux/ComposerContext.gallery.tsx",
     "agent-pane.project-chooser": "src/agent-session/acpmux/ProjectChooser.gallery.tsx",
     "agent-pane.new-tab": "src/agent-session/acpmux/newtab/NewTabScreen.gallery.ts",
+    "agent-pane.github-folders": "src/agent-session/acpmux/SourcePicker.gallery.tsx",
   };
   const stageURL = (entry: string, variant: string) =>
     `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&entryPath=${ENTRY_PATHS[entry]}&variant=${variant}`;
@@ -100,6 +105,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     height = 560,
   ): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width, height } });
+    // Claude's look, whose strip is text over the card: Codex's (the default since #42247) tucks it
+    // as a tray under the card's top edge (composerLook.css).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     if (init) await page.addInitScript(init);
     await page.goto(stageURL(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
@@ -138,9 +146,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       variant: "no-project",
       card: ".acpmux-composer-box",
     },
-    // The strip heads the New Tab card in the Default template with Claude's quiet row: Cards draws it
-    // under its pill field, and since #24519 (2026-10-27, one quiet row) every other template with
-    // Claude's plain footer draws it in the quiet row under the box (NewTabScreen.tsx locationInFooter).
+    // The strip heads the New Tab card on Minimal with Claude's quiet row: since #24519 (2026-10-27, one
+    // quiet row) it draws in the quiet row under the box (NewTabScreen.tsx locationInFooter).
     {
       name: "the New Tab composer",
       entry: "agent-pane.new-tab",
@@ -253,7 +260,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     const page = await open("agent-pane.composer-context", "duplicate-worktrees", 720);
     // The variant's play opened the popover from the strip's Folder control.
     expect(await page.getByRole("button", { name: "Folder", exact: true }).getAttribute("aria-expanded")).toBe("true");
-    const options = page.locator('.acpmux-location-menu [role="option"]:has(.acpmux-location-row)');
+    const options = page.locator('.acpmux-location-menu [role="option"]:has(.acpmux-location-row[title])');
     await options.first().waitFor();
     const rows = async () =>
       options.evaluateAll((all) =>
@@ -284,11 +291,11 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.waitForFunction(
       () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 3,
     );
-    // The actions under the folders: one way to pick a folder, no Add project beside it.
+    // Add project is the only pinned action below the folder choices.
     const actions = await page
       .locator(".acpmux-location-menu .acpmux-location-action")
       .evaluateAll((all) => all.map((row) => (row.textContent ?? "").trim()));
-    expect(actions).toEqual(["Add folder…", "New Worktree"]);
+    expect(actions).toEqual(["Add project…"]);
     // ↓ moves the highlight from the first match to the next; Escape closes back to the strip.
     const highlighted = () =>
       page.evaluate(() =>
@@ -302,6 +309,59 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Folder");
     await page.close();
   });
+
+  // cmux#53226: GitHub ran on from the last folder, its heading wedged against it. A heading under
+  // other rows opens with a hairline across the list, the heading between it and its first row and
+  // starting at the rows' glyphs, as the Computer menu's Continue on; the list's first heading has none.
+  for (const { variant, first, after } of [
+    { variant: "this-mac-repositories", first: "atlas-web", after: "GitHub" },
+    // Cloud: GitHub first, then each machine's folders; the first machine's heading is under the repositories.
+    { variant: "cloud-folders", first: "acme/api", after: undefined },
+  ])
+    test(`the folder popover's heading under other rows has a hairline over it (${variant})`, async () => {
+      const page = await open("agent-pane.github-folders", variant, 620);
+      await page.locator(".acpmux-location-menu .acpmux-location-row").first().waitFor();
+      const measured = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-location-row")];
+        const box = (el: Element) => el.getBoundingClientRect();
+        return rows.map((row) => {
+          const item = row.closest(".acpmux-menu-item")!;
+          const line = getComputedStyle(item, "::before");
+          const heading = getComputedStyle(row, "::before");
+          const glyph = row.querySelector(".acpmux-icon, .acpmux-project-badge svg, svg");
+          const itemBox = box(item);
+          return {
+            text: (row.querySelector(".acpmux-menu-label")?.textContent ?? "").trim(),
+            section: row.dataset.section ?? null,
+            divider: row.hasAttribute("data-divider"),
+            line: line.content !== "none" && line.content !== "normal" ? parseFloat(line.borderTopWidth) : 0,
+            lineTop: itemBox.top + parseFloat(line.top),
+            headingTop: itemBox.top + parseFloat(heading.top),
+            headingBottom: itemBox.top + parseFloat(heading.top) + parseFloat(heading.lineHeight),
+            headingLeft: itemBox.left + parseFloat(heading.left),
+            glyphLeft: glyph ? box(glyph).left : null,
+            top: itemBox.top,
+            bottom: itemBox.bottom,
+          };
+        });
+      });
+      await page.close();
+      const firstRow = measured[0]!;
+      expect(firstRow.text).toBe(first);
+      expect(firstRow.divider).toBe(false);
+      const headed = measured.find((row, index) => index > 0 && row.section !== null)!;
+      expect(headed).toBeDefined();
+      if (after) expect(headed.section).toBe(after);
+      expect(headed.divider).toBe(true);
+      expect(headed.line).toBeGreaterThan(0);
+      const above = measured[measured.indexOf(headed) - 1]!;
+      // Hairline under the row above, the heading under the hairline, the heading's row under it.
+      expect(headed.lineTop).toBeGreaterThan(above.bottom + 2);
+      expect(headed.headingTop).toBeGreaterThan(headed.lineTop + 2);
+      expect(headed.headingBottom).toBeLessThanOrEqual(headed.top + 0.5);
+      // The heading starts at the rows' glyphs, not left of them.
+      expect(Math.abs(headed.headingLeft - headed.glyphLeft!)).toBeLessThanOrEqual(1);
+    });
 
   test("pinned actions leave a short pane repository list visible and keyboard-expandable", async () => {
     const page = await open("agent-pane.composer-context", "lane-checkouts", 720, undefined, 180);
@@ -329,51 +389,28 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.close();
   });
 
-  for (const variant of ["folder-short-note", "folder-short-note-de", "folder-short-note-fr"]) {
-    test(`${variant} leaves a visible project row in a short pane`, async () => {
-      const page = await open("agent-pane.composer-context", variant, 720, undefined, 180);
-      const popup = page.locator(".acpmux-folder-popover");
-      const viewport = page.locator(".ui-combobox-viewport");
-      const note = page.locator(".acpmux-location-note");
-      const project = page.locator(".acpmux-location-row").first();
-      const [popupRect, viewportRect, noteRect, projectRect] = await Promise.all([
-        popup.boundingBox(),
-        viewport.boundingBox(),
-        note.boundingBox(),
-        project.boundingBox(),
-      ]);
-      expect(popupRect).not.toBeNull();
-      expect(viewportRect).not.toBeNull();
-      expect(noteRect).not.toBeNull();
-      expect(projectRect).not.toBeNull();
-      expect(noteRect!.height).toBeLessThanOrEqual(16);
-      const noteVisibility = await note.evaluate((element) => {
-        const style = getComputedStyle(element);
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        const text = range.getBoundingClientRect();
-        const box = element.getBoundingClientRect();
-        return {
-          lineHeight: parseFloat(style.lineHeight),
-          paddingTop: parseFloat(style.paddingTop),
-          paddingBottom: parseFloat(style.paddingBottom),
-          borderTop: parseFloat(style.borderTopWidth),
-          textTop: text.top,
-          textBottom: text.bottom,
-          boxTop: box.top,
-          boxBottom: box.bottom,
-        };
-      });
-      expect(noteVisibility.paddingTop + noteVisibility.paddingBottom + noteVisibility.borderTop).toBe(0);
-      expect(noteVisibility.textTop).toBeGreaterThanOrEqual(noteVisibility.boxTop - 1);
-      expect(noteVisibility.textBottom).toBeLessThanOrEqual(noteVisibility.boxBottom + 1);
-      expect(noteRect!.height).toBeGreaterThanOrEqual(noteVisibility.lineHeight);
-      expect(projectRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
-      expect(projectRect!.y + projectRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
-      expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(popupRect!.y + popupRect!.height);
-      await page.close();
-    });
-  }
+  test("a tall pane gives the folder menu's extra height to its list, and its width follows the names", async () => {
+    const page = await open("agent-pane.composer-context", "folder-long-list", 720, undefined, 900);
+    const popup = page.locator(".acpmux-folder-popover");
+    const viewport = page.locator(".ui-combobox-viewport");
+    const [popupRect, viewportRect] = await Promise.all([popup.boundingBox(), viewport.boundingBox()]);
+    expect(popupRect).not.toBeNull();
+    expect(viewportRect).not.toBeNull();
+    // The list is no longer held at the shared 260 px location-list cap.
+    expect(viewportRect!.height).toBeGreaterThan(260);
+    expect(popupRect!.height).toBeLessThanOrEqual(560);
+    // As wide as its fullest listed row needs, between the old 240 px floor and 560: no name in view is cut.
+    expect(popupRect!.width).toBeGreaterThanOrEqual(240 - 1);
+    expect(popupRect!.width).toBeLessThanOrEqual(560 + 1);
+    const cut = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".acpmux-folder-popover [role='option'] .acpmux-location-name")]
+        .filter((name) => name.scrollWidth > name.clientWidth + 1)
+        .map((name) => name.textContent),
+    );
+    expect(cut).toEqual([]);
+    expect(await page.locator(".acpmux-location-note").count()).toBe(0);
+    await page.close();
+  });
 
   test("a normal pane scrolls the last long-list project fully inside the popup", async () => {
     const page = await open("agent-pane.composer-context", "folder-long-list", 720);
@@ -404,7 +441,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     const page = await open("agent-pane.composer-context", "repo-worktrees", 720);
     const rows = () =>
       page
-        .locator('.acpmux-location-menu [role="option"] .acpmux-location-row')
+        .locator('.acpmux-location-menu [role="option"] .acpmux-location-row:has(.acpmux-menu-text)')
         .evaluateAll((all) =>
           all.map(
             (row) =>
@@ -412,8 +449,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
               (row.querySelector(".acpmux-menu-text")?.textContent ?? "").replace(/\s+/g, " ").trim(),
           ),
         );
-    // One cmux row, named by the current worktree's branch; its five folders are one project.
-    expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "atlas-web", "relay", "notes"]);
+    // The main checkout leads with four worktrees collapsed beneath it.
+    expect(await rows()).toEqual(["cmux", "atlas-web", "relay", "notes"]);
     expect(await page.locator(".acpmux-location-worktrees").first().textContent()).toBe("4");
     // The strip names the repository, not the worktree's folder.
     expect(await page.getByRole("button", { name: "Folder", exact: true }).textContent()).toContain("cmux");
@@ -422,9 +459,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.keyboard.press("ArrowRight");
     await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
     expect(await rows()).toEqual([
-      "cmux · issue-22273-runaway-children",
+      "cmux",
+      "  issue-22273-runaway-children",
       "  feat-cmux-next-unread-ring-classic",
-      "  feat-cmux-next",
       "  agent-caller-scoped-current-selector",
       "  agent-21352-sidebar-drag",
       "atlas-web",
@@ -434,6 +471,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.keyboard.press("ArrowLeft");
     await page.waitForFunction(() => !document.querySelector(".acpmux-location-row[data-worktree]"));
     // The count opens them too, and a press on it never picks the row.
+    await page.locator(".acpmux-location-row[data-expanded]").first().hover();
     await page.locator(".acpmux-location-worktrees").first().click();
     await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
     expect(await page.locator(".acpmux-location-menu").count()).toBe(1);
@@ -442,7 +480,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.waitForFunction(
       () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 2,
     );
-    expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "  feat-cmux-next-unread-ring-classic"]);
+    expect(await rows()).toEqual(["cmux", "  feat-cmux-next-unread-ring-classic"]);
     await page.getByRole("combobox", { name: "Search folders or type a path" }).fill("cmux");
     await page.waitForFunction(
       () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
@@ -487,7 +525,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     const strip = document.querySelector(".acpmux-composer-strip")!;
     const pickers = [...strip.querySelectorAll<HTMLElement>(".acpmux-location-picker")];
     const computer = strip.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"]');
-    const branch = pickers.at(-1)!;
+    const branch = document.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="branch"]')!;
     const branchLabel = branch.querySelector<HTMLElement>(".acpmux-location-label")!;
     const computerLabel = computer?.querySelector<HTMLElement>(".acpmux-location-label");
     const head = strip.querySelector<HTMLElement>(".acpmux-location-head");
@@ -495,16 +533,19 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       prompt: rect(
         document.querySelector(".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]"),
       ),
-      // The Claude desktop box (composerLocation.css): + and the trailing actions sit beside the
-      // prompt, so the box's columns are the + glyph and the last action's glyph: the mic in this
-      // empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
+      // The Claude desktop box (composerLocation.css): + sits beside the prompt, so the box's leading
+      // column is the + glyph.
       plusInk: ink(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
-      trailInk: ink(
-        [...document.querySelectorAll(".acpmux-composer-inner .acpmux-composer-actions .acpmux-icon")].at(-1),
-      ),
       strip: rect(strip),
       folderInk: ink(pickers[0]?.querySelector(".acpmux-location-icon")),
-      branchChevronInk: ink(branch.querySelector(".ui-ghost-icon:last-child")),
+      branchInStrip: strip.contains(branch),
+      branchInFoot: !!branch.closest(".acpmux-composer-foot, .acpmux-composer-bar"),
+      branchBelowPrompt: (() => {
+        const prompt = document.querySelector(
+          ".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]",
+        );
+        return !!prompt && branch.getBoundingClientRect().top >= prompt.getBoundingClientRect().top;
+      })(),
       text: strip.textContent ?? "",
       head: head ? { clipped: head.scrollWidth > head.clientWidth + 0.5, text: head.textContent } : null,
       tail: rect(strip.querySelector(".acpmux-location-tail")),
@@ -533,37 +574,43 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   }
 
   for (const width of [420, 760])
-    test(`the chat composer at ${width} px: the strip's marks line up with the prompt's edges`, async () => {
+    test(`the chat composer at ${width} px: the strip's first mark lines up with the prompt's edge, the branch sits below`, async () => {
       const page = await open("agent-pane.composer-strip", "project", width);
       await page.locator(".acpmux-composer-strip .acpmux-location-icon").first().waitFor();
       const marks = await page.evaluate(measureMarks);
       await page.close();
       const prompt = marks.prompt!;
       const folderInk = marks.folderInk!;
-      const chevronInk = marks.branchChevronInk!;
-      // The marks sit over the box's content edges: the prompt's, or the ink of + and of the last
-      // action (the mic at rest) where they stand beside it. Both offsets in one check, so a failure
-      // names both. The folder's ink starts 2.0 px before the +'s (CI, 2026-10-21): within half a
+      // The folder sits over the box's content edge: the prompt's, or the ink of + where it stands
+      // beside it. The folder's ink starts 2.0 px before the +'s (CI, 2026-10-21): within half a
       // pixel more of that, the strip still reads as lined up.
       const lead = marks.plusInk?.left ?? prompt.left;
-      const trail = marks.trailInk?.right ?? prompt.right;
-      const offsets = { lead: folderInk.left - lead, trail: chevronInk.right - trail };
+      const offset = folderInk.left - lead;
       expect(
-        Math.max(Math.abs(offsets.lead), Math.abs(offsets.trail)),
-        `the folder's ink is ${offsets.lead.toFixed(2)} px from the leading mark's, the branch chevron's ${offsets.trail.toFixed(2)} px from the last action's`,
+        Math.abs(offset),
+        `the folder's ink is ${offset.toFixed(2)} px from the leading mark's`,
       ).toBeLessThanOrEqual(2.5);
+      // The branch left the strip for the row under the draft, which holds still as the draft grows.
+      expect({ inStrip: marks.branchInStrip, inFoot: marks.branchInFoot, below: marks.branchBelowPrompt }).toEqual({
+        inStrip: false,
+        inFoot: true,
+        below: true,
+      });
       expect(marks.text).not.toContain("·");
       // The strip has room for "This Mac" beside the folder and the branch at both widths.
       expect(marks.computerLabelShown).toBe(true);
     });
 
   // The strip's steps (composerLocation.css): the computer drops its name only where the strip's own
-  // width (a container query) leaves no room for it. Beside the folder and the branch that is under a
-  // 314 px strip, a 364 px pane here; it keeps its laptop icon, label and tooltip. At a 340 px pane
+  // width (a container query) leaves no room for it. The chat composer's branch is in the row under
+  // the draft (ComposerBranch), so its strip holds the folder and the computer alone, and the
+  // computer keeps its name down to a 238 px strip (a 50 px narrower pane than before: 364 px
+  // beside the branch's 314 px step). It keeps its laptop icon, label and tooltip. At a 340 px pane
   // the folder cuts in the middle and keeps both ends. The branch keeps its name at every step.
   for (const [width, iconOnly] of [
     [364, false],
-    [363, true],
+    [290, false],
+    [286, true],
   ] as const)
     test(`the chat composer at ${width} px: the computer ${iconOnly ? "shows its icon alone" : "keeps its name"}`, async () => {
       const page = await open("agent-pane.composer-strip", "project", width);
@@ -577,7 +624,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       expect(marks.computerIcon!.width).toBeGreaterThan(0);
       // Named for the pointer and VoiceOver either way.
       expect(marks.computerName).toContain("This Mac");
-      expect(label).toBe("Environment: This Mac");
+      expect(label).toBe("Computer: This Mac");
       if (!iconOnly) expect(marks.computerClipped).toBe(false);
       expect(marks.branchClipped).toBe(false);
     });
@@ -625,10 +672,10 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     ["strip-where-machine-cloud", 430, "Cloud", null],
     ["strip-where-machine-cloud", 244, "Cloud", null],
     ["strip-where-machine-cloud", 243, false, null],
-    ["strip-where-machine-machine-picked", 430, "Another machine", "gpu-box"],
-    ["strip-where-machine-machine-picked", 402, "Another machine", "gpu-box"],
-    ["strip-where-machine-machine-picked", 401, "Another machine", false],
-    ["strip-where-machine-machine-picked", 346, "Another machine", false],
+    ["strip-where-machine-machine-picked", 430, "Other devices", "gpu-box"],
+    ["strip-where-machine-machine-picked", 402, "Other devices", "gpu-box"],
+    ["strip-where-machine-machine-picked", 401, "Other devices", false],
+    ["strip-where-machine-machine-picked", 346, "Other devices", false],
     ["strip-where-machine-machine-picked", 345, false, false],
     ["strip-combined", 244, "This Mac", null],
     ["strip-combined", 243, false, null],
@@ -674,7 +721,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       expect(marks.tailText).toBe("checkout");
       expect(tail.width).toBeGreaterThan(0);
       expect(tail.right).toBeLessThanOrEqual(strip.right);
-      expect(marks.computerLabelShown).toBe(false);
+      // With no branch beside it (ComposerBranch), the computer keeps its name at this width.
+      expect(marks.computerLabelShown).toBe(true);
       expect(marks.branchClipped).toBe(false);
     });
 
@@ -700,7 +748,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   });
 
   // Focus draws no ring (Leo 2026-10-19): a focused strip control keeps the strip's geometry, and its
-  // edge takes the composer's focused tone, as the card's does (#21241; #23745: a step brighter).
+  // edge takes the composer's focused tone, as the card's does (#21241; #23745: a step brighter), when
+  // a key moved the focus; code focus leaves the edge at rest (FOCUS-RING, src/ui/focusModality.ts).
   test("focusing a strip control steps the strip's edge tone and keeps its geometry", async () => {
     const page = await open("agent-pane.composer-strip", "project", 420);
     await installPaintedFrames(page);
@@ -714,7 +763,17 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
       };
     });
+    const edgeNow = () =>
+      page.evaluate(() =>
+        getComputedStyle(document.querySelector<HTMLElement>(".acpmux-composer-strip")!).getPropertyValue(
+          "--acpmux-strip-edge",
+        ),
+      );
+    // Code focus earns no ring: the edge stays at rest.
     await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-strip button")!.focus());
+    await page.evaluate(() => window.cmuxPaintFrame());
+    expect(await edgeNow(), "code focus leaves the strip's edge at rest").toBe(before.edge);
+    await focusByKey(page, ".acpmux-composer-strip button");
     await page.evaluate(() => window.cmuxPaintFrame());
     const after = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
@@ -783,24 +842,29 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       });
     }
   }
-  for (const [entry, variant] of [
-    ["agent-pane.composer-context", "folder-pinned-search"],
-    ["agent-pane.project-chooser", "open-current"],
+  for (const [entry, variant, action] of [
+    ["agent-pane.composer-context", "folder-pinned-search", "Add project…"],
+    ["agent-pane.project-chooser", "open-current", "No folder"],
   ]) {
     test(`${entry} keeps pinned actions deliberately reachable by keyboard`, async () => {
       const page = await open(entry, variant, 720);
       const field = page.getByRole("combobox", { name: "Search folders or type a path" });
       await field.fill("relay");
       await page.waitForFunction(() => document.querySelector("[data-highlighted]")?.textContent?.includes("relay"));
-      // The actions sit under the folders, No folder last: the arrows reach it after the matches.
       const highlighted = page.locator("[data-highlighted]");
-      for (let press = 0; press < 6 && !(await highlighted.textContent())?.includes("No folder"); press++)
+      for (let press = 0; press < 6 && !(await highlighted.textContent())?.includes(action); press++)
         await field.press("ArrowDown");
       const activeId = await field.getAttribute("aria-activedescendant");
       expect(await highlighted.getAttribute("id")).toBe(activeId);
-      expect(await highlighted.textContent()).toContain("No folder");
+      expect(await highlighted.textContent()).toContain(action);
       await field.press("Enter");
-      expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectAction)).toBe("none");
+      if (action === "Add project…") {
+        await page.getByRole("dialog", { name: "Add project" }).waitFor();
+        await page.getByRole("option", { name: /^Folder on this Mac/ }).click();
+      }
+      expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectAction)).toBe(
+        action === "Add project…" ? "browse" : "none",
+      );
       expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectPicked)).toBeUndefined();
       await page.close();
     });

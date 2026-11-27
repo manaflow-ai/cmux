@@ -40,12 +40,18 @@ export type WireEntry = {
 export type WireStats = {
   entries: number;
   dropped: number;
+  /// Characters of message text the log holds (at most MAX_TEXT_CHARS).
+  textChars: number;
+  /// The `seq` of the oldest entry kept: everything before it was dropped.
+  oldestSeq?: number;
   requests: number;
   errors: number;
   inFlight: number;
   connects: number;
   closes: number;
   reconnects: number;
+  /// Lost connections by cause: how often this page's chat reconnected, and why.
+  lostBy: Record<string, number>;
   /// Full transcript replaces of the chat on screen (direct.ts `noteReplace`).
   transcriptReplaces: number;
   lastError?: string;
@@ -76,10 +82,22 @@ export function redactEndpoint(endpoint: string): string {
 const SECRET_SUBMIT = "_acpmux/secret_submit";
 /// A Cloud sign-in's steps: the code, the key and the device code never reach the log.
 const AGENT_LOGIN_SECRETS: Record<string, readonly string[]> = {
+  "_acpmux/device_enroll": ["accessToken"],
+  "_acpmux/device_hello": ["credential", "signature"],
+  "_acpmux/device_challenge": ["credential"],
   "_acpmux/agent_login/finish": ["code"],
   "_acpmux/agent_login/api_key": ["key"],
 };
 const AGENT_LOGIN_START = "_acpmux/agent_login/start";
+
+/// A copy of `text` that holds its own characters. An engine's slice of a long string can point into the
+/// string it came from (a V8 sliced string), so a log entry of a message's first MAX_PAYLOAD_CHARS kept the whole
+/// message alive: a god chat's MB pages stayed in memory, uncounted by MAX_TEXT_CHARS. A JSON round trip builds a
+/// new flat string (a cut surrogate pair survives it as the same lone code unit). Only a cut message pays the copy,
+/// at most MAX_PAYLOAD_CHARS (test/acp-wire-log-retention.test.ts, and bench/stateGrowth.ts's chat-reopen scenario).
+export function ownCopy(text: string): string {
+  return JSON.parse(JSON.stringify(text)) as string;
+}
 
 /// `text` with `fields` of its `params` (or `result`) replaced, for the log.
 function withoutFields(text: string, part: "params" | "result", fields: readonly string[]): string {
@@ -113,6 +131,8 @@ export class AcpWireLog {
   private pending = new Map<number, Pending>();
   private latencies: number[] = [];
   private counters = { requests: 0, errors: 0, connects: 0, closes: 0, reconnects: 0, transcriptReplaces: 0 };
+  /// Established connections lost, by cause (`lost`'s `cause`: a close's code, `stalled …`, `liveness`).
+  private lostBy: Record<string, number> = {};
   private lastError?: string;
   private listeners = new Set<Listener>();
   private readonly now: () => number;
@@ -172,7 +192,13 @@ export class AcpWireLog {
         method: request?.method,
         id: message.id,
         latencyMs,
-        ...this.body(request?.method === AGENT_LOGIN_START ? withoutFields(text, "result", ["userCode"]) : text),
+        ...this.body(
+          request?.method === "_acpmux/device_enroll"
+            ? withoutFields(text, "result", ["credential"])
+            : request?.method === AGENT_LOGIN_START
+              ? withoutFields(text, "result", ["userCode"])
+              : text,
+        ),
       });
       return;
     }
@@ -188,7 +214,13 @@ export class AcpWireLog {
   lifecycle(event: string, detail?: Record<string, unknown>): void {
     if (event === "connected") this.counters.connects += 1;
     if (event === "close") this.counters.closes += 1;
-    if (event === "reconnect scheduled") this.counters.reconnects += 1;
+    // The app's panes never schedule a reconnect of their own: a lost connection asks the host for a
+    // fresh client (`lost`), so that is what counts, by cause.
+    if (event === "reconnect scheduled" || event === "lost") this.counters.reconnects += 1;
+    if (event === "lost") {
+      const cause = typeof detail?.cause === "string" ? detail.cause : "unknown";
+      this.lostBy[cause] = (this.lostBy[cause] ?? 0) + 1;
+    }
     if (event === "transcript replaced") this.counters.transcriptReplaces += 1;
     if (event === "error" || event === "connect failed")
       this.lastError = `${event}${detail?.message ? `: ${String(detail.message)}` : ""}`;
@@ -210,7 +242,10 @@ export class AcpWireLog {
     return {
       entries: this.log.length,
       dropped: this.droppedCount,
+      textChars: this.bytes,
+      oldestSeq: this.log[0]?.seq,
       ...this.counters,
+      lostBy: { ...this.lostBy },
       inFlight: this.pending.size,
       lastError: this.lastError,
       latencyP50Ms: percentile(sorted, 0.5),
@@ -249,7 +284,7 @@ export class AcpWireLog {
     const truncated = text.length > MAX_PAYLOAD_CHARS;
     return {
       size: text.length,
-      text: truncated ? text.slice(0, MAX_PAYLOAD_CHARS) : text,
+      text: truncated ? ownCopy(text.slice(0, MAX_PAYLOAD_CHARS)) : text,
       truncated: truncated || undefined,
     };
   }

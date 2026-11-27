@@ -14,6 +14,8 @@ use cmux_cloud_wire::{
     WireIdempotency,
 };
 
+use cmux_cloud_machine::refusals;
+
 use crate::ApiError;
 
 /// An op's answer.
@@ -37,6 +39,20 @@ pub async fn call<O: Op>(
     key: Option<&str>,
     origin: Option<Origin>,
 ) -> Result<Answer<O::Result, O::Error>, ApiError> {
+    call_with_options::<O>(http, base_url, params, key, origin, None).await
+}
+
+/// Sends an op with an optimistic-concurrency precondition. Mutations should
+/// pass the revision carried by their scoped machine capability; the server
+/// then refuses a stale handle before doing provider work.
+pub async fn call_with_options<O: Op>(
+    http: &reqwest::Client,
+    base_url: &str,
+    params: O::Params,
+    key: Option<&str>,
+    origin: Option<Origin>,
+    expected_revision: Option<&str>,
+) -> Result<Answer<O::Result, O::Error>, ApiError> {
     let mut request = OpRequest::new::<O>(params);
     match (O::IDEMPOTENCY, key) {
         (WireIdempotency::Required, None) => {
@@ -53,21 +69,44 @@ pub async fn call<O: Op>(
     if let Some(origin) = origin {
         request = request.with_origin(origin);
     }
+    if let Some(revision) = expected_revision {
+        request = request.with_expected_revision(revision);
+    }
     let url = format!("{}{}", base_url.trim_end_matches('/'), O::CLASS.http_path());
     let response =
         http.post(url).json(&request).send().await.map_err(|e| ApiError::unreachable(&e))?;
     let status = response.status().as_u16();
+    let retry_after = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let body = response.bytes().await.map_err(|e| ApiError::unreachable(&e))?;
-    read_answer::<O>(status, &body)
+    if status == 200 && O::CLASS == WireClass::Mutation {
+        // A success for another intent cannot complete this capability. Keep
+        // the wire envelope intact until its operation and key are checked.
+        let envelope: serde_json::Value =
+            serde_json::from_slice(&body).map_err(ApiError::unreadable)?;
+        if envelope.get("op").and_then(serde_json::Value::as_str) != Some(O::NAME)
+            || key.is_some_and(|key| {
+                envelope.get("idempotency_key").and_then(serde_json::Value::as_str) != Some(key)
+            })
+        {
+            return Err(ApiError::unreadable("mutation answer named another operation or key"));
+        }
+    }
+    read_answer::<O>(status, retry_after.as_deref(), &body)
 }
 
-/// Reads an op's HTTP answer (split out for tests).
+/// Reads an op's HTTP answer (split out for tests): its status, its Retry-After header (a rate
+/// limit's window when the body names none) and its body.
 pub fn read_answer<O: Op>(
     status: u16,
+    retry_after: Option<&str>,
     body: &[u8],
 ) -> Result<Answer<O::Result, O::Error>, ApiError> {
     if status != 200 {
-        let mut error = ApiError::from_status(status, body);
+        let mut error = ApiError::from_answer(status, retry_after, body);
         if let Ok(typed) = serde_json::from_slice::<HttpError<O::Error>>(body) {
             error.code = Some(typed.code.code().to_owned());
         }
@@ -100,17 +139,32 @@ pub fn read_answer<O: Op>(
 }
 
 impl<T, E: WireError> Answer<T, E> {
-    /// The value, or the refusal as an [`ApiError`] (its code and message).
+    /// The value, or the refusal as an [`ApiError`]: its code, message and `retryable`, and, for
+    /// one that may be retried, the window its `details.retry_after_ms` asks for (a rate limit
+    /// with none waits the platform's default).
     pub fn into_result(self) -> Result<T, ApiError> {
         match self {
             Self::Value { value, .. } => Ok(value),
-            Self::Refused(error) => Err(ApiError {
-                status: Some(200),
-                tag: None,
-                code: Some(error.code.code().to_owned()),
-                message: error.message,
-                retryable: error.retryable,
-            }),
+            Self::Refused(error) => {
+                let code = error.code.code().to_owned();
+                let facts = refusals::Facts::read(
+                    Some(&serde_json::json!({"details": error.details})),
+                    None,
+                );
+                let rate_limit = refusals::platform(&code)
+                    .is_some_and(|row| row.handling() == refusals::Handling::RetryAfter);
+                let retry_after = (error.retryable
+                    && (rate_limit || facts.retry_after_s.is_some()))
+                .then(|| std::time::Duration::from_secs(facts.wait_s()));
+                Err(ApiError {
+                    status: Some(200),
+                    tag: None,
+                    code: Some(code),
+                    message: error.message,
+                    retryable: error.retryable,
+                    retry_after,
+                })
+            }
         }
     }
 }
@@ -122,71 +176,10 @@ fn local(message: String) -> ApiError {
         code: Some("cloud.client.usage".to_owned()),
         message,
         retryable: false,
+        retry_after: None,
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use cmux_cloud_wire::{CloudMachineDeleteOp, CloudMachineGetOp};
-
-    #[test]
-    fn a_refused_mutation_keeps_its_declared_code() {
-        let body = br#"{"ok":false,"op":"cloud.machine.delete","error":{"code":"cloud.machine.not_found","message":"gone","retryable":false},"transaction":"t","idempotency_key":"ck_1","replayed":false,"stream":"s","sequence":3}"#;
-        let answer = read_answer::<CloudMachineDeleteOp>(200, body).unwrap();
-        let error = answer.into_result().unwrap_err();
-        assert_eq!(error.code.as_deref(), Some("cloud.machine.not_found"));
-        assert_eq!(error.message, "gone");
-    }
-
-    #[test]
-    fn a_refused_request_reads_as_an_api_error() {
-        let body = br#"{"_tag":"Unauthorized","code":"auth.required","message":"sign in"}"#;
-        let error = read_answer::<CloudMachineGetOp>(401, body).unwrap_err();
-        assert_eq!(error.status, Some(401));
-        assert_eq!(error.code.as_deref(), Some("auth.required"));
-    }
-
-    #[tokio::test]
-    async fn a_required_key_is_checked_before_sending() {
-        crate::test_tls();
-        let http = reqwest::Client::new();
-        let params = serde_json::from_value(serde_json::json!({"machine": "vm_x"})).unwrap();
-        let error = call::<CloudMachineDeleteOp>(&http, "http://127.0.0.1:9", params, None, None)
-            .await
-            .unwrap_err();
-        assert_eq!(error.code.as_deref(), Some("cloud.client.usage"));
-    }
-
-    /// A mutation whose catalog row refuses keys (`idempotency: none`).
-    struct OneTimeOp;
-
-    impl Op for OneTimeOp {
-        const NAME: &'static str = "test.one_time";
-        const CLASS: WireClass = WireClass::Mutation;
-        const IDEMPOTENCY: WireIdempotency = WireIdempotency::None;
-        const OWNER: &'static str = "test";
-        const RISK: &'static str = "mutate-own";
-        const PRINCIPALS: &'static [cmux_cloud_wire::WirePrincipal] = &[];
-        type Params = serde_json::Value;
-        type Result = serde_json::Value;
-        type Error = <CloudMachineDeleteOp as Op>::Error;
-    }
-
-    #[tokio::test]
-    async fn a_key_for_a_mutation_that_refuses_keys_is_refused_before_sending() {
-        crate::test_tls();
-        let http = reqwest::Client::new();
-        let error = call::<OneTimeOp>(
-            &http,
-            "http://127.0.0.1:9",
-            serde_json::json!({}),
-            Some("ck_1"),
-            None,
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(error.code.as_deref(), Some("cloud.client.usage"));
-        assert!(error.status.is_none(), "nothing was sent");
-    }
-}
+#[path = "ops_tests.rs"]
+mod tests;

@@ -1,14 +1,17 @@
 import AppKit
 @testable import CmuxNextAgentPane
+import CmuxNextTestSupport
 import Testing
 
 /// The native New Tab page is AppKit (plans/cmux-next/no-swiftui-DESIGN.md): its field exists before
 /// any layout, typing in it changes the rows in the same turn, Up and Down move the highlight, Return
 /// and a click run a row, and the switch sets the kind.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct NativeNewTabViewTests {
     private struct Calls {
         var submits: [(String, AgentPaneTabKind)] = []
+        /// The event each submit came with (``NativeNewTabActions/submit``).
+        var events: [NSEvent?] = []
         var jumps: [String] = []
     }
 
@@ -26,7 +29,7 @@ struct NativeNewTabViewTests {
 
     private static func make() -> (NativeNewTabHostingView, NativeNewTabModel, Box, NSWindow) {
         let box = Box()
-        let actions = NativeNewTabActions(submit: { text, kind, _ in box.calls.submits.append((text, kind)) },
+        let actions = NativeNewTabActions(submit: { text, kind, _, event in box.calls.submits.append((text, kind)); box.calls.events.append(event) },
                                           jump: { _, id in box.calls.jumps.append(id) })
         let model = NativeNewTabModel(page: page(), actions: actions)
         let host = NativeNewTabView.hosted(model)
@@ -82,6 +85,53 @@ struct NativeNewTabViewTests {
                 "the rows sit under the field")
     }
 
+    /// Real-app capture (2026-11-08): every row read "Split Ri..." and "P...s" in a 640 pt card. A
+    /// short title and detail are drawn whole when the row has the room.
+    @Test func aShortTitleAndDetailAreNotTruncated() throws {
+        let (host, _, _, window) = Self.make()
+        defer { window.close() }
+        // Typed a letter at a time, as a person does: each row view is laid out with a short title,
+        // then reused for a longer one ("Ask: t", then "Ask: toggle").
+        for end in 1..."toggle".count {
+            try Self.enter(String("toggle".prefix(end)), into: host)
+            host.layoutSubtreeIfNeeded()
+        }
+        let ask = try #require(host.page.rows.first)
+        #expect(ask.titleField.frame.width >= ceil(ask.titleField.attributedStringValue.size().width),
+                "\(ask.titleField.stringValue) drawn in \(ask.titleField.frame.width) pt")
+        let row = try #require(host.page.rows.first { $0.content?.title == "Toggle Sidebar" })
+        #expect(row.frame.width > 500)
+        for label in [row.titleField, row.detailField] {
+            let whole = ceil(label.attributedStringValue.size().width)
+            #expect(label.frame.width >= whole, "\(label.stringValue) drawn in \(label.frame.width) pt of its \(whole) pt")
+        }
+        let title = row.titleField, detail = row.detailField
+        let titleBaseline = title.frame.maxY - title.firstBaselineOffsetFromTop
+        let detailBaseline = detail.frame.maxY - detail.firstBaselineOffsetFromTop
+        #expect(abs(titleBaseline - detailBaseline) < 0.5, "the detail sits on the title's baseline")
+    }
+
+    /// User 34731 (CleanShot 8.07.33 PM): the web page cut a long row title at 60% of the row. The native
+    /// row's title runs to its trailing hint (or the row's inset) before it truncates, narrow and wide.
+    @Test func aLongTitleRunsToTheRowsEndBeforeItTruncates() throws {
+        let (host, _, _, window) = Self.make()
+        defer { window.close() }
+        let long = "i have been trying to make new workspaces spawn at the top, but it always lands at the bottom "
+            + "of the list below every pinned row and then i have to drag it up again every single time"
+        for width in [520.0, 1400.0] {
+            window.setContentSize(NSSize(width: width, height: 640))
+            host.frame = window.contentLayoutRect
+            try Self.enter(long, into: host)
+            host.layoutSubtreeIfNeeded()
+            let row = try #require(host.page.rows.first { !$0.isHidden && ($0.content?.title.count ?? 0) > 100 })
+            let title = row.titleField
+            #expect(title.frame.width < ceil(title.attributedStringValue.size().width), "the title is cut at \(width) pt")
+            let hint = row.subviews.compactMap { $0 as? NSTextField }.first { $0 !== title && $0 !== row.detailField }
+            let end = (hint?.isHidden == false) ? (hint?.frame.minX ?? row.bounds.maxX) : row.bounds.maxX
+            #expect(end - title.frame.maxX <= 24, "\(end - title.frame.maxX) pt left after the title at \(width) pt")
+        }
+    }
+
     @Test func downUpAndReturnRunTheHighlightedRow() throws {
         let (host, model, box, window) = Self.make()
         defer { window.close() }
@@ -106,6 +156,9 @@ struct NativeNewTabViewTests {
         #expect(ask.accessibilityPerformPress())
         #expect(box.calls.submits.map(\.0) == ["vite"])
         #expect(box.calls.submits.map(\.1) == [.agent])
+        // Final review of #48024 (P1): an accessibility press has no event of its own, so it passes none, never
+        // `NSApp.currentEvent` (a recent physical click elsewhere must not authorize Set Up Computer Use).
+        #expect(box.calls.events.count == 1 && box.calls.events[0] == nil, "an accessibility press passed an event")
     }
 
     /// Review finding: a row the list no longer shows kept its frame and action, and took the click
@@ -129,6 +182,7 @@ struct NativeNewTabViewTests {
                                                      clickCount: 1, pressure: 0))
         row.mouseUp(with: event)
         #expect(box.calls.submits.map(\.0) == ["zzz"])
+        #expect(box.calls.events.count == 1 && box.calls.events[0] === event, "a click did not pass its own event")
         #expect(box.calls.jumps.isEmpty, "the click ran a row the list no longer shows")
     }
 

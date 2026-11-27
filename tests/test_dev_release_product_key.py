@@ -21,6 +21,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import job_input_fingerprint as fingerprint  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 TOOLCHAIN = {"xcode": "Xcode 26.0 Build version 17A324", "sdk": "26.0 25A350", "arch": "arm64",
              "recipe": "dev-release-product-v1", "tui_tree": "own"}
@@ -174,12 +181,14 @@ class RealTree(unittest.TestCase):
     def test_no_shipped_package_target_lives_under_tests(self):
         # Packages/*/Tests is excluded. A non-test target there must be test support only; review a
         # new one before adding it here (the app must not link it).
-        test_support = {"CmuxNextTestExitTrace", "CmuxNextTestSupport", "CmuxHomeCoreTestSupport"}
+        test_support = {"CmuxNextTestExitTrace", "CmuxNextTestSupport", "CmuxHomeCoreTestSupport", "CmuxUpdaterTestSupport"}
         found = set()
         for manifest in ROOT.glob("Packages/**/Package.swift"):
             text = manifest.read_text()
             for match in re.finditer(r'\.(target|executableTarget)\(\s*name:\s*"([^"]+)"(.*?)\n\s*\)', text, re.S):
-                if re.search(r'path:\s*"Tests[/"]', match.group(3)):
+                # A one-line target ends before the next one starts; the lazy match must not borrow its path.
+                own = re.split(r'\.(?:target|executableTarget|testTarget)\(', match.group(3), maxsplit=1)[0]
+                if re.search(r'path:\s*"Tests[/"]', own):
                     found.add(match.group(2))
         self.assertLessEqual(found, test_support, f"package targets under Tests/: {sorted(found - test_support)}")
 

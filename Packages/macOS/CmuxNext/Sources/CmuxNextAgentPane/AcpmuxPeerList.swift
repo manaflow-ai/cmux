@@ -15,12 +15,20 @@ public nonisolated struct AcpmuxPeerList: Sendable {
         public let resources: Resources?
         /// Where the daemon reaches it (`ssh://cosmic-gray`); nil when the row names none.
         public let url: String?
+        /// The SF Symbol of the kind of device it is (`macmini`, `server.rack`), as the peer
+        /// reported it (`health.deviceSymbol`, cmux-device-kind); nil from an older build.
+        public let symbol: String?
+        /// The machine's AutoCloud report (`health.autoCloud`, RFD 0172); nil from a build without it.
+        public let autoCloud: AutoCloud?
 
-        public init(name: String, connected: Bool, resources: Resources? = nil, url: String? = nil) {
+        public init(name: String, connected: Bool, resources: Resources? = nil, url: String? = nil, symbol: String? = nil,
+                    autoCloud: AutoCloud? = nil) {
             self.name = name
             self.connected = connected
             self.resources = resources
             self.url = url
+            self.symbol = symbol
+            self.autoCloud = autoCloud
         }
     }
 
@@ -64,6 +72,47 @@ public nonisolated struct AcpmuxPeerList: Sendable {
         }
     }
 
+    /// A machine's AutoCloud report, `health.autoCloud` v1 (RFD 0172): whether its owner enrolled it
+    /// (`_acpmux/autocloud_enroll`, turned on only by its owner's client), whether it takes work now, and the
+    /// owner's policy and the machine's capabilities. Read-only everywhere else.
+    public struct AutoCloud: Hashable, Sendable {
+        public var enrolled: Bool
+        public var accepting: Bool
+        /// Nil when the report has no idle reading.
+        public var ownerIdle: Bool?
+        public var teams: [String]
+        public var agents: [String]
+        /// Local hours it may take work, `from` to `to` (may wrap midnight); nil for any hour.
+        public var hours: Hours?
+        public var caps: [String]
+
+        public struct Hours: Hashable, Sendable {
+            public var from: Int
+            public var to: Int
+            public init(from: Int, to: Int) { (self.from, self.to) = (from, to) }
+        }
+
+        public init(enrolled: Bool, accepting: Bool = false, ownerIdle: Bool? = nil, teams: [String] = [], agents: [String] = [],
+                    hours: Hours? = nil, caps: [String] = []) {
+            (self.enrolled, self.accepting, self.ownerIdle) = (enrolled, accepting, ownerIdle)
+            (self.teams, self.agents, self.hours, self.caps) = (teams, agents, hours, caps)
+        }
+
+        /// From a peer row's `health`; nil when it has no `autoCloud` object.
+        static func parse(_ health: Any?) -> AutoCloud? {
+            guard let a = (health as? [String: Any])?["autoCloud"] as? [String: Any] else { return nil }
+            let policy = a["policy"] as? [String: Any]
+            let hours = (policy?["hours"] as? [String: Any]).flatMap { h -> Hours? in
+                guard let from = Resources.whole(h["from"]), let to = Resources.whole(h["to"]) else { return nil }
+                return Hours(from: from, to: to)
+            }
+            func strings(_ v: Any?) -> [String] { (v as? [Any] ?? []).compactMap { $0 as? String } }
+            return AutoCloud(enrolled: a["enrolled"] as? Bool ?? false, accepting: a["accepting"] as? Bool ?? false,
+                             ownerIdle: a["ownerIdle"] as? Bool, teams: strings(policy?["teams"]), agents: strings(policy?["agents"]),
+                             hours: hours, caps: strings(a["caps"]))
+        }
+    }
+
     let socketPath: String
 
     public init(socketPath: String) { self.socketPath = socketPath }
@@ -74,12 +123,17 @@ public nonisolated struct AcpmuxPeerList: Sendable {
     }
 
     /// The peers of a `_acpmux/peers` answer (`{peers: [{name, connected, health}]}`); `healthAt`
-    /// is left out, so a reading with the same numbers leaves the list equal.
+    /// is left out, so a reading with the same numbers leaves the list equal. A `ws://`/`wss://` peer is
+    /// a Cloud machine by its source (as `cmux device list` decides): it keeps the cloud, whatever its VM
+    /// reports.
     static func peers(_ result: [String: Any]) -> [Peer] {
         (result["peers"] as? [[String: Any]] ?? []).compactMap { peer in
             guard let name = peer["name"] as? String, !name.isEmpty else { return nil }
+            let url = (peer["url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let cloud = url.map { $0.hasPrefix("ws://") || $0.hasPrefix("wss://") } ?? false
+            let symbol = cloud ? nil : (peer["health"] as? [String: Any])?["deviceSymbol"] as? String
             return Peer(name: name, connected: peer["connected"] as? Bool ?? false, resources: Resources.parse(peer["health"]),
-                        url: (peer["url"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+                        url: url, symbol: symbol.flatMap { $0.isEmpty ? nil : $0 }, autoCloud: AutoCloud.parse(peer["health"]))
         }
     }
 }

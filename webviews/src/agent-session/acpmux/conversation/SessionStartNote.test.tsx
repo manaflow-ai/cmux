@@ -12,6 +12,7 @@ import type { AcpmuxSessionStart } from "../model";
 import { SessionStartNote } from "./SessionStartNote";
 import { routeOf } from "./sessionStart";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -49,6 +50,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -76,7 +78,7 @@ const start = (harness: string): AcpmuxSessionStart => ({
 test("the route follows the chat's harness", () => {
   expect([routeOf("claude-sr2"), routeOf("claude-cr"), routeOf("claude"), routeOf(undefined)]).toEqual([
     "sr2",
-    "coderouter",
+    "own",
     "own",
     "own",
   ]);

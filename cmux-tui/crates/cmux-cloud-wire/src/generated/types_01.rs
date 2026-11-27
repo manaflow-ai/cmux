@@ -9,6 +9,19 @@ pub type AddressId = String;
 
 pub type AgentId = String;
 
+pub type AppKvApp = String;
+
+pub type AppKvKey = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppKvRow {
+    pub app: String,
+    pub key: String,
+    pub value: Value,
+    pub revision: WireNumber,
+    pub updated_ms: WireNumber,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Automation {
     pub id: AutomationId,
@@ -63,6 +76,18 @@ pub struct AutomationAuditEntry {
 
 /// An automation definition, owned by its team's SchedulerDO.
 pub type AutomationId = String;
+
+/// An environment variable name: capital letters, digits and _, starting with a letter (at most 64).
+pub type AutomationSecretName = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretState {
+    pub name: AutomationSecretName,
+    pub hint: Option<String>,
+    pub generation: i64,
+    pub updated_at: i64,
+    pub updated_by: UserId,
+}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AutomationSettings {
@@ -213,6 +238,198 @@ pub type ChiefId = String;
 pub type ClientToken = String;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentAdvice {
+    pub position: CloudAllotmentAdvicePosition,
+    pub seats: i64,
+    pub to_seats: i64,
+    pub window_hours: i64,
+    pub floor: i64,
+    pub burst: i64,
+    pub peak: i64,
+    pub lendable: i64,
+    pub ceiling_hours7: i64,
+    pub used_minutes: f64,
+    pub seat_minutes: f64,
+    pub reason: CloudAllotmentAdviceReason,
+    pub summary: String,
+    pub members: Vec<CloudAllotmentAdviceMember>,
+}
+
+wire_enum! {
+    CloudAllotmentAdvicePosition {
+        Down = "down",
+        Hold = "hold",
+        Up = "up",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentAdviceReasonCeiling {
+    pub kind: LitCeiling,
+    pub hours: i64,
+    pub hours7: i64,
+    pub peak: i64,
+    pub add: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentAdviceReasonSpare {
+    pub kind: LitSpare,
+    pub release: i64,
+    pub members: Vec<CloudAllotmentAdviceMember>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentAdviceReasonFits {
+    pub kind: LitFits,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum CloudAllotmentAdviceReason {
+    Ceiling(CloudAllotmentAdviceReasonCeiling),
+    Spare(CloudAllotmentAdviceReasonSpare),
+    Fits(CloudAllotmentAdviceReasonFits),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentAdviceMember {
+    pub member: String,
+    pub minutes: f64,
+    pub seat_percent: f64,
+    pub active_hours: i64,
+    pub floor: i64,
+    pub burst: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentMember {
+    pub member: String,
+    pub tier: CloudAllotmentMemberTier,
+    pub month_micros: f64,
+    pub usd14_micros: f64,
+    pub active_days14: i64,
+    pub share_micros: f64,
+    pub rank: f64,
+    pub over_share14: i64,
+    pub plan_limit_ms14: f64,
+    pub spare_micros: f64,
+}
+
+wire_enum! {
+    CloudAllotmentMemberTier {
+        Standard = "standard",
+        Plus = "plus",
+        Max = "max",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum CloudAllotmentReason {
+    Unused(CloudAllotmentReasonUnused),
+    Over(CloudAllotmentReasonOver),
+    Runaway(CloudAllotmentReasonRunaway),
+    Tier(CloudAllotmentReasonTier),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentReasonUnused {
+    pub kind: LitUnused,
+    pub members: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentReasonOver {
+    pub kind: LitOver,
+    pub member: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentReasonRunaway {
+    pub kind: LitRunaway,
+    pub member: String,
+    pub rate_micros_h: f64,
+}
+
+wire_enum! {
+    CloudAllotmentReasonTierTo {
+        Standard = "standard",
+        Plus = "plus",
+        Max = "max",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentReasonTier {
+    pub kind: LitTier,
+    pub member: String,
+    pub to: CloudAllotmentReasonTierTo,
+    pub costs_micros: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentSetting {
+    pub commit_micros: f64,
+    pub mode: CloudAllotmentSettingMode,
+    pub auto_max_micros: Option<f64>,
+    pub tiers: BTreeMap<String, CloudAllotmentSettingTiersValue>,
+    pub snoozed_until: Option<i64>,
+    pub changed_at: i64,
+    pub changed_by: String,
+}
+
+wire_enum! {
+    CloudAllotmentSettingMode {
+        Ask = "ask",
+        Auto = "auto",
+    }
+}
+
+wire_enum! {
+    CloudAllotmentSettingTiersValue {
+        Standard = "standard",
+        Plus = "plus",
+        Max = "max",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentView {
+    pub allotment: Option<CloudAllotmentSetting>,
+    pub decision: CloudAllotmentViewDecision,
+    pub advice: CloudAllotmentAdvice,
+    pub hard_cap_micros: Option<f64>,
+    pub as_of: i64,
+    pub names: BTreeMap<String, String>,
+}
+
+wire_enum! {
+    CloudAllotmentViewDecisionPosition {
+        Down = "down",
+        Hold = "hold",
+        Up = "up",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentViewDecision {
+    pub allot_micros: f64,
+    pub forecast_micros: f64,
+    pub position: CloudAllotmentViewDecisionPosition,
+    pub to_commit_micros: f64,
+    pub reasons: Vec<CloudAllotmentReason>,
+    pub members: Vec<CloudAllotmentMember>,
+    pub order: Vec<String>,
+    pub apply: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudConnectInfo {
     pub machine: MachineId,
     pub host: HostId,
@@ -271,6 +488,15 @@ wire_enum! {
     CloudConnectServicesInnerItem {
         Daemon = "daemon",
         Ssh = "ssh",
+    }
+}
+
+wire_enum! {
+    CloudDeleteReason {
+        FailedCreate = "failed_create",
+        NeverUsed = "never_used",
+        Unused = "unused",
+        Requested = "requested",
     }
 }
 
@@ -395,6 +621,22 @@ pub struct CloudGroupItem {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudGroupMember {
+    pub user: UserId,
+    pub role: CloudGroupMemberRole,
+    pub display_name: Option<String>,
+    pub active: bool,
+}
+
+wire_enum! {
+    CloudGroupMemberRole {
+        Owner = "owner",
+        Edit = "edit",
+        View = "view",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachine {
     pub id: MachineId,
     pub team: TeamId,
@@ -414,9 +656,27 @@ pub struct CloudMachine {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub hourly_rate_usd: Option<Option<WireNumber>>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub paused_hourly_rate_usd: Option<Option<WireNumber>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub running_since: Option<Option<i64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desktop: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub evict_at: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub delete_reason: Option<Option<CloudDeleteReason>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub notice: Option<Option<CloudRetentionNotice>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused_by: Option<LitSpendCap>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_cap_pause_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<CloudMachineOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
     pub revision: Revision,
 }
 
@@ -444,6 +704,30 @@ wire_enum! {
         NoReport = "no_report",
         ProviderStopped = "provider_stopped",
         ProviderPaused = "provider_paused",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineOrigin {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<CloudMachineOriginKind>,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane: Option<String>,
+}
+
+wire_enum! {
+    CloudMachineOriginKind {
+        Workflow = "workflow",
+        Lane = "lane",
+        Agent = "agent",
+        Person = "person",
     }
 }
 
@@ -476,6 +760,10 @@ pub struct CloudPlan {
     pub upgrade_plan: Option<String>,
     pub limits: CloudPlanLimits,
     pub usage: CloudPlanUsage,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub retention: Option<Option<CloudRetention>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_cap: Option<CloudPlanSpendCap>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -492,412 +780,122 @@ pub struct CloudPlanUsage {
     pub active: i64,
     pub saved: i64,
     pub vm_hours_used: Option<WireNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub vm_hours_used_by_you: Option<Option<WireNumber>>,
     pub period_end: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshot {
-    pub id: SnapshotId,
-    pub machine: MachineId,
-    pub name: Option<String>,
-    pub size_mb: i64,
-    pub status: CloudSnapshotStatus,
-    pub created_at: i64,
-    pub revision: Revision,
-}
-
 wire_enum! {
-    CloudSnapshotStatus {
-        Creating = "creating",
-        Ready = "ready",
-        Deleting = "deleting",
-        Failed = "failed",
+    CloudPlanSpendCapState {
+        Under = "under",
+        Near = "near",
+        AtCap = "at_cap",
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmNetwork {
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub ipv4_cidr: String,
-    pub ipv4: Option<String>,
+pub struct CloudPlanSpendCap {
+    pub state: Option<CloudPlanSpendCapState>,
+    pub spent_usd: Option<WireNumber>,
+    pub cap_usd: Option<WireNumber>,
+    pub period_end: Option<i64>,
+    pub checked_at: Option<i64>,
+    pub pause_at: Option<i64>,
+    pub paused_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmNetworkPolicyView {
-    pub schema_version: IntLit<2>,
-    pub machine: MachineId,
-    pub host: HostId,
-    pub epoch: i64,
-    pub receiver_generation: Option<String>,
-    pub user: UserId,
-    pub install: InstallId,
-    pub team: TeamId,
-    pub origin: String,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub vm: String,
-    pub ipv4: Option<String>,
-    pub wg_public_key: WgPublicKey,
-    pub install_public_key: String,
-    pub authority_version: String,
-    pub checked_at: i64,
-    pub expires_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub admit_until: Option<i64>,
-    pub acl_version: i64,
-    pub policy_digest: String,
-    pub peers: Vec<CloudVmReceiverPeer>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmReceiverPeer {
-    pub host: HostId,
-    pub user: UserId,
-    pub install: InstallId,
-    pub device: NativeDeviceId,
-    pub wg_public_key: WgPublicKey,
-    pub install_public_key: String,
-    pub authority_version: String,
-    pub services: Vec<CloudVmReceiverPeerServicesItem>,
+pub struct CloudRetention {
+    pub mode: CloudRetentionMode,
+    pub settings: Option<CloudRetentionSettings>,
+    pub team: CloudRetentionOverrides,
+    pub email_heads_up: bool,
 }
 
 wire_enum! {
-    CloudVmReceiverPeerServicesItem {
-        Daemon = "daemon",
-        Ssh = "ssh",
-        Desktop = "desktop",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CodeRef {
-    pub commit: CommitSha,
-    pub path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub export: Option<String>,
-}
-
-pub type CommitSha = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Concurrency {
-    pub max: i64,
-    pub on_limit: ConcurrencyOnLimit,
-}
-
-wire_enum! {
-    ConcurrencyOnLimit {
-        Queue = "queue",
-        Skip = "skip",
-    }
-}
-
-wire_enum! {
-    ConfirmLevel {
-        Strict = "strict",
-        DestructiveOnly = "destructive-only",
+    CloudRetentionMode {
         Off = "off",
+        Warn = "warn",
+        On = "on",
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Connection {
-    pub id: ConnectionId,
-    pub owner: TeamId,
-    pub created_by: UserId,
-    pub provider: IntegrationProvider,
-    pub account: Option<ConnectionAccount>,
-    pub scopes_requested: Vec<String>,
-    pub scopes_granted: Vec<String>,
-    pub status: ConnectionStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status_detail: Option<String>,
-    pub sharing: ConnectionSharing,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resources: Option<ConnectionResources>,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConnectionAccount {
-    pub key: String,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
+pub struct CloudRetentionNotice {
+    pub kind: CloudRetentionNoticeKind,
+    pub at: i64,
+    pub delete_at: i64,
 }
 
 wire_enum! {
-    ConnectionSharing {
-        Private = "private",
+    CloudRetentionNoticeKind {
+        HeadsUp = "heads_up",
+        LastNote = "last_note",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudRetentionOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_create_hours: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub never_used_hours: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_pause_minutes: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worked_in_days: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heads_up_days: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_note_days: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_days: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudRetentionSettings {
+    pub tier: String,
+    pub failed_create_hours: i64,
+    pub never_used_hours: i64,
+    pub idle_pause_minutes: i64,
+    pub worked_in_days: Option<i64>,
+    pub heads_up_days: i64,
+    pub last_note_days: i64,
+    pub archive_days: i64,
+}
+
+wire_enum! {
+    CloudSessionActivity {
+        Working = "working",
+        NeedsAttention = "needs_attention",
+        Idle = "idle",
+    }
+}
+
+/// The chat's acpmux session id, or the workspace's id on its VM.
+pub type CloudSessionId = String;
+
+wire_enum! {
+    CloudSessionKind {
+        Workspace = "workspace",
+        Chat = "chat",
+    }
+}
+
+wire_enum! {
+    CloudSessionMachineState {
+        Running = "running",
+        Asleep = "asleep",
+        Waking = "waking",
+        Unresponsive = "unresponsive",
+        Gone = "gone",
+    }
+}
+
+wire_enum! {
+    CloudSessionScope {
+        Mine = "mine",
         Team = "team",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConnectionResources {
-    pub repos: Option<Vec<String>>,
-}
-
-/// One integration connection (a provider account linked to a team).
-pub type ConnectionId = String;
-
-wire_enum! {
-    ConnectionStatus {
-        Pending = "pending",
-        Active = "active",
-        NeedsReauth = "needs_reauth",
-        Error = "error",
-        Revoked = "revoked",
-        Expired = "expired",
-    }
-}
-
-/// conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair).
-pub type ConversationId = String;
-
-wire_enum! {
-    ConversationKind {
-        Chief = "chief",
-        Dm = "dm",
-        Group = "group",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CronSpec {
-    pub expr: String,
-    pub tz: String,
-}
-
-/// A device (hardware) that groups installs.
-pub type DeviceId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DeviceStatus {
-    pub install: InstallId,
-    pub user: String,
-    pub policy_version: i64,
-    pub app_version: String,
-    pub mdm_keys: Vec<String>,
-    pub conflicts: Vec<String>,
-    pub reported_at: i64,
-}
-
-pub type EgressHost = String;
-
-pub type EmailAddress = String;
-
-/// A lowercase DNS name such as acme.com.
-pub type EmailDomain = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct EnrollmentToken {
-    pub id: EnrollmentTokenId,
-    pub label: String,
-    pub allowed_domains: Option<Vec<String>>,
-    pub expires_at: Option<i64>,
-    pub created_by: String,
-    pub created_at: i64,
-    pub revoked_at: Option<i64>,
-    pub uses: i64,
-}
-
-/// base64url(SHA-256(token)) without padding.
-pub type EnrollmentTokenHash = String;
-
-pub type EnrollmentTokenId = String;
-
-/// A Cloud environment.
-pub type EnvironmentId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAction {
-    pub id: String,
-    pub label: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub style: Option<FeedActionStyle>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub answer: Option<Value>,
-}
-
-wire_enum! {
-    FeedActionStyle {
-        Default = "default",
-        Primary = "primary",
-        Destructive = "destructive",
-    }
-}
-
-/// A file attached to a feed item or an answer.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAttachment {
-    pub id: String,
-    pub name: String,
-    pub mime: String,
-    pub size: i64,
-    pub sha256: String,
-    pub r#ref: String,
-}
-
-wire_enum! {
-    FeedCancelReason {
-        Poster = "poster",
-        Declined = "declined",
-        AnsweredElsewhere = "answered_elsewhere",
-        Superseded = "superseded",
-        PosterGone = "poster_gone",
-    }
-}
-
-/// What the item is about; clients open it and use it for the visibility rule.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedContext {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tab: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terminal: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub browser_tab: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub acp_session: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedFilter {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub poster_kind: Option<FeedPosterKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<FeedKind>,
-}
-
-/// One notice or request in a user's feed.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedItem {
-    pub id: FeedItemId,
-    pub home: String,
-    pub r#type: FeedItemType,
-    pub kind: FeedKind,
-    pub title: String,
-    pub body: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub prompt: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub answer_schema: Option<Value>,
-    pub priority: FeedPriority,
-    pub dedupe_key: Option<String>,
-    pub thread: Option<String>,
-    pub context: FeedContext,
-    pub attachments: Vec<FeedAttachment>,
-    pub actions: Vec<FeedAction>,
-    pub open: Option<FeedOpen>,
-    pub poster: FeedPoster,
-    pub state: FeedState,
-    pub answer: Option<FeedItemAnswer>,
-    pub cancel: Option<FeedItemCancel>,
-    pub needs_mac: bool,
-    pub expires_at: i64,
-    pub read_at: Option<i64>,
-    pub seen_at: Option<i64>,
-    pub archived_at: Option<i64>,
-    pub snoozed_until: Option<i64>,
-    pub push_due_at: Option<i64>,
-    pub pushed_at: Option<i64>,
-    pub count: i64,
-    pub order: i64,
-    pub revision: i64,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub closed_at: Option<i64>,
-}
-
-wire_enum! {
-    FeedItemType {
-        Notice = "notice",
-        Request = "request",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedItemAnswer {
-    pub value: Value,
-    pub by: String,
-    pub device: Option<String>,
-    pub at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedItemCancel {
-    pub reason: FeedCancelReason,
-    pub by: String,
-    pub at: i64,
-    pub note: Option<String>,
-}
-
-/// A feed item; stable when its home moves from a local owner to the cloud.
-pub type FeedItemId = String;
-
-/// notice, a built-in request kind, or a custom kind x-<publisher>.<name>.
-pub type FeedKind = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedOpen {
-    pub action: FeedOpenAction,
-    pub args: FeedOpenArgs,
-}
-
-wire_enum! {
-    FeedOpenAction {
-        TabFocus = "tab.focus",
-        WorkspaceFocus = "workspace.focus",
-        BrowserOpen = "browser.open",
-        BrowserDuplicateRight = "browser.duplicateRight",
-        UrlOpen = "url.open",
-        TaskOpen = "task.open",
-        AcpSessionOpen = "acp.session.open",
-        AppOpen = "app.open",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedOpenArgs {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedPoster {
-    pub kind: FeedPosterKind,
-    pub scope: String,
-    pub label: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub install: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub harness: Option<String>,
-}
-
-wire_enum! {
-    FeedPosterKind {
-        Agent = "agent",
-        Harness = "harness",
-        App = "app",
-        Server = "server",
-        Vm = "vm",
-        Automation = "automation",
-        Integration = "integration",
-        System = "system",
-        User = "user",
+        Following = "following",
     }
 }

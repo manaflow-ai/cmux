@@ -81,14 +81,14 @@ extension AppControl {
             // active window's sidebar width (narrow-sidebar shots; answers the
             // previous width, to restore it); "open-changes"
             // runs the staged card's "See all changes" (its intent) and
-            // "open-whats-new" the Updated card's "See What's New" (cx-7rone).
+            // "open-whats-new" the Updated card's "See What's New" (cx-7rone), "hover-updated" rests on it.
             .mainActor("debug.update_surfaces") { [weak services = appServices] call in
                 guard let services, let sidebar = services.windows.active?.sidebar.container.sidebarView else {
                     throw ControlError.invalidParams("debug.update_surfaces: no active window")
                 }
                 switch call.params["action"]?.stringValue ?? "show-popover" {
-                case "show-popover":
-                    return .value(.object(sidebar.debugShowUpdateHighlights().mapValues { JSONValue.string($0) }))
+                case "show-popover": return .value(.object(sidebar.debugShowUpdateHighlights().mapValues { JSONValue.string($0) }))
+                case "card-point", "pull-request-badge": return .value(.object(sidebar.debugHoverTimingProbe(call.params["action"]?.stringValue ?? "", workspace: call.params["workspace"]?.stringValue, off: call.params["off"]?.boolValue == true).mapValues { JSONValue.string($0) }))
                 case "state":
                     var state = sidebar.debugUpdateSurfaceState().mapValues { JSONValue.string($0) }
                     state["sidebarWebViews"] = .number(Double(Self.webViewCount(in: sidebar)))
@@ -150,6 +150,7 @@ extension AppControl {
                     return .value(.null)
                 case "open-whats-new":
                     return .value(.bool(services.updater.openWhatsNewForLastUpdate()))
+                case "hover-updated": return .value(.object(sidebar.debugHoverUpdatedCard().mapValues { JSONValue.string($0) }))
                 case let action:
                     throw ControlError.invalidParams("debug.update_surfaces: unknown action \(action)")
                 }
@@ -196,7 +197,7 @@ extension AppControl {
                                 "lines": .array(shown.lines.map(JSONValue.string)),
                                 "actions": .array(shown.actions.map { .string($0.rawValue) })])
             } ?? .null,
-            "badge": status.badge.map(JSONValue.string) ?? .null,
+            "badge": status.badge.map(JSONValue.string) ?? .null, "relaunch_hold": status.relaunchHold?.json(at: Date()) ?? .null,
             "log": .array(log.suffix(20).map(JSONValue.string)),
         ])
     }

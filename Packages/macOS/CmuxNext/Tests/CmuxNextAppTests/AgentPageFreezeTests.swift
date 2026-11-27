@@ -2,6 +2,7 @@
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextSettings
 import AppKit
 import Foundation
@@ -32,6 +33,8 @@ struct AgentPageFreezeTests {
     /// The hibernation rig with every page in Chromium (one freeze control per page).
     static func rig() -> AgentPageHibernationTests.Rig {
         let rig = AgentPageHibernationTests.Rig()
+        // These suites test the freeze alone: a hidden idle chat's release (60 s) would thaw it first.
+        rig.hibernation.pages.idleWait = 3600
         var pages: [ObjectIdentifier: Page] = [:]
         rig.hibernation.freezer = { view in
             if let page = pages[ObjectIdentifier(view)] { return page }
@@ -57,7 +60,7 @@ struct AgentPageFreezeTests {
         // The default: no `browser.hibernation` written, so pages are never released, but hidden ones freeze.
         rig.hibernation.update(setting: .fallback, pressure: .normal)
         let view = try rig.hiddenChat("tab_quiet", session: "s-quiet")
-        #expect(rig.hibernation.hasFreezeDeadline, "the hide armed no freeze deadline")
+        #expect(rig.hibernation.pages.hasFreezeDeadline, "the hide armed no freeze deadline")
 
         advance(rig, seconds: 20)
         #expect(page(rig, "tab_quiet")?.frozen == false, "froze before freezeHiddenTabs")
@@ -65,7 +68,7 @@ struct AgentPageFreezeTests {
         #expect(page(rig, "tab_quiet")?.frozen == true, "a chat hidden past freezeHiddenTabs kept rendering")
         #expect(rig.hibernation.frozen == ["tab_quiet"])
         #expect(rig.tabs.existingView("tab_quiet") === view, "a freeze let the page go")
-        #expect(!rig.hibernation.hasFreezeDeadline)
+        #expect(!rig.hibernation.pages.hasFreezeDeadline)
 
         // Shown again: it thaws before it draws.
         rig.window.contentView?.addSubview(view)
@@ -123,7 +126,7 @@ struct AgentPageFreezeTests {
         advance(rig, seconds: 31)
         #expect(control.calls == [true])
         #expect(rig.hibernation.frozen.isEmpty)
-        #expect(rig.hibernation.hasFreezeDeadline, "a refused freeze armed no second try")
+        #expect(rig.hibernation.pages.hasFreezeDeadline, "a refused freeze armed no second try")
         advance(rig, seconds: 10)
         #expect(control.calls == [true], "asked again before freezeHiddenTabs passed")
         control.refuses = false
@@ -139,11 +142,11 @@ struct AgentPageFreezeTests {
         rig.hibernation.update(setting: .fallback, pressure: .normal)
         rig.hibernation.isRendering = { rig.rendering.contains($0) }
         // As the App wires the store (`AgentTabStore.onPageBuilt`).
-        rig.tabs.onPageBuilt = { rig.hibernation.pageBuilt($0) }
+        rig.tabs.onPageBuilt = { rig.hibernation.pages.pageBuilt($0) }
         rig.records["tab_bg"] = AgentSessionRef(host: AgentPageHibernationTests.thisMac, hostName: "This Mac", session: "s-bg", harness: "claude")
         _ = try #require(rig.tabs.view(for: "tab_bg"))
         // The build itself started the clock and armed the deadline: no other event comes.
-        #expect(rig.hibernation.hasFreezeDeadline, "a chat built in the background armed no freeze deadline")
+        #expect(rig.hibernation.pages.hasFreezeDeadline, "a chat built in the background armed no freeze deadline")
         advance(rig, seconds: 31)
         #expect(page(rig, "tab_bg")?.frozen == true, "a chat built in the background never froze")
     }
@@ -177,10 +180,10 @@ struct AgentPageFreezeTests {
         rig.hibernation.waitsForFreezer = { _ in !attached }
         rig.hibernation.update(setting: .fallback, pressure: .normal)
         _ = try rig.hiddenChat("tab_slow", session: "s-slow")
-        #expect(rig.hibernation.hasFreezeDeadline, "a page still making its browser armed no freeze deadline")
+        #expect(rig.hibernation.pages.hasFreezeDeadline, "a page still making its browser armed no freeze deadline")
         advance(rig, seconds: 31)
         #expect(control.calls.isEmpty)
-        #expect(rig.hibernation.hasFreezeDeadline, "a due page with no browser yet was not looked at again")
+        #expect(rig.hibernation.pages.hasFreezeDeadline, "a due page with no browser yet was not looked at again")
         attached = true
         advance(rig, seconds: 1)
         #expect(control.frozen, "the page froze neither when due nor once its browser was there")
@@ -196,12 +199,12 @@ struct AgentPageFreezeTests {
         advance(rig, seconds: 31)
         let frozen = try #require(page(rig, "tab_quit"))
         #expect(frozen.frozen)
-        rig.hibernation.holdAwake(true)
+        rig.hibernation.pages.holdAwake(true)
         #expect(!frozen.frozen, "a frozen page was asked for its relaunch state")
         #expect(rig.hibernation.keepsAwake("tab_quit") == .disabled)
         advance(rig, seconds: 60)
         #expect(!frozen.frozen, "a page froze while the quit collected its state")
-        rig.hibernation.holdAwake(false)
+        rig.hibernation.pages.holdAwake(false)
         #expect(frozen.frozen, "a page still hidden past freezeHiddenTabs stayed awake after the quit's collection")
     }
 
@@ -231,9 +234,9 @@ struct AgentPageFreezeTests {
         advance(rig, seconds: 31)
         #expect(control.frozen, "the page never froze again under its new key")
         #expect(rig.hibernation.frozen == ["tab_real"])
-        rig.hibernation.holdAwake(true)
+        rig.hibernation.pages.holdAwake(true)
         #expect(!control.frozen, "the quit's collection did not reach the rekeyed page")
-        rig.hibernation.holdAwake(false)
+        rig.hibernation.pages.holdAwake(false)
         #expect(control.frozen)
     }
 
@@ -250,7 +253,7 @@ struct AgentPageFreezeTests {
         rig.tabs.rekey("tab_provisional", to: "tab_real")
         rig.tabs.aliases["tab_provisional"] = nil
         #expect(rig.tabs.existingView("tab_real") === view)
-        #expect(rig.hibernation.releaseForWorkspace("tab_real") == nil)
+        #expect(rig.hibernation.pages.releaseForWorkspace("tab_real") == nil)
         #expect(!control.frozen, "the rekeyed page was asked for its state while frozen")
         #expect(rig.hibernation.frozen.isEmpty)
     }
@@ -268,7 +271,7 @@ struct AgentPageFreezeTests {
         #expect(control.frozen)
         rig.records["tab_real"] = rig.records["tab_provisional"]
         rig.tabs.rekey("tab_provisional", to: "tab_real")
-        #expect(rig.hibernation.releaseForWorkspace("tab_real") == nil)
+        #expect(rig.hibernation.pages.releaseForWorkspace("tab_real") == nil)
         #expect(!control.frozen)
         advance(rig, seconds: 60)
         #expect(!control.frozen, "a plan froze the page again while its release asked it for its state")
@@ -335,5 +338,33 @@ struct AgentPageFreezeTests {
         await rig.settle { rig.tabs.existingView("tab_release") == nil }
         #expect(rig.tabs.existingView("tab_release") == nil, "the hidden chat kept its page")
         #expect(control.calls == [true, false], "the page was released frozen: \(control.calls)")
+    }
+
+    /// The chat face of a session whose terminal face its pane draws (Toggle Terminal and Chat) stays awake, so the
+    /// swap back draws at once (Leo, 2026-11-12: two live views of one session, instant both ways). A chat that froze
+    /// behind another tab thaws as soon as its terminal starts drawing, before the person toggles to it.
+    @Test func theChatFaceOfAShownTerminalStaysAwakeAndThawsWhenItsTerminalShows() throws {
+        let rig = Self.rig()
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        var paired: Set<String> = []
+        rig.hibernation.pages.pairedFace = { paired.contains($0) }
+        _ = try rig.hiddenChat("tab_face", session: "s-face")
+        paired = ["tab_face"]
+        advance(rig, seconds: 60)
+        #expect(page(rig, "tab_face")?.frozen != true, "the chat face of a shown terminal froze")
+        #expect(rig.hibernation.keepsAwake("tab_face") == .pairedFace)
+
+        // Its terminal stops drawing (a pane change): the chat freezes like any hidden chat, from then on.
+        paired = []
+        rig.hibernation.sync(["tab_terminal"]) { rig.rendering.contains($0) }
+        advance(rig, seconds: 20)
+        #expect(page(rig, "tab_face")?.frozen != true, "the chat froze as soon as its terminal stopped drawing")
+        advance(rig, seconds: 31)
+        #expect(page(rig, "tab_face")?.frozen == true, "a chat whose terminal no longer shows kept rendering")
+
+        // Its terminal draws again (a pane change of a tab that is no chat): the chat thaws at once.
+        paired = ["tab_face"]
+        rig.hibernation.sync(["tab_terminal"]) { rig.rendering.contains($0) }
+        #expect(page(rig, "tab_face")?.frozen == false, "the chat face stayed frozen when its terminal showed")
     }
 }

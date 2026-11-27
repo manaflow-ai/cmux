@@ -216,20 +216,16 @@ public final class HomeSidebarSource {
     /// index), each pin kept by its own keeper: the owner that lists it, else this account on this Mac.
     /// So the drawn order holds across both owners and this Mac's pins, and after a relaunch.
     public func place(_ id: ConversationID, at index: Int) {
-        var order = model(query: "", now: Date()).pinned.map(\.id).filter { $0 != id }
-        order.insert(id, at: min(max(0, index), order.count))
-        let base = HomeInboxSource.now()
-        let numbered = order.enumerated().map { (id: $0.element, position: base + UInt64($0.offset)) }
-        let keepers = numbered.map { (pin: $0, owner: owner(of: $0.id)) }
-        for inbox in inboxes {
-            let mine = keepers.filter { $0.owner === inbox }.map { (id: $0.pin.id.rawValue, position: $0.pin.position) }
-            if !mine.isEmpty { inbox.place(mine) }
+        let request = PlaceRequest(pinned: model(query: "", now: Date()).pinned.map(\.id.rawValue), id: id.rawValue, index: index,
+                                   base: HomeInboxSource.now(), inboxes: inboxes.map { $0.rows?.map(\.id) })
+        let plan: PlacePlan = dockRule("dock.sidebar_place", request, fallback: PlacePlan(inboxes: [], local: []))
+        for (inbox, mine) in zip(inboxes, plan.inboxes) where !mine.isEmpty {
+            inbox.place(mine.map { (id: $0.id, position: $0.position) })
         }
         // Only rows no owner lists are this Mac's to keep: an owner's pin kept here would move to it again.
-        let local = keepers.filter { $0.owner == nil }.map(\.pin)
-        guard !local.isEmpty else { return }
+        guard !plan.local.isEmpty else { return }
         pins = store.pins(account: account())
-        pins.arrange(local.map(\.id), positions: local.map(\.position))
+        pins.arrange(plan.local.map { ConversationID($0.id) }, positions: plan.local.map(\.position))
         store.save(pins, account: account())
     }
 
@@ -237,8 +233,10 @@ public final class HomeSidebarSource {
     /// owner when it lists `id`, else for this account on this Mac.
     public func setMarkedUnread(_ on: Bool, _ id: ConversationID) {
         if let inbox = owner(of: id) { return inbox.setMarkedUnread(on, id.rawValue) }
-        guard unreadMarks.contains(id) != on else { return }
-        if on { unreadMarks.insert(id) } else { unreadMarks.remove(id) }
+        let marks: [String]? = dockRule("dock.sidebar_mark_unread", MarkRequest(on: on, id: id.rawValue, marks: unreadMarks.map(\.rawValue).sorted()),
+                                        fallback: nil)
+        guard let marks else { return }
+        unreadMarks = Set(marks.map { ConversationID($0) })
         store.save(unreadMarks: unreadMarks, account: account())
         onMarksChanged()
     }
@@ -283,11 +281,22 @@ public final class HomeSidebarSource {
     /// False when no listed conversation is `id`.
     @discardableResult
     public func hide(_ id: ConversationID) -> Bool {
-        guard let row = listed().first(where: { $0.id == id }) else { return false }
-        hidden = store.hidden(account: account())
-        hidden[id] = row.summary.lastSeq
+        let rows = listed().filter { $0.id == id }.map { SeqRow(id: $0.id.rawValue, lastSeq: $0.summary.lastSeq) }
+        let stored = store.hidden(account: account())
+        let request = HideRequest(id: id.rawValue, rows: rows,
+                                  hidden: Dictionary(stored.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }))
+        let next: [String: Seq]? = dockRule("dock.sidebar_hide", request, fallback: nil)
+        guard let next else { return false }
+        hidden = Dictionary(next.map { (ConversationID($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
         store.save(hidden: hidden, account: account())
         return true
+    }
+
+    /// Lists `id` again after ``hide(_:)`` (its toast's Undo), across launches too.
+    public func unhide(_ id: ConversationID) {
+        hidden = store.hidden(account: account())
+        guard hidden.removeValue(forKey: id) != nil else { return }
+        store.save(hidden: hidden, account: account())
     }
 
     /// Lists every deleted conversation again; returns how many were hidden.
@@ -305,4 +314,17 @@ public final class HomeSidebarSource {
         unreadMarks = store.unreadMarks(account: account())
         hidden = store.hidden(account: account())
     }
+
+    private nonisolated struct PlaceRequest: Encodable {
+        var pinned: [String]
+        var id: String
+        var index: Int
+        var base: UInt64
+        var inboxes: [[String]?]
+    }
+    private nonisolated struct Placed: Decodable { var id: String; var position: UInt64 }
+    private nonisolated struct PlacePlan: Decodable { var inboxes: [[Placed]]; var local: [Placed] }
+    private nonisolated struct MarkRequest: Encodable { var on: Bool; var id: String; var marks: [String] }
+    private nonisolated struct SeqRow: Encodable { var id: String; var lastSeq: Seq }
+    private nonisolated struct HideRequest: Encodable { var id: String; var rows: [SeqRow]; var hidden: [String: Seq] }
 }

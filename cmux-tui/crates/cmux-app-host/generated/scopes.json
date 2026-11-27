@@ -9,6 +9,10 @@
       "scope": "actions:run",
       "class": "mutation"
     },
+    "agent_chat.list": {
+      "scope": "agent_chat:read",
+      "class": "read"
+    },
     "agent_cli.list": {
       "scope": "agent_cli:read",
       "class": "read"
@@ -33,20 +37,56 @@
       "scope": "agents:write",
       "class": "mutation"
     },
+    "app.pane.close": {
+      "scope": "none",
+      "class": "runtime"
+    },
+    "app.pane.open": {
+      "scope": "none",
+      "class": "runtime"
+    },
     "app.storage.delete": {
       "scope": "storage:local",
-      "class": "mutation"
+      "class": "mutation",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.get": {
       "scope": "storage:local",
-      "class": "read"
+      "class": "read",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.keys": {
       "scope": "storage:local",
-      "class": "read"
+      "class": "read",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.set": {
       "scope": "storage:local",
+      "class": "mutation",
+      "alsoScopes": [
+        "storage:synced"
+      ]
+    },
+    "app.view.state": {
+      "scope": "none",
+      "class": "runtime"
+    },
+    "appkv.delete": {
+      "scope": "appkv:write",
+      "class": "mutation"
+    },
+    "appkv.list": {
+      "scope": "appkv:read",
+      "class": "read"
+    },
+    "appkv.set": {
+      "scope": "appkv:write",
       "class": "mutation"
     },
     "automation.audit.list": {
@@ -233,6 +273,26 @@
       "scope": "channel:write",
       "class": "mutation"
     },
+    "chat.list": {
+      "scope": "chat:read",
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "scope": "chat:write",
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "scope": "chat:write",
+      "class": "mutation"
+    },
+    "chief.automation.list": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.automation.update": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.continue": {
       "scope": "chief:write",
       "class": "mutation"
@@ -321,6 +381,10 @@
       "scope": "closed:write",
       "class": "mutation"
     },
+    "cloud.allotment.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.auth.status": {
       "scope": "cloud:read",
       "class": "read"
@@ -393,11 +457,19 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.keep": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.machine.list": {
       "scope": "cloud:read",
       "class": "read"
     },
     "cloud.machine.pause": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.pause_all": {
       "scope": "cloud:write",
       "class": "mutation"
     },
@@ -441,6 +513,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.retention.set": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.shell.open": {
       "scope": "cloud:execute",
       "class": "mutation"
@@ -449,11 +525,23 @@
       "scope": "cloud:read",
       "class": "read"
     },
+    "cloud.surge.preview": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.usage.current": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.vm.attention.emit": {
       "scope": "cloud:execute",
       "class": "mutation"
     },
     "cloud.vm.event.emit": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.vm.machine.request": {
       "scope": "cloud:execute",
       "class": "mutation"
     },
@@ -496,26 +584,6 @@
     "coderouter.accounts.list": {
       "scope": "coderouter:read",
       "class": "read"
-    },
-    "coderouter.app.connect_account": {
-      "scope": "coderouter:write",
-      "class": "mutation"
-    },
-    "coderouter.app.create_key": {
-      "scope": "coderouter:write",
-      "class": "mutation"
-    },
-    "coderouter.app.open": {
-      "scope": "coderouter:write",
-      "class": "mutation"
-    },
-    "coderouter.app.run_test": {
-      "scope": "coderouter:execute",
-      "class": "mutation"
-    },
-    "coderouter.app.start_onboarding": {
-      "scope": "coderouter:write",
-      "class": "mutation"
     },
     "coderouter.detect": {
       "scope": "coderouter:read",
@@ -598,6 +666,10 @@
       "class": "read"
     },
     "diff.comments.save": {
+      "scope": "diff:write",
+      "class": "mutation"
+    },
+    "diff.comments.thread": {
       "scope": "diff:write",
       "class": "mutation"
     },
@@ -753,8 +825,24 @@
       "scope": "git:read",
       "class": "read"
     },
+    "git.fingerprint": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "git.push": {
       "scope": "git:external",
+      "class": "mutation"
+    },
+    "git.review.comment": {
+      "scope": "git:write",
+      "class": "mutation"
+    },
+    "git.review.post": {
+      "scope": "git:external",
+      "class": "mutation"
+    },
+    "git.review.start": {
+      "scope": "git:execute",
       "class": "mutation"
     },
     "git.status": {
@@ -776,6 +864,10 @@
     "git.worktree.setup": {
       "scope": "git:read",
       "class": "read"
+    },
+    "git.worktree.setup.run": {
+      "scope": "git:execute",
+      "class": "mutation"
     },
     "github.issue.comment": {
       "scope": "github:external",
@@ -800,6 +892,18 @@
     "group.list": {
       "scope": "group:read",
       "class": "read"
+    },
+    "group.members.list": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.members.remove": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.members.set": {
+      "scope": "group:write",
+      "class": "mutation"
     },
     "group.rename": {
       "scope": "group:write",
@@ -949,6 +1053,14 @@
       "scope": "mail:read",
       "class": "read"
     },
+    "media.control": {
+      "scope": "media:control",
+      "class": "mutation"
+    },
+    "media.get": {
+      "scope": "media:read",
+      "class": "read"
+    },
     "memory_app.cycle_variant": {
       "scope": "memory_app:write",
       "class": "mutation"
@@ -1049,6 +1161,18 @@
       "scope": "notification:read",
       "class": "read"
     },
+    "page.follow": {
+      "scope": "page:write",
+      "class": "mutation"
+    },
+    "page.hints": {
+      "scope": "page:write",
+      "class": "mutation"
+    },
+    "page.read": {
+      "scope": "page:read",
+      "class": "read"
+    },
     "palette_usage.forget": {
       "scope": "palette_usage:write",
       "class": "mutation"
@@ -1088,6 +1212,10 @@
     "pane.list": {
       "scope": "workspace:read",
       "class": "read"
+    },
+    "pane.move": {
+      "scope": "workspace:write",
+      "class": "mutation"
     },
     "pane.neighbor.get": {
       "scope": "workspace:read",
@@ -1140,6 +1268,10 @@
     "participants.unban": {
       "scope": "participants:write",
       "class": "mutation"
+    },
+    "project.actions.list": {
+      "scope": "project:read",
+      "class": "read"
     },
     "project.add": {
       "scope": "project:write",
@@ -1449,6 +1581,10 @@
       "scope": "settings:read",
       "class": "read"
     },
+    "settings.history": {
+      "scope": "settings:read",
+      "class": "read"
+    },
     "settings.list": {
       "scope": "settings:read",
       "class": "read"
@@ -1561,6 +1697,18 @@
       "scope": "sidebar:write",
       "class": "mutation"
     },
+    "signal.publish": {
+      "scope": "none",
+      "class": "mutation"
+    },
+    "signal.read": {
+      "scope": "none",
+      "class": "read"
+    },
+    "signal.sources.list": {
+      "scope": "none",
+      "class": "read"
+    },
     "skills_app.cycle_variant": {
       "scope": "skills_app:write",
       "class": "mutation"
@@ -1595,6 +1743,14 @@
     },
     "stash.restore": {
       "scope": "stash:write",
+      "class": "mutation"
+    },
+    "system_calendar.events": {
+      "scope": "system_calendar:read",
+      "class": "read"
+    },
+    "system_calendar.request_access": {
+      "scope": "system_calendar:read",
       "class": "mutation"
     },
     "tab_group.add_tabs": {
@@ -1712,6 +1868,38 @@
     "team.ai_limit.get": {
       "scope": "team:read",
       "class": "read"
+    },
+    "team.cloud.session.archive": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.follow": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.get": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.cloud.session.list": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.cloud.session.publish": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.reassign": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.remove": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.viewing": {
+      "scope": "team:write",
+      "class": "mutation"
     },
     "team.device.compliance": {
       "scope": "team:read",
@@ -1831,6 +2019,22 @@
     },
     "terminal.wait_exit": {
       "scope": "terminal:read",
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "scope": "theme:read",
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "scope": "theme:read",
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
+      "scope": "theme:read",
+      "class": "read"
+    },
+    "theme.slots.resolve": {
+      "scope": "theme:read",
       "class": "read"
     },
     "thread.update": {
@@ -2005,14 +2209,20 @@
     "agent.message.send",
     "agent.message.unsend",
     "automation.delete",
+    "automation.secret.list",
+    "automation.secret.remove",
+    "automation.secret.set",
     "automation.settings.set",
     "automation.webhook.get",
     "browser.attach",
     "browser.close",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "browser_import.read",
     "chief.archive",
     "chief.delete",
+    "classic_import.plan",
+    "classic_import.record",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",
@@ -2025,20 +2235,38 @@
     "cloud.environment.build",
     "cloud.environment.delete",
     "cloud.fs.remove",
+    "cloud.machine.archive_delete",
+    "cloud.machine.chat_access",
+    "cloud.machine.chief_resize",
+    "cloud.machine.chief_start",
     "cloud.machine.create",
     "cloud.machine.delete",
+    "cloud.machine.fork",
     "cloud.machine.io",
     "cloud.machine.link_token",
     "cloud.machine.resize",
+    "cloud.machine.setup_desktop",
+    "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
     "cloud.owner.github_app",
+    "cloud.owner.github_clone_token",
+    "cloud.owner.github_complete",
+    "cloud.owner.github_connect",
+    "cloud.owner.github_list",
+    "cloud.owner.github_repos",
     "cloud.owner.handoff_begin_turn",
     "cloud.owner.handoff_open",
     "cloud.owner.handoff_wait",
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
+    "cloud.owner.op",
+    "cloud.owner.slack",
+    "cloud.owner.slack_awake",
+    "cloud.owner.turn_checkpoint",
+    "cloud.owner.turn_rewind",
+    "cloud.owner.turns",
     "cloud.port.close",
     "cloud.previews.create_link",
     "cloud.previews.refresh",
@@ -2051,23 +2279,18 @@
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
-    "cloud.vm.delete_snapshot",
+    "cloud.surge.create",
     "cloud.vm.domains",
     "cloud.vm.firewall_create",
     "cloud.vm.firewall_delete",
     "cloud.vm.firewall_get",
     "cloud.vm.firewall_list",
-    "cloud.vm.fork",
     "cloud.vm.networks",
     "cloud.vm.provision_api",
     "cloud.vm.publication_api_keys",
     "cloud.vm.publications",
-    "cloud.vm.resize",
-    "cloud.vm.restore",
     "cloud.vm.revoke_publication_api_key",
     "cloud.vm.scp_endpoint",
-    "cloud.vm.snapshot",
-    "cloud.vm.snapshots",
     "cloud.vm.tunnel_attach",
     "cloud.vm.tunnel_detach",
     "cloud.vm.tunnel_enroll",
@@ -2079,6 +2302,7 @@
     "credential.mint",
     "credential.rotate",
     "credential.verify",
+    "diff.comments.send",
     "domain.claim",
     "domain.release",
     "domain.verify",
@@ -2115,6 +2339,7 @@
     "install.rename",
     "install.revoke",
     "install.sign_out",
+    "integration.approval.approve",
     "integration.approval.get",
     "integration.complete",
     "integration.connect",
@@ -2125,6 +2350,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "language_packs.ensure",
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
@@ -2147,9 +2373,13 @@
     "session.open",
     "session.reload_config",
     "session.shutdown",
+    "settings.edit",
     "settings.reset",
     "settings.reset_all",
+    "settings.reset_group",
+    "settings.restore",
     "settings.set",
+    "settings.undo",
     "sidebar_view.attach",
     "sso.connection.activate",
     "sso.connection.create",
@@ -2159,6 +2389,9 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.agent_key.remove",
+    "team.agent_key.set",
+    "team.agent_key.status",
     "team.ai_limit.member.set",
     "team.ai_limit.set",
     "team.audit.list",
@@ -2167,6 +2400,8 @@
     "team.enrollment_token.revoke",
     "team.integration.release_lock",
     "team.members.remove",
+    "team.models_policy.get",
+    "team.models_policy.set",
     "team_vm.rebuild",
     "team_vm.retired.delete",
     "team_vm.retired.export",

@@ -4,7 +4,7 @@
 // they're doing stuff" / "wrt tool calls and the lowest level thinking"). A finished call is one
 // muted line, verb then tool ("Used repo: repo grep", "Ran git status", "Read App.tsx"); the live
 // line is one line naming the current action ("Using repo: repo grep"), its verb in full ink and the
-// rest muted, then the turn's time and its tokens as one count ("3m 2s · 47.4K tokens"). The
+// rest muted, then the turn's elapsed time ("3m 2s"). The
 // shimmer stays the line's only working mark ("we don't want the claude symbol ellipsis thing btw
 // we just keep the shimmer ONLY").
 import { afterEach, expect, test } from "bun:test";
@@ -29,8 +29,13 @@ const grep = (status: Tool["status"]): Tool => ({
 });
 
 test("a finished MCP call reads Used <server>: <tool>", () => {
+  // The earlier words are tool-row-words' `now` arm; `plain` (the default) says what the call did.
+  globalThis.cmuxExperiments = { "tool-row-words": "now" };
   expect(toolLabel(grep("completed"), "", ran)).toBe("Used repo: repo grep");
   expect(mcpLabel(t, [mcpCall(grep("completed"))!], new Map())).toBe("Used repo: repo grep");
+  globalThis.cmuxExperiments = undefined;
+  expect(toolLabel(grep("completed"), "", ran)).toBe("Searched repo");
+  expect(mcpLabel(t, [mcpCall(grep("completed"))!], new Map())).toBe("Searched repo");
 });
 
 test("a running MCP call reads Using <server>: <tool>", () => {
@@ -41,8 +46,14 @@ test("a running MCP call reads Using <server>: <tool>", () => {
 test("a finished command and a read read verb then subject", () => {
   const command: Tool = { id: "c1", title: "git status", kind: "execute", status: "completed", command: "git status" };
   expect(toolLabel(command, "", ran)).toBe("Checked git status");
-  const unknown: Tool = { id: "c2", title: "make", kind: "execute", status: "completed", command: "make lint" };
-  expect(toolLabel(unknown, "", ran)).toBe("Ran make lint");
+  const unknown: Tool = {
+    id: "c2",
+    title: "task-fixture",
+    kind: "execute",
+    status: "completed",
+    command: "task-fixture lint",
+  };
+  expect(toolLabel(unknown, "", ran)).toBe("Ran task-fixture lint");
   const read: Tool = {
     id: "r1",
     title: "Read App.tsx",
@@ -72,12 +83,6 @@ test("the live line names the MCP call in flight the way Claude Code does", () =
 
 const START = Date.UTC(2026, 10, 3, 6, 0, 0);
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 47_400,
   split: { output: 47_400, input: 9_000, cacheRead: 2_650_000, cacheWrite: 41_000 },
 };
@@ -87,7 +92,7 @@ const liveLine = (props: Parameters<typeof Thinking>[0]) =>
       <Thinking since={START} now={() => START + 182_000} {...props} />
     </WorkingCountsContext.Provider>,
   );
-/// What a reader sees: the base words, the time and the counts, never the shimmer's lit copy.
+/// What a reader sees: the base words and elapsed time, never the shimmer's lit copy.
 const shown = (html: string) =>
   html
     .replace(/<span class="cv-shimmer__band"[\s\S]*?<\/span><\/span>/g, "")
@@ -100,12 +105,13 @@ afterEach(() => {
   delete globalThis.cmuxExperiments;
 });
 
-test("the live line is one line: the action, its time, then the turn's tokens as one count", () => {
+test("the live line is one line: the action and time, without token amounts", () => {
   const html = liveLine({ doing: "Using repo: repo grep" });
   expect(html.match(/class="cv-worked( |")/g)).toHaveLength(1);
-  expect(shown(html)).toBe("Using repo: repo grep 3m 2s · 47.4K tokens");
-  // The split stays on hover, named part by part.
-  expect(html).toContain('title="Output 47.4K · fresh input 9K · cache reads 2.7M · cache writes 41K"');
+  expect(shown(html)).toBe("Using repo: repo grep 3m 2s");
+  expect(html).not.toContain("cv-worked__tokens");
+  expect(html).not.toContain("cv-worked__sep");
+  expect(html).not.toContain('title="Output');
   expect(html).not.toContain("↑");
 });
 
@@ -114,7 +120,7 @@ test("the live line's action is in full ink and the rest of its words muted", ()
     '<span class="cv-shimmer__base"><span class="cv-worked__lead">Using repo</span>: repo grep</span>',
   );
   expect(liveLine({ doing: "git status", doingShell: true })).toContain(
-    '<span class="cv-shimmer__base"><span class="cv-worked__lead">Running</span> git status</span>',
+    '<span class="cv-shimmer__base"><span class="cv-worked__lead">git</span> status</span>',
   );
   expect(liveLine({ sendTo: "coord", doing: "acpmux send coord hi", doingShell: true })).toContain(
     '<span class="cv-shimmer__base"><span class="cv-worked__lead">Sending</span> message to coord</span>',
@@ -128,15 +134,13 @@ test("the live line draws no mark of its own: the shimmer is its only working si
   expect(html).not.toContain("cv-tool__icon");
 });
 
-test("the split arm keeps out and in on the live line", () => {
+test("the legacy split arm cannot restore live token amounts", () => {
   globalThis.cmuxExperiments = { "live-line-tokens": "split" };
-  expect(shown(liveLine({ doing: "Using repo: repo grep" }))).toBe(
-    "Using repo: repo grep 3m 2s · ↓ 47.4K out ↑ 2.7M in",
-  );
+  expect(shown(liveLine({ doing: "Using repo: repo grep" }))).toBe("Using repo: repo grep 3m 2s");
 });
 
 // A verb says what a command did (commandActions.ts), so a merge a hook blocked never reads "Merged
-// PR #101": the row reads as its line, and its failure stays on the row as its status word.
+// PR #101". Its label names the attempt, and the status word explains the failure.
 test("a hook-blocked merge row draws no success verb and keeps its failure", async () => {
   const { CommandRow } = await import("../src/agent-session/acpmux/conversation/CommandRow");
   const tool: Tool = {
@@ -149,7 +153,8 @@ test("a hook-blocked merge row draws no success verb and keeps its failure", asy
   };
   const html = renderToStaticMarkup(<CommandRow item={{ kind: "tool", text: "Bash", tool }} />);
   expect(html).not.toContain("Merged");
-  expect(html).toContain("gh pr merge 101");
+  expect(html).toContain(t("commandRules.merging", { target: "#101" }));
+  expect(html).not.toContain("gh pr merge 101");
   expect(html).toContain(t("tools.blockedByHook"));
   const rejected = renderToStaticMarkup(
     <CommandRow
@@ -161,6 +166,7 @@ test("a hook-blocked merge row draws no success verb and keeps its failure", asy
     />,
   );
   expect(rejected).not.toContain("Pushed");
-  expect(rejected).toContain("git push origin main");
+  expect(rejected).toContain(t("commandRules.pushingBranch", { branch: "main" }));
+  expect(rejected).not.toContain("git push origin main");
   expect(rejected).toContain("Exit 1");
 });

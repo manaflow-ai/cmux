@@ -11,11 +11,9 @@ use serde::Deserialize;
 use crate::keyset::Keyset;
 use crate::token::{TokenRefusal, TokenRefused};
 
-/// A token whose header and signature passed: its kid, the key that signed
-/// it, and its decoded claims bytes (not yet parsed or checked).
+/// A token whose header and signature passed: its decoded claims bytes (not
+/// yet parsed or checked).
 pub(crate) struct SignedToken {
-    pub kid: String,
-    pub key: [u8; 32],
     pub claims: Vec<u8>,
 }
 
@@ -66,7 +64,7 @@ pub(crate) fn verify_signed(
         .verify(signed.as_bytes(), &sig)
         .map_err(|_| no(Invalid, "signature"))?;
     let claims = decode(p).map_err(|k| no(k, "claims_encoding"))?;
-    Ok(SignedToken { kid: header.kid, key, claims })
+    Ok(SignedToken { claims })
 }
 
 /// Canonical, non-empty base64url without padding.

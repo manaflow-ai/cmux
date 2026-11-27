@@ -3,6 +3,8 @@
 //!
 //! - `_acpmux/transfer_receive {manifest}`: the source's `transfer_begin` answer. Refused when a
 //!   chat with its id is here already, or its agent is not configured here. Answers `{receiveId}`.
+//! - `_acpmux/transfer_preflight {manifest}`: the same question with nothing begun, for a dry
+//!   run and for a move before it freezes the chat. Answers `{takes: true}` or that refusal.
 //! - `_acpmux/transfer_write {receiveId, path, offset, data}`: one page (base64), in order.
 //! - `_acpmux/transfer_finish {receiveId, cwd?, name?, from?}`: the chat is imported (its history,
 //!   draft and agent store), in `cwd` when its folder has another path here, and its queue runs
@@ -13,17 +15,19 @@
 //!   `transfer_finish` or `transfer_receive` fails, and the answer `{landed}` says whether the
 //!   chat came here.
 //!
+//! A receive of a pre-copied move names its staged prefix (`transfer_receive {manifest,
+//! stageId}`, `transfer_precopy.rs`), which its finish imports first.
+//!
 //! A receive with a `guard` (`transfer_guard.rs`) keeps it for its write and finish calls, and
 //! answers `guarded: true`.
 
 use super::transfer_guard::{Guard, bundle_path_kind};
+use super::transfer_out::transfer_precopy::names_prefix;
 use super::transfer_out::{
     DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, parse_epoch,
     reject_stale_epoch, require_epoch, transfers_dir,
 };
 use super::*;
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64;
 use cmux_json::JsonSet as _;
 
 /// Held by a receive, a finish and a forget, so a forget either sees the move landed or drops its
@@ -45,18 +49,74 @@ fn recovery_owner(root: &Path, agent_id: &str, outer_id: &str) -> bool {
     false
 }
 
-/// A test's hook right after a sweep read a durable marker, to run another writer there.
+/// A test's hook: given the agent id of the marker the sweep read.
 #[cfg(test)]
-pub(super) static SWEEP_PAUSE: std::sync::Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>> =
-    std::sync::Mutex::new(None);
+type PauseFn = Box<dyn FnMut(&str)>;
+/// Each agent id a hook was reached for.
+#[cfg(test)]
+type Reached = std::rc::Rc<std::cell::RefCell<Vec<String>>>;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's hook right after a sweep read a durable marker, to run another writer there.
+    ///
+    /// One per test thread, not per process: the harness runs tests on parallel threads, and a
+    /// process-wide hook let one test's hook replace or clear another's before its sweep ran,
+    /// so the race it forced never happened. A sweep on another thread never sees it, which a
+    /// test catches through [`SweepPause::reached`].
+    static SWEEP_PAUSE: std::cell::RefCell<Option<(PauseFn, Reached)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The hook [`on_sweep_pause`] put on this thread; dropping it takes it off.
+#[cfg(test)]
+pub(super) struct SweepPause {
+    reached: Reached,
+}
+
+#[cfg(test)]
+impl SweepPause {
+    /// Each agent id the hook was reached for, in order.
+    pub(super) fn reached(&self) -> Vec<String> {
+        self.reached.borrow().clone()
+    }
+}
+
+#[cfg(test)]
+impl Drop for SweepPause {
+    fn drop(&mut self) {
+        SWEEP_PAUSE.with(|slot| slot.borrow_mut().take());
+    }
+}
+
+/// Runs `hook` right after every sweep on this thread reads a durable marker, until the
+/// returned guard drops.
+#[cfg(test)]
+pub(super) fn on_sweep_pause(hook: impl FnMut(&str) + 'static) -> SweepPause {
+    let reached = Reached::default();
+    SWEEP_PAUSE.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        assert!(slot.is_none(), "a sweep pause hook is already on this thread");
+        *slot = Some((Box::new(hook), std::rc::Rc::clone(&reached)));
+    });
+    SweepPause { reached }
+}
 
 fn sweep_pause(_agent_id: &str) {
     #[cfg(test)]
     {
-        let hook = SWEEP_PAUSE.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        if let Some(hook) = hook {
-            hook(_agent_id);
-        }
+        // Out of the slot while it runs, so the hook may itself run a sweep.
+        let Some((mut hook, reached)) = SWEEP_PAUSE.with(|slot| slot.borrow_mut().take()) else {
+            return;
+        };
+        reached.borrow_mut().push(_agent_id.to_owned());
+        hook(_agent_id);
+        SWEEP_PAUSE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.is_none() {
+                *slot = Some((hook, reached));
+            }
+        });
     }
 }
 
@@ -116,10 +176,14 @@ impl Hub {
         }
         // A move committed before `moved_to` was recorded: its log says so.
         let mut moved = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            // The daemon's own records only: an agent's update may carry any kind.
-            moved |= e.dir == "mux" && e.kind == "transferred";
-            !moved
+        // Its `transferred` records, from the kind index (a whole log's parse was minutes of a
+        // big chat's move, cmux#54461), off the runtime's workers (`qos::off_worker`).
+        let _ = crate::qos::off_worker(|| {
+            self.store.scan_kinds(&session.id, &["transferred"], &mut |e: EventRecord| {
+                // The daemon's own records only: an agent's update may carry any kind.
+                moved |= e.dir == "mux" && e.kind == "transferred";
+                !moved
+            })
         });
         moved
     }
@@ -136,7 +200,7 @@ impl Hub {
             if name.ends_with(".durable-transfer-state.importing")
                 || name.ends_with(".replacement-state.json.importing")
             {
-                let _ = std::fs::remove_file(entry.path());
+                let _ = crate::home_fs::remove_file(entry.path());
             }
         }
         let Ok(entries) = std::fs::read_dir(root) else { return };
@@ -167,23 +231,25 @@ impl Hub {
             let landed = if let Some(transfer_id) = value.get("transferId").and_then(Value::as_str)
             {
                 let mut landed = false;
-                let _ = self.store.scan(id, 0, &mut |event: EventRecord| {
-                    landed |= event.kind == "transferred_in"
-                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
-                    !landed
-                });
+                let _ =
+                    self.store.scan_kinds(id, &["transferred_in"], &mut |event: EventRecord| {
+                        landed |= event.kind == "transferred_in"
+                            && event.msg.get("transferId").and_then(Value::as_str)
+                                == Some(transfer_id);
+                        !landed
+                    });
                 landed
             } else {
                 false
             };
             let committed = phase == "committed" || landed;
             if committed {
-                let _ = std::fs::remove_dir_all(entry.path());
+                let _ = crate::home_fs::remove_dir_all(entry.path());
             } else {
                 if std::fs::symlink_metadata(&target).is_ok() {
-                    let _ = std::fs::remove_dir_all(&target);
+                    let _ = crate::home_fs::remove_dir_all(&target);
                 }
-                let _ = std::fs::rename(entry.path(), target);
+                let _ = crate::home_fs::rename(entry.path(), target);
             }
         }
         let Ok(entries) = std::fs::read_dir(root) else { return };
@@ -215,7 +281,7 @@ impl Hub {
                     if matches!(phase, "prepared" | "staged" | "committed")
                         && recovery_owner(root, agent, outer)
                     {
-                        let _ = std::fs::remove_file(entry.path());
+                        let _ = crate::home_fs::remove_file(entry.path());
                     }
                 }
             }
@@ -243,10 +309,10 @@ impl Hub {
                     return;
                 }
                 if !replace_durable {
-                    let _ = std::fs::remove_dir_all(target);
+                    let _ = crate::home_fs::remove_dir_all(target);
                 }
             }
-            let _ = std::fs::remove_file(path);
+            let _ = crate::home_fs::remove_file(path);
             return;
         }
         if phase != "staged" && phase != "committed" {
@@ -278,11 +344,12 @@ impl Hub {
             super::transfer::is_plain_id(outer_id),
         ) {
             let mut landed = false;
-            let _ = self.store.scan(outer_id, 0, &mut |event: EventRecord| {
-                landed |= event.kind == "transferred_in"
-                    && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
-                !landed
-            });
+            let _ =
+                self.store.scan_kinds(outer_id, &["transferred_in"], &mut |event: EventRecord| {
+                    landed |= event.kind == "transferred_in"
+                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
+                    !landed
+                });
             landed
         } else {
             false
@@ -301,31 +368,31 @@ impl Hub {
         let pi = root.join(filename);
         let pi_backup = root.join(format!("{filename}.transfer-backup"));
         if outer_committed {
-            let _ = std::fs::remove_file(&journal_backup);
-            let _ = std::fs::remove_file(&pi_backup);
+            let _ = crate::home_fs::remove_file(&journal_backup);
+            let _ = crate::home_fs::remove_file(&pi_backup);
         } else {
             if std::fs::symlink_metadata(&journal_backup).is_ok() {
-                let _ = std::fs::remove_file(&journal);
-                let _ = std::fs::rename(&journal_backup, &journal);
+                let _ = crate::home_fs::remove_file(&journal);
+                let _ = crate::home_fs::rename(&journal_backup, &journal);
             } else if !had_journal {
-                let _ = std::fs::remove_file(&journal);
+                let _ = crate::home_fs::remove_file(&journal);
             }
             if std::fs::symlink_metadata(&pi_backup).is_ok() {
-                let _ = std::fs::remove_file(&pi);
-                let _ = std::fs::rename(&pi_backup, &pi);
+                let _ = crate::home_fs::remove_file(&pi);
+                let _ = crate::home_fs::rename(&pi_backup, &pi);
             } else if !had_pi {
-                let _ = std::fs::remove_file(&pi);
+                let _ = crate::home_fs::remove_file(&pi);
             }
         }
-        let _ = std::fs::remove_file(root.join(agent_id).join("journal.ndjson.importing"));
-        let _ = std::fs::remove_file(root.join(format!("{filename}.importing")));
+        let _ = crate::home_fs::remove_file(root.join(agent_id).join("journal.ndjson.importing"));
+        let _ = crate::home_fs::remove_file(root.join(format!("{filename}.importing")));
         if !dir_was_present {
-            let _ = std::fs::remove_dir(root.join(agent_id));
+            let _ = crate::home_fs::remove_dir(root.join(agent_id));
         }
         if !replace_durable && !outer_committed && super::transfer::is_plain_id(outer_id) {
-            let _ = std::fs::remove_dir_all(root.join(outer_id));
+            let _ = crate::home_fs::remove_dir_all(root.join(outer_id));
         }
-        let _ = std::fs::remove_file(path);
+        let _ = crate::home_fs::remove_file(path);
     }
 
     /// Fence the outgoing instance before staging the incoming durable store. Keep
@@ -338,17 +405,43 @@ impl Hub {
         self.seal_retry_replacement(old);
         // Drain an earlier retention commit before replacing the journal.
         drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
-        self.kill(old, false).await
+        let why =
+            crate::close_why::CloseWhy::by("daemon", "replaced by an import of the same chat")
+                .outcome("moved");
+        self.kill_why(old, false, why).await
     }
 
-    pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
+    /// `_acpmux/transfer_preflight {manifest, guard?}`: whether this daemon would take the chat
+    /// the manifest describes, asked before the source freezes or copies anything. The manifest
+    /// is what the source knows by then (`schema`, `sessionId`, `session.harness`, and `epoch`,
+    /// `approvedWaiting`, `files` when it has them); the answer is `transfer_receive`'s own
+    /// ([`Self::receive_admission`]): `{takes: true}`, or the refusal the receive would give,
+    /// code and text. Nothing is written and no receive begins.
+    pub(super) async fn transfer_preflight(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
-        let incoming_epoch = manifest_epoch(&manifest)?;
-        let incoming_floor = incoming_epoch.unwrap_or(0);
+        manifest_epoch(&manifest)?;
         let guard = match params.get("guard") {
             Some(g) => Some(Guard::parse(g).await?),
             None => None,
         };
+        let as_harness = as_harness_of(params);
+        self.receive_admission(&manifest, guard.as_ref(), as_harness, true).await?;
+        Ok(json!({"takes": true, "sessionId": manifest["sessionId"]}))
+    }
+
+    /// Every refusal this daemon can give a chat from its manifest alone, before one byte of the
+    /// bundle: the one check behind `transfer_receive` and `transfer_preflight`, so a dry run
+    /// and the move it previews hear the same answer. `preflight`: the source has not begun the
+    /// move, so a manifest without an epoch has none yet and is not judged stale.
+    async fn receive_admission(
+        &self,
+        manifest: &Value,
+        guard: Option<&Guard>,
+        as_harness: Option<&str>,
+        preflight: bool,
+    ) -> Result<(), RpcError> {
+        let incoming_epoch = manifest_epoch(manifest)?;
+        let incoming_floor = incoming_epoch.unwrap_or(0);
         let schema = manifest["schema"].as_str().unwrap_or("");
         if schema != TRANSFER_SCHEMA && schema != DURABLE_TRANSFER_SCHEMA {
             return Err(transfer_error(
@@ -371,7 +464,7 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
         }
         // A chat that moved away from here may come back (`finish` replaces its closed copy).
-        let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let here = self.session_get(id);
         if let Some(existing) = here.as_ref() {
             if !existing.ownership_epoch_is_valid() {
                 return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
@@ -379,7 +472,12 @@ impl Hub {
             // A delayed bundle for an older owner must not replace a newer moved copy.
             self.restore_ownership_epoch(existing)
                 .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
-            if incoming_floor != 0 || schema != TRANSFER_SCHEMA {
+            let judged = if preflight {
+                incoming_epoch.is_some()
+            } else {
+                incoming_floor != 0 || schema != TRANSFER_SCHEMA
+            };
+            if judged {
                 reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
             }
         }
@@ -393,9 +491,18 @@ impl Hub {
                 "cmux-harness durable transfers require acpmux.transfer.v2",
             ));
         }
-        if !self.config.read().await.harnesses.contains_key(harness) {
-            let e = transfer_error("harness", format!("agent {harness:?} is not configured here"));
-            return Err(e.with_data(json!({"harness": harness})));
+        // `--as`: the chat lands on this machine's own harness for the same agent.
+        let family = manifest["harnessFamily"].as_str();
+        {
+            let cfg = self.config.read().await;
+            // A dry run's manifest comes from the chat's info, which does not say the agent its
+            // harness runs: with `--as` and neither side knowing it, only the name is checked
+            // here, and `transfer_receive` checks the agent with the real manifest.
+            let unknown = preflight && family.is_none() && cfg.family(harness).is_none();
+            match as_harness.filter(|_| unknown) {
+                Some(name) if cfg.family(name).is_some() => {}
+                _ => received_harness(&cfg, harness, as_harness, family)?,
+            }
         }
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
         for f in &files {
@@ -407,8 +514,41 @@ impl Hub {
         if files.len() > MAX_FILES {
             return Err(transfer_error("size", format!("{} files", files.len())));
         }
-        if let Some(g) = &guard {
-            self.guarded_receive_check(g, &manifest).await?;
+        if let Some(g) = guard {
+            self.guarded_receive_check(g, manifest).await?;
+        }
+        Ok(())
+    }
+
+    pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
+        self.receive_guarded(params, None).await
+    }
+
+    /// `transfer_receive`, and for `pulled` (a hub move between the same person's daemons, built
+    /// only by `hub/transfer_pull.rs` from this daemon's own config, never from a request) that
+    /// guard, a peer one that keeps the chat's own origin (`Guard::owner`).
+    pub(super) async fn receive_guarded(
+        &self,
+        params: &Value,
+        pulled: Option<Guard>,
+    ) -> Result<Value, RpcError> {
+        let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
+        manifest_epoch(&manifest)?;
+        let guard = match (pulled, params.get("guard")) {
+            (Some(g), _) => Some(g),
+            (None, Some(g)) => Some(Guard::parse(g).await?),
+            (None, None) => None,
+        };
+        let as_harness = as_harness_of(params);
+        self.receive_admission(&manifest, guard.as_ref(), as_harness, false).await?;
+        let id = manifest["sessionId"].as_str().unwrap_or("");
+        // A delta bundle comes with the prefix staged for it (`transfer_precopy.rs`), never alone.
+        let stage_id = params.get("stageId").and_then(Value::as_str);
+        if names_prefix(&manifest) != stage_id.is_some() {
+            return Err(transfer_error(
+                "unstaged",
+                "a manifest with a prefix needs its stageId, and only it does",
+            ));
         }
         let _receives = RECEIVES.lock().await;
         let transfer_id = manifest["transferId"].as_str().unwrap_or("");
@@ -421,16 +561,36 @@ impl Hub {
         self.sweep();
         let receive_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{receive_id}"));
-        let made = std::fs::create_dir_all(dir.join("bundle")).and_then(|()| {
+        let made = crate::home_fs::create_dirs(dir.join("bundle")).and_then(|()| {
             // The guard first: a receive with a manifest and no guard file is an unguarded one.
             if let Some(g) = &guard {
                 g.store(&dir)?;
             }
-            std::fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
+            // `transfer_finish` lands it on the `--as` harness.
+            let mut stored = manifest.clone();
+            if let Some(name) = as_harness {
+                stored.set("asHarness", json!(name));
+            }
+            crate::home_fs::write(dir.join("manifest.json"), serde_json::to_vec(&stored)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+        let mut have = Vec::new();
+        let control = guard.as_ref().map(|g| g.control);
+        match stage_id.map(|stage| self.take_stage(stage, &manifest, &dir, control)) {
+            Some(Err(e)) => {
+                let _ = crate::home_fs::remove_dir_all(&dir);
+                return Err(e);
+            }
+            Some(Ok(seeded)) => have = seeded,
+            None => {}
+        }
         super::transfer_watch::note_activity(&dir, None);
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
+        // What the stage's native files already hold, for the client to page only the rest
+        // (`transfer_live.rs`).
+        if !have.is_empty() {
+            answer.set("have", json!(have));
+        }
         if guard.is_some() {
             answer.set("guarded", json!(true));
         }
@@ -453,10 +613,19 @@ impl Hub {
                 format!("{path:?} is not a file a guarded move takes"),
             ));
         }
-        let data = BASE64.decode(text("data")).map_err(|e| transfer_error("data", e))?;
+        // Compressed by a client for a slow link (`transfer_live.rs`).
+        let data = super::transfer_out::transfer_live::page_bytes(params)?;
         let file = inside(&dir.join("bundle"), path)?;
-        let have = std::fs::metadata(&file).map_or(0, |m| m.len());
+        let mut have = std::fs::metadata(&file).map_or(0, |m| m.len());
         let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
+        // A resumed stage whose bytes the source's new prepare does not hold as they are is
+        // written again from where they part (`transfer_live.rs`); a move's bundle never is.
+        let staging = manifest.get("schema").and_then(Value::as_str)
+            == Some(super::transfer_out::transfer_precopy::PREFIX_SCHEMA);
+        if offset < have && (staging || super::transfer_out::transfer_live::seeded(&dir, path)) {
+            super::transfer_out::transfer_live::truncate_stage_file(&dir, path, offset)?;
+            have = offset;
+        }
         if offset != have {
             let e = transfer_error("offset", format!("{path:?} has {have} bytes, not {offset}"));
             return Err(e.with_data(json!({"size": have})));
@@ -467,13 +636,45 @@ impl Hub {
             return Err(transfer_error("size", format!("{path:?} is {size} bytes")));
         }
         use std::io::Write;
-        let wrote = std::fs::create_dir_all(file.parent().unwrap_or(&dir)).and_then(|()| {
-            std::fs::OpenOptions::new().create(true).append(true).open(&file)?.write_all(&data)
+        let wrote = crate::home_fs::create_dirs(file.parent().unwrap_or(&dir)).and_then(|()| {
+            crate::home_fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&file)?
+                .write_all(&data)
         });
         wrote.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         // Kept from the sweep while pages come (`transfer_out.rs` `sweep_transfers`).
-        let _ = std::fs::write(dir.join("alive"), offset.to_string());
+        let _ = crate::home_fs::write(dir.join("alive"), offset.to_string());
         Ok(json!({"next": have + data.len() as u64}))
+    }
+
+    /// The received chat's metadata `meta` (the bundle's `session.json`) put on this machine's
+    /// harness `name`, which runs the same agent (`received_harness`): its launch is this one's,
+    /// its conversation and modes stay. Moving back `--as` the old name restores it.
+    async fn land_on_harness(
+        &self,
+        bundle: &Path,
+        meta: &mut SessionMeta,
+        name: &str,
+    ) -> Result<(), RpcError> {
+        let profile = self.config.read().await.harnesses.get(name).cloned();
+        let Some(profile) = profile else {
+            let e = transfer_error("harness", format!("agent {name:?} is not configured here"));
+            return Err(e.with_data(json!({"harness": name})));
+        };
+        meta.harness = name.to_owned();
+        meta.harness_argv = profile.argv.clone();
+        meta.family = Some(crate::config::derive_family(name, &profile));
+        // The source machine's launch and preset name nothing here.
+        meta.spawn_argv = None;
+        meta.launch_digest = None;
+        meta.preset = None;
+        let path = bundle.join("session.json");
+        let wrote = serde_json::to_vec_pretty(&*meta)
+            .map_err(anyhow::Error::from)
+            .and_then(|raw| Ok(crate::home_fs::write(&path, raw)?));
+        wrote.map_err(|e| RpcError::internal(format!("transfer: {e}")))
     }
 
     /// Imports the received chat and runs its queue here.
@@ -482,13 +683,20 @@ impl Hub {
         params: &Value,
     ) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+        // The owner's login for the chat's agent (`agent_credentials.rs`), which a new Cloud
+        // machine has none of: held on the chat before its queue runs, so the turn the move
+        // continues starts signed in. Never recorded; a bad one fails the finish before anything.
+        let credential = crate::agent_credentials::requested(Some(params))?;
+        let mut steps = super::transfer_out::transfer_live::MoveSteps::new("finish");
         let _receives = RECEIVES.lock().await;
+        steps.step("lock");
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
         let incoming_epoch = manifest_epoch(&manifest)?;
         let incoming_floor = incoming_epoch.unwrap_or(0);
         require_epoch(incoming_floor, parse_epoch(params.get("epoch"))?)?;
         let guard = Guard::stored(&dir)?;
+        let staged = Self::staged_prefix(&dir, &manifest)?;
         let bundle = dir.join("bundle");
         for (path, size) in &files {
             let have = std::fs::metadata(inside(&bundle, path)?).map_or(0, |m| m.len());
@@ -496,6 +704,7 @@ impl Hub {
                 return Err(transfer_error("incomplete", format!("{path:?}: {have} of {size}")));
             }
         }
+        steps.step("check");
         let from = params.get("from").cloned().unwrap_or(Value::Null);
         // Back where it once moved from: its closed copy gives way (below). Bind the
         // bundle's outer identity, harness, and ACP identity before any source is killed.
@@ -516,8 +725,17 @@ impl Hub {
                 "bundle identity does not match transfer manifest",
             ));
         }
-        let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let mut bundle_meta = bundle_meta;
+        if let Some(name) = manifest["asHarness"].as_str().filter(|n| *n != bundle_meta.harness) {
+            self.land_on_harness(&bundle, &mut bundle_meta, name).await?;
+        }
+        // After the harness is settled: the login must serve the agent the chat lands on.
+        if let Some(credential) = &credential {
+            self.credential_serves(&bundle_meta.harness, credential).await?;
+        }
+        let old = self.session_get(id);
         let old = old.filter(|s| self.moved_away(s));
+        steps.step("moved_away");
         if let Some(existing) = old.as_ref() {
             if !existing.ownership_epoch_is_valid() {
                 return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
@@ -528,10 +746,15 @@ impl Hub {
                 reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
             }
         }
+        // Only cmux-harness binds durable state (its journal) to the agent session id. Another
+        // harness that cannot load its session starts a new one on each machine it moves to
+        // (an ACP agent without loadSession), so its id differs on the way back and the chat
+        // is still this one: the outer id and the harness say so.
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();
             existing_meta.harness == bundle_meta.harness
-                && existing_meta.agent_session_id == bundle_meta.agent_session_id
+                && (existing_meta.agent_session_id == bundle_meta.agent_session_id
+                    || bundle_meta.harness != "cmux-harness")
         });
         if old.is_some() && !replacing_durable {
             return Err(transfer_error(
@@ -539,6 +762,17 @@ impl Hub {
                 "closed session identity does not match transfer bundle",
             ));
         }
+        // From here until the folder that came in is in place, no fork references the chat, and
+        // the forks that do hold its history: the incoming folder may hold it compacted elsewhere
+        // (review of #37020).
+        let _fence = if replacing_durable {
+            Some(
+                crate::store::fence_history(self.store.as_ref(), id)
+                    .map_err(|e| transfer_error("store", format!("chat {id}: {e}")))?,
+            )
+        } else {
+            None
+        };
         let mut replace_native = false;
         if let Some(g) = &guard {
             let replaceable = old.as_ref().and_then(|o| o.meta().agent_session_id);
@@ -558,7 +792,18 @@ impl Hub {
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
                 meta.set("cwd", json!(cwd));
-                Ok(std::fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
+                Ok(crate::home_fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
+            });
+            edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+        }
+        // Its agent memory follows it (`memory_follow.rs`): after the guard, which clears the
+        // env a bundle brings, the move's own answer says whether the chat had memory.
+        {
+            let path = bundle.join("session.json");
+            let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
+                let mut meta: Value = serde_json::from_slice(&raw)?;
+                crate::memory_follow::apply_to_meta(&mut meta, &manifest);
+                Ok(crate::home_fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         }
@@ -582,7 +827,12 @@ impl Hub {
             }
             self.retire_transfer_instance(old).await?;
         }
-        let source_store = if replacing_durable { self.store.session_dir(id) } else { None };
+        let source_store = if replacing_durable {
+            crate::store::folder_to_replace(self.store.as_ref(), id)
+                .map_err(|e| transfer_error("store", format!("chat {id}: {e}")))?
+        } else {
+            None
+        };
         let source_store_backup = if let Some(source_store) = source_store.as_ref() {
             let backup = source_store
                 .parent()
@@ -610,10 +860,19 @@ impl Hub {
             .as_ref()
             .map(|guard| super::transfer_guard::GuardedImport { guard, replace_native });
         let session = match self
-            .import_into(&bundle, name, true, guarded, replacing_durable, true)
+            .import_into(
+                &bundle,
+                name,
+                super::transfer::Live::Moved(credential),
+                guarded,
+                replacing_durable,
+                true,
+                staged.as_ref(),
+            )
             .await
         {
             Ok(session) => {
+                steps.step("import");
                 session.restore_ownership_epoch(incoming_floor);
                 let (_, appended) = self.append_at(
                     &session,
@@ -645,6 +904,12 @@ impl Hub {
                     }
                     return Err(transfer_error("store", "could not durably record transferred_in"));
                 }
+                steps.step("receipt");
+                if guard.is_none() {
+                    self.note_received(&session, &transfer_id, bundle_meta.last_seq);
+                }
+                // A prefix whose history follows the chat: awaited here (`transfer_history.rs`).
+                self.note_history_pending(&session, &dir);
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let state = backup.with_extension("replacement-state.json");
                     let commit = serde_json::to_value(json!({"id": id, "agentId": bundle_meta.agent_session_id, "transferId": manifest["transferId"], "phase": "committed"}))
@@ -669,6 +934,7 @@ impl Hub {
                     let _ = std::fs::remove_dir_all(backup);
                     let _ = std::fs::remove_file(backup.with_extension("replacement-state.json"));
                 }
+                steps.step("finalize");
                 session
             }
             Err(error) => {
@@ -685,8 +951,12 @@ impl Hub {
         }
         // Its queue (back since the import) runs here now; the source withdraws it on commit.
         self.resume_queues();
-        let _ = std::fs::remove_dir_all(&dir);
-        Ok(self.session_summary(&session))
+        steps.step("queues");
+        let _ = crate::home_fs::remove_dir_all(&dir);
+        steps.step("cleanup");
+        let summary = self.session_summary(&session);
+        steps.step("summary");
+        Ok(summary)
     }
 
     /// Drops every receive of move `transferId` and says whether its chat landed here.
@@ -700,7 +970,7 @@ impl Hub {
             return Err(RpcError::invalid_params("transfer_forget: bad transferId"));
         };
         let _receives = RECEIVES.lock().await;
-        let made = std::fs::create_dir_all(&mark);
+        let made = crate::home_fs::create_dirs(&mark);
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         for entry in std::fs::read_dir(transfers_dir()).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -708,15 +978,18 @@ impl Hub {
                 && receive_manifest(&entry.path())
                     .is_ok_and(|(manifest, _)| manifest["transferId"] == transfer_id)
             {
-                let _ = std::fs::remove_dir_all(entry.path());
+                let _ = crate::home_fs::remove_dir_all(entry.path());
             }
         }
-        let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let here = self.session_get(session_id);
         let mut landed = false;
         if let Some(session) = here {
-            let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-                landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
-                !landed
+            // Its `transferred_in` records, from the kind index, off the runtime's workers.
+            let _ = crate::qos::off_worker(|| {
+                self.store.scan_kinds(&session.id, &["transferred_in"], &mut |e: EventRecord| {
+                    landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
+                    !landed
+                })
             });
         }
         Ok(json!({"transferId": transfer_id, "landed": landed}))
@@ -734,4 +1007,79 @@ impl Hub {
         }
         true
     }
+}
+
+/// Whether a chat on the source's harness `source` (running the agent `family`, when the source
+/// says) may land here, on `as_harness` (`session move --as`) or else on its own name. `--as`
+/// names a harness configured here that runs the same agent; with no `--as`, a missing name's
+/// refusal names this machine's harness for the same agent.
+fn as_harness_of(params: &Value) -> Option<&str> {
+    params.get("asHarness").and_then(Value::as_str).filter(|s| !s.is_empty())
+}
+
+pub(super) fn received_harness(
+    cfg: &crate::config::Config,
+    source: &str,
+    as_harness: Option<&str>,
+    family: Option<&str>,
+) -> Result<(), RpcError> {
+    let missing = |name: &str, hint: String| {
+        // What to do next, for whoever reads it on the source: the chat runs under that
+        // harness, so the machine it moves to must have a profile of that name.
+        let e = transfer_error(
+            "harness",
+            format!(
+                "agent {name:?} is not configured here: this machine needs a harness profile \
+                 named {name:?} (a `harnesses` entry in its acpmux config) before the chat can \
+                 move to it{hint}"
+            ),
+        );
+        e.with_data(json!({"harness": name}))
+    };
+    let Some(name) = as_harness else {
+        if cfg.harnesses.contains_key(source) {
+            return Ok(());
+        }
+        let same: Vec<String> = family
+            .and_then(|f| cfg.families().remove(f))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n != source)
+            .collect();
+        let hint = match same.as_slice() {
+            [] => String::new(),
+            [one] => format!("; this machine has {one:?} for the same agent: move with --as {one}"),
+            [first, ..] => format!(
+                "; this machine has {} for the same agent: move with --as {first}",
+                same.iter().map(|n| format!("{n:?}")).collect::<Vec<_>>().join(", ")
+            ),
+        };
+        return Err(missing(source, hint));
+    };
+    let Some(theirs) = cfg.family(name) else {
+        return Err(missing(name, String::new()));
+    };
+    if name == source {
+        return Ok(());
+    }
+    // A source that does not say which agent runs its harness: judged by the same name here.
+    let Some(ours) = family.map(str::to_owned).or_else(|| cfg.family(source)) else {
+        let e = transfer_error(
+            "harness",
+            format!(
+                "the source does not say which agent {source:?} runs, so --as {name} is not checked: update its acpmux"
+            ),
+        );
+        return Err(e.with_data(json!({"harness": source, "as": name})));
+    };
+    if ours != theirs {
+        let e = transfer_error(
+            "harness",
+            format!(
+                "--as {name}: {name:?} runs {theirs} here and the chat's {source:?} runs {ours}; a chat moves only onto a harness for the same agent"
+            ),
+        );
+        return Err(e.with_data(json!({"harness": source, "as": name, "family": ours})));
+    }
+    Ok(())
 }

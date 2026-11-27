@@ -8,6 +8,9 @@
 // The same notice shown again (no id, the same kind and text: two clicks on one dead link) is one
 // toast with a count, brought to the newest place with its time started over, never a second card.
 //
+// A promise toast (`promise`) is one card for one piece of work: working, with a spinner and no
+// timeout, then replaced in place, under the same id and in the same slot, by its success or error.
+//
 // Two layouts. `list`: every toast in full, newest at the bottom. `stacked` (NoticeDeck.tsx): the
 // newest in front and the older ones peeking above it as a compact deck, which spreads into the
 // full list while the pointer or focus is in it.
@@ -18,6 +21,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Notice, type NoticeAction, type NoticeKind, type NoticeProps } from "./Notice";
+import { Slot } from "../slots/Slot";
+import { toastEnterSlot } from "../slots/toastEnter";
 import {
   ANCHORS,
   anchorColumn,
@@ -29,13 +34,18 @@ import {
   type Box,
 } from "./anchors";
 import { NoticeDeck, type DeckAlign, type DeckDrag, type DragFeel, type Flights } from "./NoticeDeck";
+import { experimentArm } from "../experiments/experiment";
+import { useExperimentSwitch } from "../experiments/switches";
+import { toastsV2, type ToastLook } from "./toastsV2.experiment";
+import { toastGlass } from "./toastGlass.experiment";
+import { useExperimentArm } from "../experiments/useExperimentArm";
 
 /** The native toast's default (CmuxToast `duration`). */
 export const TOAST_MS = 6000;
 /** At most this many toasts show; a newer one pushes the oldest out (CmuxToastStack `limit`). */
 export const STACK_LIMIT = 3;
 
-export interface ToastSpec extends Omit<NoticeProps, "kind" | "placement" | "onDismiss" | "id" | "count"> {
+export interface ToastSpec extends Omit<NoticeProps, "kind" | "placement" | "onDismiss" | "id" | "count" | "look"> {
   /** The same id replaces the toast already showing under it. Default: a new id. */
   id?: string;
   kind?: NoticeKind;
@@ -76,8 +86,22 @@ export function toastKey(spec: ToastSpec): string | undefined {
   return JSON.stringify([spec.kind ?? "toast", title ?? "", message ?? ""]);
 }
 
+/** A promise toast's three faces: what shows while the work runs, and what replaces it in the same
+ * card when it ends. A face may be built from the value or the reason. */
+export interface ToastPromise<T> {
+  loading: ToastSpec;
+  success: ToastSpec | ((value: T) => ToastSpec);
+  error: ToastSpec | ((reason: unknown) => ToastSpec);
+}
+
 export interface NoticeQueue {
   show(spec: ToastSpec): string;
+  /** One toast for one piece of work (Leo 2026-11-19: "One toast starts as a spinner ('Running
+   *  tests…') and turns into success or error in place without stacking"): `loading` shows working
+   *  with no timeout, then the result replaces it under the same id, in its slot, with its normal
+   *  time. A toast closed while the work ran stays closed; a newer promise or show under the id
+   *  wins over this one's result. Returns the id. */
+  promise<T>(id: string | undefined, faces: ToastPromise<T>, work: Promise<T>): string;
   close(id: string, reason?: "timeout" | "closed" | "action"): void;
   /** Puts a showing toast at `anchor` and remembers it for its group. */
   move(id: string, anchor: Anchor): void;
@@ -95,7 +119,30 @@ export function createNoticeQueue(limit = STACK_LIMIT, { anchors }: { anchors?: 
   const emit = () => {
     for (const listener of listeners) listener();
   };
-  return {
+  const queue: NoticeQueue = {
+    promise(id, faces, work) {
+      const loading: ToastSpec = { ...faces.loading, id, state: "working", duration: 0 };
+      const shownId = queue.show(loading);
+      // This promise's own working toast: its result lands only while that toast is the one up
+      // (not closed, not replaced by a newer show or promise under the id).
+      const spec = queue.snapshot().find((entry) => entry.spec.id === shownId)?.spec;
+      const settle = (face: ToastSpec, state: "success" | "error") => {
+        const up = queue.snapshot().find((entry) => entry.spec.id === shownId);
+        if (!up || up.spec !== spec) return;
+        queue.show({
+          ...face,
+          id: shownId,
+          kind: state === "error" ? "error" : (face.kind ?? "toast"),
+          state,
+          anchor: face.anchor ?? up.anchor,
+        });
+      };
+      work.then(
+        (value) => settle(typeof faces.success === "function" ? faces.success(value) : faces.success, "success"),
+        (reason: unknown) => settle(typeof faces.error === "function" ? faces.error(reason) : faces.error, "error"),
+      );
+      return shownId;
+    },
     show(spec) {
       const key = toastKey(spec);
       let id = spec.id ?? undefined;
@@ -164,6 +211,7 @@ export function createNoticeQueue(limit = STACK_LIMIT, { anchors }: { anchors?: 
       return () => listeners.delete(listener);
     },
   };
+  return queue;
 }
 
 const systemNow = () => Date.now();
@@ -191,6 +239,7 @@ export type StackLayout = "list" | "stacked";
 export function NoticeStack({
   queue,
   dismissLabel,
+  label,
   layout = "list",
   align = "center",
   drag: feel,
@@ -198,10 +247,15 @@ export function NoticeStack({
   className,
   now = systemNow,
   arm = systemTimer,
+  look: lookOverride,
+  hostGlass: hostGlassOverride,
 }: {
   queue: NoticeQueue;
   /** The ×'s accessible name ("Dismiss"). */
   dismissLabel: string;
+  /** The stack's name as a landmark ("Notifications"): with it the stack is a region VoiceOver's
+   *  rotor lists, so a person can reach the toasts from anywhere on the page. */
+  label?: string;
   /** `list`: every toast in full, newest at the bottom; `stacked`: a deck, newest in front. */
   layout?: StackLayout;
   /** Where the bottom anchor's deck stands across its surface (the gallery's compared option). */
@@ -215,14 +269,47 @@ export function NoticeStack({
   /** For tests: the clock and the timer. */
   now?: () => number;
   arm?: ArmTimer;
+  /** The toasts-v2 arm; default the experiment's (read once per mount, not per toast). */
+  look?: ToastLook;
+  /** Each card on the App's toast glass (Notice `hostGlass`); false keeps the page's floating material.
+   *  Default the toast-glass experiment's arm (`experiments.toastGlass`, off by default: the page's). */
+  hostGlass?: boolean;
 }) {
+  const [experimentLook] = useState(() => experimentArm(toastsV2));
+  // Settings > Advanced > Experiments > Toasts v2 (`experiments.toastsV2`) turns on the recommended arm;
+  // a gallery or debug arm other than `off` still wins.
+  const switchedOn = useExperimentSwitch("toastsV2");
+  const look = lookOverride ?? (experimentLook === "off" && switchedOn ? "mark" : experimentLook);
+  const glassArm = useExperimentArm(toastGlass);
+  const hostGlass = hostGlassOverride ?? glassArm === "host";
   const entries = useSyncExternalStore(queue.subscribe, queue.snapshot, queue.snapshot);
   const visible = usePageVisible();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   // A toast held in a drag, and the anchor it would settle at.
   const [dragging, setDragging] = useState<{ nearest?: Anchor } | undefined>(undefined);
-  const held = hovered || focused || dragging !== undefined || !visible;
+  // Stacked: each deck says whether it is held (a top deck is drawn in `topHost`, outside this
+  // element, so this element's hover and focus cannot say it).
+  const [deckHolds, setDeckHolds] = useState<ReadonlySet<Anchor>>(() => new Set());
+  const holdOf = useMemo(
+    () =>
+      new Map(
+        ANCHORS.map((anchor) => [
+          anchor,
+          (on: boolean) =>
+            setDeckHolds((current) => {
+              if (current.has(anchor) === on) return current;
+              const next = new Set(current);
+              if (on) next.add(anchor);
+              else next.delete(anchor);
+              return next;
+            }),
+        ]),
+      ),
+    [],
+  );
+  const pointed = layout === "stacked" ? deckHolds.size > 0 : hovered || focused;
+  const held = pointed || dragging !== undefined || !visible;
   const stack = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const flights = useMemo<Flights>(() => new Map(), []);
@@ -230,10 +317,10 @@ export function NoticeStack({
   // stack's real state whenever the toasts change, so the hold never sticks.
   useEffect(() => {
     const element = stack.current;
-    if (!element) return;
+    if (!element || layout === "stacked") return;
     setHovered(element.matches(":hover"));
     setFocused(element.contains(document.activeElement));
-  }, [entries]);
+  }, [entries, layout]);
   // When each toast's time started: reset while held, so leaving the stack gives the full time again.
   const started = useMemo(() => new Map<string, { version: number; at: number }>(), []);
 
@@ -259,13 +346,15 @@ export function NoticeStack({
     return arm(() => queue.close(id, "timeout"), Math.max(0, due - t));
   }, [entries, held, queue, started, now, arm]);
 
-  const draw = ({ spec, count }: NoticeEntry) => (
+  const card = ({ spec, count }: NoticeEntry) => (
     <Notice
       {...spec}
       kind={spec.kind ?? "toast"}
       placement="stack"
       id={spec.id}
       count={count}
+      look={look}
+      hostGlass={hostGlass}
       actions={spec.actions?.map((action) => ({
         ...action,
         onSelect: () => {
@@ -277,6 +366,11 @@ export function NoticeStack({
       onDismiss={() => queue.close(spec.id, "closed")}
       dismissLabel={dismissLabel}
     />
+  );
+  // Each card is drawn through the theme slot `toast.enter` (slots/toastEnter): its default draws the
+  // card alone, as before.
+  const draw = (entry: NoticeEntry) => (
+    <Slot slot={toastEnterSlot} props={{ kind: entry.spec.kind ?? "toast", children: card(entry) }} />
   );
 
   // The surface toasts rest in: from the top anchors' edge to the stack's own line, its width.
@@ -305,11 +399,20 @@ export function NoticeStack({
           },
         }
       : undefined;
-  // One list per anchor, new only when the queue changes, so a deck re-reads nothing on a hover.
-  const byAnchor = useMemo(
-    () => new Map(ANCHORS.map((anchor) => [anchor, entries.filter((entry) => entry.anchor === anchor)])),
-    [entries],
-  );
+  // One list per anchor, new only when that anchor's toasts change, so a toast coming or going at
+  // one anchor leaves the other decks (and their hover) alone.
+  const lastByAnchor = useRef(new Map<Anchor, readonly NoticeEntry[]>());
+  const byAnchor = useMemo(() => {
+    const next = new Map<Anchor, readonly NoticeEntry[]>();
+    for (const anchor of ANCHORS) {
+      const here = entries.filter((entry) => entry.anchor === anchor);
+      const before = lastByAnchor.current.get(anchor);
+      const same = before?.length === here.length && here.every((entry, index) => entry === before[index]);
+      next.set(anchor, same && before ? before : here);
+    }
+    lastByAnchor.current = next;
+    return next;
+  }, [entries]);
   const deckAt = (anchor: Anchor) => {
     const here = byAnchor.get(anchor) ?? [];
     return (
@@ -320,7 +423,14 @@ export function NoticeStack({
         data-row={anchorRow(anchor)}
         data-column={anchor === "bottom" && align === "end" ? "end" : anchorColumn(anchor)}
       >
-        <NoticeDeck entries={here} draw={draw} edge={anchorRow(anchor)} drag={deckDrag} flights={flights} />
+        <NoticeDeck
+          entries={here}
+          draw={draw}
+          edge={anchorRow(anchor)}
+          drag={deckDrag}
+          flights={flights}
+          onHold={holdOf.get(anchor)}
+        />
       </div>
     );
   };
@@ -354,6 +464,8 @@ export function NoticeStack({
     <div
       ref={stack}
       className={className ? `ui-notice-stack ${className}` : "ui-notice-stack"}
+      role={label ? "region" : undefined}
+      aria-label={label}
       data-layout={layout}
       data-align={layout === "stacked" ? align : undefined}
       data-dragging={dragging ? "" : undefined}

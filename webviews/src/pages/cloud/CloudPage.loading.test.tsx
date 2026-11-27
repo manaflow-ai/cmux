@@ -10,6 +10,7 @@ import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
 import { CloudOps } from "./ops";
 import { CloudStore } from "./store";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -30,13 +31,9 @@ const settle = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
 };
 
-afterAll(() => {
+afterAll(async () => {
   jest.useRealTimers();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 /// A provider whose account read never answers, so the page stays on its first load.

@@ -98,12 +98,14 @@ def serve(bind: str, port: int, token: str, folder: Path) -> None:
             if not self.authorized():
                 return
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
-            m = re.fullmatch(r"/(go|result|hello)/([0-9]+)", self.path)
+            m = re.fullmatch(r"/(go|result|hello|bye)/([0-9]+)", self.path)
             if not m:
                 return self.reply(404)
             kind, n = m.group(1), m.group(2)
             if kind == "hello":
                 (folder / "agent.json").write_text(json.dumps(body))
+            elif kind == "bye":  # the viewer Mac's step ended (any exit): the host stops waiting for it
+                put(folder / "bye.json", {"exit": int(body.get("exit", 1))})
             elif kind == "go":
                 cmd = json.loads((folder / f"cmd-{n}.json").read_text())
                 if cmd.get("go_file"):
@@ -122,6 +124,11 @@ def call(folder: Path, target: str, verb: str, args: list[str]) -> int:
     Mac; window-view's SNAPSHOT and GO are paths on this Mac too (GO is created when the viewer's
     first frame shows there). Files come back next to RAW: RAW, RAW.span, RAW.clock and SNAPSHOT."""
     env = {k: os.environ[k] for k in ("CMUX_VNC_STREAM_LINK",) if os.environ.get(k)}
+    if verb == "window-view" and os.environ.get("EVAL_SCENE_NONCE"):
+        nonce = os.environ["EVAL_SCENE_NONCE"]
+        if not re.fullmatch(r"[0-9a-f]{32}", nonce):
+            sys.exit("peer.py: source nonce must be 32 lowercase hex characters")
+        env["EVAL_SCENE_NONCE"] = nonce
     files = {}
     for name, var in (("marker.log", "EVAL_MARKER_LOG"), ("token", "EVAL_PEER_STREAM_TOKEN")):
         if os.environ.get(var) and Path(os.environ[var]).is_file():
@@ -140,6 +147,9 @@ def call(folder: Path, target: str, verb: str, args: list[str]) -> int:
     result = folder / f"result-{n}.json"
     deadline = time.monotonic() + CALL_WAIT_S
     while not result.exists():
+        if (folder / "bye.json").exists():
+            print(f"peer.py: the viewer Mac's step ended before {verb} answered", file=sys.stderr)
+            return 1
         if time.monotonic() > deadline:
             print(f"peer.py: the viewer Mac did not answer {verb} within {CALL_WAIT_S} s", file=sys.stderr)
             return 1
@@ -148,6 +158,11 @@ def call(folder: Path, target: str, verb: str, args: list[str]) -> int:
     for key, path in outputs.items():
         if key in body.get("files", {}):
             Path(path).write_bytes(base64.b64decode(body["files"][key]))
+    if "first" in body.get("files", {}):
+        Path(f"{outputs['raw']}.first").write_bytes(base64.b64decode(body["files"]["first"]))
+    for key, suffix in (("readiness", ".readiness.json"), ("readiness_observer", ".readiness-observer.json")):
+        if key in body.get("files", {}):
+            Path(f"{outputs['raw']}{suffix}").write_bytes(base64.b64decode(body["files"][key]))
     if "clock" in body:
         Path(f"{outputs['raw']}.clock").write_text(json.dumps(body["clock"]))
     if "span" in body:  # on this Mac's wall clock, as the host's own logs are
@@ -244,18 +259,31 @@ def agent(host: str, port: int, token: str, root: Path) -> int:
         if not TARGET.match(target) or verb not in VERBS or not VERBS[verb].match(" ".join(map(str, args))):
             request(f"/result/{cmd['id']}", {"exit": 2, "stderr": f"peer.py agent: refused {verb} {args}\n"})
             continue
+        # The host names the target, so this Mac checks each one itself: a viewer started for headless
+        # apple-rfb must not open a GUI viewer on a person's Mac because the host asked (person_guard.py).
+        guard = subprocess.run([sys.executable, "-I", str(root / "scripts/measure/screen-stream-eval/person_guard.py"),
+                                "check", target, "viewer"], capture_output=True, text=True, timeout=30)
+        if guard.returncode != 0:
+            request(f"/result/{cmd['id']}", {"exit": 2, "stderr": guard.stderr or f"peer.py agent: refused {target}\n"})
+            continue
+        nonce = (cmd.get("env") or {}).get("EVAL_SCENE_NONCE", "")
+        if not isinstance(nonce, str) or (nonce and (verb != "window-view" or not re.fullmatch(r"[0-9a-f]{32}", nonce))):
+            request(f"/result/{cmd['id']}", {"exit": 2, "stderr": "peer.py agent: refused source nonce\n"})
+            continue
         work = state / target
         work.mkdir(parents=True, exist_ok=True)
         for name, data in (cmd.get("files") or {}).items():
             if name in ("marker.log", "token"):
                 (work / name).write_bytes(base64.b64decode(data))
         raw, snapshot, go = work / f"{verb}.raw", work / "snapshot", work / "go"
-        for path in (raw, snapshot, go):
+        for path in (raw, snapshot, go, Path(f"{raw}.first"), Path(f"{raw}.readiness.json"), Path(f"{raw}.readiness-observer.json")):
             path.unlink(missing_ok=True)
         argv = ["bash", str(root / "scripts/measure/screen-stream-eval/targets" / f"{target}.sh"), verb, *args]
         argv += [str(raw)] if verb == "latency-view" else [str(snapshot), str(go), str(raw)]
         env = {**os.environ, "EVAL_ROOT": str(root), "EVAL_BIN": str(root / ".build/screen-stream-eval/bin"),
                "EVAL_STATE": str(work), "EVAL_PEER": host, "EVAL_MARKER_LOG": str(work / "marker.log"),
+               # Never reuse a viewer's ambient nonce or the previous repeat's.
+               "EVAL_SCENE_NONCE": nonce,
                **{k: v for k, v in (cmd.get("env") or {}).items() if k == "CMUX_VNC_STREAM_LINK"}}
         before = offsets()
         start = time.time_ns()
@@ -269,11 +297,15 @@ def agent(host: str, port: int, token: str, root: Path) -> int:
         if not relayed and go.exists():
             request(f"/go/{cmd['id']}", {})
         after = offsets()
-        files = {k: base64.b64encode(p.read_bytes()).decode() for k, p in (("raw", raw), ("snapshot", snapshot)) if p.is_file()}
+        files = {k: base64.b64encode(p.read_bytes()).decode() for k, p in (
+            ("raw", raw), ("snapshot", snapshot), ("first", Path(f"{raw}.first")),
+            ("readiness", Path(f"{raw}.readiness.json")), ("readiness_observer", Path(f"{raw}.readiness-observer.json"))) if p.is_file()}
         clock = {k: (before[k] + after[k]) / 2 for k in ("mono_ms", "wall_ms")}
         clock.update({"rtt_ms": min(before["rtt_ms"], after["rtt_ms"]),
                       "mono_drift_ms": after["mono_ms"] - before["mono_ms"], "wall_drift_ms": after["wall_ms"] - before["wall_ms"]})
-        request(f"/result/{cmd['id']}", {"exit": proc.returncode, "stderr": proc.stderr.read()[-4000:], "files": files,
+        stderr = proc.stderr.read()[-4000:]
+        proc.stderr.close()
+        request(f"/result/{cmd['id']}", {"exit": proc.returncode, "stderr": stderr, "files": files,
                                          "span": {"start_unix_ms": start // 1_000_000, "end_unix_ms": time.time_ns() // 1_000_000},
                                          "clock": clock}, timeout=60)
 

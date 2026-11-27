@@ -45,6 +45,7 @@ fn c_abi_catalog_in_each_language() {
     let japanese = catalog("ja-JP");
     assert_eq!(japanese["locale"], "ja");
     assert_ne!(title(&japanese, "newSurface"), "New Terminal Tab");
+    assert_eq!(title(&japanese, "cloudSetupDesktop"), "デスクトップを起動…");
     assert_eq!(catalog("xx")["locale"], "en");
     assert_eq!(catalog("pt_BR")["locale"], "pt-BR");
 }
@@ -56,4 +57,66 @@ fn c_abi_null_out_pointers_are_refused() {
     let status =
         unsafe { cmux_action_catalog_json(std::ptr::null(), 0, std::ptr::null_mut(), &mut len) };
     assert_eq!(status, ERR_NULL);
+}
+
+#[test]
+fn palette_target_metadata_marks_cloud_machine_actions_and_preserves_exemptions() {
+    let catalog = catalog("");
+    let actions = catalog["actions"].as_array().expect("actions");
+    let row = |id: &str| actions.iter().find(|a| a["id"] == id).expect("action");
+    assert_eq!(row("cloudOpenDesktop")["paletteTarget"], "machine");
+    assert_eq!(row("cloudOpenDesktop")["paletteTargetSource"], "cloud");
+    assert_eq!(row("cloudSetupDesktop")["paletteTarget"], "machine");
+    assert_eq!(row("cloudSetupDesktop")["paletteTargetSource"], "cloud");
+    assert_eq!(row("cloudSetupDesktop")["targets"], serde_json::json!(["machine"]));
+    assert_eq!(row("cloudSetupDesktop")["waitsForResult"], true);
+    assert_eq!(row("cloudExec")["paletteTarget"], "machine");
+    for id in [
+        "cloudNewTerminal",
+        "cloudOpenMachine",
+        "cloudRenameMachine",
+        "cloudKillMachine",
+        "cloudCopyLink",
+        "cloudCopyPort",
+        "cloudCopyMachineID",
+        "cloudResizeMachine",
+        "cloudSetIdlePause",
+        "cloudSetNetworkAccess",
+    ] {
+        assert_eq!(row(id)["paletteTarget"], "machine");
+        assert_eq!(row(id)["paletteTargetSource"], "cloud");
+    }
+    assert_eq!(row("newCloudWorkspace")["paletteTarget"], serde_json::Value::Null);
+    assert_eq!(row("cloudStartSession")["paletteTarget"], serde_json::Value::Null);
+    assert_eq!(row("newTab")["paletteTarget"], serde_json::Value::Null);
+    assert_eq!(row("machine.doctor")["paletteTargetSource"], "ssh");
+    assert_eq!(row("remote.removeGroup")["paletteTargetSource"], "remote");
+    assert_eq!(row("machine.reconnect")["paletteTargetSource"], "remote");
+    assert_eq!(row("remote.newWorkspace")["paletteTargetSource"], "ssh");
+    assert_eq!(row("bookmark.setIcon")["paletteTarget"], "bookmark");
+    assert_eq!(row("bookmark.setIcon")["paletteTargetSource"], "bookmarkFolders");
+    assert_eq!(row("bookmark.openAll")["paletteTargetSource"], "bookmarkFolders");
+    assert_eq!(row("bookmark.copyLink")["paletteTargetSource"], "bookmarks");
+    assert_eq!(row("bookmark.edit")["paletteTargetSource"], serde_json::Value::Null);
+    assert_eq!(row("machine.setIcon")["paletteTarget"], "machine");
+    assert_eq!(row("sidebar.item.remove")["paletteTarget"], "sidebar-item");
+    assert_eq!(row("sidebar.section.rename")["paletteTarget"], "sidebar-section");
+}
+
+/// Check, Rotate Credential and Revoke… on a joined machine are palette rows that ask which machine
+/// joined through the hub (`joined`, the app's joined-machine list), not a connected one, and stay
+/// rows of the joined machine's "…" menu.
+#[test]
+fn joined_machine_actions_are_palette_rows_that_pick_a_joined_machine() {
+    let catalog = catalog("");
+    let actions = catalog["actions"].as_array().expect("actions");
+    for id in ["machine.joined.check", "machine.joined.rotate", "machine.joined.revoke"] {
+        let row = actions.iter().find(|a| a["id"] == id).expect("action");
+        assert!(cmux_action_catalog::find(id).expect("action").is_palette_visible(), "{id}");
+        assert_eq!(row["paletteTarget"], "machine", "{id}");
+        assert_eq!(row["paletteTargetSource"], "joined", "{id}");
+        assert_eq!(row["surfaces"], serde_json::json!(["palette", "contextMenu"]), "{id}");
+        assert_eq!(row["surfacePlan"]["contextMenus"][0]["context"], "joinedMachine", "{id}");
+        assert_eq!(row["surfacePlan"]["cli"], serde_json::json!({ "exempt": "guiOnly" }), "{id}");
+    }
 }

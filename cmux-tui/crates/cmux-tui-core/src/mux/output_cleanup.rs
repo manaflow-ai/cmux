@@ -1,17 +1,27 @@
 //! The owner's side of the one-time output cleanup
 //! (`workspace_registry::output_cleanup`): a low-priority thread that waits
-//! a while after start, stages the registry's sealed segments (Phase A), and
-//! holds back journal sealing while a cleanup is pending. The swap itself
+//! a while after start, stages the registry's sealed segments and builds the
+//! new registry from them (Phase A), keeps it current while the owner serves,
+//! and holds back journal sealing while a cleanup is pending. The swap itself
 //! runs at the next owner start, in `WorkspaceRegistry::open`.
+//!
+//! The same thread runs the journal compaction
+//! (`workspace_registry::output_cleanup::journal_compact`) instead, only when
+//! the daemon was started with `CMUX_TUI_JOURNAL_COMPACT=1` and the registry
+//! was not compacted yet. Without that variable nothing here changes.
 
 use super::*;
 use crate::workspace_registry::output_cleanup::{
-    self, StageControl, StageOutcome, failed_path, stage_registry,
+    self, CleanupMode, StageControl, StageOutcome, failed_path, journal_compact, stage_registry_in,
 };
 
 /// How long after start the cleanup waits, so it never competes with
 /// session restore.
 const START_DELAY: Duration = Duration::from_secs(60);
+
+/// How often the built registry takes in the records appended since, so the
+/// swap at the next start packs only a short tail.
+const CATCH_UP_INTERVAL: Duration = Duration::from_secs(30);
 
 /// How long a stop waits for the worker. Its last step (recording "not
 /// needed") takes the registry and its connection locks, which a stalled
@@ -104,12 +114,30 @@ impl Mux {
     }
 
     pub(super) fn start_output_cleanup(self: &Arc<Self>) -> anyhow::Result<()> {
+        // The opt-in is read here, once per owner start.
+        self.start_cleanup(journal_compact::requested_by_env())
+    }
+
+    /// Starts the cleanup thread when this registry has a cleanup to run:
+    /// the journal compaction with `compact_requested` (the opt-in) on a
+    /// registry not compacted yet, else the output cleanup when not done.
+    fn start_cleanup(self: &Arc<Self>, compact_requested: bool) -> anyhow::Result<()> {
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(db_path) = registry.session_journal_database_path() else { return Ok(()) };
-        if registry.output_cleanup_done()? {
+        let Some(mode) = journal_compact::scheduled_mode(
+            compact_requested,
+            compact_requested && registry.cleanup_done(CleanupMode::Compact)?,
+            registry.output_cleanup_done()?,
+        ) else {
             return Ok(());
-        }
+        };
         drop(registry);
+        if mode == CleanupMode::Compact {
+            eprintln!(
+                "cmux-tui: output cleanup: {}=1, the journal compaction runs for this registry",
+                journal_compact::OPT_IN_ENV
+            );
+        }
         if output_cleanup::failed_for_this_build(&db_path) {
             eprintln!(
                 "cmux-tui: output cleanup: skipped; an earlier attempt failed (see {})",
@@ -136,7 +164,7 @@ impl Mux {
                 if !worker_control.wait(delay) {
                     return;
                 }
-                let not_needed = run_output_cleanup(&db_path, &worker_control, &pending);
+                let not_needed = run_output_cleanup(&db_path, &worker_control, &pending, mode);
                 if not_needed
                     && !worker_control.is_stopped()
                     && let Some(mux) = weak_mux.upgrade()
@@ -145,7 +173,7 @@ impl Mux {
                         .workspace_registry
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
-                        .mark_output_cleanup_done("not-needed");
+                        .mark_cleanup_done(mode, "not-needed");
                     if let Err(error) = marked {
                         eprintln!(
                             "cmux-tui: output cleanup: could not record the result: {error:#}"
@@ -169,11 +197,17 @@ impl Mux {
 
 /// Phase A for the registry at `db_path`. True when the registry holds no
 /// stored output, so the caller records that the cleanup is done.
-fn run_output_cleanup(db_path: &Path, control: &Arc<Control>, pending: &AtomicBool) -> bool {
+fn run_output_cleanup(
+    db_path: &Path,
+    control: &Arc<Control>,
+    pending: &AtomicBool,
+    mode: CleanupMode,
+) -> bool {
     let pause = env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_SEGMENT_PAUSE_MS");
-    let started = Instant::now();
+    let catch_up =
+        env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_CATCH_UP_MS").unwrap_or(CATCH_UP_INTERVAL);
     let stop_control = control.clone();
-    let outcome = stage_registry(
+    let outcome = stage_registry_in(
         db_path,
         &StageControl {
             on_pending: &|| pending.store(true, Ordering::Release),
@@ -181,25 +215,26 @@ fn run_output_cleanup(db_path: &Path, control: &Arc<Control>, pending: &AtomicBo
                 Some(pause) => control.wait(pause),
                 None => !control.is_stopped(),
             },
+            catch_up: &|| control.wait(catch_up),
             stopped: Arc::new(move || stop_control.is_stopped()),
         },
+        mode,
     );
     match outcome {
         Ok(StageOutcome::NotNeeded) => {
             pending.store(false, Ordering::Release);
             return true;
         }
-        Ok(StageOutcome::Complete { segments, kept }) => eprintln!(
-            "cmux-tui: output cleanup: phase A complete in {:.2} s: {segments} segments \
-             staged, {kept} records kept; the registry is swapped at the next start ({})",
-            started.elapsed().as_secs_f64(),
-            output_cleanup::staging_path(db_path).display()
-        ),
+        Ok(StageOutcome::Built) => {}
         Ok(StageOutcome::Refused(reason)) => {
             pending.store(false, Ordering::Release);
             eprintln!(
                 "cmux-tui: output cleanup: not enough free space, retried at the next start: {reason}"
             );
+        }
+        Ok(StageOutcome::Skipped(reason)) => {
+            pending.store(false, Ordering::Release);
+            eprintln!("cmux-tui: output cleanup: skipped, the registry is unchanged: {reason}");
         }
         Ok(StageOutcome::Stopped) => {
             eprintln!("cmux-tui: output cleanup: stopped; it resumes at the next start");
@@ -214,56 +249,12 @@ fn run_output_cleanup(db_path: &Path, control: &Arc<Control>, pending: &AtomicBo
     false
 }
 
-/// Background QoS on macOS; lowest CPU and idle IO priority for this thread
-/// on Linux. Elsewhere the thread keeps its default priority.
+/// Background QoS on macOS; lowest CPU and idle IO priority for this thread on Linux
+/// (`cmux-interactivity`'s `Maintenance` class, which is background whether or not the person interacts).
 fn lower_thread_priority() {
-    #[cfg(target_vendor = "apple")]
-    // SAFETY: sets the calling thread's own QoS class; no pointers.
-    unsafe {
-        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_BACKGROUND, 0);
-    }
-    #[cfg(target_os = "linux")]
-    // SAFETY: plain syscalls on the calling thread's own id.
-    unsafe {
-        let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
-        libc::setpriority(libc::PRIO_PROCESS, tid, 19);
-        // ioprio_set(IOPRIO_WHO_PROCESS, tid, IOPRIO_CLASS_IDLE).
-        libc::syscall(libc::SYS_ioprio_set, 1, tid, 3 << 13);
-    }
+    cmux_interactivity::lower_current_thread_for_life();
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn worker_blocked_on(lock: Arc<Mutex<()>>) -> OutputCleanupWorker {
-        let control = Arc::new(Control { stopped: Mutex::new(false), changed: Condvar::new() });
-        let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
-        let thread = std::thread::spawn(move || {
-            let _exited = exited_sender;
-            // The final record waits on a lock a stalled journal commit holds.
-            drop(lock.lock().unwrap_or_else(PoisonError::into_inner));
-        });
-        OutputCleanupWorker { control, thread: Some(thread), exited }
-    }
-
-    #[test]
-    fn a_stop_returns_while_the_worker_waits_on_a_held_registry_lock() {
-        let lock = Arc::new(Mutex::new(()));
-        let held = lock.lock().unwrap();
-        let worker = worker_blocked_on(lock.clone());
-        let started = Instant::now();
-        worker.stop(Duration::from_millis(200));
-        assert!(
-            started.elapsed() < Duration::from_secs(2),
-            "a stop waited without a limit for a worker blocked on the registry lock"
-        );
-        drop(held);
-    }
-
-    #[test]
-    fn a_stop_joins_a_worker_that_ends() {
-        let worker = worker_blocked_on(Arc::new(Mutex::new(())));
-        worker.stop(Duration::from_secs(5));
-    }
-}
+#[path = "output_cleanup_tests.rs"]
+mod tests;

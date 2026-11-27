@@ -24,6 +24,7 @@ import {
 import type { AcpmuxActivity, AcpmuxSnapshot } from "../model";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { backgroundTurnLook } from "./backgroundTurnLook.experiment";
 import { incomingPrompt } from "./incomingMessage";
 import { inboxText } from "./inboxNotice";
 
@@ -108,7 +109,9 @@ function allKinds(): AcpmuxSnapshot {
         id: backgroundTurnRowId("spacing-scheduled"),
         background: { id: "spacing-scheduled", trigger: "scheduled", running: false, quiet: true, hasRows: true },
       }),
-      activity([tool("git fetch origin", "execute", "completed", { command: "git fetch origin" })], 8.4, {
+      // A push: a quiet background turn with no effect goes to the composer hat (silentTurns.ts), and
+      // this table measures the turn's own line.
+      activity([tool("git push origin HEAD", "execute", "completed", { command: "git push origin HEAD" })], 8.4, {
         inBackground: "spacing-scheduled",
       }),
       activity(
@@ -176,7 +179,7 @@ const received = (text: string, minutes: number, continues = false) =>
 
 /// Leo's 2026-11-02 capture ("wtf these tool call spacing things are still weird"): a finished
 /// reply's footer, then another machine's lane's message, then the turn it started, its work folded
-/// to "Ran 2 commands, received a message". Every line on one 22px line, its icon in the shared
+/// to "Ran 2 commands, received a message". Every line on one line of the shared row metric, its icon in the shared
 /// column, the sender named once (transcript-received-line.test.ts).
 const peerLines = () => {
   const snapshot = chat(
@@ -215,7 +218,8 @@ const peerLines = () => {
 
 /// Leo's 2026-11-03 04:44Z captures ("this is pretty bad spacing and formatting" / "i thought we made
 /// this stuff smaller"), the bottom of a running Claude Code turn, two ways. `working-bottom`: its
-/// work folded to "Sent a message, ran 3 commands, used 3 tools", a subagent that finished, the live
+/// work in sight as it runs (a message sent, 3 commands, 3 reads; nothing folds before the turn
+/// ends, cmux#38339), a subagent that finished, the live
 /// "Thinking" line and "1 message from 1 session" waiting. `reply-received`: a finished reply, then
 /// another machine's lane's message, the turn it started sending a message on, and "Thinking". Every
 /// one of those status rows sits on the tool rows' 22 pitch, 16 from the prose around them
@@ -488,7 +492,7 @@ export default agentPaneEntry({
       ),
     },
     "working-bottom": {
-      note: 'Leo\'s 2026-11-03 capture, the bottom of a running turn: "Sent a message, ran 3 commands, used 3 tools", a finished subagent, "Thinking" and "1 message from 1 session", each on the 22 pitch.',
+      note: 'Leo\'s 2026-11-03 capture, the bottom of a running turn: its work in sight (a message sent, 3 commands, 3 reads), a finished subagent, "Thinking" and "1 message from 1 session", each on the 22 pitch.',
       snapshot: workingBottom(),
     },
     "reply-received": {
@@ -517,5 +521,10 @@ export default agentPaneEntry({
       note: "A reply's footer, a lane on another machine's message, then \"Ran 2 commands, received a message\": one line height, one icon column, the sender once.",
       snapshot: peerLines(),
     },
+  },
+  // Compare arms: the turn's calls inline (default, Leo 2026-11-11) and the line look these variants first drew.
+  experiment: {
+    definition: backgroundTurnLook,
+    script: [{ name: "hover the first row", run: async (ctx) => ctx.hover({ selector: ".cv-tool" }) }],
   },
 });

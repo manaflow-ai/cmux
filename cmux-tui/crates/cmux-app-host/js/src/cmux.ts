@@ -3,7 +3,7 @@
 // Everything goes through the host's `__cmuxAppNative` ABI; the host checks
 // scopes and grants (the VM is untrusted), this layer only shapes the calls.
 
-import { batch, onCleanup, signal, type Read } from "./reactive.ts"
+import { batch, onAfterFlush, onCleanup, signal, type Read, type Write } from "./reactive.ts"
 
 export interface Native {
   call(name: string, paramsJSON: string, optionsJSON: string, cbId: number): void
@@ -18,6 +18,14 @@ export interface Native {
   paletteBatch?(reqId: number, generation: number, itemsJSON: string, isFinal: boolean, replace: boolean): void
   /** The end of palette request `reqId`: ok `{count}` or the detail, error `{code, message, details?}`. */
   paletteDone?(reqId: number, ok: boolean, json: string): void
+  /** An IANA zone's offset at `atMs`: `{offsetMinutes, abbreviation}` or `{error}` (ABI.md). Hosts with Intl may omit it. */
+  zone?(name: string, atMs: number): string
+  /** Joins the daemon's signals cache entry of (name, params) for `mountId` ("" outside a mount); states arrive at `__cmuxAppWatch` (ABI.md, Signals). */
+  watch?(name: string, paramsJSON: string, mountId: string, everySeconds: number): number
+  /** Leaves a watch, or with `refresh` asks its entry for a read now. */
+  unwatch?(watchId: number, refresh: boolean): void
+  /** Every `cmux.state` value as one JSON object; the host keeps the last one across a reload (ABI.md, Kept state). */
+  keepState?(valuesJSON: string): void
 }
 
 export class CmuxError extends Error {
@@ -50,7 +58,7 @@ export interface CallOptions {
 }
 
 /** Ops the host always provides, whatever the catalog lists. */
-const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show"])
+export const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show", "app.pane.open", "app.pane.close", "app.view.state"])
 
 export interface CallResult<T = unknown> {
   value: T
@@ -70,6 +78,8 @@ export const state = {
   app: { id: "", version: "" },
   /** The active mount's context while its render or event handler runs. */
   context: null as Record<string, unknown> | null,
+  /** The active mount's id while its render or event handler runs (a watch's visibility follows it). */
+  mount: null as string | null,
   apiVersion: "0.0.0",
   allowedOps: null as Set<string> | null,
   knownOps: null as Set<string> | null,
@@ -83,6 +93,44 @@ export const state = {
 const native = (): Native => {
   if (!state.native) throw new CmuxError("app.host", "the cmux host is not attached")
   return state.native
+}
+
+export interface ZoneTime {
+  zone: string
+  /** Minutes east of UTC at that instant (Tokyo 540, New York -240 in summer). */
+  offsetMinutes: number
+  /** The zone's short name at that instant (`JST`, `EDT`); a `GMT+9` style name on a host without the zone database's names. */
+  abbreviation: string
+}
+
+/**
+ * `cmux.time.zone(name, at?)`: QuickJS has no Intl and ignores `toLocaleString`'s
+ * `timeZone`, so the host answers from its IANA database (`__cmuxAppNative.zone`).
+ * Engines with Intl and no native function (JavaScriptCore, test hosts) use Intl.
+ */
+export function timeZone(name: string, at: number = Date.now()): ZoneTime {
+  const zone = String(name)
+  const atMs = Number(at)
+  const nativeZone = state.native?.zone
+  if (nativeZone) {
+    const r = JSON.parse(nativeZone.call(state.native, zone, atMs)) as { offsetMinutes?: number; abbreviation?: string; error?: string }
+    if (r.error !== undefined) throw new CmuxError("zone.unknown", r.error)
+    return { zone, offsetMinutes: r.offsetMinutes ?? 0, abbreviation: r.abbreviation ?? "" }
+  }
+  const intl = (globalThis as { Intl?: typeof Intl }).Intl
+  if (!intl?.DateTimeFormat) throw new CmuxError("operation.unsupported", "this cmux has no time zone database")
+  let parts: Intl.DateTimeFormatPart[]
+  try {
+    parts = new intl.DateTimeFormat("en-US", {
+      timeZone: zone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric", timeZoneName: "short"
+    }).formatToParts(new Date(atMs))
+  } catch {
+    throw new CmuxError("zone.unknown", `${zone} is not an IANA time zone`)
+  }
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0)
+  const wall = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), part("second"))
+  const offsetMinutes = Math.round((wall - Math.floor(atMs / 1000) * 1000) / 60_000)
+  return { zone, offsetMinutes, abbreviation: parts.find((p) => p.type === "timeZoneName")?.value ?? "" }
 }
 
 export function log(level: "debug" | "info" | "warn" | "error", ...parts: unknown[]): void {
@@ -269,8 +317,77 @@ export const theme = Object.freeze({
 export interface ToastOptions {
   title: string
   message?: string
-  /** `success`, `warning` or `danger`; omitted is a plain notice. */
+  /** `success`, `warning`, `danger` or `working` (a spinner until the app's next toast replaces it in place); omitted is a plain notice. */
   tone?: string
+}
+
+/** `cmux.state`: the values the last host kept (`init.state`), the signals made so far, and what goes to the host. */
+const kept = {
+  seed: {} as Record<string, unknown>,
+  values: Object.create(null) as Record<string, unknown>,
+  signals: new Map<string, { pair: [Read<unknown>, Write<unknown>]; set: Write<unknown> }>(),
+  dirty: false
+}
+
+/** `__cmuxAppInit`: the values a previous host of this app kept (a reload); every key stays kept until written.
+ * A signal the script's top level already made takes its seeded value. */
+export function seedKeptState(values: unknown) {
+  const seed = values && typeof values === "object" && !Array.isArray(values) ? (values as Record<string, unknown>) : {}
+  kept.seed = { ...seed }
+  kept.values = { ...kept.values, ...seed }
+  let restored = false
+  for (const [name, entry] of kept.signals) {
+    if (Object.prototype.hasOwnProperty.call(seed, name)) {
+      entry.set(seed[name])
+      restored = true
+    }
+  }
+  // A top-level signal can be created before init. Its restored value must be
+  // mirrored back after seeding, even when no later write occurs.
+  if (restored) kept.dirty = true
+}
+
+// One message per flush, after every effect settled: the host keeps the last object it got.
+onAfterFlush(() => {
+  if (!kept.dirty) return
+  kept.dirty = false
+  const keep = state.native?.keepState
+  if (!keep) return
+  let json: string
+  try {
+    json = JSON.stringify(kept.values)
+  } catch (e) {
+    log("warn", `cmux.state: the values are not JSON (${e instanceof Error ? e.message : String(e)}); not kept`)
+    return
+  }
+  keep.call(state.native, json)
+})
+
+/**
+ * `cmux.state(key, initial)`: a signal the host keeps across a reload of the app (`cmux ext dev`, a
+ * save in a local app's folder). It starts at the value the last host kept under `key`, else at
+ * `initial`. Values must be JSON; all keys together at most 64 KiB and 256 keys. In memory only:
+ * a crash, an uninstall or a daemon restart starts over (use `cmux.storage` for what must persist).
+ * The same key gives the same signal.
+ */
+export function keptState<T>(key: string, initial: T): [Read<T>, Write<T>] {
+  const name = String(key)
+  const have = kept.signals.get(name)
+  if (have) return have.pair as unknown as [Read<T>, Write<T>]
+  const start = Object.prototype.hasOwnProperty.call(kept.seed, name) ? (kept.seed[name] as T) : initial
+  const [read, write] = signal<T>(start)
+  const keep: Write<T> = (next) => {
+    write(next)
+    const value = read.peek()
+    if (Object.prototype.hasOwnProperty.call(kept.values, name) && Object.is(kept.values[name], value)) return
+    Object.defineProperty(kept.values, name, { value, writable: true, enumerable: true, configurable: true })
+    kept.dirty = true
+    // A write with no reader schedules no flush; the host still hears of it on the next one.
+    batch(() => {})
+  }
+  const pair: [Read<T>, Write<T>] = [read, keep]
+  kept.signals.set(name, { pair: pair as unknown as [Read<unknown>, Write<unknown>], set: write as Write<unknown> })
+  return pair
 }
 
 /** Members other modules add to every `cmux` object (`palette`, `act`); set once by index.ts. */
@@ -334,6 +451,8 @@ export function createCmux(gesture: () => string | undefined): Record<string, un
       get: (_t, provider) => (typeof provider === "string" ? { request: (params: Record<string, unknown>) => c("integration.request", { provider, ...params }) } : undefined)
     }),
     timer: { after: (ms: number, fn: () => void) => setTimer(ms, false, fn), every: (ms: number, fn: () => void) => setTimer(ms, true, fn), clear: clearTimer },
+    time: { zone: timeZone },
+    state: keptState,
     app: {
       get id() {
         return state.app.id
@@ -350,7 +469,22 @@ export function createCmux(gesture: () => string | undefined): Record<string, un
       settings: Object.assign(() => state.settings[0](), {
         set: (values: Record<string, unknown>) => c("app.settings.set", { values })
       }),
-      context: () => state.context ?? {}
+      context: () => state.context ?? {},
+      /** Opens this app's own pane (`cmux.pane/1`) with `args` (its mount context's `args`) and resolves
+       * with what the pane returns through `ctx.close(result)`: `{result, dismissed: false}`, or
+       * `{result: null, dismissed: true}` when the person closes the pane first or a newer open replaces this one.
+       * Opening the tab is a view change: call it from a user event handler (or pass `options.gesture`). */
+      openPane: async (args: Record<string, unknown> = {}, options: CallOptions = {}) => {
+        const waiting = c<{ result: unknown; dismissed: boolean }>("app.pane.open", { args })
+        try {
+          await c("action.run", { id: "app.open", args: { app: state.app.id } }, options)
+        } catch (e) {
+          await c("app.pane.close", {}).catch(() => undefined)
+          await waiting.catch(() => undefined)
+          throw e
+        }
+        return waiting
+      }
     },
     theme,
     /** A short notice at the bottom of the window, drawn by the app's own toast presenter. One slot per app: a new toast replaces the app's last. */

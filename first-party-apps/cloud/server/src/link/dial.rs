@@ -1,62 +1,55 @@
-//! The one adapter to `cmux link dial` (lane 12, link slice 2): the argv
-//! of one dial, and the reply line the dial writes on its stderr. Only
-//! this file knows that seam. Contract (lane 12, `cmux link dial`,
-//! cmux-tui/spec/cli.md, landed 227dd67c2fe): argv
-//! `link dial --host <host_…> --socket <hub_socket>` (service defaults to
-//! daemon; `--socket` from 70da4b7ef87: a missing socket = exit 6
-//! link_unavailable, a non-socket = 64 bad_request), exactly one
-//! JSON reply line on stderr first (any key order; `link_unavailable` when
-//! no link runs), then the stream on stdin/stdout. A missing or non-JSON
-//! line (an older link) is read as unavailable. Exit codes (0 ok, 2..6,
-//! 64) are not read: the reply line already carries the same answer.
+//! The one adapter to the Mac app's carrier (design/cloud-carrier.md): the
+//! socket the app hands this server for a machine, and how its refusals
+//! read. Only this file knows that seam.
 //!
-//! `cmux link dial --host <host_…>` is a stdio bridge to the host's daemon
-//! service: after one JSON reply line on stderr (`{"ok":true,
-//! "path_state":...}` or `{"ok":false,"error_code":...}`), stdin and stdout
-//! carry the daemon stream. The link resolves the host through
-//! `cloud.machine.connect_info` and mints one `cloud.machine.link_token`
-//! per dial itself: no token, key or route ever reaches this server.
+//! The server never dials and never holds a credential. For each new link
+//! it asks the host for the machine's carrier socket with one `relay.carrier
+//! {machine}` line (crate::api::relay). The daemon routes it to the Mac
+//! app's `credential` provider as `credential.carrier_socket {machine}`; the
+//! app makes sure its own `cmux carrier serve --machine <vm_…> --socket …`
+//! child for that machine runs (the one its Cloud session uses, with the
+//! person's credential in that child only) and answers `{"socket": PATH}`:
+//! the absolute path of that child's 0600 socket, nothing else. Each
+//! connection to the socket is one carrier dial of the machine's `mux`
+//! service; its bytes are the daemon stream (`cmux.protocol/2` lines). A
+//! dial that `carrier serve` refuses closes that connection having written
+//! nothing (the app sees the refusal on the child's stderr).
+//!
+//! A refused ask is a wire error whose `code` is a `cmux carrier` step
+//! (`ticket`, `relay`, `parked_timeout`, `handshake`, `service_refused`,
+//! `bad_request`, `socket`), `cloud.machine.not_found` (the app has no
+//! session of that machine) or `unavailable`; [`DialCode::from_carrier`]
+//! reads it.
 
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 
-/// The longest reply line the dial writes (`cmux_link::dial::MAX_LINE_BYTES`).
-pub const MAX_REPLY_BYTES: usize = 1024;
+/// `sun_path` is 104 bytes on macOS (one for the NUL).
+const MAX_SOCKET_PATH: usize = 103;
 
-/// The argv (after the binary) of one dial to the daemon service of
-/// `host` through the link listening on `socket` (the host's `hub_socket`).
-/// The dial child has a private HOME, so it must be told the link's socket
-/// (`--socket`, lane 12 70da4b7ef87): a registration lookup would find
-/// nothing there, and a tagged or dev link is not at the default path.
-pub fn dial_args(host: &str, socket: &std::path::Path) -> Vec<String> {
-    vec![
-        "link".into(),
-        "dial".into(),
-        "--host".into(),
-        host.to_owned(),
-        "--socket".into(),
-        socket.to_string_lossy().into_owned(),
-    ]
-}
-
-/// Why `link.dial` refused (`DialError` of cmux-link, snake case).
+/// Why a link to the machine could not be had. The names ([`Self::as_str`])
+/// are the server's own vocabulary on its event lines (super::argv); the
+/// carrier's step codes map onto them ([`Self::from_carrier`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DialCode {
     /// The machine is paused: start it (`cloud.machine.start`) and dial again.
     HostPaused,
-    /// No Cloud machine names this host.
+    /// No Cloud machine of the signed-in team has this id.
     UnknownHost,
-    /// This install may not reach the host or service (policy or token).
+    /// This person may not reach the machine or the service (no grant).
     NotAuthorized,
-    /// No path answered.
+    /// The carrier did not get through (relay, park or handshake), or the
+    /// app's carrier socket stopped answering.
     Unreachable,
-    /// The dial line was malformed (a version skew between this server and the link).
+    /// The ask was malformed (a version skew between this server and the app).
     BadRequest,
-    /// The link did not answer a reply line (not running, crashed, an
-    /// unknown code): the text says what came instead.
+    /// The app gave no usable answer: the text says what came instead.
     Unavailable(String),
 }
 
 impl DialCode {
+    /// The server's own name (from [`Self::as_str`]) back to its code, for
+    /// the carrier's event lines.
     pub fn parse(code: &str) -> Self {
         match code {
             "host_paused" => Self::HostPaused,
@@ -64,13 +57,40 @@ impl DialCode {
             "not_authorized" => Self::NotAuthorized,
             "unreachable" => Self::Unreachable,
             "bad_request" => Self::BadRequest,
-            // Coming in lane 12's next slice: the link always writes a line.
-            "link_unavailable" => Self::Unavailable("cmux link is not running".into()),
-            other => Self::Unavailable(format!("cmux link answered {other:?}")),
+            other => Self::Unavailable(format!("the carrier answered {other:?}")),
         }
     }
 
-    /// The code as the dial wrote it (for the carrier's event line).
+    /// A refusal of the app's carrier: a `cmux carrier` step code (and its
+    /// detail), mapped as the sidebar reads them. `ticket` is the platform
+    /// refusing a ticket or grant: a paused machine when the detail says so,
+    /// else no access. `relay`, `parked_timeout` and `handshake` did not get
+    /// through. `service_refused` is the daemon refusing the grant.
+    pub fn from_carrier(code: &str, detail: Option<&str>) -> Self {
+        match code {
+            "ticket" if detail.is_some_and(|d| d.to_ascii_lowercase().contains("paused")) => {
+                Self::HostPaused
+            }
+            "ticket" | "service_refused" => Self::NotAuthorized,
+            "relay" | "parked_timeout" | "handshake" => Self::Unreachable,
+            "bad_request" => Self::BadRequest,
+            "cloud.machine.not_found" => Self::UnknownHost,
+            "socket" => {
+                Self::Unavailable("another cmux is serving this machine's carrier socket".into())
+            }
+            "unavailable" => Self::Unavailable(
+                detail
+                    .and_then(clip_detail)
+                    .unwrap_or_else(|| "the cmux app has no carrier".into()),
+            ),
+            other => Self::Unavailable(format!(
+                "the cmux app refused the carrier: {other}{}",
+                detail.and_then(clip_detail).map(|d| format!(" ({d})")).unwrap_or_default()
+            )),
+        }
+    }
+
+    /// The server's name of the code (the carrier's event lines).
     pub fn as_str(&self) -> &str {
         match self {
             Self::HostPaused => "host_paused",
@@ -88,8 +108,8 @@ impl DialCode {
     }
 }
 
-/// A refused dial: its typed code and, when the link sent one, the
-/// `error_detail` that says what failed (which lookup, which handshake).
+/// A refused link: its typed code and, when one came, the detail that says
+/// what failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refusal {
     pub code: DialCode,
@@ -102,12 +122,12 @@ impl From<DialCode> for Refusal {
     }
 }
 
-/// The longest `error_detail` kept, in bytes: one display line.
+/// The longest detail kept, in bytes: one display line.
 const MAX_DETAIL_BYTES: usize = 300;
 
-/// The link's `error_detail`, one line of at most [`MAX_DETAIL_BYTES`]
-/// (cut on a character boundary, control characters dropped); None when it
-/// is absent or empty.
+/// A detail as one line of at most [`MAX_DETAIL_BYTES`] (cut on a
+/// character boundary, control characters dropped); None when it is absent
+/// or empty.
 pub fn clip_detail(text: &str) -> Option<String> {
     let mut kept = String::new();
     for c in text.chars().filter(|c| !c.is_control()) {
@@ -120,44 +140,104 @@ pub fn clip_detail(text: &str) -> Option<String> {
     (!line.is_empty()).then(|| line.to_owned())
 }
 
-/// The dial's reply line.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DialReply {
-    /// The stream is up; `path_state` is `direct`, `relay` or `tunnel`.
-    Connected {
-        path_state: String,
-    },
-    Refused(Refusal),
+/// The value of a `credential.carrier_socket` answer: `{"socket": PATH}`,
+/// an absolute path that fits a Unix socket address, with no `..` part and
+/// no control characters. Any other key is ignored (no credential is ever
+/// read from it).
+pub fn socket_answer(value: &Value) -> Result<PathBuf, Refusal> {
+    let bad = |why: &str| Refusal::from(DialCode::Unavailable(format!("the cmux app {why}")));
+    let text = value
+        .get("socket")
+        .and_then(Value::as_str)
+        .ok_or_else(|| bad("answered no carrier socket"))?;
+    let path = Path::new(text);
+    if !path.is_absolute()
+        || text.len() > MAX_SOCKET_PATH
+        || text.chars().any(char::is_control)
+        || path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(bad("answered a carrier socket that is not a usable socket path"));
+    }
+    Ok(path.to_path_buf())
 }
 
-/// Reads the dial's first stderr line. Anything that is not a reply (an
-/// error text of a link that does not run, an empty line) is
-/// [`DialCode::Unavailable`] with that text, cut to a short display.
-pub fn parse_reply(line: &str) -> DialReply {
-    let text = line.trim();
-    let Ok(value) = serde_json::from_str::<Value>(text) else {
-        let shown: String = text.chars().take(200).collect();
-        return DialReply::Refused(
-            DialCode::Unavailable(if shown.is_empty() {
-                "cmux link gave no reply".into()
-            } else {
-                format!("cmux link: {shown}")
-            })
-            .into(),
-        );
-    };
-    match value["ok"].as_bool() {
-        Some(true) => DialReply::Connected {
-            path_state: value["path_state"].as_str().unwrap_or("direct").to_owned(),
-        },
-        Some(false) => DialReply::Refused(Refusal {
-            code: value["error_code"]
-                .as_str()
-                .map_or_else(|| DialCode::Unavailable("cmux link refused".into()), DialCode::parse),
-            detail: value["error_detail"].as_str().and_then(clip_detail),
-        }),
-        None => {
-            DialReply::Refused(DialCode::Unavailable("cmux link sent no ok field".into()).into())
+/// A wire error of the ask as a refusal (its code read by
+/// [`DialCode::from_carrier`], its message kept as the detail).
+pub fn ask_refusal(code: &str, message: &str) -> Refusal {
+    Refusal { code: DialCode::from_carrier(code, Some(message)), detail: clip_detail(message) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn every_carrier_step_maps_onto_a_dial_code() {
+        for (code, detail, expected) in [
+            ("ticket", Some("the platform answered 403"), DialCode::NotAuthorized),
+            ("ticket", Some("the machine is paused"), DialCode::HostPaused),
+            ("ticket", None, DialCode::NotAuthorized),
+            ("relay", None, DialCode::Unreachable),
+            ("parked_timeout", None, DialCode::Unreachable),
+            ("handshake", Some("the daemon key differs"), DialCode::Unreachable),
+            ("service_refused", None, DialCode::NotAuthorized),
+            ("bad_request", None, DialCode::BadRequest),
+            ("cloud.machine.not_found", None, DialCode::UnknownHost),
+        ] {
+            assert_eq!(DialCode::from_carrier(code, detail), expected, "{code} {detail:?}");
         }
+        assert!(matches!(DialCode::from_carrier("socket", None), DialCode::Unavailable(_)));
+        assert!(matches!(
+            DialCode::from_carrier("unavailable", Some("no bundled cmux-tui")),
+            DialCode::Unavailable(why) if why == "no bundled cmux-tui"
+        ));
+        assert!(matches!(
+            DialCode::from_carrier("credential.app_refused", Some("only cmux/cloud")),
+            DialCode::Unavailable(why) if why.contains("credential.app_refused")
+        ));
+    }
+
+    #[test]
+    fn the_servers_own_names_round_trip() {
+        for code in [
+            DialCode::HostPaused,
+            DialCode::UnknownHost,
+            DialCode::NotAuthorized,
+            DialCode::Unreachable,
+            DialCode::BadRequest,
+        ] {
+            assert_eq!(DialCode::parse(code.as_str()), code);
+        }
+    }
+
+    #[test]
+    fn a_socket_answer_is_one_absolute_socket_path() {
+        assert_eq!(
+            socket_answer(&json!({ "socket": "/tmp/cmux-501/cmux-link-0123456789ab.sock" })),
+            Ok(PathBuf::from("/tmp/cmux-501/cmux-link-0123456789ab.sock"))
+        );
+        let long = format!("/tmp/{}.sock", "a".repeat(100));
+        for bad in [
+            json!({}),
+            json!({ "socket": 3 }),
+            json!({ "socket": "cmux-link.sock" }),
+            json!({ "socket": "/tmp/../etc/cmux.sock" }),
+            json!({ "socket": "/tmp/cmux\n.sock" }),
+            json!({ "socket": long }),
+        ] {
+            let refused = socket_answer(&bad);
+            assert!(
+                matches!(&refused, Err(Refusal { code: DialCode::Unavailable(_), .. })),
+                "{bad}: {refused:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_ask_refusal_keeps_the_message_as_its_detail() {
+        let refusal = ask_refusal("parked_timeout", "the machine's daemon never registered");
+        assert_eq!(refusal.code, DialCode::Unreachable);
+        assert_eq!(refusal.detail.as_deref(), Some("the machine's daemon never registered"));
     }
 }

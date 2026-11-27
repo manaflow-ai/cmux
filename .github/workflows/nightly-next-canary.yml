@@ -3,17 +3,15 @@ name: nightly-next canary
 # The post-publication artifact verifier for cmux NEXT (docs/ci/nightly-next-canary.md).
 # Every 15 minutes it reads the cmux NEXT feed and, for a build it has not
 # checked yet, downloads that exact DMG from the feed and checks its digest,
-# Gatekeeper and notary tickets on a CI Mac. It runs no app or CLI code.
+# Gatekeeper and notary tickets on a CI Mac. A scheduled check also samples the verified release on that Mac.
 #
 # Repository variable NIGHTLY_NEXT_CANARY controls whether this advisory artifact
 # monitor runs (`off` disables it). The mode resolver is retained for compatibility
-# with the existing report-week setting; this workflow never launches app code or
-# mutates the feed.
+# with the existing report-week setting. The felt-latency verdict is advisory.
 # A schedule runs only from the default branch, so this file lives on main. A pull request that changes the verifier runs it on
 # the newest feed build and pulls nothing.
 #
-# This is a post-publication artifact check only; runtime behavior belongs to
-# the path-routed daemon/app integration lane.
+# Pull requests run the static verifier. Only scheduled and manually selected releases are measured.
 on:
   schedule:
     - cron: "3,18,33,48 * * * *"
@@ -44,13 +42,13 @@ env:
   NIGHTLY_NEXT_VERDICTS_BASE: https://files-next.cmux.com/nightly-next/next
   # Bumping it verifies every feed build again.
   CANARY_CACHE_PREFIX: nightly-next-canary-v1-
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_CANARY != 'off' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -58,6 +56,7 @@ jobs:
     outputs:
       build: ${{ steps.feed.outputs.build }}
       url: ${{ steps.feed.outputs.url }}
+      earlier: ${{ steps.feed.outputs.earlier }}
       length: ${{ steps.feed.outputs.length }}
       # The item's sparkle:edSignature, which the downloaded DMG's bytes must verify against.
       ed_signature: ${{ steps.feed.outputs.ed_signature }}
@@ -69,7 +68,7 @@ jobs:
       checked: ${{ steps.seen.outputs.cache-hit == 'true' && steps.durable.outputs.written == 'true' }}
       mode: ${{ steps.mode.outputs.mode }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -77,9 +76,10 @@ jobs:
             scripts/ci/nightly_next_artifact_check.py
             scripts/ci/nightly_next_fix_forward.py
             scripts/ci/release-signer/verify_appcast_item.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
-      # Resolve the compatibility mode; this workflow only performs static checks.
+      # Resolve the existing canary mode.
       - name: Resolve the canary mode
         id: mode
         env:
@@ -108,6 +108,7 @@ jobs:
                   signature = re.search(r'\ssparkle:edSignature="([^"]*)"', enclosure.group(0))
                   items.append((int(version.group(1)), enclosure.group(1), enclosure.group(2),
                                 signature.group(1) if signature else ""))
+          builds = {item[0] for item in items}
           if wanted:
               items = [i for i in items if str(i[0]) == wanted]
           if not items:
@@ -117,6 +118,7 @@ jobs:
           if not url.startswith(("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
                                  "https://files-next.cmux.com/nightly-next/")):
               sys.exit(f"{url} is not a nightly-next download")
+          print("earlier=" + " ".join(str(b) for b in sorted(builds, reverse=True) if b < build))
           print(f"build={build}\nurl={url}\nlength={length}\ned_signature={signature}")
           PY
           cat "$GITHUB_OUTPUT"
@@ -171,11 +173,11 @@ jobs:
     name: canary ${{ needs.pick.outputs.build }}
     needs: pick
     if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true' && needs.pick.outputs.source_commit != ''
-    # No secrets: this job inspects the published artifact only. An owned Mac's
-    # side label on attempt 1 (a side lane: owned_pool_rescue.SIDE_WORKFLOW_PATHS
-    # on main re-runs a refused job), Blacksmith macOS 26 from attempt 2 on. Never
+    # No secrets: this job checks and samples the published artifact. cmux-mac, the one
+    # own-branch Mac label; Blacksmith macOS only through the vars.CI_OVERFLOW_MAC
+    # switch or for a fork pull request. Never
     # a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 35
     permissions:
       contents: read
@@ -187,7 +189,7 @@ jobs:
       verdict: ${{ steps.run.outputs.verdict }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       BUILD: ${{ needs.pick.outputs.build }}
       DMG_URL: ${{ needs.pick.outputs.url }}
       DMG_LENGTH: ${{ needs.pick.outputs.length }}
@@ -195,7 +197,7 @@ jobs:
       SOURCE_COMMIT: ${{ needs.pick.outputs.source_commit }}
       SOURCE_COMMIT_FROM: ${{ needs.pick.outputs.source_commit_from }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -257,8 +259,14 @@ jobs:
           check "the app's source commit" '^::error title=nightly-next app commit::' \
             python3 -I scripts/ci/nightly_next_artifact_check.py commit --plist "$app/Contents/Info.plist" \
             --expected "$SOURCE_COMMIT" --expected-source "$SOURCE_COMMIT_FROM"
-          check "the app's notary ticket" "$stapled" xcrun stapler validate "$app"
           check "Gatekeeper" ': rejected' spctl -a -vv --type execute "$app"
+          # The app carries its own ticket (two notary rounds), or only the DMG does (one round,
+          # CMUX_STAPLE_APP_IN_DMG=false in nightly-next-one): then Gatekeeper must still call the app
+          # notarized, which for an app with no stapled ticket is Apple's online answer.
+          if ! xcrun stapler validate "$app"; then
+            check "the app's notarization" 'not notarized' bash -c \
+              'spctl -a -vv --type execute "$1" 2>&1 | grep -Fq "source=Notarized Developer ID" || { echo "not notarized: $1"; exit 1; }' _ "$app"
+          fi
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" || cannot "could not read CFBundleVersion"
           [ "$version" = "$BUILD" ] || invalid "the DMG holds build $version, the feed says $BUILD"
           echo "app=$app" >> "$GITHUB_OUTPUT"
@@ -294,12 +302,68 @@ jobs:
               ;;
           esac
 
+      # Pin the Release harness so both sides of a comparison run the same workload.
+      - name: Check out the latency harness
+        id: felt_tools
+        if: steps.run.outputs.verdict == 'pass' && github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: eb38f56ac306114ff55f63898e0da1808cc9db27
+          path: felt-tools
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+            cmux-tui/crates/acpmux/tests
+
+      - name: Sample five warm terminal relaunches of the verified DMG
+        id: sample
+        if: steps.felt_tools.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          source felt-tools/scripts/ci/lib/signing-runtime-guard.sh
+          cmux_signing_runtime_guard
+          out="$(mktemp -d "$RUNNER_TEMP/canary-tti.XXXXXX")"
+          chmod 0777 "$out" # the harness runs in the runner's Aqua session
+          echo "TTI_DIR=$out" >> "$GITHUB_ENV"
+          plan=warm:terminal,warm:terminal,warm:terminal,warm:terminal,warm:terminal
+          felt-tools/scripts/ci/frame-pacing/console-session.sh python3 -I \
+            "$GITHUB_WORKSPACE/felt-tools/scripts/ci/launch_tti_check.py" --dmg "$RUNNER_TEMP/canary.dmg" \
+            --workspaces 3 --chats 1 --input in_app --plan "$plan" --out "$out"
+
+      - name: Record the felt-latency verdict
+        id: felt
+        if: always() && !cancelled() && steps.run.outputs.verdict == 'pass' && github.event_name != 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          EARLIER: ${{ needs.pick.outputs.earlier }}
+          HARNESS_OUTCOME: ${{ steps.sample.outcome }}
+        run: |
+          set -euo pipefail
+          machine="$(sysctl -n hw.model)/$(sysctl -n machdep.cpu.brand_string)/$(sw_vers -buildVersion)"
+          python3 -I scripts/ci/nightly_next_canary_latency.py report \
+            --build "$BUILD" --source-commit "$SOURCE_COMMIT" --machine "$machine" --earlier "$EARLIER" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --harness-outcome "$HARNESS_OUTCOME" --tti "${TTI_DIR:-$RUNNER_TEMP/no-tti}/tti.json" --out "$RUNNER_TEMP/canary-latency.json"
+
+      - name: Keep the measurements with this canary run
+        if: steps.felt.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-latency-${{ env.BUILD }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/canary-latency.json
+          if-no-files-found: error
+
   verdict:
     # The name carries the static-artifact verdict.
     name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}
     needs: [pick, canary]
     if: always() && github.event_name == 'schedule' && needs.canary.outputs.verdict != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-verdict.yml

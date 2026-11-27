@@ -1,36 +1,12 @@
 // A new chat's extra folders reach acpmux in its `session/new` (`additionalDirectories`, cmux#32811),
 // on this Mac and on another machine, and belong to that one start: the next new chat starts with none.
 import { expect, test } from "bun:test";
-import { AcpmuxDirectClient, OrderedRows } from "../src/agent-session/acpmux/direct";
+import type { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { directClientStub } from "./support/directClientStub";
 
 function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
-  const client = Object.create(AcpmuxDirectClient.prototype) as AcpmuxDirectClient;
-  Object.assign(client as unknown as Record<string, unknown>, {
-    host: {},
-    selectionGeneration: 0,
-    trustCancellation: 0,
-    closed: false,
-    replayMode: false,
-    fedMode: false,
-    disposed: false,
-    rows: new OrderedRows(),
-    sessions: [],
-    askedSessions: [],
-    asks: { sessions: () => undefined, list: () => [] },
-    extensions: [],
-    handoff: { state: {} },
-    permissions: {
-      state: { supported: false, ready: false, groups: [], chatAllowance: false, loading: false, busy: false },
-    },
-    queue: [],
-    queueWithdrawn: [],
-    waitingSteers: [],
-    listener: () => undefined,
-    subagents: {
-      progressSource: { structureVersion: 0, takeChangedProgress: () => ({}) },
-      views: () => [],
-    },
+  const client = directClientStub({
     request: async (method: string, params: Record<string, unknown>) => {
       if (method === "session/new") sent.push(params);
       return { sessionId: `s${sent.length}` };

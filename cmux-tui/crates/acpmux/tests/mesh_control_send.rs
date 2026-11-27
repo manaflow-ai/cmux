@@ -1,7 +1,7 @@
 //! Real daemon RPC dispatch to the shared mesh sender; no HTTP credentials or agent processes.
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::Config;
 use acpmux::hub::Hub;
@@ -84,7 +84,7 @@ impl Rpc {
 async fn local_controls_use_shared_mesh_wire_and_keep_queued_distinct_from_executed() {
     let hub = Hub::new(Config::default(), Box::new(acpmux::store::MemoryStore::default()));
     let mesh = Arc::new(FakeMesh::default());
-    assert!(hub.mesh.set(mesh.clone()).is_ok());
+    hub.mesh.set(mesh.clone());
     let mut local = Rpc::new(&hub, Origin::Local);
     local.call(method::INITIALIZE, json!({})).await;
     for (op, to) in [
@@ -141,8 +141,10 @@ async fn a_top_level_session_id_cannot_forward_mesh_enqueue_to_a_peer() {
     let count = forwarded.clone();
     let server = tokio::spawn(async move {
         let (tcp, _) = listener.accept().await.unwrap();
-        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
-        while let Some(Ok(Ws::Text(text))) = ws.next().await {
+        let mut ws = acpmux::server::accept_ws(tcp).await.unwrap();
+        // Non-text frames (the client's pings, #38015) are not requests: skip them.
+        while let Some(Ok(frame)) = ws.next().await {
+            let Ws::Text(text) = frame else { continue };
             let Ok(Message::Request { id, method: name, .. }) = Message::parse(&text) else {
                 continue;
             };
@@ -166,7 +168,7 @@ async fn a_top_level_session_id_cannot_forward_mesh_enqueue_to_a_peer() {
     let config = Config::default();
     let hub = Hub::new(config.clone(), Box::new(acpmux::store::MemoryStore::default()));
     let mesh = Arc::new(FakeMesh::default());
-    assert!(hub.mesh.set(mesh.clone()).is_ok());
+    hub.mesh.set(mesh.clone());
     // A lease keeps the fake peer out of the user's config and ends explicitly below.
     let (lease, mut settled) = hub
         .lease_peer("other", &format!("ws://{address}"), "test-token".into(), None, false, &config)
@@ -190,4 +192,115 @@ async fn a_top_level_session_id_cannot_forward_mesh_enqueue_to_a_peer() {
     assert_eq!(reply["result"]["state"], "queued", "{reply}");
     assert_eq!(mesh.0.lock().unwrap().len(), 1);
     assert_eq!(forwarded.load(Ordering::SeqCst), 0);
+}
+
+/// A start through the mesh hub (`cmux chat --on MACHINE`, `acpmux session start --machine`)
+/// carries the person's start level as a start through an ssh peer does: full access as
+/// approve-all, `standard` and `ask` with no policy (the machine starts it asking); a start that
+/// names its own policy or a mode keeps it (hq#11835 row 4).
+#[tokio::test]
+async fn a_mesh_start_carries_the_persons_start_level() {
+    let _ = &HERMETIC;
+    for (level, want) in
+        [("fullAccess", json!("approve-all")), ("standard", Value::Null), ("ask", Value::Null)]
+    {
+        let config: Config =
+            serde_json::from_value(json!({"defaultPermissionMode": level})).unwrap();
+        let hub = Hub::new(config, Box::new(acpmux::store::MemoryStore::default()));
+        let mesh = Arc::new(FakeMesh::default());
+        hub.mesh.set(mesh.clone());
+        let mut local = Rpc::new(&hub, Origin::Local);
+        local.call(method::INITIALIZE, json!({})).await;
+        for (key, meta, want) in [
+            ("plain", json!({"harness": "claude"}), want.clone()),
+            ("named", json!({"harness": "claude", "policy": "ask"}), json!("ask")),
+            ("mode", json!({"harness": "claude", "mode": "default"}), Value::Null),
+        ] {
+            let reply = local
+                .call(
+                    method::MUX_MESH_CONTROL,
+                    json!({
+                        "op": "start", "to": {"host": "worker"},
+                        "idempotencyKey": format!("level-{level}-{key}"),
+                        "params": {"cwd": "/remote", "_meta": {"acpmux": meta}},
+                    }),
+                )
+                .await;
+            assert_eq!(reply["result"]["state"], "queued", "{level} {key}: {reply}");
+            let sent = mesh.0.lock().unwrap().last().cloned().unwrap();
+            let body: Value = serde_json::from_str(&sent.body).unwrap();
+            assert_eq!(body["params"]["_meta"]["acpmux"]["policy"], want, "{level} {key}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_mesh_start_cannot_widen_an_asking_callers_policy() {
+    let _ = &HERMETIC;
+    let config: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {
+            "argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")],
+            "env": {"FAKE_FULL_ACCESS": "1"}
+        }},
+        "defaultHarness": "fake", "permissionPolicy": "ask",
+        "defaultPermissionMode": "standard", "store": {"mode": "memory"}
+    }))
+    .unwrap();
+    let hub = Hub::new(config, Box::new(acpmux::store::MemoryStore::default()));
+    let mesh = Arc::new(FakeMesh::default());
+    hub.mesh.set(mesh.clone());
+    let mut app = Rpc::new(&hub, Origin::LocalApp);
+    app.call(method::INITIALIZE, json!({})).await;
+    for (own, mode, may_widen) in [("ask", "strict", false), ("approve-all", "full-access", true)] {
+        let created = app
+            .call(
+                method::SESSION_NEW,
+                json!({
+                    "cwd": std::env::temp_dir(), "mcpServers": [],
+                    "_meta": {"acpmux": {"policy": own}}
+                }),
+            )
+            .await;
+        let id = created["result"]["sessionId"].as_str().expect("starter created");
+        let changed = app.call(method::SESSION_PROMPT, json!({
+            "sessionId": id, "prompt": [{"type": "text", "text": format!("set-mode: {mode}")}]
+        })).await;
+        assert!(changed["error"].is_null(), "{changed}");
+        let mut agent = Rpc::new(&hub, Origin::Local);
+        let token = acpmux::hub::person::caller_token(id);
+        agent
+            .call(
+                method::INITIALIZE,
+                json!({"_meta": {"acpmux": {
+                    "callerSession": {"sessionId": id, "token": token}
+                }}}),
+            )
+            .await;
+        for nested in [
+            json!({"policy": "approve-all"}),
+            json!({"_meta": {"acpmux": {"policy": "approve-all"}}}),
+        ] {
+            let before = mesh.0.lock().unwrap().len();
+            let reply = agent
+                .call(
+                    method::MUX_MESH_CONTROL,
+                    json!({
+                        "op": "start", "to": {"host": "worker"},
+                        "idempotencyKey": format!("width-{own}-{before}"), "params": nested
+                    }),
+                )
+                .await;
+            if may_widen {
+                assert_eq!(reply["result"]["state"], "queued", "{reply}");
+                assert_eq!(mesh.0.lock().unwrap().len(), before + 1);
+            } else {
+                assert_eq!(
+                    reply["error"]["data"]["reason"], "permission.person_required",
+                    "{reply}"
+                );
+                assert_eq!(mesh.0.lock().unwrap().len(), before, "refused start reached the mesh");
+            }
+        }
+    }
+    hub.shutdown_all().await;
 }

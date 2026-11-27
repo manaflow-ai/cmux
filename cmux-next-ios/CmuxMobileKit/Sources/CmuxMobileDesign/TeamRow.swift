@@ -1,36 +1,36 @@
 #if os(iOS)
 import SwiftUI
+import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
-/// A team row (SPEC 3.3): 36 pt avatar, team name, and up to five Mac presence
-/// dots (green online, gray offline) followed by "+N". 60 pt tall; the selected
-/// row gets a `fillSelected` rounded background.
+/// A team row (SPEC 3.3): 36 pt avatar, team name, and one dot for the team's current
+/// computer (Mac or Cloud VM), green when reachable, red when not, with its name: not a dot
+/// per computer nor a count of them (Leo, 2026-11-24: "red dot green dot when you switch
+/// between your computers' stuff ... i dont need to see the others"). 60 pt tall; the
+/// selected row gets a `fillSelected` rounded background.
 public struct SidebarTeamRow: View {
     let name: String
     let colorHex: String?
     let emoji: String?
     let transparent: Bool
-    let dots: [Bool]
-    let overflow: Int
-    let onlineCount: Int
+    /// The team's current computer: its name and whether it is reachable (`ComputerDots.team`). Nil: no computers.
+    let computer: (name: String, isUp: Bool)?
     let isSelected: Bool
 
-    public init(name: String, colorHex: String?, emoji: String?, transparent: Bool = false, dots: [Bool], overflow: Int, onlineCount: Int, isSelected: Bool) {
+    public init(name: String, colorHex: String?, emoji: String?, transparent: Bool = false, computer: (name: String, isUp: Bool)?,
+                isSelected: Bool) {
         self.name = name
         self.colorHex = colorHex
         self.emoji = emoji
         self.transparent = transparent
-        self.dots = dots
-        self.overflow = overflow
-        self.onlineCount = onlineCount
+        self.computer = computer
         self.isSelected = isSelected
     }
 
     /// The gap from the avatar column to the name.
     public static let avatarGap: CGFloat = 12
     /// The name's x in the drawer: the side margin, the avatar column, the gap.
-    /// The drawer's section label and Invite to team start here too.
     public static var textLeading: CGFloat {
         theme.metrics.sideMargin + theme.metrics.teamAvatar + avatarGap
     }
@@ -43,7 +43,7 @@ public struct SidebarTeamRow: View {
                     .font(theme.type.rowTitle.weight(isSelected ? .semibold : .regular))
                     .foregroundStyle(theme.colors.label)
                     .lineLimit(1)
-                MacPresenceDots(dots: dots, overflow: overflow)
+                ComputerDotLine(computer: computer)
             }
             Spacer(minLength: 0)
         }
@@ -57,12 +57,39 @@ public struct SidebarTeamRow: View {
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(name))
-        .accessibilityValue(Text(dots.isEmpty ? "No Macs" : "\(onlineCount) of \(dots.count + overflow) Macs online"))
+        .accessibilityValue(Text(computer.map { "\($0.name), \($0.isUp ? "online" : "offline")" } ?? "No computers"))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
-/// Up to five 7 pt dots, 4 pt apart, then "+N"; "No Macs" when empty.
+/// One computer's 7 pt dot (green reachable, red not) and its name; "No computers" when none.
+public struct ComputerDotLine: View {
+    let computer: (name: String, isUp: Bool)?
+
+    public init(computer: (name: String, isUp: Bool)?) {
+        self.computer = computer
+    }
+
+    public var body: some View {
+        HStack(spacing: theme.metrics.macDotSpacing + 2) {
+            if let computer {
+                Circle()
+                    .fill(computer.isUp ? theme.colors.success : theme.colors.danger)
+                    .frame(width: theme.metrics.macDot, height: theme.metrics.macDot)
+                    .animation(theme.motion.snap.animation.unlessReduceMotion, value: computer.isUp)
+                Text(verbatim: computer.name)
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+                    .lineLimit(1)
+            } else {
+                Text("No computers").font(theme.type.meta).foregroundStyle(theme.colors.label2)
+            }
+        }
+        .frame(height: 16)
+    }
+}
+
+/// Up to five 7 pt dots, 4 pt apart (green online, red offline), then "+N"; "No Macs" when empty.
 public struct MacPresenceDots: View {
     let dots: [Bool]
     let overflow: Int
@@ -79,9 +106,9 @@ public struct MacPresenceDots: View {
             }
             ForEach(Array(dots.enumerated()), id: \.offset) { _, online in
                 Circle()
-                    .fill(online ? theme.colors.success : theme.colors.offline)
+                    .fill(online ? theme.colors.success : theme.colors.danger)
                     .frame(width: theme.metrics.macDot, height: theme.metrics.macDot)
-                    .animation(theme.motion.snap.animation, value: online)
+                    .animation(theme.motion.snap.animation.unlessReduceMotion, value: online)
             }
             if overflow > 0 {
                 Text(verbatim: "+\(overflow)")
@@ -91,6 +118,16 @@ public struct MacPresenceDots: View {
             }
         }
         .frame(height: 16)
+    }
+}
+
+/// One Mac's presence as a menu image: green online, red offline. A Menu draws its item
+/// images as templates, so the color is baked into the image (`.alwaysOriginal`).
+public enum MacPresenceDot {
+    public static func image(online: Bool) -> UIImage {
+        let config = UIImage.SymbolConfiguration(pointSize: 9, weight: .regular)
+        let dot = UIImage(systemName: "circle.fill", withConfiguration: config) ?? UIImage()
+        return dot.withTintColor(online ? .systemGreen : .systemRed, renderingMode: .alwaysOriginal)
     }
 }
 #endif

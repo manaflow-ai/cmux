@@ -6,10 +6,9 @@
 
 use std::io::Write;
 use std::os::fd::OwnedFd;
-use std::path::PathBuf;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use cmux_holder::link::{HolderLink, TerminalSink};
 use cmux_holder::{ExitStatus, SpawnRequest};
@@ -339,9 +338,7 @@ fn an_attach_or_adopt_the_holder_refuses_ends_its_sink() {
 /// routed them both when it returns.
 #[test]
 fn a_spawn_the_holder_refuses_at_once_never_reaches_its_sink() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
-    let dir = PathBuf::from("/tmp").join(format!("cmhs-{}-{stamp}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = support::unique_dir("cmhs");
     let socket = dir.join("h.sock");
     let mut holder = cmux_holder::client::launch(
         std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder")),

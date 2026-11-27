@@ -110,9 +110,9 @@ export const SAMPLE_TUNABLES: MockTunable[] = [
     control: {
       type: "spring",
       response: { min: 0.02, max: 1, step: 0.005, unit: "seconds", label: "Response" },
-      damping: { min: 0.1, max: 1.2, step: 0.01, unit: "multiplier", label: "Damping" },
+      damping: { min: 1, max: 1.2, step: 0.01, unit: "multiplier", label: "Damping" },
     },
-    default: { response: 0.32, dampingFraction: 0.86 },
+    default: { response: 0.32, dampingFraction: 1 },
   },
   {
     key: "browser.omnibar.glassDesign",
@@ -160,20 +160,6 @@ export const SAMPLE_TUNABLES: MockTunable[] = [
     help: "When the main thread is blocked for 2 seconds, the watchdog writes its stack to ~/Library/Logs/<bundle id>/hangs.",
     control: { type: "bool", on: "On", off: "Off" },
     default: true,
-  },
-  {
-    key: "coderouter.surface",
-    section: "pages",
-    label: "CodeRouter page",
-    help: "Opens the CodeRouter app as the React page. New tabs use it.",
-    control: {
-      type: "choice",
-      options: [
-        { value: "native", title: "Native (Swift page)" },
-        { value: "web", title: "Web (React page)" },
-      ],
-    },
-    default: "native",
   },
 ];
 

@@ -23,11 +23,23 @@ describe("chat display resolution", () => {
     expect(display).toEqual(DEFAULT_CHAT_DISPLAY);
     expect(Object.values(chatDisplayVariables(display)).every((value) => value === null)).toBe(true);
     const metrics = chatMetrics(display);
-    expect(metrics.measureFont).toBe('14px "Inter", system-ui, sans-serif');
+    expect(metrics.measureFont).toBe("14px -apple-system, BlinkMacSystemFont, system-ui, sans-serif");
     expect(metrics.lineHeight).toBe(22.75);
     expect(metrics.codeLineHeight).toBe(20);
     expect(metrics.inlineCodeSize).toBe(13);
     expect(metrics.blockCodeSize).toBe(12);
+  });
+
+  test("New Tab prompt preferences stay unscaled inside its density zoom", () => {
+    const custom = resolveChatDisplay({ "agentPane.display.font.size": 18, "agentPane.display.lineHeight": 1.5 });
+    for (const t of [0.8, 1, 1.2]) {
+      const variables = chatDisplayVariables(custom, t);
+      expect(variables["--cv-base-font-size"]).toBe("18px");
+      expect(variables["--cv-base-line-height"]).toBe(`${custom.fontSize * custom.lineHeight}px`);
+      const defaults = chatDisplayVariables(DEFAULT_CHAT_DISPLAY, t);
+      expect(defaults["--cv-base-font-size"]).toBeNull();
+      expect(defaults["--cv-base-line-height"]).toBeNull();
+    }
   });
 
   test("the chat follows the Markdown viewer's font, code font and code size", () => {
@@ -96,7 +108,7 @@ describe("chat display drawing", () => {
     expect(variables["--cv-font-size"]).toBe("16px");
     expect(variables["--cv-line-height"]).toBe("24px");
     expect(chatMetrics(display).lineHeight).toBe(24);
-    expect(chatMetrics(display).measureFont).toBe('16px "Inter", system-ui, sans-serif');
+    expect(chatMetrics(display).measureFont).toBe("16px -apple-system, BlinkMacSystemFont, system-ui, sans-serif");
     // Code keeps its share of the text: 13/14 inline and 12/14 in blocks.
     expect(chatMetrics(display).blockCodeSize).toBeCloseTo((12 * 16) / 14, 2);
   });
@@ -124,6 +136,19 @@ describe("chat display drawing", () => {
     expect(style.get("--cv-font-size")).toBe("18px");
     applyChatDisplay(root, resolveChatDisplay({}));
     expect(style.has("--cv-font-size")).toBe(false);
+  });
+
+  test("named transcript widths resolve to the same layout as their numeric caps", () => {
+    for (const [name, points] of [
+      ["narrow", 640],
+      ["medium", 800],
+      ["wide", 960],
+    ] as const) {
+      const preset = resolveChatDisplay({ "agentPane.display.width": name });
+      expect(preset.width).toBe(points);
+      expect(preset).toEqual(resolveChatDisplay({ "agentPane.display.width": points }));
+    }
+    expect(resolveChatDisplay({ "agentPane.display.width": "unknown" }).width).toBe(800);
   });
 
   test("Chat Text Width sets every chat's column, the default too; Full Width fills the pane", () => {

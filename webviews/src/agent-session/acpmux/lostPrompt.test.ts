@@ -11,6 +11,7 @@ import {
   resentAfterLoss,
   waitForResend,
 } from "./lostPrompt";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -24,7 +25,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -109,7 +111,8 @@ test("a connection that drops while the prompt waits for its resend waits on the
   clients.connected(dropped);
   await droppedAsked;
   clients.connected(third);
-  expect((await waited)?.name).toBe("third");
+  const went = await waited;
+  expect(went === "away" ? went : went?.name).toBe("third");
   // A connection that stays and never shows it: not sent.
   const quiet: Waiting = { name: "quiet", isClosed: false, awaitResent: async () => false };
   clients.connected(quiet);
@@ -320,4 +323,31 @@ test("a lost prompt that shows on the next connection is sent; one that never sh
   expect(await resentAfterLoss(lost, clientWaiter<Waiting>(), from, 10, 10)).toBe(false);
   // A refusal is not a lost prompt: its sender says so at once.
   expect(await resentAfterLoss(new Error("refused"), shows, from, 1_000, 1_000)).toBe(false);
+});
+
+// Leo, 2026-11-24: an app update restarted acpmux, which took longer than the 30 s a lost prompt's
+// sender waited for the next connection. The sender gave up, and the host's journal sent the prompt
+// again on the connection that came later all the same.
+test("a lost prompt waits for the next connection however long it takes, never for a time", async () => {
+  const { jest } = await import("bun:test");
+  const lost = Object.assign(new Error("gone"), {
+    interrupted: true,
+    lostPrompt: { sessionId: "s-1", promptId: "p-1" },
+  });
+  const from: Waiting = { name: "from", isClosed: true, awaitResent: async () => false };
+  const clients = clientWaiter<Waiting>();
+  jest.useFakeTimers();
+  try {
+    let settled: boolean | undefined;
+    const waited = resentAfterLoss(lost, clients, from).then((shown) => (settled = shown));
+    // Ten minutes with no connection: still waiting, nothing given up.
+    jest.advanceTimersByTime(10 * 60_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBeUndefined();
+    clients.connected({ name: "back", isClosed: false, awaitResent: async (_s, promptId) => promptId === "p-1" });
+    expect(await waited).toBe(true);
+  } finally {
+    jest.useRealTimers();
+  }
 });

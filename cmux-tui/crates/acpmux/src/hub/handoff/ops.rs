@@ -76,7 +76,7 @@ fn narrower_policy(p: PermissionPolicy) -> Option<PermissionPolicy> {
         PermissionPolicy::ApproveAll => Some(PermissionPolicy::ApproveEdits),
         PermissionPolicy::ApproveEdits => Some(PermissionPolicy::ApproveReads),
         PermissionPolicy::ApproveReads => Some(PermissionPolicy::Ask),
-        PermissionPolicy::Ask => Some(PermissionPolicy::DenyAll),
+        PermissionPolicy::Ask | PermissionPolicy::Review => Some(PermissionPolicy::DenyAll),
         PermissionPolicy::DenyAll => None,
     }
 }
@@ -295,6 +295,13 @@ impl Hub {
                             }),
                         // The target sees what the source saw (`additional_dirs.rs`).
                         additional_directories: sm.additional_directories.clone(),
+                        // The answer of the Mac that started the source (`cmux_tools_answer.rs`).
+                        env: crate::hub::cmux_tools_answer::inherited(
+                            Default::default(),
+                            &sm.session_env,
+                        ),
+                        // The same work goes on: the target keeps the source's stop condition.
+                        stop_condition: sm.stop_condition.clone(),
                         ..Default::default()
                     })
                     .await?;
@@ -598,6 +605,8 @@ impl Hub {
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
+            race_guard: None,
+            admission: None,
             cloud_turn: None,
             prompt_id: Some(prompt_id.to_owned()),
             message_id: None,
@@ -621,9 +630,11 @@ impl Hub {
             }),
             human_authenticated: false,
             unproven_owner: false,
+            coach: None,
             agent: None,
             class: None,
             after_turn: None,
+            fired: None,
             supersede: None,
             display_parts: None,
             full_access_device: None,
@@ -631,7 +642,9 @@ impl Hub {
             admitted: false,
             send_now: false,
             thread: None,
+            wake_or_fail: false,
             inbox: false,
+            reply_reader: None,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

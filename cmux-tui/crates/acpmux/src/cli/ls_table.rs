@@ -7,14 +7,16 @@
 //! sub-sessions and sessions with only their harness's generated name are hidden and counted on
 //! a last line. `--all` lists those too; `--wide` prints every column (AGENT, STATUS, the usage
 //! columns and LAST).
-//! A peer whose link is down never drops out: its rows read `unknown`, and a line per such peer
-//! says its sessions are last known, not live (hq#4897: unreadable means UNKNOWN).
-//! A down peer that fleet-registry.json means to be down (retired, idle-stopped or on demand,
-//! [`registry_pauses`]) reads `paused` instead, its line `PAUSED`: 2026-11-04, `acpmux ls` called
-//! 69 sessions on gcp-codex-lane-1..12 (idle-stopped) and gcp-agent-lane-3/4 (on demand, their
-//! names unresolvable while stopped) unknown. A peer the registry means to be up keeps UNKNOWN.
+//! STATE is one of four (`hub/session_state.rs`): working, waiting, done, errored, never
+//! unknown (Leo, 2026-11-27: "if things are unreachable, they're waiting or they're working or
+//! they're done or they're errored and may or may not need to be continued"). A peer whose link
+//! is down never drops out: its rows read from their last-known facts, waiting on the host for
+//! 15 minutes, then errored when unfinished, and a `DOWN` line per such peer says so. A down peer
+//! that fleet-registry.json means to be down (retired, idle-stopped or on demand,
+//! [`registry_pauses`]) has its rows waiting on that, and its line reads `PAUSED`.
 
 use super::output::short;
+use cmux_json::JsonGet as _;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -55,18 +57,23 @@ fn paused<'a>(pauses: &'a BTreeMap<String, String>, peer: &str) -> Option<&'a st
 
 /// `acpmux ls --help` examples.
 pub const HELP: &str = "Examples:
-  acpmux ls                       live named lanes: NAME, HOST, STATE, TURNS, AGE, STUCK, WARN
+  acpmux ls                       live named lanes: handle · name, host, harness, state, turns, age
   acpmux ls --all                 also closed, reviewer, sub- and unnamed sessions
   acpmux ls --wide                every column (AGENT, STATUS, usage, LAST)
   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
   acpmux ls --leads               the leaders: each live session others report to, with its reports
+  acpmux ls --archived            archived chats, newest archive first: when, and by whom (auto)
   acpmux ls --live --machine cosmic-gray   that machine's live sessions (--machine local: this one)
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
   acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
 
-STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m.
-A peer that cannot be reached reads UNKNOWN, or PAUSED when fleet-registry.json means it to be
-down (retired, idle-stopped, on demand); its sessions are last known. ls never starts a daemon.
+ls lists every machine's sessions, and says so on stderr when its rows span machines; a script
+after this machine's own sessions passes --machine local.
+STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m,
+harness sandbox (its harness refuses every command).
+STATE is one of four: working, waiting, done or errored (needs a decision: continue elsewhere or
+drop). A peer that cannot be reached waits 15 minutes, then its unfinished sessions read errored;
+its sessions are last known. ls never starts a daemon.
 Usage (--wide): LAUNCHER, CAP (autocompact cap, or none), CTX (context now), CMP (compactions),
 SUBS (subagents live/started), TOK24H and $24H; ? is a value acpmux could not read, never 0.";
 
@@ -83,32 +90,35 @@ pub struct View {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Hidden {
     Closed,
+    /// Archived (`acpmux archive`, the inactive archive, the lifecycle pass): off the lists,
+    /// counted, as the app's list leaves them out; `ls --archived` lists them.
+    Archived,
     Reviewer,
     SubSession,
     Unnamed,
 }
 
-const HIDDEN_ORDER: [(Hidden, &str); 4] = [
+const HIDDEN_ORDER: [(Hidden, &str); 5] = [
     (Hidden::Closed, "closed"),
+    (Hidden::Archived, "archived"),
     (Hidden::Reviewer, "reviewers"),
     (Hidden::SubSession, "sub-sessions"),
     (Hidden::Unnamed, "unnamed"),
 ];
 
-fn text<'a>(row: &'a Value, key: &str) -> &'a str {
-    row.get(key).and_then(Value::as_str).unwrap_or("")
-}
-
 fn hidden(row: &Value) -> Option<Hidden> {
-    if text(row, "status") == "closed" {
+    if row.get_str("status").unwrap_or("") == "closed" {
         return Some(Hidden::Closed);
+    }
+    if crate::cli::run::ls_archived::archived(row) {
+        return Some(Hidden::Archived);
     }
     let tags = row
         .get("tags")
         .and_then(Value::as_object)
         .into_iter()
         .flat_map(|tags| tags.keys().map(String::as_str));
-    if crate::review_box::is(text(row, "harness"), tags) {
+    if crate::review_box::is(row.get_str("harness").unwrap_or(""), tags) {
         return Some(Hidden::Reviewer);
     }
     if row.get("parentId").is_some_and(|p| !p.is_null()) {
@@ -123,16 +133,18 @@ fn hidden(row: &Value) -> Option<Hidden> {
 /// Whether someone named the session: not empty, and not the `HARNESS` or `HARNESS-N` name the
 /// daemon gives a session started without one (`hub/new_request.rs` `unique_name_among`).
 fn named(row: &Value) -> bool {
-    let name = text(row, "name");
+    let name = row.get_str("name").unwrap_or("");
     if name.trim().is_empty() {
         return false;
     }
     // The daemon says so (`nameGiven`); a session from before it was kept says so by its title
     // source, renamed (`named`) or started under a name and not yet prompted (`launched`).
-    if row["nameGiven"] == true || matches!(text(row, "titleSource"), "named" | "launched") {
+    if row["nameGiven"] == true
+        || matches!(row.get_str("titleSource").unwrap_or(""), "named" | "launched")
+    {
         return true;
     }
-    let harness = text(row, "harness");
+    let harness = row.get_str("harness").unwrap_or("");
     let generated = name.strip_prefix(harness).is_some_and(|rest| {
         rest.is_empty()
             || rest
@@ -157,50 +169,84 @@ fn unreadable(row: &Value) -> bool {
                 .is_some_and(|s| s != "connected" && s != "degraded")
 }
 
-fn state(row: &Value, pauses: &BTreeMap<String, String>) -> String {
-    if unreadable(row) {
-        let down = host(row).and_then(|h| paused(pauses, h));
-        return if down.is_some() { "paused" } else { "unknown" }.into();
-    }
-    if pending(row) > 0 {
-        return "waiting".into();
-    }
-    row["state"].as_str().map_or_else(|| text(row, "status").to_owned(), str::to_owned)
+/// One of four, never unknown (`hub/session_state.rs`; Leo: "they're waiting or they're working
+/// or they're done or they're errored"). A row from a host that does not answer resolves from
+/// its last-known facts here, at print time, so the 15-minute grace is read now.
+fn state(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
+    let down = host(row).and_then(|h| paused(pauses, h));
+    crate::hub::session_state::of_row(row, now, down).state.as_str().to_owned()
 }
 
 fn pending(row: &Value) -> u64 {
     row.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0)
 }
 
-/// The short reason a lane needs someone, or empty: a permission it waits on, the daemon's stuck
-/// reason (capacity, the harness down), a failed or lost turn, or a stalled turn.
+/// The short reason a lane needs someone, or empty: a permission it waits on, a pause acpmux
+/// ends by itself ("paused: capacity, resumes 04:30Z"), the daemon's stuck reason (capacity, the
+/// harness down), a stalled, failed or lost turn, a question, or a harness
+/// whose sandbox refuses every command.
 fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
     if unreadable(row) {
         if let Some(why) = host(row).and_then(|h| paused(pauses, h)) {
             return format!("host {why}");
         }
-        return format!("peer {}", row.get("peerState").and_then(Value::as_str).unwrap_or("down"));
+        // Never the link's own word (reconnecting, offline): what the row waits on, or why it errored.
+        let pauses_for = host(row).and_then(|h| paused(pauses, h));
+        return crate::hub::session_state::of_row(row, now, pauses_for).on;
     }
     match pending(row) {
         0 => {}
         1 => return "permission".into(),
         n => return format!("{n} permissions"),
     }
-    match text(row, "stuckReason") {
+    // Parked on the rate limit: nothing starts until `acpmux retry` or the person's own prompt
+    // (`hub/rate_hold.rs`).
+    if row.get("rateLimitParked").and_then(Value::as_u64).is_some() {
+        return "rate-limited, parked: acpmux retry".into();
+    }
+    // Paused (acpmux continues it by itself: a waiting retry, the account's rate-limit hold) or
+    // stranded (its last turn failed and nothing will): `hub/pause_state.rs`.
+    let pause = crate::hub::pause_state::of_row(row);
+    if let Some(state @ crate::hub::pause_state::PauseState::Paused { .. }) = &pause {
+        return crate::hub::pause_state::short_line(state);
+    }
+    match row.get_str("stuckReason").unwrap_or("") {
         "" => {}
         "capacity" => return "capacity".into(),
         "harness_unavailable" => return "harness down".into(),
         other => return other.replace('_', " "),
     }
+    // A registered desktop chat the daemon cannot reach (`hub/bridge.rs` `UNREACHABLE_TAG`):
+    // its state, before the command that ends it (`--json` and `session info` show it whole).
+    let unreachable = row.pointer("/tags/bridge.unreachable").and_then(Value::as_str);
+    if let Some(state) = unreachable.and_then(|t| t.split(':').next()).filter(|s| !s.is_empty()) {
+        return state.to_owned();
+    }
     let lane = &row["lane"];
     if let Some(since) = lane["stalledSince"].as_u64() {
         return format!("stalled {}", ago(now, since));
+    }
+    if let Some(state) = &pause {
+        return crate::hub::pause_state::short_line(state);
     }
     match lane["state"].as_str() {
         Some("failed") => "failed turn".into(),
         Some("lost") => "lost turn".into(),
         Some("input") => "question".into(),
+        // Every command it runs is refused now: its harness's own sandbox did not start
+        // (`harnessSandboxFailing`). A past refusal it recovered from says nothing here.
+        _ if harness_sandbox_failing(row) => "harness sandbox".into(),
         _ => String::new(),
+    }
+}
+
+/// Whether the row's harness refuses commands now: `harnessSandboxFailing`, or, from an older
+/// daemon or a peer that sends only `harnessSandboxFailed`, that timestamp (it then meant the
+/// failure lasted). An explicit false is a recovery.
+fn harness_sandbox_failing(row: &Value) -> bool {
+    match row.get("harnessSandboxFailing").and_then(Value::as_bool) {
+        Some(failing) => failing,
+        None => row.get("harnessSandboxFailed").and_then(Value::as_u64).is_some(),
     }
 }
 
@@ -278,7 +324,7 @@ fn usage(row: &Value) -> [String; 7] {
 }
 
 /// How long ago `at` was, from `now` (both in ms): `12s`, `4m`, `3h`, `2d`.
-fn ago(now: u64, at: u64) -> String {
+pub(crate) fn ago(now: u64, at: u64) -> String {
     let s = now.saturating_sub(at) / 1000;
     match s {
         0..60 => format!("{s}s"),
@@ -335,7 +381,29 @@ pub fn render_paused(
     now: u64,
     pauses: &BTreeMap<String, String>,
 ) -> String {
+    render_counted(sessions, 0, peers, view, filtered, now, pauses)
+}
+
+/// [`render_paused`] of the live rows `sessions` read with `closed` closed rows beside them
+/// that were counted, not read (`_acpmux/status` `closedListed`, agent service v2 row 7b): the
+/// compact view hides and counts them as it does the closed rows it is sent.
+pub fn render_counted(
+    sessions: &[Value],
+    closed: usize,
+    peers: Option<&[Value]>,
+    view: View,
+    filtered: bool,
+    now: u64,
+    pauses: &BTreeMap<String, String>,
+) -> String {
     let mut hidden_counts = [0usize; HIDDEN_ORDER.len()];
+    // `Hidden::Closed` is first.
+    if !view.all
+        && !filtered
+        && let Some(count) = hidden_counts.first_mut()
+    {
+        *count = closed;
+    }
     // The daemon's order (newest first) in every view: `--limit`, `--since` and `--tag` read it.
     let shown: Vec<&Value> = sessions
         .iter()
@@ -354,24 +422,26 @@ pub fn render_paused(
     if shown.is_empty() {
         out.push_str(if filtered {
             "no sessions match these filters\n"
-        } else if sessions.is_empty() {
+        } else if sessions.is_empty() && closed == 0 {
             "no sessions (create one: acpmux new -m codex -n my-task)\n"
         } else {
             "no live named sessions\n"
         });
     } else {
-        let with_host = shown.iter().any(|r| host(r).is_some());
+        let with_handles = shown.iter().any(|r| r.get_str("sessionId").is_some());
+        let with_host = with_handles || shown.iter().any(|r| host(r).is_some());
+        let with_harness = with_handles || view.wide;
+        let own = with_handles.then(crate::pairing::machine_name);
         let with_warn = shown.iter().any(|r| !warn(r, false).is_empty());
         let with_stuck = shown.iter().any(|r| !stuck(r, now, pauses).is_empty());
         let mut header = vec!["NAME"];
         if with_host {
             header.push("HOST");
         }
-        if view.wide {
-            header.extend(["AGENT", "STATUS"]);
-        } else {
-            header.push("STATE");
+        if with_harness {
+            header.push("AGENT");
         }
+        header.push(if view.wide { "STATUS" } else { "STATE" });
         header.extend(["TURNS", "AGE"]);
         if with_stuck || view.wide {
             header.push("STUCK");
@@ -385,14 +455,33 @@ pub fn render_paused(
         }
         let mut rows = vec![header.into_iter().map(str::to_owned).collect::<Vec<_>>()];
         for row in &shown {
-            let mut cells = vec![short(text(row, "name"), if view.wide { 24 } else { 32 })];
+            let name = row.get_str("name").unwrap_or("");
+            let handle = row
+                .get_str("sessionId")
+                .map(|id| crate::session_handle::display(row.get_str("handle"), id));
+            let bare = host(row)
+                .and_then(|peer| name.strip_prefix(peer))
+                .and_then(|rest| rest.strip_prefix('/'))
+                .unwrap_or(name);
+            let width = if view.wide { 24 } else { 32 };
+            let mut cells = vec![match (alias(row), handle) {
+                // The alias already says the task ("Ruby dot startup-speedups"): it is the whole name.
+                (Some(alias), _)
+                    if alias.to_ascii_lowercase().contains(&bare.to_ascii_lowercase()) =>
+                {
+                    short(&alias, width + 12)
+                }
+                (Some(alias), _) => format!("{} · {}", short(&alias, 24), short(bare, width)),
+                (None, Some(handle)) => format!("{handle} · {}", short(bare, width)),
+                (None, None) => short(name, width),
+            }];
             if with_host {
-                cells.push(host(row).unwrap_or("-").to_owned());
+                cells.push(host(row).or(own.as_deref()).unwrap_or("-").to_owned());
             }
-            if view.wide {
-                cells.push(short(text(row, "harness"), 8));
+            if with_harness {
+                cells.push(short(row.get_str("harness").unwrap_or(""), 8));
             }
-            cells.push(state(row, pauses));
+            cells.push(state(row, now, pauses));
             cells.push(row.get("turnCount").and_then(Value::as_u64).unwrap_or(0).to_string());
             cells.push(ago(now, row.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)));
             if with_stuck || view.wide {
@@ -403,14 +492,14 @@ pub fn render_paused(
             }
             if view.wide {
                 cells.extend(usage(row));
-                cells.push(short(text(row, "lastPrompt"), 50));
+                cells.push(short(row.get_str("lastPrompt").unwrap_or(""), 50));
             }
             rows.push(cells);
         }
         out.push_str(&table(rows));
     }
     for peer in peers.unwrap_or_default() {
-        let state = text(peer, "state");
+        let state = peer.get_str("state").unwrap_or("");
         if state.is_empty() || state == "connected" || state == "degraded" {
             continue;
         }
@@ -418,18 +507,18 @@ pub fn render_paused(
             .as_u64()
             .map(|at| format!(" for {}", ago(now, at)))
             .unwrap_or_default();
-        let name = text(peer, "name");
+        let name = peer.get_str("name").unwrap_or("");
         out.push_str(&match paused(pauses, name) {
             Some(why) => format!(
-                "PAUSED {name}: {why} in the fleet registry, peer {state}{since}; its sessions are last known, not live\n"
+                "PAUSED {name}: {why} in the fleet registry{since}; its sessions are last known and wait on it\n"
             ),
             None => format!(
-                "UNKNOWN {name}: peer {state}{since}; its sessions are last known, not live\n"
+                "DOWN {name}: not answering{since}; its sessions are last known: waiting 15m, then unfinished ones errored\n"
             ),
         });
     }
     if peers.is_none() {
-        out.push_str("UNKNOWN peers: their link states could not be read\n");
+        out.push_str("PEERS UNREAD: their link states could not be read; their sessions read from their last listing\n");
     }
     let hidden_total: usize = hidden_counts.iter().sum();
     if hidden_total > 0 {
@@ -440,8 +529,9 @@ pub fn render_paused(
             .map(|((_, label), n)| format!("{n} {label}"))
             .collect();
         out.push_str(&format!(
-            "{hidden_total} more hidden ({}): acpmux ls --all\n",
-            parts.join(", ")
+            "{hidden_total} more hidden ({}): {} ls --all\n",
+            parts.join(", "),
+            crate::cli::entry::program()
         ));
     }
     out
@@ -450,3 +540,13 @@ pub fn render_paused(
 #[cfg(test)]
 #[path = "ls_table_tests.rs"]
 mod tests;
+
+/// A session's `session.alias` tag as people say it, which every acpmux key also routes by
+/// (`hub/key_route.rs`). A tag the lane-gh broker wrote in its word alphabet carries its spaces
+/// as `+` ("Logan+dot+chats-going-blank"); it reads with spaces again.
+pub(crate) fn alias(row: &Value) -> Option<String> {
+    let raw = row.get("tags")?.get("session.alias")?.as_str()?;
+    let text = crate::session_handle::spoken_alias(raw);
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!text.is_empty()).then_some(text)
+}

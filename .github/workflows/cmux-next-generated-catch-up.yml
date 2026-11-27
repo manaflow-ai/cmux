@@ -1,12 +1,12 @@
 name: cmux-next generated catch-up
 
-# The generated web bundles and strings tables (.gitattributes, merge driver
-# cmux-generated-v1) collide on nearly every feat-cmux-next move, and GitHub
-# ignores merge drivers, so every landed UI PR left the other open PRs
-# conflicting until each one merged the base and rebuilt the bundles by hand.
-# On each feat-cmux-next move this merges the base into every same-repository
-# PR whose only conflicts are those files, rebuilds them
-# (scripts/cmux-next/regenerate-web-bundles.sh) and pushes the merge. A PR with
+# Generated files (.gitattributes, merge driver cmux-generated-v1: every file
+# the generated-files check knows, tests/test_generated_merge.py) collide on
+# nearly every feat-cmux-next move, and GitHub ignores merge drivers, so every
+# landed PR left the other open PRs conflicting until each one merged the base
+# and rebuilt them by hand. On each feat-cmux-next move this merges the base
+# into every same-repository PR whose only conflicts are those files, rebuilds
+# them (scripts/cmux-next/generated_merge.py regenerate) and pushes the merge. A PR with
 # any authored conflict is left to its author. The merge uses the base's
 # key-wise drivers too (string catalogs, ratchet baselines, the Xcode project,
 # daemon capabilities), so entries both sides added are no conflict. It pushes only to Leo's agent
@@ -31,11 +31,33 @@ concurrency:
   group: cmux-next-generated-catch-up
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
-  select:
+  # At most one catch-up per 30-minute window (base-coalesce.yml, 2026-11-21): the first feat-cmux-next push of each
+  # window catches every conflicting PR up to that tip; the other pushes' runs skip (no runner). Before, every move
+  # caught the same PRs up again (one lane PR 147 times a day) and each catch-up push started that PR's CI anew:
+  # about 6,900 runner-minutes a day here (ci-dash feed 2026-11-14/16/17), plus the PR runs those pushes started.
+  # A conflicting PR now waits at most one window plus the gap to the next push. A dispatch runs at once;
+  # vars.CMUX_NEXT_GENERATED_CATCH_UP_COALESCE = '0' catches up on every move again.
+  coalesce:
     if: github.repository == 'manaflow-ai/cmux'
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-next-generated-catch-up
+      hold_minutes: 30
+      no_coalesce: ${{ format('{0}', vars.CMUX_NEXT_GENERATED_CATCH_UP_COALESCE) == '0' }}
+
+  select:
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && github.repository == 'manaflow-ai/cmux' }}
     name: select conflicting PRs
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 5
     permissions:
       contents: read
@@ -43,10 +65,12 @@ jobs:
     outputs:
       prs: ${{ steps.select.outputs.prs }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/generated_catch_up.py
+          sparse-checkout: |
+            scripts/cmux-next/generated_catch_up.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Select PRs that conflict with feat-cmux-next
@@ -60,11 +84,13 @@ jobs:
           echo "Conflicting PRs to catch up: $prs" >> "$GITHUB_STEP_SUMMARY"
 
   catch-up:
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     needs: select
     if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
     name: catch up #${{ matrix.pr.number }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -78,7 +104,7 @@ jobs:
       # The classifier and the generated patterns come from the base, never
       # from the PR being merged.
       - name: Check out the base's catch-up script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: trusted
           persist-credentials: false
@@ -90,12 +116,14 @@ jobs:
             scripts/merge-baseline.py
             scripts/merge-daemon-capabilities.py
             scripts/merge-insertions.py
+            scripts/merge-cargo-lock.py
             scripts/ci/merge_main_resolver.py
             scripts/normalize-pbxproj.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check out the pull request
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ matrix.pr.sha }}
           path: pr
@@ -167,8 +195,6 @@ jobs:
           set -euo pipefail
           git config user.name "cmux CI catch-up"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config merge.cmux-generated-v1.name "keep this branch's generated file"
-          git config merge.cmux-generated-v1.driver true
           # The key-wise drivers (.gitattributes; scripts/install-git-hooks.sh registers the
           # same per clone), from the base's copy: GitHub ignores them, so a catalog or a
           # baseline both sides added entries to conflicts on every PR. Each one still
@@ -181,11 +207,18 @@ jobs:
           printf -v baseline '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-baseline.py"
           printf -v capabilities '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-daemon-capabilities.py"
           printf -v insertions '%q -I %q %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-insertions.py"
+          printf -v cargo_lock '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-cargo-lock.py"
+          # Generated files merge three-way when clean, else keep this branch's copy for the
+          # rebuild below; the Mac-only exports merge three-way or stay a conflict (never one side).
+          printf -v generated '%q -I %q --generated %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-insertions.py"
           git config merge.xcstrings-v2.driver "$xcstrings"
           git config merge.pbxproj-v1.driver "$pbxproj"
           git config merge.cmux-baseline-v1.driver "$baseline"
           git config merge.cmux-capabilities-v1.driver "$capabilities"
           git config merge.cmux-insertions-v1.driver "$insertions"
+          git config merge.cmux-cargo-lock-v1.driver "$cargo_lock"
+          git config merge.cmux-export-v1.driver "$insertions"
+          git config merge.cmux-generated-v1.driver "$generated"
           # Git reads merge attributes from the checked-out PR, so a head older than a
           # driver's .gitattributes line would line-merge that path. The trusted base's
           # attributes go in info/attributes, which wins over the tree's.
@@ -240,18 +273,24 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Setup Node
+        timeout-minutes: 5
         if: steps.merge.outputs.skip != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
-      # The PR's own code builds here, before any write token exists.
+      # The PR's own code builds here, before any write token exists. The web
+      # bundles always, then every other generated family the merge kept a copy
+      # of or both sides changed (scripts/cmux-next/generated_merge.py; the
+      # exports only a Mac writes merged three-way above, or their conflict
+      # left the PR to its author).
       - name: Rebuild the generated files
         if: steps.merge.outputs.skip != 'true'
         working-directory: pr
-        run: scripts/cmux-next/regenerate-web-bundles.sh
+        run: python3 scripts/cmux-next/generated_merge.py regenerate --merge --web --stage
 
       - name: Commit the merge
         if: steps.merge.outputs.skip != 'true'
@@ -265,7 +304,7 @@ jobs:
             echo "::error::paths are still unmerged after the rebuild"; git diff --name-only --diff-filter=U; exit 1
           fi
           git commit --quiet -m "Merge feat-cmux-next into $BRANCH" \
-            -m "Only generated files conflicted; CI kept this branch's copies and rebuilt them (scripts/cmux-next/regenerate-web-bundles.sh). The base's key-wise drivers merged catalogs, baselines and the Xcode project: $RUN_URL"
+            -m "Only generated files conflicted; CI kept this branch's copies and rebuilt them (scripts/cmux-next/generated_merge.py regenerate). The base's key-wise drivers merged catalogs, baselines and the Xcode project: $RUN_URL"
           git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Mint the catch-up token

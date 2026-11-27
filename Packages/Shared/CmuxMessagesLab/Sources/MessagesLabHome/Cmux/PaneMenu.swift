@@ -11,6 +11,17 @@ extension ChatController {
 
     @MainActor func menu(at p: CGPoint) -> NSMenu? {
         guard let hit = demo?.hit(p) else { return previewMenu(at: p) }
+        // cmux: an agent's pill has the host's menu for that agent (Start now on a queued one).
+        if let agentPillMenu, case let .custom(custom) = hit.row.part,
+           let pill = HomeAgentFoldRowProvider.pill(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY),
+                                                    width: hit.body.width) {
+            let items = agentPillMenu(pill.peer)
+            if !items.isEmpty {
+                let menu = NSMenu()
+                items.forEach(menu.addItem)
+                return menu
+            }
+        }
         let ref = hit.row.ref
         let content = contentMenu
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
@@ -103,10 +114,12 @@ extension ChatController {
         // cmux: my "Not Delivered" message: Try Again and Delete (Messages' pair); else lane 16's
         // Cancel Upload, only while the send can be cancelled.
         if intents?.canRetrySend(ref.messageId) == true {
+            // retry-prompt-ok: re-sends the person's message to the model (a paid turn)
             menu.addItem(MenuAction(title: CmuxStrings.tryAgain, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retrySend(ref.messageId) })
             menu.addItem(MenuAction(title: CmuxStrings.deleteFailed, symbol: "trash") { [weak self] in self?.intents?.deleteFailedSend(ref.messageId) })
             menu.addItem(.separator())
         } else if intents?.canRetryChiefTurn(ref.messageId) == true {
+            // retry-prompt-ok: asks the model for the reply again (a paid turn)
             menu.addItem(MenuAction(title: CmuxStrings.retryReply, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retryChiefTurn(ref.messageId) })
             menu.addItem(.separator())
         } else if intents?.canCancelSend(ref.messageId) == true {

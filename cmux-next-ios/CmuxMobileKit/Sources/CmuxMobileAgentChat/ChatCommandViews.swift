@@ -1,5 +1,7 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
 import UIKit
@@ -61,8 +63,7 @@ struct EarlierPromptEditSheet: View {
                     TextEditor(text: $text)
                         .font(.body)
                         .frame(minHeight: 160)
-                        // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-                        .autocorrectionDisabled()
+                        // Prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                         .textInputAutocapitalization(.never)
                         .focused($focused)
                         .accessibilityLabel("Message")
@@ -109,12 +110,21 @@ struct SessionStatusSheet: View {
     let store: AgentChatStore
     @State private var load: Load = .loading
     @State private var copied: String?
+    @State private var autoRetry = AutoRetry()
     @Environment(\.dismiss) private var dismiss
 
     enum Load: Equatable {
         case loading
         case loaded(AgentSessionStatus)
+        /// The chat has no status (deterministic): said once, not retried.
+        case unavailable(String)
+        /// A transient failure (the link dropped): retried on its own.
         case failed(String)
+
+        var isFailed: Bool {
+            if case .failed = self { return true }
+            return false
+        }
     }
 
     var body: some View {
@@ -123,38 +133,48 @@ struct SessionStatusSheet: View {
                 switch load {
                 case .loading:
                     CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
-                case .failed(let message):
+                case .unavailable(let message):
                     ContentUnavailableView {
                         Label("Status is unavailable", systemImage: "exclamationmark.triangle")
                     } description: {
                         Text(message)
-                    } actions: {
-                        // read() swaps this view for the spinner first; keep it out of the button's task.
-                        RetryButton("Try Again") { Task { await read() } }
+                    }
+                case .failed(let message):
+                    // Read again on its own (AutoRetry): the spinner stays, then one quiet line.
+                    if autoRetry.isQuietLineShown {
+                        ContentUnavailableView {
+                            Label("Status is unavailable", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text(message)
+                        } actions: {
+                            AutoRetryQuietLine(autoRetry)
+                        }
+                    } else {
+                        CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 case .loaded(let status):
                     List {
                         Section(status.harness) {
                             ForEach(status.fields) { field in
-                                Button {
+                                LabeledContent(field.label) {
+                                    SelectableText(copied == field.label ? String(localized: "Copied") : field.value,
+                                                   color: .secondaryLabel)
+                                        .multilineTextAlignment(.trailing)
+                                        .lineLimit(3)
+                                }
+                                .contentShape(.rect)
+                                .onTapGesture {
                                     UIPasteboard.general.string = field.value
                                     copied = field.label
-                                } label: {
-                                    LabeledContent(field.label) {
-                                        Text(copied == field.label ? String(localized: "Copied") : field.value)
-                                            .multilineTextAlignment(.trailing)
-                                            .lineLimit(3)
-                                            .textSelection(.enabled)
-                                    }
                                 }
-                                .tint(.primary)
+                                .accessibilityAddTraits(.isButton)
                                 .accessibilityLabel(Text("\(field.label), \(field.value)"))
                                 .accessibilityHint("Copies the value")
                                 .accessibilityIdentifier("chat.status.\(field.label)")
                             }
                         }
                     }
-                    .sensoryFeedback(.success, trigger: copied)
+                    .cmuxMobileSensoryFeedback(.success, trigger: copied)
                 }
             }
             .navigationTitle("Session Status")
@@ -175,14 +195,19 @@ struct SessionStatusSheet: View {
         }
         .presentationDetents([.medium, .large])
         .task { await read() }
+        .autoRetry(autoRetry, failing: load.isFailed) { await read() }
     }
 
+    /// Keeps the failed state (its spinner) while it reads again, so a retry never flashes.
     private func read() async {
-        load = .loading
         do {
             load = .loaded(try await store.source.sessionStatus())
+        } catch let error as AgentFeatureUnavailable where !store.source.isOffline {
+            // The Mac answered no (or the chat has no status): said once. A dropped link
+            // (`isOffline`) falls through to `.failed`, which reads again on its own.
+            load = .unavailable(error.message)
         } catch {
-            load = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+            load = .failed(UserFacingError.message(error, fallback: "Couldn't read the session status."))
         }
     }
 }

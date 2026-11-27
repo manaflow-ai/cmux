@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 /// How long an apply or undo waits for the app's answer by default.
+// timeout: a silent app fails the command (the request stays placed); the caller can set the wait.
 const DEFAULT_WAIT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, PartialEq, Eq)]
@@ -171,7 +172,7 @@ fn process_runs(pid: i64) -> bool {
 }
 
 /// The executable a process runs, where the platform says.
-fn process_executable(pid: i64) -> Option<PathBuf> {
+pub(super) fn process_executable(pid: i64) -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     {
         std::fs::read_link(format!("/proc/{pid}/exe")).ok()

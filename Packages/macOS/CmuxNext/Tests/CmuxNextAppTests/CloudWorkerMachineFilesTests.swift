@@ -1,6 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
-@testable import CmuxNextCloudCredentials
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -8,7 +8,7 @@ import Testing
 /// `cmux cloud deliver-secrets`, `apply-machine-config` and credential recovery failed at their
 /// first read ("This machine has no finished machine config yet"). Its exec and file routes are the
 /// same requests under `/v1/cloud/machines/{id}/` on the cmux API Worker, with the person's Stack
-/// session and the team in `x-cmux-team`: a Mac install has no execute grant (backend
+/// session and the team in `x-cmux-team` (the daemon's `machine.io`): a Mac install has no execute grant (backend
 /// domains/user.ts), so the route's caller check (cloud-client-session.ts) refuses its token with a 403.
 @Suite(.serialized)
 struct CloudWorkerMachineFilesTests {
@@ -69,61 +69,97 @@ struct CloudWorkerMachineFilesTests {
 
     private static let origin = URL(string: "https://machines.standin.invalid") ?? URL(fileURLWithPath: "/dev/null")
 
-    private func worker() -> CloudAPIClient {
+    private func worker() -> CloudDaemon {
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [WorkerAPI.self]
-        return CloudAPIClient.workerMachines(baseURL: Self.origin, accessToken: { "session-access" }, teamID: { "team_cmux" },
-                                             session: URLSession(configuration: sessionConfiguration))
+        return CloudDaemon.workerMachines(baseURL: Self.origin, accessToken: { "session-access" }, teamID: { "team_cmux" })
     }
 
-    @Test func execAndFilesGoToTheWorkerRoutesWithThePersonsSessionAndCmuxTeam() async throws {
+    /// The daemon calls a fake `cmux cloud api` saw: each request's JSON.
+    final class Seen: Sendable {
+        let inputs = Mutex<[Data]>([])
+        var requests: [[String: Any]] {
+            inputs.withLock { $0 }.map { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] ?? [:] }
+        }
+    }
+
+    /// A Worker machines client whose daemon answers each `machine.io` op as the route would.
+    private func daemonWorker(_ seen: Seen) -> CloudDaemon {
+        var api = worker()
+        api.daemonCall = { input, _ in
+            let request = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any] ?? [:]
+            let args = request["args"] as? [String: Any] ?? [:]
+            seen.inputs.withLock { $0.append(input) }
+            let body = switch args["op"] as? String {
+            case "exec": #"{"exitCode":0,"stdout":"ok","stderr":""}"#
+            case "read": #"{"path":"/a","dataBase64":"aGk=","size":2}"#
+            default: #"{"ok":true,"path":"/a"}"#
+            }
+            return Data(#"{"ok":true,"body":\#(body)}"#.utf8)
+        }
+        return api
+    }
+
+    @Test func execAndFilesGoToTheDaemonWithThePersonsSessionAndCmuxTeam() async throws {
         WorkerAPI.seen = []
+        let seen = Seen()
         // A flow that pins the app's (Stack) team keeps the cmux team the Worker knows.
-        let api = worker().pinningTeam("stack-team-1")
+        let api = daemonWorker(seen).pinningTeam("stack-team-1")
         let machine = "vm_aaaaaaaaaaaaaaaaaaaa"
         #expect(try await api.exec(machine, command: "true", timeoutMs: 8_000).stdout == "ok")
         #expect(try await api.readFile(machine, path: "/home/cmux/.cmux/machine-config/status.json").dataBase64 == "aGk=")
         try await api.writeFile(machine, path: "/a", data: Data("hi".utf8), mode: 0o644)
-        #expect(WorkerAPI.seen.map(\.method) == ["POST", "GET", "POST"])
-        #expect(WorkerAPI.seen.map(\.url) == [
-            "https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec",
-            "https://machines.standin.invalid/v1/cloud/machines/\(machine)/fs/read?path=/home/cmux/.cmux/machine-config/status.json",
-            "https://machines.standin.invalid/v1/cloud/machines/\(machine)/fs/write",
-        ])
-        for request in WorkerAPI.seen {
+        let requests = seen.requests
+        #expect(requests.map { ($0["args"] as? [String: Any])?["op"] as? String } == ["exec", "read", "write"])
+        for request in requests {
+            #expect(request["call"] as? String == "machine.io")
             // A Mac install token here is a 403 for every Mac user: its grant has no execute.
-            #expect(request.authorization == "Bearer session-access")
-            #expect(request.cmuxTeam == "team_cmux")
-            #expect(request.refresh == nil, "the Stack refresh token never goes to the Worker")
-            #expect(request.team == nil)
+            #expect(request["auth"] as? String == "owner")
+            #expect(request["credential"] as? String == "session-access")
+            #expect(request["team"] as? String == "team_cmux")
+            #expect((request["args"] as? [String: Any])?["machine"] as? String == machine)
         }
+        #expect(WorkerAPI.seen.isEmpty, "nothing goes over Swift HTTP")
     }
 
-    /// Set Up GitHub's script runs on the Worker exec route, as `cmux`: a NEXT machine id is a Worker
-    /// id, which classic `/api/vm/{id}/exec` does not know.
+    /// Set Up GitHub's script runs on the Worker exec route through the daemon, as `cmux`: a NEXT machine id
+    /// is a Worker id, which classic `/api/vm/{id}/exec` does not know.
     @Test func gitHubSetupExecsOnTheWorkerRoute() async throws {
-        WorkerAPI.seen = []
+        let seen = Seen()
         let machine = "vm_aaaaaaaaaaaaaaaaaaaa", identity = CloudGitHubSetup.GitIdentity(name: "Ann", email: "ann@example.test")
-        let outcome = try await CloudGitHubSetup.run(identity, app: true, machine: machine, on: worker())
+        let outcome = try await CloudGitHubSetup.run(identity, app: true, machine: machine, on: daemonWorker(seen))
         #expect(outcome == CloudGitHubSetup.parse(exitCode: 0, stdout: "ok"))
-        #expect(WorkerAPI.seen.map(\.url) == ["https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec"])
-        #expect(WorkerAPI.seen.first?.body["command"] as? String == CloudGitHubSetup.command(identity, app: true))
-        #expect(WorkerAPI.seen.first?.body["timeoutMs"] as? Int == CloudGitHubSetup.timeoutMs)
+        let args = try #require(seen.requests.first?["args"] as? [String: Any])
+        #expect(args["op"] as? String == "exec")
+        #expect(args["machine"] as? String == machine)
+        #expect(args["command"] as? String == CloudGitHubSetup.command(identity, app: true))
+        #expect(args["timeout_ms"] as? Int == CloudGitHubSetup.timeoutMs)
     }
 
-    @Test func theClassicClientKeepsItsRoutesAndHeaders() async throws {
+    /// Classic `/api/vm` is gone from NEXT: the sign-in client refuses a machine call before any request.
+    @Test func theSignInClientRefusesMachineCallsBeforeAnyRequest() async throws {
         WorkerAPI.seen = []
         let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
                                                        process: [:], isDebugBuild: true)
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [WorkerAPI.self]
-        let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
-                                 session: URLSession(configuration: sessionConfiguration))
-        _ = try await api.exec("m1", command: "true")
-        #expect(WorkerAPI.seen.map(\.url) == ["https://vm-api.standin.invalid/api/vm/m1/exec"])
-        #expect(WorkerAPI.seen.first?.authorization == "Bearer access")
-        #expect(WorkerAPI.seen.first?.refresh == "refresh")
-        #expect(WorkerAPI.seen.first?.team == "team-1")
+        let api = CloudDaemon(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" })
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.unsupported", message: nil)) {
+            _ = try await api.exec("m1", command: "true")
+        }
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.unsupported", message: nil)) {
+            try await api.writeFile("m1", path: "/tmp/x", data: Data("x".utf8))
+        }
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.unsupported", message: nil)) {
+            _ = try await api.prepareSCP("m1", publicKey: "ssh-ed25519 AAAA")
+        }
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
+            _ = try await api.createPreviewShareLink("m1", port: 3000)
+        }
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
+            _ = try await api.revokePreviewShareLink("m1", port: 3000, linkID: "link_1")
+        }
+        #expect(WorkerAPI.seen.isEmpty)
     }
 
     @Test func aWorkerRefusalNamesItsNestedCodeAndMessage() {
@@ -132,33 +168,5 @@ struct CloudWorkerMachineFilesTests {
             == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
         #expect(CloudAPIError.from(status: 409, data: body, headerCode: "vm_not_running")
             == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
-    }
-
-    /// Claude credential recovery on a Worker machine: its exec runs as `cmux`, so a root 0600
-    /// staging file (what the file route writes) can't be read by the installer, and every transfer
-    /// failed. The folder is made `cmux`'s own 0700 one first, and the file goes in 0644.
-    @Test func aWorkerMachineStagesTheCredentialWhereTheWorkUserCanReadIt() async throws {
-        WorkerAPI.seen = []
-        let machine = "vm_aaaaaaaaaaaaaaaaaaaa", path = "/home/cmux/.cmux/credential-transfer/x.json"
-        try await CloudCredentialTransfer.stage(Data("tok".utf8), at: path, on: worker(), machineID: machine)
-        #expect(WorkerAPI.seen.map(\.url) == ["https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec",
-                                              "https://machines.standin.invalid/v1/cloud/machines/\(machine)/fs/write"])
-        let made = try #require(WorkerAPI.seen.first?.body["command"] as? String)
-        #expect(made.contains("mkdir -p -- '/home/cmux/.cmux/credential-transfer'"))
-        #expect(made.contains("chmod 700") && made.contains("test -O"))
-        #expect(WorkerAPI.seen.last?.body["mode"] as? Int == 0o644)
-        #expect(WorkerAPI.seen.last?.body["path"] as? String == path)
-
-        // The classic route keeps its root 0600 file (its exec is root, the installer chowns it).
-        WorkerAPI.seen = []
-        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
-                                                       process: [:], isDebugBuild: true)
-        let sessionConfiguration = URLSessionConfiguration.ephemeral
-        sessionConfiguration.protocolClasses = [WorkerAPI.self]
-        let classic = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
-                                     session: URLSession(configuration: sessionConfiguration))
-        try await CloudCredentialTransfer.stage(Data("tok".utf8), at: path, on: classic, machineID: "m1")
-        #expect(WorkerAPI.seen.map(\.url) == ["https://vm-api.standin.invalid/api/vm/m1/fs/write"])
-        #expect(WorkerAPI.seen.first?.body["mode"] as? Int == 0o600)
     }
 }

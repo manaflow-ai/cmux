@@ -29,7 +29,7 @@ impl App {
             .map(|pane| pane.id)
     }
 
-    pub(super) fn active_surface(&self) -> Option<SurfaceId> {
+    pub(crate) fn active_surface(&self) -> Option<SurfaceId> {
         self.tree.active_surface()
     }
 

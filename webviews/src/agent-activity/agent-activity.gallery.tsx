@@ -2,7 +2,8 @@
 // Agent Activity (cmux://agent-activity): the page's view over fixture states, with no host bridge;
 // screenshots are drawn here (fixtureFrame) in place of the host's. Empty on a Mac where computer use
 // never ran, three agents across two machines in each layout, and the frame viewer: inline on the
-// newest or an earlier frame, a session with no screenshots, and opened over the grid.
+// newest or an earlier frame, a session with no screenshots, and opened over the grid; its full
+// frame still on its way (the thumbnail in its place), and Full Screen inline and over the grid.
 import { useEffect, useState } from "react";
 import { componentEntry } from "../gallery/format";
 import {
@@ -15,7 +16,7 @@ import {
 import { ActivityView } from "./view";
 import type { FrameLoader } from "./viewer";
 
-type Props = { state: ActivityState };
+type Props = { state: ActivityState; holdFull?: boolean };
 
 const now = Date.UTC(2026, 9, 13, 9, 30);
 
@@ -115,7 +116,17 @@ const noFrames: ActivityState = {
   eventsBySession: { ...busy.eventsBySession, s1: events("s1", 5, undefined, false) },
 };
 
-function ActivityGallery({ state: initial }: Props) {
+/** The stand-in thumbnail while a full frame never arrives: the fixture drawn small and faint. */
+const heldFullFrame: FrameLoader = (frame, size, session) =>
+  size === "full"
+    ? new Promise<string>(() => undefined)
+    : fixtureFrame(
+        { ...frame, width: Math.round(frame.width / 4), height: Math.round(frame.height / 4) },
+        size,
+        session,
+      );
+
+function ActivityGallery({ state: initial, holdFull }: Props) {
   const [state, setState] = useState(initial);
   // A new variant replaces the state even when the stage keeps this component mounted.
   useEffect(() => setState(initial), [initial]);
@@ -124,7 +135,7 @@ function ActivityGallery({ state: initial }: Props) {
       <ActivityView
         state={state}
         dispatch={(action) => setState((current) => reduceActivity(current, action))}
-        loadFrame={fixtureFrame}
+        loadFrame={holdFull ? heldFullFrame : fixtureFrame}
       />
     </div>
   );
@@ -157,6 +168,14 @@ export default componentEntry<Props>({
       note: "A session whose steps kept no screenshot: the viewer says so and shows no filmstrip.",
       props: { state: noFrames },
     },
+    "split-frame-loading": {
+      note: "The full frame is still on its way: its thumbnail fills the frame's own box, so the stage is never blank.",
+      props: { state: busy, holdFull: true },
+    },
+    "split-full-screen": {
+      note: "Full Screen (the button or F): the viewer fills the page; Escape or the button again leaves it.",
+      props: { state: { ...busy, fullFrame: true } },
+    },
     timeline: {
       note: "Every session as a lane of its screenshots; a click opens one in the viewer.",
       props: { state: { ...busy, layout: "timeline" } },
@@ -168,6 +187,12 @@ export default componentEntry<Props>({
     "grid-viewer": {
       note: "A tile clicked in the grid: the viewer over the page on that session, at its fifth screenshot.",
       props: { state: { ...busy, layout: "grid", selectedSessionID: "s3", scrubSeq: 5, viewing: true } },
+    },
+    "grid-viewer-full-screen": {
+      note: "Full Screen from the viewer over the grid: the dialog and the viewer fill the page.",
+      props: {
+        state: { ...busy, layout: "grid", selectedSessionID: "s3", scrubSeq: 5, viewing: true, fullFrame: true },
+      },
     },
   },
 });

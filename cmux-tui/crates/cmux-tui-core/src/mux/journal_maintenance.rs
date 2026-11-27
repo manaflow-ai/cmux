@@ -5,11 +5,46 @@ use super::*;
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
 const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
 const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
+/// Live rows a pending output cleanup may hold back from sealing: 64
+/// segments' worth.
+const OUTPUT_CLEANUP_SEAL_HOLD_RECORDS: u64 = 65_536;
 /// A maintenance tick this long is logged: its steps hold the workspace
 /// registry lock that `tab.update` and `list-workspaces` wait on, so a slow
 /// tick stalls the app's requests (a 12-15 s stall on 2026-10-21 left no
 /// trace of its cause).
 const SLOW_MAINTENANCE_TICK: Duration = Duration::from_millis(500);
+/// How long one slice of the index backfill worker spends filling the kept
+/// reducer records (and kind maps) of segments sealed before sealing wrote
+/// them. A segment decodes in tens of milliseconds on that thread, with no
+/// registry lock; only its commit takes the lock.
+const REDUCER_RECORD_BACKFILL_BUDGET: Duration = Duration::from_millis(200);
+/// How long the index backfill worker waits after the owner starts, so it
+/// never competes with the start's restore.
+const INDEX_BACKFILL_START_DELAY: Duration = Duration::from_secs(30);
+/// The worker's rest between slices: a fifth of a core at most. It keeps
+/// its normal priority because a slice takes the registry lock (a commit,
+/// or a legacy kind backfill slice), and a throttled thread holding it
+/// would stall requests. In the 30 s maintenance tick the backfill took one
+/// 200 ms slice per tick, and a 12M-record registry would have needed most
+/// of a day of uptime; at this pace it takes minutes.
+const INDEX_BACKFILL_PAUSE: Duration = Duration::from_millis(800);
+/// After a failed slice the worker waits this long; after
+/// [`INDEX_BACKFILL_ATTEMPTS`] failures in a row it stops until the next
+/// start.
+const INDEX_BACKFILL_RETRY: Duration = Duration::from_secs(30);
+const INDEX_BACKFILL_ATTEMPTS: u32 = 5;
+/// Segments that need no kept records one backfill plan passes over.
+const REDUCER_RECORD_BACKFILL_SKIP: usize = 256;
+/// Free pages the registry keeps for its next rows (64 MiB of 4096-byte
+/// pages); maintenance returns to the file system only what is free over
+/// them, one step a tick. Sealing frees the pages of the rows it archives
+/// and the next rows reuse them, so a registry in use always has some free:
+/// returning every one meant a vacuum commit on every tick for good (on a
+/// 10.8 GB registry, 2 MiB a minute for hours, about as many WAL bytes),
+/// and a worker that never settled. The reserve is a fixed size, not a
+/// share of the file: it is the headroom between two seals, which follows
+/// the write rate, not the registry's age.
+const JOURNAL_VACUUM_KEPT_FREE_PAGES: u64 = 16_384;
 
 /// How long each step of one maintenance tick took.
 #[derive(Default)]
@@ -51,6 +86,21 @@ impl MaintenanceSteps {
 /// ignore it.
 #[cfg(debug_assertions)]
 const JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV: &str = "CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS";
+
+/// Debug builds only: overrides [`INDEX_BACKFILL_START_DELAY`].
+#[cfg(debug_assertions)]
+const INDEX_BACKFILL_DELAY_TEST_ENV: &str = "CMUX_TUI_TEST_INDEX_BACKFILL_DELAY_MS";
+
+fn index_backfill_start_delay() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var(INDEX_BACKFILL_DELAY_TEST_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    INDEX_BACKFILL_START_DELAY
+}
 
 fn journal_maintenance_interval() -> Duration {
     #[cfg(debug_assertions)]
@@ -106,6 +156,18 @@ impl JournalMaintenanceControl {
         self.changed.notify_all();
     }
 
+    /// Waits `timeout` unless stopped first; false once stopped.
+    fn rest(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.lock();
+        while !state.stopped {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
+            state =
+                self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
+        }
+        !state.stopped
+    }
+
     /// Blocks until the journal changed since the last tick started, or
     /// until `fallback`. False once stopped.
     fn wait_for_change(&self, fallback: Duration) -> bool {
@@ -150,7 +212,8 @@ enum TickOutcome {
 /// The journal maintenance worker of a persistent session: a tick bounds and
 /// scans the mutation ledgers, migrates a legacy registry to incremental
 /// auto-vacuum, takes a checkpoint after enough new records, seals bounded
-/// segments up to the latest checkpoint, and returns free pages. Ticks are
+/// segments up to the latest checkpoint, and returns the free pages over
+/// [`JOURNAL_VACUUM_KEPT_FREE_PAGES`], one bounded step a tick. Ticks are
 /// at least one interval apart. Once a tick finds nothing left to do, the
 /// worker sleeps until the journal changes, so an idle daemon does not wake
 /// for maintenance (it used to tick every 30 s for good); the ledger scan
@@ -158,6 +221,8 @@ enum TickOutcome {
 pub(super) struct JournalMaintenance {
     control: Arc<JournalMaintenanceControl>,
     thread: Option<std::thread::JoinHandle<()>>,
+    /// The index backfill worker ([`run_index_backfill`]).
+    backfill: Option<std::thread::JoinHandle<()>>,
 }
 
 impl JournalMaintenance {
@@ -180,21 +245,75 @@ impl JournalMaintenance {
                         return;
                     }
                     let Some(mux) = weak_mux.upgrade() else { return };
+                    // Not demoted: a tick holds the workspace registry lock (the auto-vacuum migration, a full
+                    // VACUUM) that layout commits take, so a lowered holder would delay the resize reply under
+                    // load. It keeps the thread's own QoS, as before cmux-interactivity.
                     outcome = mux.run_journal_maintenance(&mut ledgers);
+                    // A tick runs 30 s or more after the last request, past
+                    // the quiet trim it armed: arm it again, or the pages the
+                    // checkpoint and sealing freed stay with the process.
+                    cmux_tui_platform::malloc_quiet_trim::note_activity();
                 }
             },
         )?;
-        Ok(Self { control, thread: Some(thread) })
+        let backfill_control = control.clone();
+        let weak_mux = Arc::downgrade(mux);
+        let backfill = std::thread::Builder::new()
+            .name("cmux-journal-index-backfill".into())
+            .spawn(move || run_index_backfill(&weak_mux, &backfill_control))?;
+        Ok(Self { control, thread: Some(thread), backfill: Some(backfill) })
     }
 
     pub(super) fn stop(mut self) {
         self.control.stop();
-        if let Some(thread) = self.thread.take() {
-            // The last `Arc<Mux>` can drop on the worker itself; it must not
+        for thread in [self.thread.take(), self.backfill.take()].into_iter().flatten() {
+            // The last `Arc<Mux>` can drop on a worker itself; it must not
             // join its own thread.
             if thread.thread().id() != std::thread::current().id() {
                 let _ = thread.join();
             }
+        }
+    }
+}
+
+/// The owner's index backfill: the seal-time indexes (kind maps and kept
+/// reducer records) of segments sealed before a build wrote them, filled a
+/// segment at a time while the owner serves, at most a fifth of a core, from
+/// a durable cursor, so a stopped daemon resumes where it was. Without
+/// them every reducer version bump decodes every such segment again
+/// (17.5 s at 3M records; the kind read with them takes 0.4 s). It ends
+/// when nothing is left, and starts again at the next owner start.
+fn run_index_backfill(weak_mux: &Weak<Mux>, control: &JournalMaintenanceControl) {
+    if !control.rest(index_backfill_start_delay()) {
+        return;
+    }
+    let mut failures = 0;
+    loop {
+        let outcome = {
+            let Some(mux) = weak_mux.upgrade() else { return };
+            // Not demoted, like the tick: a slice holds the workspace registry lock layout commits take.
+            if mux.journal_maintenance_paused() { Ok(true) } else { mux.run_index_backfill_slice() }
+        };
+        // Same as a maintenance tick: the slices' freed pages are trimmed
+        // once they stop (slices 800 ms apart keep postponing it).
+        cmux_tui_platform::malloc_quiet_trim::note_activity();
+        let rest = match outcome {
+            Ok(false) => return,
+            Ok(true) => {
+                failures = 0;
+                INDEX_BACKFILL_PAUSE
+            }
+            Err(error) => {
+                failures += 1;
+                eprintln!("cmux-tui: journal index backfill deferred: {error:#}");
+                if failures >= INDEX_BACKFILL_ATTEMPTS {
+                    return;
+                }
+                INDEX_BACKFILL_RETRY
+            }
+        };
+        if !control.rest(rest) {
+            return;
         }
     }
 }
@@ -223,7 +342,7 @@ impl Mux {
         Ok(())
     }
 
-    pub(super) fn stop_journal_maintenance(&self) {
+    pub(crate) fn stop_journal_maintenance(&self) {
         let maintenance =
             self.journal_maintenance.lock().unwrap_or_else(PoisonError::into_inner).take();
         if let Some(maintenance) = maintenance {
@@ -257,7 +376,8 @@ impl Mux {
 
     /// One tick; [`TickOutcome::Settled`] only when nothing is left: the
     /// ledgers are within their bounds, no migration, checkpoint or seal is
-    /// due, and no free page waits for the incremental vacuum.
+    /// due, and the free pages over [`JOURNAL_VACUUM_KEPT_FREE_PAGES`] are
+    /// less than one step of the incremental vacuum.
     fn run_journal_maintenance(
         &self,
         ledgers: &mut ledger_maintenance::LedgerMaintenance,
@@ -312,13 +432,14 @@ impl Mux {
             if !pending_seal
                 && head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS
             {
+                let pruned = self.prune_journal_checkpoints(&mut steps);
                 let pages_remain = steps.time("incremental_vacuum", || {
                     self.workspace_registry
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
-                        .incremental_journal_vacuum()
+                        .incremental_journal_vacuum(JOURNAL_VACUUM_KEPT_FREE_PAGES)
                 })?;
-                return Ok(if pages_remain {
+                return Ok(if pages_remain || pruned {
                     TickOutcome::WorkRemains
                 } else {
                     TickOutcome::Settled
@@ -339,10 +460,15 @@ impl Mux {
             if target == 0 {
                 return Ok(TickOutcome::WorkRemains);
             }
-            // The live rows are almost all output that the pending cleanup
+            // The live rows are mostly output that the pending cleanup
             // removes; sealing them first is wasted work. The seal waits, so
             // work remains: a settled worker would sleep past the cleanup.
-            if self.output_cleanup_pending() {
+            // It waits only while the live rows stay few: a cleanup that
+            // stalls must not stop sealing for good (one registry held
+            // 5.77M live rows, 59 GB, through a week of a pending cleanup).
+            if self.output_cleanup_pending()
+                && head.saturating_sub(sealed_through) < OUTPUT_CLEANUP_SEAL_HOLD_RECORDS
+            {
                 return Ok(TickOutcome::WorkRemains);
             }
 
@@ -359,11 +485,12 @@ impl Mux {
                 }
                 sealed_through = commit.through_sequence;
             }
+            self.prune_journal_checkpoints(&mut steps);
             steps.time("incremental_vacuum", || {
                 self.workspace_registry
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .incremental_journal_vacuum()
+                    .incremental_journal_vacuum(JOURNAL_VACUUM_KEPT_FREE_PAGES)
             })?;
             // A checkpoint or seal changed the journal: the next tick checks
             // again, and settles once there is nothing left.
@@ -388,6 +515,75 @@ impl Mux {
 }
 
 impl Mux {
+    /// One slice of the index backfill ([`run_index_backfill`]): a slice of
+    /// a legacy kind backfill that started and never finished (until it
+    /// does, kind reads trust no map it may have left partial), then one of
+    /// the kept reducer records, which also maps segments sealed before
+    /// kind maps. True while either has work left.
+    pub(super) fn run_index_backfill_slice(&self) -> anyhow::Result<bool> {
+        let legacy = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .continue_legacy_kind_backfill()?;
+        let records = self.backfill_sealed_reducer_records()?;
+        Ok(legacy || records)
+    }
+
+    /// One bounded slice of the backfill of kept reducer records
+    /// (`session_journal::reducer_records`): segments sealed before sealing
+    /// kept them are decoded off the registry lock, a segment at a time,
+    /// for about [`REDUCER_RECORD_BACKFILL_BUDGET`]. The cursor is durable,
+    /// so a stopped daemon resumes where it was. Never at start: until a
+    /// segment is filled, a kind-scoped read decodes it as before. True
+    /// while segments remain. What the slice committed (kept records and
+    /// cursor moves) is flushed: no request answer follows to flush it, and
+    /// an idle daemon would leave the whole backfill in the WAL.
+    pub(super) fn backfill_sealed_reducer_records(&self) -> anyhow::Result<bool> {
+        let remains = self.backfill_sealed_reducer_records_slice();
+        self.request_registry_flush();
+        remains
+    }
+
+    fn backfill_sealed_reducer_records_slice(&self) -> anyhow::Result<bool> {
+        use crate::workspace_registry::session_journal::reducer_records::ReducerRecordBackfillStep;
+        // The cleanup rebuilds every segment under a new id; rows written
+        // now would be dropped with the old ones.
+        if self.output_cleanup_pending() {
+            return Ok(false);
+        }
+        let started = Instant::now();
+        let mut reader = None;
+        while started.elapsed() < REDUCER_RECORD_BACKFILL_BUDGET {
+            let step = self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .plan_reducer_record_backfill(REDUCER_RECORD_BACKFILL_SKIP)?;
+            let plan = match step {
+                ReducerRecordBackfillStep::Done => return Ok(false),
+                ReducerRecordBackfillStep::Passed => continue,
+                ReducerRecordBackfillStep::Decode(plan) => plan,
+            };
+            if reader.is_none() {
+                let path = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .session_journal_database_path()
+                    .context("the reducer record backfill needs a persistent session")?;
+                reader = Some(crate::workspace_registry::SessionJournalReader::open(&path)?);
+            }
+            let Some(reader) = reader.as_ref() else { continue };
+            let prepared = plan.prepare(reader)?;
+            self.workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .commit_reducer_record_backfill(prepared)?;
+        }
+        Ok(true)
+    }
+
     pub(crate) fn journal_hook_states(
         &self,
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalHookState>> {
@@ -411,11 +607,18 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
+        // Before the registry lock, as a hook report takes them
+        // (`agent_hooks_at_rest.rs`).
+        let hooks_changing = self.agent_hooks_at_rest.journal_hooks_changing();
+        // The same for a terminal's live facts (`terminal_live.rs`).
+        let live_fact_hooks_changing = self.terminal_live.journal_hooks_changing();
         let commit = self
             .workspace_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .put_journal_hook(manifest, origin, idempotency_key)?;
+        drop(live_fact_hooks_changing);
+        drop(hooks_changing);
         if !commit.replayed {
             self.publish_journal_event();
         }
@@ -563,6 +766,25 @@ impl Mux {
         self.reconnect_checkpoint_skip_reported.store(false, Ordering::Release);
     }
 
+    /// Deletes a batch of old, sealed checkpoints; true when it deleted any.
+    /// A failure only defers the pruning: an older binary that opened the
+    /// registry may have put back the trigger that refuses every delete.
+    fn prune_journal_checkpoints(&self, steps: &mut MaintenanceSteps) -> bool {
+        let pruned = steps.time("checkpoint_prune", || {
+            self.workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .prune_journal_checkpoints()
+        });
+        match pruned {
+            Ok(deleted) => deleted > 0,
+            Err(error) => {
+                eprintln!("cmux-tui: journal checkpoint pruning deferred: {error:#}");
+                false
+            }
+        }
+    }
+
     pub(crate) fn create_journal_checkpoint(
         &self,
         origin: &str,
@@ -696,6 +918,10 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::workspace_registry::JournalSegmentSealCommit> {
+        // One sealer at a time: a seal that waits here plans its segment
+        // from the boundary the one before it left. The registry lock is not
+        // held while a segment compresses, so this lock orders the sealers.
+        let _seal = self.journal_seal.lock().unwrap_or_else(PoisonError::into_inner);
         let database_path = self
             .workspace_registry
             .lock()
@@ -733,6 +959,14 @@ impl Mux {
             }
         }
         anyhow::bail!("journal segment boundary changed repeatedly during sealing")
+    }
+
+    /// One maintenance tick, as the worker runs it; true when it settled
+    /// (the worker would then sleep until the journal changes).
+    #[cfg(test)]
+    pub(crate) fn run_journal_maintenance_tick_for_test(&self) -> bool {
+        let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
+        self.run_journal_maintenance(&mut ledgers) == TickOutcome::Settled
     }
 
     #[cfg(test)]
@@ -780,30 +1014,16 @@ impl Mux {
             .unwrap_or_else(PoisonError::into_inner)
             .corrupt_agent_projection_for_test(terminal_id);
     }
+
+    #[cfg(test)]
+    pub(crate) fn reject_resource_effect_commits_for_test(&self) {
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .reject_resource_effect_commits_for_test();
+    }
 }
 
 #[cfg(test)]
-mod maintenance_steps_tests {
-    use super::*;
-
-    #[test]
-    fn a_fast_tick_reports_nothing() {
-        let mut steps = MaintenanceSteps::default();
-        steps.record("ledgers", Duration::from_millis(3));
-        steps.record("incremental_vacuum", Duration::from_millis(40));
-        assert_eq!(steps.slow_report(SLOW_MAINTENANCE_TICK), None);
-    }
-
-    #[test]
-    fn a_slow_tick_names_its_slowest_step() {
-        let mut steps = MaintenanceSteps::default();
-        steps.record("ledgers", Duration::from_millis(5));
-        steps.record("checkpoint", Duration::from_millis(900));
-        steps.record("seal", Duration::from_millis(11_000));
-        steps.record("incremental_vacuum", Duration::from_millis(400));
-        assert_eq!(
-            steps.slow_report(SLOW_MAINTENANCE_TICK).as_deref(),
-            Some("slow journal maintenance: 12305 ms (4 steps; slowest seal 11000 ms)")
-        );
-    }
-}
+#[path = "journal_maintenance_maintenance_steps_tests.rs"]
+mod maintenance_steps_tests;

@@ -22,6 +22,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 SCRIPT = ROOT / "scripts" / "ci" / "nightly_published_build.py"
@@ -69,6 +72,22 @@ else:
             failures.append(f"published-build must run in the run that published or an older dispatch ({term})")
     if "track != 'nightly-next'" in cond:
         failures.append("published-build must run in nightly-next's own push run too: the tail is part of the loop")
+    # A refused publication is a green publish job that moved no feed (run 45607031207: the final gate refused on a
+    # red App Store shelf, and published-build, its dispatch and the dispatched tail all went green).
+    for term in ("needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true'",
+                 "needs.nightly-next-one.outputs.left != 'true' && needs.nightly-next-one.outputs.refused != 'true'"):
+        if term not in cond:
+            failures.append(f"published-build must not run for a refused publication ({term})")
+    readback = next((s for s in source.get("steps", []) if "nightly_next_delta_check.py published" in str(s.get("run", ""))),
+                    None)
+    if readback is None:
+        failures.append("published-build must read its build back from the live feed (nightly_next_delta_check.py published)")
+    else:
+        steps = source.get("steps", [])
+        if steps.index(readback) != len(steps) - 1 or "set -o pipefail" not in str(readback.get("run", "")) \
+                or "steps.record.outputs.publish_build" not in str((readback.get("env") or {}).get("BUILD", "")) \
+                or "steps.record.outputs.track == 'nightly-next'" not in str(readback.get("if", "")):
+            failures.append("published-build's read-back must check the record's build on nightly-next, last, and fail red")
     body = job_text("published-build")
     if "nightly_published_build.py outputs" not in body:
         failures.append("published-build must write its outputs with nightly_published_build.py outputs")
@@ -80,10 +99,12 @@ else:
     if not re.search(r"gh api [^\n]*actions/runs/[^\n]*/attempts/", body) \
             or "nightly_published_build.py check-source" not in body:
         failures.append("published-build must check the source run through the API (check-source)")
-    download = next((s for s in source.get("steps", []) if "download-artifact" in str(s.get("uses", ""))), None)
-    with_ = (download or {}).get("with") or {}
-    if download is None or "nightly-published-build" not in str(with_.get("name", "")) \
-            or "steps.source.outputs.run" not in str(with_.get("run-id", "")):
+    # gh run download through gh_budget_wait.sh (run 45819376175 went red on a rate-limited read, 2026-11-26).
+    download = next((s for s in source.get("steps", []) if "gh run download" in str(s.get("run", ""))), None)
+    env_ = (download or {}).get("env") or {}
+    if download is None or "nightly-published-build" not in str(env_.get("NAME", "")) \
+            or "steps.source.outputs.run" not in str(env_.get("RUN", "")) \
+            or not re.search(r'gh run download "\$RUN" [^\n]*--name "\$NAME"', str(download.get("run", ""))):
         failures.append("published-build must read the record from the checked source run's artifact")
 
 for name in TAIL:
@@ -105,11 +126,17 @@ for name, steps in CROSS_RUN.items():
         failures.append(f"{name} reads another run's artifacts: it needs actions: read")
     by_name = {str(step.get("name", "")): step for step in spec.get("steps", [])}
     for step_name in steps:
-        step = next((s for n, s in by_name.items() if n.startswith(step_name)), None)
-        with_ = (step or {}).get("with") or {}
-        if "published-build.outputs.source_run" not in str(with_.get("run-id", "")) \
-                or "github.token" not in str(with_.get("github-token", "")):
+        # The ranged download (download-run-artifact.py, its run in env) and its download-artifact fallback
+        # (run-id in with) both read the published build's run.
+        found = [s for n, s in by_name.items() if n.startswith(step_name)]
+        if not found:
             failures.append(f"{name}: {step_name!r} must download from the published build's run")
+        for step in found:
+            with_, env = step.get("with") or {}, step.get("env") or {}
+            run_from, token = (str(with_.get("run-id", "")), str(with_.get("github-token", ""))) if "uses" in step \
+                else (str(env.get("SOURCE_RUN", "")), str(env.get("GITHUB_TOKEN", "")))
+            if "published-build.outputs.source_run" not in run_from or "github.token" not in token:
+                failures.append(f"{name}: {step.get('name')!r} must download from the published build's run")
 
 # run_tail: false only in a loop run (a push, or the loop's retry) that published itself.
 run_tail = str(((source or {}).get("outputs") or {}).get("run_tail", ""))
@@ -161,9 +188,11 @@ else:
     for _, run in ask:
         if "nightly.yml" not in run or re.findall(r"-f (\w+)=", run) != ["nightly_next_post_publish"]:
             failures.append("dispatch-published-in must dispatch nightly.yml with only -f nightly_next_post_publish=")
-    runs_on = str(dispatch.get("runs-on", ""))
-    if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
-        failures.append("dispatch-published-in runs on the nightly mini, as published-build")
+    runs_on = workflow_jobs.single_runs_on(dispatch)
+    # Both dispatch jobs hold App keys and now use the dedicated one-job JIT nightly VM.
+    # Keep the route assertion aligned with that isolation boundary, never Blacksmith.
+    if "blacksmith" in runs_on.lower() or "cmux-gcp-nightly-jit-x64" not in runs_on:
+        failures.append("dispatch-published-in runs on the dedicated nightly JIT runner, never Blacksmith")
 if TEXT.count("-f nightly_next_post_publish=") > 1:
     failures.append("only dispatch-published-in dispatches a tail run")
 if "fromJSON(inputs.nightly_next_post_publish)" in TEXT:
@@ -175,7 +204,7 @@ if "needs.published-build.outputs.comment == 'true'" not in str(JOBS.get("publis
 report = JOBS.get("report-nightly-failure", {})
 if "published-build" not in needs("report-nightly-failure") or "dispatch-published-in" not in needs("report-nightly-failure"):
     failures.append("report-nightly-failure must see the tail jobs and a failed dispatch")
-if "results['published-build']?.outputs?.run_tail === 'true'" not in job_text("report-nightly-failure"):
+if "results['published-build']?.outputs?.run_tail === 'true'" not in (ROOT / "scripts/ci/nightly-steps/report-nightly-failure.cjs").read_text():
     failures.append("report-nightly-failure must count skipped notes only in the run that ran the tail (run_tail)")
 if "needs.published-build.result == 'success'" not in str(JOBS.get("close-nightly-failure-issue", {}).get("if", "")):
     failures.append("close-nightly-failure-issue must close only in the run that ran the tail")
@@ -194,7 +223,7 @@ report = JOBS.get("report-nightly-failure") or {}
 report_if = str(report.get("if", ""))
 if "inputs.nightly_next_post_publish != '' && needs.published-build.result == 'failure'" not in report_if:
     failures.append("report-nightly-failure must report a failed published-build in the dispatched run")
-report_env = (report.get("steps") or [{}])[0].get("env") or {}
+report_env = next(s for s in report["steps"] if s.get("name") == "Open or update the nightly failure issue").get("env") or {}
 for key in ("CHANNEL_RELEASE_TAG", "TRACK"):
     if "'nightly-next'" not in str(report_env.get(key, "")):
         failures.append(f"report-nightly-failure's {key} must fall back to nightly-next when the dispatched run has no record")
@@ -204,8 +233,7 @@ if SCRIPT.exists():
     sha = "a" * 40
     needs_ctx = {
         "decide": {"result": "success", "outputs": {"track": "nightly-next", "should_publish": "true",
-                                                    "published_sha": "b" * 40, "variants": '["arm64"]',
-                                                    "early_mini_jobs": " ignored "}},
+                                                    "published_sha": "b" * 40, "variants": '["arm64"]'}},
         "publish-nightly": {"result": "success", "outputs": {"build": "123", "build_sha": sha, "source": "own",
                                                              "tag_status": "updated",
                                                              "downloads": "- arm64: a.dmg\n- x86_64: b.dmg"}},

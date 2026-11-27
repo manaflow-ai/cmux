@@ -21,6 +21,7 @@ struct TabTitleResolver {
     var subagentTitle: @MainActor (TabModel) -> String? = { SubagentTabTitles.shared.title(ofTab: $0.id) }
     /// An agent chat's title before the user names it (`AgentChatTabTitle`).
     var chatTitle: @MainActor (TabModel) -> String = { AgentChatTabTitle.untitled($0.agentSession) }
+    var cloudStarts: AgentCloudStartTitles? // what a Cloud chat start's page, and the chat it opened until that has a title, read as
     /// The name of the workspace an asked tab is in, when the caller knows it: an agent chat
     /// with no title yet reads as it (`AgentChatTabTitle`).
     var workspaceName: String?
@@ -30,20 +31,23 @@ struct TabTitleResolver {
     var page: @MainActor (TabModel) -> (title: String, icon: TabIcon)? = { _ in nil }
     /// An incognito browser tab's live title (its daemon record is a placeholder); nil `Bool`: look the tab up.
     var incognitoTitle: @MainActor (TabModel, Bool?) -> String?? = { _, _ in nil }
+    /// The Cloud tab a Mac tab shows in place (``CloudFrontedChats``): the Mac tab reads as that chat.
+    var fronted: @MainActor (TabModel) -> TabModel? = { _ in nil }
 
     /// The app's live sources. `workspace`: the one workspace every asked tab is in, when the
     /// caller knows it (a pane snapshot: `RestoredNewTabPages.shows` then looks nothing up).
     init(services: AppServices, workspace: WorkspaceHandle? = nil) {
-        let agentTabs = services.agentTabs
+        let agentTabs = services.agentTabs; cloudStarts = services.cloudStartTitles
         showsNewTabPage = { [weak agentTabs] tab in agentTabs.map { RestoredNewTabPages.shows(tab, in: $0, workspace: workspace) } ?? false }
-        newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, $0) } }
+        newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, machine: $0.agentTabs.daemonListing(tab)?.machineID, $0) } }
         conversationTitle = { [weak services] tab in services?.home.tabTitle(for: tab) ?? Strings.untitledBrowser }
         page = { [weak services] tab in
             guard let services else { return nil }
-            if let app = tab.appTab, let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false),
+            if let app = tab.appTab, let provider = services.apps.pageProvider(appID: app.app),
                let page = services.pages.storeTabItem(tab, page: provider.page) { return page }
             return tab.page != nil ? services.pages.storeTabItem(tab) : nil
         }
+        fronted = { [weak services] tab in services.flatMap { CloudFrontedChats.shown(by: tab, services: $0) } }
         incognitoTitle = { [weak services] tab, known in
             guard let services, tab.kind == .browser, known ?? services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
             return .some(services.cache.incognitoDisplay(tab).title)
@@ -64,19 +68,19 @@ struct TabTitleResolver {
 
     /// Whether `tab` is a New Tab page (an agent tab still on that page).
     func isNewTabPage(_ tab: TabModel) -> Bool {
-        tab.agentSession != nil && showsNewTabPage(tab)
+        tab.agentSession != nil && fronted(tab) == nil && showsNewTabPage(tab)
     }
 
     /// The name `tab` shows when its program or page gave none (`fallback`
     /// for a terminal).
     func untitled(_ tab: TabModel, fallback: String = Strings.untitledTerminal) -> String {
         if tab.agentSession != nil {
-            if isNewTabPage(tab) { return newTabPageTitle(tab) ?? Strings.untitledBrowser }
+            if isNewTabPage(tab) { return cloudStarts?.title(of: tab) ?? newTabPageTitle(tab) ?? Strings.untitledBrowser } // a Cloud start's page reads as its chat
             // A subagent's pane is a tab on its chat's session: it shows the subagent's own name, never
             // the chat's (Leo 2026-10-30: "subagents shouldn't be tab-named the exact same as the parent").
-            if let subagent = subagentTitle(tab) { return subagent }
+            if let subagent = subagentTitle(tab) { return subagent } else if let shown = fronted(tab) { return cloudStarts?.title(of: tab, showing: shown, untitled: AgentPaneModel.tabTitle) ?? chatTitle(shown) } // a Mac tab showing a Cloud chat in place reads as that chat (cmux#55668)
             let title = chatTitle(tab)
-            if title == AgentPaneModel.tabTitle, let name = workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
+            if title == AgentPaneModel.tabTitle, let name = cloudStarts?.title(of: tab) ?? workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
             return title
         }
         switch tab.kind {
@@ -91,6 +95,7 @@ struct TabTitleResolver {
 
     /// `incognito`: the tab's answer when the caller knows (a sidebar row's workspace: no tab list read, F6).
     func title(_ tab: TabModel, incognito: Bool?) -> String {
+        if let shown = fronted(tab) { return cloudStarts?.title(of: tab, showing: shown, untitled: AgentPaneModel.tabTitle) ?? title(shown, incognito: false) }
         if let page = page(tab) { return page.title }
         if let incognito = incognitoTitle(tab, incognito) { return incognito ?? Strings.untitledBrowser }
         return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))

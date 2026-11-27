@@ -1,5 +1,6 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
+use super::agent_roster_fold::ReportEcho;
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -11,6 +12,13 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
+        // A socket report that changes no durable state is answered from
+        // memory: no registry lock, no commit (`agent_reports_at_rest.rs`).
+        if let Some(record) =
+            self.answer_agent_report_at_rest(surface, state, source, session.as_deref())
+        {
+            return Ok(record);
+        }
         self.report_agent_with_sequence_lock(
             surface,
             state,
@@ -20,6 +28,7 @@ impl Mux {
             None,
             None,
             AgentReportOrigin::Direct,
+            None,
             None,
         )
     }
@@ -39,11 +48,9 @@ impl Mux {
         journal_sequence: Option<u64>,
         origin: AgentReportOrigin,
         agent_adapter: Option<String>,
+        notification: Option<notifications::StagedNotification>,
     ) -> anyhow::Result<AgentRecord> {
-        let mutation = WorkspaceMutation::daemon(
-            format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
-            "raw-control",
-        )?;
+        let mut notification = notification;
         let fingerprint = serde_json::json!({
             "operation":"agent.report",
             "surface":surface,
@@ -51,20 +58,34 @@ impl Mux {
             "source":source.as_str(),
             "source_session":session,
         });
-        let (_, record) = self.commit_agent_report(
-            AgentReportTarget::Surface(surface),
-            state,
-            source,
-            session,
-            None,
-            &mutation,
-            &fingerprint,
-            sequence_lock_held,
-            hook_state.as_ref(),
-            journal_sequence,
-            origin,
-            agent_adapter,
-        )?;
+        let report = WorkspaceMutation::daemon(
+            format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
+            "raw-control",
+        )
+        .and_then(|mutation| {
+            self.commit_agent_report(
+                AgentReportTarget::Surface(surface),
+                state,
+                source,
+                session,
+                None,
+                &mutation,
+                &fingerprint,
+                sequence_lock_held,
+                hook_state.as_ref(),
+                journal_sequence,
+                origin,
+                agent_adapter,
+                &mut notification,
+            )
+        });
+        // A notification that the report did not take into its commit (the
+        // report refused, failed or replayed) commits alone, as it did when
+        // the two were 2 commits. The report's error comes first.
+        let alone =
+            self.commit_agent_hook_notification(notification, journal_sequence.unwrap_or_default());
+        let (_, record) = report?;
+        alone?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
             // A successful report means this terminal is available. Retry only
@@ -106,6 +127,7 @@ impl Mux {
             None,
             AgentReportOrigin::Direct,
             None,
+            &mut None,
         );
         if result.is_ok() && source != AgentSource::Hook {
             let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
@@ -116,6 +138,10 @@ impl Mux {
     /// Commit one agent report as the terminal's durable projection and
     /// publish its upsert or delete. Hook reports carry the agent's native
     /// session id into `extra.agent_session_id`.
+    ///
+    /// `notification`: the staged notification of the same hook. A report
+    /// that commits takes it into its transaction (one commit for both) and
+    /// leaves `None`; a report that refuses, fails or replays leaves it.
     #[allow(clippy::too_many_arguments)]
     #[track_caller]
     pub(super) fn commit_agent_report(
@@ -132,12 +158,18 @@ impl Mux {
         journal_sequence: Option<u64>,
         origin: AgentReportOrigin,
         agent_adapter: Option<String>,
+        notification: &mut Option<notifications::StagedNotification>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
         // Hook replay already owns this guard to serialize sequence checks and
         // projection commits. Other report sources acquire it before the
         // registry/state locks, so all paths use one lock order.
         let mut sequence_guard =
             (!sequence_lock_held).then(|| self.agent_hook_fences.lock().unwrap());
+        // The feed post of the hook's notification is decided first: the
+        // feed lock comes before the registry (`feed_local.rs`).
+        let feed_post = notification
+            .as_ref()
+            .map(|staged| self.decide_feed_post(&staged.actor, &staged.notification));
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) =
             registry.replay_resource_patch(mutation, "agent.report", fingerprint)?
@@ -163,7 +195,9 @@ impl Mux {
                 let ContentPublicId::Terminal(terminal_id) = &identity.content_id else {
                     anyhow::bail!("surface {surface} is not a terminal");
                 };
-                (surface, terminal_id.clone())
+                // A report names the terminal by any of its surfaces (a hook by its runtime's);
+                // the record and its event name the one its tab shows.
+                (state.terminal_view_surface(terminal_id).unwrap_or(surface), terminal_id.clone())
             }
             AgentReportTarget::Resource { selectors, terminal_id } => {
                 self.resolve_resource_path_in_state(
@@ -174,10 +208,7 @@ impl Mux {
                 )
                 .map_err(anyhow::Error::new)?;
                 let surface = state
-                    .placements_of_content(&ContentPublicId::Terminal((*terminal_id).clone()))
-                    .first()
-                    .copied()
-                    .or_else(|| state.terminal_catalog.get(terminal_id).map(|surface| surface.id))
+                    .terminal_view_surface(terminal_id)
                     .with_context(|| format!("unknown terminal {terminal_id}"))?;
                 (surface, (*terminal_id).clone())
             }
@@ -290,6 +321,8 @@ impl Mux {
                     && existing.agent_session_id == agent_session_id
             })
             .map(|existing| existing.since_ms);
+        let was_blocked =
+            records.get(&terminal_id).is_some_and(|existing| existing.state == AgentState::Blocked);
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
             None if socket_report_ignored => match durable_stronger {
@@ -370,6 +403,12 @@ impl Mux {
                 "value":public_value,
             }])
         };
+        let joined = match (notification.as_ref(), feed_post) {
+            (Some(staged), Some((post, write))) => {
+                Some((post, staged.outcome_intent(&registry, write)?))
+            }
+            _ => None,
+        };
         let commit = registry.commit_agent_projection_with_hook_state(
             mutation,
             fingerprint,
@@ -379,7 +418,16 @@ impl Mux {
             &deltas,
             effective_hook_state,
             journal_sequence,
+            joined.as_ref().map(|(_, intent)| intent),
         )?;
+        // The notification that committed with this report (a replay took
+        // none), and the agent session its event names: the record's before
+        // this report, as when the notification committed first.
+        let joined = joined
+            .filter(|_| !commit.replayed)
+            .and_then(|(post, _)| notification.take().map(|staged| (post, staged)));
+        let notified_session =
+            joined.as_ref().and_then(|(_, staged)| staged.agent_session(&records));
         if !commit.replayed
             && let (Some(direct_state), Some(sequence_guard)) =
                 (direct_hook_state.as_ref(), sequence_guard.as_mut())
@@ -398,8 +446,37 @@ impl Mux {
         drop(records);
         state.resource_revision = commit.revision;
         drop(state);
+        let notified = joined.map(|(post, staged)| {
+            let installed = self.install_feed_post(post, &staged.notification, staged.numeric_id);
+            (staged, installed)
+        });
         drop(registry);
+        // A direct report's echo, noted before the hook projector's lock
+        // goes: until it is in the journal the roster holds the agent's older
+        // state (`ReportEchoes`).
+        let echoed = origin == AgentReportOrigin::Direct && !commit.replayed;
+        if echoed {
+            self.note_report_echo(ReportEcho::new(
+                terminal_id.clone(),
+                record.state,
+                record.source,
+                record.session.clone(),
+                record.updated_at_ms,
+            ));
+        }
         drop(sequence_guard);
+        // The notification's events come before the report's, as before.
+        if let Some((staged, (ring, shown_by))) = notified {
+            let (notification, id) = (&staged.notification, staged.numeric_id);
+            self.announce_notification(
+                notification,
+                id,
+                ring,
+                notified_session,
+                shown_by.as_deref(),
+            );
+            self.prune_evicted_notification_reads();
+        }
         let agent = AgentRecord {
             surface,
             terminal_id,
@@ -420,10 +497,19 @@ impl Mux {
             self.forget_agent_question(&agent.terminal_id);
         }
         let agent = AgentRecord { last_prompt: self.agent_prompt(&agent.terminal_id), ..agent };
+        // A hook that blocks the agent carries its own alert (approval,
+        // question, plan review, error); any other source turning it Blocked
+        // posts the opt-in Blocked notification once per transition.
+        let newly_blocked = !commit.replayed
+            && !socket_report_ignored
+            && !was_blocked
+            && agent.state == AgentState::Blocked
+            && agent.source != AgentSource::Hook;
         if !commit.replayed {
             self.publish_resource_event();
             self.emit(MuxEvent::AgentChanged {
                 surface: agent.surface,
+                terminal_id: Some(Arc::from(agent.terminal_id.as_str())),
                 state: Arc::from(agent.state.as_str()),
                 source: Arc::from(agent.source.as_str()),
                 session: agent.session.as_deref().map(Arc::from),
@@ -435,21 +521,78 @@ impl Mux {
             });
             if matches!(agent.state, AgentState::Idle | AgentState::Done) {
                 self.clear_agent_presence(&agent.terminal_id, agent.surface);
+                // The terminal's agent turn ended: its Computer Use is no longer active
+                // (its cursor hides, its live preview turns done).
+                #[cfg(unix)]
+                self.computer_use_turn_ended(
+                    format!("terminal:{}:", agent.terminal_id.as_str()),
+                    true,
+                );
             }
             if origin == AgentReportOrigin::Direct {
+                #[cfg(test)]
+                if let Some(seam) = self
+                    .agent_roster_worker
+                    .report_echo_seam
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take()
+                {
+                    seam();
+                }
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
                 // echo adapter and applies it roster-only.
-                self.append_agent_report_echo(
-                    &agent.terminal_id,
-                    agent.state,
-                    agent.source,
-                    agent.session.as_deref(),
-                    agent.updated_at_ms,
-                );
+                // Every echo, in the terminal's commit order (`agent_report_echoes.rs`).
+                if echoed {
+                    self.write_report_echoes(&agent.terminal_id);
+                }
             }
         }
+        if newly_blocked {
+            self.notify_agent_blocked(&agent);
+        }
         Ok((commit, Some(agent)))
+    }
+
+    /// Post the opt-in `notifications.delivery.blocked` notification for an
+    /// agent a report just turned Blocked: off posts nothing, badge records
+    /// the unread item with no banner, banner posts as a hook alert does. The
+    /// key names the terminal and when its Blocked state began, so a replay
+    /// of the same transition posts nothing.
+    fn notify_agent_blocked(&self, agent: &AgentRecord) {
+        use super::agent_notification_delivery::{AgentEvent, Delivery};
+        let delivery = self.agent_notification_delivery(Some(AgentEvent::Blocked));
+        if delivery == Delivery::Off {
+            return;
+        }
+        let name = agent.agent.as_deref().map(str::trim).filter(|name| !name.is_empty());
+        let mut title = String::new();
+        match name {
+            Some(name) => {
+                let mut chars = name.chars();
+                if let Some(first) = chars.next() {
+                    title.extend(first.to_uppercase());
+                    title.push_str(chars.as_str());
+                }
+            }
+            None => title.push_str("Agent"),
+        }
+        title.push_str(" is blocked");
+        let posted = self.create_durable_notification_with(
+            &Actor::Daemon,
+            &format!("agent-blocked-{}-{}", agent.terminal_id, agent.since_ms),
+            title,
+            None,
+            String::new(),
+            NotificationLevel::Warning,
+            Some(agent.surface),
+            NotificationSource::Agent,
+            delivery == Delivery::Banner,
+        );
+        if posted.is_err() {
+            self.report_internal_diagnostic("agent blocked notification not posted");
+        }
     }
 
     #[track_caller]
@@ -485,13 +628,7 @@ impl Mux {
                 // A terminal without a runtime runs no agent: its tabs are
                 // dead (a host loss keeps them, invariant 3) or kept.
                 state_snapshot.terminal_catalog.get(&terminal_id)?;
-                let representative = state_snapshot
-                    .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
-                    .first()
-                    .copied()
-                    .or_else(|| {
-                        state_snapshot.terminal_catalog.get(&terminal_id).map(|surface| surface.id)
-                    })?;
+                let representative = state_snapshot.terminal_view_surface(&terminal_id)?;
                 // The roster's own clock, so `since_ms <= updated_at_ms` holds.
                 let since_ms = entry.since_ms();
                 // The hover card's folded cut; the whole prompt is the phone Feed's.
@@ -524,5 +661,45 @@ impl Mux {
             })
             .filter(|record| state.is_none_or(|state| record.state == state))
             .collect()
+    }
+
+    /// The status the person sees for a listed agent: `done` while a
+    /// finished turn's unread marker is still on its terminal
+    /// ([`crate::AgentStatus`]). A read: it never clears the marker. `None`
+    /// for an ended session.
+    pub fn agent_status(&self, record: &AgentRecord) -> Option<crate::AgentStatus> {
+        let unseen =
+            self.terminal_notification(&record.terminal_id).is_some_and(|marker| marker.unread);
+        crate::AgentStatus::from_state(record.state, unseen)
+    }
+}
+
+impl Mux {
+    /// The adapter (`claude`, `codex`, ...) of the agent `terminal` runs now, from its live
+    /// agent record: `None` when no agent reported, its report named no adapter, or it ended.
+    pub(crate) fn running_agent_adapter(&self, terminal: &TerminalPublicId) -> Option<String> {
+        let records = self.agent_records.lock().unwrap_or_else(PoisonError::into_inner);
+        records
+            .get(terminal)
+            .filter(|record| record.state != AgentState::Done)
+            .and_then(|record| record.agent.clone())
+    }
+
+    /// Test only: `terminal` runs the agent `adapter`, as its hook would report.
+    #[cfg(test)]
+    pub(crate) fn note_running_agent_for_test(&self, terminal: &TerminalPublicId, adapter: &str) {
+        let now = now_ms();
+        self.agent_records.lock().unwrap_or_else(PoisonError::into_inner).insert(
+            terminal.clone(),
+            TerminalAgentRecord {
+                state: AgentState::Working,
+                source: AgentSource::Hook,
+                session: None,
+                agent: Some(adapter.to_owned()),
+                agent_session_id: None,
+                updated_at_ms: now,
+                since_ms: now,
+            },
+        );
     }
 }

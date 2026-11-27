@@ -1,7 +1,8 @@
 #!/bin/sh
 # Rebuilds the generated file that is still committed and stages it, after
 # merging feat-cmux-next (or main) into a branch, or after editing its inputs:
-# the optchat memory inspector page. Build paths only check it
+# the optchat memory inspector page, and the docs reference data
+# (web/data/next-docs/*.generated.json). Build paths only check it
 # (build-web-bundles.sh fails on a stale copy and never writes one). It also
 # rewrites the pages' strings tables (webviews/src/**/generated/), which are
 # build output since #21946 and stay out of the index.
@@ -53,5 +54,7 @@ bun install --frozen-lockfile
 bun scripts/pages/gen-strings.mjs
 cd "$ROOT"
 "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh"
-git add -A -- "$INSPECTOR"
-git status --short -- "$INSPECTOR"
+# Plain TypeScript over two JSON files: no install and no build.
+bun web/scripts/export-next-docs.ts >/dev/null
+git add -A -- "$INSPECTOR" web/data/next-docs
+git status --short -- "$INSPECTOR" web/data/next-docs

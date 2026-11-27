@@ -1,13 +1,36 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactElement,
+  type ReactNode,
+  useId,
+  useMemo,
+} from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
+import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
+import { pointerAnchor, usePointerMenuPosition } from "./pointerMenuPosition";
 import { usePopupHost } from "./UiProvider";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
+import { markPopupWithin, popupOpener } from "./popupWithin";
+import { trackHeldMenuRelease } from "./pressRelease";
+import { usePopupSettle } from "./popupSettle";
+import { useExperimentArm } from "../experiments/useExperimentArm";
+import { menuStyleV2 } from "./menuStyleV2.experiment";
+import { menuRowStates } from "./menuRowStates.experiment";
+import { arrangeMenuRows, isThenable, type ArrangedRow } from "./menuArrange";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
@@ -21,8 +44,26 @@ export interface ContextMenuItem {
   disabled?: boolean;
   /** A toggle action; false still renders as a checkbox menu item. */
   checked?: boolean;
+  /** Red; under menu-style-v2 the destructive rows move into one last group (menuArrange.ts). */
   destructive?: boolean;
   separatorBefore?: boolean;
+  /** The row's key equivalent, in the trailing column (`⌘D`). */
+  shortcut?: ReactNode;
+  /** Why a disabled row is disabled, one line under its label ("Needs sign-in"); drawn under the
+   *  menu-row-states experiment.
+   * @status experimental */
+  reason?: string;
+  /**
+   * Its `onSelect` returns a promise: under the menu-row-states experiment the menu stays open, the
+   * row spins in its trailing slot until the promise settles, then the menu closes. Elsewhere it
+   * closes at once, as any row.
+   * @status experimental
+   */
+  async?: boolean;
+  /** The rows of a submenu the row opens (to the inline end, flush with the row). The page draws a
+   *  menu with a submenu; `onSelect` of the row itself does not run. */
+  submenu?: readonly ContextMenuItem[];
+  /** An `async` row returns its work's promise (the type stays `void`, so any handler fits). */
   onSelect(): void;
 }
 
@@ -45,12 +86,35 @@ export interface ContextMenuProps {
    * popup a child opened (a picker's search field), though the popup draws elsewhere on the page.
    */
   targets?: "own";
+  /**
+   * The one child element is the host itself: it takes the right-click and Shift-F10 handlers and
+   * no wrapper is drawn, so the child keeps its place among its siblings (a flex slot's `>` and `+`
+   * rules, such as Send before the composer's mic). `className` is unused then.
+   */
+  asChild?: boolean;
   /** Declarative rows for WebPopupHost; rows are never mounted or scraped when supplied. */
   native?: {
     model: NativePopupDescription;
     onEvent?(event: NativePopupEvent, item?: ContextMenuItem): void;
     onDismiss?(): void;
   };
+}
+
+/** A row's height in the menu, for the room a menu of `rows` rows needs (an estimate: the host draws it). */
+const NATIVE_ROW_PX = 28;
+
+/**
+ * Whether a menu of `rows` rows at pointer height `y` opens upward: there is no room below it in the
+ * page and more above (a hat over the composer at the window's bottom edge).
+ */
+/// The side the panel opens on: the page's flip applies only to the default "bottom"; a caller's own side stays.
+export function popupSide<S extends string>(callerSide: S, flipped: "top" | "bottom"): S | "top" {
+  return callerSide === "bottom" ? (flipped as S | "top") : callerSide;
+}
+
+export function opensUp(y: number, rows: number, viewportHeight = window.innerHeight): boolean {
+  const need = rows * NATIVE_ROW_PX + 8;
+  return viewportHeight - y < need && y > viewportHeight - y;
 }
 
 /** The control a closed menu gives focus back to. */
@@ -65,7 +129,8 @@ function nativeRows(items: readonly ContextMenuItem[]): NativeMenuRow[] | null {
   const rows: NativeMenuRow[] = [];
   for (const item of items) {
     const label = typeof item.label === "string" ? item.label : item.ariaLabel;
-    if (!label) return null;
+    // The legacy native rows carry no submenu: the page draws a menu that has one.
+    if (!label || item.submenu) return null;
     if (item.separatorBefore) rows.push({ id: `separator:${item.id}`, label: "", separator: true });
     rows.push({
       id: item.id,
@@ -102,20 +167,31 @@ export function ContextMenu({
   onOpen,
   ignore,
   targets,
+  asChild,
   native,
 }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [nativeAnchor, setNativeAnchor] = useState<AnchorBox | null>(null);
   const [nativeOpen, setNativeOpen] = useState(false);
+  // Which side of the pointer the host's panel opens on: up when the page has no room below it.
+  const [nativeSide, setNativeSide] = useState<"top" | "bottom">("bottom");
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
-  const popupTarget = useRef<HTMLElement | null>(null);
+  // The right-clicked thing stays lit while its menu is open, and its row keeps its actions shown
+  // (ui/popupWithin.ts); every close path and unmount clears both.
+  const [popupTarget] = useState(popupOpener);
+  const openMark = useRef<HTMLSpanElement | null>(null);
   const nativeRequest = useRef(0);
+  // Follows the press a right-click opened the menu on, to its release (pressRelease.ts).
+  const heldPress = useRef<(() => void) | null>(null);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
   const nativePopup = useNativePopup({
     open: nativeOpen && native !== undefined,
-    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    model: native?.model
+      ? // Flip up only from the default "bottom"; a side the caller chose is theirs.
+        { ...native.model, side: popupSide(native.model.side, nativeSide) }
+      : { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: () => nativeAnchor,
     onEvent: (event) => {
       const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
@@ -126,98 +202,162 @@ export function ContextMenu({
       }
       if (action && !action.keepOpen) close();
     },
-    onDismiss: () => {
+    onDismiss: (reason) => {
+      // The host never drew the rows (an older app, a stand-in bridge): the page draws its own menu
+      // where the right-click was, as when the legacy native menu is refused.
+      const anchor = reason === "refused" ? nativeAnchor?.getBoundingClientRect() : undefined;
+      if (anchor) {
+        setNativeOpen(false);
+        setPoint({ x: anchor.left, y: anchor.top });
+        return;
+      }
       close();
       native?.onDismiss?.();
     },
   });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
   const edges = useScrollEdges();
-  const attach = useCallback(
-    (node: HTMLDivElement | null) => {
-      edges(node);
-      menu.current = node;
-      if (host) setShown(node);
-    },
-    [host, edges],
-  );
+  const keep = useCallback((node: HTMLDivElement | null) => {
+    menu.current = node;
+    setShown(node);
+  }, []);
+  // Opens at its final size and keeps it while data arrives (popupSettle.ts).
+  const attach = usePopupSettle<HTMLDivElement>(keep);
   useEffect(
     () => () => {
+      heldPress.current?.();
       nativeRequest.current += 1;
-      popupTarget.current?.removeAttribute("data-popup-open");
-      popupTarget.current = null;
+      popupTarget.close();
     },
-    [],
+    [popupTarget],
   );
+  const anchor = useMemo(() => point && pointerAnchor(point.x, point.y), [point]);
+  const place = usePointerMenuPosition(shown, anchor, shown?.parentElement);
+  const placed = place !== null;
   // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
-  // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
-  useEscapingPopup(
-    host,
-    shown,
-    () =>
-      point && {
-        getBoundingClientRect: () => ({
-          left: point.x,
-          right: point.x,
-          top: point.y,
-          bottom: point.y,
-        }),
-      },
-    { side: "bottom", align: "start", gap: 0, shell: "self" },
-  );
-  // Where the menu sits, measured before it paints.
-  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
+  // (popupHost.ts). The side is the one the measured placement chose, so the host's panel opens up when
+  // the page's own menu would.
+  useEscapingPopup(host, shown, () => anchor, {
+    side: place?.side ?? "bottom",
+    align: "start",
+    gap: 0,
+    shell: "self",
+  });
   useLayoutEffect(() => {
-    const node = menu.current;
-    if (!point || !node) {
-      setPlace(null);
-      return;
-    }
-    const { width, height } = node.getBoundingClientRect();
-    const left = point.x + width > window.innerWidth - 4 ? point.x - width : point.x;
-    const top = point.y + height > window.innerHeight - 4 ? point.y - height : point.y;
-    setPlace({
-      left: Math.max(4, Math.min(left, window.innerWidth - width - 4)),
-      top: Math.max(4, Math.min(top, window.innerHeight - height - 4)),
-    });
-  }, [point]);
-  // Takes focus once placed (a hidden menu cannot take it), so Up/Down/Return work.
-  useLayoutEffect(() => {
-    if (place) menu.current?.focus();
-  }, [place]);
-  const enabled = items.filter((item) => !item.disabled);
+    if (placed) menu.current?.focus();
+  }, [placed, point]);
+  // The experiments' arms (a Settings flip redraws live); they shape only the page-drawn menu.
+  const look = useExperimentArm(menuStyleV2);
+  const states = useExperimentArm(menuRowStates);
+  // The rows in the order they draw: v2 moves destructive rows last and gives every row of a group
+  // with an icon its icon slot; off draws them as given.
+  const rows: ArrangedRow<ContextMenuItem>[] =
+    look === "off" || !point
+      ? items.map((item) => ({
+          item,
+          separatorBefore: Boolean(item.separatorBefore),
+          iconSlot: Boolean(item.icon),
+        }))
+      : arrangeMenuRows(items);
+  const enabled = rows.map((row) => row.item).filter((item) => !item.disabled);
+  // The open submenu's row, and whether the keys move in it.
+  const [openSub, setOpenSub] = useState<string | null>(null);
+  const [inSub, setInSub] = useState(false);
+  const [subActive, setSubActive] = useState(0);
+  const subItem = openSub ? enabled.find((item) => item.id === openSub && item.submenu) : undefined;
+  const subEnabled = subItem?.submenu?.filter((item) => !item.disabled) ?? [];
+  // The async row whose work runs (menu-row-states): the menu waits, the row spins.
+  const [pending, setPending] = useState<string | null>(null);
+  const pendingRun = useRef(0);
+  const openSubmenu = (item: ContextMenuItem, keys: boolean) => {
+    setOpenSub(item.id);
+    setInSub(keys);
+    setSubActive(0);
+  };
   const close = (restoreFocus = false) => {
     nativeRequest.current += 1;
+    pendingRun.current += 1;
+    setPending(null);
+    setOpenSub(null);
+    setInSub(false);
     setPoint(null);
     setNativeOpen(false);
-    popupTarget.current?.removeAttribute("data-popup-open");
-    popupTarget.current = null;
+    popupTarget.close();
     const target = returnFocus.current;
     returnFocus.current = null;
     if (restoreFocus && target?.isConnected) target.focus({ preventScroll: true });
   };
   const run = (item: ContextMenuItem | undefined) => {
-    if (!item || item.disabled) return;
+    if (!item || item.disabled || pending !== null) return;
+    if (item.submenu) {
+      openSubmenu(item, true);
+      return;
+    }
     // Keep the opener across the action. The action may remove or replace it (for example, a
     // sidebar row's Close action), so restoring before `onSelect` would focus a node that is about
     // to disappear. Restore only when the action did not deliberately move focus elsewhere.
     const target = returnFocus.current;
+    const restore = () =>
+      queueMicrotask(() => {
+        if (!target?.isConnected) return;
+        const focused = document.activeElement;
+        if (focused && focused !== document.body && focused !== document.documentElement) return;
+        target.focus({ preventScroll: true });
+      });
+    if (item.async && states !== "off") {
+      // The row's work runs with the menu open, at its size; the menu closes when it settles,
+      // unless it closed (Escape, a click away) or opened again first.
+      const result: unknown = item.onSelect();
+      if (isThenable(result)) {
+        const runId = ++pendingRun.current;
+        setPending(item.id);
+        const settle = () => {
+          if (pendingRun.current !== runId) return;
+          close();
+          restore();
+        };
+        result.then(settle, settle);
+        return;
+      }
+      close();
+      restore();
+      return;
+    }
     close();
     item.onSelect();
-    queueMicrotask(() => {
-      if (!target?.isConnected) return;
-      const focused = document.activeElement;
-      if (focused && focused !== document.body && focused !== document.documentElement) return;
-      target.focus({ preventScroll: true });
-    });
+    restore();
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>, restoreFocus = false) => {
+    if (subItem && inSub && event.key !== "Escape" && event.key !== "ArrowLeft") {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (subEnabled.length === 0) return;
+        setSubActive((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + subEnabled.length) % subEnabled.length);
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        run(subEnabled[subActive]);
+      }
+      return;
+    }
+    if (subItem && (event.key === "ArrowLeft" || (event.key === "Escape" && inSub))) {
+      // Back to the row that opened the submenu (Escape closes one level, as a menu does).
+      event.preventDefault();
+      setOpenSub(null);
+      setInSub(false);
+      return;
+    }
+    if (event.key === "ArrowRight" && enabled[active]?.submenu) {
+      event.preventDefault();
+      openSubmenu(enabled[active]!, true);
+      return;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       close(restoreFocus);
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       if (enabled.length === 0) return;
       event.preventDefault();
+      setOpenSub(null);
       setActive((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + enabled.length) % enabled.length);
     } else if (event.key === "Home" || event.key === "End") {
       if (enabled.length === 0) return;
@@ -228,102 +368,177 @@ export function ContextMenu({
       run(enabled[active]);
     }
   };
-  return (
-    // The host has no role of its own: it relays Shift-F10 from the focusable control inside it.
-    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div
-      className={cx("ui-context-menu-host", className)}
-      onKeyDown={(event) => {
-        if (event.defaultPrevented || items.length === 0) return;
-        if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return;
-        const target = event.target instanceof Element ? event.target : null;
-        // A key in the open menu (a portal, so React passes it up here) is the menu's own.
-        if (!target || menu.current?.contains(target)) return;
-        event.preventDefault();
-        // The same path as a right-click at the control's bottom start corner: a host that learns
-        // the menu's subject from its own contextmenu capture handler sees this open too, and the
-        // selection, `ignore` and `targets` rules apply alike.
-        const rect = target.getBoundingClientRect();
-        const rtl = getComputedStyle(target).direction === "rtl";
-        target.dispatchEvent(
-          new MouseEvent("contextmenu", {
-            bubbles: true,
-            cancelable: true,
-            clientX: rtl ? rect.right : rect.left,
-            clientY: rect.bottom,
-          }),
-        );
-      }}
-      onContextMenu={(event) => {
-        // A menu inside this host already took the right-click (its own item's Hide, inside a
-        // row's Show); a host with no items keeps the default.
-        if (event.defaultPrevented || items.length === 0) return;
-        if (targets === "own" && !(event.target instanceof Node && event.currentTarget.contains(event.target))) return;
-        if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
-        if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
-        const target = event.target instanceof Element ? event.target : null;
-        // Find the invoking HTML surface even when the pointer is over a nested SVG. The
-        // popup itself anchors at the pointer, preserving the context-menu gesture.
-        let nativeAnchor = target;
-        while (nativeAnchor && !(nativeAnchor instanceof HTMLElement)) nativeAnchor = nativeAnchor.parentElement;
-        const nativeTarget = nativeAnchor instanceof HTMLElement ? nativeAnchor : null;
-        if (native && nativePopup.available && !nativeTarget) return;
-        event.preventDefault();
-        onOpen?.();
-        popupTarget.current?.removeAttribute("data-popup-open");
-        popupTarget.current = null;
-        setPoint(null);
-        const requestId = nativeRequest.current + 1;
-        nativeRequest.current = requestId;
-        setNativeOpen(true);
-        setActive(0);
-        const opener = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
-        popupTarget.current = opener;
-        opener?.setAttribute("data-popup-open", "");
-        returnFocus.current = opener;
-        const at = { x: event.clientX, y: event.clientY };
-        if (native && nativePopup.available) {
-          setNativeAnchor({
-            getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),
-          });
-          setNativeOpen(true);
-          return;
-        }
-        const legacyMenu = nativeMenu();
-        const rows = legacyMenu && nativeRows(items);
-        if (!legacyMenu || !rows) {
+  // The host has no role of its own: it relays Shift-F10 from the focusable control inside it.
+  const hostKeyDown = (event: KeyboardEvent<Element>) => {
+    if (event.defaultPrevented || items.length === 0) return;
+    if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return;
+    const target = event.target instanceof Element ? event.target : null;
+    // A key in the open menu (a portal, so React passes it up here) is the menu's own.
+    if (!target || menu.current?.contains(target)) return;
+    event.preventDefault();
+    // The same path as a right-click at the control's bottom start corner: a host that learns
+    // the menu's subject from its own contextmenu capture handler sees this open too, and the
+    // selection, `ignore` and `targets` rules apply alike.
+    const rect = target.getBoundingClientRect();
+    const rtl = getComputedStyle(target).direction === "rtl";
+    target.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rtl ? rect.right : rect.left,
+        clientY: rect.bottom,
+      }),
+    );
+  };
+  const hostContextMenu = (event: ReactMouseEvent<Element>) => {
+    // A menu inside this host already took the right-click (its own item's Hide, inside a
+    // row's Show); a host with no items keeps the default.
+    if (event.defaultPrevented || items.length === 0) return;
+    if (targets === "own" && !(event.target instanceof Node && event.currentTarget.contains(event.target))) return;
+    if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
+    if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
+    const target = event.target instanceof Element ? event.target : null;
+    // Find the invoking HTML surface even when the pointer is over a nested SVG. The
+    // popup itself anchors at the pointer, preserving the context-menu gesture.
+    let nativeAnchor = target;
+    while (nativeAnchor && !(nativeAnchor instanceof HTMLElement)) nativeAnchor = nativeAnchor.parentElement;
+    const nativeTarget = nativeAnchor instanceof HTMLElement ? nativeAnchor : null;
+    if (native && nativePopup.available && !nativeTarget) return;
+    event.preventDefault();
+    onOpen?.();
+    popupTarget.close();
+    setPoint(null);
+    const requestId = nativeRequest.current + 1;
+    nativeRequest.current = requestId;
+    setNativeOpen(true);
+    setActive(0);
+    setOpenSub(null);
+    setInSub(false);
+    const opener = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
+    if (opener) popupTarget.open(opener);
+    returnFocus.current = opener;
+    const at = { x: event.clientX, y: event.clientY };
+    // A Mac sends contextmenu on the press: while it is held, dragging onto a row of the page-drawn
+    // menu and releasing picks it, as in a Mac context menu (Lawrence via Leo, 2026-11-17). When the
+    // App draws the menu, its panel follows the press itself (NativePopupHost).
+    heldPress.current?.();
+    heldPress.current =
+      (event.buttons & 3) !== 0
+        ? trackHeldMenuRelease(
+            event.currentTarget.ownerDocument,
+            event,
+            () => menu.current,
+            () => {
+              if (menu.current) close(true);
+            },
+          )
+        : null;
+    if (native && nativePopup.available) {
+      setNativeSide(opensUp(at.y, native.model.rows.length) ? "top" : "bottom");
+      setNativeAnchor(pointerAnchor(at.x, at.y));
+      setNativeOpen(true);
+      return;
+    }
+    const legacyMenu = nativeMenu();
+    const rows = legacyMenu && nativeRows(items);
+    if (!legacyMenu || !rows) {
+      setNativeOpen(false);
+      setPoint(at);
+      return;
+    }
+    // The rows as they were at the right-click: the menu runs the one chosen from them.
+    const shown = items;
+    legacyMenu({ items: rows, point: at }).then(
+      (reply) => {
+        if (nativeRequest.current !== requestId) return;
+        // An older legacy bridge can acknowledge an unknown method with a successful null
+        // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
+        // page menu so a right-click never disappears without an actionable surface.
+        if (!hasNativeMenuPick(reply)) {
           setNativeOpen(false);
           setPoint(at);
           return;
         }
-        // The rows as they were at the right-click: the menu runs the one chosen from them.
-        const shown = items;
-        legacyMenu({ items: rows, point: at }).then(
-          (reply) => {
-            if (nativeRequest.current !== requestId) return;
-            // An older legacy bridge can acknowledge an unknown method with a successful null
-            // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
-            // page menu so a right-click never disappears without an actionable surface.
-            if (!hasNativeMenuPick(reply)) {
-              setNativeOpen(false);
-              setPoint(at);
-              return;
-            }
-            const chosen = shown.find((item) => item.id === pickedId(reply));
-            if (chosen) run(chosen);
-            else close(true);
-          },
-          // A host without the native menu (an older app): the page draws it.
-          () => {
-            if (nativeRequest.current !== requestId) return;
-            setNativeOpen(false);
-            setPoint(at);
-          },
-        );
-      }}
-    >
-      {children}
-      <span aria-hidden="true" hidden data-popup-open={point || nativeOpen ? "" : undefined} />
+        const chosen = shown.find((item) => item.id === pickedId(reply));
+        if (chosen) run(chosen);
+        else close(true);
+      },
+      // A host without the native menu (an older app): the page draws it.
+      () => {
+        if (nativeRequest.current !== requestId) return;
+        setNativeOpen(false);
+        setPoint(at);
+      },
+    );
+  };
+  // The open menu's mark where this menu sits (the hidden span below), for its row.
+  const menuOpen = point !== null || nativeOpen;
+  useLayoutEffect(() => (menuOpen ? markPopupWithin(openMark.current) : undefined), [menuOpen]);
+  const reasonId = useId();
+  // The arms on the menu's root (and a submenu's): popupSurface.css styles each. Off draws none.
+  const menuArms = {
+    ...(look === "off" ? {} : { "data-menu-style": look }),
+    ...(states === "off" ? {} : { "data-menu-states": states }),
+  };
+  const subRows = (submenu: readonly ContextMenuItem[]): ArrangedRow<ContextMenuItem>[] =>
+    look === "off"
+      ? submenu.map((item) => ({
+          item,
+          separatorBefore: Boolean(item.separatorBefore),
+          iconSlot: Boolean(item.icon),
+        }))
+      : arrangeMenuRows(submenu);
+  // A row's state under menu-row-states: a submenu row says so; an async row is busy while it runs.
+  const rowStateProps = (item: ContextMenuItem) => ({
+    ...(item.submenu ? { "aria-haspopup": "menu" as const, "aria-expanded": subItem === item } : {}),
+    ...(states !== "off" && pending === item.id ? { "aria-busy": true, "data-pending": "" } : {}),
+    ...(states !== "off" && item.disabled && item.reason ? { "aria-describedby": `${reasonId}-${item.id}` } : {}),
+  });
+  const rowContent = (item: ContextMenuItem, iconSlot: boolean) => {
+    const label = typeof item.label === "string" ? <span className="ui-menu-label">{item.label}</span> : item.label;
+    const reason = states !== "off" && item.disabled && item.reason;
+    return (
+      <>
+        {/* A text label truncates with its full text as a tooltip; a composed label
+          (text plus a shortcut) keeps its own flex layout. */}
+        {/* A toggle's check sits on the menu's state column and an icon in the
+          14 box at the leading (popupSurface.css, "EVERY MENU ON ONE GRID"), so
+          checked, unchecked and plain rows start their text on one line. */}
+        {item.checked !== undefined ? (
+          <span className="ui-menu-check" aria-hidden="true">
+            {item.checked ? <MenuCheckGlyph /> : null}
+          </span>
+        ) : null}
+        {(look === "off" ? item.icon : iconSlot) ? (
+          <span className="ui-menu-icon" aria-hidden="true">
+            {item.icon}
+          </span>
+        ) : null}
+        {reason ? (
+          // The label and, under it, why the row is disabled (one line, amber).
+          <span className="ui-menu-text">
+            {label}
+            <span className="ui-menu-reason" id={`${reasonId}-${item.id}`}>
+              {reason}
+            </span>
+          </span>
+        ) : (
+          label
+        )}
+        {item.shortcut ? <span className="ui-menu-shortcut">{item.shortcut}</span> : null}
+        {/* The async row's trailing slot, reserved from the start so its spinner moves nothing. */}
+        {states !== "off" && item.async ? (
+          <span className="ui-menu-async" aria-hidden="true">
+            {pending === item.id ? <span className="ui-menu-spinner" /> : null}
+          </span>
+        ) : null}
+        {item.submenu ? <span className="ui-submenu-chevron" aria-hidden="true" /> : null}
+      </>
+    );
+  };
+  const rest = (
+    <>
+      <span ref={openMark} aria-hidden="true" hidden data-popup-open={menuOpen ? "" : undefined} />
       {point
         ? createPortal(
             // Placement is inline, not only in ui.css: a host that does not load ui.css (the agent
@@ -331,20 +546,38 @@ export function ContextMenu({
             <div
               className="ui-context-menu-backdrop"
               style={{ position: "fixed", inset: 0, zIndex: "var(--layer-dropdown)" }}
-              onPointerDown={() => close(true)}
+              // A right-click (or Control-click) comes as pointerdown then contextmenu: closing on its
+              // pointerdown would take the backdrop away before contextmenu, and the browser's menu
+              // would open. Every other press (a click, a middle click) has no contextmenu after it.
+              onPointerDown={(event) => {
+                if (event.button !== 2 && !(event.button === 0 && event.ctrlKey)) close(true);
+              }}
+              // A right-click on the open menu or its backdrop stays here: the browser's own menu
+              // would open over it, and under `asChild` no host above the portal takes the event.
+              // On the backdrop it closes the menu, as a click there does.
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (event.target === event.currentTarget) close(true);
+              }}
             >
               <div
                 ref={attach}
-                className={cx("ui-popup ui-glass ui-context-menu ui-scroll-edge-fade", popupClassName)}
+                data-pointer-menu=""
+                className={cx("ui-popup ui-glass ui-context-menu ui-popup-scroll-shell", popupClassName)}
                 role="menu"
                 // The App's menu glass under the page, as ui/Menu's popups (ui/glass/hostGlass.ts).
                 data-host-glass="menu"
                 data-host-glass-cover=""
                 data-focus-ring="rows"
                 tabIndex={-1}
+                {...menuArms}
                 style={{
-                  position: "fixed",
-                  minWidth: 180,
+                  position: "absolute",
+                  minWidth: "min(180px, 100%)",
+                  maxWidth: "min(360px, 100%)",
+                  maxHeight: "100%",
+                  width: "max-content",
                   left: place?.left ?? point.x,
                   top: place?.top ?? point.y,
                   visibility: place ? undefined : "hidden",
@@ -358,48 +591,120 @@ export function ContextMenu({
                   onKeyDown(event);
                 }}
               >
-                {items.map((item) => (
-                  <div key={item.id} role="none">
-                    {item.separatorBefore ? <hr className="ui-separator" /> : null}
-                    <button
-                      type="button"
-                      role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
-                      aria-checked={item.checked}
-                      className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
-                      disabled={item.disabled}
-                      aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
-                      onPointerEnter={() => !item.disabled && setActive(Math.max(0, enabled.indexOf(item)))}
-                      data-highlighted={enabled[active] === item ? "" : undefined}
-                      onClick={() => run(item)}
-                    >
-                      {/* A text label truncates with its full text as a tooltip; a composed label
-                          (text plus a shortcut) keeps its own flex layout. */}
-                      {/* A toggle's check sits on the menu's state column and an icon in the
-                          14 box at the leading (popupSurface.css, "EVERY MENU ON ONE GRID"), so
-                          checked, unchecked and plain rows start their text on one line. */}
-                      {item.checked !== undefined ? (
-                        <span className="ui-menu-check" aria-hidden="true">
-                          {item.checked ? "✓" : null}
-                        </span>
-                      ) : null}
-                      {item.icon ? (
-                        <span className="ui-menu-icon" aria-hidden="true">
-                          {item.icon}
-                        </span>
-                      ) : null}
-                      {typeof item.label === "string" ? (
-                        <span className="ui-menu-label">{item.label}</span>
-                      ) : (
-                        item.label
-                      )}
-                    </button>
-                  </div>
-                ))}
+                <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
+                  {rows.map(({ item, separatorBefore, iconSlot }) => (
+                    <div key={item.id} role="none">
+                      {separatorBefore ? <hr className="ui-separator" /> : null}
+                      <SubmenuHost on={Boolean(item.submenu)}>
+                        <button
+                          type="button"
+                          role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                          aria-checked={item.checked}
+                          className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
+                          disabled={item.disabled}
+                          aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
+                          {...rowStateProps(item)}
+                          onPointerEnter={() => {
+                            if (item.disabled) return;
+                            setActive(Math.max(0, enabled.indexOf(item)));
+                            // Hovering a row opens its submenu, another row closes it.
+                            if (item.submenu) openSubmenu(item, false);
+                            else if (openSub !== null) setOpenSub(null);
+                          }}
+                          data-highlighted={enabled[active] === item ? "" : undefined}
+                          onClick={() => run(item)}
+                        >
+                          {rowContent(item, iconSlot)}
+                        </button>
+                        {item.submenu && subItem === item ? (
+                          <div
+                            // one-material-allow: a submenu is a floating menu of its own beside its parent, not a control on the parent's glass; the parent's tree holds it for hover and focus
+                            className={cx("ui-popup ui-glass ui-context-menu ui-context-submenu", popupClassName)}
+                            role="menu"
+                            aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
+                            data-host-glass="menu"
+                            data-host-glass-cover=""
+                            data-focus-ring="rows"
+                            {...menuArms}
+                          >
+                            {subRows(item.submenu).map(
+                              ({ item: sub, separatorBefore: subSeparator, iconSlot: subIcon }) => (
+                                <div key={sub.id} role="none">
+                                  {subSeparator ? <hr className="ui-separator" /> : null}
+                                  <button
+                                    type="button"
+                                    role={sub.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                                    aria-checked={sub.checked}
+                                    className={cx("ui-menu-item", sub.destructive && "ui-menu-item-destructive")}
+                                    disabled={sub.disabled}
+                                    aria-label={
+                                      sub.ariaLabel ?? (typeof sub.label === "string" ? sub.label : undefined)
+                                    }
+                                    {...rowStateProps(sub)}
+                                    onPointerEnter={() => {
+                                      if (sub.disabled) return;
+                                      setInSub(true);
+                                      setSubActive(Math.max(0, subEnabled.indexOf(sub)));
+                                    }}
+                                    data-highlighted={inSub && subEnabled[subActive] === sub ? "" : undefined}
+                                    onClick={() => run(sub)}
+                                  >
+                                    {rowContent(sub, subIcon)}
+                                  </button>
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        ) : null}
+                      </SubmenuHost>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>,
             document.body,
           )
         : null}
+    </>
+  );
+  if (asChild && isValidElement(children)) {
+    const child = children as ReactElement<{
+      onKeyDown?(event: KeyboardEvent<Element>): void;
+      onContextMenu?(event: ReactMouseEvent<Element>): void;
+    }>;
+    return (
+      <>
+        {/* Before the child, so the child's next sibling stays its own. */}
+        {rest}
+        {cloneElement(child, {
+          onKeyDown: (event: KeyboardEvent<Element>) => {
+            child.props.onKeyDown?.(event);
+            hostKeyDown(event);
+          },
+          onContextMenu: (event: ReactMouseEvent<Element>) => {
+            child.props.onContextMenu?.(event);
+            hostContextMenu(event);
+          },
+        })}
+      </>
+    );
+  }
+  return (
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
+    <div className={cx("ui-context-menu-host", className)} onKeyDown={hostKeyDown} onContextMenu={hostContextMenu}>
+      {children}
+      {rest}
+    </div>
+  );
+}
+
+/// A submenu row's box, the containing block its submenu panel places itself in (popupSurface.css);
+/// any other row draws as it did, with no box.
+function SubmenuHost({ on, children }: { on: boolean; children: ReactNode }) {
+  if (!on) return children;
+  return (
+    <div role="none" className="ui-context-submenu-host">
+      {children}
     </div>
   );
 }

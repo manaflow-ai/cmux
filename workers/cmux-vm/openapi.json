@@ -554,6 +554,17 @@
             },
             "required": false,
             "description": "a string at most 255 character(s) long"
+          },
+          {
+            "name": "x-cmux-create-priority",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "background"
+              ]
+            },
+            "required": false
           }
         ],
         "security": [
@@ -660,7 +671,7 @@
             }
           }
         },
-        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. meshId additionally requires mesh:write and names a mesh of the caller's team; the VM joins that mesh's private network at creation and still needs PUT /v1/meshes/{meshId}/vms/{vmId} to become reachable. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Create a VM",
         "requestBody": {
           "content": {
@@ -1213,8 +1224,116 @@
             }
           }
         },
-        "description": "Allow a VM's public egress. Requires the vm:network scope. Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Allow a VM's public egress. Requires the vm:network scope. Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off (revokeVmPublicEgress does) and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Allow a VM's public egress"
+      },
+      "delete": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.revokeVmPublicEgress",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmPublicEgress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmPublicEgress"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke a VM's public egress. Requires the vm:network scope. Stops an existing VM reaching the public Internet, live: deletes every rule whose source is exactly this VM (or a create's inline rule) and whose destination is the whole public Internet, then reads the rules again and answers 503 unless none is left. Idempotent: a VM without such a rule changes nothing. It never deletes a narrower rule, an HTTPS proxy (the VM keeps those) or a shared-network rule. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Revoke a VM's public egress"
       }
     },
     "/v1/vms/{vmId}": {
@@ -3276,6 +3395,299 @@
         "summary": "List a directory in a VM"
       }
     },
+    "/v1/vms/{vmId}/files/search": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "operationId": "files.searchFiles",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/GuestPath"
+            },
+            "required": true
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "A literal, case-sensitive substring, matched line by line.",
+              "title": "maxLength(256)",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "required": true,
+            "description": "A literal, case-sensitive substring, matched line by line."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FileSearch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileSearch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Search the text of files under a folder in a VM. Requires the vm:files scope. One request instead of a listing and a read per file. On a paused VM it never wakes the guest: it answers from the replica seeded at pause (POST files/replica) while the VM is unchanged since, and otherwise reads the saved disk and keeps what it read as the replica. On a running VM it reads the disk. Folders named .git, node_modules, target, .cache, .venv, __pycache__, .next, dist and build are skipped; binary files are not matched. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Search the text of files under a folder in a VM"
+      }
+    },
+    "/v1/vms/{vmId}/files/replica": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "operationId": "files.seedFileReplica",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/GuestPath"
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FileReplica",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileReplica"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Seed a paused VM's read replica. Requires the vm:files scope. Reads the text under the path from the paused VM's saved disk once and keeps it off the VM, so later searches under it answer in one read with no wake. Call it right after a pause. Replaces the previous replica. A VM that is not paused is 409. The replica answers only while the VM is unchanged; a resume makes it stale. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Seed a paused VM's read replica"
+      }
+    },
     "/v1/snapshot-creations": {
       "get": {
         "tags": [
@@ -4048,7 +4460,7 @@
         ],
         "responses": {
           "201": {
-            "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
+            "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4138,7 +4550,7 @@
             }
           }
         },
-        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
+        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.",
         "summary": "Snapshot a running or paused VM",
         "requestBody": {
           "content": {
@@ -4346,7 +4758,7 @@
         ],
         "responses": {
           "200": {
-            "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
+            "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6742,7 +7154,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EnrollDeviceRequest"
+                "$ref": "#/components/schemas/EnrollMeshDeviceRequest"
               }
             }
           },
@@ -7077,6 +7489,134 @@
         },
         "description": "Remove a device and its tunnel. Requires the mesh:join scope. Access ends within a second. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "Remove a device and its tunnel"
+      }
+    },
+    "/v1/meshes/{meshId}/device-intents/{intentId}/revoke": {
+      "post": {
+        "tags": [
+          "mesh"
+        ],
+        "operationId": "mesh.revokeDeviceIntent",
+        "parameters": [
+          {
+            "name": "meshId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "intentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The intent is revoked: no enroll with it makes a device for 7 days, so an empty device list after this is final.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceIntentRevocation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke an enroll intent. Requires the mesh:join scope. Writes a tombstone for the intentId and deletes the device it made, with its tunnel. Idempotent. An enroll with this intentId that has not committed refuses with 409 mesh.device.intent_revoked and removes what it created. A 200 is final: no device of the intent is live or can become live, and no enroll with it can commit. A tunnel its provider create makes after the 200 (a create the provider processes late) backs no device and is deleted by the service's tunnel sweep within minutes; the caller has nothing more to do. A 503 (an enroll that may still be creating its tunnel, or a tunnel delete that failed) means retry the revoke until it answers 200. The tombstone lasts 7 days. Only the principal that used the intent or a tenant admin carrying its labels may revoke it, and a key limited to resources only if every device the intent's enrolls made is in its list; anyone else gets 404 and nothing is written. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "Revoke an enroll intent"
       }
     },
     "/v1/devices/{deviceId}/peers": {
@@ -10474,7 +11014,7 @@
           },
           "budget": {
             "type": "string",
-            "enum": [
+            "x-extensible-enum": [
               "snapshots",
               "vms",
               "rate",
@@ -10488,7 +11028,10 @@
               "enrollmentCode.perMeshPerHour",
               "address.perDevice",
               "agent_vms",
-              "agent_usd_per_hour"
+              "agent_usd_per_hour",
+              "agent_running_vms",
+              "agent_usd_per_day",
+              "agent_usd_per_month"
             ]
           },
           "_tag": {
@@ -10742,6 +11285,14 @@
           "message": {
             "type": "string"
           },
+          "code": {
+            "type": "string",
+            "enum": [
+              "mesh.device.intent_revoked",
+              "creation.intent_refused"
+            ],
+            "description": "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again. creation.intent_refused: this Idempotency-Key's recorded create refuses this attempt (its intent changed, it was cancelled or completed, or its reservation expired); retrying the same key never creates it."
+          },
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"
           },
@@ -10826,6 +11377,10 @@
           },
           "displayName": {
             "type": "string"
+          },
+          "inputs_sha256": {
+            "type": "string",
+            "description": "64 lowercase hex: a digest of every image input but cmux-tui. Two images with one value differ only in cmux-tui. Listed by GET /v1/vm-images when the operator recorded it; absent otherwise and from VM creation receipts."
           }
         },
         "additionalProperties": false,
@@ -10879,6 +11434,11 @@
           },
           "labels": {
             "$ref": "#/components/schemas/Labels"
+          },
+          "meshId": {
+            "type": "string",
+            "description": "Create the VM on this mesh's private network, so it is on the network from its first boot. Needs the mesh:write scope and a mesh of the caller's team (404 otherwise). The VM is reachable only after PUT /v1/meshes/{meshId}/vms/{vmId}, which applies the mesh's access rules; that call is still required, and is faster for a VM created this way. Omit to create the VM on no network.",
+            "pattern": "^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           }
         },
         "additionalProperties": false,
@@ -10926,6 +11486,9 @@
             "description": "an array of at most 8 item(s)",
             "title": "maxItems(8)",
             "maxItems": 8
+          },
+          "egress": {
+            "$ref": "#/components/schemas/VmEgressAllowlist"
           }
         },
         "additionalProperties": false,
@@ -10970,6 +11533,46 @@
         },
         "maxProperties": 16,
         "writeOnly": true
+      },
+      "VmEgressAllowlist": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "allowlist"
+            ]
+          },
+          "presets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "a string at most 32 character(s) long",
+              "title": "maxLength(32)",
+              "maxLength": 32
+            },
+            "description": "Named groups of exact host names: anthropic, openai, openrouter, opencode, github, npm, pypi, rust.",
+            "title": "maxItems(16)",
+            "maxItems": 16
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "a string at most 253 character(s) long",
+              "title": "maxLength(253)",
+              "maxLength": 253
+            },
+            "description": "Exact host names (no wildcard, no address), reached over HTTPS on 443 only.",
+            "title": "maxItems(48)",
+            "maxItems": 48
+          }
+        },
+        "additionalProperties": false,
+        "description": "The VM reaches no public address: only these exact HTTPS names (plus the names every cmux VM needs: its CLI downloads and GitHub releases), and its HTTPS proxies. Conflicts with publicEgress true."
       },
       "RequestedResources": {
         "type": "object",
@@ -11122,6 +11725,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "allowedDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Present for an allowlist create: every exact HTTPS name the VM may reach besides its proxies."
           }
         },
         "additionalProperties": false,
@@ -11722,6 +12332,110 @@
         },
         "additionalProperties": false
       },
+      "FileSearch": {
+        "type": "object",
+        "required": [
+          "source",
+          "complete",
+          "scanned",
+          "matches"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "replica",
+              "disk"
+            ],
+            "description": "replica: answered from the copy of the text seeded while this VM has been paused, in one read. disk: read from the saved disk file by file (no replica, or the VM changed since it was seeded)."
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "False when a bound (5000 files, 2000 folders, 16 MiB) left files under the path unread, or the limit cut the matches."
+          },
+          "scanned": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Files under the path that were searched.",
+            "title": "nonNegative",
+            "minimum": 0
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchMatch"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "SearchMatch": {
+        "type": "object",
+        "required": [
+          "path",
+          "line",
+          "text"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a positive number",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "text": {
+            "type": "string",
+            "description": "The matching line, at most 400 characters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "FileReplica": {
+        "type": "object",
+        "required": [
+          "root",
+          "complete",
+          "files",
+          "bytes",
+          "truncated",
+          "seedMs"
+        ],
+        "properties": {
+          "root": {
+            "$ref": "#/components/schemas/GuestPath"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "files": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a non-negative number",
+            "title": "nonNegative",
+            "minimum": 0
+          },
+          "bytes": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a non-negative number",
+            "title": "nonNegative",
+            "minimum": 0
+          },
+          "truncated": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Files over 256 KiB: only their first 256 KiB are searched.",
+            "title": "nonNegative",
+            "minimum": 0
+          },
+          "seedMs": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a non-negative number",
+            "title": "nonNegative",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "SnapshotCreationList": {
         "type": "object",
         "required": [
@@ -12006,7 +12720,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters."
+        "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters."
       },
       "SnapshotList": {
         "type": "object",
@@ -12780,7 +13494,7 @@
         },
         "additionalProperties": false
       },
-      "EnrollDeviceRequest": {
+      "EnrollMeshDeviceRequest": {
         "type": "object",
         "required": [
           "name",
@@ -12821,10 +13535,14 @@
             "type": "string",
             "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
             "pattern": "^[A-Za-z0-9+/]{86}==$"
+          },
+          "intentId": {
+            "type": "string",
+            "description": "The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).",
+            "pattern": "^[A-Za-z0-9._:~-]{1,128}$"
           }
         },
-        "additionalProperties": false,
-        "description": "Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409."
+        "additionalProperties": false
       },
       "DeviceEnrollment": {
         "type": "object",
@@ -12979,6 +13697,20 @@
           }
         },
         "additionalProperties": false
+      },
+      "DeviceIntentRevocation": {
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "description": "Whether this call deleted the intent's device (and its tunnel)."
+          }
+        },
+        "additionalProperties": false,
+        "description": "The intent is revoked: no enroll with it makes a device for 7 days, so an empty device list after this is final."
       },
       "PeerMap": {
         "type": "object",
@@ -13792,6 +14524,52 @@
         },
         "additionalProperties": false,
         "description": "An approved server-only invitation, valid for 10 minutes. Only its hash is stored. The reserved device id supports signed policy recovery after a lost enrollment response."
+      },
+      "EnrollDeviceRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "wgPublicKey",
+          "installPublicKey",
+          "signedAt",
+          "nonce",
+          "signature"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "signedAt": {
+            "$ref": "#/components/schemas/Int",
+            "description": "When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "nonce": {
+            "type": "string",
+            "description": "16 random bytes, base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          },
+          "signature": {
+            "type": "string",
+            "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409."
       },
       "OverlayServer": {
         "type": "object",

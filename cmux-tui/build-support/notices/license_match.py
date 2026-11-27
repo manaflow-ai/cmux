@@ -48,6 +48,7 @@ SIGNATURES: dict[str, list[list[str]]] = {
     "GPL-3.0-only": [["gnu general public license", "version 3"]],
     "GPL-3.0-or-later": [["gnu general public license", "version 3"]],
     "LLVM-exception": [["llvm exceptions to the apache 2.0 license"]],
+    "IJG": [["independent jpeg group", "this software is based in part on the work of the independent jpeg group"]],
     "bzip2-1.0.6": [["bzip2", "redistribution and use in source and binary forms"]],
 }
 TOKEN = re.compile(r"\(|\)|[A-Za-z0-9.+:-]+")
@@ -129,6 +130,9 @@ def term_problem(term: str, texts: list[str]) -> str | None:
         return None if texts else f"{term}: no shipped file"
     base, _, exception = term.partition(" WITH ")
     for license_id in filter(None, (base, exception)):
+        # SPDX "or any later version" (`MPL-2.0+`, as imbl declares it): the shipped text is the
+        # named version's, so that version's signature decides.
+        license_id = license_id.removesuffix("+")
         if license_id not in SIGNATURES:
             return f"{license_id}: unknown license id (no text signature; review and add one)"
         if not any(matches(license_id, text) for text in texts):

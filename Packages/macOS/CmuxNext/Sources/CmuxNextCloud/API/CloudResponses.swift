@@ -13,14 +13,3 @@ public struct CloudMachineStats: Sendable, Hashable, Decodable {
     /// Only a state: a Worker machine (the app server link) has no stats route.
     public init(state: String) { self.state = state }
 }
-
-/// One snapshot, as cmux-cloud-machine `models::read("snapshot")` answers it (its id under `snapshotId` or `id`).
-public struct CloudSnapshot: Sendable, Hashable, Codable {
-    public var id: String
-    public var name: String?
-
-    public init(id: String, name: String? = nil) {
-        self.id = id
-        self.name = name
-    }
-}

@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextChiefViews
@@ -60,31 +61,6 @@ struct ChiefViewsPageTests {
         #expect(agent?["folder"] == .null)
     }
 
-    @Test func fleetTrimsTheDashboard() throws {
-        let data = Data("""
-        {"updated":"2026-10-20T22:40:42Z","history":[1,2,3],
-         "minis":[{"host":"cmux7s-mac-mini","error":null,"load":[12.5,11,15],"ncpu":14,"cpu_pct":37,"mem_free_pct":72},
-                  {"host":"aws-m4pro-9","error":"console locked","load":null,"ncpu":14}],
-         "runners":[{"host":"cmux7s-mac-mini","status":"online","busy":true},{"host":"cmux7s-mac-mini","status":"online","busy":false},
-                    {"host":"cmux7s-mac-mini","status":"offline","busy":true}],
-         "queued":[{"job":"a"},{"job":"b"}],
-         "recent_prs":[{"pr":22640,"title":"cmux-next · b844","branch":"fix/x","status":"running"},{"pr":null}]}
-        """.utf8)
-        let reply = try #require(ChiefViewsFeeds.fleetReply(data))
-        #expect(reply["updated"] == "2026-10-20T22:40:42Z")
-        #expect(reply["queued"] == 2)
-        let machines = try #require(reply["machines"]?.arrayValue)
-        #expect(machines.count == 2)
-        #expect(machines[0]["load"] == .number(12.5))
-        #expect(machines[0]["runnersBusy"] == 1)
-        #expect(machines[0]["runnersOnline"] == 2)
-        #expect(machines[1]["error"] == "console locked")
-        #expect(machines[1]["load"] == .null)
-        #expect(reply["prs"]?.arrayValue?.count == 1)
-        #expect(reply.objectValue.map { Set($0.keys) } == ["updated", "machines", "queued", "prs"])
-        #expect(ChiefViewsFeeds.fleetReply(Data("{\"other\":1}".utf8)) == nil)
-    }
-
     @Test func dashboardAddressesAreHTTPSOrPrivateHTTP() {
         #expect(ChiefViewsFeeds.validFleetURL(" https://ci.example.test:8444/ ")?.host == "ci.example.test")
         #expect(ChiefViewsFeeds.validFleetURL("http://ci.example.test/") == nil)
@@ -99,24 +75,8 @@ struct ChiefViewsPageTests {
         #expect(ChiefViewsFeeds.fleetDataURL(named) == named)
     }
 
-    @Test func landingReadsGitHubSearch() throws {
-        let data = Data("""
-        {"items":[{"number":22618,"title":"New Tab: dots","html_url":"https://github.com/manaflow-ai/cmux/pull/22618",
-                   "user":{"login":"teamleaderleo"},"labels":[{"name":"ready-to-land"}],"draft":false,
-                   "created_at":"2026-10-20T10:00:00Z","pull_request":{"merged_at":null}},
-                  {"number":1,"title":"elsewhere","html_url":"https://evil.example/pull/1"}]}
-        """.utf8)
-        let prs = try #require(ChiefViewsFeeds.landingPRs(data))
-        #expect(prs.count == 1)
-        #expect(prs[0]["labels"] == ["ready-to-land"])
-        #expect(prs[0]["author"] == "teamleaderleo")
-        #expect(prs[0]["mergedAt"] == .null)
-        #expect(ChiefViewsFeeds.landingPRs(Data("{\"message\":\"rate limited\"}".utf8)) == nil)
-
-        let urls = try #require(ChiefViewsFeeds.landingSearchURLs(mergedSince: "2026-10-19"))
-        #expect(urls.open.absoluteString.contains("is:open") || urls.open.absoluteString.contains("is%3Aopen"))
-        #expect(urls.merged.query?.contains("2026-10-19") == true)
-        #expect(ChiefViewsFeeds.searchDay(Date(timeIntervalSince1970: 1_792_535_000)) == "2026-10-19")
+    /// The search parsing is the Rust `welcome.landingPrs` op, tested in cmux-home-rules; Swift keeps URL checks.
+    @Test func pullRequestLinksStayInTheRepository() {
         #expect(ChiefViewsFeeds.validPullRequestURL("https://github.com/manaflow-ai/cmux/pull/1") != nil)
         #expect(ChiefViewsFeeds.validPullRequestURL("https://github.com/other/repo/pull/1") == nil)
         #expect(ChiefViewsFeeds.validPullRequestURL("http://github.com/manaflow-ai/cmux/pull/1") == nil)
@@ -124,7 +84,7 @@ struct ChiefViewsPageTests {
     }
 
     @Test func actingOpsNeedAClickAndFleetSaysWhenUnset() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
         let seen = Recorder()
         let provider = ChiefViewsPageProvider(host: .init(
             agents: { [] },
@@ -164,7 +124,7 @@ struct ChiefViewsPageTests {
     }
 
     @Test func landingAnswersFromItsReadForNinetySeconds() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
         let counter = Counter()
         let clock = Recorder()
         let provider = ChiefViewsPageProvider(host: .init(

@@ -1,18 +1,15 @@
-//! A sub-session started by a chat in full access, in that chat's own folder or under it, takes
-//! the trust a decision gave that folder and raises no card (`hub/trust_wait.rs`
+//! A sub-session started by a chat in full access, in any folder nobody marked untrusted, takes
+//! the trust a decision gave that chat's folder and raises no card (`hub/trust_wait.rs`
 //! `inherits_parent_trust`). Leo, 2026-10-24, on a trust card a chat in full access raised for a
-//! lane under its folder: "why did this even happen in the first place? I thought we bypassed
-//! this."
+//! lane folder: "why did this even happen in the first place? I thought we bypassed this."
 //!
-//! - a chat in full access, in a folder the person trusted: a start under it goes on at once, with
-//!   no card and no trust recorded for the child's folder;
-//! - the same chat starting outside its folder still waits on a card;
+//! - a chat in full access, in a folder the person trusted: a start in its folder, under it or
+//!   elsewhere goes on at once, with no card and no trust recorded for the child's folder;
 //! - a chat that asks, in a trusted folder: a start under it still waits on a card;
 //! - a chat in full access whose own folder nobody decided: a start under it still waits on a card;
 //! - a folder the person marked untrusted under the full-access chat's folder is refused;
 //! - a chat whose harness reports full access on its own (no mode cmux set) still waits on a card;
 //! - a chat whose launch command skips the checks, in no mode cmux set, still waits on a card;
-//! - a chat named through a link still waits on a card under the link's target;
 //! - a chat in full access whose agent was started again lends its trust once cmux set the mode
 //!   again, and a fallback agent that reports full access on its own lends none;
 //! - a chat a Web client started still waits on a card.
@@ -177,7 +174,6 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         "web/lanes",
         "spoof/lanes",
         "spoof/child",
-        "linked-target/lanes",
         "skips/lanes",
         "roundtrip/lanes",
         "again/lanes",
@@ -223,6 +219,7 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         record: root.join("home/trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     hub.set_trust_gate(Some(paths.clone()));
     let decide = |dir: &str, level: &str| {
@@ -249,15 +246,16 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
     // Its own folder itself, too.
     assert!(!start_waits_on_a_card(&hub, &mut app, &full, &root.join("full")).await);
 
-    // A chat in full access whose folder was named through a link: the link may point elsewhere
-    // by now, so a start under where it points still asks.
-    decide("linked-target", "trusted");
-    std::os::unix::fs::symlink(root.join("linked-target"), root.join("link")).unwrap();
-    let linked = app.new_session(&root.join("link"), "fake-full").await;
+    // Outside its folder too (Leo's case: a lane folder the chat made elsewhere): a chat in full
+    // access could run that folder's hooks itself, so no card, and nothing is recorded for it.
+    let outside = root.join("elsewhere/lanes");
     assert!(
-        start_waits_on_a_card(&hub, &mut app, &linked, &root.join("linked-target/lanes")).await,
-        "a folder named through a link lent its trust"
+        !start_waits_on_a_card(&hub, &mut app, &full, &outside).await,
+        "a card outside its folder"
     );
+    assert_eq!(app.pending(&full).await, 0);
+    let record = std::fs::read_to_string(&paths.record).unwrap_or_default();
+    assert!(!record.contains("elsewhere"), "the child's folder was recorded: {record}");
 
     // A chat whose launch command skips the checks but runs in no full-access mode cmux set: the
     // command stays in the record after a fallback to another profile, so it lends nothing.
@@ -312,13 +310,6 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         start_on_waits_on_a_card(&hub, &mut app, &fo, &root.join("failover/lanes"), "fake-full")
             .await,
         "a fallback agent's own full access lent its folder's trust"
-    );
-
-    // Outside its folder it still asks.
-    let outside = root.join("elsewhere/lanes");
-    assert!(
-        start_waits_on_a_card(&hub, &mut app, &full, &outside).await,
-        "no card outside its folder"
     );
 
     // A folder the person marked untrusted under it is refused, with no card.

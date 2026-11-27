@@ -34,6 +34,8 @@ pub struct Item {
     pub outcome: Option<Result<String, String>>,
     /// Answers marked `_meta.acpmux.duplicate` (a resend answered from the log).
     pub duplicate_answers: u32,
+    /// Simulated time the first answer arrived (the liveness invariant reads it).
+    pub answered_at: Option<Duration>,
 }
 
 #[derive(Default)]
@@ -75,13 +77,21 @@ struct Conn {
     next_id: i64,
     /// Request id to the prompt id it carries.
     prompts: HashMap<i64, String>,
+    /// Messages handled so far, including those read while waiting for a call's answer.
+    handled: u64,
 }
 
 impl Conn {
     async fn open() -> std::io::Result<Self> {
         let stream = turmoil::net::TcpStream::connect((DAEMON, PORT)).await?;
         let (read, write) = stream.into_split();
-        Ok(Self { write, lines: BufReader::new(read).lines(), next_id: 0, prompts: HashMap::new() })
+        Ok(Self {
+            write,
+            lines: BufReader::new(read).lines(),
+            next_id: 0,
+            prompts: HashMap::new(),
+            handled: 0,
+        })
     }
 
     async fn send(&mut self, method: &str, params: Value) -> std::io::Result<i64> {
@@ -153,6 +163,7 @@ impl Conn {
 
     /// A notification, or a prompt's answer.
     fn handle(&mut self, app: &Shared, msg: &Value) {
+        self.handled += 1;
         if msg["method"] == acpmux::rpc::method::MUX_PROMPT_ACCEPTED {
             let pid = msg["params"]["promptId"].as_str().unwrap_or_default();
             let mut a = app.borrow_mut();
@@ -191,6 +202,7 @@ impl Conn {
             item.duplicate_answers += duplicate as u32;
             if item.outcome.is_none() {
                 item.outcome = Some(outcome);
+                item.answered_at = Some(now());
             }
         }
     }
@@ -344,7 +356,10 @@ async fn session(app: &Shared, conn: &mut Conn, resend_flag: bool) -> std::io::R
                         // still queued, is waited for. Two settled reads a quiet SETTLE apart:
                         // one row is no atomic idle check (a dequeued prompt can be between
                         // the queue and its turn).
-                        let settled = chat_settled(app, conn).await?;
+                        // A message read while the call waited for its answer (a turn or a
+                        // retry starting) breaks the streak as one read here would.
+                        let before = conn.handled;
+                        let settled = chat_settled(app, conn).await? && conn.handled == before;
                         if (settled && settled_once) || now() > GIVE_UP {
                             return Ok(());
                         }

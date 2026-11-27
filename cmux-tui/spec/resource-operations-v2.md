@@ -13,8 +13,8 @@ session aggregation and provider lifecycle require a later broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 105 | Reads state and forbids an idempotency key |
-| `mutation` | 234 | Requires an idempotency key and returns a mutation result |
+| `read` | 118 | Reads state and forbids an idempotency key |
+| `mutation` | 241 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -33,30 +33,30 @@ correlation, and idempotency metadata.
 | `browser` | 15 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
 | `browser_device` | 3 | `browser.devices.add_custom`, `browser.devices.list`, `browser.devices.remove_custom` |
 | `browser_profile` | 2 | `browser.profile.create`, `browser.profile.list` |
-| `chief` | 13 | `chief.engine.get`, `chief.engine.set`, `chief.profile.adopt`, `chief.profile.avatar.get`, `chief.profile.avatar.set`, `chief.profile.create`, `chief.profile.delete`, `chief.profile.get`, `chief.profile.history`, `chief.profile.list`, `chief.profile.undo`, `chief.profile.update`, `chief.stop` |
+| `chief` | 15 | `chief.automation.list`, `chief.automation.update`, `chief.engine.get`, `chief.engine.set`, `chief.profile.adopt`, `chief.profile.avatar.get`, `chief.profile.avatar.set`, `chief.profile.create`, `chief.profile.delete`, `chief.profile.get`, `chief.profile.history`, `chief.profile.list`, `chief.profile.undo`, `chief.profile.update`, `chief.stop` |
 | `client` | 8 | `client.cell_pixels.set`, `client.detach`, `client.get`, `client.list`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue` |
 | `closed` | 3 | `closed.delete`, `closed.list`, `closed.reopen` |
 | `conversation` | 8 | `conversation.draft`, `conversation.events`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `conversation.send`, `conversation.typing` |
 | `credential` | 3 | `credential.mint`, `credential.rotate`, `credential.verify` |
-| `diff` | 3 | `diff.comments.delete`, `diff.comments.list`, `diff.comments.save` |
+| `diff` | 5 | `diff.comments.delete`, `diff.comments.list`, `diff.comments.save`, `diff.comments.send`, `diff.comments.thread` |
 | `frontend_projection` | 2 | `frontend_projection.get`, `frontend_projection.put` |
-| `git` | 17 | `git.branches`, `git.checkpoint.create`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.diff`, `git.files.list`, `git.files.search`, `git.push`, `git.status`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `git.worktree.setup` |
+| `git` | 21 | `git.branches`, `git.checkpoint.create`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.diff`, `git.files.list`, `git.files.search`, `git.fingerprint`, `git.push`, `git.review.comment`, `git.review.post`, `git.review.start`, `git.status`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `git.worktree.setup` |
 | `keybinding` | 4 | `keybindings.get`, `keybindings.remove`, `keybindings.reset`, `keybindings.set` |
 | `machine` | 2 | `machine.get`, `machine.list` |
 | `notification` | 4 | `notification.ack`, `notification.clear`, `notification.create`, `notification.list` |
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |
 | `palette_usage` | 5 | `palette_usage.forget`, `palette_usage.get`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record` |
-| `pane` | 14 | `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.get`, `pane.list`, `pane.neighbor.get`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom` |
+| `pane` | 15 | `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.get`, `pane.list`, `pane.move`, `pane.neighbor.get`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom` |
 | `participant` | 2 | `participant.avatar.get`, `participant.avatar.set` |
 | `request` | 1 | `request.cancel` |
 | `room` | 8 | `room.create`, `room.delete`, `room.follow`, `room.list`, `room.move`, `room.pin`, `room.unpin`, `room.update` |
 | `saved_tab_group` | 4 | `saved_tab_group.delete`, `saved_tab_group.list`, `saved_tab_group.reopen`, `saved_tab_group.save` |
 | `screen` | 11 | `column.update`, `screen.close`, `screen.create`, `screen.focus`, `screen.get`, `screen.layout.export`, `screen.layout.undo`, `screen.list`, `screen.move`, `screen.rename`, `screen.update` |
 | `screen_group` | 7 | `screen_group.add_screens`, `screen_group.create`, `screen_group.get`, `screen_group.list`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update` |
-| `session` | 29 | `conductor_import.plan`, `conductor_import.record`, `layout.bulk`, `palette.rank`, `session.creation.resolve`, `session.events`, `session.get`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.hook.put`, `session.journal.producer.list`, `session.journal.producer.put`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.journal.segment.seal`, `session.journal.subscribe`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `workspace_checklist.list`, `workspace_status.list` |
+| `session` | 40 | `browser_import.read`, `chat.list`, `chat.mark_read`, `chat.pin`, `classic_import.plan`, `classic_import.record`, `conductor_import.plan`, `conductor_import.record`, `language_packs.ensure`, `layout.bulk`, `palette.rank`, `session.creation.resolve`, `session.events`, `session.get`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.hook.put`, `session.journal.producer.list`, `session.journal.producer.put`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.journal.segment.seal`, `session.journal.subscribe`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `theme.scheme.convert`, `theme.scheme.export`, `theme.scheme.from_image`, `theme.slots.resolve`, `workspace_checklist.list`, `workspace_status.list` |
 | `sidebar_layout` | 20 | `sidebar.adopt`, `sidebar.apply`, `sidebar.get`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.remove_ref`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.reset`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.get`, `sidebar_layout.update` |
-| `project` | 6 | `project.add`, `project.list`, `project.observe`, `project.remove`, `project.sync`, `project.update` |
-| `setting` | 7 | `settings.get`, `settings.list`, `settings.reset`, `settings.reset_all`, `settings.schema`, `settings.set`, `settings.snapshot` |
+| `project` | 7 | `project.actions.list`, `project.add`, `project.list`, `project.observe`, `project.remove`, `project.sync`, `project.update` |
+| `setting` | 12 | `settings.edit`, `settings.get`, `settings.history`, `settings.list`, `settings.reset`, `settings.reset_all`, `settings.reset_group`, `settings.restore`, `settings.schema`, `settings.set`, `settings.snapshot`, `settings.undo` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |
 | `stash` | 5 | `stash.create`, `stash.delete`, `stash.import`, `stash.list`, `stash.restore` |
 | `stream` | 1 | `stream.cancel` |

@@ -43,8 +43,16 @@ pub(super) fn action_is_frontend_local(action: Action) -> bool {
             | Action::FocusNextPane
             | Action::ScrollUp
             | Action::ScrollDown
+            | Action::ScrollPageUp
+            | Action::ScrollPageDown
+            | Action::ScrollHalfPageUp
+            | Action::ScrollHalfPageDown
+            | Action::CopyMode
+            | Action::SearchScrollback
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
+            | Action::NextAttention
+            | Action::AttentionList
     )
 }
 
@@ -75,6 +83,12 @@ pub(super) fn action_available_in_mode(action: Action, surface_only: bool) -> bo
                 | Action::RenameTab
                 | Action::ScrollUp
                 | Action::ScrollDown
+                | Action::ScrollPageUp
+                | Action::ScrollPageDown
+                | Action::ScrollHalfPageUp
+                | Action::ScrollHalfPageDown
+                | Action::CopyMode
+                | Action::SearchScrollback
                 | Action::ClearHistory
                 | Action::ShowShortcuts
                 | Action::Detach
@@ -92,8 +106,15 @@ pub(super) fn action_prepares_pty_release(action: Action) -> bool {
             | Action::NewPaneRight
             | Action::ScrollUp
             | Action::ScrollDown
+            | Action::ScrollPageUp
+            | Action::ScrollPageDown
+            | Action::ScrollHalfPageUp
+            | Action::ScrollHalfPageDown
+            | Action::CopyMode
+            | Action::SearchScrollback
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
+            | Action::AttentionList
     )
 }
 

@@ -5,13 +5,18 @@ extension AgentPaneView {
     /// 2.2): the model takes the tab's context, the page gets it as an
     /// `acpmux-newtab-adopt` event (WebKit runs it before any key typed after
     /// Cmd-T) and remounts the screen unless it already draws that context
-    /// (``prepareNewTab(_:)``), and the theme follows the scope the view moved into. A page still loading reads the context from its
-    /// handshake instead.
+    /// (``prepareNewTab(_:)``), and the theme follows the scope the view moved into. A page whose handshake the host did not
+    /// answer yet can be a page that does not listen yet: such a page loses the event. With no page host, the reply to its
+    /// `ready` calls this again (``AgentPaneBridge/reply(to:)``). With a page host no reply does: by a read of the page's
+    /// source, a page there gets no context with its document, and it asks `newTab.context` only after it listens.
     public func adoptNewTab(_ page: AgentPaneNewTab) {
         model.adoptNewTab(page)
         model.newTabPrepared = false
+        model.newTabAdoptUnheard = !model.hasHandshake
         // With what a new chat of the window left, unless the host already gave it one (cmux#32276).
         show(page, sending: model.newTabForPage)
+        // The New Tab data a chat page was not sent (``AgentPaneShownPushes/push(_:to:newTabOnly:_:)``).
+        shownPushes.flush(self)
     }
 
     /// A parked spare takes `page`, the context a Cmd-T would give it, before the key (NewTabSparePool), unless it
@@ -35,6 +40,8 @@ extension AgentPaneView {
         model.becomeNewTab(page)
         // With what a new chat of the window left, as a handshake gives it (cmux#32276).
         show(page, sending: model.newTabForPage)
+        // The New Tab data a chat page was not sent (``AgentPaneShownPushes/push(_:to:newTabOnly:_:)``).
+        shownPushes.flush(self)
     }
 
     /// The open tabs and workspaces changed while this page shows (Leo 2026-10-11: rows for New
@@ -77,20 +84,9 @@ extension AgentPaneView {
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(detail)}))")
     }
 
-    /// The weather widget's reading arrived or changed while this page shows (``AgentPaneNewTab/weather``):
-    /// the page takes it in place, as an `acpmux-newtab-weather` event, with no remount. nil (the
-    /// widget turned off) takes the reading away.
-    public func refreshNewTabWeather(_ weather: AgentPaneNewTabWeather?) {
-        guard model.sessionId == nil, var page = model.newTab, page.weather != weather else { return }
-        page.weather = weather
-        model.adoptNewTab(page)
-        let json = weather.flatMap { try? JSONEncoder().encode($0) }.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
-        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-weather', {detail: \(json)}))")
-    }
-
     private func show(_ page: AgentPaneNewTab, sending sent: AgentPaneNewTab? = nil) {
-        guard model.newTab == page, let data = try? JSONEncoder().encode(sent ?? page),
-              let json = String(data: data, encoding: .utf8) else { return }
+        // The page's own part, joined in the page with the shared text that its document has (``AgentPaneNewTabShared``).
+        guard model.newTab == page, let json = model.newTabScriptValue(sent ?? page) else { return }
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-adopt', {detail: \(json)}))")
         applyTheme()
     }

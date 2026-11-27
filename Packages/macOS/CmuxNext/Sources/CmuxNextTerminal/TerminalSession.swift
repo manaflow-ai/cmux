@@ -33,6 +33,8 @@ public final class TerminalSession {
     public let view: TerminalHostView
     /// The find bar over this terminal and the search it drives.
     public let find = TerminalFindController()
+    /// The daemon's whole-history search for this terminal (set by its owner); nil searches only the screen.
+    public var historyFind: (any TerminalFindHistory)?
     public weak var delegate: (any TerminalSessionDelegate)? {
         didSet { linkCheck = delegate?.terminalSessionLinkCheck(self) }
     }
@@ -89,7 +91,7 @@ public final class TerminalSession {
         }
     }
     /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
-    nonisolated let frameChanges = TerminalFrameChanges()
+    public nonisolated let frameChanges = TerminalFrameChanges()
     /// ``close()`` ran: the launch frame keeper forgets this terminal.
     private(set) var isClosed = false
 
@@ -149,13 +151,15 @@ public final class TerminalSession {
 
     let io: any TerminalIO
     private let ioMode: ghostty_surface_io_mode_e
-    private let input: TerminalInputSink
+    let input: TerminalInputSink
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
     public var closeCancels: [Task<Void, Never>] = []
     /// Latest `.resize` grid, re-applied to a swapped-in surface.
     private var canonicalGrid: TerminalGridSize?
+    /// The current link's last "Sized for" notice (nil: it fits, or the link said nothing yet).
+    private var linkSizedFor: TerminalSizedFor?
     /// True once the current surface received a replay or output; a later
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
@@ -174,15 +178,28 @@ public final class TerminalSession {
     /// Local-history READYs restored with the surface's own reflowed history
     /// (proves the local path ran in dogfood).
     private(set) var localSnapshots = 0
-    /// Kitty images the owner left out of its image replays (its cap).
-    private(set) var skippedImages = 0
 
     /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
     let blankWatch: TerminalBlankWatch
+    /// Predictive local echo, for an IO whose keys make a network round trip (``TerminalIO/predictsEcho``); nil
+    /// otherwise, so a local terminal pays nothing per key or chunk.
+    let echo: TerminalEchoPredictor?
+    /// `terminal.predictiveLocalEcho`: whether this terminal predicts, when its IO can (``TerminalIO/predictsEcho``).
+    /// Off keeps the engine, so turning it back on needs no new surface, but nothing is drawn and what was drawn goes.
+    public var predictsLocalEcho: Bool {
+        didSet { if predictsLocalEcho != oldValue { echo?.setEnabled(predictsLocalEcho) } }
+    }
 
+    /// - Parameter localEcho: The app's `terminal.predictiveLocalEcho`, which ``predictsLocalEcho`` starts from and
+    ///   follows; nil predicts.
     /// - Parameter blankClock: The clock of the blank-pane check after a reveal; tests pass a manual clock.
-    public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameter historyFind: The daemon's whole-history search that Cmd-F uses; nil searches the screen only.
+    public init(io: any TerminalIO, ownsGeometry: Bool = true, localEcho: TerminalLocalEchoPreference? = nil,
+                blankClock: any Clock<Duration> = ContinuousClock(), historyFind: (any TerminalFindHistory)? = nil) {
         self.io = io
+        predictsLocalEcho = localEcho?.predicts ?? true
+        // Settings > Experiments > Terminal History Find, on by default (Leo's ask, cmux#53180): turned off keeps Ghostty's screen search.
+        self.historyFind = DesignSettings.shared.experiment("terminalHistoryFind") ? historyFind : nil
         blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
@@ -192,20 +209,30 @@ public final class TerminalSession {
         input = TerminalInputSink(continuation: continuation)
 
         view = TerminalHostView()
-        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil)
+        echo = io.predictsEcho
+            ? TerminalEchoPredictor(engine: TerminalEchoPrediction(enabled: predictsLocalEcho, remote: true)) : nil
+        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, prediction: echo?.engine)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
         view.onVeil = { [weak self] veil in self?.setVeil(veil) }
         view.install(surfaceView)
         find.target = self
-        view.attachFind(find)
+        echo?.colors = { [weak self] in self?.theme?.colors ?? GhosttyRuntime.shared.themeColors }
+        echo?.attach(to: surfaceView)
+        localEcho?.adopt(self)
 
-        writerTask = Task.detached(priority: .userInitiated) { [io] in
+        writerTask = Task.detached(priority: .userInitiated) { [io, weak self] in
             for await item in outgoing {
                 switch item {
                 case .bytes(let data):
                     await io.write(data)
+                case .filePaste(let pasteboard):
+                    do { try await io.pasteFiles(pasteboard) }
+                    catch {
+                        if Task.isCancelled { return }
+                        await self?.filePasteFailed()
+                    }
                 case .resize(let grid, let width, let height):
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
@@ -304,6 +331,9 @@ public final class TerminalSession {
     public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
         (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
     }
+
+    /// The viewport rows a wrapped link's underlines are drawn on.
+    public var linkUnderlineRowsForTesting: [Int] { surfaceView.linkPointer.underlinedRowsForTesting }
     #endif
 
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
@@ -332,6 +362,10 @@ public final class TerminalSession {
         text.withCString { pointer in
             ghostty_surface_text(surface, pointer, UInt(text.utf8.count))
         }
+    }
+
+    func enqueueFilePaste(_ pasteboard: TerminalFilePaste) {
+        input.pasteFiles(pasteboard)
     }
 
     /// Downscaled image of the last presented frame, for static previews.
@@ -409,7 +443,11 @@ public final class TerminalSession {
     public func shownFrameInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         switch frameHold.heldFrame {
         case nil:
-            return await snapshotInBackground(maxPixelSize: maxPixelSize)
+            if let image = await snapshotInBackground(maxPixelSize: maxPixelSize) { return image }
+            // Its frame was purged while it was hidden: the picture taken as it paused.
+            guard let picture = surfaceView.pausedPicture else { return nil }
+            guard CGFloat(max(picture.width, picture.height)) > maxPixelSize else { return picture }
+            return await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(picture, maxPixelSize: maxPixelSize) }.value
         case .image(let image)?:
             guard CGFloat(max(image.width, image.height)) > maxPixelSize else { return image }
             return await Task.detached(priority: .utility) {
@@ -440,6 +478,7 @@ public final class TerminalSession {
         input.finish()
         frameHold.end() // a held frame has no time limit: it goes with the session, not with the object
         blankWatch.cancel()
+        echo?.close()
         surfaceView.removeFromSuperview()
     }
 
@@ -486,7 +525,7 @@ public final class TerminalSession {
         switch event {
         case .replay(let data):
             if surfaceHasContent { swapSurface() }
-            surfaceView.lane?.processOutput(data)
+            surfaceView.lane?.processOutput(data, replacesScreen: true)
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
@@ -497,7 +536,7 @@ public final class TerminalSession {
             // replayed and on-screen Kitty images come back only when the
             // program draws them again.
             if surfaceHasContent { swapSurface() }
-            surfaceView.lane?.processOutput(replay.vt)
+            surfaceView.lane?.processOutput(replay.vt, replacesScreen: true)
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
@@ -530,9 +569,14 @@ public final class TerminalSession {
             model.hasExited = status == .exited
             surfaceView.updateReflowPreview()
             view.showStatus(status)
-            // A disconnected or exited view no longer knows who sets the grid.
-            if status != .connected { view.showSizedFor(nil) }
+            // A disconnected or exited view no longer knows who sets the grid; the next link says
+            // again. A connected one shows what its link said while it attached.
+            if status != .connected { linkSizedFor = nil }
+            view.showSizedFor(status == .connected ? linkSizedFor : nil)
         case .sizedFor(let sizedFor):
+            // Kept even before the link is connected: a restored tab or a re-attach can get its size
+            // state before the replay connects it, and the daemon sends it again only when it changes.
+            linkSizedFor = sizedFor
             view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }
     }
@@ -556,6 +600,7 @@ public final class TerminalSession {
     /// `.resize` applies; the event is the PTY's size at this point in the
     /// stream.
     private func applyCanonicalGrid(_ grid: TerminalGridSize) async {
+        if canonicalGrid != grid { echo?.gridChanged() }
         canonicalGrid = grid
         surfaceView.applyAnnouncedGrid(grid)
     }
@@ -567,7 +612,7 @@ public final class TerminalSession {
         old.clipboardRequests.cancelPendingWrite()
         old.cancelGridReport() // detached: its waiting grid is not this session's any more
         let wasFirstResponder = old.isFirstResponder
-        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
+        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, prediction: echo?.engine)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
@@ -579,12 +624,13 @@ public final class TerminalSession {
         fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
         fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
+        echo?.attach(to: fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
         applyTheme(to: fresh, clearing: false, animated: false)
         TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
-        if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
+        if wasFirstResponder { FocusRoute(.system, "a terminal surface swapped").moveKeyboard(in: fresh.window, to: fresh) }
         surfaceHasContent = false
         // The fresh surface has no search; an open find bar searches it again.
         find.surfaceReplaced()
@@ -611,10 +657,6 @@ public final class TerminalSession {
     }
 
     // MARK: From the surface view
-
-    func noteSkippedImages(_ count: Int) {
-        skippedImages += max(0, count)
-    }
 
     func noteLocalSnapshot() {
         localSnapshots += 1

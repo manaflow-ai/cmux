@@ -4,19 +4,34 @@
 //! enrollment writes this authority before redeem. Arbitrary branch-only old
 //! ACPMUX_HOME state has no cross-tag upgrade path and must rejoin; inspecting
 //! the current daemon's state below is defense in depth, not global discovery.
-use super::cloud_join::{Consent, ConsentState, HeldLock};
+use crate::machine_record::{Consent, ConsentState, HeldLock};
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-pub(super) struct Authority {
+pub(crate) struct Authority {
     root: PathBuf,
     legacy: PathBuf,
 }
 
 impl Authority {
     pub(super) fn current(legacy: PathBuf) -> Result<Self> {
-        Ok(Self { root: account_home()?.join(".acpmux/machine-consent"), legacy })
+        Ok(Self {
+            root: crate::config::resolve_supervised_home(&account_home()?).join("machine-consent"),
+            legacy,
+        })
+    }
+
+    /// The authority kept in `root`, with `legacy` as the daemon's own state: a test's, or a
+    /// carrier test's machine (`consent_grant_service.rs`), never the OS account's.
+    #[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier tests' gate
+    pub(crate) fn at(root: PathBuf, legacy: PathBuf) -> Self {
+        Self { root, legacy }
+    }
+
+    /// The directory the authority's files are in.
+    pub(super) fn root(&self) -> &Path {
+        &self.root
     }
 
     fn validate_namespace(&self) -> Result<()> {
@@ -36,27 +51,45 @@ impl Authority {
         Ok(())
     }
 
-    fn prepare(&self) -> Result<()> {
+    pub(super) fn prepare(&self) -> Result<()> {
         self.validate_namespace()?;
         crate::config::private_state_dir(&self.root)?;
         self.validate_namespace()
     }
 
-    /// Persist before any remote redeem. A failed join keeps conservative gating.
+    /// Persist before any remote redeem. A failed join keeps conservative gating. A join that
+    /// is not a sign-in's ([`Self::enroll_as`] is what the joins call).
+    #[cfg(test)]
     pub(super) fn enroll(&self) -> Result<()> {
-        self.enroll_with_sync(|path| {
+        self.enroll_as(false)
+    }
+
+    /// [`Self::enroll`], saying whether signing in made this join (`enroll.rs`). Consent is as
+    /// mandatory either way for what reaches this Mac from elsewhere (`hand/requests.rs`); a
+    /// requirement that only sign-in joins made leaves the Mac's own sessions their computer use
+    /// ([`Self::required_only_by_sign_in`]): signing in never takes local tools away. Any other
+    /// join makes it the requirement it always was, for good.
+    pub(super) fn enroll_as(&self, sign_in: bool) -> Result<()> {
+        self.enroll_with_sync(sign_in, |path| {
+            // Windows opens no folder as a file to flush it; NTFS journals the names.
+            if cfg!(windows) && path.is_dir() {
+                return Ok(());
+            }
             std::fs::File::open(path)?.sync_all()?;
             Ok(())
         })
     }
 
-    fn enroll_with_sync(&self, sync: impl Fn(&Path) -> Result<()>) -> Result<()> {
+    fn enroll_with_sync(&self, sign_in: bool, sync: impl Fn(&Path) -> Result<()>) -> Result<()> {
         self.prepare()?;
         let marker = self.root.join("enrolled.json");
         if exists(&marker)? {
             self.validate_marker()?;
+            if !sign_in && self.marker_by_sign_in() {
+                crate::config::write_atomic(&marker, MARKER)?;
+            }
         } else {
-            crate::config::write_atomic(&marker, b"{\"schema\":1}")?;
+            crate::config::write_atomic(&marker, if sign_in { MARKER_SIGN_IN } else { MARKER })?;
         }
         // Retry all durability barriers even if a previous attempt wrote the
         // marker then failed. The account home persists a newly-created .acpmux;
@@ -68,6 +101,68 @@ impl Authority {
         Ok(())
     }
 
+    /// Whether the marker says only sign-in joins made it.
+    fn marker_by_sign_in(&self) -> bool {
+        crate::config::private_state_file(&self.root.join("enrolled.json"))
+            .ok()
+            .and_then(|file| serde_json::from_reader::<_, Value>(file).ok())
+            .is_some_and(|marker| {
+                marker.get("by").and_then(Value::as_str)
+                    == Some(crate::machine_record::JOINED_BY_SIGN_IN)
+            })
+    }
+
+    /// Whether the account's consent requirement comes only from joins signing in made, and the
+    /// person never set a consent here: the Mac's own sessions keep their computer use. A grant
+    /// from the owner's other Mac (`consent_grant.rs`) writes `consent.json` too, but it is not
+    /// the person's setting here ([`Self::set_here`]).
+    pub(super) fn required_only_by_sign_in(&self) -> bool {
+        self.validate_namespace().is_ok()
+            && self.marker_by_sign_in()
+            && !self.set_here()
+            && !exists(&self.legacy.join("consent.json")).unwrap_or(true)
+    }
+
+    /// Whether `consent.json` holds a setting the person made here: a local Control or Screen, a
+    /// file an older build wrote (all of it was), or an answer to the signed-in machines ask. One
+    /// that exists but cannot be read counts as set.
+    fn set_here(&self) -> bool {
+        let path = self.root.join("consent.json");
+        match exists(&path) {
+            Ok(false) => return false,
+            Ok(true) => {}
+            Err(_) => return true,
+        }
+        let Some(consent) = crate::config::private_state_file(&path)
+            .ok()
+            .and_then(|file| serde_json::from_reader::<_, Consent>(file).ok())
+        else {
+            return true;
+        };
+        let legacy = consent.control_source.is_none() && consent.screen_source.is_none();
+        legacy
+            || consent.control_local.is_some()
+            || consent.screen_local.is_some()
+            || consent.signed_in_machines_answered_at.is_some()
+    }
+
+    /// [`Self::status`], as the Mac's own Computer Use is gated (`local_computer_use`: the app's
+    /// helper, which serves only this Mac's own sessions) or as what reaches the Mac from
+    /// elsewhere is. A requirement only sign-in joins made ([`Self::required_only_by_sign_in`])
+    /// never gates the Mac's own use: its answer says no consent is required, and why. What
+    /// reaches the Mac from elsewhere is gated as it always was.
+    pub(super) fn status_for(&self, local_computer_use: bool) -> Value {
+        let mut status = self.status();
+        if local_computer_use
+            && self.required_only_by_sign_in()
+            && let Some(fields) = status.as_object_mut()
+        {
+            fields.insert("consentRequired".to_owned(), Value::Bool(false));
+            fields.insert("localComputerUse".to_owned(), json!("keptBySignIn"));
+        }
+        status
+    }
+
     fn validate_marker(&self) -> Result<()> {
         let file = crate::config::private_state_file(&self.root.join("enrolled.json"))?;
         let value: Value = serde_json::from_reader(file)?;
@@ -77,7 +172,11 @@ impl Authority {
 
     pub(super) fn retain_own_requirement(&self) -> Result<()> {
         if has_own_requirement(&self.legacy)? {
-            self.enroll()?;
+            let sign_in = !exists(&self.legacy.join("consent.json"))?
+                && crate::machine_record::load_at(&self.legacy)?.is_some_and(|record| {
+                    record.joined_by.as_deref() == Some(crate::machine_record::JOINED_BY_SIGN_IN)
+                });
+            self.enroll_as(sign_in)?;
         }
         Ok(())
     }
@@ -85,17 +184,21 @@ impl Authority {
     fn required(&self) -> Result<bool> {
         self.validate_namespace()?;
         self.retain_own_requirement()?;
-        super::cloud_join::load_at(&self.legacy)?;
+        crate::machine_record::load_at(&self.legacy)?;
         if exists(&self.root.join("enrolled.json"))? {
             self.validate_marker()?;
         }
         Ok(exists(&self.root.join("enrolled.json"))? || exists(&self.root.join("consent.json"))?)
     }
 
-    fn consent(&self) -> Consent {
+    pub(super) fn consent(&self) -> Consent {
         crate::config::private_state_file(&self.root.join("consent.json"))
             .ok()
-            .and_then(|file| serde_json::from_reader(file).ok())
+            .and_then(|file| serde_json::from_reader::<_, Consent>(file).ok())
+            .map(|mut consent| {
+                consent.on_disk = true;
+                consent
+            })
             .unwrap_or_default()
     }
 
@@ -116,6 +219,26 @@ impl Authority {
     }
 
     pub(super) fn set(&self, surface: &str, granted: bool) -> Result<Consent> {
+        let user = if surface == crate::machine_record::SIGNED_IN_MACHINES {
+            crate::machine_record::machine_user_id()
+        } else {
+            None
+        };
+        self.set_as(surface, granted, user)
+    }
+
+    /// [`Self::set`], with the account (hub user id) this machine is joined as: what a
+    /// `signedInMachines` answer is for.
+    pub(super) fn set_as(
+        &self,
+        surface: &str,
+        granted: bool,
+        user: Option<String>,
+    ) -> Result<Consent> {
+        if matches!(surface, "screen" | "control") {
+            let account = crate::machine_record::machine_user_id();
+            return self.set_local(surface, Some(granted), account.as_deref());
+        }
         self.prepare()?;
         // Serialize read/modify/write across app tags; disjoint grant changes
         // must never resurrect a concurrently revoked surface.
@@ -123,10 +246,25 @@ impl Authority {
         let mut consent = self.consent();
         let state = if granted { ConsentState::Granted } else { ConsentState::None };
         match surface {
-            "screen" => consent.screen = state,
-            "control" => consent.control = state,
+            crate::machine_record::SIGNED_IN_MACHINES => {
+                anyhow::ensure!(
+                    !granted || user.is_some(),
+                    "this machine is not joined to an account"
+                );
+                consent.signed_in_machines = state;
+                // Any answer (Allow, Not now, a later Off) is the one ask this machine gets, for
+                // the account it is joined as.
+                consent.signed_in_machines_answered_at = Some(crate::store::now_ms().to_string());
+                consent.signed_in_machines_user = user;
+            }
             _ => anyhow::bail!("unknown consent surface"),
         }
+        // Control and Screen keep what they were, now with their sources, so the file never reads
+        // as an older build's (whose values were the person's own).
+        consent.control_local = crate::cli::consent_grant::local_of(&consent, "control");
+        consent.screen_local = crate::cli::consent_grant::local_of(&consent, "screen");
+        let account = crate::machine_record::machine_user_id();
+        crate::cli::consent_grant::recompute(&self.root, &mut consent, account.as_deref());
         if granted {
             consent.granted_at = Some(crate::store::now_ms().to_string());
         }
@@ -134,37 +272,132 @@ impl Authority {
             &self.root.join("consent.json"),
             &serde_json::to_vec(&consent)?,
         )?;
+        // The change is made; a log that cannot be written does not undo it.
+        let _ = crate::cli::consent_grant::log_local(self, surface, Some(granted));
+        Ok(consent)
+    }
+
+    /// The person's own setting of `screen` or `control` here: Some sets it (it wins over any
+    /// signed grant), None clears it so the signed grants decide again. `consent.json` then holds
+    /// the effective value (`consent_grant::recompute`), with `account` the account (hub user id)
+    /// this machine is joined as, whose grants count.
+    pub(super) fn set_local(
+        &self,
+        surface: &str,
+        local: Option<bool>,
+        account: Option<&str>,
+    ) -> Result<Consent> {
+        self.prepare()?;
+        // Waits a moment for a grant being applied, as `consent_grant::apply` does.
+        let _lock = crate::cli::consent_grant::lock_waiting(self)?;
+        let mut consent = self.consent();
+        // Read before the change: a file an older build wrote holds its local setting as the value.
+        let (control, screen) = (
+            crate::cli::consent_grant::local_of(&consent, "control"),
+            crate::cli::consent_grant::local_of(&consent, "screen"),
+        );
+        consent.control_local = control;
+        consent.screen_local = screen;
+        match surface {
+            "screen" => consent.screen_local = local,
+            "control" => consent.control_local = local,
+            _ => anyhow::bail!("unknown consent surface"),
+        }
+        crate::cli::consent_grant::recompute(&self.root, &mut consent, account);
+        if local == Some(true) {
+            consent.granted_at = Some(crate::store::now_ms().to_string());
+        }
+        crate::config::write_atomic(
+            &self.root.join("consent.json"),
+            &serde_json::to_vec(&consent)?,
+        )?;
+        let _ = crate::cli::consent_grant::log_local(self, surface, local);
         Ok(consent)
     }
 
     pub(super) fn refused(&self, surface: &str) -> Result<()> {
-        anyhow::ensure!(matches!(surface, "screen" | "control"), "unknown consent surface");
-        self.prepare()?;
-        crate::config::write_atomic(
-            &self.root.join("refusal.json"),
-            &serde_json::to_vec(
-                &json!({"event":"consent_refused","code":"consent_required","surface":surface,"at":crate::store::now_ms()}),
-            )?,
-        )
+        self.refused_from(surface, None)
     }
 
-    #[cfg(unix)]
-    fn lock(&self) -> Result<HeldLock> {
-        use std::os::fd::AsRawFd;
-        let file = crate::config::private_state_rw(&self.root.join("write.lock"))?;
-        // SAFETY: file is a live owned descriptor. Nonblocking avoids stalling
-        // the daemon; the local person may retry a racing settings write.
-        anyhow::ensure!(
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-            "consent update in progress"
-        );
-        Ok(HeldLock(file))
+    /// [`Self::refused`], naming the machine that asked (`from`, a host the hub lists) when one
+    /// is known, so the app's ask says which of the person's machines wants in.
+    pub(super) fn refused_from(&self, surface: &str, from: Option<&str>) -> Result<()> {
+        self.refused_by(surface, from, None)
     }
-    #[cfg(not(unix))]
-    fn lock(&self) -> Result<HeldLock> {
-        anyhow::bail!("consent unavailable")
+
+    /// [`Self::refused_from`], naming the account (hub user id) the ask was made for, which
+    /// [`for_account`] keeps it to.
+    pub(super) fn refused_by(
+        &self,
+        surface: &str,
+        from: Option<&str>,
+        user: Option<&str>,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            crate::machine_record::is_consent_surface(surface),
+            "unknown consent surface"
+        );
+        self.prepare()?;
+        let mut record = serde_json::Map::new();
+        record.insert("event".into(), json!("consent_refused"));
+        record.insert("code".into(), json!("consent_required"));
+        record.insert("surface".into(), json!(surface));
+        record.insert("at".into(), json!(crate::store::now_ms()));
+        if let Some(from) = from.filter(|from| !from.is_empty()) {
+            // A host name from the hub's book, bounded so the record stays small.
+            record.insert("from".into(), json!(from.chars().take(128).collect::<String>()));
+        }
+        if let Some(user) = user {
+            record.insert("user".into(), json!(user));
+        }
+        crate::config::write_atomic(&self.root.join("refusal.json"), &serde_json::to_vec(&record)?)
+    }
+
+    pub(crate) fn lock(&self) -> Result<HeldLock> {
+        let file = crate::config::private_state_rw(&self.root.join("write.lock"))?;
+        // Nonblocking avoids stalling the daemon; the local person may retry a racing settings
+        // write.
+        HeldLock::take(file, "consent update in progress")
     }
 }
+
+/// A consent status as it holds for `account`, the account (hub user id) this machine is joined
+/// as now: a `signedInMachines` grant or answer given for another account (or for none) reads as
+/// not given, and a `signedInMachines` ask made for another account is dropped, so after a
+/// switch nothing is granted, the app shows no old ask, and the next request is asked again.
+/// `signedInMachinesUser` is left as written. Screen or control the owner's app turned on from
+/// elsewhere (`controlGrantedBy`, `screenGrantedBy`, `consent_grant.rs`) for another account reads
+/// `none`; one granted here is unchanged.
+pub(crate) fn for_account(mut status: Value, account: Option<&str>) -> Value {
+    let sim = crate::machine_record::SIGNED_IN_MACHINES;
+    let mine = |user: Option<&Value>| account.is_some() && user.and_then(Value::as_str) == account;
+    if let Some(consent) = status.get_mut("consent").and_then(Value::as_object_mut) {
+        for (surface, by) in [("control", "controlGrantedBy"), ("screen", "screenGrantedBy")] {
+            let remote = consent.get(by).filter(|by| !by.is_null());
+            if remote.is_some_and(|by| !mine(by.get("account"))) {
+                consent.insert(surface.into(), json!("none"));
+            }
+        }
+    }
+    if let Some(consent) = status.get_mut("consent").and_then(Value::as_object_mut)
+        && !mine(consent.get("signedInMachinesUser"))
+    {
+        consent.insert(sim.into(), json!("none"));
+        consent.insert("signedInMachinesAnsweredAt".into(), Value::Null);
+    }
+    let refusal = status.get("lastRefusal");
+    if refusal.and_then(|r| r.get("surface")).and_then(Value::as_str) == Some(sim)
+        && !mine(refusal.and_then(|r| r.get("user")))
+        && let Some(status) = status.as_object_mut()
+    {
+        status.insert("lastRefusal".into(), Value::Null);
+    }
+    status
+}
+
+/// The enrollment marker; with `by`, only sign-in joins made it.
+const MARKER: &[u8] = b"{\"schema\":1}";
+const MARKER_SIGN_IN: &[u8] = b"{\"schema\":1,\"by\":\"sign-in\"}";
 
 /// Whether this daemon's own state (`legacy`, its `ACPMUX_HOME`) holds a machine join or a
 /// consent record, which the account-wide authority must keep requiring.
@@ -181,17 +414,25 @@ fn exists(path: &Path) -> Result<bool> {
 }
 
 #[cfg(unix)]
-fn account_home() -> Result<PathBuf> {
+pub(crate) fn account_home() -> Result<PathBuf> {
+    // The kernel uid, never HOME or a tag's env.
+    // SAFETY: geteuid has no preconditions.
+    home_of_uid(unsafe { libc::geteuid() })
+}
+
+/// The OS account home of `uid`, from the account database.
+#[cfg(unix)]
+pub(super) fn home_of_uid(uid: libc::uid_t) -> Result<PathBuf> {
     use std::ffi::{CStr, OsStr};
     use std::os::unix::ffi::OsStrExt;
     let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
     let mut result = std::ptr::null_mut();
     let mut buffer = vec![0u8; 64 * 1024];
     // SAFETY: all output pointers refer to live buffers; returned strings remain
-    // valid until buffer drops. Use the kernel uid, never HOME or a tag's env.
+    // valid until buffer drops.
     let code = unsafe {
         libc::getpwuid_r(
-            libc::geteuid(),
+            uid,
             entry.as_mut_ptr(),
             buffer.as_mut_ptr().cast(),
             buffer.len(),
@@ -206,9 +447,14 @@ fn account_home() -> Result<PathBuf> {
     anyhow::ensure!(path.is_absolute(), "OS account home unavailable");
     Ok(path)
 }
-#[cfg(not(unix))]
-fn account_home() -> Result<PathBuf> {
-    anyhow::bail!("OS account home unavailable")
+/// The OS account's profile folder, from the shell's known folder for this process's token
+/// (`SHGetKnownFolderPath(FOLDERID_Profile)`, what `dirs::home_dir` reads on Windows), never
+/// `USERPROFILE` or a tag's env.
+#[cfg(windows)]
+pub(crate) fn account_home() -> Result<PathBuf> {
+    let path = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("OS account home unavailable"))?;
+    anyhow::ensure!(path.is_absolute(), "OS account home unavailable");
+    Ok(path)
 }
 
 #[cfg(test)]

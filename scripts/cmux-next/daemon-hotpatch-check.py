@@ -3,8 +3,8 @@
 and time it (HQ#7149 R4, cmux-tui-core/src/hotpatch.rs).
 
 Builds the daemon with the `hotpatch` feature under `dx serve --hot-patch`,
-opens a shell in it, then edits `identify` in cmux-tui-core (a library crate,
-not the binary's own) to add a probe field. It passes when the running
+opens a shell in it, then edits `identify` (cmux-tui/src/bin/cmux-tui/identify.rs, which the
+hot-patch binary compiles into cmux-tui-core) to add a probe field. It passes when the running
 daemon answers `identify` with the probe, from the same pid, with the shell
 still alive and echoing, within `--budget` seconds (60) of the save. The
 edit is always taken back.
@@ -37,11 +37,14 @@ import tarfile
 import tempfile
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 DX_VERSION = "0.7.10"
 DX_URL = f"https://github.com/DioxusLabs/dioxus/releases/download/v{DX_VERSION}/dx-x86_64-unknown-linux-gnu.tar.gz"
 DX_SHA256 = "4363e4ed2a3f1eb7f4d38d2d59aed59ce43271c44c16b425e92c89a64761fbe7"
-EDIT_FILE = "cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"
+# The hot-patch binary compiles this file into cmux-tui-core (`bundled-identify`).
+EDIT_FILE = "cmux-tui/crates/cmux-tui/src/bin/cmux-tui/identify.rs"
 EDIT_ANCHOR = '        "daemon_handoff": 1,\n'
 
 
@@ -141,14 +144,14 @@ def main() -> int:
     edit_path = repo / EDIT_FILE
     original = edit_path.read_text()
     if EDIT_ANCHOR not in original:
-        print(json.dumps({"passed": False, "error": f"{EDIT_FILE} no longer has the edit anchor"}))
+        safe_print(json.dumps({"passed": False, "error": f"{EDIT_FILE} no longer has the edit anchor"}))
         return 1
     dx = install_dx(args.cache)
     # A compile error shows here in minutes; under dx it would only wait.
     check = subprocess.run(["cargo", "check", "-p", "cmux-tui", "--features", "hotpatch"],
                            cwd=repo / "cmux-tui", capture_output=True, text=True)
     if check.returncode != 0:
-        print(json.dumps({"passed": False, "error": "cargo check --features hotpatch failed",
+        safe_print(json.dumps({"passed": False, "error": "cargo check --features hotpatch failed",
                           "stderr_tail": check.stderr[-4000:]}, indent=2))
         return 1
     work = Path(tempfile.mkdtemp(prefix="cmux-hotpatch-", dir="/tmp"))
@@ -209,18 +212,23 @@ def main() -> int:
     finally:
         if edit_path.read_text() != original:
             edit_path.write_text(original)
-        if proc is not None and proc.poll() is None:
-            # dx and the daemon it started run in this process group only.
-            os.killpg(proc.pid, signal.SIGTERM)
-            try:
-                proc.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
+        if proc is not None:
+            # dx and the daemon it started run in this process group only. SIGKILL the group after the grace
+            # period whether or not dx exited: the daemon may ignore SIGTERM (cmux#41767 review F1).
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(proc.pid, sig)
+                except (ProcessLookupError, PermissionError):
+                    break
+                try:
+                    proc.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    pass
         out_dir = os.environ.get("FAST_CHECKS_OUT")
         if out_dir and log_path.exists():
             subprocess.run(["cp", str(log_path), str(Path(out_dir) / "dx.log")], check=False)
         subprocess.run(["rm", "-rf", str(work)], check=False)
-    print(json.dumps(report, indent=2))
+    safe_print(json.dumps(report, indent=2))
     return 0 if report.get("passed") else 1
 
 

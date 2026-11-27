@@ -60,17 +60,47 @@ strip_executable() {
   strip_if_macho "$1" full
 }
 
-# cmux NEXT links its executable with -no_exported_symbols, so the strip below
-# removes every function name. Keep them in Resources/cmux-symbols.bin first:
-# hang records and exception traces name app frames through it.
-if [ -f "$APP_PATH/Contents/MacOS/cmux" ]; then
+# cmux NEXT's code is Contents/Frameworks/CmuxNextApp.framework behind a stub
+# Contents/MacOS/cmux (Packages/macOS/CmuxNext/Package.swift, CMUX-629); a live
+# code build links it into the executable. That image exports only the stub's
+# entry point (the static executable: nothing, -no_exported_symbols), so the
+# strip below removes every function name. Keep them in
+# Resources/cmux-symbols.bin first: hang records and exception traces name app
+# frames through it.
+APP_CODE="$APP_PATH/Contents/MacOS/cmux"
+for candidate in \
+  "$APP_PATH/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp" \
+  "$APP_PATH/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp"; do
+  if [ -f "$candidate" ] && [ ! -L "$candidate" ]; then
+    APP_CODE="$candidate"
+    break
+  fi
+done
+if [ -f "$APP_CODE" ]; then
   python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-app-symbol-map.py" \
-    "$APP_PATH/Contents/MacOS/cmux" "$APP_PATH/Contents/Resources/cmux-symbols.bin"
+    "$APP_CODE" "$APP_PATH/Contents/Resources/cmux-symbols.bin"
 fi
 strip_executable "$APP_PATH/Contents/MacOS/cmux"
-# bin/cmux is the Rust cmux-tui binary, which ships no dSYM: keep its global
-# symbols (-S -x) so its crash reports still name functions.
-strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
+# The framework keeps its global symbols (-S -x): its one export, and the
+# undefined symbols dyld binds.
+if [ "$APP_CODE" != "$APP_PATH/Contents/MacOS/cmux" ]; then
+  strip_if_macho "$APP_CODE"
+fi
+# bin/cmux is the Rust cmux-tui binary (cmux-tui, its host and acpmux). Its
+# release build leaves every Rust function global (thin LTO, cmux#43411), so
+# -S -x kept 62,017 names: 6.9 MB of 143.4 MB (nightly 4413904924501). Keep
+# them in Resources/cmux-tui-symbols.bin, 0.8 MB, then strip fully: its panic
+# logs and crash sidecars name frames through the map (cmux-panic-log), and
+# its macOS crash reports go to Sentry as image offsets, which the binary's
+# cmux-tui.dSYM (same UUID) resolves to functions and lines: the tree build
+# uploads it (cmux-tui-artifacts.yml sentry-dsyms), the fast nightly client too.
+# --reader: a nightly can bundle a fallback tree's client that predates the
+# CMXSYM2 map format (app-bundle-cmux-tui-client.sh); its map is then CMXSYM1.
+if [ -f "$APP_PATH/Contents/Resources/bin/cmux" ] && [ ! -L "$APP_PATH/Contents/Resources/bin/cmux" ]; then
+  python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-app-symbol-map.py" \
+    --reader "$APP_PATH/Contents/Resources/bin/cmux" "$APP_PATH/Contents/Resources/bin/cmux" "$APP_PATH/Contents/Resources/cmux-tui-symbols.bin"
+fi
+strip_executable "$APP_PATH/Contents/Resources/bin/cmux"
 strip_executable "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
 # Every other helper in bin/ and libexec/ keeps its global symbols: the
 # nightly's optchat-chief, cmux-app-host, cmux-browser-host, cmux-cloud, ghostty
@@ -113,6 +143,17 @@ if [ -d "$APP_PATH/Contents/Frameworks" ]; then
   while IFS= read -r -d '' binary; do
     strip_if_macho "$binary"
   done < <(find "$APP_PATH/Contents/Frameworks" -maxdepth 4 -path '*/cmux Helper*.app/Contents/MacOS/*' -type f -print0 | sort -z)
+fi
+
+# The remote browser host (Contents/Helpers/cmux-remote-browser-host.app,
+# scripts/cmux-next/embed-remote-browser-host.sh) and its Chromium helper apps,
+# like the cmux Helper apps above. The pinned host binary carried 0.8 MB of
+# local symbols (cmux#42190). The CEF framework symlink in its Frameworks is
+# not followed.
+if [ -d "$APP_PATH/Contents/Helpers" ]; then
+  while IFS= read -r -d '' binary; do
+    strip_if_macho "$binary"
+  done < <(find "$APP_PATH/Contents/Helpers" -maxdepth 7 -path '*/cmux-remote-browser-host*.app/Contents/MacOS/*' -type f -print0 | sort -z)
 fi
 
 if [ -d "$APP_PATH/Contents/Library/SystemExtensions" ]; then

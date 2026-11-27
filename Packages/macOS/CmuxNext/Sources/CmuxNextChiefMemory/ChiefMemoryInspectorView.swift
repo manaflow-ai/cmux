@@ -20,7 +20,7 @@ public struct ChiefMemoryInspectorView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if let error = model.error {
+            if let error = model.shownError {
                 banner(error, symbol: "exclamationmark.triangle")
             } else if model.status?.editable == false {
                 banner(ChiefMemoryStrings.readOnly, symbol: "lock")
@@ -31,6 +31,7 @@ public struct ChiefMemoryInspectorView: View {
             }
         }
         .task { await model.reload() }
+        .autoRetry(model.readRetry)
     }
 
     /// The id of the delete dialog's Delete button.
@@ -60,7 +61,7 @@ public struct ChiefMemoryInspectorView: View {
                 .frame(maxWidth: 260)
                 .onSubmit { Task { await model.search() } }
             Button { Task { await model.reload() } } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFill)
                 .disabled(model.busy)
         }
         .padding(10)
@@ -193,4 +194,34 @@ public struct ChiefMemoryInspectorView: View {
             }
         }
     }
+}
+
+extension View {
+    /// Drives `retry`'s sight from this view: appear and disappear, and its window's occlusion and minimizing.
+    /// (Here, not in CmuxNextDesign's AppKit `AutoRetry`: this inspector is its one SwiftUI user.)
+    func autoRetry(_ retry: AutoRetry) -> some View {
+        modifier(AutoRetrySight(retry: retry))
+    }
+}
+
+private struct AutoRetrySight: ViewModifier {
+    let retry: AutoRetry
+    @State private var appeared = false
+    @State private var windowVisible = true
+
+    func body(content: Content) -> some View {
+        content
+            .background(AutoRetryWindowSight { windowVisible = $0 })
+            .onAppear { appeared = true; retry.setInSight(windowVisible) }
+            .onDisappear { appeared = false; retry.setInSight(false) }
+            .onChange(of: windowVisible) { _, visible in retry.setInSight(appeared && visible) }
+    }
+}
+
+/// Hosts CmuxNextDesign's `AutoRetrySightView`, which reports whether the window is in sight.
+private struct AutoRetryWindowSight: NSViewRepresentable {
+    let changed: @MainActor (Bool) -> Void
+
+    func makeNSView(context: Context) -> AutoRetrySightView { AutoRetrySightView(changed: changed) }
+    func updateNSView(_ view: AutoRetrySightView, context: Context) { view.changed = changed }
 }

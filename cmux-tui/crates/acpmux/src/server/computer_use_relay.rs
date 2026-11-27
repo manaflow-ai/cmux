@@ -1,0 +1,427 @@
+//! Computer Use on the person's other machines, over the acpmux peer link
+//! they already set up (`acpmux peer add`, or a pairing ticket): no new
+//! listener, no new credential.
+//!
+//! ```text
+//! agent -> acpmux computer-use-mcp (machine B)       this machine, A
+//!       -> _acpmux/computer_use_call on A's unix socket
+//!       -> the peer link to B (its peer token or A's device credential)
+//!       -> _acpmux/computer_use_call on B, served as Origin::Peer
+//!       -> B's cmux-tui daemon (computer-use-endpoint) -> B's worker
+//! ```
+//!
+//! Policy (default deny; the "Remote CLI relay" rule in the root CLAUDE.md):
+//!
+//! - Two methods only: [`method::MUX_COMPUTER_USE_CALL`] and
+//!   [`method::MUX_COMPUTER_USE_MACHINES`] (plus the peer-only state read,
+//!   [`method::MUX_COMPUTER_USE_STATE`]). Nothing here spawns a process,
+//!   reads or writes a path, or takes a command-bearing param: a call names
+//!   one catalog tool (`cmux_computer_use::tools::find`) and its arguments,
+//!   which B's worker validates and runs under B's own Computer Use policy.
+//! - The local unix socket may send a call on to a named, configured peer;
+//!   it never runs one here (the bridge reaches this machine's worker itself).
+//! - A peer connection may run a call here only when it proved B's peer
+//!   token or a `client` device credential the person issued on B: both mean
+//!   the person let that machine drive this daemon. The Web listener, the
+//!   app pane, a phone and a read-only machine are refused, whatever they send.
+//! - The origin the worker sees comes from that proof, never from the
+//!   request: `{"kind":"remote","machine":<the device's name, or "peer">,
+//!   "same_account":true}`. Any `origin` or `machine` in the params is
+//!   refused, so a call never hops on to a third machine. A remote origin
+//!   never gets more than a local one (`policy::decide`: remote adds
+//!   refusals only), and B's `computerUse.allowOwnMachines` can refuse it.
+//! - The call runs in a session of its own on B (`remote:<machine>:<key>`),
+//!   so it never shares a session grant with one of B's own agents.
+//! - Listing machines is local only: a remote caller never learns B's peers.
+
+use std::sync::Arc;
+
+use cmux_computer_use::tools;
+use serde_json::{Value, json};
+
+use super::conn_auth::ConnAuth;
+use super::{Conn, Origin};
+use crate::computer_use::client::{Caller, Outcome, SocketDaemon};
+use crate::hub::Hub;
+use crate::machine_record::Requester;
+use crate::rpc::{RpcError, method};
+
+/// How long `computer_use_machines` waits for each peer's state.
+const STATE_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// How long a call sent over the hub carrier waits for its answer: longer than the far machine's
+/// approval wait (300 s), so a person's late Allow still answers this call.
+#[cfg(feature = "hub-carrier")]
+const HUB_CALL_WAIT: std::time::Duration = std::time::Duration::from_secs(330);
+
+/// Who may run a call here, from the connection's proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Admission {
+    /// The local unix socket: may send a call on to a peer.
+    Forward,
+    /// A machine the person let drive this daemon, by the name we know it by.
+    Run {
+        machine: String,
+    },
+    Refused(&'static str),
+}
+
+/// The paired device behind a connection: its name and role, unless revoked.
+pub(super) struct DeviceRecord {
+    pub name: String,
+    pub role: String,
+}
+
+/// The admission rule, as a pure function of what the transport proved.
+pub(super) fn admit(origin: Origin, auth: ConnAuth, device: Option<&DeviceRecord>) -> Admission {
+    match (origin, auth) {
+        (Origin::Local, ConnAuth::LocalSocket) => Admission::Forward,
+        (Origin::Peer, ConnAuth::PeerToken) => Admission::Run { machine: "peer".into() },
+        (Origin::Peer, ConnAuth::Device) => match device {
+            Some(d) if d.role == "client" => Admission::Run { machine: machine_label(&d.name) },
+            Some(_) => {
+                Admission::Refused("only a machine paired as a client may use Computer Use here")
+            }
+            None => Admission::Refused("the paired machine is unknown or revoked"),
+        },
+        (Origin::Web | Origin::LocalApp, _) => {
+            Admission::Refused("Computer Use is not reachable from this connection")
+        }
+        _ => Admission::Refused("this connection proved no machine of the person's"),
+    }
+}
+
+/// Whose machine a call admitted to run here comes from, for the Control gate: the person's own
+/// acpmux daemon (its peer token, `ConnAuth::peer_daemon`) is their own machine; a paired
+/// client credential may be anyone the person gave it to, so it is not.
+pub(super) fn requester(auth: ConnAuth) -> Requester {
+    if auth.peer_daemon() { Requester::OwnMachine } else { Requester::Other }
+}
+
+/// A device name as the person sees it, without control characters.
+fn machine_label(name: &str) -> String {
+    let name: String = name.chars().filter(|c| !c.is_control()).take(64).collect();
+    if name.trim().is_empty() { "peer".into() } else { name }
+}
+
+fn refused(code: &str, message: impl Into<String>) -> RpcError {
+    RpcError::invalid_params(message).with_data(json!({"code": code}))
+}
+
+/// The checked parts of a call: one catalog tool, object arguments, no
+/// `machine` or `origin` for the runner.
+pub(super) struct CallParams {
+    pub machine: Option<String>,
+    pub name: String,
+    pub arguments: Value,
+    pub session: String,
+    pub label: String,
+    pub call_id: String,
+    /// The agent cursor's tag on the calling machine (`CallContext::tag`), empty for none.
+    pub tag: String,
+}
+
+pub(super) fn parse(params: &Value) -> Result<CallParams, RpcError> {
+    let text = |key: &str, max: usize| -> Result<String, RpcError> {
+        let value = params[key].as_str().unwrap_or_default().trim();
+        if value.len() > max || value.chars().any(char::is_control) {
+            return Err(refused("invalid_arguments", format!("{key} is not valid")));
+        }
+        Ok(value.to_owned())
+    };
+    if params.get("origin").is_some() {
+        return Err(refused("computer_use_remote_denied", "a call never names its own origin"));
+    }
+    let name = text("name", 64)?;
+    let tool = tools::find(&name)
+        .ok_or_else(|| refused("unknown_tool", format!("unknown Computer Use tool {name:?}")))?;
+    if tool.name == "list_machines" {
+        return Err(refused(
+            "computer_use_remote_denied",
+            "list_machines runs on the caller's machine",
+        ));
+    }
+    let arguments = match params.get("arguments") {
+        None | Some(Value::Null) => json!({}),
+        Some(Value::Object(map)) => {
+            if map.contains_key("machine") || map.contains_key("origin") {
+                return Err(refused(
+                    "computer_use_remote_denied",
+                    "a call runs on one machine only",
+                ));
+            }
+            Value::Object(map.clone())
+        }
+        Some(_) => return Err(refused("invalid_arguments", "arguments must be an object")),
+    };
+    let machine = Some(text("machine", 256)?).filter(|m| !m.is_empty());
+    let session = text("session", 256)?;
+    let call_id = text("call_id", 128)?;
+    if session.is_empty() || call_id.is_empty() {
+        return Err(refused("invalid_arguments", "session and call_id are required"));
+    }
+    Ok(CallParams {
+        machine,
+        name,
+        arguments,
+        session,
+        label: text("label", 120)?,
+        call_id,
+        tag: text("tag", 240)?,
+    })
+}
+
+pub(super) fn device_record(hub: &Hub, id: Option<&str>) -> Option<DeviceRecord> {
+    let id = id?;
+    let list = hub.pairing.list();
+    let device = list.get("devices").and_then(Value::as_array)?.iter().find(|d| d["id"] == id)?;
+    if !device["revoked_at"].is_null() {
+        return None;
+    }
+    Some(DeviceRecord {
+        name: device["name"].as_str().unwrap_or_default().to_owned(),
+        role: device["role"].as_str().unwrap_or_default().to_owned(),
+    })
+}
+
+/// An RpcError from the peer link, with `code: unreachable` when the call
+/// should be retried (the link is down or the answer did not come).
+fn link_error(e: RpcError) -> RpcError {
+    if e.data.as_ref().and_then(|d| d.get("code")).is_some_and(Value::is_string) {
+        return e;
+    }
+    let message = e.message.clone();
+    let data = json!({"code": "unreachable", "link": e.data});
+    RpcError::new(e.code, message).with_data(data)
+}
+
+/// What the far machine's session key starts with: the caller's chat id alone is a key an older
+/// far daemon resolves as that chat, which it mirrors from this one, and forwards the call back
+/// here as the chat's request, with the tool `name` dropped (`peer_forward.rs`; the call failed
+/// as `unknown Computer Use tool ""`). No chat id or name starts with it, so no daemon reads it
+/// as one. The far machine keeps it inside its own `remote:<machine>:` session (`run_here`).
+pub(super) const ONWARD_SESSION_PREFIX: &str = "cu:";
+
+/// The call as sent on to the machine it names: no `machine`, and the session key under
+/// [`ONWARD_SESSION_PREFIX`].
+pub(super) fn onward(call: &CallParams) -> Value {
+    let session = if call.session.starts_with(ONWARD_SESSION_PREFIX) {
+        call.session.clone()
+    } else {
+        format!("{ONWARD_SESSION_PREFIX}{}", call.session)
+    };
+    json!({
+        "name": call.name,
+        "arguments": call.arguments,
+        "session": session,
+        "label": call.label,
+        "call_id": call.call_id,
+        "tag": call.tag,
+    })
+}
+
+/// `_acpmux/computer_use_call`.
+pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    let device = device_record(hub, conn.device.as_deref());
+    let call = parse(params)?;
+    match admit(conn.origin, conn.auth, device.as_ref()) {
+        Admission::Refused(why) => Err(refused("computer_use_remote_denied", why)),
+        Admission::Forward => {
+            let onward = onward(&call);
+            let Some(machine) = call.machine else {
+                return Err(refused(
+                    "invalid_arguments",
+                    "name a machine; this machine's own calls go to its worker directly",
+                ));
+            };
+            if let Some(peer) = hub.peer_by_name(&machine) {
+                return super::peer_targeted::request(&peer, method::MUX_COMPUTER_USE_CALL, onward)
+                    .await
+                    .map_err(link_error);
+            }
+            // No peer link by that name: one of the person's signed-in machines, over the hub
+            // carrier (`machine_call_service.rs`).
+            #[cfg(feature = "hub-carrier")]
+            if let Some(key) =
+                crate::machine_call_service::machine_key(&hub.mesh_book_machines(), &machine)
+            {
+                return crate::machine_call_service::request(
+                    hub,
+                    &key,
+                    crate::machine_call_service::COMPUTER_USE_CALL,
+                    onward,
+                    HUB_CALL_WAIT,
+                )
+                .await;
+            }
+            Err(refused(
+                "unknown_machine",
+                format!("no machine named {machine:?}; see list_machines"),
+            ))
+        }
+        Admission::Run { machine } => {
+            if call.machine.is_some() {
+                return Err(refused(
+                    "computer_use_remote_denied",
+                    "a call runs on one machine only",
+                ));
+            }
+            run_here(call, machine, requester(conn.auth)).await
+        }
+    }
+}
+
+/// A call from another of the person's machines, by the name this machine knows it by, as the
+/// hub carrier's machine-call service proved it (`machine_call_service.rs`): the same checks and
+/// the same run as a paired machine's.
+#[cfg(feature = "hub-carrier")]
+pub(crate) async fn run_from(machine: &str, params: &Value) -> Result<Value, RpcError> {
+    let call = parse(params)?;
+    if call.machine.is_some() {
+        return Err(refused("computer_use_remote_denied", "a call runs on one machine only"));
+    }
+    // The hub carrier proved a machine of the person's own account.
+    run_here(call, machine_label(machine), Requester::OwnMachine).await
+}
+
+/// Run `call` here for `machine`, which the transport proved is one the person let drive this
+/// daemon. The origin the worker sees is built here, never taken from the request.
+async fn run_here(
+    call: CallParams,
+    machine: String,
+    requester: Requester,
+) -> Result<Value, RpcError> {
+    // A joined machine runs the person's own machine's call unless its person turned Control
+    // off here (joining is the consent); anyone else's needs Control granted.
+    if crate::machine_record::require_joined_consent_from("control", requester).is_err() {
+        return Err(refused(
+            "computer_use_consent_required",
+            match requester {
+                Requester::OwnMachine => {
+                    "Control is turned off on this machine; its person turns it on in Settings > Devices or with `acpmux host consent grant --control`"
+                }
+                Requester::Other => {
+                    "this machine needs its person's control consent before another machine may use it"
+                }
+            },
+        ));
+    }
+    let origin = json!({"kind": "remote", "machine": machine, "same_account": true});
+    let session = format!("remote:{machine}:{}", call.session);
+    let label = if call.label.is_empty() {
+        format!("An agent on {machine}")
+    } else {
+        format!("{} on {machine}", call.label)
+    };
+    let outcome = tokio::task::spawn_blocking(move || {
+        let caller = Caller::new(SocketDaemon::from_env(), session, label).with_origin(origin);
+        caller.set_cursor_tag(&call.tag);
+        caller.call(&call.name, &call.arguments, &call.call_id)
+    })
+    .await
+    .map_err(|e| RpcError::internal(format!("the call stopped: {e}")))?;
+    Ok(match outcome {
+        Outcome::Output(out) => json!({"result": out.to_json()}),
+        Outcome::Off(reason) => json!({"state": "off", "reason": reason}),
+        Outcome::Failed { code, message } => {
+            let retry = code == "computer_use_unavailable";
+            return Err(refused(if retry { "unreachable" } else { &code }, message));
+        }
+    })
+}
+
+/// `_acpmux/computer_use_state` (peer only): whether Computer Use is on here.
+pub(super) async fn state(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcError> {
+    let device = device_record(hub, conn.device.as_deref());
+    match admit(conn.origin, conn.auth, device.as_ref()) {
+        Admission::Run { .. } => {}
+        Admission::Forward => {
+            return Err(refused("invalid_arguments", "ask a peer, not this machine"));
+        }
+        Admission::Refused(why) => return Err(refused("computer_use_remote_denied", why)),
+    }
+    Ok(state_here().await)
+}
+
+/// Whether Computer Use is on here, for a caller already admitted.
+pub(crate) async fn state_here() -> Value {
+    let data = tokio::task::spawn_blocking(|| {
+        SocketDaemon::from_env().request(crate::computer_use::client::ENDPOINT_CMD, json!({}))
+    })
+    .await;
+    match data {
+        Ok(Ok(data)) => {
+            json!({"state": data.get("state").and_then(Value::as_str).unwrap_or("unavailable")})
+        }
+        _ => json!({"state": "unavailable"}),
+    }
+}
+
+/// `_acpmux/computer_use_machines` (local only): the configured peers, with
+/// whether Computer Use is on there.
+pub(super) async fn machines(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcError> {
+    if !matches!(admit(conn.origin, conn.auth, None), Admission::Forward) {
+        return Err(refused("computer_use_remote_denied", "only this machine lists its machines"));
+    }
+    let mut rows = Vec::new();
+    let mut asks = tokio::task::JoinSet::new();
+    for summary in hub.peers() {
+        let Some(name) = summary.get("name").and_then(Value::as_str).map(str::to_owned) else {
+            continue;
+        };
+        let connected = summary.get("connected").and_then(Value::as_bool).unwrap_or(false);
+        match (connected, hub.peer_by_name(&name)) {
+            (true, Some(peer)) => {
+                asks.spawn(async move {
+                    let state = tokio::time::timeout(
+                        STATE_WAIT,
+                        peer.request(method::MUX_COMPUTER_USE_STATE, json!({})),
+                    )
+                    .await;
+                    let computer_use = match state {
+                        Ok(Ok(v)) => {
+                            v.get("state").and_then(Value::as_str).unwrap_or("unknown").to_owned()
+                        }
+                        Ok(Err(e)) if e.message.contains("not found") => "unsupported".to_owned(),
+                        Ok(Err(_)) => "refused".to_owned(),
+                        Err(_) => "unknown".to_owned(),
+                    };
+                    json!({"name": name, "reachable": true, "computer_use": computer_use})
+                });
+            }
+            _ => rows.push(json!({"name": name, "reachable": false, "computer_use": "unknown"})),
+        }
+    }
+    while let Some(row) = asks.join_next().await {
+        if let Ok(row) = row {
+            rows.push(row);
+        }
+    }
+    // The person's signed-in machines no peer link names: reached over the hub carrier. Their
+    // state is not asked here (a list costs no circuit per machine); a call answers with it.
+    #[cfg(feature = "hub-carrier")]
+    {
+        let listed = hub.mesh_book_route_machines();
+        let reachable = hub.hub_carrier.get().is_some();
+        for (key, host) in &listed {
+            // A host name two machines share names neither in a call: each goes by its id.
+            let shared = listed.iter().filter(|(_, other)| other == host).count() > 1;
+            let name = if shared { key } else { host };
+            if !rows.iter().any(|r| r["name"] == name.as_str()) {
+                rows.push(json!({
+                    "name": name,
+                    "host": host,
+                    "reachable": reachable,
+                    "via": "hub",
+                    "computer_use": "unknown",
+                }));
+            }
+        }
+    }
+    rows.sort_by_key(|r| r["name"].as_str().unwrap_or_default().to_owned());
+    Ok(json!({"machines": rows}))
+}
+
+#[cfg(test)]
+#[path = "computer_use_relay_tests.rs"]
+mod tests;

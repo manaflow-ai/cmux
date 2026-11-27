@@ -36,6 +36,8 @@ public final class WorkspaceSpareSlot<Content: AnyObject> {
     private var built: Content?
     /// The fill under way (``drop()`` moves past it, so its later steps do nothing).
     private var making: UInt64?
+    /// Whether a fill is under way (a step of it still to run): false once the slot settled.
+    var isFilling: Bool { making != nil }
     private var generation: UInt64 = 0
 
     /// - Parameters:

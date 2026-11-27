@@ -54,6 +54,12 @@ pub enum Author {
     Agent {
         #[serde(rename = "sessionId")]
         session_id: String,
+        /// A user-facing spoken handle, when the session owner assigned one.
+        ///
+        /// This is display metadata only. `session_id` remains the exact
+        /// authenticated identity used for delivery, ack and authorization.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        handle: Option<String>,
         name: String,
     },
 }
@@ -74,8 +80,15 @@ impl Author {
     pub fn label(&self) -> &str {
         match self {
             Author::Person { account } => account,
+            Author::Agent { handle: Some(handle), .. } if !handle.is_empty() => handle,
             Author::Agent { name, .. } => name,
         }
+    }
+
+    /// The stable identity to use when a view needs to offer a link or lookup.
+    /// Handles are intentionally excluded because they can be renamed.
+    pub fn identity(&self) -> Option<&str> {
+        self.session_id()
     }
 }
 
@@ -395,10 +408,11 @@ impl Forum {
 
 #[cfg(unix)]
 fn append_private(path: &Path) -> std::io::Result<std::fs::File> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    // Never into a lost home (`config::mark_home_lost`).
+    use std::os::unix::fs::PermissionsExt;
+    // Never into a lost home (`config::mark_home_lost`), and through the folder this daemon holds
+    // (`home_fs`), so a home replaced after the check never gets the line.
     crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .append(true)
         .create(true)
         .mode(0o600)
@@ -412,79 +426,10 @@ fn append_private(path: &Path) -> std::io::Result<std::fs::File> {
 
 #[cfg(windows)]
 fn append_private(path: &Path) -> std::io::Result<std::fs::File> {
-    std::fs::OpenOptions::new().append(true).create(true).open(path)
+    // The home checked again right before the open (`home_fs`).
+    crate::home_fs::OpenOptions::new().append(true).create(true).open(path)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn post(id: &str, key: &str, body: &str, author: Author) -> Post {
-        Post {
-            id: id.into(),
-            topic: RULES_TOPIC.into(),
-            author,
-            kind: Kind::Announce,
-            key: Some(key.into()),
-            body: body.into(),
-            supersedes: None,
-            proposes: None,
-            urgent: false,
-            retired: false,
-            created: 1,
-        }
-    }
-
-    fn leo() -> Author {
-        Author::Person { account: "leo".into() }
-    }
-
-    #[test]
-    fn the_log_replays_rules_deliveries_and_acks() {
-        let root = std::env::temp_dir().join(format!("acpmux-forum-{}", uuid::Uuid::now_v7()));
-        let forum = Forum::open(&root).unwrap();
-        let keep = |cur: Option<&Post>, mut p: Post| {
-            p.supersedes = cur.map(|c| c.id.clone());
-            p
-        };
-        forum.post_with(post("a", "builds", "one", leo()), keep).unwrap();
-        let b = forum.post_with(post("b", "builds", "two", leo()), keep).unwrap();
-        assert_eq!(b.supersedes.as_deref(), Some("a"));
-        forum.mark_delivered(&["b".into()], "s1", 2).unwrap();
-        forum.mark_delivered(&["b".into()], "s1", 3).unwrap();
-        assert_eq!(forum.get("b").unwrap().delivered.len(), 1);
-        assert!(forum.ack("b", "s1", 4).unwrap().unwrap());
-        assert!(forum.ack("zz", "s1", 4).is_none());
-        // A torn last line is skipped.
-        let path = root.join("posts.jsonl");
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
-        f.write_all(b"{\"type\":\"post\",\"body\":\"\xc3").unwrap();
-
-        let again = Forum::open(&root).unwrap();
-        let rules = again.rules();
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].post.id, "b");
-        assert_eq!(rules[0].acks[0].session_id, "s1");
-        assert!(!again.is_current("a"));
-        assert!(again.undelivered("s1", false).is_empty());
-        assert_eq!(again.undelivered("s1", true).len(), 1);
-        assert_eq!(again.undelivered("s2", false).len(), 1);
-        // A retired key is told only to the sessions that had one of its rules.
-        let mut r = post("c", "builds", "", leo());
-        r.retired = true;
-        again.post_with(r, keep).unwrap();
-        assert!(again.rules().is_empty());
-        assert_eq!(again.undelivered("s1", false).len(), 1);
-        assert!(again.undelivered("s2", false).is_empty());
-        // The log stays writable after the torn line.
-        let reopened = Forum::open(&root).unwrap();
-        assert!(reopened.get("c").unwrap().post.retired);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-            assert_eq!(mode & 0o077, 0);
-        }
-        let _ = std::fs::remove_dir_all(root);
-    }
-}
+#[path = "forum_tests.rs"]
+mod tests;

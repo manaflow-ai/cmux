@@ -38,9 +38,11 @@ export default componentEntry<ComponentProps<typeof NewTabScreen>>({
       note: "The default minimal layout keeps its existing folder control beside the composer.",
       props: { ...props, template: "minimal" },
     },
-    "minimal-projects": {
-      note: "The same empty project card when the user enables the Projects widget in Minimal.",
-      props: { ...props, template: "minimal", pageWidgets: new Set(["projects"]) },
+    // An agent is installed and signed in and the Mac has no chats yet: the composer alone (the
+    // "Try one" starters were cut on 2026-11-21, first-run cuts).
+    "first-run": {
+      note: "Shipped: a Mac with an agent and no chats yet sees only the composer and its chips.",
+      props: { ...props, snapshot: noChat([]), template: "minimal" },
     },
   },
 });

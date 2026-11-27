@@ -52,11 +52,20 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
   const CONTROLS = ".cv-received__hover, .cv-rotor, .cv-tool__chevron, .cv-card-copy";
   /** What the pointer visits: each line, each opened card, each sender chip, each row head. */
   const TARGETS = [
-    ".cv-received > .cv-disclosure__line",
-    ".cv-received .cv-disclosure__panel",
+    ".cv-received > .cv-agentmsg__line",
+    ".cv-received .cv-agentmsg__card",
     ".cv-received .cv-agent-tag",
     ".cv-lane-batch__toggle",
   ];
+
+  /** Another agent's message in a finished turn folds into its "Worked for" like work (turns.ts
+   * `isOwnSteer`, #37710/#41597), so the "Received N messages" row draws once that is open. The
+   * level-1 and level-2 plays open it themselves; the collapsed variant leaves it closed. */
+  const openWorked = async (page: Page) => {
+    const closed = page.locator(".cv-worked[aria-expanded='false']");
+    if (await closed.count()) await closed.first().click();
+    await page.locator(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle").first().waitFor();
+  };
 
   const open = async (entry: string, variant: string) => {
     const page = await browser.newPage({ viewport: { width: 760, height: 1400 } });
@@ -69,6 +78,7 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
     await page.evaluate(() => document.fonts.ready);
     // Each state is read as it settles: no transition is mid-way when it is read.
     await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
+    if (entry === "agent-pane.received-messages") await openWorked(page);
     return page;
   };
 
@@ -87,9 +97,9 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
       return [probe("--cv-activity-text"), probe("--cv-text")] as const;
     });
   /** The lines and row heads that rest dim and light under the pointer. */
-  const LINES = ".acpmux-row .cv-received > .cv-disclosure__line, .acpmux-row .cv-lane-batch__toggle";
+  const LINES = ".acpmux-row .cv-received > .cv-agentmsg__line, .acpmux-row .cv-lane-batch__toggle";
   /** At rest: a closed row head (an open one stays lit, MessageGroupHead.css) and every line. */
-  const RESTING = `.acpmux-row .cv-received > .cv-disclosure__line, .acpmux-row .cv-lane-batch__toggle:not([aria-expanded="true"])`;
+  const RESTING = `.acpmux-row .cv-received > .cv-agentmsg__line, .acpmux-row .cv-lane-batch__toggle:not([aria-expanded="true"])`;
 
   /** Every measured element's colour, opacity and filter, by its place in the page. */
   const tones = (page: Page) =>
@@ -128,8 +138,7 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
   const differences = (before: Record<string, string>, after: Record<string, string>, what: string) =>
     Object.keys(before)
       .filter(
-        (key) =>
-          after[key] !== before[key] && !(!key.includes("cv-disclosure__panel") && lifted(before[key], after[key])),
+        (key) => after[key] !== before[key] && !(!key.includes("cv-agentmsg__card") && lifted(before[key], after[key])),
       )
       .map((key) => `${what}: ${key}\n    rest  ${before[key]}\n    now   ${after[key]}`);
 
@@ -176,7 +185,7 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
           }
         }
         // Focus: the line's own toggle, as Tab or a click leaves it.
-        const toggles = page.locator(".cv-received > .cv-disclosure__line .cv-disclosure__toggle");
+        const toggles = page.locator(".cv-received > .cv-agentmsg__line .cv-agentmsg__toggle");
         for (let index = 0; index < (await toggles.count()); index += 1) {
           if (!(await toggles.nth(index).isVisible())) continue;
           await rest(page);

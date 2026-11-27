@@ -99,6 +99,20 @@ impl Env {
         Some(format!("light:{},dark:{}", light.to_string_lossy(), dark.to_string_lossy()))
     }
 
+    /// The user's own themes folder, `<config home>/ghostty/themes` (the
+    /// first of [`Env::theme_dirs`]), where imported themes are written.
+    pub fn user_theme_dir(&self) -> Option<PathBuf> {
+        self.config_home().map(|home| home.join("ghostty/themes"))
+    }
+
+    /// Whether `dir` is one of the user's own theme folders (the config
+    /// home's, or on macOS Ghostty's Application Support folder), not a
+    /// folder of shipped themes.
+    pub fn is_user_theme_dir(&self, dir: &Path) -> bool {
+        self.user_theme_dir().as_deref() == Some(dir)
+            || self.mac_app_support().map(|d| d.join("themes")).as_deref() == Some(dir)
+    }
+
     /// Ghostty's config home: `$XDG_CONFIG_HOME`, else `%LOCALAPPDATA%` on
     /// Windows, else `~/.config`.
     fn config_home(&self) -> Option<PathBuf> {

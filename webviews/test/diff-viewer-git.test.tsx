@@ -7,6 +7,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { currentLanguage, setPaneLanguage } from "../src/agent-session/acpmux/i18n";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -66,13 +67,9 @@ const { createDiffViewerLabelResolver } = await import("../src/labels");
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
   globalThis.__cmuxPaneStrings = paneStringsBefore;
   setPaneLanguage(paneLanguageBefore);
 });
@@ -194,4 +191,167 @@ test("in Branch, as the chat's ± opens it, a file with work-tree changes gets S
   calls.length = 0;
   await act(async () => stages[0]!.click());
   expect(calls).toContainEqual(["cmux.diff.git.stage", { paths: ["src/upload.ts"] }]);
+});
+
+const { PullRequestActionButton, PullRequestActionStatus, usePullRequestAction } =
+  await import("../src/diff-viewer/PullRequestAction");
+type Source = NonNullable<ReturnType<typeof diffGitSource>>;
+function PullRequestViewer({ source, disabled = false }: { source: Source; disabled?: boolean }) {
+  const action = usePullRequestAction(source);
+  return (
+    <>
+      <PullRequestActionButton action={action} disabled={disabled} />
+      <PullRequestActionStatus action={action} />
+    </>
+  );
+}
+const prButton = () => host.querySelector<HTMLButtonElement>('[data-tool="pull-request"]')!;
+
+test("Create PR is optional and invokes one host operation for a fresh clean branch, showing remote errors", async () => {
+  expect(diffGitSource(page as never, OPS)?.pullRequest).toBeUndefined();
+  Object.defineProperty(dom.window.navigator, "languages", { configurable: true, get: () => ["en"] });
+  let finish!: (value: unknown) => void;
+  let fail!: (error: Error) => void;
+  const requests: [string, unknown][] = [];
+  const source = diffGitSource(
+    {
+      ...page,
+      call: (op: string, params: unknown) => {
+        requests.push([op, params]);
+        return new Promise((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        });
+      },
+    } as never,
+    [...OPS, "cmux.diff.git.pullRequest"],
+  )!;
+  await act(async () => root.render(<PullRequestViewer source={source} />));
+  expect(prButton().disabled).toBe(false);
+  expect(prButton().textContent).toBe("Create PR");
+  await act(async () => {
+    prButton().click();
+    prButton().click();
+  });
+  expect(requests).toEqual([["cmux.diff.git.pullRequest", {}]]);
+  expect(prButton().disabled).toBe(true);
+  expect(host.querySelector("output")?.textContent).toBe("Pushing…");
+  await act(async () => finish({ url: "https://github.com/o/r/pull/7", number: 7 }));
+  expect(prButton().disabled).toBe(false);
+  expect(host.querySelector("output")).toBeNull();
+  await act(async () => prButton().click());
+  await act(async () => fail(new Error("The remote branch is protected; push a feature branch.")));
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+    "The remote branch is protected; push a feature branch.",
+  );
+  expect(prButton().textContent).toBe("Create PR");
+  expect(prButton().disabled).toBe(false);
+  await act(async () => root.render(<PullRequestViewer source={source} disabled />));
+  expect(prButton().disabled).toBe(true);
+});
+
+test("Create PR discards completion from an old repository and from an unmounted page", async () => {
+  let fail!: (error: Error) => void;
+  const source = {
+    ...diffGitSource(page as never, OPS)!,
+    pullRequest: () =>
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+  };
+  const next = { ...source, pullRequest: async () => ({ url: "https://github.com/o/next/pull/9" }) };
+  await act(async () => root.render(<PullRequestViewer source={source} />));
+  await act(async () => prButton().click());
+  await act(async () => root.render(<PullRequestViewer source={next} />));
+  await act(async () => fail(new Error("Old repository rejection")));
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(prButton().disabled).toBe(false);
+  await act(async () => root.render(<PullRequestViewer source={source} />));
+  await act(async () => prButton().click());
+  await act(async () => root.render(null));
+  await act(async () => fail(new Error("Closed page rejection")));
+  expect(host.textContent).toBe("");
+});
+
+// Commit and Push show only where they work (ceremony audit, Leo 2026-11-17): a chat whose folder is
+// not on this Mac lists only the read ops, so the viewer has no Commit or Push to refuse with "this
+// chat's folder isn't on this Mac"; a merge or rebase that stopped partway turns Commit off instead
+// of answering "finish it in a terminal first".
+test("a remote chat's viewer, whose host lists only the reads, gets no Commit or Push", () => {
+  const reads = ["cmux.diff.git.status", "cmux.diff.git.diff", "cmux.diff.git.fingerprint"];
+  expect(diffGitSource(page as never, reads)).toBeUndefined();
+});
+
+test("Commit is off while a merge or rebase is in progress, and on again once it ends", async () => {
+  let inProgress: string | undefined = "rebase";
+  const committed: unknown[] = [];
+  const source = {
+    ...diffGitSource(page as never, OPS)!,
+    status: async () => ({
+      head: HEAD,
+      branch: "main",
+      upstream: "origin/main",
+      detached: false,
+      ahead: 1,
+      ...(inProgress ? { in_progress: inProgress } : {}),
+    }),
+    commit: async (params: unknown) => {
+      committed.push(params);
+      return { value: { commit: HEAD, summary: "s" } };
+    },
+  };
+  let refresh!: () => void;
+  function Viewer() {
+    const git = useGitWrite(source, () => {});
+    refresh = git.refresh;
+    return <GitToolbarButtons git={git} formOpen={false} onToggleForm={() => {}} />;
+  }
+  await act(async () => root.render(<Viewer />));
+  await act(async () => {});
+  const tool = (name: string) => host.querySelector<HTMLButtonElement>(`[data-tool="${name}"]`)!;
+  expect(tool("commit").disabled).toBe(true);
+  // Push is not about the merge: the branch is still ahead.
+  expect(tool("push").disabled).toBe(false);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+
+  inProgress = undefined;
+  await act(async () => refresh());
+  await act(async () => {});
+  expect(tool("commit").disabled).toBe(false);
+  expect(committed).toEqual([]);
+  await act(async () => root.render(null));
+});
+
+test("a merge_in_progress refusal from a stale status reads the status again, so Commit turns off", async () => {
+  let statusReads = 0;
+  const source = {
+    ...diffGitSource(page as never, OPS)!,
+    status: async () => {
+      statusReads += 1;
+      return {
+        head: HEAD,
+        branch: "main",
+        detached: false,
+        ahead: 0,
+        ...(statusReads > 1 ? { in_progress: "merge" } : {}),
+      };
+    },
+    commit: async () => {
+      throw { code: "operation.failed", details: { reason: "merge_in_progress" } };
+    },
+  };
+  let write!: ReturnType<typeof useGitWrite>;
+  function Viewer() {
+    write = useGitWrite(source, () => {});
+    return <GitToolbarButtons git={write} formOpen={false} onToggleForm={() => {}} />;
+  }
+  await act(async () => root.render(<Viewer />));
+  await act(async () => {});
+  const commit = () => host.querySelector<HTMLButtonElement>('[data-tool="commit"]')!;
+  expect(commit().disabled).toBe(false);
+  await act(async () => void (await write.commit("m", "staged", false)));
+  await act(async () => {});
+  expect(statusReads).toBe(2);
+  expect(commit().disabled).toBe(true);
+  await act(async () => root.render(null));
 });

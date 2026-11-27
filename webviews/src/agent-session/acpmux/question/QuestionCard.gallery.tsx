@@ -13,9 +13,12 @@ import pendingMulti from "../../../../../Packages/Shared/CmuxAgentQuestion/Sourc
 import pendingOther from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-other-typing.json";
 import pendingSingle from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-single.json";
 import pendingPreview from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-with-preview.json";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
+import type { ChatUiFont } from "../chatUiFont";
+import type { AcpmuxPermission } from "../model";
+import { CardFontCaption, fontMeasured, PAIRED_UI_FONTS, useCardFont } from "../permissions/cardFontGallery";
 import type { AgentQuestion, QuestionReply } from "./model";
 import { questionPreviewLayout } from "./previewLayout.experiment";
 import { QuestionCard } from "./QuestionCard";
@@ -24,21 +27,27 @@ type Props = {
   question: AgentQuestion;
   onReply(reply: QuestionReply): void | Promise<unknown>;
   otherText?: string;
-  look?: "compact" | "inset" | "quiet";
+  look?: "compact" | "inset" | "quiet" | "capsule" | "outline" | "bare";
   /// The answered card's look (QuestionCard.gallery.css): `stacked` ships.
   answeredLook?: AnsweredLook;
+  /// The chat's Interface Font, with the row estimator's first height under the card (cardFontGallery.tsx).
+  uiFont?: ChatUiFont;
 };
 type AnsweredLook = "stacked" | "inline" | "check";
 
 /// The card sits where the agent pane puts it: inside .acpmux-shell (which defines the card tokens,
 /// the amber input color among them) and the bottom ask stack.
-function QuestionCardInPane({ otherText, look, answeredLook, ...props }: Props) {
+function QuestionCardInPane({ otherText, look, answeredLook, uiFont, ...props }: Props) {
   const pane = useRef<HTMLDivElement>(null);
+  const stack = useRef<HTMLDivElement>(null);
+  const asked = useMemo(() => ({ question: props.question }) as unknown as AcpmuxPermission, [props.question]);
+  const font = useCardFont(uiFont, asked, stack);
   // A variant with `otherText` picks Other on the first question and types it, as a person does.
   useEffect(() => {
     const root = pane.current;
     if (!otherText || !root) return;
     // After the mount's effects, so the card's own update runs as it does for a click.
+    // gallery-capture: the `otherText` arms' play `typed` waits for the typed answer.
     const timer = setTimeout(() => {
       root.querySelector<HTMLElement>(".acpmux-question-other-choice")?.click();
       const field = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(
@@ -57,20 +66,34 @@ function QuestionCardInPane({ otherText, look, answeredLook, ...props }: Props) 
       className="acpmux-shell acpmux-question-visual-gallery"
       data-question-look={look}
       data-answered-look={answeredLook}
-      style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16 }}
+      style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16, ...font.style }}
     >
       <div className="acpmux-permission">
-        <div className="acpmux-asks-stack">
+        {/* As App.tsx's: its card's tooltips may leave it (ui/titleTooltips.ts). */}
+        <div className="acpmux-asks-stack" ref={stack} data-tooltip-escape="">
           <QuestionCard {...props} />
         </div>
       </div>
+      <CardFontCaption caption={font.caption} />
     </div>
   );
 }
 
+/// The capture moment of an `otherText` arm: its custom answer typed (the mount's timer above),
+/// not the frame before it.
+const typed =
+  (otherText: string): Play =>
+  ({ waitFor, document }) =>
+    waitFor(
+      () =>
+        document.querySelector<HTMLInputElement | HTMLTextAreaElement>(".acpmux-question-other :is(input, textarea)")
+          ?.value === otherText,
+    );
+
 const variant = (question: unknown, note: string, otherText?: string) => ({
   note,
   props: { question: question as AgentQuestion, onReply: () => undefined, otherText },
+  ...(otherText ? { play: typed(otherText) } : {}),
 });
 
 /// The preview fixture with each mockup wrapped in a Markdown fence, as agents often send it: the
@@ -86,6 +109,57 @@ const fenced = (question: AgentQuestion): AgentQuestion => ({
     ),
   })),
 });
+
+/// Three questions of very different lengths in one ask (cmux#56534): a long title with two short
+/// options, a one-line title with four options and their details, and a short one with no Other whose
+/// options carry previews. The
+/// card keeps one size, and its rows, last row and buttons one place, on every page.
+const pagingUneven: AgentQuestion = {
+  ...(pending4 as unknown as AgentQuestion),
+  id: "perm_toolu_paging",
+  items: [
+    {
+      id: "p0",
+      header: "Migration",
+      prompt:
+        "The settings migration rewrites every saved workspace layout on first launch, and a layout written by the new build cannot be read by the old one. Should the first launch keep a backup of the old file so a downgrade can restore it, even though that doubles the file on disk for a release?",
+      options: [
+        { id: "backup", label: "Keep a backup" },
+        { id: "none", label: "No backup" },
+      ],
+      multiSelect: false,
+      allowsOther: true,
+    },
+    {
+      id: "p1",
+      header: "Platforms",
+      prompt: "Which platforms first?",
+      options: [
+        { id: "macOS", label: "macOS", detail: "Native AppKit app, the one the team dogfoods every day." },
+        { id: "iOS", label: "iOS", detail: "iPhone and iPad, through the paired Mac." },
+        { id: "Linux", label: "Linux", detail: "Terminal client only, no GUI." },
+        { id: "Web", label: "Web", detail: "Read-only viewer in the browser." },
+      ],
+      multiSelect: true,
+      allowsOther: true,
+    },
+    {
+      id: "p2",
+      header: "Flag",
+      prompt: "Ship behind a flag?",
+      options: [
+        {
+          id: "yes",
+          label: "Yes",
+          preview: { format: "markdown", text: "Settings\n  Labs\n    [x] New layouts\n  Restart to apply" },
+        },
+        { id: "no", label: "No", preview: { format: "markdown", text: "Settings\n  (no Labs entry)" } },
+      ],
+      multiSelect: false,
+      allowsOther: false,
+    },
+  ],
+} as AgentQuestion;
 
 /// A Claude Code AskUserQuestion of a sub-session, answered by the session that started it
 /// (acpmux `subsession_answer.rs`): the record names that session, never a person.
@@ -198,16 +272,8 @@ const folderTrust: AgentQuestion = {
       header: "Folder trust",
       prompt: "split-importer wants to work in /Users/you/src/vendor-sdk. Do you trust this folder?",
       options: [
-        {
-          id: "trust",
-          label: "Trust folder",
-          detail: "cmux stops asking about this folder. Your permission rules still apply.",
-        },
-        {
-          id: "not_now",
-          label: "Not now",
-          detail: "The sub-session does not start, and the agent is told you declined.",
-        },
+        { id: "trust", label: "Trust folder" },
+        { id: "not_now", label: "Not now" },
       ],
       multiSelect: false,
       allowsOther: false,
@@ -271,6 +337,46 @@ export default componentEntry({
     ],
   },
   variants: {
+    // cmux#38886 review: the pending card's first estimate in each Interface Font of a shared stack.
+    ...Object.fromEntries(
+      PAIRED_UI_FONTS.map((font) => [
+        `font-${font}`,
+        {
+          ...variant(
+            pendingSingle,
+            `The pending card in the ${font} Interface Font, with the row estimator's first height beside the drawn one.`,
+          ),
+          props: { ...variant(pendingSingle, "").props, uiFont: font },
+          play: fontMeasured,
+        },
+      ]),
+    ),
+    // Leo 2026-11-05, of the Needs your input pill, the option rows and the custom answer: "kind of
+    // ugly". Three restyles on the card he showed (two options, a typed custom answer); capsule ships.
+    "restyle-capsule": {
+      ...variant(
+        pendingOther,
+        "Shipped: one small-radius rect (no capsule: agent-pane-no-capsules) tinted with the mark holding the Needs you dot (as the floating pill), regular-weight question and options, the typed custom answer in a quiet hairline field, Skip and Submit with outlined keycaps (esc, ⌘ ↩) as the permission card's.",
+        "do whatever's reasonable",
+      ),
+      props: { ...variant(pendingOther, "", "do whatever's reasonable").props, look: "capsule" },
+    },
+    "restyle-outline": {
+      ...variant(
+        pendingOther,
+        "Alternative: the pill ringed instead of tinted, full-width ruled rows, the custom answer underlined.",
+        "do whatever's reasonable",
+      ),
+      props: { ...variant(pendingOther, "", "do whatever's reasonable").props, look: "outline" },
+    },
+    "restyle-bare": {
+      ...variant(
+        pendingOther,
+        "Alternative: the dot and words with no capsule, the chosen radio filled with the accent, the custom answer a soft filled row.",
+        "do whatever's reasonable",
+      ),
+      props: { ...variant(pendingOther, "", "do whatever's reasonable").props, look: "bare" },
+    },
     "visual-compact": {
       ...variant(pendingSingle, "Compact rules: tighter rows and footer, with full-width hairlines."),
       props: { ...variant(pendingSingle, "").props, look: "compact" },
@@ -311,6 +417,10 @@ export default componentEntry({
       "Previews sent inside a Markdown fence: the box stands for the fence, so no backticks show.",
     ),
     "pending-4-questions": variant(pending4, "Four questions in one ask."),
+    "pending-paging-uneven": variant(
+      pagingUneven,
+      "Three questions of very different lengths: the card is as tall as the tallest on every page, and Next moves nothing.",
+    ),
     "codex-user-input": variant(
       codexUserInput,
       "A Codex user-input request: two questions, the second free text only (no options).",

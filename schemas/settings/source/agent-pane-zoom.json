@@ -1,0 +1,44 @@
+{
+  "$comment": "HAND-EDITED source of the General section's Agent Chat Zoom row (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "zoom",
+      "section": "general",
+      "group": {
+        "key": "settings.group.agentChat",
+        "text": "Agent Chat"
+      },
+      "rows": [
+        {
+          "key": "agentPane.zoom",
+          "note": "The agent chat's per-surface display zoom, separate from app.uiScale (which scales cmux chrome and first-party pages together).",
+          "title": {
+            "key": "settings.agentPane.zoom",
+            "text": "Agent Chat Zoom"
+          },
+          "help": {
+            "key": "settings.agentPane.zoom.help",
+            "text": "The display size for agent chat. Cmd-0 resets it."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.5,
+            "max": 2,
+            "step": 0.1,
+            "unit": "fraction",
+            "placeholder": 1
+          },
+          "default": 1,
+          "keywords": [
+            "agent",
+            "chat",
+            "zoom",
+            "display",
+            "size"
+          ],
+          "swift_owner": "AgentPaneZoomSetting"
+        }
+      ]
+    }
+  ]
+}

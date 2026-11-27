@@ -16,18 +16,30 @@
   flex-direction: column;
   gap: 0;
 }
+/* Holds the place of a LazyVStack's unmounted children (SceneRenderer.tsx LazySpacer). */
+.cmux-app-scene-lazy-spacer {
+  flex: none;
+}
 .cmux-app-scene-hstack {
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: var(--grid-base);
 }
+/* Each child centered in the stack, as the native ZStack lays them out; a child holding a Spacer
+   fills the stack's width there (it has no natural width), so it stretches here. */
 .cmux-app-scene-zstack {
   display: grid;
+  place-items: center;
 }
 .cmux-app-scene-zstack > * {
   grid-area: 1 / 1;
 }
+.cmux-app-scene-zstack > :has(.cmux-app-scene-spacer) {
+  justify-self: stretch;
+}
+/* No box of their own, so a LazyVStack measures these by their children (SceneRenderer.tsx CONTENTS_WRAPPER):
+ * keep the two lists the same. */
 .cmux-app-scene-group,
 .cmux-app-scene-foreach,
 .cmux-app-scene-context {
@@ -66,7 +78,7 @@
   white-space: nowrap;
 }
 .cmux-app-scene-row-title[data-unread] {
-  font-weight: 600;
+  font-weight: var(--weight-emphasis, 600);
 }
 .cmux-app-scene-row-subtitle {
   color: var(--agent-muted);
@@ -86,6 +98,8 @@
 }
 .cmux-app-scene-node[data-hover]:hover:not([data-disabled]) {
   background-color: var(--app-hover);
+  /* A gradient background is an inline image; the hover wash replaces it, as on AppKit. */
+  background-image: none !important;
 }
 .cmux-app-scene-node:is(button, [role="button"]):not([data-disabled]) {
   cursor: default;
@@ -94,12 +108,12 @@
   opacity: 0.5;
 }
 .cmux-app-scene-node:is(button, [role="button"]):focus-visible {
-  outline: 1.5px solid var(--agent-text);
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--agent-text);
   outline-offset: -1.5px;
 }
 .cmux-app-scene-button {
   padding: var(--grid-base) var(--grid-gap);
-  border-radius: var(--acpmux-session-info-row-radius);
+  border-radius: var(--ds-radius-control);
 }
 .cmux-app-scene-divider {
   width: 100%;
@@ -139,6 +153,11 @@
   background: color-mix(in srgb, currentColor 14%, transparent);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* A badge keeps its one line, as the native badge does: the row's text gives way first. */
+.cmux-app-scene-badge {
+  flex: none;
 }
 .cmux-app-scene-unread {
   flex: none;
@@ -201,4 +220,513 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+}
+
+/* Toggle: the label leading and the shared small switch (ui/Switch) trailing, as the native settings rows. */
+.cmux-app-scene-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--grid-gap);
+  min-width: 0;
+  min-height: var(--grid-row);
+}
+.cmux-app-scene-toggle-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Slider: the full row width, its track in the scope's primary ink (the native slider's trackFillColor). */
+.cmux-app-scene-slider {
+  display: flex;
+  align-items: center;
+  min-height: var(--grid-row);
+}
+.cmux-app-scene-slider-input {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--agent-text);
+}
+.cmux-app-scene-slider-input:disabled {
+  opacity: 0.5;
+}
+
+/* Panel: a group on the card surface, inset by the card's outer margin, with the card's padding and
+   radius and an optional caption title. `glass` (the default) is the sidebar cards' veil and rim;
+   `card` is the translucent hover fill with a separator hairline. */
+.cmux-app-scene-panel {
+  --cmux-app-scene-panel-spacing: calc(var(--grid-base) * 2);
+  display: flex;
+  flex-direction: column;
+  margin-inline: calc(var(--grid-base) * 3);
+  padding: calc(var(--grid-base) * 3);
+  border-radius: var(--surface-card-radius, 12px);
+}
+.cmux-app-scene-panel[data-style="glass"] {
+  background: var(--surface-card-veil, var(--agent-control-hover));
+  box-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--surface-card-rim-top, transparent),
+    inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--surface-card-rim-bottom, transparent);
+}
+.cmux-app-scene-panel[data-style="card"] {
+  background: var(--agent-control-hover);
+  box-shadow: inset 0 0 0 1px var(--agent-border);
+}
+.cmux-app-scene-panel-title {
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The quiet row a failed or disconnected mount draws in place of its scene (native AppFailureNSView). */
+.cmux-app-scene-failure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-base);
+  padding: calc(var(--grid-base) * 2) calc(var(--grid-base) * 4);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.cmux-app-scene-failure-title {
+  color: var(--agent-muted);
+  overflow-wrap: anywhere;
+}
+.cmux-app-scene-failure-location,
+.cmux-app-scene-failure-detail {
+  color: color-mix(in srgb, var(--agent-text) 38%, transparent);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.cmux-app-scene-failure-detail {
+  margin: 0;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+.cmux-app-scene-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--grid-base) * 3);
+}
+.cmux-app-scene-failure-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-accent, var(--cmux-accent, var(--agent-text)));
+  font: inherit;
+  cursor: default;
+}
+.cmux-app-scene-failure-action:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--agent-text);
+  outline-offset: 1px;
+}
+.cmux-app-scene-mount {
+  min-width: 0;
+}
+.cmux-app-scene-switch {
+  flex: none;
+}
+
+/* Motion (cmux-app-host js/ABI.md "Motion"). Loops are CSS animations on `transform` (or opacity),
+   which compose with the node's own `rotate`, `scale` and `translate`, so the compositor runs them
+   and no script ticks; `--scene-loop-period` is the app's period after ui.animationSpeed and
+   `--scene-loop-amount` scales the amplitude. Reduce Motion and the app's motion switch stop them. */
+.cmux-app-scene-node[data-loop] {
+  --scene-loop-ease: cubic-bezier(0.42, 0, 0.58, 1);
+  --scene-bounce-up: cubic-bezier(0.2, 0.6, 0.35, 1);
+  --scene-bounce-down: cubic-bezier(0.65, 0, 0.8, 0.4);
+}
+/* Each effect's whole animation in one shorthand, so the repeat stays on the loop's own rule (an
+   entering or leaving transition on the same node runs once). */
+.cmux-app-scene-node[data-loop="pulse"] {
+  animation: cmux-app-scene-pulse var(--scene-loop-period) var(--scene-loop-ease) infinite;
+}
+.cmux-app-scene-node[data-loop="breathe"] {
+  animation: cmux-app-scene-breathe var(--scene-loop-period) var(--scene-loop-ease) infinite;
+}
+.cmux-app-scene-node[data-loop="spin"] {
+  animation: cmux-app-scene-spin var(--scene-loop-period) linear infinite;
+}
+.cmux-app-scene-node[data-loop="float"] {
+  animation: cmux-app-scene-float var(--scene-loop-period) var(--scene-loop-ease) infinite;
+}
+.cmux-app-scene-node[data-loop="wiggle"] {
+  animation: cmux-app-scene-wiggle var(--scene-loop-period) var(--scene-loop-ease) infinite;
+}
+.cmux-app-scene-node[data-loop="bounce"] {
+  animation: cmux-app-scene-bounce var(--scene-loop-period) var(--scene-loop-ease) infinite;
+}
+.cmux-app-scene-node[data-loop="shimmer"] {
+  position: relative;
+  overflow: hidden;
+  animation: none;
+}
+.cmux-app-scene-node[data-loop="shimmer"]::after {
+  --scene-shimmer-band: color-mix(in srgb, var(--agent-text) 22%, transparent);
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 30%, var(--scene-shimmer-band) 50%, transparent 70%);
+  pointer-events: none;
+  animation: cmux-app-scene-shimmer var(--scene-loop-period) linear infinite;
+}
+@keyframes cmux-app-scene-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(calc(1 + 0.06 * var(--scene-loop-amount)));
+  }
+}
+@keyframes cmux-app-scene-breathe {
+  0%,
+  100% {
+    opacity: var(--scene-opacity, 1);
+  }
+  50% {
+    opacity: calc(var(--scene-opacity, 1) * (1 - 0.4 * var(--scene-loop-amount)));
+  }
+}
+@keyframes cmux-app-scene-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(var(--scene-loop-turn));
+  }
+}
+@keyframes cmux-app-scene-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(calc(-4px * var(--scene-loop-amount)));
+  }
+}
+@keyframes cmux-app-scene-wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(calc(6deg * var(--scene-loop-amount)));
+  }
+  75% {
+    transform: rotate(calc(-6deg * var(--scene-loop-amount)));
+  }
+}
+/* Up on an ease-out, down on an ease-in: a ball's hop. */
+@keyframes cmux-app-scene-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+    animation-timing-function: var(--scene-bounce-up);
+  }
+  50% {
+    transform: translateY(calc(-8px * var(--scene-loop-amount)));
+    animation-timing-function: var(--scene-bounce-down);
+  }
+}
+@keyframes cmux-app-scene-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmux-app-scene-node[data-loop] {
+    animation: none;
+  }
+  .cmux-app-scene-node[data-loop="shimmer"]::after {
+    content: none;
+  }
+}
+:root:is(
+    [data-cmux-motion="off"],
+    [data-cmux-motion="reduced"],
+    [data-agent-motion="off"],
+    [data-agent-motion="reduced"]
+  )
+  .cmux-app-scene-node[data-loop] {
+  animation: none;
+}
+:root:is(
+    [data-cmux-motion="off"],
+    [data-cmux-motion="reduced"],
+    [data-agent-motion="off"],
+    [data-agent-motion="reduced"]
+  )
+  .cmux-app-scene-node[data-loop="shimmer"]::after {
+  content: none;
+}
+
+/* A stroked shape with `trim`, or a gradient stroke: drawn as SVG over the node's box. */
+.cmux-app-scene-node:has(> .cmux-app-scene-shape-svg) {
+  position: relative;
+}
+.cmux-app-scene-shape-svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+/* `Particles`: one canvas filling the node's frame, behind its later ZStack siblings, no input. */
+.cmux-app-scene-particles {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  pointer-events: none;
+  align-self: stretch;
+  justify-self: stretch;
+}
+/* `Particles {choreography}`: a zero-size point at the frame's centre; each dot is a span on it that
+   only `transform` moves (choreographyGlyph.ts), so a frame never lays out. */
+.cmux-app-scene-choreography {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  color: var(--cv-accent, currentColor);
+}
+/* The dots themselves: choreographyGlyph.css, with the player every surface mounts. */
+.cmux-app-scene-particles-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* An animated ProgressView: the bar as a track and a fill the value scales, so a value change runs
+   on the node's `animation` like every other prop. */
+.cmux-app-scene-progress-track {
+  position: relative;
+  width: 100%;
+  height: var(--grid-base);
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--agent-control);
+}
+.cmux-app-scene-progress-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--agent-text);
+  transform-origin: left center;
+}
+
+/* Scene motion (sceneMotion.tsx): `transition` in and out, `contentTransition` on Text and
+   `animation` on a node's own prop changes. The motion gate (WebTheme `data-cmux-motion`,
+   `data-agent-motion`, Reduce Motion): off draws the end state; reduced crossfades instead of
+   moving. On the motion scale: entering standard, leaving quick (SCENE_LEAVE_MS). */
+.cmux-app-scene-root {
+  --cmux-app-scene-enter: var(--cmux-motion-standard);
+  --cmux-app-scene-leave: var(--cmux-motion-quick);
+  --cmux-app-scene-ease: var(--cmux-ease-out);
+}
+.cmux-app-scene-node[data-leaving] {
+  pointer-events: none;
+}
+.cmux-app-scene-digit {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+}
+@keyframes cmux-app-scene-fade-in {
+  from { opacity: 0; }
+}
+@keyframes cmux-app-scene-fade-out {
+  to { opacity: 0; }
+}
+@keyframes cmux-app-scene-slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+@keyframes cmux-app-scene-slide-out {
+  to { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes cmux-app-scene-scale-in {
+  from { opacity: 0; transform: scale(0.9); }
+}
+@keyframes cmux-app-scene-scale-out {
+  to { opacity: 0; transform: scale(0.9); }
+}
+@keyframes cmux-app-scene-move-in {
+  from { opacity: 0; transform: translateX(-12px); }
+}
+@keyframes cmux-app-scene-move-out {
+  to { opacity: 0; transform: translateX(12px); }
+}
+/* `pop`: in from 60 % past full size and back (a playful reveal), out shrinking. */
+@keyframes cmux-app-scene-pop-in {
+  from { opacity: 0; transform: scale(0.6); }
+  70% { opacity: 1; transform: scale(1.04); }
+}
+@keyframes cmux-app-scene-pop-out {
+  to { opacity: 0; transform: scale(0.6); }
+}
+@keyframes cmux-app-scene-roll-up {
+  from { opacity: 0; transform: translateY(0.45em); }
+}
+@keyframes cmux-app-scene-roll-down {
+  from { opacity: 0; transform: translateY(-0.45em); }
+}
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-entering][data-transition],
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-content[data-roll],
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-digit[data-roll] {
+  animation: cmux-app-scene-fade-in var(--cmux-app-scene-enter) var(--cmux-app-scene-ease) both;
+}
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-leaving][data-transition] {
+  animation: cmux-app-scene-fade-out var(--cmux-app-scene-leave) var(--cmux-app-scene-ease) both;
+}
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-animation="smooth"] {
+  transition:
+    opacity var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+    color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+    background-color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+    text-decoration-color var(--cmux-motion-standard) var(--cmux-app-scene-ease);
+}
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-animation="snappy"] {
+  transition:
+    opacity var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+    color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+    background-color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+    text-decoration-color var(--cmux-motion-micro) var(--cmux-app-scene-ease);
+}
+/* Full motion moves; reduced keeps the crossfades above. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-entering][data-transition="slide"] {
+    animation-name: cmux-app-scene-slide-in;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-leaving][data-transition="slide"] {
+    animation-name: cmux-app-scene-slide-out;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-entering][data-transition="scale"] {
+    animation-name: cmux-app-scene-scale-in;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-leaving][data-transition="scale"] {
+    animation-name: cmux-app-scene-scale-out;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-entering][data-transition="move"] {
+    animation-name: cmux-app-scene-move-in;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-leaving][data-transition="move"] {
+    animation-name: cmux-app-scene-move-out;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-entering][data-transition="pop"] {
+    animation-name: cmux-app-scene-pop-in;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-leaving][data-transition="pop"] {
+    animation-name: cmux-app-scene-pop-out;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-digit[data-roll="up"] {
+    animation-name: cmux-app-scene-roll-up;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-digit[data-roll="down"] {
+    animation-name: cmux-app-scene-roll-down;
+  }
+  /* A transform change moves only under full motion; reduced keeps the color and opacity fades. */
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-animation="smooth"] {
+    transition:
+      opacity var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      background-color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      transform var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      rotate var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      scale var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      translate var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      text-decoration-color var(--cmux-motion-standard) var(--cmux-app-scene-ease);
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-animation="snappy"] {
+    transition:
+      opacity var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      background-color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      transform var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      rotate var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      scale var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      translate var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      text-decoration-color var(--cmux-motion-micro) var(--cmux-app-scene-ease);
+  }
+}
+
+.cmux-app-scene-move-row {
+  position: relative;
+}
+.cmux-app-scene-move-row[data-drop-edge]::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: var(--cmux-hairline);
+  background: var(--cmux-accent, currentColor);
+  pointer-events: none;
+  content: "";
+}
+.cmux-app-scene-move-row[data-drop-edge="before"]::after { top: 0; }
+.cmux-app-scene-move-row[data-drop-edge="after"]::after { bottom: 0; }
+
+/* Text `fontDesign`: the system font's designs, at the type scale's sizes (sceneStyle.ts DESIGNS).
+   Heavy and rounded is the Lock Screen's time. */
+.cmux-app-scene-root {
+  --cmux-app-scene-font-rounded: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+  --cmux-app-scene-font-serif: ui-serif, "New York", Georgia, serif;
+  --cmux-app-scene-font-monospaced: ui-monospace, var(--font-mono), monospace;
+}
+/* A ticking Text (`date`, sceneDate.ts) keeps its width as its digits turn over. */
+.cmux-app-scene-text[data-date-style] {
+  font-variant-numeric: tabular-nums;
+}
+.cmux-app-scene-line {
+  flex: none;
+}
+
+/* SwiftUI's flexible frame. `frame({maxHeight: "infinity"})` fills the height its parent has: down a
+   vertical stack's main axis, across a row's or a ZStack's cross axis, and the tile's whole height at
+   the root (the widget host's card). `frame({maxWidth: "infinity"})` fills the width the same way:
+   along a row (it takes the free width, no Spacer needed), across a column, and in a ZStack. */
+.cmux-app-scene-root:has(> [data-fill-height]) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.cmux-app-scene-root > [data-fill-height],
+:is(.cmux-app-scene-vstack, .cmux-app-scene-lazyvstack, .cmux-app-scene-reorderable, .cmux-app-scene-panel) > [data-fill-height] {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+:is(.cmux-app-scene-hstack, .cmux-app-scene-zstack) > [data-fill-height] {
+  align-self: stretch;
+}
+.cmux-app-scene-hstack > [data-fill-width] {
+  flex: 1 1 0;
+  min-width: 0;
+}
+:is(.cmux-app-scene-vstack, .cmux-app-scene-lazyvstack, .cmux-app-scene-reorderable, .cmux-app-scene-panel, .cmux-app-scene-root) > [data-fill-width] {
+  align-self: stretch;
+}
+.cmux-app-scene-zstack > [data-fill-width] {
+  justify-self: stretch;
+}
+
+/* A ZStack child's `position`: its center at `--app-x`, `--app-y` (points or a fraction of the stack),
+   out of the stack's sizing, as the native ZStack lays it out (a calendar's events and now line on its hour grid). */
+.cmux-app-scene-zstack {
+  position: relative;
+}
+.cmux-app-scene-zstack > [data-positioned],
+.cmux-app-scene-zstack > :is(.cmux-app-scene-foreach, .cmux-app-scene-group) > [data-positioned] {
+  position: absolute;
+  left: var(--app-x);
+  top: var(--app-y);
+  translate: -50% -50%;
 }

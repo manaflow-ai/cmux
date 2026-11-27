@@ -37,7 +37,7 @@ const TEXT: Record<string, string> = {
 };
 
 /// An inbox notice as acpmux sends it (hub/inbox.rs `render`): one thread per sender.
-function notice(senders: Sender[], minutes: number) {
+function notice(senders: Sender[], minutes: number, continues = false) {
   const threads = senders.map((sender, index) => ({
     threadId: `from:${sender.name}`,
     label: "",
@@ -59,8 +59,8 @@ function notice(senders: Sender[], minutes: number) {
     _meta: { provenance: { kind: "inbox_notice", noticeId: `notice-received-${minutes}`, threads } },
   });
   return incoming?.kind === "inbox"
-    ? user(inboxText(incoming.notice), minutes, { incoming, untyped: true })
-    : user(text, minutes);
+    ? user(inboxText(incoming.notice), minutes, { incoming, untyped: true, continues })
+    : user(text, minutes, { continues });
 }
 
 /// Another agent's message that came in while the turn ran (a steer into it).
@@ -89,7 +89,9 @@ function snapshot() {
       notice(SENDERS.slice(0, 3), 6),
       received(SENDERS[3]!, 5.5),
       received(SENDERS[4]!, 5),
-      notice(SENDERS.slice(5), 4),
+      // Came in while the same turn ran, as in Leo's screenshot: a notice opening a turn of its own
+      // ends the turn before on its row (#49465), and then reads as a second row.
+      notice(SENDERS.slice(5), 4, true),
       assistant("The nightly is back on 6d9ae71 and base is green; #2210 and #2214 are next.", 3.5),
       summary(3.4, { status: "completed", durationMs: 30_000, toolCount: 0 }),
     ],
@@ -106,11 +108,20 @@ function snapshot() {
 }
 
 const HEAD = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
-const LINE = ".cv-lane-batch__body .cv-received .cv-disclosure__toggle";
+const LINE = ".cv-lane-batch__body .cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)";
 
-/// Opens the "Received N messages" row (level 1).
-const openRow: Play = async (ctx) => {
+/// Opens the finished turn's "Worked for": another agent's message in a finished turn folds there
+/// like work (turns.ts `isOwnSteer`, #37710/#41597), so the "Received N messages" row draws inside it.
+const openWorked: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"), { capMs: 10_000 });
+  const closed = ".cv-worked[aria-expanded='false']";
+  if (ctx.document.querySelector(closed)) await ctx.click({ selector: closed });
   await ctx.waitFor(() => ctx.document.querySelector(HEAD), { capMs: 10_000 });
+};
+
+/// Opens the turn's Worked for, then its "Received N messages" row (level 1).
+const openRow: Play = async (ctx) => {
+  await openWorked(ctx);
   if (ctx.document.querySelector(HEAD)?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: HEAD });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-lane-batch__body .cv-received").length >= 7, {
     capMs: 10_000,
@@ -124,9 +135,68 @@ const openMessage: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__body .cv-received__text"), { capMs: 10_000 });
 };
 
+// Leo's 2026-11-14 capture: a "Received 2 messages" row whose hover was the solid popup surface and
+// stopped after its first message ("this has no transparency at all + is not scrollable"). Two
+// long reports, so the card is taller than the pane and must scroll in itself.
+const LONG_SENDERS: Sender[] = [
+  { name: "lane-box-2/coord-2", session: "s-coord", harness: "claude" },
+  { name: "lane-box-5/ask-59c3", session: "s-ask", harness: "claude" },
+];
+const LONG_REPORT = (topic: string, lines: number) =>
+  Array.from(
+    { length: lines },
+    (_, index) =>
+      `${topic} step ${index + 1}: the check ran on the build box, the numbers held, and the next step waits on its review.`,
+  ).join("\n");
+TEXT["s-coord"] = LONG_REPORT("Helper re-sign", 14);
+TEXT["s-ask"] = LONG_REPORT("Pin bump", 10);
+
+function longSnapshot() {
+  return chat(
+    [
+      user("Keep me posted on the helper re-sign.", 9),
+      // A long reply first, so the row sits low in the pane, as in Leo's capture: its card opens
+      // above it over the transcript, never over the composer.
+      assistant(
+        Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of the reply under the card.`).join("\n\n"),
+        8.8,
+      ),
+      summary(8.7, { status: "completed", durationMs: 12_000, toolCount: 0 }),
+      received(LONG_SENDERS[0]!, 6),
+      received(LONG_SENDERS[1]!, 5.5),
+      assistant("Both reports are in; the pin bump is next.", 5),
+      summary(4.9, { status: "completed", durationMs: 30_000, toolCount: 0 }),
+    ],
+    {
+      title: "helper-coordinator",
+      sessions: [
+        session({ sessionId: SESSION_ID, title: "helper-coordinator", name: "helper-coordinator" }),
+        ...LONG_SENDERS.map((sender) =>
+          session({ sessionId: sender.session, title: sender.name, name: sender.name, harness: sender.harness }),
+        ),
+      ],
+    },
+  );
+}
+
+/// The "Received N messages" row's hover card, shown over the chat.
+const GROUP_HOVER_POPUP = ".cv-group-hover__popup";
+const hoverRow: Play = async (ctx) => {
+  const head = ".cv-message-group__head";
+  await ctx.waitFor(() => ctx.document.querySelector(head), { capMs: 10_000 });
+  await ctx.hover({ selector: head });
+  await ctx.waitFor(
+    () => {
+      const popup = ctx.document.querySelector(GROUP_HOVER_POPUP);
+      return popup && !popup.hasAttribute("data-starting-style") ? popup : null;
+    },
+    { capMs: 10_000 },
+  );
+};
+
 const variants: Record<string, AgentPaneVariant> = {
   collapsed: {
-    note: 'Selected default: a notice of three threads, two messages that came in while its turn ran and a notice of two are one row, "Received 7 messages", closed. No session names at rest; the senders\' short names are its hover.',
+    note: "Selected default: a notice of three threads, two messages that came in while its turn ran and a notice of two are one row, \"Received 7 messages\", closed, inside the finished turn's Worked for (closed here; the other variants open it). No session names at rest; the senders' short names are its hover.",
     snapshot: snapshot(),
   },
   "level-1": {
@@ -138,6 +208,11 @@ const variants: Record<string, AgentPaneVariant> = {
     note: "One message opened: its whole text under its line.",
     snapshot: snapshot(),
     play: openMessage,
+  },
+  "hover-long": {
+    note: 'Leo\'s 2026-11-14 capture redrawn: two long reports in one "Received 2 messages" row, hovered. The card is the one hover card glass (the chat under it blurs in place, no solid fill) and scrolls in itself to the second report; the transcript under it stays.',
+    snapshot: longSnapshot(),
+    play: hoverRow,
   },
 };
 
@@ -152,6 +227,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/LaneNoticeBatch.css",
     "agent-session/acpmux/conversation/laneNoticeBatches.ts",
     "agent-session/acpmux/conversation/messageRuns.ts",
+    "agent-session/acpmux/conversation/MessageGroupHover.tsx",
+    "agent-session/acpmux/conversation/MessageGroupHover.css",
   ],
   variants,
 });

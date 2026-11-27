@@ -41,6 +41,11 @@ import Testing
         var sendError: String?
         /// `identify`'s capabilities (a Mac without `send-expect-agent-v1` takes no Feed reply).
         var capabilities = ["send-expect-foreground-v1", "send-expect-agent-v1"]
+        /// The Mac's daemon is down or restarting: every request fails unanswered.
+        var down = false
+        var unanswered = 0
+        /// The connection each answered `ack-tab-notifications` came on.
+        var ackConnections: [Int] = []
 
         func respond(_ command: String, _ params: [String: Int]) -> Data {
             requests.append((command, params))
@@ -65,7 +70,14 @@ import Testing
     static func make(_ daemon: FakeDaemon) -> (FeedStore, TerminalFeed) {
         let store = FeedStore(items: [])
         let feed = TerminalFeed(store: store)
-        feed.request = { command, params, _ in daemon.respond(command, params) }
+        feed.request = { command, params, connection in
+            if daemon.down {
+                daemon.unanswered += 1
+                throw Down()
+            }
+            if command == "ack-tab-notifications" { daemon.ackConnections.append(connection) }
+            return daemon.respond(command, params)
+        }
         feed.send = { surface, text, expect, session, _ in
             if let error = daemon.sendError { return Data(#"{"ok":false,"error":"\#(error)"}"#.utf8) }
             daemon.sent.append((surface, text, expect, session))
@@ -75,8 +87,49 @@ import Testing
         return (store, feed)
     }
 
+    /// Lets the feed's main-actor work run until `condition` holds. No count of turns: a busy
+    /// runner (another test holding the main actor) only makes it take longer. The watchdog counts
+    /// time awake and only ends a wait that would hang; the expectations after it then fail.
     static func settle(_ condition: () -> Bool) async {
-        for _ in 0..<500 where !condition() { await Task.yield() }
+        var watchdog = AwakeDeadline(.seconds(30))
+        while !condition(), watchdog.hasTimeLeft() { await Task.yield() }
+    }
+
+    /// Lets every main-actor step already set off run (500 turns of a work chain that never
+    /// leaves the main actor), so a check after it sees what that work did, or did not do.
+    static func drain() async {
+        for _ in 0..<500 { await Task.yield() }
+    }
+
+    struct Down: Error {}
+
+    /// The spacing between a read's tries, held until the test lets the next try go: a retry
+    /// happens when the test says, not when a real-time pause ends, and a Mac that stays down
+    /// costs no turns while the test looks.
+    @MainActor
+    final class PauseGate {
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var finished = false
+        /// A read waits out a spacing now.
+        var isHolding: Bool { !waiters.isEmpty }
+
+        func pause(_ delay: Duration) async {
+            if finished { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+
+        /// The waiting read tries again.
+        func release() {
+            let held = waiters
+            waiters = []
+            held.forEach { $0.resume() }
+        }
+
+        /// The test ends: let every read go (it ends once the feed is gone).
+        func finish() {
+            finished = true
+            release()
+        }
     }
 
     static let connection = 1
@@ -165,7 +218,7 @@ import Testing
 
         // The same tree again (a title change): no ledger read.
         feed.treeChanged(Self.tree(codex: "working"), macID: "mac", connection: Self.connection)
-        await Self.settle { false }
+        await Self.drain()
         #expect(daemon.lists == 1)
 
         // The daemon posts: the new row is read and goes on top.
@@ -205,15 +258,112 @@ import Testing
         #expect(daemon.acks == [2])
         store.markUnread("term-mac-ntf_2")
         store.markRead("term-mac-ntf_2")
-        await Self.settle { false }
+        await Self.drain()
         #expect(daemon.acks == [2])
 
         // Unread again on the phone after the Mac read it: the phone's choice stands.
         store.markUnread("term-mac-ntf_1")
         feed.notificationPosted()
         await Self.settle { daemon.lists == 2 }
-        await Self.settle { false }
+        await Self.drain()
         #expect(store.item(id: "term-mac-ntf_1")?.isRead == false)
+    }
+
+    /// Leo, 2026-11-09: "the other thing is that for some reason the dot isn't disappearing in my
+    /// case... but i guess the current nightly still hasn't fixed/restarted the service?" A read
+    /// made on the phone while the Mac's daemon is down reaches the Mac once it answers again, on
+    /// the connection bound then.
+    @Test func aReadMadeWhileTheMacIsDownReachesItOnceItAnswers() async {
+        let daemon = FakeDaemon()
+        daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
+        let (store, feed) = Self.make(daemon)
+        let gate = PauseGate()
+        defer { gate.finish() }
+        feed.reads.pause = { await gate.pause($0) }
+        feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+
+        daemon.down = true
+        store.markRead("term-mac-ntf_1")
+        await Self.settle { gate.isHolding }
+        gate.release()
+        await Self.settle { gate.isHolding && daemon.unanswered >= 2 }
+        #expect(daemon.unanswered >= 2, "an unanswered read goes again")
+        #expect(store.item(id: "term-mac-ntf_1")?.isRead == true)
+
+        // The daemon is back, on a new connection: the read reaches it there, once.
+        daemon.down = false
+        feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
+        // Each spacing ends when the test says; the read goes once the new connection read the ledger.
+        await Self.settle { daemon.lists >= 2 }
+        var watchdog = AwakeDeadline(.seconds(30))
+        while daemon.acks.isEmpty, watchdog.hasTimeLeft() {
+            gate.release()
+            await Self.settle { gate.isHolding || !daemon.acks.isEmpty }
+        }
+        #expect(daemon.acks == [1])
+        #expect(daemon.ackConnections == [2])
+        // Answered, the read ends: it waits out no further spacing and sends nothing more.
+        await Self.drain()
+        #expect(!gate.isHolding)
+        #expect(daemon.acks == [1])
+    }
+
+    /// Review finding: a notification that came while the Mac was away is not acknowledged unseen
+    /// by the older read still on its way; the new connection's ledger shows it, and the read ends.
+    @Test func aReadOnItsWayEndsWhenANewerNotificationCameMeanwhile() async {
+        let daemon = FakeDaemon()
+        daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
+        let (store, feed) = Self.make(daemon)
+        let gate = PauseGate()
+        defer { gate.finish() }
+        feed.reads.pause = { await gate.pause($0) }
+        feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+
+        daemon.down = true
+        store.markRead("term-mac-ntf_1")
+        await Self.settle { gate.isHolding }
+        gate.release()
+        await Self.settle { gate.isHolding && daemon.unanswered >= 2 }
+        daemon.rows.append(Self.row("ntf_2", "Codex finished", surface: 1, at: 2_000_000))
+        daemon.down = false
+        feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
+        await Self.settle { store.items.count == 2 }
+        // The next try finds the read no longer stands, and ends unsent.
+        gate.release()
+        await Self.drain()
+        #expect(!gate.isHolding)
+        #expect(daemon.acks.isEmpty)
+        #expect(store.item(id: "term-mac-ntf_2")?.isRead == false)
+    }
+
+    /// Review finding: a read that stopped unsent (marked unread while the Mac was down) does not
+    /// keep a later read of the same event from going.
+    @Test func aReadAgainAfterAnUnsentOneGoes() async {
+        let daemon = FakeDaemon()
+        daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
+        let (store, feed) = Self.make(daemon)
+        let gate = PauseGate()
+        defer { gate.finish() }
+        feed.reads.pause = { await gate.pause($0) }
+        feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+
+        daemon.down = true
+        store.markRead("term-mac-ntf_1")
+        await Self.settle { gate.isHolding }
+        gate.release()
+        await Self.settle { gate.isHolding && daemon.unanswered >= 2 }
+        store.markUnread("term-mac-ntf_1")
+        // The next try finds the read no longer stands, and ends unsent.
+        gate.release()
+        await Self.drain()
+        #expect(!gate.isHolding)
+        daemon.down = false
+        store.markRead("term-mac-ntf_1")
+        await Self.settle { !daemon.acks.isEmpty }
+        #expect(daemon.acks == [1])
     }
 
     @Test func waitingTerminalResolvesWhenItMovesOn() async {
@@ -263,7 +413,7 @@ import Testing
 
         feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
         await Self.settle { daemon.lists == 2 }
-        await Self.settle { false }
+        await Self.drain()
         #expect(store.items.count == 1)
         #expect(store.item(id: "term-mac-ntf_1")?.isDone == true)
     }
@@ -292,7 +442,7 @@ import Testing
         feed.notificationPosted()
         await Self.settle { store.items.count == 2 }
         store.markRead("term-mac-ntf_2")
-        await Self.settle { false }
+        await Self.drain()
         #expect(daemon.acks.isEmpty)
         store.markRead("term-mac-ntf_3")
         await Self.settle { !daemon.acks.isEmpty }
@@ -381,7 +531,7 @@ import Testing
         // Read again on a new connection (the ledger row alone is thin): the texts stay.
         feed.treeChanged(Self.claudeTree(), macID: "mac", connection: Self.connection + 1)
         await Self.settle { daemon.lists == 2 }
-        await Self.settle { false }
+        await Self.drain()
         #expect(store.item(id: "term-mac-ntf_1")?.markdown == answer)
         #expect(store.item(id: "term-mac-ntf_1")?.quote == FeedItem.Quote("Fix the build"))
     }
@@ -400,6 +550,41 @@ import Testing
         #expect(item?.kind == .failed)
         #expect(item?.markdown == "**Reported an error:** Bash\n\n```\ncommand not found: swiftlint\n```")
         #expect(item?.quote == FeedItem.Quote("lint"))
+    }
+
+    /// The phone connected after the turn ended (it slept through the live event): the ledger row
+    /// the Mac's daemon still keeps the texts for shows the answer, not "Finished its turn in the
+    /// terminal". Claude Code in a terminal read that way before, while Codex's own OSC 9 text
+    /// filled its card.
+    @Test func aTurnFinishedBeforeThePhoneConnectedStillShowsItsAnswer() async {
+        let daemon = FakeDaemon()
+        let (store, feed) = Self.make(daemon)
+        var row = Self.row("ntf_1", "Claude finished", surface: 1, at: 2_000_000)
+        row.removeLast()
+        daemon.rows = [row + #","message":"The build is green.\n\n- 3 tests fixed","prompt":"fix ci"}"#]
+        feed.treeChanged(Self.claudeTree(), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+        let item = store.item(id: "term-mac-ntf_1")
+        #expect(item?.kind == .response)
+        #expect(item?.markdown == "The build is green.\n\n- 3 tests fixed")
+        #expect(item?.quote == FeedItem.Quote("fix ci"))
+    }
+
+    /// An approval says what it waits on (the tool and its command), as a GUI chat's permission
+    /// card does, under its headline.
+    @Test func aTerminalApprovalShowsTheCommandItWaitsOn() async {
+        let daemon = FakeDaemon()
+        let (store, feed) = Self.make(daemon)
+        feed.treeChanged(Self.claudeTree("working"), macID: "mac", connection: Self.connection)
+        await Self.settle { daemon.lists == 1 }
+        let command = "Bash\n\n```\nrm -rf build\n```\n\nClean the build folder"
+        daemon.rows = [Self.row("ntf_1", "Claude needs approval", body: "Bash", level: "warning", surface: 1, at: 2_000_000)]
+        feed.notificationPosted(NotificationPost(id: "ntf_1", surface: 1, source: "agent", message: command))
+        await Self.settle { store.items.count == 1 }
+        let item = store.item(id: "term-mac-ntf_1")
+        #expect(item?.kind == .needsInput)
+        // The tool shows once: in the headline, not again above its command.
+        #expect(item?.markdown == "**Needs approval:** Bash\n\n```\nrm -rf build\n```\n\nClean the build folder")
     }
 
     /// A Mac before the event's `id`: its preview goes to the next new row on that terminal.

@@ -19,6 +19,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::COMMAND_3.optional(), args::ARGS.optional(), args::REGISTRY.optional(), args::EXAMPLE.optional(), args::ID.optional(), args::NAME_5.optional(), args::PROTOCOL.optional(), args::REPLACE.optional()],
         cli_name: "agent add-harness",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -42,6 +43,22 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::ID.optional()],
         cli_name: "agent remove-harness",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    // Disable Folder Agent: forgets this folder's confirmation of a folder harness profile
+    // (`.cmux/harnesses/<id>.toml`), as `cmux harness disable` (the daemon's
+    // `_acpmux/harness_disable`). The folder is the workspace's; the app asks again on next use.
+    Action {
+        id: "agent.harness.disableFolder",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agent.harness.disableFolder", "Disable Folder Agent…"),
+        keywords: &["agent", "harness", "acp", "folder", "project", "disable", "forget", "revoke", "untrust", "profile"],
+        category: "agents",
+        symbol: "xmark.shield",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ID.optional()],
+        cli_name: "harness disable",
         ..Action::DEFAULT
     },
     Action {
@@ -54,6 +71,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::BACKUP.optional()],
         cli_name: "agent restore-harness",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -66,6 +84,19 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::ID.optional()],
         cli_name: "agent check-harness",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agent.harness.setIcon",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agent.harness.setIcon", "Set Agent Icon…"),
+        keywords: &["agent", "harness", "acp", "icon", "emoji", "symbol", "logo", "mark", "profile"],
+        category: "agents",
+        symbol: "face.smiling",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::HARNESS_PROFILE, args::HARNESS_ICON],
+        cli_name: "action agent-harness-set-icon",
         ..Action::DEFAULT
     },
     Action {

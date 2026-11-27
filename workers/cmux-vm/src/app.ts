@@ -16,10 +16,12 @@ import { healthHandlers } from "./handlers/health.ts";
 import { creationHandlers } from "./handlers/creations.ts";
 import { vmsHandlers } from "./handlers/vms.ts";
 import type { TenantLimits } from "./limits/service.ts";
+import type { ReplicaStore } from "./replica/store.ts";
 import type { TenantPolicy } from "./policy.ts";
 import type { VmImages } from "./proofs/vm-image.ts";
 import type { Entitlements } from "./proofs/tenant-may-create.ts";
 import type { UpstreamClient } from "./upstream/client.ts";
+import { withUpstreamTiming } from "./upstream/timing.ts";
 import { snapshotsHandlers } from "./handlers/snapshots.ts";
 import { terminalsHandlers } from "./handlers/terminals.ts";
 import { apiKeysHandlers } from "./handlers/api-keys.ts";
@@ -39,6 +41,7 @@ import type { UpstreamMesh } from "./upstream/mesh.ts";
 import type { MembershipCache } from "./auth/membership-cache.ts";
 import type { WebhookDeliveryStore } from "./db/identity.ts";
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./handlers/stack-webhook.ts";
+import { API_VERSIONS, type ApiVersionTable, withApiVersion } from "./api-version.ts";
 
 export type Services =
   | VmImages
@@ -51,6 +54,7 @@ export type Services =
   | SessionVerifier
   | TeamMembership
   | TenantLimits
+  | ReplicaStore
   | TenantPolicy
   | Entitlements
   | S3aServices
@@ -94,6 +98,8 @@ export interface WebHandlerOptions {
   readonly perWebhook?: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
   /** The Stack webhook signing secret (Worker secret STACK_WEBHOOK_SECRET); absent: the webhook answers 503. */
   readonly stackWebhookSecret?: Redacted.Redacted<string>;
+  /** The dated-version compat table (`Cmux-Api-Version`); tests pass a fixture. */
+  readonly apiVersions?: ApiVersionTable;
 }
 
 export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHandlerOptions = {}) => {
@@ -120,7 +126,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
   const perRequest = options.perRequest;
   const web = HttpApiBuilder.toWebHandler(
     Layer.mergeAll(api, HttpServer.layerContext),
-    perRequest === undefined ? {} : { middleware: (app) => perRequest(app) },
+    { middleware: (app) => withUpstreamTiming(perRequest === undefined ? app : perRequest(app)) },
   );
   const runtime = ManagedRuntime.make(services);
   const perWebhook = options.perWebhook ?? (<A, E, R>(effect: Effect.Effect<A, E, R>) => effect);
@@ -135,14 +141,17 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     },
     /** One agent reaper run (the Worker's cron): expired and revoked agents' VMs, and orphaned client sessions. */
     reap: (): Promise<ReapReport> => runtime.runPromise(perWebhook(runAgentReaper)),
-    /** Refuses oversized JSON bodies, then serves the API. Uploads stream untouched to their handler. */
-    handler: (request: Request): Promise<Response> => {
+    /**
+     * Refuses oversized JSON bodies, then serves the API at the request's pinned version (api-version.ts;
+     * unpinned: as is). Uploads stream untouched to their handler.
+     */
+    handler: withApiVersion((request: Request): Promise<Response> => {
       if (new URL(request.url).pathname === STACK_WEBHOOK_PATH) return webhook(request);
       if (request.body === null || UPLOAD_PATH.test(new URL(request.url).pathname)) return web.handler(request);
       const declared = request.headers.get("content-length");
       if (declared !== null && Number(declared) > MAX_JSON_BODY_BYTES) return Promise.resolve(tooLarge());
       const method = request.method;
       return web.handler(new Request(request.url, { method, headers: request.headers, body: capped(request.body, MAX_JSON_BODY_BYTES) }));
-    },
+    }, options.apiVersions ?? API_VERSIONS),
   };
 };

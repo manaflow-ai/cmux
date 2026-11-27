@@ -1,4 +1,6 @@
+#if canImport(AuthenticationServices)
 import AuthenticationServices
+#endif
 import CMUXAuthCore
 import Foundation
 @testable import CmuxAuthRuntime
@@ -238,6 +240,7 @@ actor FakeAuthClient: AuthClient {
 
 /// A no-op presentation anchor for OAuth flows in tests.
 final class FakeAnchor: NSObject, AuthPresentationAnchoring {
+#if canImport(AuthenticationServices)
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         ASPresentationAnchor()
     }
@@ -245,6 +248,7 @@ final class FakeAnchor: NSObject, AuthPresentationAnchoring {
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         ASPresentationAnchor()
     }
+#endif
 }
 
 /// A sign-out hook latch for asserting the injected `onSignedOut` ran.
@@ -272,11 +276,14 @@ actor TeardownOutcomeProbe {
 }
 
 extension AuthLaunchOptions {
-    static func plain(includesDevAuth: Bool = false) -> AuthLaunchOptions {
+    static func plain(
+        includesDevAuth: Bool = false,
+        environment: [String: String] = [:]
+    ) -> AuthLaunchOptions {
         AuthLaunchOptions(
             clearAuthRequested: false,
             mockDataEnabled: false,
-            environment: [:],
+            environment: environment,
             includesDevAuth: includesDevAuth
         )
     }

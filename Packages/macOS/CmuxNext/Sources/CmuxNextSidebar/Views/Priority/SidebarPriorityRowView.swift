@@ -7,7 +7,10 @@ import CmuxNextIcons
 /// the state chip at the right, then up to two lines of its latest message. The pointer over the
 /// row swaps the chip for its actions (mark read, pin, snooze, archive); a click opens the chat, and
 /// a press that moves past the sidebar's drag threshold drags the row instead (`onDrag`). The
-/// buttons and the right-click menu run the same registered actions (the App maps them).
+/// buttons and the right-click menu run the same registered actions (the App maps them). A row whose
+/// chat's one pending tool permission the App can answer (`entry.answerRequest`) gets Allow and Deny on a
+/// line of their own under the preview, and y and n while it has the keyboard focus; each answers
+/// that request only.
 final class SidebarPriorityRowView: NSView {
     private(set) var entry: SidebarPriorityEntry
     var onAction: ((SidebarPriorityAction) -> Void)?
@@ -24,6 +27,8 @@ final class SidebarPriorityRowView: NSView {
     /// Control-Option-Up or -Down while the row has focus, or VoiceOver's Move Earlier or Move Later:
     /// the row moves one place and keeps it, as a drag there would.
     var onMove: ((MoveDirection) -> Void)?
+    /// Where the panel last placed the row (`SidebarPriorityPanelView.placeRows`); nil while a drag holds it elsewhere.
+    var slot: NSRect?
 
     private let title = ChromeLabel(labelWithString: "")
     private let agentIcon = DecorativeImageView()
@@ -39,8 +44,18 @@ final class SidebarPriorityRowView: NSView {
     private let snooze = SidebarIconButton(symbol: "moon.zzz", label: Strings.prioritySnooze)
     private let archive = SidebarIconButton(symbol: "archivebox", label: Strings.priorityArchive)
     private var actionButtons: [SidebarIconButton] { [markRead, pin, snooze, archive] }
+    let answers = SidebarAnswerButtons()
     private var pointerHover: PointerHover?
     private var isHovered = false { didSet { if isHovered != oldValue { needsLayout = true; needsDisplay = true } } }
+    /// The chip says the row's state in words (`sidebar.priorityView.statusWords`), not only a working
+    /// row's time. Off by default: the status mark alone.
+    var statusWords = false {
+        didSet {
+            guard statusWords != oldValue else { return }
+            chip.stringValue = chipLine(now: Date())
+            needsLayout = true
+        }
+    }
 
     init(entry: SidebarPriorityEntry) {
         self.entry = entry
@@ -53,6 +68,8 @@ final class SidebarPriorityRowView: NSView {
         [agentIcon, title, placeLabel, preview, chip, indicator].forEach(addSubview)
         layer?.addSublayer(unreadDot)
         for button in actionButtons { addSubview(button) }
+        addSubview(answers)
+        answers.onAnswer = { [weak self] allow in self?.answer(allow: allow) }
         markRead.onPress = { [weak self] in self.map { $0.onAction?(.markRead($0.entry.id)) } }
         pin.onPress = { [weak self] in self.map { $0.onAction?(.togglePin($0.entry.id)) } }
         snooze.onPress = { [weak self] in self.map { $0.onAction?(.snooze($0.entry.id)) } }
@@ -82,6 +99,10 @@ final class SidebarPriorityRowView: NSView {
         for button in actionButtons where !button.isHidden && button.frame.contains(local) {
             return button.hitTest(convert(local, to: button)) ?? button
         }
+        if !answers.isHidden {
+            let inAnswers = answers.convert(local, from: self)
+            for button in [answers.allow, answers.deny] where button.frame.contains(inAnswers) { return button }
+        }
         return self
     }
 
@@ -95,20 +116,26 @@ final class SidebarPriorityRowView: NSView {
         placeLabel.stringValue = [entry.project, entry.machine].compactMap(\.self).joined(separator: " · ")
         preview.stringValue = entry.preview ?? ""
         preview.isHidden = entry.preview == nil
-        chip.stringValue = Self.visibleChipText(entry.state, now: Date())
+        chip.stringValue = chipLine(now: Date())
         indicator.configure(Self.indicatorState(entry.state))
         pin.label = entry.pinTitle
         markRead.isEnabled = entry.canMarkRead
+        answers.isHidden = !entry.answerable
+        // A press answers the request it began on: a new request (or none) drops one in flight.
+        answers.target = entry.answerRequest.map { "\(entry.id)\u{1F}\($0)" }
         setAccessibilityLabel([entry.title, Self.chipText(entry.state, now: Date()), entry.preview].compactMap(\.self).joined(separator: ", "))
         needsLayout = true
         needsDisplay = true
     }
 
-    /// Refreshes a working chip's elapsed time.
-    func tick(now: Date) {
-        guard case .working = entry.state else { return }
-        chip.stringValue = Self.visibleChipText(entry.state, now: now)
+    /// Refreshes a working chip's elapsed time; true when its text changed. A row whose text reads the same is untouched.
+    @discardableResult func tick(now: Date) -> Bool {
+        guard case .working = entry.state else { return false }
+        let text = chipLine(now: now)
+        guard text != chip.stringValue else { return false }
+        chip.stringValue = text
         needsLayout = true
+        return true
     }
 
     static func chipText(_ state: SidebarPriorityEntry.State, now: Date) -> String {
@@ -130,6 +157,15 @@ final class SidebarPriorityRowView: NSView {
         guard case .working(let since) = state else { return "" }
         return since.flatMap { elapsed(from: $0, to: now) } ?? ""
     }
+
+    /// With status words (`sidebar.priorityView.statusWords`) every row but an idle one says its state
+    /// ("Needs you", "Done", "Working 5m"); without, only a working row's time shows.
+    static func visibleChipText(_ state: SidebarPriorityEntry.State, now: Date, statusWords: Bool) -> String {
+        guard statusWords else { return visibleChipText(state, now: now) }
+        return state == .idle ? "" : chipText(state, now: now)
+    }
+
+    private func chipLine(now: Date) -> String { Self.visibleChipText(entry.state, now: now, statusWords: statusWords) }
 
     /// "5m", "2h": the largest whole unit, nil under a minute.
     static func elapsed(from start: Date, to now: Date) -> String? {
@@ -160,11 +196,22 @@ final class SidebarPriorityRowView: NSView {
         }
     }
 
-    /// The row's height at the current type sizes: padding, the title line, and two preview lines.
-    static func height(hasPreview: Bool) -> CGFloat {
+    /// The row's height at the current type sizes: padding, the title line, two preview lines, and
+    /// the Allow and Deny line of an answerable row.
+    static func height(hasPreview: Bool, answerable: Bool = false) -> CGFloat {
         let titleLine = ceil(SidebarStyle.titleFont.boundingRectForFont.height)
         let previewLines = hasPreview ? ceil(SidebarStyle.subtitleFont.boundingRectForFont.height) * 2 + Metrics.space1 : 0
-        return Metrics.space2 * 2 + titleLine + previewLines
+        return Metrics.space2 * 2 + titleLine + previewLines + (answerable ? answerLine + Metrics.space1 : 0)
+    }
+
+    /// `entry`'s row height.
+    static func height(_ entry: SidebarPriorityEntry) -> CGFloat {
+        height(hasPreview: entry.preview != nil, answerable: entry.answerable)
+    }
+
+    /// The Allow and Deny line's height: the chips' text and their padding.
+    static var answerLine: CGFloat {
+        ceil(max(SidebarStyle.subtitleFont.boundingRectForFont.height, Typography.caption.boundingRectForFont.height)) + Metrics.space1
     }
 
     override func layout() {
@@ -215,8 +262,14 @@ final class SidebarPriorityRowView: NSView {
         placeLabel.frame = NSRect(x: title.frame.maxX + Metrics.space2, y: pad, width: tagWidth, height: lineHeight)
         let previewTop = pad + lineHeight + Metrics.space1
         // The full row's lines, not the bounds': an opening or closing slot clips them, never squeezes them.
-        let fullHeight = Self.height(hasPreview: entry.preview != nil)
-        preview.frame = NSRect(x: textInset, y: previewTop, width: max(0, b.width - inset - textInset), height: max(0, fullHeight - previewTop - pad))
+        let answerHeight = entry.answerable ? Self.answerLine + Metrics.space1 : 0
+        let fullHeight = Self.height(entry)
+        preview.frame = NSRect(x: textInset, y: previewTop, width: max(0, b.width - inset - textInset),
+                               height: max(0, fullHeight - previewTop - pad - answerHeight))
+        // Allow and Deny at the trailing edge of their own line, under the preview.
+        let answerWidth = min(answers.naturalWidth, max(0, b.width - inset - textInset))
+        answers.frame = NSRect(x: b.width - inset - answerWidth, y: fullHeight - pad - Self.answerLine,
+                               width: answerWidth, height: Self.answerLine)
     }
 
     override func updateLayer() {
@@ -263,7 +316,7 @@ final class SidebarPriorityRowView: NSView {
     /// the hover buttons.
     override func menu(for event: NSEvent) -> NSMenu? {
         let sidebar = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? SidebarView }.first
-        return sidebar?.contextMenuProvider?(.priorityChat(entry.id))
+        return NSMenu.withoutSystemItems(sidebar?.contextMenuProvider?(.priorityChat(entry.id)))
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -293,7 +346,18 @@ final class SidebarPriorityRowView: NSView {
         dragging = false
     }
 
+    /// Allow (once) or Deny the request the row shows now.
+    private func answer(allow: Bool) {
+        guard let request = entry.answerRequest else { return }
+        onAction?(.answer(entry.id, request: request, allow: allow))
+    }
+
     override func keyDown(with event: NSEvent) {
+        // y allows once and n denies while the row has the focus and its chat can be answered here.
+        if entry.answerable, let key = SidebarAnswerKey(event) {
+            answer(allow: key.allows)
+            return
+        }
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
         guard flags == [.control, .option] else { return super.keyDown(with: event) }
         switch event.specialKey {
@@ -307,6 +371,14 @@ final class SidebarPriorityRowView: NSView {
         var actions = super.accessibilityCustomActions() ?? []
         actions.append(NSAccessibilityCustomAction(name: Strings.priorityMoveEarlier) { [weak self] in self?.onMove?(.earlier); return self != nil })
         actions.append(NSAccessibilityCustomAction(name: Strings.priorityMoveLater) { [weak self] in self?.onMove?(.later); return self != nil })
+        if entry.answerable {
+            for (name, allow) in [(Strings.answerAllowLabel, true), (Strings.answerDenyLabel, false)] {
+                actions.append(NSAccessibilityCustomAction(name: name) { [weak self] in
+                    self?.answer(allow: allow)
+                    return self != nil
+                })
+            }
+        }
         return actions
     }
 

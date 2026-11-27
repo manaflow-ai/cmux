@@ -60,7 +60,7 @@ async fn production_spawn(tag: &str, vm_host: bool) {
         json!({
             "harnesses": {"fakeclaude": {
                 "argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
-                "env": {"ANTHROPIC_AUTH_TOKEN": "synthetic-profile-token"}
+                "env": {"ANTHROPIC_AUTH_TOKEN": "synthetic-profile-token", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1"}
             }},
             "defaultHarness": "fakeclaude", "permissionPolicy": "ask",
             "webRoots": [d.join("work")], "vmHost": vm_host,
@@ -76,6 +76,7 @@ async fn production_spawn(tag: &str, vm_host: bool) {
         record: d.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     acpmux::trust::set(&trust, &d.join("work").to_string_lossy(), "trusted").unwrap();
     let mut command = daemon_env::tokio_command(&d, daemon_env::Agents::StandIn);
@@ -185,7 +186,7 @@ async fn production_spawn(tag: &str, vm_host: bool) {
     assert!(sandbox.iter().any(|m| m["canary"] == "passed"), "no canary: {sandbox:?}");
     assert!(sandbox.iter().all(|m| m.get("vmHost").is_none()), "{sandbox:?}");
 
-    let names = "ANTHROPIC_AUTH_TOKEN,CMUX_REMOTE_TEST_SECRET,UNRELATED_TOKEN,HOME,PATH";
+    let names = "ANTHROPIC_AUTH_TOKEN,CMUX_REMOTE_TEST_SECRET,UNRELATED_TOKEN,HOME,PATH,CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
     let prompt = json!({
         "sessionId": session, "prompt": [{"type": "text", "text": format!("envs: {names}")}]
     });
@@ -205,6 +206,9 @@ async fn production_spawn(tag: &str, vm_host: bool) {
         .find(|v| v.get("UNRELATED_TOKEN").is_some())
         .expect("agent answered envs");
     assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "synthetic-profile-token", "{env}");
+    // Claude Code's scrub starts its own bwrap for every Bash call, which cannot start inside
+    // this sandbox: on, every Bash call is refused (`hub/remote_sandbox.rs` module doc).
+    assert_eq!(env["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"], "0", "{env}");
     for dropped in ["CMUX_REMOTE_TEST_SECRET", "UNRELATED_TOKEN"] {
         assert_eq!(env[dropped], "", "remote child inherited {dropped}: {env}");
     }

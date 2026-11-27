@@ -3,6 +3,7 @@ import { Icon } from "./icons/Icon";
 import { type StringKey, useT } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { IllustratedEmpty } from "../../ui/EmptyState/IllustratedEmpty";
 import { SenderIdentityLabel } from "./SenderIdentityLabel";
 import { resolveSenderIdentity } from "./senderIdentity";
 import {
@@ -172,7 +173,15 @@ export function ChiefDock({
         {/* Folded, the deck is a picture of the chats: inert, so none of its buttons is a Tab stop. */}
         <div ref={cardsRef} className="acpmux-chief-dock-cards" aria-hidden={!expanded} inert={!expanded}>
           <div className="acpmux-chief-dock-stack">
-            {cards.length === 0 && <p className="acpmux-chief-dock-empty">{t("sidebar.noSessions")}</p>}
+            {cards.length === 0 && (
+              // A compact line and New Chat, no art: the dock already draws the Chief right below.
+              <IllustratedEmpty
+                className="acpmux-chief-dock-empty"
+                layout="beside"
+                line={t("sidebar.noSessions")}
+                action={{ label: t("sidebar.newChat"), onClick: onNewChat }}
+              />
+            )}
             {cards.map((session, index) => {
               const selected = session.sessionId === currentId;
               const title = sessionTitle(session);
@@ -200,7 +209,8 @@ export function ChiefDock({
                   targets="own"
                 >
                   <article
-                    className="acpmux-chief-card"
+                    className="acpmux-chief-card ui-glass"
+                    data-glass-level="popover"
                     data-selected={selected}
                     data-status={cardStatus}
                     data-steering={steering ? "true" : undefined}
@@ -279,7 +289,7 @@ export function ChiefDock({
               </span>
             )}
           </button>
-          <div className="acpmux-chief-dock-rail">
+          <div className="acpmux-chief-dock-rail ui-glass" data-glass-level="popover">
             <button
               type="button"
               className="acpmux-chief-dock-tool"

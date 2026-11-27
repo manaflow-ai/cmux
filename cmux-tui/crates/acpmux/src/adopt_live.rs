@@ -104,14 +104,12 @@ fn claude_holder(config: &Path, id: &str) -> Option<LiveUse> {
 /// where its start time can be read, started no later than the entry's
 /// `startedAt` (milliseconds since the epoch), so a pid reused by a later
 /// process does not stand in for the ended one.
-fn registered_runs(pid: u32, started_at_ms: Option<u64>) -> bool {
-    /// Clock granularity between the process start and the time it records.
-    const SLACK_MS: u64 = 1_000;
+pub(crate) fn registered_runs(pid: u32, started_at_ms: Option<u64>) -> bool {
     if !pid_exists(pid) {
         return false;
     }
     match (started_at_ms, pid_start_ms(pid)) {
-        (Some(recorded), Some(started)) => started <= recorded.saturating_add(SLACK_MS),
+        (Some(recorded), Some(started)) => started_matches(started, recorded),
         _ => true,
     }
 }
@@ -134,16 +132,53 @@ fn pid_exists(_pid: u32) -> bool {
 
 /// When `pid` started, in milliseconds since the epoch (macOS).
 #[cfg(target_os = "macos")]
-fn pid_start_ms(pid: u32) -> Option<u64> {
-    let (sec, usec) = crate::cua_v2::start_time(libc::pid_t::try_from(pid).ok()?)?;
+pub(crate) fn pid_start_ms(pid: u32) -> Option<u64> {
+    let (sec, usec) = crate::proc_start::start_time(libc::pid_t::try_from(pid).ok()?)?;
     Some(sec.saturating_mul(1000).saturating_add(usec / 1000))
 }
 
+/// When `pid` started, in milliseconds since the epoch (Linux): `/proc/<pid>/stat`'s `starttime`
+/// (clock ticks since boot) after `/proc/stat`'s `btime` (the boot, seconds since the epoch).
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) fn pid_start_ms(pid: u32) -> Option<u64> {
+    let ticks = crate::owner_exit::process_start(pid)?;
+    let stat = std::fs::read_to_string("/proc/stat").ok()?;
+    let boot: u64 =
+        stat.lines().find_map(|line| line.strip_prefix("btime "))?.trim().parse().ok()?;
+    // SAFETY: sysconf reads a constant of the running system.
+    let hz =
+        u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok().filter(|hz| *hz > 0)?;
+    boot.checked_mul(1000)?.checked_add(ticks.checked_mul(1000)? / hz)
+}
+
 /// Elsewhere the registry's pid decides alone.
-#[cfg(not(target_os = "macos"))]
-fn pid_start_ms(_pid: u32) -> Option<u64> {
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
+pub(crate) fn pid_start_ms(_pid: u32) -> Option<u64> {
     None
 }
+
+/// Whether a registry entry provably names the process it was written by: `pid` runs, the
+/// entry recorded `startedAt` and the process's start time reads and is no later than it. What
+/// names a message's sender (claude_peers.rs, hub/desktop_bridge.rs) asks this, not
+/// [`registered_runs`]: a pid reused after the app exited never stands in for its stale entry,
+/// and where either time is unknown the entry is refused.
+pub(crate) fn registered_proven(pid: u32, started_at_ms: Option<u64>) -> bool {
+    let (Some(recorded), Some(started)) =
+        (started_at_ms, pid_exists(pid).then(|| pid_start_ms(pid)).flatten())
+    else {
+        return false;
+    };
+    started_matches(started, recorded)
+}
+
+/// A process started at `started` (ms) is the one an entry recorded at `recorded` (ms): it started
+/// no later, within the clock granularity between its start and the time it wrote.
+fn started_matches(started: u64, recorded: u64) -> bool {
+    started <= recorded.saturating_add(START_SLACK_MS)
+}
+
+/// Clock granularity between a process's start and the time it records.
+const START_SLACK_MS: u64 = 1_000;
 
 /// A running Codex that holds thread `id`'s writer lock. Probed as Codex
 /// probes it before it publishes a thread: under the home's coordination lock
@@ -151,31 +186,35 @@ fn pid_start_ms(_pid: u32) -> Option<u64> {
 /// `flock` on the thread lock, released at once. No lock file: no writer.
 #[cfg(unix)]
 fn codex_holder(home: &Path, id: &str) -> Option<LiveUse> {
-    use std::os::fd::AsRawFd;
     let dir = home.join("thread-writer-locks");
     let thread = std::fs::File::open(dir.join(format!("{id}.lock"))).ok()?;
     let coordination = std::fs::File::open(dir.join(".coordination.lock")).ok();
-    if let Some(file) = &coordination {
-        // A writer holds it only while it opens its thread lock; wait briefly, never forever.
-        // Still held after that: a writer is taking the thread lock now, so the chat is busy.
-        let taken = (0..50).any(|attempt| {
-            if attempt > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            // SAFETY: flock on an open descriptor this function owns.
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
-        });
-        if !taken {
-            return Some(LiveUse::WriterLock);
-        }
-    }
-    // SAFETY: flock on the thread lock descriptor this function opened.
-    let held = unsafe { libc::flock(thread.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0
-        && std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK);
-    // Closing both descriptors (end of scope) releases what was taken.
-    drop(thread);
-    drop(coordination);
-    held.then_some(LiveUse::WriterLock)
+    writer_holds(coordination, &thread).then_some(LiveUse::WriterLock)
+}
+
+/// Whether a Codex writer holds the thread lock `thread`, probed under the home's `coordination`
+/// lock (when the home has one). Neither probe leaves a lock behind: each unlocks before its file
+/// closes ([`cmux_file_lock`]), so a child that another daemon thread forks meanwhile keeps no
+/// Codex lock held through its copy of the descriptor.
+#[cfg(unix)]
+fn writer_holds(coordination: Option<std::fs::File>, thread: &std::fs::File) -> bool {
+    use cmux_file_lock::{FileLock, Kind};
+    // A writer holds it only while it opens its thread lock; wait briefly (50 looks, 10 ms
+    // apart), never forever. Still held after that: a writer is taking the thread lock now, so
+    // the chat is busy.
+    let _coordination = match coordination.map(|file| {
+        FileLock::take_within(
+            file,
+            Kind::Exclusive,
+            std::time::Duration::from_millis(490),
+            std::time::Duration::from_millis(10),
+        )
+    }) {
+        Some(Err(_)) => return true,
+        Some(Ok(lock)) => Some(lock),
+        None => None,
+    };
+    FileLock::held_elsewhere(thread, Kind::Exclusive).unwrap_or(false)
 }
 
 #[cfg(not(unix))]
@@ -293,83 +332,5 @@ fn acpmux_tree(procs: &[Proc]) -> HashSet<u32> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn procs(rows: &[(u32, u32, &str)]) -> Vec<Proc> {
-        rows.iter()
-            .map(|&(pid, ppid, command)| Proc { pid, ppid, command: command.to_owned() })
-            .collect()
-    }
-
-    fn host(session_id: &str, host_pid: u32, harness_pid: Option<u32>) -> OwnHost {
-        OwnHost { session_id: session_id.to_owned(), host_pid, harness_pid }
-    }
-
-    /// The machine this was seen on: the app's acpmux, Chief's acpmux and a dev build's
-    /// each run Claude Code under their own agent hosts, and all of them register in
-    /// one `~/.claude/sessions`. A registered `claude` under one of this home's hosts is
-    /// this acpmux's own chat; one under another home's host is open elsewhere.
-    fn machine() -> Vec<Proc> {
-        procs(&[
-            (30816, 1, "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux daemon run"),
-            (
-                70686,
-                30816,
-                "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux __agent-host",
-            ),
-            (70701, 70686, "/opt/homebrew/bin/claude -p --input-format stream-json --resume abc"),
-            // A host the previous daemon started: reparented to launchd, this home's still.
-            (1887, 1, "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux __agent-host"),
-            (1900, 1887, "/bin/sh -c claude"),
-            (1906, 1900, "/opt/homebrew/bin/claude -p --input-format stream-json"),
-            // Chief's acpmux: another home.
-            (50849, 1, "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux daemon run"),
-            (
-                38030,
-                50849,
-                "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux __agent-host",
-            ),
-            (38031, 38030, "/opt/homebrew/bin/claude -p --input-format stream-json"),
-            // A `claude` that chat-a's harness ran from its Bash tool.
-            (70800, 70701, "/bin/zsh -c claude -p --resume other"),
-            (70801, 70800, "/opt/homebrew/bin/claude -p --resume other"),
-            // A `claude` in a terminal.
-            (2523, 2400, "claude"),
-        ])
-    }
-
-    #[test]
-    fn own_host_session_finds_this_homes_harness_by_its_host() {
-        let hosts = [host("chat-a", 70686, None), host("chat-b", 1887, None)];
-        let procs = machine();
-        assert_eq!(own_host_session(70701, &hosts, &procs), Some("chat-a".to_owned()));
-        // Under a wrapper, under a host whose daemon restarted.
-        assert_eq!(own_host_session(1906, &hosts, &procs), Some("chat-b".to_owned()));
-    }
-
-    #[test]
-    fn own_host_session_matches_the_recorded_harness_pid_without_a_process_table() {
-        let hosts = [host("chat-a", 70686, Some(70701))];
-        assert_eq!(own_host_session(70701, &hosts, &[]), Some("chat-a".to_owned()));
-    }
-
-    #[test]
-    fn own_host_session_leaves_another_homes_harness_and_a_terminal_claude_live() {
-        let hosts = [host("chat-a", 70686, Some(70701)), host("chat-b", 1887, None)];
-        let procs = machine();
-        // Chief's acpmux runs it: open elsewhere, though an acpmux runs it.
-        assert_eq!(own_host_session(38031, &hosts, &procs), None);
-        assert_eq!(own_host_session(2523, &hosts, &procs), None);
-        // A `claude` that this home's harness started is not that host's harness.
-        assert_eq!(own_host_session(70801, &hosts, &procs), None);
-        // No host of this home at all.
-        assert_eq!(own_host_session(70701, &[], &procs), None);
-    }
-
-    #[test]
-    fn own_host_session_ends_on_a_parent_cycle() {
-        let procs = procs(&[(10, 11, "a"), (11, 10, "b")]);
-        assert_eq!(own_host_session(10, &[host("x", 99, None)], &procs), None);
-    }
-}
+#[path = "adopt_live_tests.rs"]
+mod tests;

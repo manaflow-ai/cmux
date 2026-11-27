@@ -7,12 +7,20 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
+import { factsCardText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
+/// The text a sighted person reads: a hidden element (a control's description) is not on screen.
+const shown = (element: Element) => {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll("[hidden]")) hidden.remove();
+  return copy.textContent ?? "";
+};
 
 beforeAll(() => {
   const { window } = new JSDOM("<!doctype html><div id=root></div>");
@@ -27,12 +35,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const send = (status: string, output?: string, command = 'tell-coordinator "cg-next-reds BLOCKED on #20276"') => ({
@@ -112,8 +117,8 @@ test("opening it grows the message in place: the card holds the text and nothing
   expect(host.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
   const row = host.querySelector(".cv-message")!;
   // Nothing but the line and the card: no receipt line, no output block, no Show more.
-  expect([...row.children].map((child) => child.className)).toEqual([
-    "cv-tool cv-agentmsg__line is-strong",
+  expect(row.firstElementChild?.className).toBe("cv-tool cv-agentmsg__line is-strong");
+  expect([...row.querySelector(".cv-agentmsg__open")!.children].map((child) => child.className)).toEqual([
     "cv-agentmsg__card selectable",
   ]);
   expect(row.querySelector(".cv-tool-output")).toBeNull();
@@ -176,7 +181,7 @@ for (const [delivery, output] of Object.entries(RESULTS))
     for (const opened of [false, true]) {
       if (opened) await act(async () => toggle().click());
       for (const raw of ['{"success"', '"pin"', "queued for delivery", "a39e817af38ddf5e7"])
-        expect(row.textContent).not.toContain(raw);
+        expect(shown(row)).not.toContain(raw);
     }
   });
 
@@ -226,14 +231,16 @@ test("the recipient is the Agent call's description for its agentId, or a short 
   const line = host.querySelector(".cv-agentmsg__line")!;
   expect(line.querySelector(".cv-agentmsg__name")?.textContent).toBe("Fix grid jump");
   expect(line.textContent).not.toContain("This agent");
-  expect(host.textContent).not.toContain("a39e817af38ddf5e7");
-  // The full id is the chip's tooltip.
-  expect(line.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBe("Agent ID: a39e817af38ddf5e7");
-  // An id nothing names reads as a short id, the full one in the tooltip.
+  expect(shown(host)).not.toContain("a39e817af38ddf5e7");
+  // The whole id shows on the name's hover card (Chief, 2026-11-21: "agent ID" must still show).
+  expect(await factsCardText(line.querySelector(".cv-agentmsg__name")!)).toContain("a39e817af38ddf5e7");
+  // The chip shows its name, so it has no tooltip (a1315's cut 2: none on an element whose text shows).
+  expect(line.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBeNull();
+  // An id nothing names reads as a short id; the chip shows text, so it has no tooltip.
   await renderNamed("a5f0c2b9e1d4a7c3b", new Map());
   expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("a5f0c2b9");
-  expect(host.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBe("Agent ID: a5f0c2b9e1d4a7c3b");
-  expect(host.textContent).not.toContain("a5f0c2b9e1d4a7c3b");
+  expect(host.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBeNull();
+  expect(shown(host)).not.toContain("a5f0c2b9e1d4a7c3b");
   // A name the call gives (a teammate, an acpmux session) shows as it is, with no tooltip.
   await renderNamed("grid-fix", new Map());
   expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("grid-fix");

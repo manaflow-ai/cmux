@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
 """team_eval.py's numbers that need no model: python3 -m unittest test_team_eval (from measure/)."""
+import importlib.util
 import json
 import os
+import select
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 import team_eval
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.normpath(os.path.join(HERE, "..", "..", "..", ".."))
+
+# tests/git_history.py fetches a task's commits into a shallow clone, or says "needs history" (a failure on CI).
+_git_history = importlib.util.spec_from_file_location("git_history", os.path.join(ROOT, "tests", "git_history.py"))
+git_history = importlib.util.module_from_spec(_git_history)
+_git_history.loader.exec_module(git_history)
 
 
 def read(path):
@@ -94,6 +103,8 @@ class TaskFileTests(unittest.TestCase):
     def test_every_task_is_complete_and_its_commits_exist(self):
         tasks = load(os.path.join(HERE, "team_eval_tasks.json"))["tasks"]
         self.assertTrue(tasks)
+        # Every reference and its parent (the base), in one fetch on a shallow clone; on CI a missing one fails.
+        git_history.require_history(Path(ROOT), [t["reference"] for t in tasks if "reference" in t], depth=2)
         for t in tasks:
             for field in ("id", "base", "reference", "reference_pr", "brief", "followups"):
                 self.assertIn(field, t, t.get("id"))
@@ -102,10 +113,6 @@ class TaskFileTests(unittest.TestCase):
             self.assertEqual(ats, sorted(ats), t["id"])
             for f in t["followups"]:
                 self.assertTrue(f["adds"], (t["id"], f["id"]))
-            for sha in (t["base"], t["reference"]):
-                ok = subprocess.run(["git", "-C", HERE, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True)
-                if ok.returncode != 0:
-                    self.skipTest(f"{sha} is not in this checkout (a shallow clone)")
             parent = subprocess.run(["git", "-C", HERE, "rev-parse", f"{t['reference']}^"], capture_output=True, text=True)
             self.assertEqual(parent.stdout.strip(), t["base"], f"{t['id']}: base is the reference's parent")
 
@@ -894,6 +901,8 @@ class LiveReadingTests(unittest.TestCase):
         self.assertFalse(f.thread.is_alive())
         self.assertEqual(f.wake_r, -1)
 
+    # Without kqueue (Linux) wait_for_change is one sleep of the timeout, as its docstring says.
+    @unittest.skipUnless(hasattr(select, "kqueue"), "wait_for_change watches with kqueue (macOS)")
     def test_wait_for_change_returns_on_a_write_and_at_the_deadline(self):
         import tempfile
         import threading

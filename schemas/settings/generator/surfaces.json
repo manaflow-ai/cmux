@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/surfaces.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Surfaces.generated.swift",
+  "type": "SurfaceSettingsSchema",
+  "lists": {
+    "surfaces": ["descriptors", "SurfaceBackgroundSetting"]
+  }
+}

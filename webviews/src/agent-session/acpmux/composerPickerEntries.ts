@@ -1,12 +1,18 @@
 import type { AcpmuxSnapshot } from "./model";
+import { picksOwnModel } from "./agents";
 import type { PickerCatalog } from "./modelCatalogData";
 import { pickerFaceHarness } from "./modelPickerModel";
 import type { ModelPickerProps } from "./modelPickerLayout";
 
 /** The composer's existing catalog projection, shared with its pre-send health notice. */
+/** `listed`: acpmux has answered with its harnesses. Before it has, a catalog harness is no
+ *  missing one: its bundled models are the menu's rows, pickable by the catalog id, which is
+ *  acpmux's own (Leo 2026-11-08: "we know what the models are"). Only an answered list says
+ *  which harness is not installed. */
 export function composerPickerEntries(
   snapshot: AcpmuxSnapshot,
   pickerCatalog?: PickerCatalog,
+  listed = true,
 ): ModelPickerProps["catalog"] {
   const summary = snapshot.summary;
   return pickerCatalog
@@ -16,15 +22,19 @@ export function composerPickerEntries(
             (entry) =>
               !entry.unavailable || entry.probeFailed || (entry.acpmuxHarness ?? entry.id) === summary?.harness,
           )
+          // The Chief is no harness to pick a model on (Lucas 2026-11-25: "remove chief as a
+          // harness"): it picks its own model and lives on Home. A chat that already runs on it keeps
+          // it, so its own chip still has its menu.
+          .filter((entry) => !picksOwnModel(entry.family) || (entry.acpmuxHarness ?? entry.id) === summary?.harness)
           .map((entry) => ({
             id: entry.acpmuxHarness ?? entry.id,
             name: entry.name,
             models: entry.models,
             ...(entry.family ? { family: entry.family } : {}),
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
-            pickable: entry.pickable && entry.acpmuxHarness !== null,
+            pickable: entry.pickable && (entry.acpmuxHarness !== null || !listed),
             // The picker lists it anyway, with its Install… row (Leo 2026-10-26: "show all harnesses").
-            ...(!entry.installed && entry.pickable ? { notInstalled: true as const } : {}),
+            ...(listed && !entry.installed && entry.pickable ? { notInstalled: true as const } : {}),
             ...(entry.topModels ? { top: entry.topModels } : {}),
           })),
         // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
@@ -34,8 +44,12 @@ export function composerPickerEntries(
 }
 
 /** Read the chip's harness without selecting one or changing the daemon's default. */
-export function composerHealthHarness(snapshot: AcpmuxSnapshot, pickerCatalog: PickerCatalog): string | undefined {
+export function composerHealthHarness(
+  snapshot: AcpmuxSnapshot,
+  pickerCatalog: PickerCatalog,
+  listed = true,
+): string | undefined {
   if (snapshot.summary?.harness || snapshot.sessionId) return snapshot.summary?.harness;
-  const entries = composerPickerEntries(snapshot, pickerCatalog);
+  const entries = composerPickerEntries(snapshot, pickerCatalog, listed);
   return pickerFaceHarness(entries) ?? entries[0]?.id;
 }

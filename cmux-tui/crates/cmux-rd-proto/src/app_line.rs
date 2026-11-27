@@ -22,6 +22,41 @@ pub struct LinePath {
     pub rtt_ms: Option<f64>,
 }
 
+/// Carrier whose negotiation failed after the ticket and peer were authenticated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CarrierKind {
+    RdWg,
+}
+
+/// A retry destination on the same approved session, never a new authorization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetryCarrier {
+    WebRtc,
+}
+
+/// Only transport failures may permit a retry. Authentication, consent and
+/// revocation have no representation here and must end the approved session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WgFallbackReason {
+    Unsupported,
+    Timeout,
+    Malformed,
+    Closed,
+    Overloaded,
+}
+
+/// Rust's pre-media carrier decision, consumed by the app through its line reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CarrierFallback {
+    pub carrier: CarrierKind,
+    pub reason: WgFallbackReason,
+    pub retry: RetryCarrier,
+}
+
 /// One stdout line of `cmux rd serve` or `cmux rd connect`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AppLine {
@@ -49,12 +84,78 @@ pub struct AppLine {
     /// `serve` only, first: each display's size in pixels, `[width, height]`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub displays: Option<Vec<(u32, u32)>>,
+    /// `serve` only, with `displays`: the windows the viewer may share one of (the setup
+    /// line's `window`), `[{"id":..,"title":"..","width":..,"height":..}]`. A reader that
+    /// predates it ignores the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows: Option<Vec<LineWindow>>,
     /// The index in `displays` of the display the session shows first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current: Option<usize>,
+    /// `serve` only, macOS: each display's CGDirectDisplayID, in `displays` order, so a viewer
+    /// opened from a run's screen link can tell whether that run's display is still there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_ids: Option<Vec<u32>>,
     /// Why the displays could not be read (with an empty `displays`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// An eligible carrier failure before streaming; the original approval still applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<CarrierFallback>,
+    /// Where the capture setup is before the first picture (Linux portal capture), for the app
+    /// to show; `{"status":{"state":"waiting_for_consent","message":".."}}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<LineStatus>,
+    /// `serve` only, once the session starts: what this host was told to share and what it
+    /// captures and streams, so a check (or the app) can compare the viewer's pick with the
+    /// picture that arrives. A reader that predates it ignores the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capturing: Option<LineCapturing>,
+}
+
+/// What a `serve` session shares: the pick it was given (the setup line's `display`, `window`,
+/// `max_width`, `scope`), the source it resolved that pick to, and the picture it streams.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineCapturing {
+    /// `display` or `window`.
+    pub source: String,
+    /// The setup line's display pick as given (`null`: the default, the whole screen or main).
+    #[serde(default)]
+    pub display: Option<String>,
+    /// The shared window's id (a window share only).
+    #[serde(default)]
+    pub window: Option<u32>,
+    /// The source's rect on the screen, `[x, y, width, height]`, where this host knows it
+    /// (Linux X11); `null` elsewhere.
+    #[serde(default)]
+    pub rect: Option<[u32; 4]>,
+    /// The streamed picture's size (the Welcome's), after `max_width`.
+    pub width: u32,
+    pub height: u32,
+    /// The setup line's `max_width` (`null`: none).
+    #[serde(default)]
+    pub max_width: Option<u32>,
+    /// The session's mode as this host applies it: `view` or `control`.
+    pub mode: String,
+    /// The setup line's `scope`.
+    pub scope: String,
+}
+
+/// One window a viewer may share: its id (an X window id on Linux, a CGWindowID on macOS),
+/// title and size in pixels.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineWindow {
+    pub id: u32,
+    pub title: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// One capture setup state: a stable `state` code and a sentence for the person.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineStatus {
+    pub state: String,
+    pub message: String,
 }
 
 // serde's `skip_serializing_if` passes a reference.
@@ -124,6 +225,32 @@ mod tests {
     }
 
     #[test]
+    fn a_capturing_line_reads_back_what_the_host_printed() {
+        let line = AppLine {
+            capturing: Some(LineCapturing {
+                source: "display".into(),
+                display: Some("2".into()),
+                window: None,
+                rect: Some([960, 0, 960, 1080]),
+                width: 480,
+                height: 540,
+                max_width: Some(480),
+                mode: "view".into(),
+                scope: "view".into(),
+            }),
+            ..AppLine::default()
+        };
+        let text = line.to_json();
+        assert_eq!(
+            text,
+            r#"{"capturing":{"source":"display","display":"2","window":null,"rect":[960,0,960,1080],"width":480,"height":540,"max_width":480,"mode":"view","scope":"view"}}"#
+        );
+        assert_eq!(AppLine::decode(text.as_bytes()), Some(line));
+        // The picture size and mode are not optional: a line without them is not this shape.
+        assert_eq!(AppLine::decode(br#"{"capturing":{"source":"window"}}"#), None);
+    }
+
+    #[test]
     fn an_empty_line_is_a_line() {
         let mut splitter = LineSplitter::default();
         assert_eq!(splitter.push(b"\n\n"), vec![Vec::<u8>::new(), Vec::new()]);
@@ -148,12 +275,30 @@ mod tests {
                 ..AppLine::default()
             },
             AppLine {
+                displays: Some(vec![(1920, 1080)]),
+                windows: Some(vec![LineWindow {
+                    id: 0x2a0_0007,
+                    title: "Terminal — ~/src".into(),
+                    width: 800,
+                    height: 600,
+                }]),
+                current: Some(0),
+                ..AppLine::default()
+            },
+            AppLine {
                 displays: Some(Vec::new()),
                 current: Some(0),
                 error: Some("no screen".into()),
                 ..AppLine::default()
             },
             AppLine { ended: Some("the viewer left".into()), ..AppLine::default() },
+            AppLine {
+                status: Some(LineStatus {
+                    state: "waiting_for_consent".into(),
+                    message: "waiting for the person at the screen to allow sharing".into(),
+                }),
+                ..AppLine::default()
+            },
         ];
         for line in lines {
             assert_eq!(
@@ -177,5 +322,28 @@ mod tests {
         assert_eq!(AppLine::decode(b"not json"), None);
         assert_eq!(AppLine::decode(b"[1,2]"), None);
         assert_eq!(AppLine::decode(br#"{"connected":"yes"}"#), None);
+    }
+
+    #[test]
+    fn fallback_decision_round_trips_and_rejects_authorization_failures() {
+        let line = AppLine {
+            fallback: Some(CarrierFallback {
+                carrier: CarrierKind::RdWg,
+                reason: WgFallbackReason::Timeout,
+                retry: RetryCarrier::WebRtc,
+            }),
+            ..AppLine::default()
+        };
+        assert_eq!(
+            line.to_json(),
+            r#"{"fallback":{"carrier":"rd_wg","reason":"timeout","retry":"web_rtc"}}"#
+        );
+        assert_eq!(AppLine::decode(line.to_json().as_bytes()), Some(line));
+        for reason in ["revoked", "consent_denied", "peer_mismatch", "unknown"] {
+            let input = format!(
+                r#"{{"fallback":{{"carrier":"rd_wg","reason":"{reason}","retry":"web_rtc"}}}}"#
+            );
+            assert_eq!(AppLine::decode(input.as_bytes()), None);
+        }
     }
 }

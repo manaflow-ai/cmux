@@ -9,7 +9,7 @@
 //! on a probe except `_acpmux/models {refresh: true}`.
 
 use super::Hub;
-use crate::config::{HarnessKind, HarnessProfile};
+use crate::config::{Config, HarnessKind, HarnessProfile};
 use crate::live_models::{Cache, CacheKey, Cli, LiveModel, PROBE_TIMEOUT};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -23,27 +23,46 @@ struct Target {
     env: BTreeMap<String, String>,
 }
 
-/// The harnesses with a live list: every Claude Code (stdio) profile, through
-/// its own argv, and every Codex-family ACP profile, through the real `codex`
-/// (the adapter's `CODEX_PATH`, else `codex` on the login PATH).
-fn targets(harnesses: &BTreeMap<String, HarnessProfile>) -> Vec<Target> {
-    let codex = crate::managed_codex::codex_binary;
-    harnesses
-        .iter()
-        .filter_map(|(name, profile)| {
-            let (cli, argv) = match profile.kind {
-                HarnessKind::ClaudeStdio if !profile.argv.is_empty() => {
-                    (Cli::Claude, profile.argv.clone())
-                }
-                HarnessKind::Acp if crate::config::derive_family(name, profile) == "codex" => {
-                    let bin = profile.env.get("CODEX_PATH").cloned().or_else(codex)?;
-                    (Cli::Codex, vec![bin])
-                }
-                _ => return None,
-            };
-            Some(Target { harness: name.clone(), cli, argv, env: profile.env.clone() })
-        })
-        .collect()
+fn live_cli(name: &str, profile: &HarnessProfile) -> Option<Cli> {
+    match profile.kind {
+        HarnessKind::ClaudeStdio if !profile.argv.is_empty() => Some(Cli::Claude),
+        HarnessKind::Acp if crate::config::derive_family(name, profile) == "codex" => {
+            Some(Cli::Codex)
+        }
+        _ => None,
+    }
+}
+
+/// The program a live list is read from, without resolving a profile launch's credentials
+/// (`target` may consult the credential store): Claude Code's own argv, else the real `codex`.
+fn live_program(name: &str, profile: &HarnessProfile) -> Option<String> {
+    match live_cli(name, profile)? {
+        Cli::Claude => profile.argv.first().cloned(),
+        Cli::Codex => {
+            profile.env.get("CODEX_PATH").cloned().or_else(crate::managed_codex::codex_binary)
+        }
+    }
+}
+
+fn target(cfg: &Config, name: &str, cli: Cli) -> anyhow::Result<Target> {
+    let profile =
+        cfg.harnesses.get(name).ok_or_else(|| anyhow::anyhow!("no harness named {name}"))?;
+    let (argv, env) = match cli {
+        Cli::Claude => (profile.argv.clone(), profile.env.clone()),
+        Cli::Codex if crate::codex_app_server::is_profile_launch(&profile.argv) => {
+            crate::cli::harness_login::catalog_launch(cfg, name, profile)?
+        }
+        Cli::Codex => {
+            let bin = profile
+                .env
+                .get("CODEX_PATH")
+                .cloned()
+                .or_else(crate::managed_codex::codex_binary)
+                .ok_or_else(|| anyhow::anyhow!("no Codex CLI available"))?;
+            (vec![bin], profile.env.clone())
+        }
+    };
+    Ok(Target { harness: name.to_owned(), cli, argv, env })
 }
 
 impl Hub {
@@ -86,9 +105,10 @@ impl Hub {
         })
     }
 
-    /// The live list for `harness`, when one arrived or was cached.
+    /// The live list for `harness`, when one arrived or was cached, fresh or stale
+    /// (`model_lists`).
     pub(super) fn live_models_for(&self, harness: &str) -> Option<Vec<LiveModel>> {
-        self.live_models.lock().unwrap_or_else(PoisonError::into_inner).get(harness).cloned()
+        self.model_lists.live(harness)
     }
 
     /// A Codex chat of `harness` reported its model choices (`listed`, from the Codex that runs
@@ -151,8 +171,102 @@ impl Hub {
         });
     }
 
-    /// Serves the cached lists whose programs are unchanged. Daemon start,
-    /// before the login environment and the probes.
+    /// The live-list harnesses whose last probe started `LIVE_MAX_AGE` or more
+    /// before `now`, claimed so concurrent reads start one probe each.
+    pub(super) async fn stale_live_probes(
+        &self,
+        now: std::time::Instant,
+    ) -> std::collections::BTreeSet<String> {
+        let names: Vec<String> = {
+            let cfg = self.config.read().await;
+            cfg.harnesses
+                .iter()
+                .filter(|(name, p)| live_cli(name, p).is_some())
+                .map(|(name, _)| name.clone())
+                .collect()
+        };
+        let names = names.iter().filter(|name| self.probes(name)).map(String::as_str);
+        self.live_ages.lock().unwrap_or_else(PoisonError::into_inner).claim_due(names, now)
+    }
+
+    /// Stale while revalidating, by age: a read of `_acpmux/models` probes each
+    /// live list `LIVE_MAX_AGE` old again in the background. A model the CLI
+    /// learned since (a new release on the account or the gateway) reaches
+    /// open pickers through `_acpmux/harnesses_changed`, with no daemon restart.
+    /// And by program, in the same background task, one check at a time: a CLI updated on disk
+    /// since its list was read turns that list stale (`changed_live_binaries`) and is probed
+    /// again. Neither ever holds the read.
+    pub(crate) async fn revalidate_live_models(self: &Arc<Self>) {
+        use std::sync::atomic::Ordering;
+        let due = self.stale_live_probes(std::time::Instant::now()).await;
+        let check = self
+            .live_binary_check
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok();
+        if due.is_empty() && !check {
+            return;
+        }
+        if !due.is_empty() {
+            tracing::info!(agents = ?due, "live model lists are old; probing again");
+        }
+        let hub = self.clone();
+        tokio::spawn(async move {
+            let mut due = due;
+            if check {
+                let changed = hub.changed_live_binaries().await;
+                hub.live_binary_check.store(false, Ordering::Release);
+                if !changed.is_empty() {
+                    tracing::info!(agents = ?changed, "a CLI changed under its live model list; probing again");
+                }
+                due.extend(changed);
+            }
+            if !due.is_empty() {
+                hub.probe_live_models(false, Some(due)).await;
+            }
+        });
+    }
+
+    /// The live-list harnesses whose program is not the one their list was read from, each
+    /// list's program tag invalidated; each update is named once (`claim_binary_change`). A
+    /// list whose program had no identity (not a path) is left to the age rule.
+    pub(super) async fn changed_live_binaries(&self) -> std::collections::BTreeSet<String> {
+        let recorded: Vec<(String, crate::live_models::CacheKey, std::path::PathBuf)> = {
+            let cfg = self.config.read().await;
+            cfg.harnesses
+                .iter()
+                .filter(|(name, _)| self.probes(name))
+                .filter_map(|(name, profile)| {
+                    let program = std::path::PathBuf::from(live_program(name, profile)?);
+                    let read_from = self.model_lists.live_binary(name)??;
+                    Some((name.clone(), read_from, program))
+                })
+                .collect()
+        };
+        if recorded.is_empty() {
+            return Default::default();
+        }
+        let now = tokio::task::spawn_blocking(move || {
+            recorded
+                .into_iter()
+                .map(|(harness, read_from, program)| {
+                    let current = CacheKey::of(&program);
+                    (harness, read_from, current)
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        let mut changed = std::collections::BTreeSet::new();
+        for (harness, read_from, current) in now {
+            if self.model_lists.claim_binary_change(&harness, &read_from, current) {
+                changed.insert(harness);
+            }
+        }
+        changed
+    }
+
+    /// Serves the cached lists whose programs are unchanged, stale until their probes answer.
+    /// Daemon start, before the login environment and the probes.
     pub(super) async fn load_live_cache(&self) {
         // A capture fixture's harnesses show no list of this host's (`harness_fixture.rs`).
         if crate::harness_fixture::active().is_some() {
@@ -161,10 +275,9 @@ impl Hub {
         let cached = tokio::task::spawn_blocking(|| Cache::new(Cache::default_dir()).load_all())
             .await
             .unwrap_or_default();
-        let mut live = self.live_models.lock().unwrap_or_else(PoisonError::into_inner);
-        for (harness, models) in cached {
-            live.entry(harness).or_insert(models);
-        }
+        self.model_lists.serve_live_from_disk(
+            cached.into_iter().map(|(harness, (models, key))| (harness, models, Some(key))),
+        );
     }
 
     /// Probes every live-list harness at once; with `wait`, returns when all
@@ -185,18 +298,33 @@ impl Hub {
         if crate::harness_fixture::active().is_some() {
             return;
         }
-        let handles: Vec<_> = {
-            let cfg = self.config.read().await;
-            targets(&cfg.harnesses)
-        }
-        .into_iter()
-        .filter(|target| self.probes(&target.harness))
-        .filter(|target| only.as_ref().is_none_or(|o| o.contains(&target.harness)))
-        .map(|target| {
-            let hub = self.clone();
-            tokio::spawn(async move { hub.probe_live(target).await })
-        })
-        .collect();
+        self.wait_startup().await;
+        let cfg = Arc::new(self.config.read().await.clone());
+        let handles: Vec<_> = cfg
+            .harnesses
+            .iter()
+            .filter(|(name, _)| {
+                self.probes(name) && only.as_ref().is_none_or(|o| o.contains(*name))
+            })
+            .filter_map(|(name, profile)| Some((name.clone(), live_cli(name, profile)?)))
+            .map(|(name, cli)| {
+                let hub = self.clone();
+                let cfg = cfg.clone();
+                tokio::spawn(async move {
+                    let id = name.clone();
+                    // Resolving a profile can consult its credential store. Only do it for a scheduled probe.
+                    match tokio::task::spawn_blocking(move || target(&cfg, &id, cli)).await {
+                        Ok(Ok(target)) => hub.probe_live(target).await,
+                        _ => {
+                            hub.probe_errors
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .insert(name, "could not resolve the harness model probe".into());
+                        }
+                    }
+                })
+            })
+            .collect();
         if wait {
             for handle in handles {
                 let _ = handle.await;
@@ -207,9 +335,20 @@ impl Hub {
     async fn probe_live(self: &Arc<Self>, target: Target) {
         // MDM's off as the list starts: its one read, taken first (review 120 of #23322).
         let latch = self.off_latch();
-        // The CLIs need the login environment (PATH, API keys).
-        self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
+        self.live_ages
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .started(&target.harness, std::time::Instant::now());
+        // The cache clock and the program's identity before the CLI is asked: a refresh, a
+        // profile change or an update while it runs leaves what it read stale (`model_lists`).
+        let written = self.model_lists.stamp();
+        let binary = match program.clone() {
+            Some(program) => {
+                tokio::task::spawn_blocking(move || CacheKey::of(&program)).await.ok().flatten()
+            }
+            None => None,
+        };
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
@@ -256,19 +395,14 @@ impl Hub {
         };
         tracing::info!(agent = %harness, models = models.len(), ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), "live model list");
         self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).remove(&harness);
-        if let Some(key) = program.as_deref().and_then(CacheKey::of) {
+        if let Some(key) = binary.clone() {
             let (name, list) = (harness.clone(), models.clone());
             let _ = tokio::task::spawn_blocking(move || {
                 Cache::new(Cache::default_dir()).store(&name, &key, &list)
             })
             .await;
         }
-        let changed = self
-            .live_models
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(harness, models.clone())
-            .is_none_or(|old| old != models);
+        let changed = self.model_lists.put_live(&harness, models, binary, written);
         if changed {
             self.announce_harnesses().await;
         }
@@ -276,7 +410,7 @@ impl Hub {
 
     /// `_acpmux/harnesses_changed` with the current harness names: a model
     /// list changed, so watchers read `_acpmux/models` again.
-    async fn announce_harnesses(&self) {
+    pub(super) async fn announce_harnesses(&self) {
         let cfg = self.config.read().await;
         let names: Vec<&String> = cfg.harnesses.keys().collect();
         self.send_harness_change(

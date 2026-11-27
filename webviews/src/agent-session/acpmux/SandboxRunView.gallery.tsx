@@ -25,7 +25,7 @@ export default componentEntry<ComponentProps<typeof SandboxRunView>>({
       props: { run: { task, state: "running" } },
     },
     "running-unchecked": {
-      note: "A running run whose newest read didn't answer: it stays shown, says so, and offers Check again.",
+      note: "A running run whose newest read didn't answer: it stays shown and reads again on its own; once that has lasted, one quiet Still checking line, no button.",
       props: { run: { task, state: "running" }, unread: true, onCheckAgain: () => undefined },
     },
     succeeded: {
@@ -61,6 +61,27 @@ export default componentEntry<ComponentProps<typeof SandboxRunView>>({
           },
         },
       },
+    },
+    abandoned: {
+      note: "A run whose VM cmux gave up deleting: the receipt says it was not deleted and is left for the person, never that its destroy is pending.",
+      props: {
+        run: {
+          task,
+          state: "done",
+          receipt: {
+            status: "succeeded",
+            exitCode: 0,
+            reply: "14 TODOs: web/ 6, cmux-tui/ 5, scripts/ 3.",
+            timings: { totalMs: 96_400, bootMs: 31_200 },
+            cost: { vmSeconds: 96, estimateUsd: 0.0029 },
+            cleanup: "abandoned",
+          },
+        },
+      },
+    },
+    "uncertain-checking": {
+      note: "A failure that may hide a live Run whose read didn't answer: its words, then the quiet Still checking line once the reads have kept failing; no Check again button.",
+      props: { run: { task, state: "failed", code: "http_500" }, unread: true, onCheckAgain: () => undefined },
     },
     refused: {
       note: "The server has not enabled sandboxes for this account: a readable refusal, no VM started.",

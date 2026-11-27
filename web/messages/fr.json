@@ -200,7 +200,10 @@
     "signupPendingBody": "Si vous avez déjà un compte, connectez-vous avec la méthode utilisée précédemment. Si vous venez de créer un compte, vérifiez votre adresse e-mail avant de vous connecter.",
     "genericTitle": "Connexion impossible",
     "genericBody": "Réessayez. Si le problème persiste, contactez l’assistance.",
-    "backToSignIn": "Retour à la connexion"
+    "backToSignIn": "Retour à la connexion",
+    "chatgptLinkTitle": "Connectez-vous une fois pour associer ChatGPT",
+    "chatgptLinkBody": "Cette adresse e-mail a déjà un compte cmux. Connectez-vous avec la méthode utilisée auparavant et ChatGPT sera associé à ce compte.",
+    "chatgptEmailUnverifiedBody": "L’adresse e-mail de votre compte ChatGPT n’est pas vérifiée. Vérifiez-la auprès d’OpenAI ou connectez-vous autrement."
   },
   "cloudPublicationAccess": {
     "title": "Vous n’avez pas accès",
@@ -576,17 +579,17 @@
           ],
           "pro": [
             "Agents cloud sur des Cloud VMs",
-            "Jusqu'à 5 Cloud VMs qui partagent 20 vCPU et 40 Go de RAM. Une VM peut utiliser jusqu’à 16 Go de RAM / 8 vCPU. Les tailles 24 Go / 12 vCPU et 32 Go / 16 vCPU nécessitent Max.",
+            "Cloud VMs sans limite de nombre, facturées au-delà de l’utilisation incluse ; une VM peut utiliser jusqu’à 16 Go de RAM / 8 vCPU. Les tailles 24 Go / 12 vCPU et 32 Go / 16 vCPU nécessitent Max.",
             "L'app cmux pour iOS"
           ],
           "max": [
-            "Jusqu'à 5 Cloud VMs qui partagent 80 vCPU et 160 Go de RAM. Max donne accès à 24 Go / 12 vCPU, 32 Go / 16 vCPU et jusqu’à 64 Go / 32 vCPU.",
+            "Cloud VMs sans limite de nombre, facturées au-delà de l’utilisation incluse ; Max donne accès à 24 Go / 12 vCPU, 32 Go / 16 vCPU et jusqu’à 64 Go / 32 vCPU.",
             "Des machines plus grandes",
             "Tout ce qu'inclut Pro"
           ],
           "team": [
             "Tout ce qu'inclut Pro pour chaque membre",
-            "Jusqu'à 5 Cloud VMs par siège payant, qui partagent 20 vCPU et 40 Go de RAM par siège payant dans toute l'équipe",
+            "Cloud VMs sans limite de nombre pour toute l’équipe, facturées au-delà de l’utilisation incluse ; le plafond de dépenses de l’équipe est l’arrêt",
             "Une seule facture pour toute l'équipe",
             "Support prioritaire"
           ]
@@ -2506,7 +2509,7 @@
       "socketModeDesc": "Remplacer le mode d'accès (cmuxOnly, allowAll, off). Accepte aussi cmux-only/cmux_only et allow-all/allow_all",
       "workspaceIdDesc": "Auto-défini : ID de l'espace de travail actuel",
       "surfaceIdDesc": "Auto-défini : ID de la surface actuelle",
-      "termProgramDesc": "Défini à ghostty",
+      "termProgramDesc": "Défini à cmux",
       "termDesc": "Défini à xterm-ghostty",
       "envCallout": "Les anciennes valeurs CMUX_SOCKET_MODE full et notifications sont toujours acceptées pour compatibilité.",
       "detectingCmux": "Détecter cmux",
@@ -2972,13 +2975,13 @@
       "planMax": "Max",
       "sizesDefault": "Les nouvelles machines utilisent 8 GB de mémoire si vous ne choisissez pas de taille. Exécutez cmux vm ls --json pour voir les tailles autorisées par votre forfait.",
       "limitsTitle": "Limites de forfait",
-      "limitsDesc": "Vos machines actives partagent un même pool de vCPU et de mémoire. Lancez une grande machine ou plusieurs petites. Les machines en pause n'utilisent pas le pool. Le disque est défini par machine et ne fait pas partie du pool.",
+      "limitsDesc": "Pro, Team et Max n’ont aucune limite au nombre de machines ; Plus conserve une machine. Au-delà de l’utilisation incluse, les machines en cours d’exécution sont facturées par heure de vCPU et par heure de GB, et les machines enregistrées ou en pause par GB-mois de disque. Le plafond de dépenses de l’équipe est le seul arrêt : une fois atteint, les nouveaux démarrages sont refusés et les machines en cours d’exécution se mettent en pause après un avertissement, sans rien perdre.",
       "limitsFree": "Les comptes gratuits ne peuvent pas créer de machines.",
-      "limitsPaid": "Les comptes Pro peuvent avoir jusqu'à 5 machines, y compris les machines en pause qui partagent 20 vCPU et 40 GB de mémoire.",
-      "limitsTeam": "Les comptes Team peuvent avoir jusqu'à 5 machines, y compris les machines en pause par siège payant. Chaque siège payant ajoute 20 vCPU et 40 GB de mémoire au pool de l'équipe.",
-      "limitsMax": "Les comptes Max peuvent avoir jusqu'à 5 machines, y compris les machines en pause qui partagent 80 vCPU et 160 GB de mémoire. Une machine Max peut utiliser jusqu'à 64 GB et 32 vCPU, y compris les tailles 24 GB / 12 vCPU et 32 GB / 16 vCPU ; Pro et Team s'arrêtent à 16 GB et 8 vCPU.",
-      "limitsPoolFull": "Si une machine créée, reprise, agrandie ou dupliquée dépasse le pool, cmux refuse la demande et indique la part du pool déjà utilisée. Mettez en pause ou supprimez une machine pour libérer des ressources, ou passez à Max.",
-      "limitsPricing": "Consultez la page des tarifs pour les prix actuels. Il n'y a ni facturation à l'usage ni frais de dépassement.",
+      "limitsPaid": "Les comptes Pro peuvent avoir un nombre quelconque de machines, chacune jusqu’à 16 GB et 8 vCPU.",
+      "limitsTeam": "Team est facultatif : il regroupe tout le monde sur une seule facture partagée et un seul plafond de dépenses. Les sièges ne changent pas le nombre de machines que chacun peut avoir.",
+      "limitsMax": "Les comptes Max peuvent avoir un nombre quelconque de machines. Une machine Max peut utiliser jusqu’à 64 GB et 32 vCPU, y compris les tailles 24 GB / 12 vCPU et 32 GB / 16 vCPU ; Pro et Team s’arrêtent à 16 GB et 8 vCPU.",
+      "limitsPoolFull": "Au plafond de dépenses, cmux refuse une machine nouvelle ou reprise et indique que l’équipe a atteint son plafond. Relevez le plafond pour redémarrer des machines ; rien n’est supprimé.",
+      "limitsPricing": "Consultez la page des tarifs pour les prix actuels. L’utilisation au-delà de la quantité incluse est mesurée.",
       "agentUpdatesTitle": "Garder les agents de code à jour",
       "agentUpdatesDesc": "Avec ce réglage activé, la machine met à jour Claude Code, Codex, OpenCode, pi et agent-browser. Elle vérifie après la création de la machine et à chaque connexion, au plus une fois toutes les 24 heures. La mise à jour s'exécute en arrière-plan de façon détachée, elle ne bloque donc jamais la connexion.",
       "agentUpdatesSource": "Chaque outil provient de sa version GitHub officielle et est vérifié avec l'empreinte sha256 de l'asset de la version. npm n'est pas utilisé. Une version ne s'installe qu'après 3 jours de publication, et une mise à jour n'installe jamais une version plus ancienne. Un agent en cours d'exécution garde les fichiers avec lesquels il a démarré, et une mise à jour échouée laisse la version actuelle en place.",
@@ -3365,7 +3368,8 @@
       "darkArt": "Art sombre",
       "museumIcons": "Icônes des musées",
       "calm": "Calme",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "Peinture d'Asie de l'Est"
     }
   },
   "testimonials": {
@@ -5419,7 +5423,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro est actif",
     "title": "Bienvenue dans cmux Pro",
-    "body": "Pro inclut jusqu’à 5 VM Cloud partageant 20 vCPU et 40 Go de RAM, ainsi que l’accès à cmux iOS via TestFlight. Une VM peut utiliser jusqu’à 16 Go de RAM / 8 vCPU. Les tailles 24 Go / 12 vCPU et 32 Go / 16 vCPU nécessitent Max.",
+    "body": "Pro inclut des VM Cloud sans limite de nombre, facturées au-delà de l’utilisation incluse, ainsi que l’accès à cmux iOS via TestFlight. Une VM peut utiliser jusqu’à 16 Go de RAM / 8 vCPU. Les tailles 24 Go / 12 vCPU et 32 Go / 16 vCPU nécessitent Max.",
     "done": "Accéder au tableau de bord",
     "steps": {
       "iosApp": {
@@ -5496,7 +5500,9 @@
     "errorInvalidTotp": "Ce code à deux facteurs n'est pas valide.",
     "errorSignUpNotAllowed": "Impossible de créer de nouveaux comptes pour le moment.",
     "errorPasskey": "La connexion par clé d'accès n'a pas abouti. Réessayez ou utilisez une autre méthode.",
-    "errorGeneric": "Une erreur s'est produite. Réessayez."
+    "errorGeneric": "Une erreur s'est produite. Réessayez.",
+    "errorRedirectNotAllowed": "L'adresse de connexion de ce build n'est pas autorisée sur {backend}.",
+    "backendDevelopment": "le backend de développement"
   },
   "MobileRelease106": {
     "title": "Nouveautés de la version 1.0.6",
@@ -5532,5 +5538,15 @@
     "unavailableTitle": "Impossible de confirmer votre connexion",
     "unavailableBody": "Notre service de connexion est saturé. Patientez quelques secondes, puis rouvrez l'invitation. Vous n'avez pas besoin de vous reconnecter.",
     "retry": "Réessayer"
+  },
+  "connected": {
+    "title": "Vous êtes connecté à {app}",
+    "titleGeneric": "Vous êtes connecté",
+    "errorTitle": "Connexion à {app} impossible",
+    "errorTitleGeneric": "La connexion n'a pas abouti",
+    "body": "Revenez à cmux pour continuer.",
+    "errorBody": "Revenez à cmux et réessayez.",
+    "button": "Retour à cmux",
+    "closeHint": "Vous pouvez fermer cet onglet."
   }
 }

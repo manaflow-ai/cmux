@@ -66,4 +66,18 @@ extension DaemonConnection {
     public func keepTerminal(_ terminal: TerminalID) async throws -> ResourceID? {
         try await setTerminalKeep(.terminal(terminal), keep: true).terminalResourceID
     }
+
+    /// Keeps `terminal` (``keepTerminal(_:)``) on a daemon that can reap it, before its last tab here closes.
+    ///
+    /// A daemon without `terminal-reap-v1` ends no tabless terminal and stores no keep, so it is not asked
+    /// and the result is nil. On any other daemon the keep's failure is thrown: a caller that closes the
+    /// terminal's last tab must not close it then, or a reaping daemon ends the terminal after its grace.
+    ///
+    /// - Parameter terminal: The terminal to keep.
+    /// - Returns: The terminal's public id when the daemon names it; nil from a daemon without `terminal-reap-v1`.
+    /// - Throws: The keep's failure, for example `terminal_not_found` for a terminal this daemon does not have.
+    public func keepTerminalIfReaping(_ terminal: TerminalID) async throws -> ResourceID? {
+        guard identity?.supports(DaemonCapability.terminalReap.rawValue) == true else { return nil }
+        return try await keepTerminal(terminal)
+    }
 }

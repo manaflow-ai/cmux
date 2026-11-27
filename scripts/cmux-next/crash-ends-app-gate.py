@@ -21,7 +21,8 @@ nothing received. This guard launches a Debug `cmux DEV <tag>.app` twice, with S
              launch names the crash) must be in the app's marker folder.
 
 Before each crash it checks with `sample` that Sentry's primary Mach handler thread runs, so the
-guard holds the failing setup. A process that does not end is sampled into --out and then stopped
+guard holds the failing setup. The tagged bundle is opted in to crash reports first
+(`defaults write <bundle id> sendAnonymousTelemetry -bool true`, removed after): reports are opt-in. A process that does not end is sampled into --out and then stopped
 by its exact PID. Exit 0 when every run ended in time.
 
 Usage: crash-ends-app-gate.py --app "<dir>/cmux DEV <tag>.app" --out <dir>
@@ -30,6 +31,7 @@ import argparse, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PRIMARY = "SentryCrash Exception Handler (Primary)"
@@ -107,13 +109,29 @@ def main_thread(text, lines=40):
     return "\n".join(out)
 
 
-def marker_folder():
-    """The app's run marker folder (AppRunMarker.standardDirectory: the bundle id, made path-safe)."""
+def bundle_id():
     import plistlib
     with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as file:
-        bundle_id = plistlib.load(file).get("CFBundleIdentifier", "unknown")
+        return plistlib.load(file).get("CFBundleIdentifier", "unknown")
+
+
+# Crash reports are opt-in since cmux#55065 (CrashReportingPolicy.telemetryOptIn: an unset
+# `sendAnonymousTelemetry` preference means off), so CMUX_NEXT_DEV_SENTRY=1 alone no longer starts
+# Sentry and the gate read "primary Mach exception thread does not run". The gate opts this tagged
+# bundle in, in its own defaults domain (nobody's real install), and takes the key back after.
+CONSENT_KEY = "sendAnonymousTelemetry"
+
+
+def consent(on):
+    args = ["write", bundle_id(), CONSENT_KEY, "-bool", "true"] if on else ["delete", bundle_id(), CONSENT_KEY]
+    subprocess.run(["/usr/bin/defaults"] + args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
+                   check=on)
+
+
+def marker_folder():
+    """The app's run marker folder (AppRunMarker.standardDirectory: the bundle id, made path-safe)."""
     root = os.path.expanduser("~/Library/Application Support/cmux-next")
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", bundle_id)
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", bundle_id())
     return os.path.join(root, safe)
 
 
@@ -137,10 +155,15 @@ def run(kind):
     # -ApplePersistenceIgnoreState: the crashes this gate causes are crash history, so a later launch on the same
     # runner opened AppKit's modal "reopen windows?" alert before the debug socket, and the gate read a freeze
     # (cmux#37269's run 42315815296: both launches' main threads in promptToIgnorePersistentStateWithCrashHistory).
-    process = subprocess.Popen([os.path.join(bundle, "Contents/MacOS/cmux DEV"), "-ApplePersistenceIgnoreState", "YES"], env=env,
+    # -sendAnonymousTelemetry <true/>: since #55065 crash reports are opt-in (CrashReportingPolicy.telemetryOptIn reads
+    # UserDefaults.standard, off when unset), so a fresh launch never started Sentry and every run failed "primary Mach
+    # exception thread does not run". This is consent in the argument domain for this launch only: no stored default
+    # changes. A plist bool, since `as? Bool` does not take the string YES.
+    process = subprocess.Popen([os.path.join(bundle, "Contents/MacOS/cmux DEV"), "-ApplePersistenceIgnoreState", "YES",
+                                "-sendAnonymousTelemetry", "<true/>"], env=env,
                                stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     pid = process.pid
-    print(f"crash-ends-app-gate: {kind}: launched {tag} pid {pid}", flush=True)
+    safe_print(f"crash-ends-app-gate: {kind}: launched {tag} pid {pid}", flush=True)
     try:
         last = {}
 
@@ -163,7 +186,7 @@ def run(kind):
                     f"last reply {last.get('reply')}" + (f"\n  main thread (no-socket-{kind}.txt):\n{stack}" if stack else ""))
         before = sample(pid, os.path.join(opts.out, f"before-{kind}.txt"))
         if PRIMARY not in before:
-            return f"{kind}: Sentry's primary Mach exception thread does not run before the crash (CMUX_NEXT_DEV_SENTRY=1 not honored?)"
+            return f"{kind}: Sentry's primary Mach exception thread does not run before the crash (CMUX_NEXT_DEV_SENTRY=1 or -sendAnonymousTelemetry not honored?)"
         limit = {"exception": opts.exception_seconds, "frozen": opts.frozen_seconds}.get(kind, opts.suspended_seconds)
         started = time.time()
         if kind == "suspended":
@@ -184,8 +207,8 @@ def run(kind):
         if process.poll() is None:
             text = sample(pid, os.path.join(opts.out, f"frozen-{kind}.txt"), seconds=2)
             main = text.split("com.apple.main-thread", 1)[-1][:1600] if text else ""
-            print(f"crash-ends-app-gate: {kind}: the app still runs {elapsed:.0f} s after the crash; "
-                  f"main thread:\n{main}", flush=True)
+            safe_print(f"crash-ends-app-gate: {kind}: the app still runs {elapsed:.0f} s after the crash; "
+                       f"main thread:\n{main}", flush=True)
             return f"{kind}: the crash froze the app instead of ending it within {limit:.0f} s"
         if result.returncode != 0:
             return f"{kind}: exception-report-e2e.py exited {result.returncode}"
@@ -202,7 +225,7 @@ def run(kind):
                 path = os.path.join(folder, name)
                 if not os.path.exists(path) or os.path.getmtime(path) < started - 300:
                     return f"suspended: no fresh {name} in {folder}"
-        print(f"crash-ends-app-gate: {kind}: ended in {elapsed:.1f} s (exit status {process.returncode})", flush=True)
+        safe_print(f"crash-ends-app-gate: {kind}: ended in {elapsed:.1f} s (exit status {process.returncode})", flush=True)
         return None
     finally:
         if process.poll() is None:
@@ -211,7 +234,11 @@ def run(kind):
         teardown.end()
 
 
-failures = [failure for failure in (run(kind.strip()) for kind in opts.runs.split(",") if kind.strip()) if failure]
+consent(True)
+try:
+    failures = [failure for failure in (run(kind.strip()) for kind in opts.runs.split(",") if kind.strip()) if failure]
+finally:
+    consent(False)
 for failure in failures:
     print(f"FAIL {failure}", flush=True)
 if failures:

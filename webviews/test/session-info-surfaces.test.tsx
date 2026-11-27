@@ -28,6 +28,7 @@ import {
 import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { setNativeSessionInfoHost } from "../src/agent-session/acpmux/session-info/native/host";
+import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/LazyNativeSessionInfo";
 import {
   sessionInfoState,
   resetSessionInfoState,
@@ -39,6 +40,8 @@ import {
   useArtifactCoversPane,
 } from "../src/agent-session/acpmux/conversation/artifactPanelModel";
 import { chat } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -81,6 +84,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -133,9 +137,8 @@ function Pane({ initiallyCovered }: { initiallyCovered: boolean }) {
   );
 }
 
-const panel = (container: HTMLElement) => container.querySelector("aside.acpmux-session-info");
-const toggle = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>("button.acpmux-session-info-toggle")!;
+const panel = (container: HTMLElement) => container.querySelector(SESSION_INFO);
+const toggle = (container: HTMLElement) => container.querySelector<HTMLButtonElement>(SESSION_INFO_TOGGLE)!;
 
 async function mount(covered: boolean) {
   uncovered = 0;
@@ -249,7 +252,7 @@ test("floating beside a side panel, the card's right edge is the chat's", async 
       </SessionInfoPanel>,
     );
   });
-  const aside = container.querySelector<HTMLElement>("aside.acpmux-session-info")!;
+  const aside = container.querySelector<HTMLElement>(SESSION_INFO)!;
   expect(aside.style.getPropertyValue("--acpmux-session-info-side")).toBe("736px");
   const css = readFileSync(
     new URL("../src/agent-session/acpmux/session-info/sessionInfo.css", import.meta.url),
@@ -306,13 +309,12 @@ test("the side panel's covering follows the pane's width as it crosses the query
   expect(listeners.size).toBe(0);
 });
 
-// A wide pane pushes the chat left by the whole panel, so the chat is centered beside it (Lucas,
-// 2026-11-06: "we need to make sure that the chat is centered when the session info is open"); it
-// floated in the free gutter before. A handoff review's wider form still floats (Leo, 2026-10-24: "it
-// was never supposed to be a sidebar").
-test("in a wide pane it pushes the chat, centered beside the panel", async () => {
+// A wide pane floats the panel in the free gutter and moves nothing (Leo, 2026-11-09: "if it has enough
+// space, then don't push the layout. Don't make it affect the layout"). A handoff review's wider form
+// floats too (Leo, 2026-10-24: "it was never supposed to be a sidebar").
+test("in a wide pane it floats in the gutter and does not move the chat", async () => {
   const container = installDom();
-  // A 1600px pane: the pinned column fits beside the whole panel.
+  // A 1600px pane: its 400px gutter holds the panel and its margins.
   Object.defineProperty(dom!.window.HTMLElement.prototype, "clientWidth", {
     configurable: true,
     get(this: HTMLElement) {
@@ -324,7 +326,11 @@ test("in a wide pane it pushes the chat, centered beside the panel", async () =>
     root = createRoot(container);
     root.render(<Pane initiallyCovered={false} />);
   });
-  expect(panel(container)?.getAttribute("data-placement")).toBe("push");
+  expect(panel(container)?.getAttribute("data-placement")).toBe("overlay");
+  expect(panel(container)?.hasAttribute("data-over-chat")).toBe(false);
+  const shell = container.querySelector<HTMLElement>(".acpmux-shell")!;
+  expect(shell.dataset.sessionInfoChatPlacement).toBe("overlay");
+  expect(shell.style.getPropertyValue("--acpmux-session-info-column")).toBe("");
 });
 
 // Leo, 2026-10-27: "why am i sent to a whole new thing instead of a tab opening on the right?" The
@@ -381,7 +387,9 @@ async function mountFolderPane(width: number, opened: string[], height = 0) {
 }
 
 const projectRow = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>('ul[data-section="environment"] button.acpmux-session-info-row')!;
+  container.querySelector<HTMLButtonElement>(
+    `ul[data-section="environment"] button.acpmux-session-info-row[title="${snapshot.summary!.cwd!}"]`,
+  )!;
 
 test("over the chat, a project click opens its Files tab and the panel steps aside, still open", async () => {
   const opened: string[] = [];
@@ -506,6 +514,8 @@ for (const width of [370, 528, 740, 1100, 1200, 1420]) {
       return {};
     });
     setNativeSessionInfoHost(true);
+    // The App-drawn panel is its own chunk (LazyNativeSessionInfo.tsx): in before the pane mounts, as the host event makes it.
+    await loadNativeSessionInfo();
     try {
       const opened: string[] = [];
       const container = await mountFolderPane(width, opened, 960);
@@ -523,10 +533,10 @@ for (const width of [370, 528, 740, 1100, 1200, 1420]) {
       expect(parseFloat(room!.style.width) + parseFloat(room!.style.marginRight)).toBe(taken);
       expect(posted.at(-1)).toMatchObject({ open: true, width: expected, side: 0 });
       // The column keeps its whole-pane width, pinned (sessionInfo.css): it fits in the chat with its two
-      // page edges and only moves left. Where it fits beside the whole panel, the page keeps the whole
-      // room, so the chat is centered beside the native panel too (Lucas, 2026-11-06).
+      // page edges and only moves left. Where the gutter lacks only a little, the page keeps only that
+      // (Leo, 2026-11-09: "You only push when you don't have any space left").
       expect(width - taken).toBeGreaterThanOrEqual(transcriptColumn(width).width + 2 * transcriptColumn(0).inset);
-      if (width === 1420) expect(taken).toBe(expected + FLOAT_MARGIN);
+      if (width === 1420) expect(taken).toBeLessThan(expected + FLOAT_MARGIN);
     } finally {
       setNativeSessionInfoHost(false);
       setNativeHost(undefined);

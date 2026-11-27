@@ -15,6 +15,18 @@ use crate::origin;
 pub const NEXT_DEV_BUNDLE_ID: &str = "com.cmuxterm.app.debug.next";
 /// cmux NIGHTLY, whose session a signed NEXT DEV build on the NIGHTLY account adopts.
 pub const NIGHTLY_BUNDLE_ID: &str = "com.cmuxterm.app.nightly";
+/// cmux RC.
+pub const RC_BUNDLE_ID: &str = "com.cmuxterm.app.rc";
+/// cmux (the release channel).
+pub const RELEASE_BUNDLE_ID: &str = "com.cmuxterm.app";
+/// The Keychain access group every Team-signed channel with a provisioning profile carries after
+/// its own (cmux.release / cmux.nightly / cmux.rc entitlements): the shared sign-in item lives there.
+pub const SHARED_ACCESS_GROUP: &str = "7WLXT3NR37.com.cmuxterm.app.shared";
+/// The channels signed with a Developer ID profile that grants [`SHARED_ACCESS_GROUP`]. Signed NEXT
+/// DEV and NEXT Stable embed no profile (cmux.next-dev.entitlements), so their signature cannot
+/// carry a Keychain access group: they are not here.
+pub const SHARED_SESSION_BUNDLE_IDS: [&str; 3] =
+    [RELEASE_BUNDLE_ID, NIGHTLY_BUNDLE_ID, RC_BUNDLE_ID];
 /// The placeholder configuration's bundle id (`CloudConfiguration.unavailable`): a test or capture
 /// composition root that builds services before the runtime bootstrap. Its token store is its own,
 /// so it never restores a real bundle's credentials.
@@ -75,9 +87,11 @@ pub struct Inputs {
 pub struct StorageNames {
     /// The Stack token Keychain service (`<bundle id>.auth`, scoped by the storage project).
     pub keychain_service: String,
-    /// The file-fallback token store under the home folder:
-    /// `Library/Application Support/cmux/<bundle id>[/<project>]`. This build's own namespace,
-    /// which predates the per-build state roots; moving it would sign every build out.
+    /// The file-fallback token store under the home folder: a scoped store in NEXT's own folder,
+    /// `Library/Application Support/cmux-next/<bundle id>/<project>` (moved there once from classic
+    /// cmux's `cmux/<bundle id>/<project>` by the app at launch, so nobody is signed out); an unscoped
+    /// legacy default's in `Library/Application Support/cmux/<bundle id>`, the store classic cmux of
+    /// the same bundle id writes too (one Keychain service, one session), so it stays.
     pub credentials_subpath: Vec<String>,
     /// The suffix of every `cmux.auth.*` defaults key (`<key>.<project>`), when scoped.
     pub defaults_key_suffix: Option<String>,
@@ -90,6 +104,41 @@ pub struct StorageNames {
 pub struct LegacyStore {
     pub keychain_service: String,
     pub credentials_subpath: Vec<String>,
+}
+
+/// The sign-in session the Team-signed production builds share, in [`SHARED_ACCESS_GROUP`].
+///
+/// A build that has one writes its OWN session there after a sign-in or a refresh (never one it
+/// adopted) and removes it on its sign-out while the item still holds it. Signed out at launch, it
+/// imports the item read-only, in memory: the session stays the writer's, so a sign-out in the
+/// importer leaves it alive on the server and leaves the item, as the NIGHTLY adoption does. A
+/// session of its own (its Keychain store, or its earlier namespaced store) always wins over it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedSession {
+    /// `com.cmuxterm.app.shared.auth.<stack project>`.
+    pub keychain_service: String,
+    /// [`SHARED_ACCESS_GROUP`]: every query on the item names it.
+    pub access_group: String,
+}
+
+/// The shared session of a build: a non-Debug build of a channel in [`SHARED_SESSION_BUNDLE_IDS`]
+/// on the production backend; none for every other (a development backend's accounts are its own,
+/// and a build without the profile has no access group).
+pub fn shared_session(
+    bundle_id: &str,
+    is_debug_build: bool,
+    production: bool,
+    stack_project_id: &str,
+) -> Option<SharedSession> {
+    let shares = !is_debug_build
+        && production
+        && !stack_project_id.is_empty()
+        && SHARED_SESSION_BUNDLE_IDS.contains(&bundle_id);
+    shares.then(|| SharedSession {
+        keychain_service: format!("com.cmuxterm.app.shared.auth.{stack_project_id}"),
+        access_group: SHARED_ACCESS_GROUP.to_owned(),
+    })
 }
 
 /// One build's Cloud.
@@ -109,8 +158,12 @@ pub struct Configuration {
     pub is_debug_build: bool,
     pub storage: StorageNames,
     pub namespaced_legacy_store: Option<LegacyStore>,
-    /// A signed NEXT DEV production launch adopts the running NIGHTLY's session in memory.
+    /// Always `false`: no build takes a running NIGHTLY's session (signed NEXT DEV signs in on its own).
+    /// Still serialized because the pinned app's decoder requires the key; remove it once the app no
+    /// longer reads it (docs/ci/app-ffi-release.md, step A of cmux#43648).
     pub adopts_nightly_session: bool,
+    /// The session Team-signed production builds share ([`shared_session`]).
+    pub shared_session: Option<SharedSession>,
 }
 
 /// The configuration of a build running `inputs.selection` (the app's `CloudConfiguration.from`).
@@ -147,9 +200,13 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
         callback_scheme,
         storage: storage_names(Some(&bundle_id), Some(selection)),
         namespaced_legacy_store: namespaced_legacy_store(&bundle_id, selection),
-        adopts_nightly_session: !inputs.is_debug_build
-            && bundle_id == NEXT_DEV_BUNDLE_ID
-            && production,
+        adopts_nightly_session: false,
+        shared_session: shared_session(
+            &bundle_id,
+            inputs.is_debug_build,
+            production,
+            &selection.stack_project_id,
+        ),
         bundle_id,
         is_debug_build: inputs.is_debug_build,
     }
@@ -169,13 +226,17 @@ fn storage_project(bundle_id: Option<&str>, selection: Option<&Selection>) -> Op
     }
 }
 
-fn credentials_subpath(bundle_id: Option<&str>) -> Vec<String> {
-    vec![
+/// The token store folder of `bundle_id` for `project` ([`StorageNames::credentials_subpath`]).
+fn credentials_subpath(bundle_id: Option<&str>, project: Option<&str>) -> Vec<String> {
+    let folder = if project.is_some() { "cmux-next" } else { "cmux" };
+    let mut subpath = vec![
         "Library".to_owned(),
         "Application Support".to_owned(),
-        "cmux".to_owned(),
+        folder.to_owned(),
         bundle_id.unwrap_or("cmux").to_owned(),
-    ]
+    ];
+    subpath.extend(project.map(str::to_owned));
+    subpath
 }
 
 /// The token store names of `bundle_id` running `selection` (none: the placeholder configuration).
@@ -184,8 +245,7 @@ pub fn storage_names(bundle_id: Option<&str>, selection: Option<&Selection>) -> 
     let project = storage_project(bundle_id, selection);
     let service =
         bundle_id.map_or_else(|| "com.cmuxterm.app.auth".to_owned(), |id| format!("{id}.auth"));
-    let mut subpath = credentials_subpath(bundle_id);
-    subpath.extend(project.clone());
+    let subpath = credentials_subpath(bundle_id, project.as_deref());
     StorageNames {
         keychain_service: match &project {
             Some(project) if bundle_id.is_some() => format!("{service}.{project}"),
@@ -205,8 +265,7 @@ fn namespaced_legacy_store(bundle_id: &str, selection: &Selection) -> Option<Leg
     {
         return None;
     }
-    let mut subpath = credentials_subpath(Some(bundle_id));
-    subpath.push(selection.auth_namespace.clone());
+    let subpath = credentials_subpath(Some(bundle_id), Some(&selection.auth_namespace));
     Some(LegacyStore {
         keychain_service: format!("{bundle_id}.auth.{}", selection.auth_namespace),
         credentials_subpath: subpath,
@@ -249,6 +308,53 @@ pub fn vm_api_base_url(backend: &Backend) -> &'static str {
         Backend::Production => PRODUCTION_VM_API,
         Backend::Development(_) | Backend::LocalOnly(_) => STAGING_VM_API,
     }
+}
+
+/// The production backend's name on a sign-in screen.
+pub const PRODUCTION_BACKEND_TITLE: &str = "cmux.com";
+
+/// What a sign-in screen says it signs in to: the backend's name and, off production, where it is.
+/// The app localizes `title` by `kind` (`cmux.com` is a name and stays as it is).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendLabel {
+    /// `production`, `development` or `local`.
+    pub kind: String,
+    /// "cmux.com", "Development backend" or "Local backend".
+    pub title: String,
+    /// A development backend's host, or a local backend's `host:port`; none on production.
+    pub detail: Option<String>,
+}
+
+/// The label of `backend` on the sign-in screens (Leo: "why is the stuff so weird to log in to dev
+/// builds?"): production is cmux.com; a development backend names its host; a loopback one, selected
+/// (`Development` at a loopback origin) or the placeholder's `LocalOnly`, is local and names `host:port`.
+pub fn backend_label(backend: &Backend) -> BackendLabel {
+    let label = |kind: &str, title: &str, detail: Option<String>| BackendLabel {
+        kind: kind.to_owned(),
+        title: title.to_owned(),
+        detail,
+    };
+    match backend {
+        Backend::Production => label("production", PRODUCTION_BACKEND_TITLE, None),
+        Backend::Development(url) if !origin::is_loopback(url) => {
+            label("development", "Development backend", origin::host(url))
+        }
+        Backend::Development(url) | Backend::LocalOnly(url) => {
+            label("local", "Local backend", local_host_port(url))
+        }
+    }
+}
+
+/// `host:port` of a loopback origin (an IPv6 host in brackets); the host alone without a port.
+fn local_host_port(url: &str) -> Option<String> {
+    let parts = origin::parse(url).filter(|parts| !parts.host.is_empty())?;
+    let host =
+        if parts.host.contains(':') { format!("[{}]", parts.host) } else { parts.host.clone() };
+    Some(match parts.port.filter(|port| !port.is_empty()) {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    })
 }
 
 /// The release channel's sign-in callback scheme.

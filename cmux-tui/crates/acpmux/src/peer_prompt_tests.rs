@@ -128,7 +128,11 @@ fn hidden_attach_uses_its_snapshot_without_overwriting_newer_live_events() {
 #[test]
 fn a_chat_without_a_baseline_is_not_replayed_from_its_first_record() {
     let cursors = HashMap::from([("fresh".to_owned(), 0), ("seen".to_owned(), 12)]);
-    assert_eq!(replayable(&cursors), vec![("seen".to_owned(), 12)]);
+    assert_eq!(replayable(&cursors, &HashSet::new()), vec![("seen".to_owned(), 12)]);
+    // A page settled `fresh` at 0: the chat held nothing then, and is replayed from its start.
+    let mut replayed = replayable(&cursors, &HashSet::from(["fresh".to_owned()]));
+    replayed.sort();
+    assert_eq!(replayed, vec![("fresh".to_owned(), 0), ("seen".to_owned(), 12)]);
 }
 
 #[test]
@@ -192,7 +196,9 @@ async fn replay_during_handshake(late_attach: bool, rollback: bool) {
     }
     let event = |seq| json!({"sessionId": "s", "seq": seq, "at": 1, "dir": "mux", "kind": "turn_end", "msg": {}});
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    let mut peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    // The refusal itself is what this checks: no wait for the handshake to finish.
+    Arc::get_mut(&mut peer).unwrap().timings.reconnect_wait = Duration::ZERO;
     let cursor = if rollback { 0 } else { 10 };
     let remembered = if rollback { 1000 } else { cursor };
     if !late_attach {

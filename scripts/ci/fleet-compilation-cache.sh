@@ -15,7 +15,9 @@ fleet_cache_setting=(
     COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES
 )
 # Keep mapping and diagnostics when caching is disabled, as admission did.
-if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" != 1 ]; then
+# CMUX_CI_FLEET_CACHE_OFF=1 is a build's one retry after it failed on the fleet
+# cache (lib/fleet-cache-fallback.sh): the same settings on the local cache.
+if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" != 1 ] && [ "${CMUX_CI_FLEET_CACHE_OFF:-}" != 1 ]; then
   fleet_cas_root="${CMUX_FLEET_CAS_ROOT:-/Users/Shared/cmux-build-fleet/xcode}"
   fleet_cas_settings="${CMUX_FLEET_CAS_SETTINGS:-$fleet_cas_root/bin/fleet-cas-settings.sh}"
   fleet_cas_socket="${CMUX_FLEET_CAS_SOCKET:-$fleet_cas_root/fleet-cas.sock}"

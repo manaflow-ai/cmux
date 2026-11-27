@@ -3,11 +3,13 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
+import OSLog
 import SwiftUI
 import UIKit
 import UserNotifications
 
 private let theme = CmuxMobileTheme.standard
+private let log = Logger(subsystem: "dev.cmux.mobile", category: "shell")
 
 /// First-run setup after sign-in (SPEC 5.5). Each step is a full page pushed in
 /// a `NavigationStack`; progress is implicit.
@@ -30,6 +32,11 @@ public struct SetupFlow: View {
     let signOut: () -> Void
     let finish: () -> Void
     @State private var path: [Step] = []
+    /// `steps` as of the latest update. A page's `next` can run on a copy of
+    /// this view from before the plan was fixed (the fleet's push probe: plan
+    /// [team, pairMac, notifications] logged, yet Connect your Mac ended setup
+    /// on the default [team, pairMac]); state reads the current value.
+    @State private var plan: [Step]?
     @State private var confirmsSignOut = false
 
     public init(
@@ -73,6 +80,7 @@ public struct SetupFlow: View {
             }
         }
         .tint(theme.colors.label.color)
+        .onChange(of: steps, initial: true) { _, steps in plan = steps }
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) {
             switch DemoDirector.shared.command {
@@ -99,6 +107,7 @@ public struct SetupFlow: View {
                 theme.haptics.warning()
                 signOut()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("You can sign in again with this or another account.")
         }
@@ -149,11 +158,26 @@ public struct SetupFlow: View {
     }
 
     private func advance(from step: Step) {
-        guard let index = steps.firstIndex(of: step), index + 1 < steps.count else {
+        let steps = plan ?? self.steps
+        let next = Self.step(after: step, in: steps)
+        let said = "setup: after \(step), \(next.map { "\($0)" } ?? "done") (plan \(steps))"
+        log.info("\(said, privacy: .public)")
+        guard let next else {
             finish()
             return
         }
-        path.append(steps[index + 1])
+        path.append(next)
+    }
+
+    /// The planned step after `step`, in setup's order. The plan is fixed once
+    /// the team list loads, which can be after the user has moved on: a page
+    /// the final plan dropped (Connect your Mac, when a Mac turned out to be
+    /// online) still leads to the steps planned after it, such as
+    /// notifications, instead of ending setup.
+    nonisolated static func step(after step: Step, in steps: [Step]) -> Step? {
+        let order: [Step] = [.team, .createTeam, .pairMac, .notifications]
+        guard let rank = order.firstIndex(of: step) else { return nil }
+        return steps.first { (order.firstIndex(of: $0) ?? -1) > rank }
     }
 }
 
@@ -207,6 +231,7 @@ private struct SetupSymbol: View {
         Image(systemName: name)
             .font(.system(size: 40, weight: .regular))
             .foregroundStyle(theme.colors.label)
+            .accessibilityHidden(true)
     }
 }
 
@@ -220,6 +245,7 @@ private struct ExplainerRow: View {
                 .font(.system(size: 17))
                 .frame(width: 22)
                 .foregroundStyle(theme.colors.label)
+                .accessibilityHidden(true)
             Text(text)
                 .font(theme.type.body)
                 .foregroundStyle(theme.colors.label)
@@ -230,7 +256,7 @@ private struct ExplainerRow: View {
 
 /// "Choose a space" (design spec, section 5): the title and Personal from the
 /// first frame, the account's teams under it (skeleton rows while they load,
-/// an inline retry if they can't), and "Create a team" once they're known.
+/// read again on their own if they can't), and "Create a team" once they're known.
 /// An empty list before the answer is "not loaded", never "no teams", so
 /// "Create a team" never shows as a placeholder.
 private struct TeamStep: View {
@@ -240,7 +266,12 @@ private struct TeamStep: View {
     let personal: () -> Void
     let create: () -> Void
     let next: () -> Void
-    @State private var isRetrying = false
+    /// A failed team list is read again on its own (no Retry): the skeleton rows stay through a
+    /// short failure; past the quiet bound the row says why, with no button.
+    @State private var autoRetry = AutoRetry()
+    /// A retry is out (the list reads "loading" meanwhile): it still counts as failed, and a
+    /// failure already on screen stays there instead of blinking back to the skeleton.
+    @State private var retrying = false
     /// "Create a team" arrives 0.1 s after the team rows (its own fade: a
     /// nested transition would not run inside the rows' insertion).
     @State private var showsCreate = false
@@ -249,10 +280,15 @@ private struct TeamStep: View {
 
     private var phase: Phase {
         switch auth.teamList.phase {
-        case .loading: .loading
-        case .failed: .failed
+        case .loading: retrying && autoRetry.isQuietLineShown ? .failed : .loading
+        case .failed: autoRetry.isQuietLineShown ? .failed : .loading
         case .loaded: .loaded
         }
+    }
+
+    private var teamsFailed: Bool {
+        if case .failed = auth.teamList.phase { return true }
+        return false
     }
 
     /// The account's teams, the personal space aside (it has its own row).
@@ -283,6 +319,7 @@ private struct TeamStep: View {
                             SkeletonList(rows: 2, leadingSquare: theme.metrics.teamAvatar, delay: .zero)
                                 .transition(.opacity)
                                 .accessibilityIdentifier("setup.teams.loading")
+                                .placeholderBound("onboarding.teams.skeleton", .milliseconds(2000))
                         case .failed:
                             failedRow
                                 .transition(.opacity)
@@ -290,13 +327,12 @@ private struct TeamStep: View {
                         case .loaded:
                             VStack(spacing: 0) {
                                 ForEach(teams) { team in
-                                    let presence = team.macDots()
+                                    let computer = ComputerDots.team(team)
                                     row(action: { pick(team) }) {
                                         SidebarTeamRow(
                                             name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji,
                                             transparent: team.appearance.isTransparent,
-                                            dots: presence.dots, overflow: presence.overflow,
-                                            onlineCount: team.listedMacs.filter(\.isOnline).count, isSelected: false
+                                            computer: computer.map { ($0.name, $0.isUp) }, isSelected: false
                                         )
                                     }
                                 }
@@ -309,15 +345,20 @@ private struct TeamStep: View {
                         }
                     }
                 }
-                .animation(theme.motion.smooth.animation, value: phase)
+                .animation(theme.motion.smooth.animation.unlessReduceMotion, value: phase)
             }
+        }
+        .autoRetry(autoRetry, failing: teamsFailed || retrying) {
+            retrying = true
+            await auth.retryTeams()
+            retrying = false
         }
         .onChange(of: phase, initial: true) { _, phase in
             guard phase == .loaded else {
                 showsCreate = false
                 return
             }
-            withAnimation(theme.motion.smooth.animation.delay(0.1)) { showsCreate = true }
+            withAnimation(theme.motion.smooth.animation.delay(0.1).unlessReduceMotion) { showsCreate = true }
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(theme.colors.bg.color.ignoresSafeArea())
@@ -333,7 +374,7 @@ private struct TeamStep: View {
 
     private func row<Label: View>(action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
         Button(action: action, label: label)
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .padding(.horizontal, theme.metrics.selectedRowInset)
     }
 
@@ -397,29 +438,16 @@ private struct TeamStep: View {
     /// A failed team list doesn't block setup: Personal stays selectable.
     private var failedRow: some View {
         HStack(spacing: 12) {
-            Text("Couldn't load your teams.")
-                .font(theme.type.rowSubtitle)
-                .foregroundStyle(theme.colors.label2)
-            Spacer(minLength: 0)
-            if isRetrying {
-                CmuxSpinner().controlSize(.small)
-            } else {
-                Button("Retry", action: retry)
-                    .font(theme.type.rowSubtitle.weight(.semibold))
-                    .foregroundStyle(theme.colors.label)
-                    .frame(minHeight: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Couldn't load your teams.")
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+                AutoRetryQuietLine(autoRetry)
             }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, theme.metrics.sideMargin)
         .frame(minHeight: theme.metrics.teamRowHeight)
-    }
-
-    private func retry() {
-        isRetrying = true
-        Task {
-            await auth.retryTeams()
-            isRetrying = false
-        }
     }
 
     private func pickPersonal() {
@@ -455,8 +483,7 @@ private struct CreateTeamPage: View {
         SetupPage(symbol: "person.2", title: "Create your team") {
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Team name", text: $name)
-                    // Names are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .font(theme.type.body)
                     .cmuxMobileInputField()
@@ -528,7 +555,7 @@ private struct PairMacStep: View {
             }
             .buttonStyle(PairMacCTAStyle(emphasis: cta.emphasis))
             .accessibilityIdentifier(PairMacCallToAction.accessibilityIdentifier)
-            .animation(theme.motion.snappy.animation, value: cta.emphasis)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: cta.emphasis)
         }
         .onAppear { foundAtStart = onlineMac != nil }
         .onChange(of: onlineMac != nil) { _, found in
@@ -603,18 +630,16 @@ private struct PairMacCTAStyle: ButtonStyle {
         let pressed = configuration.isPressed
         configuration.label
             .font(theme.type.cta)
-            .foregroundStyle(primary ? theme.colors.onAccent : theme.colors.label)
+            .foregroundStyle(primary ? theme.colors.neutralOnAccent : theme.colors.label)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, theme.metrics.ctaInlinePadding)
             // Grows with Dynamic Type instead of clipping its label.
             .padding(.vertical, 12)
             .frame(minHeight: CmuxMobileCapsuleSize.large.height)
-            .background(theme.colors.accent.color.opacity(primary ? 1 : 0), in: .capsule)
+            // Held: the pressed wash over the fill; the label never dims or shrinks.
+            .cmuxMobilePressFill(pressed, rest: AnyShapeStyle(theme.colors.neutralAccent.color.opacity(primary ? 1 : 0)), in: Capsule())
             .contentShape(.rect)
-            .opacity(pressed ? 0.85 : 1)
-            .scaleEffect(primary && pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation, value: pressed)
     }
 }
 

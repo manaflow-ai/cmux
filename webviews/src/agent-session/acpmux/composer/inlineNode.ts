@@ -27,11 +27,18 @@ import {
   inlineTokenSpans,
   unescapeTextMarks,
 } from "../attachments";
+import { intl } from "../../../ui/intl";
 
 export const INLINE_NODE = "inline_attachment";
 
 /// Where the composer draws each placed attachment: the element of its node, by id.
-export type InlineViews = { add(id: string, dom: HTMLElement): void; remove(id: string, dom: HTMLElement): void };
+export type InlineViews = {
+  add(id: string, dom: HTMLElement): void;
+  remove(id: string, dom: HTMLElement): void;
+  /// Whether the nodes are hidden: Settings' strip view (the default) draws the attachments in the
+  /// strip alone, so a node in the text is not there for the person's keys (`hiddenDelete`).
+  hidden?(): boolean;
+};
 
 /// Whether `id` is one of the composer's attachments, which the text's tokens are read against
 /// (attachments.ts inlineTokenSpans): the person's U+FFFC just before a word and an attachment's
@@ -77,7 +84,14 @@ export const sliceHoldsInline = (slice: Slice) => holds(slice.content, (node) =>
 
 /// The ids of the attachments placed in `doc`, its own nodes only (never text shaped like a token),
 /// in order, each once.
-export const inlineIds = (doc: ProseNode) => [...new Set(inlineNodes(doc).map((node) => node.id))];
+/// A document is immutable, so its ids are read once: a key asked for them twice (the box's edit and its render,
+/// composer/inlineAttachments.tsx), each a walk of the whole document. Each caller gets its own copy.
+export const inlineIds = (doc: ProseNode) => {
+  let ids = inlineIdsOf.get(doc);
+  if (!ids) inlineIdsOf.set(doc, (ids = [...new Set(inlineNodes(doc).map((node) => node.id))]));
+  return ids.slice();
+};
+const inlineIdsOf = new WeakMap<ProseNode, readonly string[]>();
 
 /// Each placed attachment's node in `doc`, in order.
 function inlineNodes(doc: ProseNode): { id: string; pos: number }[] {
@@ -171,6 +185,9 @@ function normalize(transactions: readonly Transaction[], previous: EditorState, 
 const CHIP_FACE =
   ".acpmux-attachment-open, .acpmux-attachment-pasted-open, .acpmux-attachment-document-open, .acpmux-text-card__open";
 
+/// A chip's content opened in place under its face (ContentChip.tsx).
+const OPENED_CONTENT = ".acpmux-paste-chip__panel";
+
 /// A drag's own events: the editor's wherever they land on a chip, its buttons too, so a chip dragged
 /// over another one's thumbnail or × still drops into the text there.
 const DRAG_EVENTS = new Set(["dragstart", "drag", "dragend", "dragenter", "dragover", "dragleave", "drop"]);
@@ -247,6 +264,11 @@ function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeVi
     // face's (`handleClickOn` below). A press elsewhere on it selects the node.
     stopEvent: (event) => {
       if (DRAG_EVENTS.has(event.type)) return false;
+      // A chip's opened content (ContentChip.tsx's panel: an inspector pick's report, its Collapse)
+      // is the chip's own: its keys scroll the report and never reach the editor, whose Enter sends
+      // the draft and whose arrows move its caret; a press there selects the report's text, not the
+      // node. The chip's own handler still folds it on Escape.
+      if (event.target instanceof Element && event.target !== dom && event.target.closest(OPENED_CONTENT)) return true;
       const button = buttonIn(event.target, dom);
       if (!button) return false;
       return !(event.type === "mousedown" && button.matches(CHIP_FACE));
@@ -351,7 +373,9 @@ export function inlinePlugin(views: InlineViews) {
               view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, to)).scrollIntoView());
               return true;
             }
-            if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
+            if (event.isComposing || event.keyCode === 229) return false;
+            if (views.hidden?.() && hiddenDelete(view, event)) return true;
+            if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
             const { selection } = view.state;
             if (!selection.empty || !(selection instanceof TextSelection)) return false;
             const backward = event.key === "Backspace";
@@ -372,6 +396,138 @@ export function inlinePlugin(views: InlineViews) {
   );
 }
 
+/// The edge of the run of placed attachments' nodes next to `pos`, going back (`backward`) or forward
+/// in its text block: `pos` itself when no node is next to it. One resolve, then the block's children.
+function pastNodes(doc: ProseNode, pos: number, backward: boolean): number {
+  const $pos = doc.resolve(pos);
+  if ($pos.textOffset) return pos;
+  const { parent } = $pos;
+  let at = pos;
+  for (let index = backward ? $pos.index() - 1 : $pos.index(); index >= 0 && index < parent.childCount;) {
+    const child = parent.child(index);
+    if (child.type.name !== INLINE_NODE) break;
+    at += backward ? -child.nodeSize : child.nodeSize;
+    index += backward ? -1 : 1;
+  }
+  return at;
+}
+
+/// The length of the last (`backward`) or first character of `text` as the person sees it: an emoji,
+/// a flag or a letter with its accents is one. A long text is read only near the end the key reaches.
+function charLength(whole: string, backward: boolean): number {
+  const text = whole.length <= 4096 ? whole : backward ? whole.slice(-4096) : whole.slice(0, 4096);
+  const parts = Array.from(intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text));
+  return (backward ? parts[parts.length - 1] : parts[0])?.segment.length ?? 1;
+}
+
+/// Which way a key deletes: Backspace and the Mac's Ctrl-H back, Delete and Ctrl-D forward; with
+/// whether Option or Command makes it a word or line delete.
+function deleteKey(view: EditorView, event: KeyboardEvent): { backward: boolean; wide: boolean } | undefined {
+  if (event.key === "Backspace" || event.key === "Delete")
+    return { backward: event.key === "Backspace", wide: event.altKey || event.metaKey || event.ctrlKey };
+  if (!event.ctrlKey || event.altKey || event.metaKey) return undefined;
+  if (!/Mac|iPhone|iPad/.test(view.dom.ownerDocument.defaultView?.navigator.platform ?? "")) return undefined;
+  return event.code === "KeyH"
+    ? { backward: true, wide: false }
+    : event.code === "KeyD"
+      ? { backward: false, wide: false }
+      : undefined;
+}
+
+/// Backspace and Delete while the nodes are hidden (Settings' strip view, the default): the strip
+/// alone shows the attachments, so the keys pass over their nodes as if they were not in the text,
+/// and only the strip's × or a whole-draft delete takes an attachment out. Before, the first
+/// Backspace after a paste (the caret right after its hidden node) took the picture out of the strip
+/// and left the letter it was pressed for. True: the key is done
+/// here (sometimes as nothing); false: the editor's as before.
+export function hiddenDelete(view: EditorView, event: KeyboardEvent): boolean {
+  const key = deleteKey(view, event);
+  if (!key) return false;
+  const { backward, wide } = key;
+  const { state } = view;
+  const { selection, doc } = state;
+  if (!(selection instanceof TextSelection)) return false;
+  if (!selection.empty) {
+    // A selection across hidden nodes: its text goes, the nodes stay where it was. The whole draft
+    // selected is the strip's too (ComposerBox `dropStrip`), and goes with it as before.
+    if (selection.from <= Selection.atStart(doc).from && selection.to >= Selection.atEnd(doc).to) return false;
+    return deleteKeeping(view, selection.from, selection.to);
+  }
+  const pos = selection.from;
+  // A word or line delete (Option, Command) is the browser's own: it would take a hidden node in its
+  // reach with the text, so where its range holds one, the text goes here and the nodes stay.
+  const reach = wide ? nativeReach(view, backward, event) : undefined;
+  if (reach !== undefined && reach !== pos) return deleteKeeping(view, Math.min(pos, reach), Math.max(pos, reach));
+  const edge = pastNodes(doc, pos, backward);
+  if (edge === pos) return false;
+  const $edge = doc.resolve(edge);
+  const beyond = backward ? $edge.nodeBefore : $edge.nodeAfter;
+  // Where the browser cannot say how far a word or line delete goes, it starts beyond the nodes.
+  if (beyond && wide) {
+    view.dispatch(state.tr.setSelection(TextSelection.create(doc, edge)));
+    return false;
+  }
+  if (beyond) {
+    const size = beyond.isText ? charLength(beyond.text ?? "", backward) : beyond.nodeSize;
+    view.dispatch(
+      (backward ? state.tr.delete(edge - size, edge) : state.tr.delete(edge, edge + size)).scrollIntoView(),
+    );
+    return true;
+  }
+  // Nothing beyond the nodes in this line. At the very start of the prompt, Backspace has nothing to
+  // take: the strip's attachments go only by their × (ComposerBox takes none back either).
+  if (backward && edge === Selection.atStart(doc).from) return true;
+  // At the very end, Delete has nothing to take.
+  if (!backward && edge === Selection.atEnd(doc).to) return true;
+  // A join with the line before or after, only from a plain top-level paragraph: elsewhere (a quote,
+  // a list) the key's own lift or join reads the caret where it was, so it does nothing here.
+  if ($edge.depth !== 1 || $edge.parent.type.name !== "paragraph") return true;
+  view.dispatch(state.tr.setSelection(TextSelection.create(doc, edge)));
+  return false;
+}
+
+/// Deletes `from`..`to` but its placed attachments' nodes, which go back where the range was. False,
+/// the key the editor's: no node in the range, or one that reaches code, where no attachment can
+/// stand.
+function deleteKeeping(view: EditorView, from: number, to: number): boolean {
+  const { state } = view;
+  const kept: ProseNode[] = [];
+  let code = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.type.name === INLINE_NODE) kept.push(node);
+    if (node.isTextblock && node.type.spec.code) code = true;
+    return !code;
+  });
+  if (!kept.length || code) return false;
+  const tr = state.tr.setSelection(TextSelection.create(state.doc, from, to)).deleteSelection();
+  const near = Selection.near(tr.doc.resolve(tr.selection.from));
+  const lands = near.$from.parent;
+  if (!(near instanceof TextSelection) || !lands.inlineContent || lands.type.spec.code) return false;
+  tr.insert(near.from, Fragment.from(kept));
+  view.dispatch(tr.setSelection(TextSelection.create(tr.doc, near.from)).scrollIntoView());
+  return true;
+}
+
+/// Where the browser's own word (Option, Ctrl) or line (Command) delete from the caret would end, as
+/// a document position: the DOM selection is extended that way, read and put back. Undefined where
+/// the browser cannot say (no `Selection.modify`).
+function nativeReach(view: EditorView, backward: boolean, event: KeyboardEvent): number | undefined {
+  const selection = view.dom.ownerDocument.getSelection();
+  if (!selection?.anchorNode || !selection.focusNode || typeof selection.modify !== "function") return undefined;
+  const { anchorNode, anchorOffset, focusNode, focusOffset } = selection;
+  let reach: number | undefined;
+  try {
+    selection.modify("extend", backward ? "backward" : "forward", event.metaKey ? "lineboundary" : "word");
+    if (selection.focusNode && view.dom.contains(selection.focusNode))
+      reach = view.posAtDOM(selection.focusNode, selection.focusOffset);
+  } catch {
+    reach = undefined;
+  } finally {
+    selection.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+  }
+  return reach;
+}
+
 /// Places attachments `ids` at the selection, the caret after them; false where they cannot go (a
 /// code block) or the editor has no such node.
 ///
@@ -381,9 +537,26 @@ export function inlinePlugin(views: InlineViews) {
 /// (Leo, 2026-11-07: "you expect it to be right at my caret ... It tries to place it above"). Without
 /// it (an attachment placed later, once read or once the field can take it) nothing typed is ever
 /// replaced: the attachments go in at the selection's end.
-export function insertInline(view: EditorView, ids: readonly string[], replace = false): boolean {
+///
+/// `at` "start": an attachment with no caret of its own to go to (its placeholder lost its node to a
+/// value from outside, or its caret was in a code block) goes at the start of the prompt's first
+/// line that can hold it, where its tile would have shown above the text, and the person's selection
+/// stays where it is: one place for every attachment, never the strip above the text (Leo,
+/// 2026-11-09: "we have inline stuff, so why is this not inline?"), and never in the middle of what
+/// was typed meanwhile. A prompt that is all code gets a new first line for it.
+///
+/// `at` "restore": the same place, as no undo step of its own: a node the attachment already had and
+/// lost to a value from outside, put back so what replaces it next (Keep as .txt) is undone into it.
+export type InlinePlace = "caret" | "start" | "restore";
+export function insertInline(
+  view: EditorView,
+  ids: readonly string[],
+  replace = false,
+  at: InlinePlace = "caret",
+): boolean {
   const type = view.state.schema.nodes[INLINE_NODE];
   if (!type || ids.length === 0) return false;
+  if (at !== "caret") return insertInlineAtStart(view, ids, at === "start");
   const tr = view.state.tr;
   const { selection } = tr;
   if (!replace) {
@@ -410,6 +583,29 @@ export function insertInline(view: EditorView, ids: readonly string[], replace =
   tr.replaceWith(from, to, nodes);
   tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.slice(placedAt).map(to))));
   view.dispatch(tr.scrollIntoView());
+  return true;
+}
+
+function insertInlineAtStart(view: EditorView, ids: readonly string[], recorded: boolean): boolean {
+  const { schema, doc } = view.state;
+  const type = schema.nodes[INLINE_NODE]!;
+  const nodes = Fragment.from(ids.map((id) => type.create({ id })));
+  let lands: number | undefined;
+  doc.descendants((node, pos) => {
+    if (lands !== undefined) return false;
+    if (!node.isTextblock) return true;
+    if (node.inlineContent && !node.type.spec.code && node.canReplace(0, 0, nodes)) lands = pos + 1;
+    return false;
+  });
+  const tr = view.state.tr;
+  if (lands !== undefined) tr.insert(lands, nodes);
+  else {
+    const line = schema.nodes.paragraph?.createAndFill(null, nodes);
+    if (!line || !doc.canReplace(0, 0, Fragment.from(line))) return false;
+    tr.insert(0, line);
+  }
+  if (!recorded) tr.setMeta("addToHistory", false);
+  view.dispatch(tr);
   return true;
 }
 

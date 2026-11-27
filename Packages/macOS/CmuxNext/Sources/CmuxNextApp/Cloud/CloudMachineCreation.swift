@@ -63,23 +63,20 @@ final class CloudMachineCreation: Identifiable {
     /// part of ``request``: a named request is a request option the app server's create refuses.
     var pinnedMachineName: String?
 
-    /// The create went to the server once, to `team`: a Retry may find the machine it made, and
-    /// goes to that same team.
-    func markRequestSent(team: String?) {
-        if !request.wasSent { request.team = team }
-        request.wasSent = true
+    /// The create went to the server once, to `team` on `route`: a Retry may find the machine it made, and
+    /// goes to that same team on that same route (the server keeps each key per caller).
+    func markRequestSent(team: String?, route: CloudCreateRoute = .relay) {
+        request.change(.sent(team: team, route: route))
     }
 
     /// The person answered approval `request` for `key`; nothing when the creation moved on to another key.
     func markApproved(_ request: String, key: String) {
-        guard self.request.idempotencyKey == key else { return }
-        self.request.approvedRequest = request
+        self.request.change(.approved(request: request, key: key))
     }
 
     /// An attempt with `key` is about to answer approval `request`; nothing when the creation moved on to another key.
     func markAnswering(_ request: String, key: String) {
-        guard self.request.idempotencyKey == key else { return }
-        self.request.answeringRequest = request
+        self.request.change(.answering(request: request, key: key))
     }
 
     /// The server refused the create outright and made no machine (``CloudService/isDefinitiveRefusal(_:)``):
@@ -87,12 +84,7 @@ final class CloudMachineCreation: Identifiable {
     /// upgrades) needs a new key, which may also go to another team.
     /// Only for the key the refused attempt sent: a Retry that started meanwhile keeps its own.
     func renewKey(replacing key: String) {
-        guard request.idempotencyKey == key else { return }
-        request.idempotencyKey = UUID().uuidString
-        request.wasSent = false
-        request.team = nil
-        request.approvedRequest = nil
-        request.answeringRequest = nil
+        request.change(.renew(key: key))
     }
 
     init(windowID: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest(),
@@ -150,11 +142,12 @@ final class CloudMachineCreation: Identifiable {
         if case let CloudAPIError.planRequired(message, url, plan) = error { return ProRefusal(message: message, upgradeURL: url, plan: plan) }
         // The plan gate refused a free plan before any request: a person's create already showed its
         // card, and an agent's shows none (the agent reports the refusal), so no second offer either way.
-        if case CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan) = error { return ProRefusal(plan: "pro", offered: true) }
-        guard let failure = error as? CloudAppOpFailure, failure.code == CloudAppOpFailure.planRequired else { return nil }
+        let refusal: CloudStartCore.LaunchRefusal
+        if case CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan) = error { refusal = .freePlan }
+        else if let failure = error as? CloudAppOpFailure { refusal = .opFailure(code: failure.code, plan: failure.details?["plan"]?.stringValue) }
+        else { return nil }
         // The app server's message is the backend's English text, not the person's language: the dialog's own copy stands in.
-        let plan = failure.details?["plan"]?.stringValue == "max" ? "max" : "pro"
-        return ProRefusal(message: nil, upgradeURL: nil, plan: plan)
+        return CloudStartCore().proOffer(refusal, planRequiredCode: CloudAppOpFailure.planRequired).map { ProRefusal(plan: $0.plan, offered: $0.offered) }
     }
 
     func noteBootstrapCompletion(_ completion: CloudMachineBootstrap.Completion) {
@@ -306,23 +299,27 @@ struct CloudCreationFlow {
     var bootstrap: @MainActor (CloudMachineCreation, CloudMachineSession) async -> Void = { _, _ in }
 
     /// A requested bootstrap script that has not started on the machine yet, or whose start failed.
-    static func needsScript(_ creation: CloudMachineCreation) -> Bool {
-        creation.request.script != nil && (creation.bootstrap.map { $0.status == "failed" } ?? true)
-    }
+    static func needsScript(_ creation: CloudMachineCreation) -> Bool { needs(creation).script }
 
     /// A requested machine config whose apply has not started yet, or whose start failed.
-    static func needsMachineConfig(_ creation: CloudMachineCreation) -> Bool {
-        creation.request.machineConfig != nil && (creation.machineConfig.map { $0.status == "failed" } ?? true)
+    static func needsMachineConfig(_ creation: CloudMachineCreation) -> Bool { needs(creation).machineConfig }
+
+    private static func needs(_ creation: CloudMachineCreation) -> (script: Bool, machineConfig: Bool) {
+        CloudStartCore().launchNeeds(script: (creation.request.script != nil, creation.bootstrap?.status),
+                                     machineConfig: (creation.request.machineConfig != nil, creation.machineConfig?.status))
     }
 
     /// Either of the above: the ``bootstrap`` hook has work left.
-    static func needsBootstrap(_ creation: CloudMachineCreation) -> Bool { needsScript(creation) || needsMachineConfig(creation) }
+    static func needsBootstrap(_ creation: CloudMachineCreation) -> Bool { let left = needs(creation); return left.script || left.machineConfig }
 
     /// The ``bootstrap`` hook's work on `machine`: starts the requested bootstrap and, in the creation's own
     /// task (``CloudMachineCreation/awaitBootstrapCompletion(_:attempt:wait:)``), waits for its end without holding
     /// up the open; then applies the requested machine config. The first workspace still opens at the
-    /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`.
-    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine) async {
+    /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`. Nothing goes
+    /// out before `running` returns: a create answers while the machine binds, whose routes refuse it until it runs.
+    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine, running: @MainActor () async -> Void) async {
+        await running()
+        guard !Task.isCancelled, !creation.isTornDown else { return }
         if let script = creation.request.script, needsScript(creation) {
             let attempt = creation.beginBootstrapAttempt()
             let outcome = await script.start(name: creation.request.name, on: machine)
@@ -372,22 +369,14 @@ struct CloudCreationFlow {
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {
-                let session: CloudMachineSession
-                if let existing = creation.session {
-                    session = existing
-                    if Self.needsBootstrap(creation) {
-                        await bootstrap(creation, session)
-                        try Task.checkCancellation()
-                    }
-                } else {
-                    session = try await create(creation)
+                let existing = creation.session, session: CloudMachineSession
+                if let existing { session = existing } else { session = try await create(creation) }
+                try Task.checkCancellation()
+                // Attached first: a create answers once attached (30 s); the bootstrap waits up to 180 s for the machine to run.
+                if existing == nil { creation.attach(session) }
+                if Self.needsBootstrap(creation) {
+                    await bootstrap(creation, session)
                     try Task.checkCancellation()
-                    // Before attach: a caller waiting for the machine reads the bootstrap's outcome with it.
-                    if Self.needsBootstrap(creation) {
-                        await bootstrap(creation, session)
-                        try Task.checkCancellation()
-                    }
-                    creation.attach(session)
                 }
                 guard await Self.ready(creation) else { return }
                 creation.markReady()
@@ -408,9 +397,21 @@ struct CloudCreationFlow {
                 guard !Task.isCancelled else { return }
                 creation.fail(error)
                 if let refusal = creation.planRefusal, startedByPerson { planRequired(refusal) }
+                // A creation no window shows (a CLI's, an agent's) has nobody to Retry or Dismiss it: `cloud
+                // list-machines` shows it failed, with why, for a while, then it ends, so a failed create never
+                // lingers as `creating`. Its own run's answer already carried the failure. Retry, Dismiss or
+                // the machine's removal cancel this wait.
+                guard creation.windowID == nil else { return }
+                // wakeup-allow: one bounded wait before a windowless failed creation's row ends
+                try? await Task.sleep(for: Self.failedRowLingers)
+                guard !Task.isCancelled, case .failed = creation.phase else { return }
+                creations.end(creation)
             }
         }
     }
+
+    /// How long a failed creation no window shows stays listed (as failed, with its reason) before it ends.
+    static let failedRowLingers: Duration = .seconds(300)
 
     /// Waits for the ready stage (a failure in between may recover: the
     /// daemon keeps retrying). False when cancelled.
@@ -421,7 +422,7 @@ struct CloudCreationFlow {
 
     private static func mirrored(_ id: String, on session: CloudMachineSession) async -> Bool {
         let store = session.daemon.store
-        for await known in ObservationStream({ store.workspaces.contains { $0.id == id } }) where known { return true }
+        for await known in ObservationStream({ store.workspace(id: id) != nil }) where known { return true } // O(1), the index
         return false
     }
 }

@@ -754,8 +754,8 @@ impl RemoteSurface {
             apply_terminal_colors(&mut fresh, colors);
         }
         fresh.vt_write(pending_sequence);
-        if let Some(rows_from_viewport_top_to_end) = scrolled_back_anchor(&term) {
-            restore_scrolled_back_anchor(&mut fresh, rows_from_viewport_top_to_end);
+        if let Some(anchor) = scrolled_back_anchor(&mut term) {
+            restore_scrolled_back_anchor(&mut fresh, &anchor);
         }
         *term = fresh;
         if daemon_replay {
@@ -990,31 +990,69 @@ enum RemoteGeometryTestStep {
     CellPixelCommitBoundary,
 }
 
-/// Rows from the top of a scrolled-back viewport to the end of the screen,
-/// or `None` when the viewport follows the live bottom.
+/// Where a scrolled-back viewport is, for a rebuilt mirror: the rows from its
+/// top to the end of the screen, and the text of the rows it shows.
+#[derive(Debug)]
+pub(crate) struct ScrolledBackAnchor {
+    pub(crate) rows_from_end: u64,
+    rows: Vec<String>,
+}
+
+/// The anchor of a scrolled-back viewport, or `None` when the viewport
+/// follows the live bottom.
 ///
 /// A rebuilt mirror keeps the same trailing content as the old one (the
 /// replay ends at the live screen) while its oldest history may differ, so
-/// the distance from the end is the stable anchor for the row being read.
-fn scrolled_back_anchor(term: &Terminal) -> Option<u64> {
+/// the distance from the end places the row being read, unless output
+/// arrived between the old state and the replay: every new row pushes the
+/// reader's rows further from the end. The rows' text finds them again.
+pub(crate) fn scrolled_back_anchor(term: &mut Terminal) -> Option<ScrolledBackAnchor> {
     let scrollbar = term.scrollbar()?;
-    scrollbar.scrolled_back().then(|| scrollbar.total.saturating_sub(scrollbar.offset))
+    if !scrollbar.scrolled_back() {
+        return None;
+    }
+    let rows = term
+        .viewport_text()
+        .map(|text| text.lines().map(str::to_owned).collect())
+        .unwrap_or_default();
+    Some(ScrolledBackAnchor {
+        rows_from_end: scrollbar.total.saturating_sub(scrollbar.offset),
+        rows,
+    })
 }
 
-/// Scroll a freshly rebuilt mirror so the viewport top sits the same number
-/// of rows from the end as before, clamped to the retained history.
-fn restore_scrolled_back_anchor(term: &mut Terminal, rows_from_viewport_top_to_end: u64) {
+/// Scroll a freshly rebuilt mirror back to the rows the anchor was taken on:
+/// the nearest place at or above the same distance from the end whose rows
+/// read the same, else that distance, clamped to the retained history.
+pub(crate) fn restore_scrolled_back_anchor(term: &mut Terminal, anchor: &ScrolledBackAnchor) {
     let Some(scrollbar) = term.scrollbar() else {
         return;
     };
     let live_offset = scrollbar.total.saturating_sub(scrollbar.len);
-    let target = scrollbar.total.saturating_sub(rows_from_viewport_top_to_end).min(live_offset);
+    let by_end = scrollbar.total.saturating_sub(anchor.rows_from_end).min(live_offset);
+    let target = offset_showing(term, &anchor.rows, by_end).unwrap_or(by_end);
     let delta = i128::from(target) - i128::from(scrollbar.offset);
     if let Ok(delta) = isize::try_from(delta)
         && delta != 0
     {
         term.scroll_delta(delta);
     }
+}
+
+/// The highest viewport offset at or below `from` whose rows read `rows`
+/// (blank rows alone match anywhere, so they find nothing). One row read per
+/// offset tried, past the first mismatch; it runs once per resync.
+fn offset_showing(term: &mut Terminal, rows: &[String], from: u64) -> Option<u64> {
+    if rows.iter().all(|row| row.trim().is_empty()) {
+        return None;
+    }
+    let last_col = term.cols().saturating_sub(1);
+    (0..=from).rev().find(|&top| {
+        rows.iter().zip(top..).all(|(want, row)| {
+            let have = term.selection_text_absolute((0, row), (last_col, row)).unwrap_or_default();
+            have.trim_end() == want.trim_end()
+        })
+    })
 }
 
 fn pointer_frame_is_in_range(browser: &RemoteBrowserState, frame_seq: u64) -> bool {
@@ -1187,396 +1225,6 @@ enum RemoteProgressTarget {
     AttachSurface(SurfaceId),
 }
 
-struct InteractiveWrite {
-    message: String,
-    enqueued_at: Instant,
-    sequence: u64,
-    measure_latency: bool,
-}
-
-impl Drop for InteractiveWrite {
-    fn drop(&mut self) {
-        zeroize_string(&mut self.message);
-    }
-}
-
-#[derive(Clone)]
-struct InteractiveWriteFailure {
-    kind: io::ErrorKind,
-    message: String,
-}
-
-impl InteractiveWriteFailure {
-    fn from_error(error: &io::Error) -> Self {
-        Self { kind: error.kind(), message: error.to_string() }
-    }
-
-    fn to_error(&self) -> io::Error {
-        io::Error::new(self.kind, self.message.clone())
-    }
-}
-
-#[derive(Default)]
-struct InteractiveWriteQueueState {
-    writes: VecDeque<InteractiveWrite>,
-    queued_bytes: usize,
-    last_enqueued_sequence: u64,
-    last_written_sequence: u64,
-    closed: bool,
-    writer_closed: bool,
-    failure: Option<InteractiveWriteFailure>,
-}
-
-struct InteractiveWriteMetrics {
-    latency_buckets: [AtomicU64; INTERACTIVE_LATENCY_BUCKET_UPPER_US.len()],
-    write_failures: AtomicU64,
-    backpressure_rejections: AtomicU64,
-}
-
-impl Default for InteractiveWriteMetrics {
-    fn default() -> Self {
-        Self {
-            latency_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
-            write_failures: AtomicU64::new(0),
-            backpressure_rejections: AtomicU64::new(0),
-        }
-    }
-}
-
-impl InteractiveWriteMetrics {
-    fn record_latency(&self, latency: Duration) {
-        let micros = u64::try_from(latency.as_micros()).unwrap_or(u64::MAX);
-        let bucket = INTERACTIVE_LATENCY_BUCKET_UPPER_US
-            .partition_point(|upper_bound| *upper_bound < micros)
-            .min(self.latency_buckets.len() - 1);
-        self.latency_buckets[bucket].fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn snapshot(&self) -> InteractiveWriteMetricsSnapshot {
-        let histogram = self
-            .latency_buckets
-            .iter()
-            .zip(INTERACTIVE_LATENCY_BUCKET_UPPER_US)
-            .map(|(samples, upper_bound_micros)| InteractiveLatencyBucket {
-                upper_bound: Duration::from_micros(upper_bound_micros),
-                samples: samples.load(Ordering::Relaxed),
-            })
-            .collect::<Vec<_>>();
-        let samples = histogram.iter().map(|bucket| bucket.samples).sum();
-        InteractiveWriteMetricsSnapshot {
-            p50: latency_percentile(&histogram, samples, 50),
-            p95: latency_percentile(&histogram, samples, 95),
-            p99: latency_percentile(&histogram, samples, 99),
-            histogram,
-            samples,
-            write_failures: self.write_failures.load(Ordering::Relaxed),
-            backpressure_rejections: self.backpressure_rejections.load(Ordering::Relaxed),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InteractiveLatencyBucket {
-    pub(crate) upper_bound: Duration,
-    pub(crate) samples: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InteractiveWriteMetricsSnapshot {
-    pub(crate) histogram: Vec<InteractiveLatencyBucket>,
-    pub(crate) samples: u64,
-    pub(crate) write_failures: u64,
-    pub(crate) backpressure_rejections: u64,
-    pub(crate) p50: Option<Duration>,
-    pub(crate) p95: Option<Duration>,
-    pub(crate) p99: Option<Duration>,
-}
-
-fn latency_percentile(
-    histogram: &[InteractiveLatencyBucket],
-    samples: u64,
-    percentile: u64,
-) -> Option<Duration> {
-    if samples == 0 {
-        return None;
-    }
-    let target = samples.saturating_mul(percentile).div_ceil(100);
-    let mut cumulative = 0_u64;
-    histogram.iter().find_map(|bucket| {
-        cumulative = cumulative.saturating_add(bucket.samples);
-        (cumulative >= target).then_some(bucket.upper_bound)
-    })
-}
-
-struct InteractiveWriterShared {
-    state: Mutex<InteractiveWriteQueueState>,
-    changed: Condvar,
-    metrics: InteractiveWriteMetrics,
-    #[cfg(test)]
-    wait_until_written_gate: Mutex<Option<InteractiveWaitUntilWrittenGate>>,
-}
-
-#[cfg(test)]
-struct InteractiveWaitUntilWrittenGate {
-    entered: Sender<u64>,
-    resume: Receiver<()>,
-}
-
-struct InteractiveWriter {
-    shared: Arc<InteractiveWriterShared>,
-    abort: Arc<dyn RemoteTransportAbort>,
-}
-
-impl InteractiveWriter {
-    // Control requests use this actor too, then wait for their sequence. This
-    // keeps a mutation from overtaking input already accepted from the PTY lane.
-    fn spawn(
-        writer: Box<dyn RemoteMessageWriter>,
-        abort: Arc<dyn RemoteTransportAbort>,
-    ) -> io::Result<Self> {
-        let shared = Arc::new(InteractiveWriterShared {
-            state: Mutex::new(InteractiveWriteQueueState::default()),
-            changed: Condvar::new(),
-            metrics: InteractiveWriteMetrics::default(),
-            #[cfg(test)]
-            wait_until_written_gate: Mutex::new(None),
-        });
-        let worker_shared = shared.clone();
-        std::thread::Builder::new()
-            .name("remote-input-writer".into())
-            .spawn(move || interactive_writer_worker(worker_shared, writer))?;
-        Ok(Self { shared, abort })
-    }
-
-    fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
-        let mut write =
-            InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
-        let message_bytes = write.message.len();
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
-        if let Some(failure) = &state.failure {
-            return Err(failure.to_error());
-        }
-        if state.closed {
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "interactive writer is closed"));
-        }
-        if state.writes.len() >= INTERACTIVE_WRITE_QUEUE_CAPACITY
-            || message_bytes > INTERACTIVE_WRITE_QUEUE_BYTES.saturating_sub(state.queued_bytes)
-        {
-            if measure_latency {
-                self.shared.metrics.backpressure_rejections.fetch_add(1, Ordering::Relaxed);
-            }
-            return Err(io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "interactive writer queue is full",
-            ));
-        }
-        let sequence = state
-            .last_enqueued_sequence
-            .checked_add(1)
-            .ok_or_else(|| io::Error::other("interactive writer sequence space is exhausted"))?;
-        state.last_enqueued_sequence = sequence;
-        state.queued_bytes += message_bytes;
-        write.sequence = sequence;
-        state.writes.push_back(write);
-        drop(state);
-        self.shared.changed.notify_one();
-        Ok(sequence)
-    }
-
-    fn last_enqueued_sequence(&self) -> io::Result<Option<u64>> {
-        let state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
-        Ok((state.last_enqueued_sequence != 0).then_some(state.last_enqueued_sequence))
-    }
-
-    fn wait_until_written(&self, sequence: u64, timeout: Duration) -> io::Result<()> {
-        #[cfg(test)]
-        self.await_wait_until_written_gate(sequence);
-        let deadline = Instant::now() + timeout;
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
-        loop {
-            if state.last_written_sequence >= sequence {
-                return Ok(());
-            }
-            if let Some(failure) = &state.failure {
-                return Err(failure.to_error());
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "ordered remote write did not complete before its deadline",
-                ));
-            }
-            let (next, timeout) = self
-                .shared
-                .changed
-                .wait_timeout(state, remaining)
-                .unwrap_or_else(|poison| poison.into_inner());
-            state = next;
-            if timeout.timed_out()
-                && state.last_written_sequence < sequence
-                && state.failure.is_none()
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "ordered remote write did not complete before its deadline",
-                ));
-            }
-        }
-    }
-
-    #[cfg(test)]
-    fn gate_next_wait_until_written(&self) -> (Receiver<u64>, Sender<()>) {
-        let (entered_tx, entered_rx) = channel();
-        let (resume_tx, resume_rx) = channel();
-        let previous =
-            self.shared.wait_until_written_gate.lock().unwrap().replace(
-                InteractiveWaitUntilWrittenGate { entered: entered_tx, resume: resume_rx },
-            );
-        assert!(previous.is_none(), "interactive write wait gate was already installed");
-        (entered_rx, resume_tx)
-    }
-
-    #[cfg(test)]
-    fn await_wait_until_written_gate(&self, sequence: u64) {
-        let gate = self.shared.wait_until_written_gate.lock().unwrap().take();
-        if let Some(gate) = gate {
-            gate.entered.send(sequence).unwrap();
-            gate.resume.recv().unwrap();
-        }
-    }
-
-    fn metrics(&self) -> InteractiveWriteMetricsSnapshot {
-        self.shared.metrics.snapshot()
-    }
-
-    fn request_close(&self) {
-        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
-        state.closed = true;
-        drop(state);
-        self.shared.changed.notify_one();
-    }
-
-    fn abort(&self, error: &io::Error) {
-        {
-            let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
-            state.closed = true;
-            state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(error));
-            state.writes.clear();
-            state.queued_bytes = 0;
-        }
-        self.shared.changed.notify_all();
-        let _ = self.abort.abort();
-    }
-
-    fn close(&self) {
-        self.request_close();
-        let deadline = Instant::now() + remote_write_timeout();
-        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
-        while !state.writer_closed {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            let (next, timeout) = self
-                .shared
-                .changed
-                .wait_timeout(state, remaining)
-                .unwrap_or_else(|poison| poison.into_inner());
-            state = next;
-            if timeout.timed_out() {
-                break;
-            }
-        }
-        let writer_closed = state.writer_closed;
-        drop(state);
-        if !writer_closed {
-            self.abort(&io::Error::new(
-                io::ErrorKind::TimedOut,
-                "remote writer did not close before its deadline",
-            ));
-        }
-    }
-}
-
-impl Drop for InteractiveWriter {
-    fn drop(&mut self) {
-        self.request_close();
-        let writer_closed =
-            self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner()).writer_closed;
-        if !writer_closed {
-            self.abort(&io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "remote writer owner was dropped",
-            ));
-        }
-    }
-}
-
-fn interactive_writer_worker(
-    shared: Arc<InteractiveWriterShared>,
-    mut writer: Box<dyn RemoteMessageWriter>,
-) {
-    loop {
-        let write = {
-            let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
-            while state.writes.is_empty() && !state.closed && state.failure.is_none() {
-                state = shared.changed.wait(state).unwrap_or_else(|poison| poison.into_inner());
-            }
-            let Some(write) = state.writes.pop_front() else {
-                drop(state);
-                let _ = writer.close();
-                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
-                state.writer_closed = true;
-                drop(state);
-                shared.changed.notify_all();
-                return;
-            };
-            state.queued_bytes = state.queued_bytes.saturating_sub(write.message.len());
-            write
-        };
-
-        let result = writer.send(&write.message);
-        match result {
-            Ok(()) => {
-                if write.measure_latency {
-                    shared.metrics.record_latency(write.enqueued_at.elapsed());
-                }
-                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
-                state.last_written_sequence = write.sequence;
-                drop(state);
-                shared.changed.notify_all();
-            }
-            Err(error) => {
-                if write.measure_latency {
-                    shared.metrics.write_failures.fetch_add(1, Ordering::Relaxed);
-                }
-                let _ = writer.close();
-                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
-                state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(&error));
-                state.writes.clear();
-                state.queued_bytes = 0;
-                state.writer_closed = true;
-                drop(state);
-                shared.changed.notify_all();
-                return;
-            }
-        }
-    }
-}
-
 struct RemoteFrameLogEntry {
     surface: SurfaceId,
     line: String,
@@ -1634,6 +1282,23 @@ mod connect;
 #[path = "remote_disconnect.rs"]
 mod disconnect;
 mod events;
+mod held_tree;
+mod interactive_writer;
+#[cfg(test)]
+use interactive_writer::InteractiveWriteMetrics;
+use interactive_writer::{InteractiveWriteMetricsSnapshot, InteractiveWriter};
+mod message_transport;
+#[cfg(test)]
+use message_transport::{
+    JsonLineReader, JsonLineWriter, read_bounded_json_line, read_json_line_with_progress,
+    read_json_line_with_progress_bounded,
+};
+pub use message_transport::{
+    RemoteMessageReader, RemoteMessageWriter, RemoteTransport, RemoteTransportAbort,
+};
+use message_transport::{
+    remote_progress_target, remote_reader_end_reason, remote_reader_message_too_large,
+};
 mod requests;
 #[cfg(test)]
 #[path = "remote_shutdown_tests.rs"]
@@ -1671,6 +1336,8 @@ pub struct RemoteSession {
     #[cfg(test)]
     retire_surface_test_marker: Mutex<Option<Sender<SurfaceId>>>,
     tree: Mutex<RemoteTreeCache>,
+    /// The tree the last refresh read, sent back as `known` (held_tree.rs).
+    held_tree: Mutex<held_tree::HeldTrees>,
     browser_sources: Mutex<HashMap<SurfaceId, BrowserSource>>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
@@ -1756,247 +1423,6 @@ pub(super) enum RemoteSurfaceAttach {
     Attached(Arc<RemoteSurface>),
     Retired,
     Deferred,
-}
-
-/// Receive complete JSON protocol messages from one transport.
-///
-/// Message framing belongs to the transport adapter: Unix sockets and SSH
-/// relays use JSON lines, while WebSocket and future Iroh adapters can use
-/// their native message boundaries.
-pub trait RemoteMessageReader: Send {
-    fn receive(&mut self) -> io::Result<Option<String>>;
-
-    fn receive_with_progress(
-        &mut self,
-        on_progress: &mut dyn FnMut(&[u8]),
-    ) -> io::Result<Option<String>> {
-        let message = self.receive()?;
-        if let Some(message) = message.as_deref() {
-            on_progress(message.as_bytes());
-        }
-        Ok(message)
-    }
-}
-
-fn decimal_after_prefix(bytes: &[u8], prefix: &[u8]) -> Option<u64> {
-    let tail = bytes.strip_prefix(prefix)?;
-    let digits = tail.iter().take_while(|byte| byte.is_ascii_digit()).count();
-    if digits == 0 || !matches!(tail.get(digits), Some(b',') | Some(b'}')) {
-        return None;
-    }
-    std::str::from_utf8(&tail[..digits]).ok()?.parse().ok()
-}
-
-fn remote_progress_target(partial: &[u8]) -> Option<RemoteProgressTarget> {
-    decimal_after_prefix(partial, br#"{"id":"#).map(RemoteProgressTarget::Request).or_else(|| {
-        [
-            br#"{"event":"vt-state","surface":"#.as_slice(),
-            br#"{"event":"browser-state","surface":"#.as_slice(),
-        ]
-        .into_iter()
-        .find_map(|prefix| decimal_after_prefix(partial, prefix))
-        .map(RemoteProgressTarget::AttachSurface)
-    })
-}
-
-/// Send complete JSON protocol messages over one transport.
-pub trait RemoteMessageWriter: Send {
-    fn send(&mut self, message: &str) -> io::Result<()>;
-    fn close(&mut self) -> io::Result<()>;
-}
-
-/// Independently owned cancellation for a transport whose writer may be
-/// blocked. Implementations must be safe to call from a different thread than
-/// `RemoteMessageWriter::send`.
-pub trait RemoteTransportAbort: Send + Sync {
-    fn abort(&self) -> io::Result<()>;
-}
-
-/// The independently-owned read and write halves of a remote connection.
-/// Split halves support process stdio and async transport pumps without
-/// requiring the underlying stream to be cloneable.
-pub struct RemoteTransport {
-    reader: Box<dyn RemoteMessageReader>,
-    writer: Box<dyn RemoteMessageWriter>,
-    abort: Arc<dyn RemoteTransportAbort>,
-}
-
-impl RemoteTransport {
-    pub fn new(
-        reader: Box<dyn RemoteMessageReader>,
-        writer: Box<dyn RemoteMessageWriter>,
-        abort: Arc<dyn RemoteTransportAbort>,
-    ) -> Self {
-        Self { reader, writer, abort }
-    }
-
-    pub fn json_lines(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
-        stream.set_write_timeout(Some(remote_write_timeout()))?;
-        let read_half = stream.try_clone_box()?;
-        let abort_stream = stream.try_clone_box()?;
-        Ok(Self {
-            reader: Box::new(JsonLineReader { inner: BufReader::new(read_half) }),
-            writer: Box::new(JsonLineWriter { inner: stream }),
-            abort: Arc::new(StreamTransportAbort { inner: abort_stream }),
-        })
-    }
-}
-
-struct StreamTransportAbort {
-    inner: Box<dyn transport::Stream>,
-}
-
-impl RemoteTransportAbort for StreamTransportAbort {
-    fn abort(&self) -> io::Result<()> {
-        self.inner.shutdown(Shutdown::Both)
-    }
-}
-
-struct JsonLineReader {
-    inner: BufReader<Box<dyn transport::Stream>>,
-}
-
-pub(crate) fn read_json_line_with_progress<R: BufRead>(
-    reader: &mut R,
-    on_progress: &mut dyn FnMut(&[u8]),
-) -> io::Result<Option<String>> {
-    read_json_line_with_progress_bounded(reader, on_progress, REMOTE_SESSION_MESSAGE_MAX_BYTES)
-}
-
-fn read_json_line_with_progress_bounded<R: BufRead>(
-    reader: &mut R,
-    on_progress: &mut dyn FnMut(&[u8]),
-    max_message_bytes: usize,
-) -> io::Result<Option<String>> {
-    let mut bytes = Zeroizing::new(Vec::new());
-    let mut complete_line = false;
-    loop {
-        let (consumed, complete) = {
-            let available = reader.fill_buf()?;
-            if available.is_empty() {
-                break;
-            }
-            let complete_at = available.iter().position(|byte| *byte == b'\n');
-            let payload_bytes = complete_at.unwrap_or(available.len());
-            if payload_bytes > max_message_bytes.saturating_sub(bytes.len()) {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("remote session message exceeds the {max_message_bytes}-byte limit"),
-                ));
-            }
-            let consumed = complete_at.map_or(available.len(), |index| index + 1);
-            bytes.extend_from_slice(&available[..payload_bytes]);
-            (consumed, complete_at.is_some())
-        };
-        reader.consume(consumed);
-        on_progress(bytes.as_slice());
-        if complete {
-            complete_line = true;
-            break;
-        }
-    }
-
-    if bytes.is_empty() && !complete_line {
-        return Ok(None);
-    }
-    if complete_line && bytes.last() == Some(&b'\r') {
-        bytes.pop();
-    }
-    decode_json_line(bytes).map(Some)
-}
-
-fn remote_reader_end_reason(result: &io::Result<Option<String>>) -> Option<String> {
-    match result {
-        Ok(Some(_)) => None,
-        Ok(None) => Some("the daemon closed the connection".to_string()),
-        Err(error) => Some(error.to_string()),
-    }
-}
-
-fn remote_reader_message_too_large(message: &mut str) -> String {
-    let reason = format!(
-        "remote session message exceeds the \
-         {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"
-    );
-    zeroize_string(message);
-    reason
-}
-
-impl RemoteMessageReader for JsonLineReader {
-    fn receive(&mut self) -> io::Result<Option<String>> {
-        self.receive_with_progress(&mut |_| {})
-    }
-
-    fn receive_with_progress(
-        &mut self,
-        on_progress: &mut dyn FnMut(&[u8]),
-    ) -> io::Result<Option<String>> {
-        read_json_line_with_progress(&mut self.inner, on_progress)
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn read_bounded_json_line(
-    reader: &mut impl BufRead,
-    limit: usize,
-) -> io::Result<Option<String>> {
-    let mut frame = Zeroizing::new(Vec::new());
-    loop {
-        let available = reader.fill_buf()?;
-        if available.is_empty() {
-            return if frame.is_empty() { Ok(None) } else { decode_json_line(frame).map(Some) };
-        }
-        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
-            if frame.len().saturating_add(newline) > limit {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("remote JSON line exceeds the {limit}-byte limit"),
-                ));
-            }
-            frame.extend_from_slice(&available[..newline]);
-            reader.consume(newline + 1);
-            if frame.last() == Some(&b'\r') {
-                frame.pop();
-            }
-            return decode_json_line(frame).map(Some);
-        }
-        if frame.len().saturating_add(available.len()) > limit {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("remote JSON line exceeds the {limit}-byte limit"),
-            ));
-        }
-        let consumed = available.len();
-        frame.extend_from_slice(available);
-        reader.consume(consumed);
-    }
-}
-
-fn decode_json_line(mut frame: Zeroizing<Vec<u8>>) -> io::Result<String> {
-    if std::str::from_utf8(&frame).is_err() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "remote JSON line is not valid UTF-8",
-        ));
-    }
-    let bytes = std::mem::take(&mut *frame);
-    // SAFETY: the complete frame was validated as UTF-8 immediately above.
-    Ok(unsafe { String::from_utf8_unchecked(bytes) })
-}
-
-struct JsonLineWriter {
-    inner: Box<dyn transport::Stream>,
-}
-
-impl RemoteMessageWriter for JsonLineWriter {
-    fn send(&mut self, message: &str) -> io::Result<()> {
-        self.inner.write_all(message.as_bytes())?;
-        self.inner.write_all(b"\n")
-    }
-
-    fn close(&mut self) -> io::Result<()> {
-        self.inner.shutdown(Shutdown::Both)
-    }
 }
 
 impl RemoteSession {
@@ -2111,7 +1537,22 @@ impl RemoteSession {
             let cache = self.tree.lock().unwrap();
             (cache.title_generation(), cache.agent_generation())
         };
-        let data = match self.request(json!({"cmd": "list-workspaces"})) {
+        // A tree held with no tree event since it was read goes as `known`: an unchanged tree
+        // is then an O(1) answer and no parse (held_tree.rs).
+        let known_capable = self
+            .capabilities
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(held_tree::LIST_WORKSPACES_KNOWN_CAPABILITY);
+        let (held_at, held) = {
+            let held_trees = self.held_trees();
+            (held_trees.stamp(), if known_capable { held_trees.fresh() } else { None })
+        };
+        let request = match &held {
+            Some(held) => json!({"cmd": "list-workspaces", "known": held.known}),
+            None => json!({"cmd": "list-workspaces"}),
+        };
+        let data = match self.request(request) {
             Ok(data) => data,
             Err(e) => {
                 if identity_refresh {
@@ -2121,6 +1562,13 @@ impl RemoteSession {
                 return Err(e);
             }
         };
+        let held = held.filter(|held| held_tree::confirms(&data, &held.known));
+        if held.is_none() && held_tree::is_unchanged(&data) {
+            // `unchanged` for a tree this client does not hold: never draw its empty list.
+            self.held_trees().forget();
+            self.tree_stale.store(true, Ordering::Release);
+            anyhow::bail!("remote daemon answered unchanged for a tree this client does not hold");
+        }
         let agents = self
             .request(json!({"cmd": "list-agents"}))
             .ok()
@@ -2130,15 +1578,32 @@ impl RemoteSession {
                     .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
             })
             .unwrap_or_default();
-        let capabilities = self.capabilities.lock().unwrap();
-        let tree = parse_tree_with_capabilities(
-            &data,
-            TreeCapabilities {
-                viewport_splits: capabilities.contains(VIEWPORT_SPLITS_CAPABILITY),
-                viewport_column_resize: capabilities.contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
-            },
-        );
-        drop(capabilities);
+        let tree = match held {
+            Some(held) => {
+                let tree = held.tree.clone();
+                self.held_trees().hold(held, held_at);
+                tree
+            }
+            None => {
+                let capabilities = self.capabilities.lock().unwrap();
+                let tree = parse_tree_with_capabilities(
+                    &data,
+                    TreeCapabilities {
+                        viewport_splits: capabilities.contains(VIEWPORT_SPLITS_CAPABILITY),
+                        viewport_column_resize: capabilities
+                            .contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
+                    },
+                );
+                drop(capabilities);
+                let mut held_trees = self.held_trees();
+                match held_tree::known_of(&data).filter(|_| known_capable) {
+                    Some(known) => held_trees
+                        .hold(Arc::new(held_tree::HeldTree { known, tree: tree.clone() }), held_at),
+                    None => held_trees.forget(),
+                }
+                tree
+            }
+        };
         let raw_surface_ids = tree
             .workspaces()
             .iter()
@@ -2205,7 +1670,25 @@ impl RemoteSession {
     }
 
     pub fn invalidate_tree(&self) {
+        self.mark_tree_stale();
+    }
+
+    /// The held tree. A panic while it was locked left a whole entry or none (each write is one
+    /// call), so a poisoned lock is still a good cache.
+    fn held_trees(&self) -> std::sync::MutexGuard<'_, held_tree::HeldTrees> {
+        self.held_tree.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The tree changed: the next refresh reads it whole, and the held tree is stale.
+    pub(super) fn mark_tree_stale(&self) {
+        self.held_trees().invalidate();
         self.tree_stale.store(true, Ordering::Release);
+    }
+
+    /// Whether a tree is held for `known`, and whether it is fresh (held_tree.rs).
+    #[cfg(test)]
+    pub(super) fn held_tree_state(&self) -> Option<bool> {
+        self.held_trees().lookup()
     }
 
     pub fn take_tree_stale(&self) -> bool {
@@ -2576,6 +2059,7 @@ fn test_session_with_writer(
         retired_surfaces: Mutex::new(HashSet::new()),
         retire_surface_test_marker: Mutex::new(None),
         tree: Mutex::new(RemoteTreeCache::default()),
+        held_tree: Mutex::new(held_tree::HeldTrees::default()),
         browser_sources: Mutex::new(HashMap::new()),
         tree_refresh: Mutex::new(()),
         tree_stale: AtomicBool::new(true),

@@ -1,55 +1,38 @@
 import CmuxNextActions
+import CmuxNextAgentCursor
 import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
-import CmuxNextHomeEngine
+public import CmuxNextHomeEngine
+import CmuxNextHostedChief
+import CmuxNextMacScreen
 import CmuxNextPhone
 import CmuxNextMobile
 import CmuxNextMobileHost
-import CmuxNextPhoneAccess
 import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
-import CmuxNextRemoteView
+public import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
 import CmuxNextSettings
 import Foundation
 import Observation
+import QuartzCore
 
 extension AppServices {
-    /// Open Desktop's `cmux-rd` viewer: the machine's desktop host over the owner's Native link, a
-    /// new `link.dial` (service `desktop`, a new one-time link token) per session, with no token
-    /// in the hello (``CloudDesktopLinkDial``); each session's transport in the mode it asks for.
+    /// Open Desktop's `cmux-rd` viewer: the machine's desktop host over the carrier, a new
+    /// `cmux carrier dial --service desktop` per session with the platform origin and the person's
+    /// access token (``CloudCarrierDial/Connector``, ended with the account); each session's transport in the mode it asks for.
     func cloudDesktopRdTransport(machine: String) -> (@MainActor (_ control: Bool) -> RemoteRdStreamTransport?)? {
-        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() })?.machineID,
-              let cli = cloud.binary else { return nil }
-        let (cloud, run, hello) = (cloud, CloudAppLinks.runner(local: machines.local), RemoteRdHello.cloudDesktop())
-        return { control in
-            let carrier = RemoteRdStreamCarrier {
-                await cloud.ensureLink()
-                let info = try await run(CloudDesktopLinkDial.connectInfoOp, ["machine": id], UUID().uuidString, .script)
-                guard let dial = CloudDesktopLinkDial(connectInfo: info, linkSocket: await cloud.linkSocket) else {
-                    throw CloudLinkError.helperNotRunning(reason: "no link socket or host for the desktop")
-                }
-                let stream = try await dial.open(cli: cli)
+        guard cloud.auth.isSignedIn, !cloud.policyDisabled, let session = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() }),
+              let dial = CloudCarrierDial.Connector(machine: session.machineID, service: .desktop, cli: cloud.binary, auth: cloud.auth, platform: cloud.configuration.relayAPIBaseURL(),
+                                                    team: session.machine.team, stateDirectory: cloud.tuiState, streams: cloud.desktopStreams) else { return nil }
+        return { [weak self] control in
+            let carrier = RemoteRdStreamCarrier(reportingOpen: { progress in
+                let stream = try await dial.open(progress: progress)
                 return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
-            }
-            return RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString, control: control)
-        }
-    }
-
-    /// Open Desktop's native viewer: Cloud machine `machine`'s websockify port (6901, next to its
-    /// noVNC) over this Mac's own Cloud tunnel, with the hub's client token; no port opens on this
-    /// Mac. Nil when the tunnel cannot reach it (signed out, the machine without an address).
-    func cloudDesktopTransport(machine: String) -> (@Sendable () async throws -> RemoteViewPageSession.CloudDesktopStream)? {
-        guard let hub = remoteLocalhost.cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
-              let opener = HubLoopbackOpener(hub: hub, address: address) else { return nil }
-        return {
-            let tunnel = try await opener.openTunnel(host: "localhost", port: 6901)
-            let reader = LoopbackTunnelReader(tunnel)
-            return RemoteViewPageSession.CloudDesktopStream(read: { try await reader.read() },
-                                                            write: { try await tunnel.write($0) },
-                                                            close: { tunnel.close() })
+            })
+            return RemoteRdStreamTransport(carrier: carrier, hello: RemoteRdHello.cloudDesktop(sharpText: self?.settings?.snapshot.remoteDesktop.sharpLinuxText ?? false), startKey: UUID().uuidString, control: control)
         }
     }
 
@@ -89,14 +72,12 @@ extension AppServices {
     func startCloud() -> Task<Void, Never> {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
         cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }, stopAsking: self?.settings?.stopAskingCloudAgents) }
-        cloud.agentsAskFirst = { [weak self] in self?.settings.map { !$0.cloudAgentsSkipAsking } ?? false }
+        cloud.agentCreatePolicy = { [weak self] in self?.settings.map { CloudMachineCreatePolicy(asksFirst: !$0.cloudAgentsSkipAsking, pauseAgentMachines: $0.snapshot.pauseAgentMachines) } ?? CloudMachineCreatePolicy() }
         // The cap card's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
         cloud.chooseAtCap = { [weak self] in await CloudMachineCapCard.choose($0, in: self?.windows.active?.window, freePlanDetail: CloudStrings.upgradeDetail(.freePlan), openPricing: { [weak self] in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
         cloud.madeRoom = { [weak self] in if let self { CloudMove.toast(self, "cloud-made-room", CloudMachineCapCard.madeRoom($0), duration: .seconds(6)) } }
         cloud.planObserved = { [weak self] in self?.paidPlanObserved($0) }
         cloud.start()
-        // Each Cloud machine follows the app's cmux-tui build by itself, also while an agent works there.
-        CloudMachineUpdates.start(self)
         iphone.pairedQuitRecord = agentPaneStateLoss
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
                     agentTabHost: { [weak self] in self?.agentTabs.localHost },
@@ -115,18 +96,12 @@ extension AppServices {
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: (user: String, team: String)?
-            var routerUser: String??
             var leaseAccount = GitHubAppLease.Account()
             for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID, cloud.auth.managedTeamID != nil) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
-                self.agentTabs.syncCloudCredentialTransferAvailability(services: self)
-                // The local model relay follows the signed-in user (ModelRouterLease).
+                self.agentTabs.syncCloudAccountActions(services: self)
                 let user = state.0 ? state.2 : nil
-                if routerUser != .some(user) {
-                    routerUser = .some(user)
-                    self.modelRouter?.accountChanged(user)
-                }
                 // The sign-in acpmux mints GitHub App tokens with (GitHubAppLease) follows the user
                 // and the active team (its cmux id), whose GitHub connection Cloud mints from.
                 let team = GitHubAppLease.backendTeam(stackProjectID: cloud.auth.configuration.stackProjectID,
@@ -136,27 +111,21 @@ extension AppServices {
                     self.githubAppLease.accountChanged(user: user.map { CloudIdentity.workerUserID(stackProjectID: project, stackUserID: $0) },
                                                        team: team)
                 }
-                // Phone access follows the account: start after sign-in, restart on a user or team switch,
-                // stop on sign-out. A switch of the active team also reloads the team's machines and accounts.
+                // A switch of the active team reloads the team's machines and accounts.
                 let current = state.0 ? state.2.flatMap { user in state.3.map { (user: user, team: $0) } } : nil
                 guard current?.user != account?.user || current?.team != account?.team else { continue }
                 // task-owner: one machine-list reload; CloudService reconciles.
                 if let before = account, before.user == current?.user { Task { await cloud.refresh() }; self.accounts.model.refresh() }
                 account = current
-                if let auth = CloudMobileAuth(auth: cloud.auth) {
-                    self.mobile.start(auth: auth, launch: self.environment.launch, daemon: self.daemon)
-                } else {
-                    self.mobile.stop()
-                }
             }
         }
     }
 }
 
 extension AppServices {
-    /// What hostd's `surface` service streams: phone tabs `s<surface>` as streamed simulators
-    /// (``SimulatorSurfaceSources``, when SimulatorKit loads) and the owner's Cloud desktops
-    /// `c~<machine>~<team>`, view only (``CloudDesktopSurfaceSources``), on any Mac.
+    /// What hostd's `surface` service streams: phone tabs `s<surface>` as streamed simulators (``SimulatorSurfaceSources``,
+    /// when SimulatorKit loads), the owner's Cloud desktops `c~<machine>~<team>` (``CloudDesktopSurfaceSources``), and
+    /// this Mac's displays `d~<display>` while Share This Mac is on (``MacDisplaySurfaceSources``), these two view only.
     func phoneSurfaceHosts() -> any MobileHostSurfaceHosting {
         let phoneTabs = SimulatorSurfaceSources.available(phones) ? SimulatorSurfaceSources(phones: phones) { [weak self] raw in
             guard let self, let tab = self.daemon.store.tab(surface: SurfaceID(rawValue: raw)),
@@ -164,38 +133,10 @@ extension AppServices {
             let route = self.pages.storeKey(of: tab.id).flatMap { (self.pages.provider(.phone) as? PhonePageTab)?.route(for: $0) }
             return .some((route ?? tab.pageRoute).flatMap { PhoneDeviceID($0) })
         } : nil
-        let desktops = CloudDesktopSurfaceSources { [weak self] target in
-            guard let self else { throw CloudDesktopSurfaceSources.Failure.forbidden }
-            return try await self.phoneCloudDesktop(target)
-        }
-        return MobileHostSurfaceClosures(start: { tab, onExit in
-            if CloudDesktopSurfaceSources.target(of: tab) != nil { return try await desktops.start(tab: tab, onExit: onExit) }
-            guard let phoneTabs else { throw SimulatorSurfaceSources.Failure.notPhoneTab }
-            return try await phoneTabs.start(tab: tab, onExit: onExit)
-        }, stop: { tab in
-            if CloudDesktopSurfaceSources.target(of: tab) != nil { await desktops.stop(tab: tab) } else { await phoneTabs?.stop(tab: tab) }
-        }, stopAll: { await desktops.stopAll(); await phoneTabs?.stopAll() }, streamsSimulators: phoneTabs != nil)
-    }
-
-    /// One Cloud desktop start for the phone: exactly one owned link of that machine and team (the
-    /// same check as hostd's), the same account after the hop, a running machine and a tunnel.
-    private func phoneCloudDesktop(_ target: CloudDesktopSurfaceSources.Target) async throws -> CloudDesktopSurfaceSources.Grant {
-        typealias Failure = CloudDesktopSurfaceSources.Failure
-        let account = (cloud.auth.user?.id, cloud.auth.teamID)
-        let matches = await phoneCloudLinks().links.filter { $0.machineID == target.machine && $0.teamID == target.team }
-        // `phone.cloudDesktop` (default off): the person lets phones view the machine's screen.
-        guard settings?.snapshot.sessions.phoneSeesCloudDesktop == true, account.0 != nil, matches.count == 1, let link = matches.first, link.owner, cloud.auth.isSignedIn,
-              cloud.auth.user?.id == account.0, cloud.auth.teamID == account.1,
-              let session = machines.session(link.machineID) else { throw Failure.forbidden }
-        guard session.machine.shownStatus == .running else { throw Failure.asleep }
-        guard let open = cloudDesktopTransport(machine: session.machineID) else { throw Failure.unreachable }
-        let frames = CloudDesktopFrames(machine: session.machineID, open: open), machines = machines, cloud = cloud, settings = settings
-        return .init(feed: SurfaceFrameFeed(start: { frames.start(frame: $0, ended: $1) }, stop: { frames.stop() }),
-                     label: session.machineID) { [weak session, weak settings] in
-            guard let session, settings?.snapshot.sessions.phoneSeesCloudDesktop == true else { return false }
-            return cloud.auth.isSignedIn && cloud.auth.user?.id == account.0 && cloud.auth.teamID == account.1
-                && machines.session(session.machineID) === session && session.machine.shownStatus == .running
-        }
+        // No Cloud desktop for the phone until it has a carrier route of its own (phoneCloudLinks says so).
+        let sources = PhoneSurfaceSources(phoneTabs: phoneTabs, macDisplays: MacDisplayCapture.surfaceSources { [weak self] in self?.macScreenPages.hubHost.isSharing ?? false })
+        return MobileHostSurfaceClosures(start: { try await sources.start(tab: $0, onExit: $1) }, stop: { await sources.stop(tab: $0) },
+                                         stopAll: { await sources.stopAll() }, streamsSimulators: phoneTabs != nil, streamsMacDisplays: true)
     }
 
     /// Forward the account's app-link Cloud machines to Rust hostd (asleep ones with no socket),
@@ -208,13 +149,86 @@ extension AppServices {
               let team = MacInstallIdentity.team(ofToken: token) else { return MobileHostCloudLinks() }
         var result: [MobileHostCloudLink] = []
         for session in machines.cloud {
-            guard let link = session.appLink, !session.machine.isGoneForPhones else { continue }
+            guard !session.machine.isGoneForPhones else { continue }
+            let link = session.appLink
             let socket = await link.currentLinkSocket
             guard machines.session(session.machineID) === session, !session.machine.isGoneForPhones else { continue }
-            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, cachedOwner: link.ownership.callerOwnsVM, user: user))
+            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, cachedOwner: link.ownership.callerOwnsVM, user: cloud.auth.platformUserID ?? user))
         }
         // An account transition during either actor hop invalidates the whole answer.
         guard cloud.auth.isSignedIn, cloud.auth.user?.id == user, cloud.auth.teamID == selectedTeam else { return MobileHostCloudLinks() }
-        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, desktops: settings?.snapshot.sessions.phoneSeesCloudDesktop == true, links: result)
+        // No desktops: a phone has no carrier route to a Cloud desktop yet, whatever `phone.cloudDesktop` says.
+        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, desktops: false, links: result)
     }
 }
+
+// The profile's Computer tab's control source (Chief computer take-over): who drives the Chief's
+// computer and the person's Take Over / Give Back. The view never talks to a transport itself.
+extension AppServices {
+    /// `agent` (a Cloud Chief's `agent_…` id): its own sandbox, whose lease the Worker owns. Else
+    /// `machine` (a Cloud machine id attached to a Chief on this Mac): its lease in the app's
+    /// ``ChiefComputerControlStore``, driven through Open Desktop. Nil when neither names one.
+    @MainActor
+    func chiefComputerControlSource(agent: String?, machine: String?) -> HomeChiefComputerControlSource? {
+        if let agent, ChiefComputerControlClient.isAgentID(agent) {
+            return .sandbox(agent: agent, store: cloud.computerControl, client: ChiefComputerControlClient(send: home.hostedChief.brainRoute))
+        }
+        guard let machine, let id = ChiefComputerControlStore.machineKey(machine) else { return nil }
+        return .machine(id, store: cloud.computerControl, openInteractive: { [weak self] in self?.openChiefComputerDesktop(machine: machine) }, send: { [weak self] input in
+            guard let self, let command = HomeChiefComputerRoute.machineInputCommand(input) else { return }
+            let ran = try await cloud.machineAPI.exec(machine, command: command, timeoutMs: 20_000)
+            guard ran.exitCode == 0 else { throw ActionFailure(message: ran.stderr) }
+        })
+    }
+
+    /// What a Cloud machine's desktop viewer calls on the person's input: it keeps their hold on its computer.
+    @MainActor
+    func chiefComputerInputReporter(machine: String?) -> (@MainActor () -> Void)? {
+        guard let note = chiefComputerControlSource(agent: nil, machine: machine)?.noteInput else { return nil }
+        return { note() }
+    }
+
+    /// Open Desktop (`cloudOpenDesktop`) as the person's own run: the machine's `cmux-rd` desktop over the
+    /// carrier, the one viewer Open Desktop has (CloudHandlers.openDesktop).
+    @MainActor
+    func openChiefComputerDesktop(machine: String) {
+        _ = registry.perform("cloudOpenDesktop", invocation: ActionInvocation(
+            target: ActionTargetRef(kind: .machine, id: machine), arguments: [:], origin: .user))
+    }
+
+    /// The loaded Cloud machines, by id, for the Chief's computer.
+    @MainActor
+    var cloudMachineRecords: [(id: String, machine: CloudMachine)] {
+        machines.cloud.map { ($0.machineID, $0.machine) }
+    }
+
+    /// The Chief's computer's live view: `machine`'s desktop stream, watching only; nil when it serves none.
+    @MainActor
+    func chiefComputerLiveFeed(machine: String, name: String, agentActs: @escaping () -> Bool) -> (any HomeChiefComputerLiveFeed)? {
+        guard machines.session(machine)?.machine.opensCarrierDesktop == true else {
+            RemoteDesktopWatchFeed.logger.error("computer live: machine serves no carrier desktop")
+            return nil
+        }
+        guard let transport = cloudDesktopRdTransport(machine: machine)?(false) else {
+            RemoteDesktopWatchFeed.logger.error("computer live: no transport")
+            return nil
+        }
+        return RemoteDesktopWatchFeed(name: name, transport: transport, agentActs: agentActs)
+    }
+
+    /// Draws the branded agent cursor over a Chief's screen: a Linux screen capture does not include it.
+    @MainActor
+    func chiefComputerPointerPainter(chief: @escaping () -> String) -> (CALayer) -> (CGPoint?) -> Void {
+        { layer in
+            let session = "chief-computer"
+            let host = AgentCursorLayerHost(hostLayer: layer, color: AgentCursorStack.sessionColor, label: { _ in chief() })
+            return { point in
+                guard let point else { return host.apply(.remove(session: session)) }
+                host.apply(.confine(session: session, bounds: layer.bounds))
+                host.apply(.place(session: session, point: point))
+            }
+        }
+    }
+}
+
+extension RemoteDesktopWatchFeed: HomeChiefComputerLiveFeed {}

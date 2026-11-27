@@ -23,11 +23,16 @@
 //! runner whose FIFO landed in a later folder of the same chat id (a purge moved its folder aside
 //! while it started) ignores that folder's stops, so a chat never stops another chat's task. Before
 //! the task starts, SIGTERM or SIGINT ends the runner; after, it stops the task like a stop line
-//! does: SIGTERM to the task's own group, then SIGKILL to the group after [`GRACE`]. Only the
-//! runner signals that group, and only before it reaps the leader, so the group id is still the
-//! task's. SIGHUP is ignored. The runner learns the leader's exit with `waitid(WNOWAIT)` and reaps
-//! it only once the pipe ends, so output a child it left writes later is kept and a stop still
-//! reaches that child. Once a stop began, the reap also waits for its SIGKILL: a member that
+//! does: SIGTERM to the task's whole tree, then SIGKILL to it after [`GRACE`]. The tree is the
+//! task's own group and every process that left it: what still runs under this runner, and what
+//! carries the task's [`TASK_MARK`] in its environment, so a process whose parent exited is found
+//! too. GNU `timeout` (setpgid) and a shell with job control move their children out of the group,
+//! and a group signal alone left those running (a `glaeda-gh wait; gh ...` loop polled GitHub
+//! after its bg_stop). Each such process is known by pid and start time, so a reused pid is
+//! never signalled. Only the runner signals the group, and only before it reaps the leader, so the
+//! group id is still the task's. SIGHUP is ignored. The runner learns the leader's exit with
+//! `waitid(WNOWAIT)` and reaps it only once the pipe ends, so output a child it left writes later
+//! is kept and a stop still reaches that child. Once a stop began, the reap also waits for its SIGKILL: a member that
 //! ignores SIGTERM and holds no pipe (its output sent elsewhere) is killed too, never left once
 //! the pipe ends. A stop whose SIGKILL leaves the pipe open (a process that left the group holds
 //! it) ends the wait after one more grace. Then the runner writes the exit and exits.
@@ -44,8 +49,47 @@ use std::path::{Path, PathBuf};
 pub const RUN_ARG: &str = "__bg-run";
 /// The default segment: two of them, 8 MiB, are the most a task keeps.
 pub const SEGMENT: u64 = 4 << 20;
+/// The variable each task runs with, valued with its own mark (`<runner pid>-<start ms>`): a stop
+/// finds by it the processes that left the task's group and whose parent exited.
+pub const TASK_MARK: &str = "ACPMUX_BG_TASK";
 /// From SIGTERM to SIGKILL on a stop.
 pub const GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+/// How often a stop's grace looks whether the task already ended.
+#[cfg(unix)]
+const GRACE_LOOK: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// Sleeps until `ended` holds or `grace` passes, looking every [`GRACE_LOOK`]; whether it ended.
+#[cfg(unix)]
+fn ended_within(grace: std::time::Duration, mut ended: impl FnMut() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + grace;
+    loop {
+        if ended() {
+            return true;
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        std::thread::sleep(GRACE_LOOK.min(deadline - now));
+    }
+}
+
+/// Whether child `pid` exited, without reaping it (its pid keeps the group id the task's).
+#[cfg(unix)]
+fn leader_exited(pid: u32) -> bool {
+    // SAFETY: waitid into a zeroed siginfo this function owns; WNOWAIT leaves the child unreaped.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let r = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOWAIT | libc::WNOHANG,
+        )
+    };
+    // SAFETY: si_pid is set by waitid when a child changed state, else left zero.
+    r == 0 && unsafe { info.si_pid() } != 0
+}
 
 /// What the daemon hands the runner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +120,10 @@ pub struct Spec {
     /// Its last output line is its summary once it ended (`run_wait` prints its outcome last).
     #[serde(default)]
     pub result_line: bool,
+    /// The Claude Code subagent whose MCP call started it, `{id, type}` (`subagent_call.rs`):
+    /// its end goes to that subagent while it runs (`hub/bg_notify.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<serde_json::Value>,
 }
 
 /// `<id>.json`, written whole (to a temporary file, then renamed) each time it changes.
@@ -109,6 +157,9 @@ pub struct Record {
     /// [`Spec::result_line`].
     #[serde(default)]
     pub result_line: bool,
+    /// [`Spec::subagent`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<serde_json::Value>,
 }
 
 fn file(dir: &Path, id: &str, ext: &str) -> PathBuf {
@@ -120,8 +171,9 @@ pub fn lock_path(dir: &Path, id: &str) -> PathBuf {
 pub fn ctl_path(dir: &Path, id: &str) -> PathBuf {
     file(dir, id, "ctl")
 }
-/// The mark that the task's end reached its chat (`hub/bg_tasks.rs` `bg_notify`): written once
-/// the chat took the message, so a restarted daemon never sends it again.
+/// The mark that the task's end reached its chat (`hub/bg_notify.rs`): written once the chat took
+/// the message, or once it was left for the subagent that started the task, so a restarted
+/// daemon never sends it again.
 pub fn notified_path(dir: &Path, id: &str) -> PathBuf {
     file(dir, id, "notified")
 }
@@ -132,8 +184,8 @@ fn segment_path(dir: &Path, id: &str, start: u64) -> PathBuf {
 /// One writer at a time: the runner writes its record from one lock (`main`).
 pub fn write_record(dir: &Path, record: &Record) -> std::io::Result<()> {
     let tmp = file(dir, &record.id, "json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec(record)?)?;
-    std::fs::rename(&tmp, file(dir, &record.id, "json"))
+    crate::home_fs::write(&tmp, serde_json::to_vec(record)?)?;
+    crate::home_fs::rename(&tmp, file(dir, &record.id, "json"))
 }
 
 pub fn read_record(dir: &Path, id: &str) -> Option<Record> {
@@ -182,7 +234,7 @@ impl Spool {
         segment: u64,
         retain_all: bool,
     ) -> std::io::Result<Self> {
-        let file = std::fs::File::create(segment_path(dir, id, 0))?;
+        let file = crate::home_fs::create_file(segment_path(dir, id, 0))?;
         let (dir, id) = (dir.to_owned(), id.to_owned());
         Ok(Self {
             dir,
@@ -206,11 +258,11 @@ impl Spool {
         while !data.is_empty() {
             if self.len >= self.segment {
                 let start = self.start + self.len;
-                self.file = std::fs::File::create(segment_path(&self.dir, &self.id, start))?;
+                self.file = crate::home_fs::create_file(segment_path(&self.dir, &self.id, start))?;
                 // A segment that will not go is an error: the spool stops (`outputError`)
                 // rather than keep more than two.
                 if let Some(old) = self.prev.replace(self.start) {
-                    match std::fs::remove_file(segment_path(&self.dir, &self.id, old)) {
+                    match crate::home_fs::remove_file(segment_path(&self.dir, &self.id, old)) {
                         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
                         _ => {}
                     }
@@ -243,12 +295,28 @@ pub struct Output {
 /// oldest kept byte reads from it. A spool that rotated under every try is an error, never an
 /// empty read (a reader would take it for no output and start again from 0).
 pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io::Result<Output> {
+    read_output_at(dir, id, from, max, None)
+}
+
+/// [`read_output`], first trying the segment starts a listing of the folder found (`known`), so
+/// a list of many tasks lists their folder once, not once per task. A segment gone since then
+/// lists the folder as before.
+pub fn read_output_at(
+    dir: &Path,
+    id: &str,
+    from: Option<u64>,
+    max: u64,
+    known: Option<&[u64]>,
+) -> std::io::Result<Output> {
     use std::io::{Read, Seek, SeekFrom};
     // The newest two segments, opened before anything is measured: a rotation meanwhile deletes
     // a name but not an open file, and every segment but the newest no longer grows.
     let mut open = None;
-    for _ in 0..3 {
-        let starts = segments(dir, id)?;
+    for attempt in 0..3 {
+        let starts = match known {
+            Some(known) if attempt == 0 => known.to_vec(),
+            _ => segments(dir, id)?,
+        };
         let opened: std::io::Result<Vec<_>> = starts
             .get(starts.len().saturating_sub(2)..)
             .unwrap_or_default()
@@ -362,12 +430,12 @@ const STOP_LINE_MAX: usize = 128;
 #[cfg(unix)]
 pub fn request_stop(dir: &Path, id: &str, generation: &str) -> bool {
     use std::io::Write;
-    use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+    use std::os::unix::fs::FileTypeExt;
     let path = ctl_path(dir, id);
     if !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_fifo()) {
         return false;
     }
-    let opened = std::fs::OpenOptions::new()
+    let opened = crate::home_fs::OpenOptions::new()
         .write(true)
         .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
         .open(&path);
@@ -411,6 +479,22 @@ pub fn main() -> anyhow::Result<()> {
         libc::signal(libc::SIGCHLD, libc::SIG_DFL);
     }
     let (dir, id) = (spec.dir.clone(), spec.id.clone());
+    let mark = format!("{}-{}", std::process::id(), crate::store::now_ms());
+    // `signal` to every process of the task's tree outside its group: what still runs under this
+    // runner and what carries its mark (a process whose parent exited).
+    let signal_tree = {
+        let mark = mark.clone();
+        move |signal: libc::c_int| {
+            use crate::agent_host::tree;
+            let mut procs = tree::descendants(&[std::process::id()]);
+            for p in tree::marked(TASK_MARK, &mark) {
+                if !procs.contains(&p) {
+                    procs.push(p);
+                }
+            }
+            tree::signal_still_running(&procs, signal);
+        }
+    };
     /// The task's pid once it runs, whether it was reaped (from then on its group id may be
     /// another's), and its record: one lock, so a stop never interleaves with the start, the
     /// reap or a record write.
@@ -433,16 +517,31 @@ pub fn main() -> anyhow::Result<()> {
     // Set once a stop sent its SIGKILL: the reap waits for it, so the group id stays the task's
     // until then.
     let killed = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    // Set once the task's output pipe ended (every holder of it is gone).
+    let pipe_ended = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Whether no process carrying the task's mark still runs. Not `tree::descendants` of this
+    // runner: it lists by running `ps`, a child of this runner, so it is never empty. The
+    // leader itself stays, unreaped, until the reap: it is not a running process. A process
+    // that dropped the mark from its environment still gets the SIGKILL that follows.
+    let signal_tree_empty = {
+        let mark = mark.clone();
+        move |leader: u32| {
+            crate::agent_host::tree::marked(TASK_MARK, &mark).iter().all(|p| p.pid == leader)
+        }
+    };
     let stop = {
         let (task, dir, give_up, killed) =
             (task.clone(), dir.clone(), give_up.clone(), killed.clone());
+        let signal_tree = signal_tree.clone();
+        let signal_tree_empty = signal_tree_empty.clone();
+        let pipe_ended = pipe_ended.clone();
         let held_id = id.clone();
         move || {
             let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
             // Not started yet: nothing to stop, and nothing of the start stays.
             let Some(pid) = held.pid else {
-                let _ = std::fs::remove_file(ctl_path(&dir, &held_id));
-                let _ = std::fs::remove_file(segment_path(&dir, &held_id, 0));
+                let _ = crate::home_fs::remove_file(ctl_path(&dir, &held_id));
+                let _ = crate::home_fs::remove_file(segment_path(&dir, &held_id, 0));
                 // crash-allow: the runner is its own process; a stop before the task starts ends it with nothing to keep
                 std::process::exit(1)
             };
@@ -454,6 +553,9 @@ pub fn main() -> anyhow::Result<()> {
             let _ = write_record(&dir, &held.record);
             drop(held);
             let (task, give_up, killed) = (task.clone(), give_up.clone(), killed.clone());
+            let signal_tree = signal_tree.clone();
+            let signal_tree_empty = signal_tree_empty.clone();
+            let pipe_ended = pipe_ended.clone();
             std::thread::spawn(move || {
                 let sent = || {
                     *killed.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -468,10 +570,27 @@ pub fn main() -> anyhow::Result<()> {
                     // for the SIGKILL below), so the group is the task's.
                     unsafe { libc::killpg(pid as i32, signal) };
                     drop(held);
+                    // And what left the group (pid and start time checked, so after the reap too).
+                    signal_tree(signal);
                     if signal == libc::SIGKILL {
                         sent();
+                        // The pipe already ended: nothing is left for the grace to wait for.
+                        if pipe_ended.load(std::sync::atomic::Ordering::SeqCst) {
+                            break;
+                        }
+                        std::thread::sleep(GRACE);
+                    } else {
+                        // Up to the grace, and no longer than the task takes to end: once the
+                        // leader exited, the pipe ended and nothing of its tree still runs,
+                        // SIGKILL goes at once (to anything that left the group and the pipe
+                        // too). A stop took the whole 5 s grace for a task that ended on its
+                        // SIGTERM in milliseconds: bg_stop answered in 5.5 s at p50.
+                        ended_within(GRACE, || {
+                            pipe_ended.load(std::sync::atomic::Ordering::SeqCst)
+                                && leader_exited(pid)
+                                && signal_tree_empty(pid)
+                        });
                     }
-                    std::thread::sleep(GRACE);
                 }
                 // Every way out lets the reap go on, and ends the wait for a pipe a process
                 // outside the group (or one this runner cannot signal) still holds.
@@ -494,7 +613,7 @@ pub fn main() -> anyhow::Result<()> {
             }
         });
     }
-    let lock = std::fs::File::create(lock_path(&dir, &id))?;
+    let lock = crate::home_fs::create_file(lock_path(&dir, &id))?;
     // SAFETY: flock on a descriptor this process owns (close-on-exec: the task never holds it).
     if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
         anyhow::bail!("task {id} already runs");
@@ -502,24 +621,26 @@ pub fn main() -> anyhow::Result<()> {
     let ctl = ctl_path(&dir, &id);
     // A start that fails leaves nothing behind but the lock it held.
     let undo = || {
-        let _ = std::fs::remove_file(&ctl);
-        let _ = std::fs::remove_file(segment_path(&dir, &id, 0));
+        let _ = crate::home_fs::remove_file(&ctl);
+        let _ = crate::home_fs::remove_file(segment_path(&dir, &id, 0));
     };
     let setup = || -> anyhow::Result<_> {
-        let _ = std::fs::remove_file(&ctl);
+        let _ = crate::home_fs::remove_file(&ctl);
         let c = std::ffi::CString::new(ctl.as_os_str().as_encoded_bytes())?;
         // SAFETY: mkfifo on a path this function owns.
         if unsafe { libc::mkfifo(c.as_ptr(), 0o600) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
         // Read and write: the FIFO never reads as closed, and a stop's open finds a reader.
-        let control = std::fs::OpenOptions::new().read(true).write(true).open(&ctl)?;
+        let control = crate::home_fs::OpenOptions::new().read(true).write(true).open(&ctl)?;
         let spool = Spool::create_with_retention(&dir, &id, spec.segment, spec.retain_all)?;
         let (reader, writer) = std::io::pipe()?;
         let shell = ["/bin/bash", "/bin/sh"].into_iter().find(|s| Path::new(s).exists());
         let mut cmd = std::process::Command::new(shell.unwrap_or("/bin/sh"));
-        // Exactly the env the daemon built (the agent's), never this runner's own on top of it.
+        // Exactly the env the daemon built (the agent's), never this runner's own on top of it,
+        // plus the task's mark.
         cmd.arg("-c").arg(&spec.command).current_dir(&spec.cwd).env_clear().envs(&spec.env);
+        cmd.env(TASK_MARK, &mark);
         cmd.stdin(std::process::Stdio::null()).stdout(writer.try_clone()?).stderr(writer);
         // SAFETY: setsid, signal and sigprocmask are async-signal-safe. The task leads its own
         // session and group, with SIGPIPE back to its default and no signal blocked.
@@ -549,6 +670,7 @@ pub fn main() -> anyhow::Result<()> {
             description: spec.description.clone(),
             notify: spec.notify,
             result_line: spec.result_line,
+            subagent: spec.subagent.clone(),
             ..Record::default()
         };
         // A closed answer pipe is an error here, never a SIGPIPE (ignored since the start).
@@ -598,7 +720,7 @@ pub fn main() -> anyhow::Result<()> {
         }
     });
     {
-        let (task, dir) = (task.clone(), dir.clone());
+        let (task, dir, pipe_ended) = (task.clone(), dir.clone(), pipe_ended.clone());
         std::thread::spawn(move || {
             let mut buf = vec![0u8; 64 << 10];
             let mut failed = false;
@@ -618,6 +740,7 @@ pub fn main() -> anyhow::Result<()> {
                     let _ = write_record(&dir, &held.record);
                 }
             }
+            pipe_ended.store(true, std::sync::atomic::Ordering::SeqCst);
             let _ = done_tx.send(());
         });
     }
@@ -656,7 +779,7 @@ pub fn main() -> anyhow::Result<()> {
         held.record.signal = status.and_then(|s| s.signal());
         let _ = write_record(&dir, &held.record);
     }
-    let _ = std::fs::remove_file(&ctl);
+    let _ = crate::home_fs::remove_file(&ctl);
     drop(lock);
     // crash-allow: the runner process ends with its task; its stop and spool threads may still block in reads
     std::process::exit(0)
@@ -668,90 +791,5 @@ pub fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn workflow_spool_retains_more_than_the_normal_two_segments() {
-        let dir = cmux_unix_socket::short_test_dir("bg-workflow-spool");
-        let mut spool = Spool::create_with_retention(dir.path(), "t", SEGMENT, true).unwrap();
-        let data: Vec<u8> = (0..(2 * SEGMENT + 123) as usize).map(|i| (i % 251) as u8).collect();
-        for chunk in data.chunks(64 << 10) {
-            spool.write(chunk).unwrap();
-        }
-        drop(spool);
-        assert_eq!(segments(dir.path(), "t").unwrap(), [0]);
-        let complete = read_output(dir.path(), "t", Some(0), u64::MAX).unwrap();
-        assert_eq!(complete.kept_from, 0);
-        assert_eq!(complete.total, data.len() as u64);
-        assert_eq!(complete.data, data);
-    }
-
-    #[test]
-    fn legacy_bg_specs_keep_bounded_retention() {
-        let spec: Spec = serde_json::from_value(serde_json::json!({
-            "dir":"/tmp", "id":"task", "sessionId":"owner", "command":"true",
-            "cwd":"/tmp", "segment":10
-        }))
-        .unwrap();
-        assert!(!spec.retain_all);
-    }
-
-    /// A summary line names the task by its description (else its command) on one line, says
-    /// how it ended, and its status is `ok` only for exit 0.
-    #[test]
-    fn a_tasks_outcome_is_one_line_and_a_status() {
-        use serde_json::json;
-        let view = |v: serde_json::Value| outcome(&v);
-        let ran = view(json!({"state": "running", "command": "make\n  test", "description": " "}));
-        assert_eq!(ran, ("Background command running: make test".to_owned(), "running"));
-        let ok =
-            view(json!({"state": "exited", "exitCode": 0, "command": "x", "description": "build"}));
-        assert_eq!(ok, ("Background command finished: build (exit 0)".to_owned(), "ok"));
-        let bad = view(json!({"state": "exited", "exitCode": 2, "command": "x"}));
-        assert_eq!(bad, ("Background command finished: x (exit 2)".to_owned(), "failed"));
-        let killed = view(json!({"state": "killed", "signal": 9, "command": "x"}));
-        assert_eq!(killed, ("Background command killed: x (signal 9)".to_owned(), "failed"));
-        assert_eq!(view(json!({"state": "stopped", "command": "x"})).1, "failed");
-        assert_eq!(view(json!({"state": "lost", "command": "x"})).1, "failed");
-        let long = label(None, &"a".repeat(500));
-        assert_eq!(long.chars().count(), LABEL_MAX);
-        assert!(long.ends_with('…'));
-    }
-
-    /// Rotation keeps the newest two segments, named by their start, and a read by whole-output
-    /// offset crosses them; one before the oldest kept byte starts at it.
-    #[test]
-    fn the_spool_keeps_two_segments_and_reads_across_them() {
-        let dir = cmux_unix_socket::short_test_dir("bg-spool");
-        let mut spool = Spool::create(dir.path(), "t", 10).unwrap();
-        let data: Vec<u8> = (0..35u8).map(|i| b'a' + i % 26).collect();
-        for chunk in data.chunks(4) {
-            spool.write(chunk).unwrap();
-        }
-        assert_eq!(segments(dir.path(), "t").unwrap(), [20, 30]);
-        let tail = read_output(dir.path(), "t", None, 8).unwrap();
-        assert_eq!((tail.start, tail.total, tail.kept_from), (27, 35, 20));
-        assert_eq!(tail.data, data[27..]);
-        let across = read_output(dir.path(), "t", Some(0), 12).unwrap();
-        assert_eq!((across.start, across.data.as_slice()), (20, &data[20..32]));
-    }
-
-    /// A segment that is listed but gone at every open (here a dangling link, as a rotation
-    /// between the listing and the open leaves it) is an error, not an empty output; a spool
-    /// with no segment at all is empty.
-    #[cfg(unix)]
-    #[test]
-    fn a_read_that_loses_every_race_with_rotation_is_an_error() {
-        let dir = cmux_unix_socket::short_test_dir("bg-spool-race");
-        let none = read_output(dir.path(), "t", None, 8).unwrap();
-        assert_eq!((none.data.len(), none.total), (0, 0));
-        let mut spool = Spool::create(dir.path(), "t", 10).unwrap();
-        spool.write(b"0123456789abc").unwrap();
-        let gone = segment_path(dir.path(), "t", 0);
-        std::fs::remove_file(&gone).unwrap();
-        std::os::unix::fs::symlink(dir.path().join("nowhere"), &gone).unwrap();
-        let err = read_output(dir.path(), "t", None, 8).unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted, "{err}");
-    }
-}
+#[path = "bg_run_tests.rs"]
+mod tests;

@@ -6,11 +6,14 @@ import { ImageIcon } from "./icons";
 import { MathInline } from "./Math";
 import { codeSpans } from "../slashCommands";
 import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { githubRefLabel } from "../chips/linkChipsModel";
 import { isBareFileName, ReplyFoldersContext } from "../chips/replyFolders";
 import { SoftBroken } from "./softBreaks";
-import { codePath, foreignFileId, isTemplatePath, linkPath, pathName } from "../chips/paths";
+import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, lineOf, relativeCodePath } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { StartedSessionChip } from "../started/StartedSessionCard";
+import { CmuxLinkChip } from "../chips/CmuxLinkChip";
+import { cmuxLinkTarget } from "./cmuxLinks";
 import { type StartedMentions } from "../started/startedSessionCardModel";
 import { isAgentMotionOff } from "../../shared/motion";
 import { animateScroll } from "../threadMinimap/scrollMotion";
@@ -28,10 +31,13 @@ import {
   INLINE_RE,
 } from "./markdownModel";
 import { proseText } from "./proseText";
+import type { ClaimCheck } from "../model";
 
 /* ---------------- Inline ---------------- */
 
 export type InlineOptions = {
+  /** A finished reply's checked claims: each phrase draws inside its mark (ClaimMark.tsx). */
+  claims?: readonly ClaimCheck[];
   /** Icon drawn before a link's text; default `linkIcon` below. */
   linkIcon?: (href: string) => ReactNode | null;
   /** The reply's footnotes: each id's number and the element id of its note. */
@@ -53,6 +59,9 @@ export type InlineOptions = {
   /** A sent prompt's skills by shown name, with their descriptions: each `/name` in the renderer's
    *  plain text draws as a skill word (SkillWord.tsx), never in code. */
   skills?: ReadonlyMap<string, string>;
+  /** A sent prompt: each `@computer-use` / `@browser-use` in the renderer's plain text draws as its
+   *  badge (chips/ToolBadge.tsx), as the composer drew it; never in code. */
+  tools?: boolean;
   /** Inline code read as CommonMark reads it (slashCommands.ts codeSpans: a span closes on a run of
    *  as many backticks, so ``a ` b`` is one span), as a sent prompt's is. */
   commonmark?: boolean;
@@ -66,13 +75,16 @@ export type InlineOptions = {
    *  paragraph of images. Off, only its chip: another machine's files in another agent's message
    *  (IncomingMessageCard.tsx). Markdown image syntax (`![shot](/a.png)`) still draws in place. */
   thumbnails?: boolean;
+  /** A link's label (`linkLabel`): its paths, URLs and code paths draw as their text, never as
+   *  chips of their own inside the link's chip (`[file:///a.html](file:///a.html)` drew two icons). */
+  insideLink?: boolean;
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
 
 /// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
 function lineLabel(path: string, written: string): string | undefined {
-  const line = /:(\d+)(?::\d+)?$/.exec(written)?.[1];
+  const line = lineOf(written);
   return line ? `${pathName(path)}:${line}` : undefined;
 }
 
@@ -105,11 +117,25 @@ function keptCode(raw: string, opts: InlineOptions): string {
 }
 
 const NO_FOLDERS: readonly string[] = [];
+/// The one folder a relative code path is looked up in: the session's own (the host resolves it).
+const SESSION_FOLDER: readonly string[] = [""];
 
-/// A link's label: inline Markdown, whose file names are its text, never chips of their own inside
-/// the link's chip.
+/// A link label that only repeats the link's own path (`[file:///a/b.html](file:///a/b.html)`,
+/// also in code): the chip names the file, as a bare path's chip does.
+/// A label with another line (`[a.ts:8](a.ts:9)`) keeps its own words.
+function repeatsPath(label: string, href: string, path: string): boolean {
+  const text = label.trim().replace(/^`([^`]+)`$/, "$1");
+  return linkPath(text) === path && lineOf(text) === lineOf(href);
+}
+
+/// A link's label: inline Markdown, whose file names, paths and URLs are its text, never chips of
+/// their own inside the link's chip (`insideLink`).
 function linkLabel(source: string, opts: InlineOptions): ReactNode {
-  return <ReplyFoldersContext.Provider value={NO_FOLDERS}>{renderInline(source, opts)}</ReplyFoldersContext.Provider>;
+  return (
+    <ReplyFoldersContext.Provider value={NO_FOLDERS}>
+      {renderInline(source, { ...opts, insideLink: true })}
+    </ReplyFoldersContext.Provider>
+  );
 }
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
@@ -140,13 +166,20 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const ref = path ? undefined : agentRef(inner);
       // A provider's file id in code is still one nobody here can open (chips/paths.ts).
       const foreign = path || ref ? undefined : foreignFileId(inner);
+      const relative = path || ref || foreign ? undefined : relativeCodePath(inner);
       out.push(
-        foreign ? (
+        // Inside a link's label a code span stays code: the link's chip is the only chip.
+        opts.insideLink ? (
+          code
+        ) : foreign ? (
           <ForeignFileRef key={k++} id={foreign} />
         ) : ref ? (
           <SessionRefCode key={k++} text={inner} agentRef={ref} fallback={code} />
         ) : path ? (
-          <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
+          <PathChip key={k++} path={path} line={lineOf(inner)} written={inner} label={lineLabel(path, inner)} />
+        ) : relative ? (
+          // A path from the session's folder (`outputs/lab/a.html`): its chip when the host finds it.
+          <SiblingFileChip key={k++} name={relative} folders={SESSION_FOLDER} fallback={code} />
         ) : isBareFileName(inner) ? (
           // A file name with no folder: its chip when it is in a folder the reply names.
           <SiblingFileChip key={k++} name={inner} fallback={code} />
@@ -164,7 +197,13 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // A local path is a path chip; a link the pane will not open draws as its text; a web
       // link is a chip with its site's mark (chips/LinkChips.tsx).
       const path = linkPath(lm[2]);
-      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
+      const labelOpts = {
+        ...opts,
+        githubRepository: undefined,
+        linkGithubReferences: false,
+        started: undefined,
+        claims: undefined,
+      };
       // A link to a session (`cmux://session/<id>`) the open chat started opens that chat.
       const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
       const named = linked ? opts.started?.mentions.find((mention) => mention.sessionId === linked) : undefined;
@@ -183,14 +222,33 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         );
       else if (named)
         out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
-      else if (path) out.push(<PathChip key={k++} path={path} label={linkLabel(lm[1], labelOpts)} />);
-      else if (app)
-        // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
+      else if (path)
         out.push(
-          <a key={k++} className="cv-link is-app" href={app}>
-            {linkLabel(lm[1], labelOpts)}
-          </a>,
+          <PathChip
+            key={k++}
+            path={path}
+            line={lineOf(lm[2])}
+            label={repeatsPath(lm[1], lm[2], path) ? lineLabel(path, lm[2]) : linkLabel(lm[1], labelOpts)}
+          />,
         );
+      else if (app) {
+        // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
+        // One that names a chat or a place the page knows draws as its chip, with the author's label
+        // (chips/CmuxLinkChip.tsx), as a bare link does (review of #38166).
+        const label = linkLabel(lm[1], labelOpts);
+        const anchor = (
+          <a className="cv-link is-app" href={app}>
+            {label}
+          </a>
+        );
+        out.push(
+          cmuxLinkTarget(app) ? (
+            <CmuxLinkChip key={k++} href={app} label={label} fallback={anchor} />
+          ) : (
+            <Fragment key={k++}>{anchor}</Fragment>
+          ),
+        );
+      }
       // A template (`${variant}.png`) names no file: its text.
       else if (!href && isTemplatePath(lm[2])) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
       else if (linkKind(lm[2]) === "file")
@@ -201,16 +259,23 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
           </span>,
         );
       else if (!href) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
-      else
-        out.push(
-          <UrlChip
-            key={k++}
-            href={href}
-            icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}
-          >
-            {linkLabel(lm[1], labelOpts)}
-          </UrlChip>,
+      else {
+        // A label that is the address itself draws as a bare address does (`owner/repo#12`).
+        const label = lm[1].trim() === lm[2] ? (githubRefLabel(href) ?? lm[1].trim()) : linkLabel(lm[1], labelOpts);
+        const chip = (
+          <UrlChip href={href} icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}>
+            {label}
+          </UrlChip>
         );
+        // cmux.com's agent link: the chat it names, with the author's label, once the page knows it.
+        out.push(
+          href.includes("/deeplink/") && cmuxLinkTarget(href) ? (
+            <CmuxLinkChip key={k++} href={href} label={label} fallback={chip} />
+          ) : (
+            <Fragment key={k++}>{chip}</Fragment>
+          ),
+        );
+      }
     } else if (m[6]) out.push(<br key={k++} />);
     else if (m[7]) out.push(<MathInline key={k++} tex={t.slice(2, -2).trim()} display />);
     else if (m[8])
@@ -305,7 +370,13 @@ export function InlineImage({ source, opts }: { source: string; opts: InlineOpti
   const foreign = foreignFileId(src);
   if (foreign) return <ForeignFileRef id={foreign} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
-  const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
+  const labelOpts = {
+    ...opts,
+    githubRepository: undefined,
+    linkGithubReferences: false,
+    started: undefined,
+    claims: undefined,
+  };
   const href = safeHref(src);
   const fallback = !href ? (
     <span className="cv-link is-image">
@@ -333,7 +404,7 @@ function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
     >
       <ImageIcon size={16} className="cv-link__icon" />
       {alt
-        ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false })
+        ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false, claims: undefined })
         : t("markdown.imageTooLarge")}
     </span>
   );

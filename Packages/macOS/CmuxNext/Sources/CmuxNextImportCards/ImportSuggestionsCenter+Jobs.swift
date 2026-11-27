@@ -110,6 +110,13 @@ extension ImportSuggestionsCenter {
         runWorkspaces(id, through: host.importConductor)
     }
 
+    /// Runs Move this Mac to AutoCloud as card `id`'s job, as ``runClassic(_:)`` runs Classic's:
+    /// it ends done with how many projects moved.
+    func runMoveToAutoCloud(_ id: String) {
+        guard let host else { return }
+        runWorkspaces(id, through: host.autoCloud?.move ?? { _ in nil })
+    }
+
     private func runWorkspaces(_ id: String, through run: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?) {
         guard running[id] == nil else { return }
         running[id] = Task { [weak self] in
@@ -126,7 +133,6 @@ extension ImportSuggestionsCenter {
             switch outcome {
             case .success(let opened?):
                 ledger.update(id) { $0.importedClassic(opened, now: now()) }
-                if ledger.job(id)?.kind == .conductor { conductorImportFinished() }
             case .success(nil): ledger.remove(id)
             case .failure(is CancellationError): ledger.update(id) { $0.paused(.interrupted, now: now()) }
             case .failure: ledger.update(id) { $0.failed(.importFailed, now: now()) }

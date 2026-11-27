@@ -32,6 +32,18 @@ export type MockSession = {
   };
   /// The agent's last reply, for sessions other than the worked one.
   reply?: string;
+  /// The composer footer's status rundown for showcase captures. This is passed through the
+  /// mock daemon's session summary exactly as acpmux sends it.
+  composerStatus?: {
+    items: {
+      kind: string;
+      level: "info" | "attention" | "problem";
+      words: string;
+      subject?: string;
+      action?: string;
+    }[];
+    facts: unknown[];
+  };
   /// Images the last reply shows under its text (the image viewer's mock chat).
   images?: { alt: string; svg: string }[];
   /// What a session needing input waits on: the tool call its permission card names.
@@ -118,11 +130,15 @@ const codexCollaboration = {
     { value: "plan", name: "Plan", description: "Write a plan before editing." },
   ],
 };
-/// A session's config options: its effort level, and Codex's collaboration mode for /plan.
-const sessionOptions = (codex: boolean) => [
+/// A session's config options: its effort level, and Codex's collaboration mode for /plan. One copy
+/// per harness, as acpmux holds one per agent: built per session, the in-page daemon held a new
+/// set for each of a 3,000-chat list in every chat's page, which acpmux's process holds outside
+/// the app's webviews (bench/sim-ladder.bench.ts). A change is a new list (`set_config_option`).
+const harnessOptions = (codex: boolean) => [
   ...effort(codex ? "high" : "medium"),
   ...(codex ? [codexCollaboration] : []),
 ];
+const sessionOptions = (codex: boolean) => (codex ? sharedOptions.codex : sharedOptions.claude);
 const effort = (currentValue: string) => [
   {
     id: "effort",
@@ -136,6 +152,8 @@ const effort = (currentValue: string) => [
     ],
   },
 ];
+// After `effort`: built as the module loads.
+const sharedOptions = { codex: harnessOptions(true), claude: harnessOptions(false) };
 
 /// The session the pane opens on: one fully worked turn.
 export const WORKED_SESSION = "mock-session";
@@ -189,6 +207,23 @@ export const mockSessions: MockSession[] = [
       state: "open",
       reviewReady: true,
       checks: "passing",
+    },
+    composerStatus: {
+      items: [
+        {
+          kind: "stuck",
+          level: "problem",
+          words: "status.stuck.spawnFailed",
+          subject: "Codex",
+        },
+        {
+          kind: "rateLimited",
+          level: "attention",
+          words: "status.rateLimited.parked",
+          subject: "Claude Code",
+        },
+      ],
+      facts: [],
     },
   },
   {
@@ -371,6 +406,82 @@ export const mockSessions: MockSession[] = [
     ],
   },
   {
+    // The person corrected the agent, and acpmux offered what it learned for the project's
+    // instructions file: the memory inbox card under that turn (conversation/MemoryOfferCard.tsx).
+    sessionId: "mock-session-memory",
+    title: "Run the webview tests",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9300,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Ran them with bun test from webviews/; all pass.",
+    history: (at) => [
+      { ago: at + 120_000, mux: "user_message", msg: { text: "Run the webview tests." } },
+      { ago: at + 120_000, mux: "turn_started" },
+      { ago: at + 110_000, update: text("Running npm test at the repository root.") },
+      { ago: at + 100_000, mux: "turn_result", msg: { status: "completed" } },
+      {
+        ago: at + 60_000,
+        mux: "user_message",
+        msg: { text: "No, we use bun here, and only from webviews/. Never npm." },
+      },
+      { ago: at + 60_000, mux: "turn_started" },
+      { ago: at + 20_000, update: text("Ran them with bun test from webviews/; all pass.") },
+      { ago: at + 20_000, mux: "turn_result", msg: { status: "completed" } },
+      {
+        ago: at + 19_000,
+        mux: "memory_offer",
+        msg: {
+          offerId: "mock-memory-1",
+          file: "CLAUDE.md",
+          facts: ["Use bun, never npm.", "Run webview tests from webviews/ with bun test."],
+          heading: "## Learned in chats",
+          created: false,
+        },
+      },
+    ],
+  },
+  {
+    // The person corrected the agent three times before moving on, and acpmux offered the prompt
+    // coach: the page asks the mock for the rewrite, and its card lands under the last turn
+    // (conversation/PromptCoachCard.tsx).
+    sessionId: "mock-session-coach",
+    title: "Add a dark mode toggle",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9600,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Done: the toggle is in Settings > Appearance and follows the system until set.",
+    history: (at) => [
+      { ago: at + 240_000, mux: "user_message", msg: { text: "Add a dark mode toggle." } },
+      { ago: at + 240_000, mux: "turn_started" },
+      { ago: at + 230_000, update: text("Added a toggle to the header.") },
+      { ago: at + 230_000, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 200_000, mux: "user_message", msg: { text: "No, put it in Settings > Appearance, not the header." } },
+      { ago: at + 200_000, mux: "turn_started" },
+      { ago: at + 190_000, update: text("Moved it to Settings > Appearance.") },
+      { ago: at + 190_000, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 160_000, mux: "user_message", msg: { text: "It should follow the system until someone sets it." } },
+      { ago: at + 160_000, mux: "turn_started" },
+      { ago: at + 150_000, update: text("It now follows the system until set.") },
+      { ago: at + 150_000, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 120_000, mux: "user_message", msg: { text: "And use the existing theme tokens, no new colours." } },
+      { ago: at + 120_000, mux: "turn_started" },
+      {
+        ago: at + 20_000,
+        update: text("Done: the toggle is in Settings > Appearance and follows the system until set."),
+      },
+      { ago: at + 20_000, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 19_000, mux: "coach_offer", msg: { coachId: "mock-coach-1", corrections: 3 } },
+    ],
+  },
+  {
     sessionId: "mock-typing-latency",
     title: "Measure typing latency in split panes",
     harness: "claude",
@@ -445,6 +556,7 @@ export const mockSessions: MockSession[] = [
     ago: 2000,
     host: LOCAL_HOST,
     hostKind: "local",
+    // motion-allow: mock reply text
     reply: "Restoring 40 workspaces now takes 180 ms; terminals start lazily when first shown.",
   },
   {
@@ -1030,6 +1142,133 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
     indicator: fixtureIndicator(session),
     modes: session.harness === "codex" ? codexModes : claudeModes,
     configOptions: [...sessionOptions(session.harness === "codex"), ...(extraOptions ?? [])],
+  };
+}
+
+/// Listed session `index` of a large list (bench/update-one.bench.ts): an idle finished chat with a
+/// title, a status dot and a cost, no history; every tenth one unread. Five wait on the person at every
+/// size from 100 (the first hundred hold them), so the lists the home draws stay the same as it grows.
+export function listedSession(index: number, now: number): Record<string, unknown> {
+  const waiting = index < 100 && index % 20 === 7;
+  return {
+    ...newSessionSummary(`listed-${index}`, `~/code/listed-${index % 40}`, now - (index + 10) * 60_000),
+    title: `Listed chat ${index}`,
+    status: waiting ? "waiting" : "idle",
+    indicator: waiting ? "input" : "done",
+    inputSince: waiting ? now - index * 1000 : null,
+    unread: index % 10 === 3,
+    turnCount: 1 + (index % 7),
+    usageStats: { costUsd24h: (index % 97) / 10, tokens24h: 1000 * (index % 31), updatedAt: now },
+  };
+}
+
+/// Text of `length` characters for a fleet row's free text (titles, previews, prompts).
+const fleetText = (seed: number, length: number) =>
+  `${`Fleet chat ${seed} `.padEnd(length, "lorem ipsum dolor sit amet ")}`.slice(0, length);
+
+/// The peers a fleet Mac mirrors (2026-11-18: 27 machines behind one daemon's list).
+const FLEET_PEERS = Array.from({ length: 27 }, (_, index) => `fleet-host-${index}`);
+
+/// Every this-many listed rows of a fleet list, one is open (not closed): about 5 %, as on a fleet Mac.
+export const FLEET_OPEN_EVERY = 20;
+/// Coordinators other fleet chats were started by (`parent`, `spawnedBy`, `lane.reportsTo`): 366 for 2,330
+/// started chats in the measured list, a few with 100 or more.
+const FLEET_COORDINATORS = 366;
+
+/// A fleet row's folder: about 4,000 of them, nearly all named for their worktree's lane; the
+/// measured list's most shared folder name ("review") named 32 of them, so one in 125 shares one.
+const fleetFolder = (index: number) => {
+  const folder = index % 4000;
+  return `/home/fleet/code/repo-${folder % 40}/${folder % 125 === 0 ? "review" : `lane-${folder}`}`;
+};
+
+/// Listed session `index` of a fleet-sized list (`cmuxAcpmuxMockListShape: "fleet"`; bench/session-scale-typing):
+/// the shape of the rows a Mac that mirrors a fleet lists, measured on one (Leo's, 2026-11-18: 10,790 rows, 38 MB
+/// of JSON, 3.9 KB a row at the median): on another machine (`peer`), closed but one in twenty, a fifth started by
+/// another chat (`parent`, `root`, `spawnedBy`, `lane.reportsTo`) of a few hundred coordinators, in one of about
+/// 4,000 folders, with the turn, receipt and policy members every acpmux row carries.
+export function fleetListedSession(index: number, now: number): Record<string, unknown> {
+  const sessionId = `listed-${index}`;
+  const open = index % FLEET_OPEN_EVERY === 0;
+  const peer = index % 19 === 5 ? undefined : FLEET_PEERS[index % FLEET_PEERS.length];
+  // Skewed fan-out: low coordinator numbers start most chats.
+  const started = index % 5 === 1 && index > FLEET_COORDINATORS;
+  const coordinator = Math.floor(((index * 7919) % 1000) ** 2 / ((1000 * 1000) / FLEET_COORDINATORS));
+  const parent = started ? `listed-${coordinator}` : null;
+  const updatedAt = now - (index + 10) * 60_000;
+  const harness = ["claude", "codex", "codex-review-box", "claude"][index % 4]!;
+  return {
+    ...newSessionSummary(sessionId, fleetFolder(index), updatedAt),
+    agentSessionId: `agent-${index}`,
+    attached: 0,
+    children: 0,
+    commandsRunning: 0,
+    createdBy: started ? { kind: "agent", session: parent } : null,
+    depth: started ? 1 : 0,
+    effort: "high",
+    enforcement: {
+      detail: fleetText(index, 82),
+      isolation: "unverified",
+      label: "native_policy",
+      policy: "approve-all",
+    },
+    eventCount: 1000 + index,
+    family: harness.startsWith("codex") ? "codex" : "claude",
+    harness,
+    heldMessages: [],
+    hostBuild: open ? "1.0.0-fleet" : null,
+    hostBuildDiffers: open,
+    indicator: open ? (index % 3 === 0 ? "working" : "done") : null,
+    lane:
+      open && started
+        ? { state: "working", since: updatedAt, step: fleetText(index, 201), title: fleetText(index, 32) }
+        : null,
+    lastMessage: { role: "agent", text: fleetText(index, 160) },
+    lastPrompt: fleetText(index + 1, 200),
+    lastSeq: 1000 + index,
+    lastTurn: {
+      endedAt: updatedAt,
+      promptId: `prompt-${index}`,
+      status: "completed",
+      stopReason: "end_turn",
+      turnCount: 10,
+      turnId: `turn-${index}`,
+      turnSeq: 900 + index,
+    },
+    model: harness.startsWith("codex") ? "gpt-codex" : "claude-opus",
+    name: `fleet-lane-${index}`,
+    nameGiven: index % 3 !== 0,
+    parent,
+    parentId: null,
+    ...(peer ? { peer, peerState: "connected", stale: false, qualifiedSessionId: `${peer}/${sessionId}` } : {}),
+    pendingPermissions: 0,
+    policy: "approve-all",
+    preview: fleetText(index + 2, 160),
+    pullRequests: index % 25 === 0 ? [{ number: 40000 + index, repo: "fleet/repo", state: "open" }] : [],
+    queue: [],
+    root: parent ?? sessionId,
+    sessionReceipt: {
+      agentSessionId: `agent-${index}`,
+      generation: updatedAt,
+      hostId: peer ?? "local",
+      muxSessionId: sessionId,
+    },
+    shortName: index % 4 === 0 ? `lane-${index}` : null,
+    spawnedBy: parent,
+    startedBy: started && index % 12 === 1 ? parent : null,
+    state: open ? "running" : "closed",
+    status: open ? (index % 3 === 0 ? "running" : "idle") : "closed",
+    steering: true,
+    tags: started
+      ? { "lane.reportsTo": parent, ...(index % 10 === 1 ? { "mux.parent": parent, "mux.handle": `h-${index}` } : {}) }
+      : {},
+    title: fleetText(index, 32),
+    titleSource: "harness",
+    turnCount: 1 + (index % 41),
+    unread: false,
+    updatedAt,
+    usageStats:
+      index % 16 === 0 ? { costUsd24h: (index % 97) / 10, tokens24h: 1000 * (index % 31), updatedAt: now } : undefined,
   };
 }
 

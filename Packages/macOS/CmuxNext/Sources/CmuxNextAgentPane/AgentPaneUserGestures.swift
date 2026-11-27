@@ -26,12 +26,42 @@ import CmuxNextCompat
 
     /// A real user event reached the pane. `click`: a click on the page or the native permission
     /// shortcut, the only gestures that may answer a permission prompt (``hasFreshAnswerGesture``).
-    public func record(click: Bool = false) {
+    /// `press`: a Return, keypad Enter or Space press (Space activates the focused Send button), or a mouse click, on the
+    /// page itself (``AgentPaneView/judge(_:eventWindow:)``): the only gestures Set Up takes (``consumeFreshGesture()``).
+    /// Any other gesture (another key, a native menu choice or shortcut) ends the last one.
+    public func record(click: Bool = false, press: Bool = false) {
         questionReturn = nil
         last = now()
         lastScope = last
         lastUpload = last
+        lastPress = press ? last : nil
         if click { lastClick = last }
+    }
+
+    /// Input reached the page, the person's or another process's (``AgentPaneView/judge(_:eventWindow:)``): it ends the
+    /// Return witness and the Set Up press, which only the person's own next Return or click renews (``record(click:press:)``).
+    func pageInput() {
+        questionReturn = nil
+        lastPress = nil
+    }
+
+    /// A key repeat reached the page (the person's held key, or another process's posted repeat): it is
+    /// no press of its own, so it ends the Set Up press, and only that (``consumeFreshGesture()``).
+    func repeatedKey() { lastPress = nil }
+
+    /// The person's last Return or Space press or click in the pane, when no other key, click or posted input came after it, for
+    /// an action that needs one from just now (``consumeFreshGesture()``).
+    private var lastPress: TimeInterval?
+
+    /// Spends the person's Return or Space press or click from just now (within ``answerWindow``) for one action that opens app
+    /// UI by itself (Set Up Computer Use from a held `@computer-use` send): true once per gesture, only while the
+    /// gesture's grant credit is unspent, and only when it is the pane's last input (review round 3 of #48024: bound to
+    /// the physical event that sent or clicked). Not the generic credit, which any key press leaves for half a minute, so
+    /// a deferred page request cannot wait for unrelated typing and spend it; not another key, so typing cannot either.
+    func consumeFreshGesture() -> Bool {
+        guard let lastPress, now() - lastPress <= Self.answerWindow else { return false }
+        self.lastPress = nil
+        return consume()
     }
 
     /// How old the person's click may be when a permission answer uses it (cx-ocdz).
@@ -82,6 +112,12 @@ import CmuxNextCompat
         return now() - last <= Self.lifetime
     }
 
+    /// A focus-changing presentation uses a recent event, like the shared page host.
+    func consume(within seconds: TimeInterval) -> Bool {
+        guard let last, now() - last <= seconds else { return false }
+        return consume()
+    }
+
     /// Uses the gesture for a prompt the person sent: true once per recorded gesture, however old.
     /// Only a send with no key press or click of the person's left is refused, never one for its
     /// age: on a loaded Mac the page's prompt reaches the host well past ``lifetime`` after the
@@ -106,6 +142,13 @@ import CmuxNextCompat
         guard let lastScope else { return false }
         self.lastScope = nil
         return now() - lastScope <= Self.lifetime
+    }
+
+    /// An upload credit alone, for files another app sent to the chat (``AgentPaneDroppedPaths/Kind/external``):
+    /// the person's act there (the service, Open With, a Dock drop) is the gesture, and it grants
+    /// nothing else.
+    public func recordUpload() {
+        lastUpload = now()
     }
 
     /// Uses the gesture's upload credit (one batch of the person's files, ``AgentPaneUpload``): true
@@ -200,6 +243,9 @@ import CmuxNextCompat
         /// The uploads of this send in progress (``holdForUpload(_:upload:connection:sessionId:promptId:)``),
         /// each with its own last progress.
         var uploads: [String: TimeInterval] = [:]
+        /// Uploads whose finish is in flight (``uploadFinishing(_:)``): the host awaits their Cloud or
+        /// peer transfer, so no chunk reports progress and they do not stall out.
+        var finishing: Set<String> = []
         /// While `uploads` is not empty: when the ticket's clock stopped.
         var stoppedAt: TimeInterval?
         /// A ticket another process's posted gesture paid for (``consumePosted(for:)``): the grant's
@@ -212,7 +258,7 @@ import CmuxNextCompat
         func isFresh(_ now: TimeInterval) -> Bool {
             guard let stoppedAt else { return now - at <= intent.lifetime }
             return stoppedAt - at <= intent.lifetime
-                && uploads.values.allSatisfy { now - $0 <= AgentPaneUserGestures.uploadStallLimit }
+                && uploads.allSatisfy { finishing.contains($0.key) || now - $0.value <= AgentPaneUserGestures.uploadStallLimit }
         }
     }
 
@@ -313,6 +359,18 @@ import CmuxNextCompat
         return actAsMe.isOn && actAsMe.revocations == under
     }
 
+    /// Starts `ticket`'s clock again: a permission answer's ticket the person's Fork first paid for,
+    /// held while the App forks the machine (``AgentPaneForkFirst``). False when it is gone (a
+    /// reconnect, a newer answer, or it expired while another ticket was reserved).
+    func renew(_ ticket: String) -> Bool {
+        guard tickets[ticket] != nil else { return false }
+        tickets[ticket]?.at = now()
+        return true
+    }
+
+    /// Drops `ticket`, unspent (a Fork first whose fork failed).
+    func drop(_ ticket: String) { dropTickets { key, _ in key == ticket } }
+
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
     /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.
     public func clearTickets() { dropTickets { _, _ in true } }
@@ -348,11 +406,11 @@ import CmuxNextCompat
 
     /// `uploads.begin`'s check: `ticket` is the send ticket the person's Send reserved on this
     /// `connection` for exactly `promptId` in chat `sessionId` (``AgentPaneGestureIntent/sessionId``),
-    /// still fresh. Then `upload` holds it: the ticket's clock stands still while any of its
+    /// still fresh, and a posted one only under its standing grant. Then `upload` holds it: the ticket's clock stands still while any of its
     /// uploads is in progress, so a file of any size still sends. Not spent; false refuses the upload.
     public func holdForUpload(_ ticket: String, upload: String, connection: Int, sessionId: String, promptId: String) -> Bool {
         let at = now()
-        dropTickets { !$1.isFresh(at) }
+        dropEndedHolds()
         guard var held = tickets[ticket], held.connection == connection, held.intent.method == "session/prompt",
               held.intent.sessionId == sessionId,
               held.intent.params == ["promptId": .string(AgentPaneHandoffPrompt(id: promptId).ownID)],
@@ -367,9 +425,19 @@ import CmuxNextCompat
     /// hold ended: the uploader stops.
     public func uploadProgressed(_ upload: String) -> Bool {
         let at = now()
-        dropTickets { !$1.isFresh(at) }
+        dropEndedHolds()
         guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key else { return false }
         tickets[key]?.uploads[upload] = at
+        return true
+    }
+
+    /// The finish of an upload holding a send ticket began: until it is released, the host awaits its
+    /// transfer and the hold no longer stalls out (a newer Send, the connection's end or Turn Off still
+    /// end it). False when its hold ended: the finish is refused.
+    public func uploadFinishing(_ upload: String) -> Bool {
+        dropEndedHolds()
+        guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key else { return false }
+        tickets[key]?.finishing.insert(upload)
         return true
     }
 
@@ -378,9 +446,10 @@ import CmuxNextCompat
     @discardableResult
     public func releaseUpload(_ upload: String) -> Bool {
         let at = now()
-        dropTickets { !$1.isFresh(at) }
+        dropEndedHolds()
         guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key, var held = tickets[key] else { return false }
         held.uploads.removeValue(forKey: upload)
+        held.finishing.remove(upload)
         if held.uploads.isEmpty, let stopped = held.stoppedAt {
             held.at += at - stopped
             held.stoppedAt = nil
@@ -389,8 +458,17 @@ import CmuxNextCompat
         return true
     }
 
-    /// Whether `upload` holds a send ticket.
-    public func holdsTicket(upload: String) -> Bool { tickets.values.contains { $0.uploads[upload] != nil } }
+    /// Whether `upload` holds a send ticket whose grant still stands (``isGrantStanding(_:)``).
+    public func holdsTicket(upload: String) -> Bool {
+        tickets.values.contains { $0.uploads[upload] != nil && isGrantStanding($0) }
+    }
+
+    /// Drops the tickets that expired, and the posted ones whose grant was turned off since they
+    /// were reserved: their uploads stop (``onUploadHoldsEnded``).
+    private func dropEndedHolds() {
+        let at = now()
+        dropTickets { !$1.isFresh(at) || !isGrantStanding($1) }
+    }
 
     // MARK: A seeded prompt's ticket (cx-k21v gap 4)
 
@@ -408,6 +486,15 @@ import CmuxNextCompat
     }
 
     private var seedTicket: SeedTicket?
+
+    /// A prompt the CLI, MCP or a script seeded gets no seed ticket: it waits in the composer for
+    /// the person's own Send, though a typed Send needs no gesture. Set when the handshake hands
+    /// such a prompt out; the first prompt the person sends ends it.
+    public private(set) var automationSeedWaits = false
+
+    public func holdAutomationSeed() { automationSeedWaits = true }
+
+    func releaseAutomationSeed() { automationSeedWaits = false }
 
     /// Issues the seeded prompt's ticket and its promptId (a new one replaces an older one).
     /// Takes no live gesture: the person's action that seeded the prompt is the gesture.

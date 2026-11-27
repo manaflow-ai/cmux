@@ -13,7 +13,14 @@ import { incomingPrompt } from "./incomingMessage";
 import { inboxText } from "./inboxNotice";
 
 type Message = { from: string; text: string; blocker?: boolean };
-type Thread = { threadId: string; label: string; messages: Message[]; fromSession?: string };
+type Thread = {
+  threadId: string;
+  label: string;
+  messages: Message[];
+  fromSession?: string;
+  /// acpmux's read of a tool's notice (hub/inbox.rs `notice`, notice_read.rs).
+  notice?: Record<string, unknown>;
+};
 
 const SENDERS: Record<string, string> = {
   "ao-log-bloat": "s-log-bloat",
@@ -71,6 +78,42 @@ const RAIL: Thread = {
   ],
 };
 
+// Tools' notices the lane-gh broker relayed from cmux-cp-1 (Leo, 2026-11-25, on these rows as
+// "cmux-cp-1 [notice from now on cmux-cp-1 · Fl… >": "how can we improve this?"): one line each,
+// the detector's name, its severity, its title, its condition's repeats folded.
+const RELAYED = (body: string) =>
+  `[message m-81 from cmux-cp-1/now (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message m-81]"]\n${body}\n[end of message m-81]`;
+const RUNNER: Thread = {
+  threadId: "topic:runner-label-stalled",
+  label: '"runner-label-stalled"',
+  messages: [9, 11, 12].map((queued) => ({
+    from: "cmux-cp-1",
+    text: RELAYED(
+      `[notice from now on cmux-cp-1 · FIRE] Runner label stalled: trusted xcode-26.6, ${queued} queued\nNo runner has taken a job for 14 minutes; the oldest waits since 09:12Z.\nLinks: https://github.com/manaflow-ai/cmux/actions (queue)`,
+    ),
+  })),
+  notice: {
+    sender: "now",
+    severity: "fire",
+    title: "Runner label stalled: trusted xcode-26.6, 12 queued",
+    host: "cmux-cp-1",
+    repeats: 3,
+    lastAt: Date.UTC(2026, 10, 25, 9, 40),
+  },
+};
+const DISK: Thread = {
+  threadId: "topic:disk-low",
+  label: '"disk-low"',
+  messages: [
+    {
+      from: "cmux-cp-1",
+      text: RELAYED("[notice from now on cmux-cp-1 · WARN] Disk 91% full on studio-mac\n/ has 38 GB free."),
+    },
+  ],
+  notice: { sender: "now", severity: "warn", title: "Disk 91% full on studio-mac", host: "cmux-cp-1", repeats: 1 },
+};
+const NOTICES = [RUNNER, DISK];
+
 let prompt = 0;
 
 /// A notice as acpmux sends it (hub/inbox.rs `render`): its text for the agent and its `threads`.
@@ -99,6 +142,7 @@ function noticeOf(threads: Thread[]) {
       blocker,
       preview: newest.text.split("\n")[0],
       messages: thread.messages.map((m) => ({ from: m.from, text: m.text })),
+      ...(thread.notice && { notice: thread.notice }),
     };
   });
   return {
@@ -177,12 +221,29 @@ const WAITING = [
   message: { name: "grid-lane", sessionId: "s-grid", harness: "claude", text, raw: text },
 }));
 
+/// Three messages from two sessions waiting (Leo's 2026-11-05 capture: "3 messages from 2 sessions
+/// claude-13, gcp-codex-swarm-08/claude").
+const WAITING_TWO = [
+  ...WAITING,
+  {
+    id: "w3",
+    prompt: "Review passed at e34ce27, no findings.",
+    message: {
+      name: "review-box",
+      sessionId: "s-review",
+      harness: "codex",
+      text: "Review passed at e34ce27, no findings.",
+      raw: "Review passed at e34ce27, no findings.",
+    },
+  },
+];
+
 /// Inbox rows among tool rows, as a coordinator's chat draws them: a run of commands, one thread's
 /// line, a delivered group of one sender's threads, one of several senders', and the messages that
 /// wait (Leo, 2026-11-01: "i wanted this to be left aligned with the other tool calls" and "let's
 /// just make this look better"). Every group's head is a tool row (MessageGroupHead.tsx).
 /// inbox-row-icon-column.test.ts measures it.
-function amongTools() {
+function amongTools(queue = WAITING) {
   const run = (minutes: number) =>
     activity(
       [
@@ -211,7 +272,7 @@ function amongTools() {
     {
       title: "polish-coordinator",
       isWorking: true,
-      queue: WAITING,
+      queue,
       sessions: [
         session({ sessionId: SESSION_ID, title: "polish-coordinator", name: "polish-coordinator" }),
         session({ sessionId: "s-log-bloat", title: "ao-log-bloat", name: "ao-log-bloat", harness: "codex" }),
@@ -236,19 +297,61 @@ const SIX = [
 /// deliveries now use the same flat lane-notice projection as the transcript, so a notice's
 /// own InboxNoticeCard selectors are only present for the legacy singleton shape.
 const openFirst: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle, .cv-received .cv-disclosure__toggle"));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector(
+      ".cv-lane-batch__toggle, .cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)",
+    ),
+  );
   ctx.document.querySelector<HTMLButtonElement>(".cv-lane-batch__toggle")?.click();
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__toggle"));
-  ctx.document.querySelector<HTMLButtonElement>(".cv-received .cv-disclosure__toggle")?.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)"));
+  ctx.document
+    .querySelector<HTMLButtonElement>(".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)")
+    ?.click();
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
+};
+/// A tool's notice in a delivery draws as one notice line in the flat lane-notice projection
+/// (laneNoticeBatches.ts `inboxChildren`, #56260): `.cv-received.cv-notice` under the batch's head,
+/// never the legacy InboxNoticeCard's `.cv-inbox__notice`. Opens the batch, then waits for `lines`.
+const NOTICE_LINE = ".cv-received.cv-notice";
+const openGroup =
+  (lines: number): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(`.cv-lane-batch__toggle, ${NOTICE_LINE}`));
+    // ctx.click, not element.click(): the press declares the batch's expand (playRunner stepDeclarations).
+    if (ctx.document.querySelector(".cv-lane-batch__toggle[aria-expanded=false]"))
+      await ctx.click({ selector: ".cv-lane-batch__toggle[aria-expanded=false]" });
+    await ctx.waitFor(() => ctx.document.querySelectorAll(NOTICE_LINE).length >= lines);
+  };
+/// The same, then the first notice line opened: its newest message's words under it.
+const openNotices =
+  (lines: number): Play =>
+  async (ctx) => {
+    await openGroup(lines)(ctx);
+    await ctx.click({ selector: `${NOTICE_LINE} .cv-disclosure__toggle` });
+    await ctx.waitFor(() => ctx.document.querySelector(`${NOTICE_LINE} .cv-received__text`));
+  };
+/// A running turn draws its work under a closed "Working for" (liveTurnWork.experiment.ts `folded`,
+/// the default since #51082): its tool rows and the inbox groups among them draw once it is opened.
+const openWorking: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked, .cv-message-group__head"), { capMs: 10_000 });
+  const worked = ctx.document.querySelector<HTMLElement>(".cv-worked.is-toggle[aria-expanded=false]");
+  if (worked) await ctx.click({ selector: ".cv-worked.is-toggle[aria-expanded=false]" });
 };
 /// Opens every delivered batch and the last received line, which is the three-message rail thread
 /// in the fixture after inbox flattening.
 const openRail: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle, .cv-received .cv-disclosure__toggle"));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector(
+      ".cv-lane-batch__toggle, .cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)",
+    ),
+  );
   for (const batch of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-lane-batch__toggle")) batch.click();
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received .cv-disclosure__toggle").length >= 3);
-  const lines = ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle");
+  await ctx.waitFor(
+    () => ctx.document.querySelectorAll(".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)").length >= 3,
+  );
+  const lines = ctx.document.querySelectorAll<HTMLButtonElement>(
+    ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)",
+  );
   lines[lines.length - 1]?.click();
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 1);
 };
@@ -266,9 +369,45 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/LaneNoticeBatch.tsx",
     "agent-session/acpmux/conversation/PendingMessagesCard.tsx",
     "agent-session/acpmux/conversation/inboxNotice.ts",
+    "agent-session/acpmux/conversation/noticeRowLook.ts",
+    "agent-session/acpmux/conversation/noticeRowModel.ts",
     "agent-session/acpmux/conversation/incomingMessage.ts",
   ],
   variants: {
+    notices: {
+      note: "A tool's notice relayed from cmux-cp-1, the default (noticeRowLook dot): one line, the detector's name (now), its severity's mark, its title with no [notice from … on …] head, and its condition's repeats folded as \"×3, last 09:40Z\". The chevron opens the whole text.",
+      snapshot: snapshot([[RUNNER]]),
+    },
+    "notices-open": {
+      note: "The same, opened: its newest message whole, under the one line its three repeats fold into.",
+      snapshot: snapshot([[RUNNER]]),
+      play: openNotices(1),
+    },
+    "notices-group-open": {
+      note: "Two notices in one delivery, the group opened: a FIRE and a WARN line.",
+      snapshot: snapshot([NOTICES]),
+      play: openGroup(2),
+    },
+    "notices-look-tint": {
+      note: "Gallery version (theme noticeRowLook tint): each line tinted by its severity.",
+      theme: { noticeRowLook: "tint", inboxNoticeLook: "lines" },
+      snapshot: snapshot([NOTICES]),
+    },
+    "notices-look-trailing": {
+      note: "Gallery version (theme noticeRowLook trailing): the sender's mark kept in the icon column, the severity's after the name.",
+      theme: { noticeRowLook: "trailing", inboxNoticeLook: "lines" },
+      snapshot: snapshot([NOTICES]),
+    },
+    "notices-look-dot-lines": {
+      note: "The default line (noticeRowLook dot) under inboxNoticeLook lines, for comparison with tint and trailing.",
+      theme: { inboxNoticeLook: "lines" },
+      snapshot: snapshot([NOTICES]),
+    },
+    "notices-before": {
+      note: "Before (theme noticeRowLook off): the relay host's name and the raw [notice from now on cmux-cp-1 · FIRE] head.",
+      theme: { noticeRowLook: "off", inboxNoticeLook: "lines" },
+      snapshot: snapshot([NOTICES]),
+    },
     "icon-column": {
       note: "Inbox rows among tool rows: one thread's line, a delivered group of one sender (its harness mark), one of several (the messages glyph), and the messages that wait (\"2 messages from 1 session\"). Every row's glyph sits in the tool rows' icon column, its words start where theirs do, and a group's head is a tool row, their height, gap and type, its chevron shown on hover. A sender no chat lists draws the neutral agent glyph.",
       snapshot: amongTools(),
@@ -287,9 +426,20 @@ export default agentPaneEntry({
       note: "The same, the group of several opened: its threads' lines under it.",
       snapshot: amongTools(),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-message-group__head").length >= 2);
-        ctx.document.querySelectorAll<HTMLButtonElement>(".cv-message-group__head")[1]?.click();
+        await openWorking(ctx);
+        // The flat lane-notice projection (#56260) draws the group as a lane batch, not a message-group head.
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle[aria-expanded=false]"));
+        await ctx.click({ selector: ".cv-lane-batch__toggle[aria-expanded=false]" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__body .cv-received"));
+      },
+    },
+    "waiting-open-all": {
+      note: 'The waiting digest of three messages from two sessions, opened by a pointer click on its own line: every message shows its words under it, no row left to open one by one (Leo, 2026-11-05: "we don\'t seem to be able to click it at the top level").',
+      snapshot: amongTools(WAITING_TWO),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle"));
+        await ctx.click({ selector: ".cv-pending__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-pending .cv-received__text").length >= 3);
       },
     },
     "before-six": {

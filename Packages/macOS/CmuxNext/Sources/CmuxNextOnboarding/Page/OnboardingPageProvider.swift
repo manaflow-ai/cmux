@@ -13,7 +13,8 @@ import Foundation
 /// same click. This is the rule of the app's other pages with person-only ops (Settings' agents,
 /// the agent pane). A VoiceOver press carries no key or mouse event; in Chromium it counts as the
 /// gesture all the same (`ChromiumAccessibilityPress`: only an assistive app reaches it). In WebKit,
-/// where VoiceOver talks to the web process directly, it is still refused (manaflow-ai/cmux#37809).
+/// where VoiceOver talks to the web process directly, its trusted click counts while VoiceOver runs
+/// (`PageAccessibilityPress`, manaflow-ai/cmux#37809).
 /// Full Keyboard Access (Tab, then Space or Return) sends real key events and works in both.
 @MainActor
 final class OnboardingPageProvider: PageProvider {
@@ -21,12 +22,20 @@ final class OnboardingPageProvider: PageProvider {
     private let images = OnboardingPageImages()
     /// The click or key the last gesture ran on (`PageCallContext.gestureEvent`).
     private var spentGesture: TimeInterval?
+    /// The Agents step's in-place sign-in (``OnboardingSignIn``); nil keeps the step as before.
+    private let signIn: OnboardingSignIn?
 
-    init(model: OnboardingModel) {
+    init(model: OnboardingModel, signIn: OnboardingSignIn? = nil) {
         self.model = model
+        self.signIn = signIn
+        guard let signIn, model.step == .agents else { return }
+        // task-owner: one read when the window opens; it ends with the read.
+        Task { await signIn.refresh() }
     }
 
-    var state: OnboardingPageState { OnboardingPageState(model: model, images: images) }
+    var state: OnboardingPageState {
+        OnboardingPageState(model: model, images: images, signIn: model.step == .agents ? signIn?.state() : nil)
+    }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         if op == "cmux.onboarding.state" { return try Self.json(state) }
@@ -35,14 +44,31 @@ final class OnboardingPageProvider: PageProvider {
         // the window's own didBecomeKey does not see.
         if op == "cmux.onboarding.focused" {
             model.windowBecameKey()
+            if let signIn, model.step == .agents { await signIn.refresh() }
             return [:]
         }
+        if op == OnboardingSignIn.op { return try await runSignIn(params, context: context) }
         guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
             throw PageError(code: PageNativeOp.userOnlyCode, message: "\(op) runs only on its own click or key in the window")
         }
         spentGesture = event
         try perform(op, params)
         return [:]
+    }
+
+    /// `cmux.onboarding.accounts.run {action, ...}`: Settings > Accounts' forwarder's answer, unchanged.
+    /// A start, switch, sign-out or remove runs only on its own click or key, as every other gesture.
+    private func runSignIn(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        guard let signIn, model.step == .agents else { throw PageError.unknownOp(OnboardingSignIn.op) }
+        let action = try Self.string(params, "action")
+        if !OnboardingSignIn.followUps.contains(action) {
+            guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "\(action) runs only on its own click or key in the window")
+            }
+            spentGesture = event
+        }
+        guard let reply = try await signIn.run(action, params) else { throw PageError.invalidParams("unknown action") }
+        return reply
     }
 
     /// One gesture on the model. A step's own op runs only while the window shows that step (an
@@ -81,6 +107,31 @@ final class OnboardingPageProvider: PageProvider {
             }
             model.computerUse.allow(pane)
         case "cmux.onboarding.computerUse.restart": model.computerUse.restart()
+        case "cmux.onboarding.makeItYours.workStyle":
+            guard let value = WorkStyle(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown work style") }
+            model.makeItYours.setWorkStyle(value)
+        case "cmux.onboarding.makeItYours.density":
+            guard model.makeItYours.setDensity(try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
+        case "cmux.onboarding.makeItYours.chatsRunIn":
+            guard let value = ChatsRunIn(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown chat location") }
+            model.makeItYours.setChatsRunIn(value)
+        case "cmux.onboarding.makeItYours.background":
+            // null: no background.
+            guard model.makeItYours.setBackground(params["id"]?.stringValue) else { throw PageError.invalidParams("unknown background") }
+        case "cmux.onboarding.makeItYours.opacity":
+            guard let value = params["value"]?.doubleValue, model.makeItYours.setOpacity(value) else { throw PageError.invalidParams("opacity is 0 to 1") }
+        case "cmux.onboarding.makeItYours.material":
+            guard let value = FirstRunMaterial(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown material") }
+            model.makeItYours.setMaterial(value)
+        case "cmux.onboarding.makeItYours.walk":
+            // {writes: [{path: "a.b", value}]}: a missing or null value removes the setting.
+            guard let rows = params["writes"]?.arrayValue, !rows.isEmpty else { throw PageError.invalidParams("writes is required") }
+            let writes = try rows.map { row in
+                guard let path = row["path"]?.stringValue, !path.isEmpty else { throw PageError.invalidParams("path is required") }
+                let value = row["value"].flatMap { $0 == .null ? nil : $0 }
+                return FirstRunWalkWrite(path: path.split(separator: ".").map(String.init), value: value)
+            }
+            guard model.makeItYours.setWalk(writes) else { throw PageError.invalidParams("not a setting the intro writes") }
         default: throw PageError.unknownOp(op)
         }
     }
@@ -104,6 +155,7 @@ final class OnboardingPageProvider: PageProvider {
         if op.hasPrefix("cmux.onboarding.agents.") { return .agents }
         if op.hasPrefix("cmux.onboarding.import.") { return .importData }
         if op.hasPrefix("cmux.onboarding.computerUse.") { return .computerUse }
+        if op.hasPrefix("cmux.onboarding.makeItYours.") { return .makeItYours }
         return nil
     }
 

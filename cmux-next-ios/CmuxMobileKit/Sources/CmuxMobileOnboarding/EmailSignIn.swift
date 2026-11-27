@@ -142,7 +142,7 @@ struct EmailCodeStep: View {
                 .padding(.top, 6)
             CodeBoxes(text: $code, groups: [entry.length], characters: entry.characters)
                 .modifier(ShakeEffect(trigger: shakes))
-                .animation(.linear(duration: theme.motion.shakeDuration), value: shakes)
+                .animation(.linear(duration: theme.motion.shakeDuration).unlessReduceMotion, value: shakes)
                 .disabled(isVerifying)
                 // Verifying: the boxes dim and the spinner sits on them.
                 .opacity(isVerifying ? 0.4 : 1)
@@ -153,7 +153,8 @@ struct EmailCodeStep: View {
                 Text(error).font(theme.type.meta).foregroundStyle(theme.colors.dangerText)
                     .frame(maxWidth: .infinity).padding(.top, 14)
             }
-            TimelineView(.periodic(from: .now, by: 1)) { context in
+            // Once a second until the resend is available, then no more: "Resend code" stays.
+            TimelineView(CountdownSchedule(from: .now, until: resendAvailableAt)) { context in
                 let remaining = max(0, Int(resendAvailableAt.timeIntervalSince(context.date).rounded(.up)))
                 HStack {
                     Spacer()
@@ -197,6 +198,7 @@ struct EmailCodeStep: View {
                 try await auth.verifyCode(value)
                 theme.haptics.success()
             } catch {
+                // retry-prompt-ok: the person types the code again; only they have it
                 self.error = CmuxMobileAuthModel.message(for: error) ?? "That code didn't work. Try again."
                 theme.haptics.error()
                 shakes += 1

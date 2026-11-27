@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import { Sheet } from "../../ui/Sheet";
 import { DialogButton, keyedIconProps } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
@@ -11,13 +12,27 @@ import "./environment.css";
 const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   load: L.envLoadFailed,
   save: L.envSaveFailed,
-  missing: L.envDefaultMissing,
+  // Never shown as an alert: a read that found no Default is read again on its own (below).
+  missing: L.envStillLoading,
   name: L.envNameRequired,
   names: L.envInvalidNames,
   script: L.envScriptTooLarge,
   file: L.envFileFailed,
   copy: L.envCopyFailed,
   secret: L.envSecretRequired,
+  hosts: L.envInvalidHosts,
+  hostless: L.envSecretNoHosts,
+  header: L.envInvalidHeader,
+  route: L.envReservedHeader,
+  value: L.envInvalidValue,
+  retype: L.envSecretRetype,
+  dropped: L.envRouteDropped,
+  vaultDown: L.envVaultDown,
+  vaultHost: L.envVaultPublicSuffix,
+  vaultText: L.envVaultNotPlainText,
+  vaultUnreadable: L.envVaultUnreadable,
+  vaultRefused: L.envVaultRefused,
+  click: L.envSaveNeedsClick,
 };
 const sections = {
   overview: L.envTitle,
@@ -31,6 +46,17 @@ export function EnvironmentSheet({ store, strings }: { store: EnvironmentStore; 
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
   const { draft, original, section } = state;
+  // A failed read of the environment, or one that found no Default, is a read: the sheet asks again
+  // on its own, says nothing while it recovers and one quiet line once that lasts, with no button
+  // (Leo, 2026-11-22: "vacuous decisions like that should be just done"). A failed `create` is not a
+  // read (asking again makes an environment): it keeps its message and Retry.
+  const unread = state.open && !draft && (state.error === "load" || state.error === "missing");
+  const readAgain = unread && !store.retryCreates;
+  const loadRetry = useAutoRetry(readAgain, () => void store.retry(), { busy: state.loading });
+  // The suggested setup script is a read too: asked again on its own; writing one's own needs no wait.
+  const deriveRetry = useAutoRetry(state.open && !!state.deriveFailed, () => void store.derive(), {
+    busy: !!state.deriving,
+  });
   const row = (target: EnvironmentSection, detail: string) => (
     <button type="button" className="env-drill" onClick={() => store.section(target)}>
       <span>
@@ -77,79 +103,91 @@ export function EnvironmentSheet({ store, strings }: { store: EnvironmentStore; 
             ×
           </button>
         </header>
-        <fieldset className="env-body" disabled={state.saving}>
-          {state.loading && <output>{t(L.loading)}</output>}
-          {draft && original && (
-            <>
-              {section === "overview" && (
-                <div className="env-fields">
-                  <label className="env-field">
-                    <span>{t(L.envName)}</span>
-                    <input
-                      aria-label={t(L.envName)}
-                      value={draft.name}
-                      readOnly={original.is_default}
-                      onChange={(event) => store.edit({ name: event.target.value })}
-                    />
-                    {original.is_default && <small>{t(L.envDefaultLocked)}</small>}
-                  </label>
-                  {draft.network.mode === "limited" && <p className="env-note">{t(L.envNetworkPending)}</p>}
-                  <div className="env-rows">
-                    {row(
-                      "network",
-                      [
-                        t(draft.network.mode === "full" ? L.envFull : L.envLimited),
-                        ...(draft.network.mode === "limited" ? draft.network.domains.filter(Boolean) : []),
-                        ...(draft.network.mode === "limited" && draft.network.package_managers
-                          ? [t(L.envPackages)]
-                          : []),
-                      ].join(" · "),
-                    )}
-                    {row(
-                      "secrets",
-                      draft.secrets
-                        .map((secret) => secret.name)
-                        .filter(Boolean)
-                        .join(", ") || t(L.envNone),
-                    )}
-                    {row(
-                      "script",
-                      t(
-                        draft.script !== null && draft.script !== ""
-                          ? L.envScriptCustom
-                          : state.derivedScript
-                            ? L.envScriptDerived
-                            : L.envScriptUnset,
-                      ),
-                    )}
-                    {row(
-                      "variables",
-                      draft.variables
-                        .map((variable) => variable.name)
-                        .filter(Boolean)
-                        .join(", ") || t(L.envNone),
-                    )}
+        {/* The one scroller: a fieldset clips and sizes oddly as a flex item, so it scrolls inside this. */}
+        <div className="env-scroll">
+          <fieldset className="env-body" disabled={state.saving}>
+            {state.loading && !unread && <output>{t(L.loading)}</output>}
+            {readAgain && loadRetry.stillTrying && <p className="env-note env-still-trying">{t(L.envStillLoading)}</p>}
+            {draft && original && (
+              <>
+                {section === "overview" && (
+                  <div className="env-fields">
+                    <label className="env-field">
+                      <span>{t(L.envName)}</span>
+                      <input
+                        aria-label={t(L.envName)}
+                        value={draft.name}
+                        readOnly={original.is_default}
+                        onChange={(event) => store.edit({ name: event.target.value })}
+                      />
+                      {original.is_default && <small>{t(L.envDefaultLocked)}</small>}
+                    </label>
+                    {draft.network.mode === "limited" && <p className="env-note">{t(L.envNetworkPending)}</p>}
+                    <div className="env-rows">
+                      {row(
+                        "network",
+                        [
+                          t(draft.network.mode === "full" ? L.envFull : L.envLimited),
+                          ...(draft.network.mode === "limited" ? draft.network.domains.filter(Boolean) : []),
+                          ...(draft.network.mode === "limited" && draft.network.package_managers
+                            ? [t(L.envPackages)]
+                            : []),
+                        ].join(" · "),
+                      )}
+                      {row(
+                        "secrets",
+                        draft.secrets
+                          .map((secret) => secret.name)
+                          .filter(Boolean)
+                          .join(", ") || t(L.envNone),
+                      )}
+                      {row(
+                        "script",
+                        t(
+                          draft.script !== null && draft.script !== ""
+                            ? L.envScriptCustom
+                            : state.derivedScript
+                              ? L.envScriptDerived
+                              : L.envScriptUnset,
+                        ),
+                      )}
+                      {row(
+                        "variables",
+                        draft.variables
+                          .map((variable) => variable.name)
+                          .filter(Boolean)
+                          .join(", ") || t(L.envNone),
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-              {section === "network" && <EnvironmentNetwork draft={draft} store={store} strings={strings} />}
-              {(section === "secrets" || section === "variables") && (
-                <EnvironmentValues draft={draft} store={store} strings={strings} secrets={section === "secrets"} />
-              )}
-              {section === "script" && <EnvironmentScript state={state} store={store} strings={strings} />}
-            </>
-          )}
-          {state.error && (
-            <p role="alert" className="env-error">
-              {t(errorKeys[state.error])}
-            </p>
-          )}
-          {!draft && !state.loading && (
-            <button type="button" className="env-button" onClick={() => void store.retry()}>
-              {t(L.retry)}
-            </button>
-          )}
-        </fieldset>
+                )}
+                {section === "network" && <EnvironmentNetwork draft={draft} store={store} strings={strings} />}
+                {(section === "secrets" || section === "variables") && (
+                  <EnvironmentValues draft={draft} store={store} strings={strings} secrets={section === "secrets"} />
+                )}
+                {section === "script" && (
+                  <EnvironmentScript
+                    state={state}
+                    store={store}
+                    strings={strings}
+                    deriveStillTrying={deriveRetry.stillTrying}
+                  />
+                )}
+              </>
+            )}
+            {state.error && !readAgain && (
+              <p role="alert" className="env-error">
+                {t(errorKeys[state.error])}
+              </p>
+            )}
+            {/* retry-prompt-ok: only a failed create gets here; asking again makes an environment. */}
+            {!draft && !state.loading && store.retryCreates && (
+              <button type="button" className="env-button" onClick={() => void store.retry()}>
+                {t(L.retry)}
+              </button>
+            )}
+          </fieldset>
+        </div>
         <footer className="env-actions">
           <DialogButton dialogKey="escape" className="env-button" disabled={state.saving} onClick={store.close}>
             {t(L.cancel)}

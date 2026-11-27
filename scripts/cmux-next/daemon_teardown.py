@@ -26,8 +26,9 @@ import time
 
 
 def app_binary_for_tag(tag: str) -> str | None:
-    """The tagged app's bundled cmux-tui, from its running process."""
-    out = subprocess.run(["pgrep", "-f", f"cmux DEV {tag}.app/Contents/MacOS/cmux DEV"], capture_output=True, text=True).stdout.split()
+    """The tagged app's bundled cmux-tui, from a running process of its bundle (any of them: the first `.app/` of its
+    path is the bundle, and a bench build's executable is not `cmux DEV`)."""
+    out = subprocess.run(["pgrep", "-f", f"cmux DEV {tag}.app/Contents/"], capture_output=True, text=True).stdout.split()
     if not out:
         return None
     comm = subprocess.run(["ps", "-o", "comm=", "-p", out[0]], capture_output=True, text=True).stdout.strip()
@@ -42,8 +43,15 @@ def daemon_env(tag: str) -> dict:
     per-user TMPDIR the app hands it, so pass the same one."""
     tmpdir = os.environ.get("TMPDIR") or subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
                                                          text=True).stdout.strip()
-    return {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": tmpdir,
-            "CMUX_TUI_STATE_DIR": os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")}
+    return {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": tmpdir, "CMUX_TUI_STATE_DIR": tag_state_dir(tag)}
+
+
+def tag_state_dir(tag: str) -> str:
+    """The tag daemon's state: NEXT's own folder, or classic's cmux/tags of a build from before it while only that one
+    exists (a newer build moves it at launch and leaves a symlink)."""
+    new = os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{tag}/tui")
+    old = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")
+    return old if not os.path.exists(new) and os.path.exists(old) else new
 
 
 def daemon_status(binary: str, tag: str) -> dict | None:

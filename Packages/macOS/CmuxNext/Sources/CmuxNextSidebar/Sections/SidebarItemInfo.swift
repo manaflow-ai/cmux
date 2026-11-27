@@ -26,6 +26,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isHidden: Bool
     /// The item's action shortcut as menus show it (`⌘,`), for the tooltip.
     public var shortcut: String?
+    /// A caller-supplied tooltip, used for transient rows whose title is only a short state word.
+    public var tooltip: String?
     /// The shorter caption a tile draws under its glyph; nil uses `title`.
     public var caption: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
@@ -39,11 +41,13 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// A workspace with no icon of its own and no favicon (WORKSPACE-ROWS-NO-DEFAULT-ICON): a look
     /// with a title draws no glyph; an icon-only look and a tile draw the title's first letter.
     public var textOnly = false
-    /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
+    /// The item's icon is its workspace's shown tab's (``SidebarWorkspace/iconFromShownTab``), not the workspace's own.
+    public var iconFromShownTab = false
+    /// A pin leading the row, before its icon and title. The sidebar's own rows leave it off: a pinned workspace leads
+    /// as its list row does (Leo 2026-11-23, ask c-b5d3e0efb6: "it puts a symbol at the left").
     public var leadingPin = false
-    /// The open workspace a workspace tile names: its row shows a workspace row's hover more
-    /// button, and no close x, since the item is pinned (`SidebarItemRowView+HoverActions`,
-    /// Lawrence msg 19392). Nil for every other item.
+    /// The open workspace a workspace tile names: its row shows a workspace row's hover controls, the ✕, the ⋮ and
+    /// Unpin (`SidebarItemRowView+HoverActions`). Nil for every other item.
     public var workspace: WorkspaceID?
     /// The open workspace's own row, as the workspace list maps it (`SidebarMapping.row`): a pinned
     /// workspace row opens the list's workspace hover card from it, the card a list row shows. Nil for
@@ -68,12 +72,13 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var accessibilityTitle: String?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
-                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, tooltip: String? = nil, brand: String? = nil,
                 emoji: String? = nil) {
         self.icon = icon
         self.emoji = emoji
         self.brand = brand
         self.shortcut = shortcut
+        self.tooltip = tooltip
         self.isHidden = isHidden
         self.caption = caption
         self.title = title
@@ -151,7 +156,7 @@ extension SidebarBuiltIn {
     /// SF Symbol of the built-in.
     public var symbol: String {
         switch self {
-        case .home: "house"
+        case .home: "house" // the Chief's row keeps Home's house (Lucas 2026-11-23)
         case .settings: "gearshape"
         case .account: "person.crop.circle"
         case .notifications: "bell"
@@ -165,11 +170,15 @@ extension SidebarBuiltIn {
         case .searchChats: "magnifyingglass"
         case .chief: "sparkles"
         case .automations: "clock.badge.checkmark"
+        case .forum: "text.bubble"
         }
     }
 
-    /// The built-in's cmux icon.
-    public var icon: IconName {
+    /// The built-in's cmux icon, or nil where its SF Symbol (``symbol``) draws.
+    ///
+    /// The Chief Activity item draws the pack's `sparkles` glyph, not the `agent.chief` crown (Lawrence
+    /// 2026-11-23, msg 48175: "get rid of the crown"); the Chief's top row draws Home's house (#53281).
+    public var icon: IconName? {
         switch self {
         case .home: .home
         case .settings: .settings
@@ -183,8 +192,9 @@ extension SidebarBuiltIn {
         case .newAgentChat: .agentChatNew
         case .customize: .theme
         case .searchChats: .search
-        case .chief: .agentChief
+        case .chief: .sparkles
         case .automations: .automation
+        case .forum: .agentChatList
         }
     }
 
@@ -210,6 +220,7 @@ extension SidebarBuiltIn {
         case .searchChats: SectionStrings.searchChats
         case .chief: SectionStrings.chief
         case .automations: SectionStrings.automations
+        case .forum: SectionStrings.forum
         }
     }
 
@@ -222,13 +233,27 @@ extension SidebarBuiltIn {
     }
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
+
+    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready, and for the Forum while its
+    /// experiment is off.
+    /// - Parameters:
+    ///   - showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
+    ///   - showsForum: Whether the Forum shows (`CmuxConfigSnapshot.showsForum`, `experiments.forum` on).
+    /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false, the Forum's
+    ///   when `showsForum` is false.
+    public func defaultInfo(showsStore: Bool, showsForum: Bool = false) -> SidebarItemInfo {
+        var info = defaultInfo
+        if self == .appStore, !showsStore { info.isHidden = true }
+        if self == .forum, !showsForum { info.isHidden = true }
+        return info
+    }
 }
 
 extension SidebarItemInfo {
     /// An icon's tooltip: the title, and the shortcut when there is one
     /// ("Settings (⌘,)").
     public var toolTip: String {
-        shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
+        tooltip ?? shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
     }
 }
 
@@ -256,21 +281,39 @@ extension SidebarItemInfo {
     }
 
     /// `fallback(for:)` of the item's ref, titled with the label stored with
-    /// the item (a closed workspace's last known name) when it has one.
+    /// the item (a closed workspace's last known name) when it has one. A
+    /// workspace item the App has not described is a closed workspace
+    /// (`closedWorkspace`): never drawn as its raw `<session>:<ws_…>`
+    /// reference, also before the App's first pass at launch (#42372).
     public static func fallback(for item: LayoutItem) -> SidebarItemInfo {
         var info = fallback(for: item.ref)
         if info.isMissing, let label = item.label { info.title = label }
+        if item.ref.kind == LayoutItemRef.workspaceKind, item.label == nil { info.isHidden = true }
         return info
     }
 
     /// A workspace item no open workspace answers: dimmed under its stored
     /// name, or hidden when it has none. Without a name it would be an
     /// anonymous workspace glyph whose click does nothing (a pin from an old
-    /// daemon session; Lawrence 2026-10-21 "what are these 2 weird things").
+    /// daemon session; Lawrence 2026-10-21 "what are these 2 weird things"),
+    /// titled with its raw reference (#42372: dozens of Pinned rows reading
+    /// the same session UUID after a restore).
     /// The layout keeps it, so it draws again when its workspace comes back.
     public static func closedWorkspace(_ item: LayoutItem) -> SidebarItemInfo {
-        var info = fallback(for: item)
-        if item.label == nil { info.isHidden = true }
-        return info
+        fallback(for: item)
+    }
+
+    /// The ids of `sections`' items that draw nothing: an item `infos` hides,
+    /// and one it does not describe whose fallback hides (a closed workspace
+    /// with no stored name). The bands and the Cmd-1…9 order skip the same set.
+    public static func hiddenItems(in sections: [LayoutSection], infos: [LayoutItemID: SidebarItemInfo]) -> Set<LayoutItemID> {
+        var hidden = Set(infos.filter(\.value.isHidden).keys)
+        for section in sections {
+            // `fallback(for:)`'s rule, without making the info: an undescribed workspace with no stored name.
+            for item in section.items where item.label == nil && item.ref.kind == LayoutItemRef.workspaceKind && infos[item.id] == nil {
+                hidden.insert(item.id)
+            }
+        }
+        return hidden
     }
 }

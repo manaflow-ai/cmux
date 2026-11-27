@@ -3,7 +3,7 @@
 // call drew as a generic row, its links a line of JSON inside the opened result.
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
-import { sourcesLine, webSources, withoutLinks } from "./webSourceList";
+import { fetchedPage, pagePathLabel, sourcesLine, webSources, withoutLinks } from "./webSourceList";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const tool = (extra: Partial<Tool>): Tool =>
@@ -82,5 +82,41 @@ describe("sourcesLine", () => {
     }));
     expect(sourcesLine(pages, 3)).toEqual({ named: ["a.com", "b.com", "c.com"], more: 2 });
     expect(sourcesLine([], 3)).toEqual({ named: [], more: 0 });
+  });
+});
+
+describe("fetchedPage", () => {
+  test("a finished fetch is its one page; a search, a running fetch or a bad link has none", () => {
+    expect(fetchedPage(tool({ title: "Fetch https://www.example.com/docs/a", output: "page" }))).toEqual({
+      title: "example.com",
+      url: "https://www.example.com/docs/a",
+      host: "example.com",
+    });
+    expect(fetchedPage(tool({ output: SEARCH }))).toBeUndefined();
+    expect(fetchedPage(tool({ title: "Fetch https://example.com/", status: "in_progress" }))).toBeUndefined();
+    expect(fetchedPage(tool({ title: "Fetch javascript:alert(1)" }))).toBeUndefined();
+    expect(fetchedPage(tool({ title: "Fetch https://example.com/", kind: "read" }))).toBeUndefined();
+    expect(fetchedPage(undefined)).toBeUndefined();
+  });
+});
+
+describe("pagePathLabel", () => {
+  test("the path's last two segments, decoded, without a page extension", () => {
+    expect(pagePathLabel("https://docs.example.com/en/docs/claude-code/hooks")).toBe("claude-code/hooks");
+    expect(pagePathLabel("https://example.com/guide/")).toBe("guide");
+    expect(pagePathLabel("https://example.com/a/b/Getting%20Started.html?x=1#top")).toBe("b/Getting Started");
+  });
+
+  test("a front page or a link that does not parse has no label", () => {
+    expect(pagePathLabel("https://example.com/")).toBe("");
+    expect(pagePathLabel("https://example.com")).toBe("");
+    expect(pagePathLabel("not a url")).toBe("");
+  });
+
+  test("a bad escape stays as written and a long path is cut", () => {
+    expect(pagePathLabel("https://example.com/%E0%A4%A")).toBe("%E0%A4%A");
+    const label = pagePathLabel(`https://example.com/${"x".repeat(80)}`);
+    expect(label.length).toBe(48);
+    expect(label.endsWith("…")).toBe(true);
   });
 });

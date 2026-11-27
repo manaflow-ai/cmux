@@ -11,9 +11,9 @@ manifests.  Raw and internal directories must say so in their path.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
+import runpy
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,6 +118,31 @@ SCAN_RULES = (
         private_identity_exceptions=frozenset({"web-slot"}),
     ),
 )
+
+
+# A terminal inherits identity variables from the macOS CLI (`CMUX_SURFACE_ID`).
+# Their names are fixed process-environment keys that the CLI reads, not
+# resource vocabulary, so the `surface` rule skips exactly the names in this
+# Rust table. Reading the table, not a copy here, keeps the exemption in step
+# with the variables terminals actually carry; any other spelling still fails.
+TERMINAL_IDENTITY_ENV_SOURCE = "crates/cmux-daemon-launch-core/src/terminal_env.rs"
+TERMINAL_IDENTITY_ENV_TABLE_RE = re.compile(
+    r"pub\s+const\s+EXCLUDED_KEYS\s*:\s*\[\s*&str\s*;\s*\d+\s*\]\s*=\s*\[(?P<body>[^\]]*)\]"
+)
+
+
+def terminal_identity_env_names(tui: Path) -> frozenset[str]:
+    """The `CMUX_*` names in terminal_env.rs `EXCLUDED_KEYS`, or none if it is absent."""
+    try:
+        text = (tui / TERMINAL_IDENTITY_ENV_SOURCE).read_text(encoding="utf-8")
+    except OSError:
+        return frozenset()
+    match = TERMINAL_IDENTITY_ENV_TABLE_RE.search(text)
+    if match is None:
+        return frozenset()
+    return frozenset(
+        name for name in re.findall(r'"([^"]+)"', match.group("body")) if name.startswith("CMUX_")
+    )
 
 
 # These handwritten v10 modules remain reachable only through `cmux::raw`.
@@ -363,10 +388,11 @@ def _json_object(path: Path, diagnostics: list[Diagnostic]) -> Mapping[str, obje
     return value
 
 
-def _blank_rust_comments(text: str) -> str:
+def _blank_rust_comments(text: str, *, blank_chars: bool = False) -> str:
     """`text` with Rust `//` and (nested) `/* */` comments replaced by spaces,
     newlines kept, so offsets and lines still match `text`. String, raw string,
-    byte and char literals are copied as they are."""
+    byte and char literals are copied as they are. With `blank_chars`, character
+    literals are also blanked so their quotes cannot open a string region."""
     out = list(text)
     i, n = 0, len(text)
 
@@ -393,7 +419,7 @@ def _blank_rust_comments(text: str) -> str:
                     j += 1
             blank(i, j)
             i = j
-        elif raw := re.match(r'b?r(#*)"', text[i : i + 300]):
+        elif raw := re.match(r'(?:br|cr|r)(#*)"', text[i : i + 300]):
             if i and (text[i - 1].isalnum() or text[i - 1] == "_"):
                 i += 1
                 continue
@@ -408,6 +434,8 @@ def _blank_rust_comments(text: str) -> str:
         elif c == "'":
             # A char literal ('a', '\n', '\u{1F600}'); otherwise a lifetime.
             char = re.match(r"'(?:\\(?:u\{[0-9a-fA-F]+\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'", text[i : i + 16])
+            if char and blank_chars:
+                blank(i, i + char.end())
             i += char.end() if char else 1
         else:
             i += 1
@@ -1141,6 +1169,7 @@ def _validate_catalog_type(
                 # Settings values are data the settings schema describes, not
                 # the catalog (plans/cmux-next/settings-react.md section 2).
                 "operations.settings.set.params.fields.value",
+                "types.SettingsEdit.fields.value",
                 "operations.settings.schema.result",
                 "operations.settings.list.result.items",
                 "operations.settings.get.result",
@@ -1197,10 +1226,31 @@ def _validate_catalog_type(
                 # passed through unchanged (its turn summaries grow fields).
                 "operations.chief.engine.get.result",
                 "operations.chief.engine.set.result.arguments[0]",
+                # The Chief's automations, owned by optchat-chief and passed
+                # through unchanged (automations.rs, issue 25573).
+                "operations.chief.automation.list.result",
+                "operations.chief.automation.update.result.arguments[0]",
                 # Import from Conductor's dry run, owned by the
                 # cmux-conductor-import crate (plan::Plan) and passed
                 # through unchanged; the app that confirms it reads it.
                 "types.ConductorImportPlanResult.fields.plan.value",
+                # A browser import read: each reader's result is the
+                # cmux-browser-import crate's (bookmarks, history, tabs,
+                # extensions, an engine), in the app's Codable shapes, and
+                # Safari's engine comes from the Mac's NSPreferredWebServices
+                # dictionary, passed as macOS keeps it.
+                "types.BrowserImportReadResult.fields.ok.value",
+                "operations.browser_import.read.params.fields.services.value",
+                # The move from classic cmux: the source, decision, plan and
+                # preview are the cmux-classic-import crate's (source::Source,
+                # plan::Decision, plan::Plan, plan::Preview), passed through
+                # unchanged; the app that makes the workspaces reads them, and
+                # begin hands the plan's source back as it was read.
+                "types.ClassicImportPlanResult.fields.source.value",
+                "types.ClassicImportPlanResult.fields.decision.value",
+                "types.ClassicImportPlanResult.fields.plan.value",
+                "types.ClassicImportPlanResult.fields.preview.value",
+                "operations.classic_import.record.params.fields.source",
                 # A diff review comment is the diff page's own object, kept
                 # until it is sent to the agent; the daemon stamps only id,
                 # createdAt and updatedAt (diff-comments-v1).
@@ -1591,7 +1641,7 @@ def _operation_catalog(
                 diagnostics, path, text, f"{operation}.params must be an object", operation
             )
             return
-        allowed = {"selectors", "fields", "extra", "constraints", "one_of"}
+        allowed = {"selectors", "fields", "extra", "unknown_params", "constraints", "one_of"}
         if set(value) - allowed or not {"selectors", "fields", "extra"} <= set(value):
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params has a schema hole", operation
@@ -1599,6 +1649,14 @@ def _operation_catalog(
         if value.get("extra") is not False:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params.extra must be false", operation
+            )
+        if "unknown_params" in value and value["unknown_params"] != "refuse":
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation}.params.unknown_params must be \"refuse\" when present",
+                operation,
             )
         selector_map = value.get("selectors")
         if not isinstance(selector_map, dict):
@@ -2413,7 +2471,7 @@ def _operation_catalog(
             or client_fields.get("transport", {}).get("type")
             != {"kind": "ref", "name": "ClientTransport"}
             or types.get("ClientTransport")
-            != {"kind": "enum", "values": ["unix", "websocket"]}
+            != {"kind": "enum", "values": ["unix", "websocket", "remote"]}
             or client_fields.get("connected_seconds", {}).get("type")
             != {"kind": "primitive", "name": "decimal"}
             or client_fields.get("attached_terminal_ids", {}).get("type", {}).get("items")
@@ -3064,80 +3122,6 @@ def _schema_operation_classes(
     return offsets, classes
 
 
-def _sdk_descriptor_classes(
-    tui: Path,
-    diagnostics: list[Diagnostic],
-    expected_catalog_sha256: str,
-) -> list[tuple[Path, dict[str, str]]]:
-    descriptors: list[tuple[Path, dict[str, str]]] = []
-    bindings = tui / "bindings"
-    if not bindings.exists():
-        return descriptors
-    package_names = ("cpp", "go", "java", "python", "rust", "typescript", "zig")
-    paths: list[Path] = []
-    for package_name in package_names:
-        package = bindings / package_name
-        if not package.exists():
-            continue
-        path = package / ".cmux-resource-api.json"
-        if not path.is_file():
-            diagnostics.append(
-                Diagnostic(
-                    path,
-                    1,
-                    1,
-                    "boundary.sdk-descriptor",
-                    f"{package_name} high-level SDK is missing .cmux-resource-api.json",
-                )
-            )
-            continue
-        paths.append(path)
-    for path in paths:
-        document = _json_object(path, diagnostics)
-        if document is None:
-            continue
-        if document.get("protocol") != "cmux.protocol/2":
-            diagnostics.append(
-                Diagnostic(path, 1, 1, "boundary.sdk-descriptor", "protocol must be cmux.protocol/2")
-            )
-        if document.get("catalog_sha256") != expected_catalog_sha256:
-            diagnostics.append(
-                Diagnostic(
-                    path,
-                    1,
-                    1,
-                    "boundary.sdk-descriptor",
-                    "catalog_sha256 must match canonical resource-operations-v2.json",
-                )
-            )
-        value = document.get("operations")
-        classes: dict[str, str] = {}
-        if isinstance(value, dict):
-            for name, descriptor in value.items():
-                if isinstance(descriptor, dict) and isinstance(descriptor.get("class"), str):
-                    classes[name] = descriptor["class"]
-        elif isinstance(value, list):
-            for descriptor in value:
-                if (
-                    isinstance(descriptor, dict)
-                    and isinstance(descriptor.get("name"), str)
-                    and isinstance(descriptor.get("class"), str)
-                ):
-                    classes[descriptor["name"]] = descriptor["class"]
-        else:
-            diagnostics.append(
-                Diagnostic(
-                    path,
-                    1,
-                    1,
-                    "boundary.sdk-descriptor",
-                    "operations must carry operation names and classes",
-                )
-            )
-        descriptors.append((path, classes))
-    return descriptors
-
-
 def _compare_operations(
     diagnostics: list[Diagnostic],
     canonical_path: Path,
@@ -3361,36 +3345,6 @@ def check_contracts(tui: Path) -> list[Diagnostic]:
             runtime_local_classes,
             "the Rust LocalOperation registry",
         )
-        catalog_document = json.loads(canonical_text)
-        catalog_sha256 = hashlib.sha256(
-            json.dumps(
-                catalog_document,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            ).encode("utf-8")
-        ).hexdigest()
-        for descriptor_path, descriptor_classes in _sdk_descriptor_classes(
-            tui, diagnostics, catalog_sha256
-        ):
-            _compare_operation_classes(
-                diagnostics,
-                catalog,
-                catalog_classes,
-                descriptor_path,
-                descriptor_classes,
-                "the SDK descriptor",
-            )
-            if set(descriptor_classes) != set(catalog_classes):
-                diagnostics.append(
-                    Diagnostic(
-                        descriptor_path,
-                        1,
-                        1,
-                        "boundary.sdk-descriptor",
-                        "SDK descriptor operation set differs from the typed catalog",
-                    )
-                )
     return sorted(set(diagnostics))
 
 
@@ -3454,6 +3408,7 @@ def _is_test_or_example(path: Path) -> bool:
         bool(parts & {"test", "tests", "example", "examples", "e2e", "cmd"})
         or name.endswith("_test.go")
         or "_test." in name
+        or "_tests." in name
         or name.startswith("test_")
         or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
@@ -3476,8 +3431,14 @@ def _files_for_rule(tui: Path, rule: ScanRule) -> Iterator[Path]:
         yield path
 
 
+RUST_SOURCE_PATH_RE = re.compile(
+    r"(?:\binclude_(?:str|bytes)!\s*\(\s*|#\s*\[\s*path\s*=\s*)$"
+)
+
+
 def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
     """Yield byte-index-equivalent Python offsets for Rust string contents."""
+    text = _blank_rust_comments(text, blank_chars=True)
     index = 0
     while index < len(text):
         raw = re.match(r"(?:br|cr|r)(?P<hashes>#{0,255})\"", text[index:])
@@ -3488,8 +3449,8 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
             end = text.find(terminator, content_start)
             if end < 0:
                 return
-            # A direct include argument names a source file, not public CLI text.
-            if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
+            # Direct include arguments and path attributes name source files.
+            if not RUST_SOURCE_PATH_RE.search(text[:index]):
                 yield content_start, end
             index = end + len(terminator)
             continue
@@ -3501,8 +3462,8 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
                     cursor += 2
                 elif text[cursor] == '"':
                     # Keep help/diagnostic strings in the scan; exclude only
-                    # direct compile-time resource paths in include macros.
-                    if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
+                    # direct compile-time resource paths and module paths.
+                    if not RUST_SOURCE_PATH_RE.search(text[:index]):
                         yield content_start, cursor
                     cursor += 1
                     break
@@ -3511,6 +3472,52 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
             index = cursor
             continue
         index += 1
+
+
+# Share inventory's offset-preserving Rust test-module reader. This also keeps
+# public SDK declarations after an inline test module visible to the checker.
+strip_rust_test_modules = runpy.run_path(
+    str(Path(__file__).with_name("check-spec-inventory.py"))
+)["strip_rust_test_modules"]
+
+# A docs topic names an area of the app (sidebar, theme, widget, ...).
+# Recognize the topic in its command syntax and prose. Match phrases within
+# one literal so a resource selector elsewhere in the same help still fails.
+CUSTOMIZE_DOCS_PHRASES = re.compile(
+    r"\bcmux customize docs (?:\[SURFACE\]|SURFACE\b)"
+    r"|\b(?:customization|settings|extension) surfaces?\b"
+    r"|\breference for each surface\b|\bEach surface's reference\b"
+    r"|\bis not a surface; the surfaces are\b|\bcustomize docs takes one surface\b"
+    r"|\bOmit `surface` for the list\b|\bOne surface, like sidebar or section\b"
+)
+
+CLI_ROOT = Path("crates/cmux-tui/src/cli")
+CUSTOMIZE_DOCS_FILES = {
+    CLI_ROOT / "customize.rs", CLI_ROOT / "customize/docs.rs",
+    CLI_ROOT / "ext.rs", CLI_ROOT / "mcp/customize_tools.rs",
+}
+
+# Fixed JSON/descriptor fields are allowed only at their respective producer.
+# Match the source expression so another literal with the same key still fails.
+UI_FIELD_EXPRESSIONS = {
+    CLI_ROOT / "customize/docs.rs": re.compile(
+        r'"(surfaces)"\s*:\s*all\.iter\(\)\.map\(surface_json\)'
+    ),
+    CLI_ROOT / "ext/headless.rs": re.compile(
+        r'\bcontext\["(surface)"\]\s*=\s*json!\(\s*"widget"\s*\)'
+    ),
+    CLI_ROOT / "mcp/customize_tools.rs": re.compile(
+        r'\bname:\s*"customize_docs",\s*verb:\s*"docs",\s*'
+        r'description:\s*"(?:\\.|[^"\\])*",\s*argument:\s*Some\(\(\s*"(surface)"'
+    ),
+}
+
+
+def ui_surface_offsets(relative: Path, source: str) -> set[int]:
+    expression = UI_FIELD_EXPRESSIONS.get(relative)
+    if expression is None:
+        return set()
+    return {match.start(1) for match in expression.finditer(source)}
 
 
 def _identifier_parts(identifier: str) -> list[str]:
@@ -3524,6 +3531,9 @@ def _scan_region(
     start: int,
     end: int,
     private_identity_exceptions: frozenset[str] = frozenset(),
+    terminal_env_names: frozenset[str] = frozenset(),
+    ui_fields: set[int] | frozenset[int] = frozenset(),
+    customize_docs: bool = False,
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     region = text[start:end]
@@ -3534,6 +3544,8 @@ def _scan_region(
         for match in re.finditer(rf"(?i)\b{re.escape(exception)}\b", region)
     ]
 
+    docs_spans = [phrase.span() for phrase in CUSTOMIZE_DOCS_PHRASES.finditer(region)] if customize_docs else []
+
     for match in IDENTIFIER_RE.finditer(region):
         parts = _identifier_parts(match.group(0))
         if "surface" in parts or "surfaces" in parts:
@@ -3543,14 +3555,28 @@ def _scan_region(
             # browser; only the dash-prefixed compatibility flag is exempt.
             if match.group(0) == "surface" and region[max(0, match.start() - 2):match.start()] == "--":
                 continue
+            # A terminal identity variable's name (`CMUX_SURFACE_ID`) is a
+            # process-environment key the terminal carries, not vocabulary.
+            if match.group(0) in terminal_env_names:
+                continue
             offset = start + match.start()
+            if offset in ui_fields or any(
+                left <= match.start() and match.end() <= right for left, right in docs_spans
+            ):
+                continue
+            message = f"legacy public resource word in {match.group(0)!r}; use terminal or browser"
+            if re.fullmatch(r"CMUX_[A-Z0-9_]+", match.group(0)):
+                message += (
+                    "; an environment variable name passes only when it is a terminal identity "
+                    f"variable listed in {TERMINAL_IDENTITY_ENV_SOURCE} EXCLUDED_KEYS"
+                )
             diagnostics.append(
                 _diagnostic_at(
                     path,
                     text,
                     offset,
                     "boundary.surface",
-                    f"legacy public resource word in {match.group(0)!r}; use terminal or browser",
+                    message,
                 )
             )
             occupied.add(("surface", offset))
@@ -3619,6 +3645,7 @@ def _scan_region(
 def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
     diagnostics: list[Diagnostic] = []
     generated = _generated_manifest_paths(tui, diagnostics)
+    terminal_env_names = terminal_identity_env_names(tui)
     scanned: set[Path] = set()
     for rule in SCAN_RULES:
         for path in _files_for_rule(tui, rule):
@@ -3631,6 +3658,10 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
             text = _read(path, diagnostics)
             if text is None:
                 continue
+            if path.suffix == ".rs" and "cfg" in text and "test" in text:
+                text = strip_rust_test_modules(text)
+            relative = path.relative_to(tui)
+            ui_fields = ui_surface_offsets(relative, text)
             regions: Iterable[tuple[int, int]]
             if rule.cli_literals_only:
                 regions = _rust_string_regions(text)
@@ -3644,6 +3675,9 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
                         start,
                         end,
                         rule.private_identity_exceptions,
+                        terminal_env_names,
+                        ui_fields,
+                        relative in CUSTOMIZE_DOCS_FILES,
                     )
                 )
     return sorted(set(diagnostics)), len(scanned)

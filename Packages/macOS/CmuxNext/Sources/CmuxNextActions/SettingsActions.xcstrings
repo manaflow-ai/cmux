@@ -1,6 +1,10 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.appearance.mode.system": {"comment":"Command palette and CLI: set the app's appearance (appearance.mode) to Match System. Every title starts with the same word so typing it lists all three.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Appearance: Match System"}},"ar":{"stringUnit":{"state":"needs_review","value":"المظهر: مطابقة النظام"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izgled: Prati sistem"}},"da":{"stringUnit":{"state":"needs_review","value":"Udseende: Følg systemet"}},"de":{"stringUnit":{"state":"needs_review","value":"Erscheinungsbild: Wie System"}},"es":{"stringUnit":{"state":"needs_review","value":"Apariencia: Igual que el sistema"}},"fr":{"stringUnit":{"state":"needs_review","value":"Apparence: Comme le système"}},"it":{"stringUnit":{"state":"needs_review","value":"Aspetto: Come il sistema"}},"ja":{"stringUnit":{"state":"needs_review","value":"外観：システムに合わせる"}},"km":{"stringUnit":{"state":"needs_review","value":"រូបរាង: តាមប្រព័ន្ធ"}},"ko":{"stringUnit":{"state":"needs_review","value":"모양: 시스템과 일치"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utseende: Følg systemet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wygląd: Zgodnie z systemem"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aparência: Igual ao sistema"}},"ru":{"stringUnit":{"state":"needs_review","value":"Оформление: Как в системе"}},"th":{"stringUnit":{"state":"needs_review","value":"ลักษณะที่ปรากฏ: ตามระบบ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Görünüm: Sistemle Aynı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вигляд: Як у системі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Giao diện: Theo hệ thống"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"外观：跟随系统"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"外觀：跟隨系統"}}}},
+    "action.appearance.mode.light": {"comment":"Command palette and CLI: set the app's appearance (appearance.mode) to Light. Every title starts with the same word so typing it lists all three.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Appearance: Light"}},"ar":{"stringUnit":{"state":"needs_review","value":"المظهر: فاتح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izgled: Svijetlo"}},"da":{"stringUnit":{"state":"needs_review","value":"Udseende: Lyst"}},"de":{"stringUnit":{"state":"needs_review","value":"Erscheinungsbild: Hell"}},"es":{"stringUnit":{"state":"needs_review","value":"Apariencia: Claro"}},"fr":{"stringUnit":{"state":"needs_review","value":"Apparence: Clair"}},"it":{"stringUnit":{"state":"needs_review","value":"Aspetto: Chiaro"}},"ja":{"stringUnit":{"state":"needs_review","value":"外観：ライト"}},"km":{"stringUnit":{"state":"needs_review","value":"រូបរាង: ភ្លឺ"}},"ko":{"stringUnit":{"state":"needs_review","value":"모양: 라이트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utseende: Lyst"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wygląd: Jasny"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aparência: Clara"}},"ru":{"stringUnit":{"state":"needs_review","value":"Оформление: Светлое"}},"th":{"stringUnit":{"state":"needs_review","value":"ลักษณะที่ปรากฏ: สว่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Görünüm: Açık"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вигляд: Світлий"}},"vi":{"stringUnit":{"state":"needs_review","value":"Giao diện: Sáng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"外观：浅色"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"外觀：淺色"}}}},
+    "action.appearance.mode.dark": {"comment":"Command palette and CLI: set the app's appearance (appearance.mode) to Dark. Every title starts with the same word so typing it lists all three.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Appearance: Dark"}},"ar":{"stringUnit":{"state":"needs_review","value":"المظهر: داكن"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izgled: Tamno"}},"da":{"stringUnit":{"state":"needs_review","value":"Udseende: Mørkt"}},"de":{"stringUnit":{"state":"needs_review","value":"Erscheinungsbild: Dunkel"}},"es":{"stringUnit":{"state":"needs_review","value":"Apariencia: Oscuro"}},"fr":{"stringUnit":{"state":"needs_review","value":"Apparence: Sombre"}},"it":{"stringUnit":{"state":"needs_review","value":"Aspetto: Scuro"}},"ja":{"stringUnit":{"state":"needs_review","value":"外観：ダーク"}},"km":{"stringUnit":{"state":"needs_review","value":"រូបរាង: ងងឹត"}},"ko":{"stringUnit":{"state":"needs_review","value":"모양: 다크"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utseende: Mørkt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wygląd: Ciemny"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aparência: Escura"}},"ru":{"stringUnit":{"state":"needs_review","value":"Оформление: Тёмное"}},"th":{"stringUnit":{"state":"needs_review","value":"ลักษณะที่ปรากฏ: มืด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Görünüm: Koyu"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вигляд: Темний"}},"vi":{"stringUnit":{"state":"needs_review","value":"Giao diện: Tối"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"外观：深色"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"外觀：深色"}}}},
+    "action.customize.library.reset": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة تعيين مكتبة التخصيص"}},"bs":{"stringUnit":{"state":"needs_review","value":"Resetuj biblioteku prilagođavanja"}},"da":{"stringUnit":{"state":"needs_review","value":"Nulstil tilpasningsbibliotek"}},"de":{"stringUnit":{"state":"needs_review","value":"Anpassungsbibliothek zurücksetzen"}},"en":{"stringUnit":{"state":"translated","value":"Reset Customization Library"}},"es":{"stringUnit":{"state":"needs_review","value":"Restablecer biblioteca de personalización"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réinitialiser la bibliothèque de personnalisation"}},"it":{"stringUnit":{"state":"needs_review","value":"Reimposta libreria di personalizzazione"}},"ja":{"stringUnit":{"state":"needs_review","value":"カスタマイズライブラリをリセット"}},"km":{"stringUnit":{"state":"needs_review","value":"កំណត់បណ្ណាល័យប្ដូរតាមបំណងឡើងវិញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"사용자화 라이브러리 재설정"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tilbakestill tilpasningsbiblioteket"}},"pl":{"stringUnit":{"state":"needs_review","value":"Resetuj bibliotekę dostosowań"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Redefinir biblioteca de personalização"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сбросить библиотеку настроек"}},"th":{"stringUnit":{"state":"needs_review","value":"รีเซ็ตคลังการปรับแต่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Özelleştirme Kitaplığını Sıfırla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скинути бібліотеку налаштувань"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đặt lại thư viện tùy chỉnh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重置自定义库"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重設自訂資料庫"}}}},
     "action.palette.clearSearchHistory": {
       "extractionState": "manual",
       "localizations": {
@@ -165,127 +169,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الرئيسية"
+            "value": "Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Početna"
+            "value": "Chief"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicio"
+            "value": "Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Accueil"
+            "value": "Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ホーム"
+            "value": "Chief"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រដើម"
+            "value": "Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈"
+            "value": "Chief"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Strona główna"
+            "value": "Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Início"
+            "value": "Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Главная"
+            "value": "Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าแรก"
+            "value": "Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa"
+            "value": "Chief"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Головна"
+            "value": "Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang chủ"
+            "value": "Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主页"
+            "value": "Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主頁"
+            "value": "Chief"
           }
         }
       }
@@ -2002,127 +2006,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Density: Cozy"
+            "value": "Density: Default"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "الكثافة: متوسط"
+            "state": "translated",
+            "value": "الكثافة: افتراضي"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gustoća: Ugodno"
+            "state": "translated",
+            "value": "Gustoća: Zadano"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tæthed: Hyggelig"
+            "state": "translated",
+            "value": "Tæthed: Standard"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Dichte: Behaglich"
+            "state": "translated",
+            "value": "Dichte: Standard"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Densidad: Acogedora"
+            "state": "translated",
+            "value": "Densidad: Predeterminado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Densité: Douillet"
+            "state": "translated",
+            "value": "Densité: Par défaut"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Densità: Accogliente"
+            "state": "translated",
+            "value": "Densità: Predefinito"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "密度: ほどよい"
+            "state": "translated",
+            "value": "密度: デフォルト"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ដង់ស៊ីតេ: មធ្យម"
+            "state": "translated",
+            "value": "ដង់ស៊ីតេ: លំនាំដើម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "밀도: 아늑함"
+            "state": "translated",
+            "value": "밀도: 기본값"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tetthet: Koselig"
+            "state": "translated",
+            "value": "Tetthet: Standard"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gęstość: Przytulna"
+            "state": "translated",
+            "value": "Gęstość: Domyślne"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Densidade: Aconchegante"
+            "state": "translated",
+            "value": "Densidade: Padrão"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Плотность: Уютная"
+            "state": "translated",
+            "value": "Плотность: По умолчанию"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ความหนาแน่น: พอดี"
+            "state": "translated",
+            "value": "ความหนาแน่น: ค่าเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Yoğunluk: Orta"
+            "state": "translated",
+            "value": "Yoğunluk: Varsayılan"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Щільність: Затишна"
+            "state": "translated",
+            "value": "Щільність: Типово"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mật độ: Vừa"
+            "state": "translated",
+            "value": "Mật độ: Mặc định"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "密度：适中"
+            "state": "translated",
+            "value": "密度：默认"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "密度：適中"
+            "state": "translated",
+            "value": "密度：預設"
           }
         }
       }
@@ -4371,138 +4375,6 @@
         }
       }
     },
-    "action.appearance.chromeStyle.blocks": {
-      "comment": "Command palette: switch the window style (appearance.chromeStyle) to Blocks. Every title starts with the same words so typing them lists all styles.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Window Style: Blocks"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نمط النافذة: كتل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stil prozora: Blokovi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vinduesstil: Blokke"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fensterstil: Blöcke"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Estilo de ventana: Bloques"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Style de fenêtre: Blocs"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stile finestra: Blocchi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ウインドウスタイル：ブロック"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រចនាប័ទ្មបង្អួច: ប្លុក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "창 스타일: 블록"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vindusstil: Blokker"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Styl okna: Bloki"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Estilo da janela: Blocos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Стиль окна: Блоки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สไตล์หน้าต่าง: บล็อก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pencere Stili: Bloklar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Стиль вікна: Блоки"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kiểu cửa sổ: Khối"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "窗口样式：色块"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "視窗樣式：色塊"
-          }
-        }
-      }
-    },
     "action.appearance.chromeStyle.floating": {
       "comment": "Command palette: switch the window style (appearance.chromeStyle) to Floating Panes. Every title starts with the same words so typing them lists all styles.",
       "extractionState": "manual",
@@ -5423,6 +5295,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "將所有標籤頁移到新工作區"
+          }
+        }
+      }
+    },
+    "action.appearance.chromeStyle.blocks": {
+      "comment": "Command palette: switch the window style (appearance.chromeStyle) to Blocks. Every title starts with the same words so typing them lists all styles.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window Style: Blocks"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نمط النافذة: كتل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil prozora: Blokovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vinduesstil: Blokke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fensterstil: Blöcke"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo de ventana: Bloques"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Style de fenêtre: Blocs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stile finestra: Blocchi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ウインドウスタイル：ブロック"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រចនាប័ទ្មបង្អួច: ប្លុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "창 스타일: 블록"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vindusstil: Blokker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Styl okna: Bloki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo da janela: Blocos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиль окна: Блоки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สไตล์หน้าต่าง: บล็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pencere Stili: Bloklar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиль вікна: Блоки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kiểu cửa sổ: Khối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗口样式：色块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "視窗樣式：色塊"
           }
         }
       }

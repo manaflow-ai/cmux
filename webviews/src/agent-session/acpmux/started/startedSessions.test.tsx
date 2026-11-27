@@ -2,7 +2,7 @@
 // started draw as one card of rows at the end of that turn, after its reply, each row the chat's
 // title over its status (Claude Code's Changes card), and their names in a reply draw as chips
 // that open them.
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { sessionEntry } from "../sessionList";
@@ -12,6 +12,7 @@ import { StartedSessionCards } from "./StartedSessionCard";
 import { AgentMark } from "../../shared/AgentMark";
 import { rowIconSize } from "../icons/iconSize";
 import { agentTone } from "../subagents/agentTones";
+import { configureSenderIconLook, SENDER_ICON_BADGE_KEY } from "../subagents/senderIconLook";
 import {
   STARTED_SESSIONS,
   type StartedSession,
@@ -168,10 +169,17 @@ describe("withStartedSessions", () => {
     expect([...cache.keys()]).toEqual([`${STARTED_SESSIONS}-y`]);
   });
 
-  test("a running turn with only its card so far draws the card and the thinking line under it", () => {
+  // The person's turn draws its heading (Working for, then Worked for) from its first row (turns.ts
+  // `shapeLiveRows`, #51896). Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways so it disappearing means there's multiple problems".
+  test("a running turn with only its card so far draws its heading, the card and the thinking line under it", () => {
     const rows = withStartedSessions([row("u1", 10, "user")], [started("x", 20)]);
     const shown = turnView(rows, new Set(), { working: true });
-    expect(shown.map((r) => r.kind).filter((kind) => kind !== "date")).toEqual(["user", STARTED_SESSIONS, "thinking"]);
+    expect(shown.map((r) => r.kind).filter((kind) => kind !== "date")).toEqual([
+      "user",
+      "worked",
+      STARTED_SESSIONS,
+      "thinking",
+    ]);
   });
 
   test("a card after the running call leaves that call the live line's", () => {
@@ -287,6 +295,10 @@ describe("name chips", () => {
 });
 
 describe("StartedSessionCards", () => {
+  // Sender Badge: None draws each row's icon as before the sender badge (SenderIcon.tsx); these
+  // tests pin that look.
+  beforeAll(() => configureSenderIconLook({ [SENDER_ICON_BADGE_KEY]: "none" }));
+  afterAll(() => configureSenderIconLook({}));
   const draw = (...started: StartedSession[]) =>
     renderToStaticMarkup(<StartedSessionCards started={started} onOpen={() => undefined} />);
 

@@ -50,6 +50,17 @@ SHARED_NIGHTLY_GROUPS = {
 }
 
 
+# The nightly-next push slot with the one job on (docs/ci/nightly-workflow-notes.md#note-19): the
+# workflow-level push group moved to the one job, with the same rule. A newer loop run replaces only a pending
+# one, and main's tick promotes nothing while one is pending (run_holds_group), so none is ever replaced; other
+# runs' nightly-next-one stays run-scoped. tests/test_nightly_next_push_slot_at_build.py evaluates it.
+PUSH_SLOT_JOBS = {
+    "nightly-next-one": "${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || "
+                        "inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || "
+                        "format('nightly-next-one-{0}', github.run_id) }}",
+}
+
+
 # A group scoped to its run with nothing conditional: a fixed prefix and github.run_id, so no branch of
 # an expression can fall back to a shared name (the old warm slot named github.run_id only in its fallback).
 RUN_SCOPED = re.compile(
@@ -84,7 +95,8 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
     # (nightly_next_post_publish), so nothing replaces that tail and it never holds the push group.
     assert re.match(r"nightly-build-\$\{\{[^}]*\}\}-\$\{\{ github\.ref == 'refs/heads/nightly-next' && "
                     r"\(\(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch' && "
-                    r"inputs\.nightly_next_loop_retry != ''\) && 'push' \|\| format\('run-\{0\}', github\.run_id\)\) \|\|",
+                    r"inputs\.nightly_next_loop_retry != ''\) && \(vars\.NIGHTLY_NEXT_ONE_JOB != 'on' [^)]*\) && 'push' \|\| "
+                    r"format\('run-\{0\}', github\.run_id\)\) \|\|",
                     top), top
     assert "nightly_next_post_publish" not in top, top
     assert document["concurrency"]["cancel-in-progress"] is False
@@ -96,6 +108,8 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
         if isinstance(concurrency, dict):
             assert concurrency.get("cancel-in-progress") is not True, name
         if RUN_SCOPED.fullmatch(group):
+            continue
+        if name in PUSH_SLOT_JOBS and group == PUSH_SLOT_JOBS[name]:
             continue
         allowed = SHARED_NIGHTLY_GROUPS.get(name)
         assert allowed and group.startswith(allowed), (
@@ -229,7 +243,9 @@ def test_next_feed_writers_take_the_r2_lease() -> None:
     assert all(len(ttls) == 1 for ttls in by_key.values()), by_key
     # publish-nightly takes it only on nightly-next; classic and RC keep their group.
     lock = next(s for s in jobs["publish-nightly"]["steps"] if "publish-lease.sh lock" in str(s.get("run", "")))
-    assert lock["if"] == "needs.decide.outputs.track == 'nightly-next'", lock.get("if")
+    # nightly-next-one shares the step; there it also skips once the run left the push slot (LEFT_SLOT).
+    assert lock["if"] in ("needs.decide.outputs.track == 'nightly-next'",
+                          "needs.decide.outputs.track == 'nightly-next' && !env.LEFT_SLOT"), lock.get("if")
     # The notes job's sparse tooling checkout carries the lease's scripts.
     notes_checkout = next(s for s in jobs["publish-release-notes"]["steps"] if s.get("with", {}).get("path") == ".publish-tooling")
     for path in ("scripts/ci/nightly-steps/publish-lease.sh", "scripts/ci/r2_cas.py", "scripts/ci/upload-r2-object.py",
@@ -250,9 +266,57 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     assert 'cron: "2-59/5 * * * *"' in dev or 'cron: "7,22,37,52 * * * *"' in dev
     assert "cancel-in-progress: false" in dev
     cmux_next = (WORKFLOWS / "cmux-next.yml").read_text(encoding="utf-8")
-    assert "group: ${{ format('cmux-next-release-compile-{0}', github.run_id) }}" in cmux_next
+    assert "format('cmux-next-release-compile-{0}', github.run_id) }}" in cmux_next
     assert "needs.push-head-preflight.outputs.current == 'true'" in cmux_next
 
+
+# A job that tolerates a need (continue-on-error) can still end `cancelled` when it hits its
+# timeout-minutes. A job whose `if` names no status function gets an implicit success(), which asks
+# that every ancestor (not only its own needs) succeeded, so GitHub skips it and the started run loses
+# its build with no cancel-in-progress anywhere. On 2026-11-12 pick-nightly-build-runner timed out at
+# 13 minutes while a signing job held its mini, and build-nightly-app was skipped in nightly-next runs
+# 43129045111 and 43138638076. Same class: cmuxterm-hq docs/handbook/skipped-by-a-job-it-does-not-need.md.
+STATUS_FUNCTION = re.compile(r"\b(always|cancelled|failure|success)\(\)")
+
+
+def jobs_a_tolerated_ancestor_skips(jobs: dict) -> list[str]:
+    def needs(name: str) -> list[str]:
+        value = jobs[name].get("needs") or []
+        return [value] if isinstance(value, str) else list(value)
+
+    ancestors: dict[str, set[str]] = {}
+
+    def of(name: str) -> set[str]:
+        if name not in ancestors:
+            ancestors[name] = set()
+            for need in needs(name):
+                ancestors[name] |= {need} | of(need)
+        return ancestors[name]
+
+    tolerated = {name for name, job in jobs.items() if job.get("continue-on-error") is True}
+    return [f"{name} (ancestor {sorted(of(name) & tolerated)})" for name, job in jobs.items()
+            if of(name) & tolerated and not STATUS_FUNCTION.search(str(job.get("if", "")))]
+
+
+def test_the_tolerated_ancestor_check_catches_the_2026_11_12_shape() -> None:
+    jobs = {
+        "pick": {"continue-on-error": True},
+        "build": {"needs": ["pick"], "if": "needs.decide.outputs.should_build == 'true'"},
+        "prepare": {"needs": "build", "if": "inputs.x == ''"},
+        "safe": {"needs": ["build"], "if": "${{ !cancelled() && needs.build.result == 'success' }}"},
+    }
+    assert sorted(jobs_a_tolerated_ancestor_skips(jobs)) == ["build (ancestor ['pick'])", "prepare (ancestor ['pick'])"]
+
+
+def test_a_tolerated_need_never_skips_its_dependents() -> None:
+    import yaml
+
+    found = []
+    for path in delivery_workflows():
+        jobs = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("jobs") or {}
+        found += [f"{path.name}: {entry}" for entry in jobs_a_tolerated_ancestor_skips(jobs)]
+    assert not found, ("a timed-out continue-on-error ancestor skips these jobs; give their `if` "
+                       f"!cancelled() and the needs' results: {found}")
 
 if __name__ == "__main__":
     test_delivery_workflows_never_cancel_in_progress_work()
@@ -262,4 +326,6 @@ if __name__ == "__main__":
     test_next_feed_writers_share_no_group_on_nightly_next()
     test_next_feed_writers_take_the_r2_lease()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
+    test_the_tolerated_ancestor_check_catches_the_2026_11_12_shape()
+    test_a_tolerated_need_never_skips_its_dependents()
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")

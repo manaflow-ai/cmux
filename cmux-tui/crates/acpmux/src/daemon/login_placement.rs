@@ -46,11 +46,80 @@ pub(crate) fn daemon_env(
 /// The launchd job label for the daemon of `home`: one per home, however it is spelled (it is
 /// resolved first: `..`, links, a relative path), so one home never gets two jobs.
 pub(crate) fn job_label(home: &Path) -> String {
+    let home = canonical(home);
+    // The path's own bytes on Unix (the only place launchd runs it); any fixed bytes elsewhere.
+    #[cfg(unix)]
+    let bytes = std::os::unix::ffi::OsStrExt::as_bytes(home.as_os_str());
+    #[cfg(not(unix))]
+    let bytes = home.as_os_str().as_encoded_bytes();
+    label_for_bytes(bytes)
+}
+
+/// Every daemon job's label starts so: the sweep ([`stale_daemon_labels`]) knows them by it.
+pub(crate) const LABEL_PREFIX: &str = "com.cmux.acpmux.daemon.";
+
+/// The label of a canonical home's bytes: FNV-1a 64, fixed by this code, so a toolchain bump
+/// never gives one home a second label (std's `DefaultHasher` may change between releases).
+pub(crate) fn label_for_bytes(bytes: &[u8]) -> String {
+    let h = bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    format!("{LABEL_PREFIX}{h:016x}")
+}
+
+/// The label builds before the FNV one gave `home` (std's `DefaultHasher`), so a start finds
+/// the job such a build left: running, it is the daemon; ended, it is booted out.
+pub(crate) fn legacy_job_label(home: &Path) -> String {
     use std::hash::{Hash, Hasher};
-    let home = std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    home.hash(&mut h);
-    format!("com.cmux.acpmux.daemon.{:016x}", h.finish())
+    canonical(home).hash(&mut h);
+    format!("{LABEL_PREFIX}{:016x}", h.finish())
+}
+
+fn canonical(home: &Path) -> std::path::PathBuf {
+    std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf())
+}
+
+/// At most this many stale jobs are looked at per start: each costs two `launchctl` calls.
+pub(crate) const STALE_SWEEP_MAX: usize = 16;
+
+/// From `launchctl print gui/<uid>`: the daemon jobs listed with no process (pid 0 or `-`),
+/// at most [`STALE_SWEEP_MAX`]. Only candidates: each one's own print decides
+/// ([`stale_job_program`]).
+pub(crate) fn stale_daemon_labels(domain_print: &str) -> Vec<String> {
+    let mut lines = domain_print.lines();
+    // The `services = {` block only: other blocks name labels too (endpoints, disabled).
+    lines.by_ref().find(|l| l.trim() == "services = {");
+    lines
+        .take_while(|l| l.trim() != "}")
+        .filter_map(|l| {
+            let mut fields = l.split_whitespace();
+            let (pid, _status, label) = (fields.next()?, fields.next()?, fields.next()?);
+            ((pid == "0" || pid == "-") && label.starts_with(LABEL_PREFIX))
+                .then(|| label.to_owned())
+        })
+        .take(STALE_SWEEP_MAX)
+        .collect()
+}
+
+/// From `launchctl print gui/<uid>/<label>`: the program of a job that has ended (`state =
+/// not running`) and whose program no longer exists (`exists`), the app copy it ran from
+/// deleted. Such a job never runs again and only sits loaded. None for any other job: one
+/// running, one whose program is there, one whose program cannot be read.
+pub(crate) fn stale_job_program(
+    job_print: &str,
+    exists: impl Fn(&Path) -> bool,
+) -> Option<std::path::PathBuf> {
+    let lines: Vec<&str> = job_print.lines().map(str::trim).collect();
+    if !lines.contains(&"state = not running") {
+        return None;
+    }
+    let program = lines.iter().find_map(|l| l.strip_prefix("program = ")).or_else(|| {
+        let at = lines.iter().position(|l| *l == "arguments = {")?;
+        lines.get(at + 1).filter(|l| **l != "}").copied()
+    })?;
+    let program = Path::new(program);
+    (program.is_absolute() && !exists(program)).then(|| program.to_path_buf())
 }
 
 /// What a `launchctl bootstrap` left: the job, or nothing.
@@ -169,119 +238,16 @@ pub(crate) fn keyed_in_place_warning() -> String {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_ssh_started_daemon_goes_to_the_gui_session_only_when_there_is_one() {
-        // Over ssh (not in the login session), the person's own home:
-        assert_eq!(placement(Some(false), true, true, false), Placement::LoginJob);
-        assert_eq!(placement(Some(false), true, false, false), Placement::NoGuiLogin);
-        // In the login session already, or a test's home: here, as before.
-        assert_eq!(placement(Some(true), true, true, false), Placement::InPlace);
-        assert_eq!(placement(Some(true), true, false, false), Placement::InPlace);
-        assert_eq!(placement(Some(false), false, true, false), Placement::InPlace);
-        assert_eq!(placement(Some(false), false, false, false), Placement::InPlace);
-    }
-
-    #[test]
-    fn a_session_that_cannot_be_read_counts_as_outside_the_login_session() {
-        assert_eq!(placement(None, true, true, false), Placement::LoginJob);
-        assert_eq!(placement(None, true, false, false), Placement::NoGuiLogin);
-        assert_eq!(placement(None, false, true, false), Placement::InPlace);
-    }
-
-    #[test]
-    fn a_keyed_start_over_ssh_stays_here_and_says_so() {
-        assert_eq!(placement(Some(false), true, true, true), Placement::KeyedInPlace);
-        assert_eq!(placement(Some(false), true, false, true), Placement::KeyedInPlace);
-        assert_eq!(placement(Some(true), true, true, true), Placement::InPlace);
-        assert_eq!(placement(Some(false), false, true, true), Placement::InPlace);
-        let line = keyed_in_place_warning();
-        assert!(line.contains(KEYED_IN_PLACE), "{line}");
-        assert!(line.contains("keychain"), "{line}");
-    }
-
-    #[test]
-    fn a_home_that_leaves_the_persons_own_by_dot_dot_is_not_theirs() {
-        let dir = std::env::temp_dir().join(format!("acpmux-own-{}", std::process::id()));
-        let default = dir.join("home");
-        std::fs::create_dir_all(default.join("dev")).unwrap();
-        std::fs::create_dir_all(dir.join("outside")).unwrap();
-        assert!(own_home(&default, &default));
-        assert!(own_home(&default.join("dev"), &default));
-        assert!(!own_home(&default.join("../outside"), &default));
-        assert!(!own_home(&dir.join("outside"), &default));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_started_daemon_gets_this_commands_home_and_socket_absolute() {
-        let cwd = Path::new("/work/here");
-        let os = |s: &'static str| Some(std::ffi::OsStr::new(s));
-        let env = daemon_env(Path::new(".acpmux-x"), os("run/a.sock"), cwd);
-        assert_eq!(
-            env,
-            [
-                ("ACPMUX_HOME", "/work/here/.acpmux-x".into()),
-                ("ACPMUX_SOCKET", "/work/here/run/a.sock".into())
-            ]
-        );
-        assert_eq!(daemon_env(Path::new("/abs/h"), None, cwd), [("ACPMUX_HOME", "/abs/h".into())]);
-    }
-
-    #[test]
-    fn equivalent_home_spellings_share_one_launchd_label() {
-        let dir = std::env::temp_dir().join(format!("acpmux-label-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("h")).unwrap();
-        std::fs::create_dir_all(dir.join("x")).unwrap();
-        assert_eq!(job_label(&dir.join("h")), job_label(&dir.join("x/../h")));
-        assert_ne!(job_label(&dir.join("h")), job_label(&dir.join("x")));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn an_empty_acpmux_socket_is_not_handed_to_the_daemon() {
-        let env = daemon_env(Path::new("/abs/h"), Some(std::ffi::OsStr::new("")), Path::new("/w"));
-        assert_eq!(env, [("ACPMUX_HOME", "/abs/h".into())]);
-    }
-
-    #[test]
-    fn a_bootstrap_that_did_not_answer_but_loaded_the_job_is_waited_for() {
-        assert_eq!(bootstrap_outcome(Some(true), || unreachable!()), Bootstrap::Job);
-        assert_eq!(bootstrap_outcome(Some(false), || unreachable!()), Bootstrap::Failed);
-        assert_eq!(bootstrap_outcome(None, || true), Bootstrap::Job);
-        assert_eq!(bootstrap_outcome(None, || false), Bootstrap::Failed);
-    }
-
-    #[test]
-    fn a_failed_login_session_start_is_said_by_name_before_starting_here() {
-        let line = start_failed_warning("launchctl bootstrap gui/501: 5: Input/output error");
-        assert!(line.contains(START_FAILED), "{line}");
-        assert!(line.contains("keychain"), "{line}");
-        assert!(line.contains("Input/output error"), "{line}");
-    }
-
-    #[test]
-    fn status_tells_only_a_daemon_that_can_move_how_to_move_it() {
-        assert_eq!(keychain_line(Some(true), true), None);
-        let own = keychain_line(Some(false), true).unwrap();
-        assert!(own.contains("--end-agents"), "{own}");
-        let other = keychain_line(Some(false), false).unwrap();
-        assert!(other.contains("keychain"), "{other}");
-        assert!(!other.contains("--end-agents"), "{other}");
-        assert!(!other.contains("in the login session)"), "{other}");
-        assert!(keychain_line(None, false).unwrap().contains("unknown"));
-    }
-
-    #[test]
-    fn no_gui_login_is_said_by_name_with_its_consequence_and_fix() {
-        let line = no_gui_login_warning();
-        assert!(line.contains(NO_GUI_LOGIN), "{line}");
-        assert!(line.contains("keychain"), "{line}");
-        assert!(line.contains("log in at the screen"), "{line}");
-        // Agents already running keep the session they started in: the fix says how to end them.
-        assert!(line.contains("--end-agents"), "{line}");
-    }
+/// The home of a daemon job from its `launchctl print`: the folder of its plist (`path = `),
+/// which a start writes as `<home>/daemon-login-session.plist`. None for any other plist.
+pub(crate) fn job_home(job_print: &str) -> Option<std::path::PathBuf> {
+    let plist = job_print.lines().find_map(|l| l.trim().strip_prefix("path = "))?;
+    let plist = Path::new(plist);
+    (plist.is_absolute() && plist.file_name()? == "daemon-login-session.plist")
+        .then(|| plist.parent().map(Path::to_path_buf))
+        .flatten()
 }
+
+#[cfg(test)]
+#[path = "login_placement_tests.rs"]
+mod tests;

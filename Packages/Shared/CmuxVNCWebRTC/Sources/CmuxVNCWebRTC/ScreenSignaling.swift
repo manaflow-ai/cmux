@@ -49,8 +49,9 @@ public protocol ScreenSignaling: AnyObject, Sendable {
     func iceServers() async throws -> [ICEServerConfig]
     func close()
     /// Whether this connection is the session: when it closes, the session
-    /// ends (a device hub ticket admits once). A room is reopened instead,
-    /// and a connected stream outlives it.
+    /// ends (an ordinary device hub ticket admits once). A reattach ticket
+    /// explicitly replaces the same device's old socket; a room is reopened
+    /// instead, and a connected stream outlives it.
     var endsSessionOnClose: Bool { get }
 }
 

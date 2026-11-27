@@ -5,11 +5,13 @@ To stay under GitHub's workflow file size limit, some nightly.yml steps run
 default `bash -e {0}` without its own `set -e`; or the same path under
 .publish-tooling/, or build-sign-notarize-nightly's
 `s=<path>; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"` for an
-unsigned resume of an older tree) instead of an inline `run: |` block. Tests that read the
+unsigned resume of an older tree, with a further `.publish-tooling/` fallback where nightly-next-one
+reuses the step) instead of an inline `run: |` block. Tests that read the
 workflow's text or YAML read this expansion, so they keep checking those
 steps' commands in place.
 """
 from __future__ import annotations
+# guard-inputs: scripts/ci/nightly-steps/ .github/workflows/nightly.yml
 
 from pathlib import Path
 import re
@@ -19,7 +21,8 @@ NIGHTLY_YML = ROOT / ".github/workflows/nightly.yml"
 STEP_CALL = re.compile(
     r"^(?P<indent> *)run: (?:bash (?:-e )?(?:\.publish-tooling/)?(?P<path>scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)"
     r"|s=(?P<signing_path>scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh); "
-    r'\[ -f "\$s" \] \|\| s="\.nightly-signing-control/\$s"; bash (?:-e )?"\$s")[ \t]*$',
+    r'\[ -f "\$s" \] \|\| s="\.nightly-signing-control/\$s"; '
+    r'(?:\[ -f "\$s" \] \|\| s="\.publish-tooling/\$\{s#\*/\}"; )?bash (?:-e )?"\$s")[ \t]*$',
     re.MULTILINE,
 )
 
@@ -46,6 +49,11 @@ def nightly_text() -> str:
 
 
 STEP_ANCHOR = re.compile(r"^( *)- &([A-Za-z0-9_-]+)\n((?:\1  .*\n|\n(?=\1  ))+)", re.MULTILINE)
+# A `key: &name` anchor inside an anchored step (the publish lease's `env: &next-publish-lease`, #42267), or a
+# scalar one, `key: &name value` (the Chromium engine fetch's `&r2a ${{ secrets... }}`, #45938): a written-out
+# copy of that step drops it, so the text keeps one anchor per name and stays valid YAML, and the copy's later
+# `*name` reuses still read the first one.
+NESTED_ANCHOR = re.compile(r"^( *[^ #\n][^\n]*?:) &[A-Za-z0-9_-]+(?=$| )", re.MULTILINE)
 
 
 def write_out_step_aliases(text: str) -> str:
@@ -60,7 +68,7 @@ def write_out_step_aliases(text: str) -> str:
         indent, name = match.group(1), match.group(2)
         if anchors.get(name, ("",))[0] != indent:
             return match.group(0)
-        return f"{indent}- " + anchors[name][1][len(indent) + 2:]
+        return f"{indent}- " + NESTED_ANCHOR.sub(r"\1", anchors[name][1][len(indent) + 2:])
 
     text = re.sub(r"^( *)- \*([A-Za-z0-9_-]+)\n", alias, text, flags=re.MULTILINE)
     return STEP_ANCHOR.sub(lambda m: f"{m.group(1)}- " + m.group(3)[len(m.group(1)) + 2:], text)

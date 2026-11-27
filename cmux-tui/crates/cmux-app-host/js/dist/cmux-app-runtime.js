@@ -55,8 +55,10 @@
     Icon: () => Icon,
     Image: () => Image,
     LazyVStack: () => LazyVStack,
+    Line: () => Line,
     Menu: () => Menu,
     Panel: () => Panel,
+    Particles: () => Particles,
     ProgressView: () => ProgressView,
     Rectangle: () => Rectangle,
     Reorderable: () => Reorderable,
@@ -69,7 +71,9 @@
     Toggle: () => Toggle,
     VStack: () => VStack,
     ViewNode: () => ViewNode,
-    ZStack: () => ZStack
+    ZStack: () => ZStack,
+    linearGradient: () => linearGradient,
+    radialGradient: () => radialGradient
   });
   var currentComputation = null;
   var currentOwner = null;
@@ -107,6 +111,7 @@
       currentOwner = prev;
     }
   }
+  var getOwner = () => currentOwner;
   function onCleanup(fn) {
     currentOwner?.cleanups.push(fn);
   }
@@ -230,7 +235,7 @@
       this.name = "CmuxError";
     }
   }
-  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show"]);
+  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show", "app.pane.open", "app.pane.close", "app.view.state"]);
   var state = {
     native: null,
     nextCallback: 1,
@@ -239,6 +244,7 @@
     timers: new Map,
     app: { id: "", version: "" },
     context: null,
+    mount: null,
     apiVersion: "0.0.0",
     allowedOps: null,
     knownOps: null,
@@ -252,6 +258,40 @@
       throw new CmuxError("app.host", "the cmux host is not attached");
     return state.native;
   };
+  function timeZone(name, at = Date.now()) {
+    const zone = String(name);
+    const atMs = Number(at);
+    const nativeZone = state.native?.zone;
+    if (nativeZone) {
+      const r = JSON.parse(nativeZone.call(state.native, zone, atMs));
+      if (r.error !== undefined)
+        throw new CmuxError("zone.unknown", r.error);
+      return { zone, offsetMinutes: r.offsetMinutes ?? 0, abbreviation: r.abbreviation ?? "" };
+    }
+    const intl = globalThis.Intl;
+    if (!intl?.DateTimeFormat)
+      throw new CmuxError("operation.unsupported", "this cmux has no time zone database");
+    let parts;
+    try {
+      parts = new intl.DateTimeFormat("en-US", {
+        timeZone: zone,
+        hourCycle: "h23",
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+        timeZoneName: "short"
+      }).formatToParts(new Date(atMs));
+    } catch {
+      throw new CmuxError("zone.unknown", `${zone} is not an IANA time zone`);
+    }
+    const part = (type) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+    const wall = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), part("second"));
+    const offsetMinutes = Math.round((wall - Math.floor(atMs / 1000) * 1000) / 60000);
+    return { zone, offsetMinutes, abbreviation: parts.find((p) => p.type === "timeZoneName")?.value ?? "" };
+  }
   function log(level, ...parts) {
     const message = parts.map((p) => typeof p === "string" ? p : safeJSON(p)).join(" ");
     state.native?.log(level, message);
@@ -399,6 +439,62 @@
     hover: "hover",
     selected: "selected"
   });
+  var kept = {
+    seed: {},
+    values: Object.create(null),
+    signals: new Map,
+    dirty: false
+  };
+  function seedKeptState(values) {
+    const seed = values && typeof values === "object" && !Array.isArray(values) ? values : {};
+    kept.seed = { ...seed };
+    kept.values = { ...kept.values, ...seed };
+    let restored = false;
+    for (const [name, entry] of kept.signals) {
+      if (Object.prototype.hasOwnProperty.call(seed, name)) {
+        entry.set(seed[name]);
+        restored = true;
+      }
+    }
+    if (restored)
+      kept.dirty = true;
+  }
+  onAfterFlush(() => {
+    if (!kept.dirty)
+      return;
+    kept.dirty = false;
+    const keep = state.native?.keepState;
+    if (!keep)
+      return;
+    let json;
+    try {
+      json = JSON.stringify(kept.values);
+    } catch (e) {
+      log("warn", `cmux.state: the values are not JSON (${e instanceof Error ? e.message : String(e)}); not kept`);
+      return;
+    }
+    keep.call(state.native, json);
+  });
+  function keptState(key, initial) {
+    const name = String(key);
+    const have = kept.signals.get(name);
+    if (have)
+      return have.pair;
+    const start = Object.prototype.hasOwnProperty.call(kept.seed, name) ? kept.seed[name] : initial;
+    const [read, write] = signal(start);
+    const keep = (next) => {
+      write(next);
+      const value = read.peek();
+      if (Object.prototype.hasOwnProperty.call(kept.values, name) && Object.is(kept.values[name], value))
+        return;
+      Object.defineProperty(kept.values, name, { value, writable: true, enumerable: true, configurable: true });
+      kept.dirty = true;
+      batch(() => {});
+    };
+    const pair = [read, keep];
+    kept.signals.set(name, { pair, set: write });
+    return pair;
+  }
   var sharedMembers = {};
   function createCmux(gesture) {
     const g = (name, params, options) => callWith(name, params ?? {}, options, gesture());
@@ -447,6 +543,8 @@
         get: (_t, provider) => typeof provider === "string" ? { request: (params) => c("integration.request", { provider, ...params }) } : undefined
       }),
       timer: { after: (ms, fn) => setTimer(ms, false, fn), every: (ms, fn) => setTimer(ms, true, fn), clear: clearTimer },
+      time: { zone: timeZone },
+      state: keptState,
       app: {
         get id() {
           return state.app.id;
@@ -463,7 +561,22 @@
         settings: Object.assign(() => state.settings[0](), {
           set: (values) => c("app.settings.set", { values })
         }),
-        context: () => state.context ?? {}
+        context: () => state.context ?? {},
+        openPane: async (args = {}, options = {}) => {
+          const waiting = c("app.pane.open", { args });
+          try {
+            await c("action.run", { id: "app.open", args: { app: state.app.id } }, options);
+          } catch (e) {
+            await c("app.pane.close", {}).catch(() => {
+              return;
+            });
+            await waiting.catch(() => {
+              return;
+            });
+            throw e;
+          }
+          return waiting;
+        }
       },
       theme,
       toast: (options) => {
@@ -589,6 +702,9 @@
     monospaced() {
       return this.set("monospaced", true);
     }
+    fontDesign(v) {
+      return this.set("fontDesign", v);
+    }
     color(v) {
       return this.set("color", v);
     }
@@ -603,6 +719,9 @@
     }
     truncation(v) {
       return this.set("truncation", v);
+    }
+    strikethrough(v = true) {
+      return this.set("strikethrough", v);
     }
     marquee(delaySeconds = 0.5) {
       return this.set("marquee", delaySeconds);
@@ -634,6 +753,9 @@
     hoverBackground(v) {
       return this.set("hoverBackground", v);
     }
+    glass(level = "popover") {
+      return this.set("glass", level);
+    }
     cornerRadius(v) {
       return this.set("cornerRadius", v);
     }
@@ -661,11 +783,53 @@
     rotation(degrees) {
       return this.set("rotation", degrees);
     }
+    animation(v = "smooth") {
+      return this.set("animation", v);
+    }
+    scale(v) {
+      return this.set("scale", v);
+    }
+    offset(v) {
+      return this.set("offset", v);
+    }
+    blur(v) {
+      return this.set("blur", v);
+    }
+    glow(v) {
+      return this.set("glow", v);
+    }
+    gradient(v) {
+      return this.set("gradient", v);
+    }
+    trim(v) {
+      return this.set("trim", v);
+    }
+    loop(v) {
+      return this.set("loop", v);
+    }
+    transition(v) {
+      return this.set("transition", v);
+    }
+    clipped(v = true) {
+      return this.set("clipped", v);
+    }
+    rotationEffect(degrees) {
+      return this.set("rotation", degrees);
+    }
+    offset(v) {
+      return this.set("offset", v);
+    }
+    position(v) {
+      return this.set("position", v);
+    }
     cursor(v) {
       return this.set("cursor", v);
     }
     help(v) {
       return this.set("help", v);
+    }
+    contentTransition(v) {
+      return this.set("contentTransition", v);
     }
     fixed() {
       return this.set("fixed", true);
@@ -684,6 +848,36 @@
       this.menu = items;
       return this;
     }
+    symbolRendering(mode, colors) {
+      if (!SYMBOL_RENDERINGS.includes(mode))
+        throw new TypeError(`symbolRendering: unknown mode ${JSON.stringify(mode)}`);
+      this.set("symbolRendering", mode);
+      if (colors === undefined)
+        return this;
+      if (!Array.isArray(colors) || colors.length < 1 || colors.length > 3 || !colors.every(isSceneColor))
+        throw new TypeError(`symbolRendering: colors must be 1 to 3 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`);
+      return this.set("symbolColors", [...colors]);
+    }
+  }
+  var SCENE_COLOR_TOKENS = ["primary", "secondary", "tertiary", "accent", "separator", "success", "warning", "danger", "hover", "selected", "badge", "clear"];
+  var HEX_COLOR = /^#[\da-f]{6}([\da-f]{2})?$/i;
+  var isSceneColor = (value) => typeof value === "string" && (SCENE_COLOR_TOKENS.includes(value) || HEX_COLOR.test(value));
+  var SYMBOL_RENDERINGS = ["monochrome", "hierarchical", "palette", "multicolor"];
+  function gradientStops(name, colors) {
+    if (!Array.isArray(colors) || colors.length < 2 || colors.length > 8 || !colors.every(isSceneColor))
+      throw new TypeError(`${name}: colors must be 2 to 8 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`);
+    return [...colors];
+  }
+  function linearGradient(colors, angle) {
+    const stops = gradientStops("linearGradient", colors);
+    if (angle === undefined)
+      return { linear: { colors: stops } };
+    if (typeof angle !== "number" || !Number.isFinite(angle))
+      throw new TypeError("linearGradient: angle must be a finite number of degrees");
+    return { linear: { colors: stops, angle } };
+  }
+  function radialGradient(colors) {
+    return { radial: { colors: gradientStops("radialGradient", colors) } };
   }
   var clean = (children) => children.filter((c) => !!c);
   function container(type) {
@@ -701,6 +895,15 @@
   var LazyVStack = container("LazyVStack");
   var Group = container("Group");
   function Text(text) {
+    if (text !== null && typeof text === "object") {
+      const node = new ViewNode("Text");
+      node.props.text = "";
+      node.props.date = text.date;
+      node.props.dateStyle = text.style ?? "time";
+      if (text.timeZone !== undefined)
+        node.props.timeZone = text.timeZone;
+      return node;
+    }
     const node = new ViewNode("Text");
     node.props.text = typeof text === "function" ? () => String(text() ?? "") : String(text ?? "");
     return node;
@@ -736,7 +939,11 @@
   var Circle = (props = {}) => new ViewNode("Circle").withProps(props);
   var Capsule = (props = {}) => new ViewNode("Capsule").withProps(props);
   var Rectangle = (props = {}) => new ViewNode("Rectangle").withProps(props);
+  var Line = (props = {}) => new ViewNode("Line").withProps(props);
   var RoundedRectangle = (props = {}) => new ViewNode("RoundedRectangle").withProps(props);
+  function Particles(props) {
+    return new ViewNode("Particles").withProps(props);
+  }
   function ProgressView(value) {
     const node = new ViewNode("ProgressView");
     if (value !== undefined)
@@ -918,6 +1125,20 @@
     for (const [key, fn] of live) {
       let last = firstValues.get(key);
       let first = true;
+      if (view.type === "TextField" && key === "text") {
+        record.shown = (text) => {
+          last = text;
+        };
+        record.settle = () => {
+          if (nodes.get(id) !== record)
+            return;
+          const value = scalar(untrack(fn));
+          if (JSON.stringify(value) === JSON.stringify(last))
+            return;
+          last = value;
+          m.pending.push({ op: "update", id, props: { [key]: value } });
+        };
+      }
       effect(() => {
         const value = scalar(fn());
         if (first) {
@@ -1003,7 +1224,12 @@
           } else {
             const owner = createOwner();
             const [read, write] = signal(item, { equals: () => false });
-            const nodeId = runWithOwner(owner, () => build(m, template(read, key), depth + 1));
+            const nodeId = runWithOwner(owner, () => {
+              const child = template(read, key);
+              if (view.type === "Reorderable" && spec.onMove)
+                child.props.reorderKey = key;
+              return build(m, child, depth + 1);
+            });
             next.set(key, { key, owner, setItem: (v) => write(() => v), nodeId });
           }
           nextOrder.push(key);
@@ -1457,8 +1683,1572 @@
       finish(req, true, JSON.parse(json));
     }).catch((e) => finish(req, false, failure(e)));
   }
+  var repoOf = (url) => String(url ?? "").replace("https://api.github.com/repos/", "");
+  var codeOf = (e) => e instanceof CmuxError ? e.code : "operation.failed";
+  async function githubPulls(params, call) {
+    const roles = Array.isArray(params.roles) && params.roles.length ? params.roles : ["author", "review-requested"];
+    const merged = params.include === "open-and-merged";
+    const limit = typeof params.limit === "number" ? params.limit : 30;
+    const login = typeof params.login === "string" ? params.login.trim() : "";
+    const since = typeof params.updatedWithinHours === "number" ? new Date(Date.now() - params.updatedWithinHours * 3600000).toISOString().slice(0, 19) + "Z" : "";
+    const query = (role, who) => `is:pr ${merged ? "" : "is:open "}${role}:${who}${since ? ` updated:>=${since}` : ""}`;
+    let viaGateway = true;
+    let gatewayError = null;
+    const search = async (role) => {
+      if (viaGateway) {
+        try {
+          const r = await call("integration.request", { provider: "github", method: "GET", path: `/search/issues?q=${encodeURIComponent(query(role, "@me"))}&per_page=${limit}` });
+          return r?.items ?? [];
+        } catch (e) {
+          viaGateway = false;
+          gatewayError = e;
+        }
+      }
+      if (!login) {
+        if (gatewayError instanceof CmuxError && gatewayError.retryable)
+          throw gatewayError;
+        const code = codeOf(gatewayError);
+        throw new CmuxError(code === "scope.missing" ? "scope.missing" : "integration.unavailable", "Connect GitHub, or set a GitHub login for the public search.", { signal: "github.pulls", gateway: code }, code !== "scope.missing");
+      }
+      const r = await call("net.fetch", {
+        url: `https://api.github.com/search/issues?q=${encodeURIComponent(query(role, login))}&per_page=${limit}`,
+        method: "GET",
+        headers: { Accept: "application/vnd.github+json" },
+        body: null
+      });
+      if (r.status < 200 || r.status >= 300)
+        throw publicFailure(r.status);
+      return JSON.parse(r.body || "{}").items ?? [];
+    };
+    const byId = new Map;
+    for (const role of roles) {
+      for (const i of await search(role)) {
+        const state = i.pull_request?.merged_at ? "merged" : i.state === "closed" ? "closed" : "open";
+        if (state === "closed")
+          continue;
+        const known = byId.get(i.id);
+        if (known) {
+          if (!known.roles.includes(role))
+            known.roles.push(role);
+          continue;
+        }
+        byId.set(i.id, { id: i.id, number: i.number, title: String(i.title ?? ""), url: String(i.html_url ?? ""), repo: repoOf(i.repository_url), draft: !!i.draft, state, roles: [role], author: String(i.user?.login ?? ""), updatedAt: String(i.updated_at ?? "") });
+      }
+    }
+    return [...byId.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  var ETAGS = new Map;
+  var ETAG_CAP = 256;
+  function keep(path, etag, body, at) {
+    ETAGS.delete(path);
+    ETAGS.set(path, { etag, body, at });
+    while (ETAGS.size > ETAG_CAP)
+      ETAGS.delete(ETAGS.keys().next().value);
+  }
+  var PUBLIC_LIST_AGE_MS = 300000;
+  var PUBLIC_DETAIL_AGE_MS = 900000;
+  var PUBLIC_ROWS = 5;
+  var NO_GATEWAY = new Set(["integration.unavailable", "integration.not_connected", "scope.missing", "operation.unsupported", "op.unknown", "method.not_found"]);
+  var SANDBOXED = "This extension runs sandboxed, with no network. To let it read GitHub, turn off Run sandboxed in the App Store: Installed, Permissions.";
+  function isSandboxed(e) {
+    return e instanceof CmuxError && e.code === "scope.missing" && /sandboxed/i.test(e.message);
+  }
+  function publicFailure(status) {
+    const limited = status === 403 || status === 429;
+    return new CmuxError("upstream.failed", limited ? "GitHub's public API limit for this network is used up; it resets within the hour. Sign in to GitHub (gh auth login) to read without it." : `GitHub answered ${status}`, { status, ...limited ? { limit: "public" } : {} }, limited || status >= 500);
+  }
+  function githubGetter(call, signalName) {
+    let viaGateway = true;
+    let gatewayError = null;
+    const refused = (netError) => {
+      if (gatewayError instanceof CmuxError && gatewayError.retryable)
+        return gatewayError;
+      const code = codeOf(gatewayError);
+      return new CmuxError(code === "scope.missing" ? "scope.missing" : "integration.unavailable", isSandboxed(gatewayError) || isSandboxed(netError) ? SANDBOXED : "Sign in to GitHub (gh auth login), or set a GitHub login for public repositories.", { signal: signalName, gateway: code, sandboxed: isSandboxed(gatewayError) || isSandboxed(netError) }, code !== "scope.missing");
+    };
+    const get = async (path) => {
+      if (viaGateway) {
+        try {
+          return await call("integration.request", { provider: "github", method: "GET", path });
+        } catch (e) {
+          if (!NO_GATEWAY.has(codeOf(e)))
+            throw e;
+          viaGateway = false;
+          gatewayError = e;
+        }
+      }
+      if (path.includes("%40me"))
+        throw refused();
+      const known = ETAGS.get(path);
+      const now = Date.now();
+      const age = path.startsWith("/search/") || /\/pulls\?/.test(path) ? PUBLIC_LIST_AGE_MS : PUBLIC_DETAIL_AGE_MS;
+      if (known && now - known.at < age)
+        return known.body;
+      let r;
+      try {
+        r = await call("net.fetch", {
+          url: `https://api.github.com${path}`,
+          method: "GET",
+          headers: { Accept: "application/vnd.github+json", ...known?.etag ? { "If-None-Match": known.etag } : {} },
+          body: null
+        });
+      } catch (e) {
+        if (e instanceof CmuxError && e.code === "scope.missing")
+          throw refused(e);
+        throw e;
+      }
+      if (r.status === 304 && known?.etag) {
+        keep(path, known.etag, known.body, now);
+        return known.body;
+      }
+      if (r.status < 200 || r.status >= 300)
+        throw publicFailure(r.status);
+      const body = JSON.parse(r.body || "null");
+      const etag = Object.entries(r.headers ?? {}).find(([k]) => k.toLowerCase() === "etag")?.[1];
+      keep(path, etag ?? "", body, now);
+      return body;
+    };
+    return { get, onGateway: () => viaGateway };
+  }
+  async function pool(items, n, job) {
+    const out = new Array(items.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await job(items[i]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+    return out;
+  }
+  var FAILED = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"]);
+  function rollup(runs, statuses) {
+    let failing = 0;
+    let pending = 0;
+    let passing = 0;
+    for (const r of runs) {
+      if (r.status !== "completed")
+        pending++;
+      else if (FAILED.has(String(r.conclusion)))
+        failing++;
+      else
+        passing++;
+    }
+    for (const s of statuses) {
+      if (s.state === "failure" || s.state === "error")
+        failing++;
+      else if (s.state === "pending")
+        pending++;
+      else if (s.state === "success")
+        passing++;
+    }
+    const state = failing ? "failing" : pending ? "pending" : passing ? "passing" : "none";
+    return { state, failing, pending, passing };
+  }
+  function decision(reviews, requested) {
+    const latest = new Map;
+    let commented = false;
+    for (const r of reviews) {
+      const who = String(r.user?.login ?? "");
+      const s = String(r.state ?? "");
+      if (s === "COMMENTED")
+        commented = true;
+      else if (s === "DISMISSED")
+        latest.delete(who);
+      else if (s === "APPROVED" || s === "CHANGES_REQUESTED")
+        latest.set(who, s);
+    }
+    const states = [...latest.values()];
+    if (states.includes("CHANGES_REQUESTED"))
+      return "changes-requested";
+    if (states.includes("APPROVED"))
+      return "approved";
+    if (requested > 0)
+      return "review-required";
+    return commented ? "commented" : "none";
+  }
+  function searchQuery(params, who) {
+    const show = params.show ?? "mine";
+    const parts = ["is:pr"];
+    if (params.include !== "open-and-merged")
+      parts.push("is:open");
+    if (params.repo)
+      parts.push(`repo:${params.repo}`);
+    if (show === "mine")
+      parts.push(`author:${who}`);
+    else if (show === "mentions")
+      parts.push(`mentions:${who}`);
+    else if (show === "review-requested")
+      parts.push(`review-requested:${who}`);
+    else if (show === "search")
+      parts.push(String(params.query ?? "").replace(/\bis:pr\b/g, "").trim());
+    return parts.filter(Boolean).join(" ");
+  }
+  async function githubChanges(params, call) {
+    const show = params.show ?? "mine";
+    const limit = typeof params.limit === "number" ? params.limit : 10;
+    const login = typeof params.login === "string" ? params.login.trim() : "";
+    const gh = githubGetter(call, "github.changes");
+    const merged = params.include === "open-and-merged";
+    const wanted = (p) => p.state === "open" || merged && !!p.merged_at;
+    let refs;
+    if (show === "branch") {
+      if (!params.repo || !params.branch)
+        throw new CmuxError("signal.params", "github.changes: show: branch needs repo and branch", { signal: "github.changes" });
+      const owner = String(params.repo).split("/")[0];
+      const state = params.include === "open-and-merged" ? "all" : "open";
+      const head = encodeURIComponent(`${owner}:${params.branch}`);
+      const pulls = await gh.get(`/repos/${params.repo}/pulls?head=${head}&state=${state}&per_page=${limit}`);
+      refs = (pulls ?? []).filter(wanted).map((p) => ({ repo: String(params.repo), number: Number(p.number) }));
+    } else {
+      if (show === "search" && !String(params.query ?? "").trim())
+        throw new CmuxError("signal.params", "github.changes: show: search needs query", { signal: "github.changes" });
+      const path = (who) => `/search/issues?q=${encodeURIComponent(searchQuery(params, who))}&sort=updated&order=desc&per_page=${limit}`;
+      let found;
+      try {
+        found = await gh.get(path("@me"));
+      } catch (e) {
+        if (gh.onGateway() || !login)
+          throw e;
+        found = await gh.get(path(login || "@me"));
+      }
+      refs = (found?.items ?? []).filter((i) => wanted({ state: i.state, merged_at: i.pull_request?.merged_at })).map((i) => ({ repo: repoOf(i.repository_url), number: Number(i.number) }));
+    }
+    const signedIn = gh.onGateway();
+    const rows = await pool(refs.slice(0, signedIn ? limit : Math.min(limit, PUBLIC_ROWS)), 4, async ({ repo, number }) => {
+      const p = await gh.get(`/repos/${repo}/pulls/${number}`);
+      const state = p.merged_at ? "merged" : p.state === "closed" ? "closed" : "open";
+      const sha = String(p.head?.sha ?? "");
+      let checks = { state: "none", failing: 0, pending: 0, passing: 0 };
+      let review = "none";
+      if (state === "open" && sha) {
+        const part = async (path) => {
+          try {
+            return await gh.get(path);
+          } catch (e) {
+            if (e instanceof CmuxError && e.retryable)
+              throw e;
+            return null;
+          }
+        };
+        const runs = await part(`/repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100`);
+        const status = signedIn ? await part(`/repos/${repo}/commits/${sha}/status`) : null;
+        checks = rollup(runs?.check_runs ?? [], status?.statuses ?? []);
+        const requested = (p.requested_reviewers?.length ?? 0) + (p.requested_teams?.length ?? 0);
+        const reviews = signedIn ? await part(`/repos/${repo}/pulls/${number}/reviews?per_page=100`) : null;
+        review = decision(reviews ?? [], requested);
+      }
+      return {
+        id: Number(p.id),
+        number,
+        title: String(p.title ?? ""),
+        url: String(p.html_url ?? ""),
+        repo,
+        author: String(p.user?.login ?? ""),
+        draft: !!p.draft,
+        state,
+        headRef: String(p.head?.ref ?? ""),
+        headSha: sha,
+        additions: Number(p.additions ?? 0),
+        deletions: Number(p.deletions ?? 0),
+        checks,
+        review,
+        updatedAt: String(p.updated_at ?? "")
+      };
+    });
+    return rows.filter((r) => r.state === "open" || merged && r.state === "merged").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  async function httpJson(params, call) {
+    const url = String(params.url ?? "");
+    const r = await call("net.fetch", {
+      url,
+      method: "GET",
+      headers: {},
+      body: null,
+      cache: "shared"
+    });
+    const host = () => {
+      try {
+        return new URL(url).host;
+      } catch {
+        return url;
+      }
+    };
+    const retryable = (status) => status === 408 || status === 429 || status >= 500;
+    const failed = r.cache?.failed;
+    if (failed) {
+      const message = failed.status !== undefined ? `${host()} answered ${failed.status}` : `${host()}: ${failed.message ?? failed.code ?? "the fetch failed"}`;
+      throw new CmuxError("upstream.failed", message, { signal: "http.json", ...failed }, failed.status === undefined || retryable(failed.status));
+    }
+    if (r.status < 200 || r.status >= 300) {
+      throw new CmuxError("upstream.failed", `${host()} answered ${r.status}`, { signal: "http.json", status: r.status }, retryable(r.status));
+    }
+    try {
+      return JSON.parse(r.body ?? "");
+    } catch {
+      throw new CmuxError("upstream.failed", "the response is not JSON", { signal: "http.json", status: r.status }, true);
+    }
+  }
+  var READERS = { "github.pulls": githubPulls, "github.changes": githubChanges, "http.json": httpJson };
+  var pointer = (base, key) => `${base}/${String(key).replace(/~/g, "~0").replace(/\//g, "~1")}`;
+  var typeOf = (v) => {
+    if (v === null)
+      return "null";
+    if (Array.isArray(v))
+      return "array";
+    if (typeof v === "number")
+      return Number.isInteger(v) ? "integer" : "number";
+    return typeof v;
+  };
+  var typeMatches = (v, t) => {
+    const actual = typeOf(v);
+    return actual === t || t === "number" && actual === "integer";
+  };
+  var deepEqual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  class SchemaValidator {
+    root;
+    regexCache = new Map;
+    constructor(root) {
+      this.root = root;
+    }
+    validate(value) {
+      const errors = [];
+      this.check(this.root, value, "", errors);
+      return errors;
+    }
+    resolve(ref) {
+      if (!ref.startsWith("#/"))
+        throw new Error(`unsupported $ref ${ref}`);
+      let node = this.root;
+      for (const part of ref.slice(2).split("/"))
+        node = node[part];
+      if (node === undefined)
+        throw new Error(`unresolved $ref ${ref}`);
+      return node;
+    }
+    regex(source) {
+      let r = this.regexCache.get(source);
+      if (!r) {
+        r = new RegExp(source, "u");
+        this.regexCache.set(source, r);
+      }
+      return r;
+    }
+    check(schema, v, path, errors) {
+      if (schema === true)
+        return;
+      if (schema === false) {
+        errors.push({ path, code: "schema.false", message: "value is not allowed here" });
+        return;
+      }
+      const s = schema;
+      if (typeof s.$ref === "string")
+        this.check(this.resolve(s.$ref), v, path, errors);
+      if ("const" in s && !deepEqual(v, s.const))
+        errors.push({ path, code: "const", message: `must be ${JSON.stringify(s.const)}` });
+      if (Array.isArray(s.enum) && !s.enum.some((e) => deepEqual(e, v))) {
+        errors.push({ path, code: "enum", message: `must be one of ${s.enum.map((e) => JSON.stringify(e)).join(", ")}` });
+      }
+      if (typeof s.type === "string" && !typeMatches(v, s.type)) {
+        errors.push({ path, code: "type", message: `must be ${s.type}, got ${typeOf(v)}` });
+        return;
+      }
+      if (Array.isArray(s.allOf))
+        for (const sub of s.allOf)
+          this.check(sub, v, path, errors);
+      if (s.if !== undefined) {
+        const probe = [];
+        this.check(s.if, v, path, probe);
+        if (probe.length === 0 && s.then !== undefined)
+          this.check(s.then, v, path, errors);
+        if (probe.length > 0 && s.else !== undefined)
+          this.check(s.else, v, path, errors);
+      }
+      if (Array.isArray(s.oneOf)) {
+        const passing = s.oneOf.filter((sub) => {
+          const e = [];
+          this.check(sub, v, path, e);
+          return e.length === 0;
+        }).length;
+        if (passing !== 1) {
+          if (passing === 0) {
+            const branches = s.oneOf.map((sub) => {
+              const e = [];
+              this.check(sub, v, path, e);
+              return e;
+            });
+            const best = branches.reduce((a, b) => b.length < a.length ? b : a);
+            errors.push(...best);
+            if (best.length === 0)
+              errors.push({ path, code: "oneOf", message: "must match exactly one alternative" });
+          } else {
+            errors.push({ path, code: "oneOf", message: "matches more than one alternative" });
+          }
+        }
+      }
+      if (typeof v === "string")
+        this.checkString(s, v, path, errors);
+      if (typeof v === "number")
+        this.checkNumber(s, v, path, errors);
+      if (Array.isArray(v))
+        this.checkArray(s, v, path, errors);
+      else if (v !== null && typeof v === "object")
+        this.checkObject(s, v, path, errors);
+    }
+    checkString(s, v, path, errors) {
+      const length = [...v].length;
+      if (typeof s.minLength === "number" && length < s.minLength)
+        errors.push({ path, code: "minLength", message: `must have at least ${s.minLength} characters` });
+      if (typeof s.maxLength === "number" && length > s.maxLength)
+        errors.push({ path, code: "maxLength", message: `must have at most ${s.maxLength} characters` });
+      if (typeof s.pattern === "string" && !this.regex(s.pattern).test(v))
+        errors.push({ path, code: "pattern", message: `must match ${s.pattern}` });
+    }
+    checkNumber(s, v, path, errors) {
+      if (typeof s.minimum === "number" && v < s.minimum)
+        errors.push({ path, code: "minimum", message: `must be >= ${s.minimum}` });
+      if (typeof s.maximum === "number" && v > s.maximum)
+        errors.push({ path, code: "maximum", message: `must be <= ${s.maximum}` });
+    }
+    checkArray(s, v, path, errors) {
+      if (typeof s.minItems === "number" && v.length < s.minItems)
+        errors.push({ path, code: "minItems", message: `must have at least ${s.minItems} items` });
+      if (typeof s.maxItems === "number" && v.length > s.maxItems)
+        errors.push({ path, code: "maxItems", message: `must have at most ${s.maxItems} items` });
+      if (s.uniqueItems === true && new Set(v.map((x) => JSON.stringify(x))).size !== v.length)
+        errors.push({ path, code: "uniqueItems", message: "items must be unique" });
+      if (s.items !== undefined)
+        v.forEach((item, i) => this.check(s.items, item, pointer(path, i), errors));
+    }
+    checkObject(s, v, path, errors) {
+      const keys = Object.keys(v);
+      if (typeof s.minProperties === "number" && keys.length < s.minProperties)
+        errors.push({ path, code: "minProperties", message: `must have at least ${s.minProperties} properties` });
+      if (typeof s.maxProperties === "number" && keys.length > s.maxProperties)
+        errors.push({ path, code: "maxProperties", message: `must have at most ${s.maxProperties} properties` });
+      if (Array.isArray(s.required)) {
+        for (const key of s.required)
+          if (!(key in v))
+            errors.push({ path: pointer(path, key), code: "required", message: `${key} is required` });
+      }
+      const props = s.properties ?? {};
+      for (const key of keys) {
+        if (s.propertyNames !== undefined) {
+          const e = [];
+          this.check(s.propertyNames, key, pointer(path, key), e);
+          if (e.length)
+            errors.push({ path: pointer(path, key), code: "propertyName", message: `key ${JSON.stringify(key)} is not allowed: ${e[0].message}` });
+        }
+        if (key in props)
+          this.check(props[key], v[key], pointer(path, key), errors);
+        else if (s.additionalProperties === false)
+          errors.push({ path: pointer(path, key), code: "additionalProperties", message: `unknown key ${JSON.stringify(key)}` });
+        else if (s.additionalProperties !== undefined && s.additionalProperties !== true)
+          this.check(s.additionalProperties, v[key], pointer(path, key), errors);
+      }
+    }
+  }
+  var signals_default = {
+    version: 1,
+    signals: {
+      "agent.list": {
+        docs: "The agents of the current session and their state (agent.list). The daemon pushes agent.changed when an agent's state changes, so the runtime never polls it.",
+        scopes: [
+          "agent:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            state: {
+              type: "string"
+            }
+          }
+        },
+        value: {
+          type: "array",
+          items: {
+            $ref: "cmux:types/AgentSnapshot"
+          }
+        },
+        read: {
+          op: "agent.list"
+        },
+        push: [
+          "agent.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 60
+      },
+      "chat.list": {
+        docs: "Every ACP chat acpmux knows, on this machine and its peers, with its state, unread mark, pin and pull requests (chat.list). The daemon pushes chat.changed when a listed field changes, so the runtime never polls it.",
+        scopes: [
+          "chat:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {}
+        },
+        value: {
+          type: "array",
+          items: {
+            $ref: "cmux:types/ChatSummary"
+          }
+        },
+        read: {
+          op: "chat.list"
+        },
+        push: [
+          "chat.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 60
+      },
+      "github.changes": {
+        docs: "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag). Pushed by github.changed (webhooks); polled every 60 s until that push is live.",
+        scopes: [
+          "integration:github:read",
+          "net:api.github.com"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            show: {
+              enum: [
+                "branch",
+                "mine",
+                "mentions",
+                "review-requested",
+                "search"
+              ],
+              description: "branch: the pull requests whose head is `branch` in `repo`. mine (default): the ones the person opened. mentions: the ones that mention them. review-requested: the ones that ask for their review. search: `query`, a GitHub search (is:pr is added)."
+            },
+            repo: {
+              type: "string",
+              maxLength: 140,
+              pattern: "^[A-Za-z0-9][A-Za-z0-9-]*/(\\.?[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.\\.[A-Za-z0-9._-]+)$",
+              description: "owner/name: the repository for show: branch; for the others it narrows the list to that repository."
+            },
+            branch: {
+              type: "string",
+              maxLength: 255,
+              description: "The head branch for show: branch."
+            },
+            query: {
+              type: "string",
+              maxLength: 256,
+              description: "The GitHub search for show: search, for example `repo:manaflow-ai/cmux label:bug`."
+            },
+            include: {
+              enum: [
+                "open",
+                "open-and-merged"
+              ],
+              description: "open (default) or open-and-merged (closed unmerged ones are left out)."
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 30,
+              description: "At most this many pull requests (default 10). Each costs four conditional reads."
+            },
+            login: {
+              type: "string",
+              maxLength: 39,
+              description: "The GitHub login the public fallback reads as the person, when no GitHub sign-in answers (needs net:api.github.com)."
+            }
+          }
+        },
+        value: {
+          type: "array",
+          items: {
+            type: "object",
+            required: [
+              "id",
+              "number",
+              "title",
+              "url",
+              "repo",
+              "author",
+              "draft",
+              "state",
+              "headRef",
+              "headSha",
+              "additions",
+              "deletions",
+              "checks",
+              "review",
+              "updatedAt"
+            ],
+            properties: {
+              id: {
+                type: "integer"
+              },
+              number: {
+                type: "integer"
+              },
+              title: {
+                type: "string"
+              },
+              url: {
+                type: "string"
+              },
+              repo: {
+                type: "string",
+                description: "owner/name"
+              },
+              author: {
+                type: "string"
+              },
+              draft: {
+                type: "boolean"
+              },
+              state: {
+                enum: [
+                  "open",
+                  "merged",
+                  "closed"
+                ]
+              },
+              headRef: {
+                type: "string",
+                description: "The head branch."
+              },
+              headSha: {
+                type: "string"
+              },
+              additions: {
+                type: "integer",
+                description: "Lines added."
+              },
+              deletions: {
+                type: "integer",
+                description: "Lines removed."
+              },
+              checks: {
+                type: "object",
+                required: [
+                  "state",
+                  "failing",
+                  "pending",
+                  "passing"
+                ],
+                properties: {
+                  state: {
+                    enum: [
+                      "failing",
+                      "pending",
+                      "passing",
+                      "none"
+                    ],
+                    description: "failing when any check failed, else pending when any runs, else passing; none with no checks."
+                  },
+                  failing: {
+                    type: "integer"
+                  },
+                  pending: {
+                    type: "integer"
+                  },
+                  passing: {
+                    type: "integer"
+                  }
+                },
+                description: "The head commit's check runs and commit statuses, the latest of each."
+              },
+              review: {
+                enum: [
+                  "approved",
+                  "changes-requested",
+                  "review-required",
+                  "commented",
+                  "none"
+                ],
+                description: "Each reviewer's latest review: changes-requested wins, then approved; review-required while a review is requested and none came."
+              },
+              updatedAt: {
+                type: "string"
+              }
+            }
+          }
+        },
+        read: {
+          reader: "github.changes",
+          ops: [
+            {
+              op: "integration.request",
+              scope: "integration:github:read",
+              docs: "GET /search/issues or /repos/{repo}/pulls, then each pull request, its reviews, and its head's check runs and status, through the person's GitHub sign-in; the gateway sends If-None-Match and replays an unchanged body."
+            },
+            {
+              op: "net.fetch",
+              scope: "net:api.github.com",
+              docs: "The same reads on the public API when the gateway refuses, each with If-None-Match from the runtime's own ETag cache."
+            }
+          ]
+        },
+        push: [
+          "github.changed"
+        ],
+        pollFloorSeconds: 30,
+        staleAfterSeconds: 60,
+        safetyPollSeconds: 900
+      },
+      "github.pulls": {
+        docs: "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. The Cloud pushes github.changed from the GitHub App's webhooks, so a check or review flips within seconds; until that push is live (signed out, no GitHub connection, an app without integration:github:read) the runtime polls.",
+        scopes: [
+          "integration:github:read",
+          "net:api.github.com"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            roles: {
+              type: "array",
+              minItems: 1,
+              uniqueItems: true,
+              items: {
+                enum: [
+                  "author",
+                  "review-requested",
+                  "assignee"
+                ]
+              },
+              description: "Which of the person's pull requests: the ones they opened (author), the ones asking for their review (review-requested), the ones assigned to them (assignee). Default author and review-requested."
+            },
+            include: {
+              enum: [
+                "open",
+                "open-and-merged"
+              ],
+              description: "open (default) or open-and-merged (closed unmerged ones are left out)."
+            },
+            updatedWithinHours: {
+              type: "integer",
+              minimum: 1,
+              maximum: 720,
+              description: "Only pull requests created or updated in this many hours."
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 100,
+              description: "At most this many per role (default 30)."
+            },
+            login: {
+              type: "string",
+              maxLength: 39,
+              description: "The GitHub login the public fallback searches for when no GitHub account is connected (needs net:api.github.com)."
+            }
+          }
+        },
+        value: {
+          type: "array",
+          items: {
+            type: "object",
+            required: [
+              "id",
+              "number",
+              "title",
+              "url",
+              "repo",
+              "draft",
+              "state",
+              "roles",
+              "author",
+              "updatedAt"
+            ],
+            properties: {
+              id: {
+                type: "integer"
+              },
+              number: {
+                type: "integer"
+              },
+              title: {
+                type: "string"
+              },
+              url: {
+                type: "string"
+              },
+              repo: {
+                type: "string",
+                description: "owner/name"
+              },
+              draft: {
+                type: "boolean"
+              },
+              state: {
+                enum: [
+                  "open",
+                  "merged",
+                  "closed"
+                ]
+              },
+              roles: {
+                type: "array",
+                items: {
+                  enum: [
+                    "author",
+                    "review-requested",
+                    "assignee"
+                  ]
+                },
+                description: "Why it is in the list: review-requested means it waits for the person's review."
+              },
+              author: {
+                type: "string"
+              },
+              updatedAt: {
+                type: "string"
+              }
+            }
+          }
+        },
+        read: {
+          reader: "github.pulls",
+          ops: [
+            {
+              op: "integration.request",
+              scope: "integration:github:read",
+              docs: "GET /search/issues through the connected GitHub account, one search per role."
+            },
+            {
+              op: "net.fetch",
+              scope: "net:api.github.com",
+              docs: "The public search API for params.login, when the integration refuses and a login is set."
+            }
+          ]
+        },
+        push: [
+          "github.changed"
+        ],
+        pollFloorSeconds: 60,
+        staleAfterSeconds: 300,
+        safetyPollSeconds: 900
+      },
+      "http.json": {
+        docs: "A JSON document at an https URL (a weather forecast, a status page, a feed), parsed. The daemon reads each URL once for every app and widget that watches it and keeps it fresh for 60 s, or the response's Cache-Control max-age when that is longer; a re-read shows the kept value while it revalidates. Bodies over 1 MiB are refused. Needs the app's net:<host> scope for the URL's host.",
+        scopes: [
+          "net:<host>"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "url"
+          ],
+          properties: {
+            url: {
+              type: "string",
+              minLength: 9,
+              maxLength: 2048,
+              pattern: "^https://",
+              description: "The https URL to read. Its host must be one the app holds a net: scope for (net:api.open-meteo.com, or net:*.example.com for its subdomains)."
+            },
+            everySeconds: {
+              type: "integer",
+              minimum: 60,
+              maximum: 86400,
+              description: "Read again this often while this reader is shown (default 300, never under 60). The daemon's cache still answers within max(60 s, max-age) without a request."
+            }
+          }
+        },
+        value: {
+          description: "The response body, parsed as JSON."
+        },
+        read: {
+          reader: "http.json",
+          ops: [
+            {
+              op: "net.fetch",
+              scope: "net:<host>",
+              docs: `GET params.url with cache: "shared": the daemon's shared HTTP cache (apps/http_cache.rs) answers it, one request per URL for every app, after the egress gate checks this app's net:<host> scope.`
+            }
+          ]
+        },
+        push: [],
+        pollFloorSeconds: 60,
+        staleAfterSeconds: 300
+      },
+      "media.now_playing": {
+        docs: "What plays in cmux now, the track the Now Playing card shows: cmux's own player, else a browser tab playing aloud, else another music app while sidebar.nowPlaying.otherApps is on (media.get). The Mac app pushes media.changed when the track, its play state, its position jump or its artwork changes, so the runtime never polls it; between pushes, move the position on from position_ms with rate yourself.",
+        scopes: [
+          "media:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {}
+        },
+        value: {
+          type: "object",
+          required: [
+            "track"
+          ],
+          properties: {
+            track: {
+              description: "What plays, or null while nothing does.",
+              oneOf: [
+                {
+                  type: "null"
+                },
+                {
+                  type: "object",
+                  required: [
+                    "title",
+                    "artist",
+                    "playing",
+                    "rate",
+                    "position_ms",
+                    "can_previous",
+                    "can_next"
+                  ],
+                  properties: {
+                    title: {
+                      type: "string"
+                    },
+                    artist: {
+                      type: "string",
+                      description: "The artist, or the site a browser tab plays from; may be empty."
+                    },
+                    artwork: {
+                      type: "string",
+                      description: "The artwork as a small data:image/png;base64 URL, for Image(); absent without artwork."
+                    },
+                    playing: {
+                      type: "boolean"
+                    },
+                    position: {
+                      type: "number",
+                      description: "Seconds in at position_ms; absent for a live stream."
+                    },
+                    duration: {
+                      type: "number",
+                      description: "The length in seconds; absent when unknown or endless."
+                    },
+                    rate: {
+                      type: "number",
+                      description: "How fast the position moves while playing (1 is normal speed)."
+                    },
+                    position_ms: {
+                      type: "number",
+                      description: "When position was read, in Unix milliseconds."
+                    },
+                    can_previous: {
+                      type: "boolean"
+                    },
+                    can_next: {
+                      type: "boolean"
+                    },
+                    source: {
+                      type: "string",
+                      description: "The name of the other app that plays; absent for cmux's own player and tabs."
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        read: {
+          op: "media.get"
+        },
+        push: [
+          "media.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 60
+      },
+      "system_calendar.events": {
+        docs: "The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s.",
+        scopes: [
+          "system_calendar:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            days: {
+              type: "integer",
+              minimum: 1,
+              maximum: 31
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 50
+            }
+          }
+        },
+        value: {
+          type: "object",
+          required: [
+            "access",
+            "events"
+          ],
+          properties: {
+            access: {
+              enum: [
+                "granted",
+                "denied",
+                "restricted",
+                "notDetermined",
+                "unavailable"
+              ]
+            },
+            events: {
+              type: "array",
+              items: {
+                type: "object",
+                required: [
+                  "id",
+                  "title",
+                  "start",
+                  "end",
+                  "allDay",
+                  "calendar"
+                ],
+                properties: {
+                  id: {
+                    type: "string"
+                  },
+                  title: {
+                    type: "string"
+                  },
+                  start: {
+                    type: "number",
+                    description: "Unix ms"
+                  },
+                  end: {
+                    type: "number",
+                    description: "Unix ms"
+                  },
+                  allDay: {
+                    type: "boolean"
+                  },
+                  calendar: {
+                    type: "string",
+                    description: "The calendar's title"
+                  },
+                  color: {
+                    type: "string",
+                    description: "The calendar's color, #rrggbb"
+                  },
+                  location: {
+                    type: "string"
+                  },
+                  url: {
+                    type: "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        read: {
+          op: "system_calendar.events"
+        },
+        push: [
+          "system_calendar.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 300
+      },
+      "workspace.list": {
+        docs: "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",
+        scopes: [
+          "workspace:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            order: {
+              enum: [
+                "session",
+                "personal"
+              ]
+            }
+          }
+        },
+        value: {
+          type: "array",
+          items: {
+            $ref: "cmux:types/WorkspaceSnapshot"
+          }
+        },
+        read: {
+          op: "workspace.list"
+        },
+        push: [
+          "workspace.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 60
+      }
+    }
+  };
+  var SIGNALS = signals_default.signals;
+  var MAX_BACKOFF_MS = 15 * 60000;
+  var MAX_IDLE_ENTRIES = 32;
+  var FINAL = new Set(["scope.missing", "operation.unsupported", "signal.unknown", "signal.params", "validation.invalid"]);
+  var watchStats = { reads: 0, entries: () => entries.size };
+  var entries = new Map;
+  var watches = new Map;
+  var served = (e) => !e.local && ("op" in e.def.read) && typeof state.native?.watch === "function";
+  var nextReader = 1;
+  var validators = new Map;
+  function canonical(v) {
+    if (Array.isArray(v))
+      return `[${v.map(canonical).join(",")}]`;
+    if (v && typeof v === "object") {
+      const o = v;
+      return `{${Object.keys(o).filter((k) => o[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;
+    }
+    return JSON.stringify(v ?? null);
+  }
+  function share(prev, next) {
+    if (Object.is(prev, next))
+      return prev;
+    if (Array.isArray(prev) && Array.isArray(next)) {
+      let same = prev.length === next.length;
+      const out = next.map((n, i) => {
+        const s = share(prev[i], n);
+        if (s !== prev[i])
+          same = false;
+        return s;
+      });
+      return same ? prev : out;
+    }
+    if (prev && next && typeof prev === "object" && typeof next === "object" && !Array.isArray(prev) && !Array.isArray(next)) {
+      const p = prev;
+      const n = next;
+      const keys = Object.keys(n);
+      let same = keys.length === Object.keys(p).length;
+      const out = {};
+      for (const k of keys) {
+        out[k] = share(p[k], n[k]);
+        if (out[k] !== p[k] || !(k in p))
+          same = false;
+      }
+      return same ? prev : out;
+    }
+    return next;
+  }
+  var asError = (e) => e instanceof CmuxError ? e : new CmuxError("operation.failed", e instanceof Error ? e.message : String(e));
+  var pacedByParams = (def) => def.params.properties?.everySeconds !== undefined;
+  function lookup(name, params) {
+    const def = typeof name === "string" ? SIGNALS[name] : undefined;
+    if (!def)
+      throw new CmuxError("signal.unknown", `no signal source named ${String(name)}; sources: ${Object.keys(SIGNALS).sort().join(", ")}`, { signal: name });
+    const p = params ?? {};
+    let v = validators.get(name);
+    if (!v)
+      validators.set(name, v = new SchemaValidator(def.params));
+    const errors = v.validate(p);
+    if (errors.length)
+      throw new CmuxError("signal.params", `${name}: ${errors.map((e) => `${e.path || "params"} ${e.message}`).join("; ")}`, { signal: name, errors });
+    if (pacedByParams(def) && typeof p.everySeconds === "number") {
+      const { everySeconds, ...read } = p;
+      return { def, params: JSON.parse(canonical(read)), pace: everySeconds };
+    }
+    return { def, params: JSON.parse(canonical(p)) };
+  }
+  function missingScope(def) {
+    if (!state.allowedOps)
+      return null;
+    const ops = "op" in def.read ? [def.read.op] : def.read.ops.map((o) => o.op);
+    if (ops.some((op) => HOST_OPS.has(op) || state.allowedOps.has(op)))
+      return null;
+    return new CmuxError("scope.missing", `this app needs one of ${def.scopes.join(", ")} to watch it`, { scopes: def.scopes }, false);
+  }
+  function entryFor(name, def, params) {
+    const key = `${name} ${canonical(params)}`;
+    let e = entries.get(key);
+    if (e)
+      return e;
+    e = {
+      key,
+      name,
+      def,
+      params,
+      value: signal(undefined),
+      status: signal("loading"),
+      error: signal(undefined),
+      updatedAt: signal(null),
+      readers: new Map,
+      subs: [],
+      timer: null,
+      inFlight: null,
+      again: false,
+      queued: false,
+      failures: 0,
+      lastUse: Date.now(),
+      pushLive: false,
+      liveHeard: false,
+      readerMounts: new Map,
+      remote: new Map,
+      local: false,
+      waiters: []
+    };
+    entries.set(key, e);
+    return e;
+  }
+  var snapshot = (e) => {
+    const error = e.error[0]();
+    const s = { value: e.value[0](), status: e.status[0](), updatedAt: e.updatedAt[0]() };
+    if (error)
+      s.error = error;
+    return s;
+  };
+  var active = (e) => e.readers.size > 0;
+  function pollMs(e) {
+    let s = e.def.staleAfterSeconds;
+    for (const every of e.readers.values())
+      if (typeof every === "number" && every > 0)
+        s = Math.min(s, every);
+    return Math.max(e.def.pollFloorSeconds, s) * 1000;
+  }
+  function idleMs(e) {
+    if (!e.def.push.length)
+      return pollMs(e);
+    if (e.def.safetyPollSeconds === undefined)
+      return null;
+    if (!e.pushLive)
+      return pollMs(e);
+    return Math.max(e.def.pollFloorSeconds, e.def.safetyPollSeconds) * 1000;
+  }
+  var readerPaced = (e) => !e.def.push.length || e.def.safetyPollSeconds !== undefined && !e.pushLive;
+  function schedule(e, ms) {
+    if (e.timer !== null)
+      clearTimer(e.timer);
+    e.timer = null;
+    if (!active(e) || ms < 0)
+      return;
+    e.timer = runWithOwner(null, () => setTimer(ms, false, () => {
+      e.timer = null;
+      read2(e);
+    }));
+  }
+  function next(e, error) {
+    if (!active(e))
+      return;
+    if (error) {
+      if (FINAL.has(error.code) || error.code === "upstream.failed" && !error.retryable)
+        return schedule(e, -1);
+      const floor = e.def.pollFloorSeconds * 1000;
+      return schedule(e, Math.min(MAX_BACKOFF_MS, floor * 2 ** Math.min(e.failures - 1, 20)));
+    }
+    const ms = idleMs(e);
+    schedule(e, ms === null ? -1 : ms);
+  }
+  function upstream(e) {
+    const call = (op, params) => callWith(op, params, {}, undefined).then((r) => r.value);
+    if ("op" in e.def.read)
+      return call(e.def.read.op, e.params);
+    const reader = READERS[e.def.read.reader];
+    if (!reader)
+      return Promise.reject(new CmuxError("signal.unknown", `this runtime has no reader ${e.def.read.reader}`));
+    return reader(e.params, call);
+  }
+  function read2(e) {
+    if (served(e) && e.remote.size) {
+      const id = e.remote.values().next().value;
+      return new Promise((resolve) => {
+        e.waiters.push(resolve);
+        state.native.unwatch(id, true);
+      });
+    }
+    if (e.inFlight) {
+      e.again = true;
+      return e.inFlight;
+    }
+    const scope = missingScope(e.def);
+    if (scope) {
+      batch(() => fail(e, scope));
+      return Promise.resolve();
+    }
+    if (e.timer !== null)
+      clearTimer(e.timer);
+    e.timer = null;
+    watchStats.reads++;
+    if (e.value[0].peek() !== undefined)
+      e.status[1]("stale");
+    let settled = null;
+    const run = upstream(e).then((v) => batch(() => {
+      e.value[1](() => share(e.value[0].peek(), v));
+      e.status[1]("fresh");
+      e.error[1](undefined);
+      e.updatedAt[1](Date.now());
+      e.failures = 0;
+    }), (err) => {
+      settled = asError(err);
+      batch(() => fail(e, settled));
+    });
+    e.inFlight = run.catch((err) => log("error", `watch ${e.name}: ${asError(err).message}`)).then(() => {
+      e.inFlight = null;
+      if (e.again) {
+        e.again = false;
+        return read2(e);
+      }
+      next(e, settled);
+    });
+    return e.inFlight;
+  }
+  function fail(e, error) {
+    e.failures++;
+    e.error[1](error);
+    e.status[1](e.value[0].peek() === undefined ? "error" : "stale");
+    if (e.failures === 1)
+      log("warn", `watch ${e.name}: ${error.code}: ${error.message}`);
+  }
+  function onPush(e, payload) {
+    const live = payload && typeof payload === "object" ? payload.live : undefined;
+    if (typeof live !== "boolean") {
+      e.pushLive = true;
+      e.liveHeard = true;
+      return pushed(e);
+    }
+    const first = !e.liveHeard;
+    e.liveHeard = true;
+    if (live === e.pushLive)
+      return;
+    e.pushLive = live;
+    if (live && !first)
+      return pushed(e);
+    if (active(e) && !e.inFlight && e.failures === 0) {
+      const ms = idleMs(e);
+      schedule(e, ms === null ? -1 : ms);
+    }
+  }
+  function pushed(e) {
+    if (e.queued)
+      return;
+    e.queued = true;
+    Promise.resolve().then(() => {
+      e.queued = false;
+      if (active(e))
+        read2(e);
+    });
+  }
+  function watchRemote(e, mount) {
+    if (e.remote.has(mount))
+      return;
+    let every = 0;
+    for (const [id, m] of e.readerMounts) {
+      const s = e.readers.get(id);
+      if (m === mount && typeof s === "number" && s > 0)
+        every = every ? Math.min(every, s) : s;
+    }
+    const id = state.native.watch(e.name, JSON.stringify(e.params), mount, every);
+    e.remote.set(mount, id);
+    watches.set(id, e);
+  }
+  function unwatchRemote(e, mount) {
+    const id = e.remote.get(mount);
+    if (id === undefined)
+      return;
+    e.remote.delete(mount);
+    watches.delete(id);
+    state.native?.unwatch?.(id, false);
+  }
+  function deliverWatch(id, json) {
+    const e = watches.get(id);
+    if (!e)
+      return;
+    const s = JSON.parse(json || "{}");
+    if (s.fallback) {
+      for (const mount of [...e.remote.keys()])
+        unwatchRemote(e, mount);
+      e.local = true;
+      for (const done of e.waiters.splice(0))
+        done();
+      if (active(e))
+        activate(e);
+      return;
+    }
+    batch(() => {
+      if (s.value !== undefined && s.value !== null)
+        e.value[1](() => share(e.value[0].peek(), s.value));
+      const error = s.error ? new CmuxError(String(s.error.code ?? "operation.failed"), String(s.error.message ?? "operation failed"), s.error.details, s.error.retryable === true) : undefined;
+      if (error && !e.error[0].peek())
+        log("warn", `watch ${e.name}: ${error.code}: ${error.message}`);
+      e.error[1](error);
+      e.status[1](s.status ?? "fresh");
+      e.updatedAt[1](typeof s.updatedAt === "number" ? s.updatedAt : null);
+    });
+    if (s.status !== "stale" || s.error !== undefined)
+      for (const done of e.waiters.splice(0))
+        done();
+  }
+  function activate(e) {
+    if (served(e)) {
+      for (const mount of new Set(e.readerMounts.values()))
+        watchRemote(e, mount);
+      return;
+    }
+    runWithOwner(null, () => {
+      for (const stream of e.def.push) {
+        try {
+          const subId = state.native.subscribe(stream, "{}");
+          state.subscriptions.set(subId, (payload) => onPush(e, payload));
+          e.subs.push(() => {
+            if (state.subscriptions.delete(subId))
+              state.native?.unsubscribe(subId);
+          });
+        } catch (err) {
+          log("warn", `watch ${e.name}: cannot subscribe to ${stream}: ${asError(err).message}`);
+        }
+      }
+    });
+    const age = e.updatedAt[0].peek() === null ? Infinity : Date.now() - e.updatedAt[0].peek();
+    const due = e.value[0].peek() === undefined || e.def.push.length > 0 || age >= e.def.staleAfterSeconds * 1000 || e.status[0].peek() !== "fresh";
+    if (due)
+      read2(e);
+    else
+      schedule(e, Math.max(e.def.pollFloorSeconds * 1000, pollMs(e) - age));
+  }
+  function deactivate(e) {
+    for (const mount of [...e.remote.keys()])
+      unwatchRemote(e, mount);
+    for (const off of e.subs.splice(0))
+      off();
+    e.pushLive = false;
+    e.liveHeard = false;
+    if (e.timer !== null)
+      clearTimer(e.timer);
+    e.timer = null;
+    e.lastUse = Date.now();
+    prune();
+  }
+  function prune() {
+    const idle = [...entries.values()].filter((x) => !active(x)).sort((a, b) => a.lastUse - b.lastUse);
+    for (const x of idle.slice(0, Math.max(0, idle.length - MAX_IDLE_ENTRIES)))
+      if (!x.inFlight)
+        entries.delete(x.key);
+  }
+  function join(e, id, everySeconds, mount) {
+    const first = !active(e);
+    e.readers.set(id, everySeconds);
+    e.readerMounts.set(id, mount);
+    if (first)
+      activate(e);
+    else if (served(e))
+      watchRemote(e, mount);
+    else if (everySeconds && readerPaced(e) && !e.inFlight && e.timer !== null && e.failures === 0)
+      schedule(e, pollMs(e));
+    let released = false;
+    return () => {
+      if (released)
+        return;
+      released = true;
+      e.readers.delete(id);
+      e.readerMounts.delete(id);
+      if (!active(e))
+        deactivate(e);
+      else if (served(e) && ![...e.readerMounts.values()].includes(mount))
+        unwatchRemote(e, mount);
+      else if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0)
+        schedule(e, pollMs(e));
+    };
+  }
+  function watch(name, params, options = {}) {
+    const option = typeof options.everySeconds === "number" ? options.everySeconds : undefined;
+    let every = option;
+    const id = nextReader++;
+    const mount = state.mount ?? "";
+    const resolve = (p) => {
+      const found = lookup(name, p);
+      every = option ?? found.pace;
+      return entryFor(name, found.def, found.params);
+    };
+    const [current, setCurrent] = signal(resolve(typeof params === "function" ? untrack(params) : params));
+    let release = untrack(() => join(current.peek(), id, every, mount));
+    let disposed = false;
+    const dispose = () => {
+      if (disposed)
+        return;
+      disposed = true;
+      release();
+    };
+    if (typeof params === "function") {
+      let first = true;
+      effect(() => {
+        const p = params();
+        if (first) {
+          first = false;
+          return;
+        }
+        untrack(() => {
+          if (disposed)
+            return;
+          let e;
+          try {
+            e = resolve(p);
+          } catch (err) {
+            log("error", `watch ${name}: ${asError(err).message}`);
+            return;
+          }
+          if (e === current.peek()) {
+            if (e.readers.get(id) !== every && e.readers.has(id)) {
+              e.readers.set(id, every);
+              if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0)
+                schedule(e, pollMs(e));
+            }
+            return;
+          }
+          const old = release;
+          release = join(e, id, every, mount);
+          setCurrent(e);
+          old();
+        });
+      });
+    }
+    if (getOwner())
+      onCleanup(dispose);
+    const accessor = () => snapshot(current());
+    Object.assign(accessor, {
+      peek: () => untracked(current.peek()),
+      value: field(current, (e) => e.value[0]),
+      status: field(current, (e) => e.status[0]),
+      error: field(current, (e) => e.error[0]),
+      updatedAt: field(current, (e) => e.updatedAt[0]),
+      refresh: () => {
+        const e = current.peek();
+        return read2(e).then(() => untracked(e));
+      },
+      dispose
+    });
+    return accessor;
+  }
+  function field(current, pick) {
+    const r = () => pick(current())();
+    r.peek = () => pick(current.peek()).peek();
+    return r;
+  }
+  var untracked = (e) => {
+    const error = e.error[0].peek();
+    const s = { value: e.value[0].peek(), status: e.status[0].peek(), updatedAt: e.updatedAt[0].peek() };
+    if (error)
+      s.error = error;
+    return s;
+  };
+  watch.refresh = async (name, params) => {
+    const found = lookup(name, params);
+    const e = entryFor(name, found.def, found.params);
+    await read2(e);
+    if (!active(e))
+      prune();
+    return untracked(e);
+  };
   var g = globalThis;
-  var RUNTIME_VERSION = "1.1.0";
+  var widgetClocks = new Map;
+  var RUNTIME_VERSION = "1.6.0";
   var exportsOf2 = () => g.__cmuxAppExports ?? {};
   var describe2 = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
   function entry(name, fn, fallback) {
@@ -1478,15 +3268,57 @@
       const r = fn();
       if (r && typeof r.then === "function")
         r.catch((e) => log("error", `${label}: ${describe2(e)}`));
+      return r;
     } catch (e) {
       log("error", `${label}: ${describe2(e)}`);
+      return;
     }
+  }
+  function keepState(mountId, ctx) {
+    const given = ctx.state && typeof ctx.state === "object" && !Array.isArray(ctx.state) ? ctx.state : {};
+    ctx.state = given;
+    const kept = { ...given };
+    const signals = new Map;
+    let queued = false;
+    const send = () => {
+      queued = false;
+      let json;
+      try {
+        json = JSON.stringify(kept);
+      } catch (e) {
+        log("warn", `ctx.keep: the state is not JSON: ${describe2(e)}`);
+        return;
+      }
+      call("app.view.state", { mount: mountId, state: JSON.parse(json) }).catch((e) => log("warn", `ctx.keep: ${describe2(e)}`));
+    };
+    ctx.keep = (name, initial) => {
+      if (typeof name !== "string" || !name)
+        throw new TypeError("ctx.keep needs a name");
+      const existing = signals.get(name);
+      if (existing)
+        return existing;
+      const [read, write] = signal(name in given ? given[name] : initial);
+      const keep = (next) => {
+        write(next);
+        const value = read.peek();
+        if (Object.is(kept[name], value))
+          return;
+        kept[name] = value;
+        if (!queued) {
+          queued = true;
+          Promise.resolve().then(send);
+        }
+      };
+      const pair = [read, keep];
+      signals.set(name, pair);
+      return pair;
+    };
   }
   function install() {
     const native = g.__cmuxAppNative;
     if (native)
       state.native = native;
-    Object.assign(sharedMembers, { palette, act });
+    Object.assign(sharedMembers, { palette, act, watch });
     Object.assign(g, exports_view, { cmux, signal, computed, effect, untrack, onCleanup, CmuxError, palette, act });
     if (typeof g.console === "undefined") {
       g.console = { log: (...a) => log("info", ...a), info: (...a) => log("info", ...a), warn: (...a) => log("warn", ...a), error: (...a) => log("error", ...a), debug: (...a) => log("debug", ...a) };
@@ -1506,6 +3338,7 @@
       state.locale = init.locale ?? "en";
       state.strings = init.strings ?? {};
       setPaletteScopes(init.paletteScopes);
+      seedKeptState(init.state);
       state.settings[1](init.settings ?? {});
       return "";
     }, "init failed");
@@ -1517,13 +3350,34 @@
           if (typeof render !== "function")
             throw new Error(`the app does not export a function named ${exportName}`);
           const ctx = JSON.parse(ctxJSON || "{}");
+          widgetClocks.delete(mountId);
+          if (ctx && ctx.surface === "widget") {
+            const [now, setNow] = signal(Date.now());
+            widgetClocks.set(mountId, setNow);
+            ctx.now = now;
+          }
+          const opened = [];
+          if (ctx && typeof ctx === "object" && "args" in ctx) {
+            ctx.close = (result) => call("app.pane.close", { mount: mountId, result: result ?? null });
+            ctx.onOpen = (fn) => void opened.push(fn);
+            ctx.onClose = (fn) => onCleanup(fn);
+          }
+          if (ctx && typeof ctx === "object")
+            keepState(mountId, ctx);
           state.context = ctx;
+          state.mount = mountId;
           mount(mountId, () => render(ctx), ctx);
+          if (ctx?.args != null)
+            for (const fn of opened)
+              fn(ctx.args);
           state.context = null;
+          state.mount = null;
         });
         return "";
       } catch (e) {
         state.context = null;
+        state.mount = null;
+        widgetClocks.delete(mountId);
         unmount(mountId);
         const message = describe2(e);
         log("error", `mount ${exportName}: ${message}`);
@@ -1532,23 +3386,47 @@
         sendPendingOps();
       }
     };
-    g.__cmuxAppUnmount = (mountId) => entry("unmount", () => unmount(mountId), undefined);
-    g.__cmuxAppDispatch = (mountId, nodeId, event, payloadJSON) => entry("dispatch", () => {
-      if (!mountExists(mountId))
-        return;
-      const record = nodeRecord(nodeId);
-      if (!record || record.mount.id !== mountId)
-        return;
-      const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
-      state.gesture = typeof payload.gesture === "string" ? payload.gesture : null;
-      state.context = record.mount.context;
-      try {
-        dispatchEvent(record, event, payload);
-      } finally {
-        state.gesture = null;
-        state.context = null;
-      }
+    g.__cmuxAppUnmount = (mountId) => entry("unmount", () => {
+      widgetClocks.delete(mountId);
+      unmount(mountId);
     }, undefined);
+    g.__cmuxAppTick = (mountId, nowMs) => entry("tick", () => {
+      if (Number.isFinite(nowMs))
+        widgetClocks.get(mountId)?.(nowMs);
+    }, undefined);
+    g.__cmuxAppDispatch = (mountId, nodeId, event, payloadJSON) => {
+      let settle;
+      entry("dispatch", () => {
+        if (!mountExists(mountId))
+          return;
+        const record = nodeRecord(nodeId);
+        if (!record || record.mount.id !== mountId)
+          return;
+        const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
+        state.gesture = typeof payload.gesture === "string" ? payload.gesture : null;
+        state.context = record.mount.context;
+        state.mount = mountId;
+        try {
+          settle = dispatchEvent(record, event, payload);
+        } finally {
+          state.gesture = null;
+          state.context = null;
+          state.mount = null;
+        }
+      }, undefined);
+      settle?.();
+    };
+    function textSettle(record, result) {
+      const settle = record.settle;
+      if (!settle)
+        return;
+      const run = () => entry("settle", settle, undefined);
+      if (result && typeof result.then === "function") {
+        result.then(run, run);
+        return;
+      }
+      return run;
+    }
     function dispatchEvent(record, event, payload) {
       switch (event) {
         case "menu":
@@ -1575,13 +3453,21 @@
         }
         case "submit":
         case "edit": {
+          if (typeof payload.text === "string")
+            record.shown?.(payload.text);
           const h = record.handlers[event];
-          runHandler(event, h && (() => h(String(payload.text ?? ""))));
-          break;
+          const result = runHandler(event, h && (() => h(String(payload.text ?? ""))));
+          return event === "submit" && typeof payload.text === "string" ? textSettle(record, result) : undefined;
         }
-        default:
-          runHandler(event, record.handlers[event]);
+        default: {
+          const text = event === "cancel" && typeof payload.text === "string" ? payload.text : undefined;
+          if (text !== undefined)
+            record.shown?.(text);
+          const result = runHandler(event, record.handlers[event]);
+          return text !== undefined ? textSettle(record, result) : undefined;
+        }
       }
+      return;
     }
     g.__cmuxAppRunCommand = (exportName, argsJSON, cbId, ctxJSON) => entry("command", () => {
       const fn = exportsOf2()[exportName];
@@ -1608,6 +3494,7 @@
     g.__cmuxAppPaletteDetail = (scopeId, itemId, reqId) => entry("paletteDetail", () => paletteDetail(scopeId, itemId, reqId), undefined);
     g.__cmuxAppResolve = (cbId, ok, json) => entry("resolve", () => resolveCall(cbId, ok, json), undefined);
     g.__cmuxAppEvent = (subId, json) => entry("event", () => deliverEvent(subId, json), undefined);
+    g.__cmuxAppWatch = (watchId, json) => entry("watch", () => deliverWatch(watchId, json), undefined);
     g.__cmuxAppTimer = (timerId) => entry("timer", () => fireTimer(timerId), undefined);
     g.__cmuxAppFlush = () => entry("flush", flush, undefined);
     g.__cmuxAppRuntimeVersion = RUNTIME_VERSION;

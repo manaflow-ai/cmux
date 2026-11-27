@@ -8,7 +8,6 @@ back to actions/download-artifact's single connection and spent 611 s fetching t
 import email.message
 import email.utils
 import importlib.util
-import io
 import json
 from pathlib import Path
 import unittest
@@ -43,6 +42,10 @@ class RetryTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
         download.retry_deadline = None
         self.addCleanup(setattr, download, "retry_deadline", None)
+        download.spares.clear()
+        download.active = None
+        self.addCleanup(download.spares.clear)
+        self.addCleanup(setattr, download, "active", None)
 
     def flaky(self, errors: list[Exception], result: str = "ok"):
         def call() -> str:
@@ -50,6 +53,31 @@ class RetryTests(unittest.TestCase):
                 raise errors.pop(0)
             return result
         return call
+
+    def test_a_spent_hour_moves_to_a_spare_token_with_no_wait(self) -> None:
+        # Runs 45823496118 and 45825165164 (2026-11-26): github.token's hour was spent and the reset was 1098 s
+        # away, past the 240 s budget, so the dSYMs and the deltas' variant were never downloaded.
+        download.spares.extend(["spare-1", "spare-2"])
+        seen = []
+
+        def call() -> str:
+            seen.append(download.token_for("job"))
+            if len(seen) == 1:
+                raise refused(403, X_RateLimit_Remaining="0", X_RateLimit_Reset="9999999999")
+            if len(seen) == 2:
+                raise refused(401)  # a dead spare is skipped too
+            return "ok"
+
+        self.assertEqual(download.with_retries(call, "lookup"), "ok")
+        self.assertEqual(seen, ["job", "spare-1", "spare-2"])
+        self.assertEqual(self.slept, [])
+
+    def test_a_permission_403_on_the_jobs_own_token_does_not_move(self) -> None:
+        download.spares.append("spare-1")
+        call = self.flaky([refused(403)])
+        self.assertEqual(download.with_retries(call, "lookup"), "ok")
+        self.assertEqual(download.spares, ["spare-1"])
+        self.assertIsNone(download.active)
 
     def test_a_secondary_limit_403_without_headers_is_retried_with_backoff(self) -> None:
         call = self.flaky([refused(403), refused(403), refused(502), refused(501)])
@@ -75,6 +103,26 @@ class RetryTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError):
             download.with_retries(always, "lookup")
         self.assertEqual(len(calls), download.MAX_ATTEMPTS)
+
+    def test_a_long_budget_is_not_cut_short_by_the_attempt_cap(self) -> None:
+        # The sign stage's restore sets a 1800 s budget; a headerless 403 that clears after 600 s must
+        # still be retried (2026-11-12: 8 attempts gave up at 510 s).
+        with mock.patch.object(download, "RETRY_BUDGET_SECONDS", 1800.0), \
+                mock.patch.object(download, "MAX_ATTEMPTS", max(8, int(1800.0 // 120) + 5)):
+            start = self.now[0]
+
+            def refused_for_600_s():
+                if self.now[0] - start < 600:
+                    raise refused(403)
+                return "ok"
+
+            self.assertEqual(download.with_retries(refused_for_600_s, "lookup"), "ok")
+        self.assertGreaterEqual(sum(self.slept), 600)
+
+    def test_the_default_budget_keeps_eight_attempts(self) -> None:
+        self.assertEqual(max(8, int(240.0 // 120) + 5), 8)
+        if download.RETRY_BUDGET_SECONDS == 240.0:
+            self.assertEqual(download.MAX_ATTEMPTS, 8)
 
     def test_slow_calls_count_against_the_wall_clock_deadline(self) -> None:
         def slow_refusal():
@@ -109,22 +157,23 @@ class CallSiteTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
         download.retry_deadline = None
         self.addCleanup(setattr, download, "retry_deadline", None)
+        download.spares.clear()
+        download.active = None
+        self.addCleanup(download.spares.clear)
+        self.addCleanup(setattr, download, "active", None)
 
     def test_the_lookup_retries_a_403_then_returns_the_listing(self) -> None:
         body = json.dumps({"artifacts": [{"name": "app", "expired": False, "created_at": "1"}]}).encode()
-        responses = [refused(403), io.BytesIO(body)]
+        responses = [refused(403), body]
 
-        class Response(io.BytesIO):
-            def __enter__(self): return self
-            def __exit__(self, *exc): return False
-
-        def urlopen(req, timeout):
+        def request(req, seconds, *, raise_errors=False):
+            self.assertTrue(raise_errors, "with_retries retries on the HTTPError a refusal raises")
             item = responses.pop(0)
             if isinstance(item, Exception):
                 raise item
-            return Response(item.getvalue())
+            return 200, item, {}
 
-        with mock.patch.object(download.urllib.request, "urlopen", urlopen):
+        with mock.patch.object(download.deadline_http, "request", request):
             artifact = download.find_artifact("o/r", "1", "app", "token")
         self.assertEqual(artifact["name"], "app")
         self.assertEqual(self.slept, [10.0])
@@ -164,6 +213,21 @@ class CallSiteTests(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError):
                 download.blob_url({"archive_download_url": "https://api.invalid/zip"}, "t")
         self.assertEqual(self.slept, [], "the redirect retried after the lookup spent the deadline")
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_every_ranged_download_with_a_fallback_has_its_own_step_timeout(self) -> None:
+        # A range that trickles under the stall bound could hold the step past the job's timeout; the job is then
+        # cancelled and the download-artifact fallback (no always()) never runs (Codex review of #42332).
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
+        steps = [(job, step) for job, spec in jobs.items() for step in spec.get("steps") or []
+                 if "download-run-artifact.py" in str(step.get("run", ""))]
+        # Five since #51894 deleted the nightly-next sign stage's download.
+        self.assertGreaterEqual(len(steps), 5)
+        unbounded = [f"{job}: {step.get('name')}" for job, step in steps
+                     if step.get("continue-on-error") and not step.get("timeout-minutes")]
+        self.assertEqual(unbounded, [])
 
 
 if __name__ == "__main__":

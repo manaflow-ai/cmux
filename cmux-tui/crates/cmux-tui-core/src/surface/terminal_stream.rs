@@ -120,16 +120,30 @@ impl Surface {
         Ok(pty.stream_progress.revision())
     }
 
-    /// Capture the live screen (whatever the viewport scroll), generic
-    /// terminal metadata, and stream revision
-    /// while the parser lock is held. This is the only screen-read path that
-    /// can safely use the revision as a scheduling watermark.
+    /// [`Self::terminal_screen_snapshot_with`] of the live screen's rows.
+    #[cfg(test)]
     pub(crate) fn terminal_screen_snapshot(&self) -> anyhow::Result<TerminalScreenSnapshot> {
+        self.terminal_screen_snapshot_with(ScreenText::Rows)
+    }
+
+    /// Capture the live screen's `text` (whatever the viewport scroll; rows,
+    /// logical lines, or the last N lines a `terminal.screen.read` asked
+    /// for), generic terminal metadata, and stream revision while the parser
+    /// lock is held. This is the only screen-read path that can safely use
+    /// the revision as a scheduling watermark.
+    pub(crate) fn terminal_screen_snapshot_with(
+        &self,
+        text: ScreenText,
+    ) -> anyhow::Result<TerminalScreenSnapshot> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let mut term = pty.term.lock().unwrap();
-        let text = term.active_text()?;
+        let text = match text {
+            ScreenText::Rows => term.active_text()?,
+            ScreenText::Unwrapped => term.active_text_unwrapped()?,
+            ScreenText::LastLines { count, unwrap } => term.last_lines_text(count, unwrap)?,
+        };
         let (cursor_col, cursor_row) = term.cursor_position().unwrap_or((0, 0));
         let cursor_visible = term.mode(25, false);
         // Match the parser's lock order, term -> metadata -> stream progress.
@@ -208,6 +222,19 @@ impl Surface {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         Ok(f(&mut pty.term.lock().unwrap()))
+    }
+
+    /// [`Self::try_with_terminal`] for a reader that only looks: a parked
+    /// mirror stays parked (`TerminalMirror::with_terminal_kept_parked`).
+    pub(crate) fn try_with_terminal_kept_parked<R>(
+        &self,
+        look: impl FnOnce(&ParkedLook) -> Option<R>,
+        f: impl FnOnce(&mut Terminal, Option<&ParkedLook>) -> R,
+    ) -> anyhow::Result<R> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        Ok(pty.term.with_terminal_kept_parked(look, f))
     }
 
     /// Abort an unreplayable parser sequence and run a capture while the
