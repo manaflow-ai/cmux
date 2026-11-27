@@ -405,7 +405,7 @@ reads (a design token, a schema, a skill page the daemon embeds), the loop
 1. builds only the daemons the changed crates reach (`cargo metadata`), incrementally. With
    `--build-host` the changed files go to a tree kept for this checkout on that host (rsync over one
    kept ssh connection), which keeps its own warm `target/` and uses sccache when the host has it;
-2. brings the binaries back (rsync, compressed) into a new folder per build, so the running daemon's
+2. brings the binaries back (rsync, only the change) into a new folder per build, so the running daemon's
    file is never written over;
 3. swaps the daemon the way `scripts/cmux-next/daemon-swap-check.py` measures it: the old owner
    stops and leaves its terminal hosts running, the new one adopts them. How depends on who runs the
@@ -456,10 +456,42 @@ toward a second. From a build host on another machine add the copy: the debug `c
 MB, 263 MB once the build host strips its debug info (the loop does), and rsync sends only the
 change against the last build. That took 19 s from the fleet box to a Mac over the tailnet.
 
+Nearly all of that copy was rsync's `-z`: zlib read the whole 263 MB to shrink a delta of about
+0.4 MB to 0.1 MB. The loop no longer compresses. Measured with `scripts/measure/rust-live-fetch.py`
+(both rsync ends on one fleet Linux box, so CPU counts and the network doesn't; three one-line
+cmux-tui-core edits each; the host's strip adds 1.25 s to every row):
+
+| Copy of the stripped 263 MB cmux-tui | p50 | sent |
+|---|---|---|
+| `rsync -z` (zlib), before | 13.66 s | 0.1 MB |
+| `rsync`, no compression (now) | 0.96 s | 0.4 MB |
+| `rsync -z --compress-choice=zstd` | 1.03 s | 0.1 MB |
+| `zstd -T0 -1` piped, no delta | 1.17 s | 142.6 MB |
+| `rsync -z --whole-file` | 12.61 s | 136.4 MB |
+
+The first copy after a start still sends the whole binary, since there is no build here to diff.
+
 The in-place patch (`hotpatch` feature, `scripts/cmux-next/daemon-hotpatch-check.py`) keeps even the
 daemon's process and its client connections, but on the same box it is slower: 64.2 s for its edit
 in cmux-tui-core (dx replays cmux-tui-core's rustc, then rebuilds the program crate), after a 353 s
 first build. So the loop swaps instead.
+
+The loop's build is not slower than the dev loop's (RFD 0174 slice 5).
+`scripts/measure/rust-live-parity.py` builds the same `identify` edit on one box four ways. Each way
+has its own target directory and a warm-up build, and the builds alternate. The run was on a fleet
+Linux box at cmux#60320's head, 4 edits each:
+
+| Build | p50 | min | max |
+|---|---|---|---|
+| rust-live.py's own (its cargo args and environment, sccache when on PATH) | 29.8 s | 29.7 s | 48.8 s |
+| the same, no RUSTC_WRAPPER | 30.2 s | 29.9 s | 53.2 s |
+| the same, CARGO_INCREMENTAL=1 | 31.3 s | 29.8 s | 54.1 s |
+| rust-dev-loop.py's (its clean env, `-p cmux-tui -p acpmux --bins`) | 30.2 s | 29.9 s | 36.6 s |
+
+Every way compiled the same three crates: cmux-build-identity, cmux-tui-core and cmux-tui. No
+profile, feature, wrapper or incremental setting is behind the gap. The 11.75 s figure is not an
+edit to this crate. What's left is compiling cmux-tui-core itself (splitting the crate) and the
+19 s copy back from a build host.
 
 ### Editing while it runs: what survives
 

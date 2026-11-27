@@ -221,7 +221,7 @@ struct Joystick: View {
             // A glass circle under the dot, as classic's nub (`UIGlassEffect`);
             // not interactive: the drag owns the touch. The dot draws on top,
             // crisp.
-            .glassEffect(engine.gear > 0 ? .regular.tint(Color.white.opacity(0.15)) : .regular, in: .circle)
+            .glassEffect(engine.gear > 0 ? .regular.tint(CmuxMobileTheme.standard.colors.fillPressed.color) : .regular, in: .circle)
         .onGeometryChange(for: CGPoint.self) { proxy in
             let frame = proxy.frame(in: .global)
             return CGPoint(x: frame.midX, y: frame.midY)

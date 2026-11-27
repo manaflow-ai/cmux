@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { StartRecovery } from "./StartRecovery";
 import { useT } from "./i18n";
 import { type MachineShareProps, useMachineShare } from "./MachineShareAction";
@@ -17,7 +16,10 @@ export type SwitchNoticeAction = StartRefusalAction | "install";
 /// A harness switch's line above the composer (harnessSwitch.ts). Starting draws nothing here:
 /// a prompt held behind it reads as sent with Thinking under it, and the composer stays usable,
 /// its Stop taking the prompt back (Leo, 2026-11-01).
-/// Failed says why, with Retry; the prompts it held are back in the composer. Deferred says the
+/// Failed says why, with Retry; the prompts it held are back in the composer. A start that never
+/// reached the agent because the line to acpmux was down (`stillTrying`, startFailure.ts
+/// `startFailureClearsByItself`) has no card and no Retry: the pane starts it again on its own, and
+/// once that has lasted this is one quiet line, "Still trying to start <agent>…". Deferred says the
 /// pick waits for the next prompt while the current reply keeps streaming. A refusal with a way out
 /// (startRefusal.ts) offers it in one click beside Retry: New Cloud Machine, Choose Folder, or the
 /// agent's sign-in. A teammate's machine also offers Share with Me, then Ask the Owner
@@ -42,6 +44,7 @@ export function SwitchNotice({
   installs = true,
   agentSignIn,
   runsLogin = false,
+  stillTrying = false,
 }: {
   switching: AcpmuxSnapshot["switching"];
   onRetry(): void;
@@ -57,12 +60,19 @@ export function SwitchNotice({
   agentSignIn?: CloudSignInActions;
   /// A chat on this Mac whose refused agent has a login command: Sign in runs it (`onAction("signIn")`).
   runsLogin?: boolean;
+  /// The pane starts this one again on its own (App.tsx `useAutoRetry`): one quiet line, no card.
+  stillTrying?: boolean;
 }) {
   const t = useT();
-  const actionsRef = useRef<HTMLDivElement>(null);
   const machineShare = useMachineShare(share, switching?.phase === "failed" ? switching : undefined, onRetry, onShared);
   // A switch picked mid-turn (`deferred`) says nothing: the agent chip already shows the pick.
   if (!switching || switching.phase !== "failed") return null;
+  if (stillTrying)
+    return (
+      <output className="acpmux-switch-notice" data-switch-still-trying="">
+        {t("switch.stillTrying", { agent: switching.name })}
+      </output>
+    );
   const view = startFailureView(t, switching);
   const refusal = startRefusalAction(switching.code);
   const signIn =
@@ -93,10 +103,10 @@ export function SwitchNotice({
       <div className="acpmux-host-error-card">
         <p className="acpmux-host-error-message">{view.sentence}</p>
         {(machineShare.line ?? hint) && <p className="acpmux-host-error-hint">{machineShare.line ?? hint}</p>}
-        <div className="acpmux-host-error-actions" ref={actionsRef}>
+        <div className="acpmux-host-error-actions">
           {machineShare.button}
           {signIn === "card" && agentSignIn && (
-            <CloudSignIn signIn={agentSignIn} rowId={undefined} prompt={undefined} actionsRef={actionsRef} />
+            <CloudSignIn signIn={agentSignIn} rowId={undefined} prompt={undefined} />
           )}
           {action && onAction && (
             <button
@@ -115,6 +125,8 @@ export function SwitchNotice({
                   )}
             </button>
           )}
+          {/* retry-prompt-ok: starts the agent again once the person has acted on the refusal (installed,
+              signed in, shared, fixed its folder); one that only lost the line to acpmux never gets here. */}
           <button
             type="button"
             data-secondary={leads && (onAction || signIn === "card") ? "" : undefined}

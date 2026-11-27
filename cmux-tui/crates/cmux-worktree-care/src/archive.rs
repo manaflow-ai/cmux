@@ -26,9 +26,22 @@ use crate::store::{Manifest, Store, new_id};
 /// anyway: removal is a write and is never killed midway.
 const BUNDLE: Duration = Duration::from_secs(600);
 
+/// A last-moment check that a path and its contents may be removed.
+pub type Preservation<'a> = dyn Fn(&Path) -> Result<(), String> + 'a;
+
 /// Removes a kept worktree's build output, each folder only while nothing
 /// `uses` lists works in it. Returns the bytes the disk gained.
 pub fn trim(worktree: &Worktree, facts: &Facts, uses: &Uses) -> Result<u64, String> {
+    trim_guarded(worktree, facts, uses, &|_| Ok(()))
+}
+
+/// Trims build output only after `preserve` permits each deletion.
+pub fn trim_guarded(
+    worktree: &Worktree,
+    facts: &Facts,
+    uses: &Uses,
+    preserve: &Preservation<'_>,
+) -> Result<u64, String> {
     let before = available(&worktree.path);
     let processes = uses()?;
     for entry in &facts.build_output {
@@ -37,6 +50,7 @@ pub fn trim(worktree: &Worktree, facts: &Facts, uses: &Uses) -> Result<u64, Stri
             continue;
         }
         let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        preserve(&path)?;
         let removed = if meta.is_dir() {
             std::fs::remove_dir_all(&path)
         } else {
@@ -65,6 +79,22 @@ pub fn reclaim(
     store: &Store,
     uses: &Uses,
     open: &Open,
+) -> Result<Manifest, String> {
+    reclaim_guarded(repo, worktree, facts, action, reason, store, uses, open, &|_| Ok(()))
+}
+
+/// Reclaims a worktree only after a final preservation check following archival.
+#[allow(clippy::too_many_arguments)]
+pub fn reclaim_guarded(
+    repo: &Repo,
+    worktree: &Worktree,
+    facts: &Facts,
+    action: Action,
+    reason: &str,
+    store: &Store,
+    uses: &Uses,
+    open: &Open,
+    preserve: &Preservation<'_>,
 ) -> Result<Manifest, String> {
     if let Some(why) = &facts.unarchivable {
         return Err(format!("cannot archive: {why}"));
@@ -102,6 +132,7 @@ pub fn reclaim(
         submodules: facts.submodules.clone(),
         dropped: facts.build_output.clone(),
         reason: reason.to_string(),
+        parked: action == Action::Park,
         freed: 0,
         restored_ms: None,
     };
@@ -151,6 +182,21 @@ pub fn reclaim(
     ) {
         discard(&wt, store, &manifest);
         return Err(format!("{why}; it stays"));
+    }
+    if let Err(why) = preserve(&worktree.path) {
+        discard(&wt, store, &manifest);
+        return Err(format!("{why}; it stays"));
+    }
+    if action == Action::Park {
+        // Preserve even a late write that Git status could never see, such as
+        // an ignored file created after the final open-file check.
+        let parked = crate::park::destination(store, &id);
+        let result = crate::park::park(&wt, store, &manifest, &parked);
+        if result.is_err() && !parked.exists() {
+            discard(&wt, store, &manifest);
+        }
+        result?;
+        return Ok(manifest);
     }
     let before = available(&anchor);
     let main = WriteGit { root: &anchor, overrides: &repo.overrides, hooks: &hooks };
@@ -330,7 +376,9 @@ pub fn expire(store: &Store, now: u64, keep_ms: u64) -> Result<Vec<String>, Stri
     let hooks = empty_hooks(store)?;
     let mut dropped = Vec::new();
     for manifest in store.list() {
-        if now.saturating_sub(manifest.created_ms) < keep_ms {
+        if (manifest.parked && manifest.restored_ms.is_none())
+            || now.saturating_sub(manifest.created_ms) < keep_ms
+        {
             continue;
         }
         let anchor = manifest.main_root.clone().unwrap_or_else(|| manifest.common_dir.clone());
@@ -371,3 +419,7 @@ impl Drop for Remove {
 #[cfg(test)]
 #[path = "archive_care_tests.rs"]
 mod care_tests;
+
+#[cfg(test)]
+#[path = "archive_preservation_tests.rs"]
+mod preservation_tests;

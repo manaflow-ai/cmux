@@ -161,11 +161,40 @@ extension CEFRuntime {
         // A nested run loop inside the call may start another call: keep the outer one's table.
         let outer = synchronousDevToolsResults
         synchronousDevToolsResults = [:]
+        let start = ContinuousClock.now
         let message = shim.devToolsCall(browser, method, encodedParams)
+        noteNativeSend(method: method, bytes: encodedParams.utf8.count, took: .now - start)
         let answered = synchronousDevToolsResults
         synchronousDevToolsResults = outer.map { $0.merging(answered ?? [:]) { first, _ in first } }
         guard message != 0 else { return nil }
         let key = CEFDevToolsKey(browser: browser, message: message)
         return CEFDevToolsSend(key: key, answered: answered?[key])
     }
+
+    /// Records a shim call that held the main thread past ``slowDevToolsSend``. No timeout can end it: Chromium
+    /// dispatches every DevTools message on its UI thread, which is the main thread (CEF posts a send from any
+    /// other thread back to it), and a method the browser process answers runs inside the call. The reply
+    /// timeout only starts after it. One public log line names the method and its size, which a hang report's
+    /// stack (`cmux_shim_devtools_call`) does not.
+    private func noteNativeSend(method: String, bytes: Int, took: Duration) {
+        guard took > Self.slowDevToolsSend else { return }
+        if slowDevToolsSends.count == Self.slowDevToolsSendLimit { slowDevToolsSends.removeFirst() }
+        slowDevToolsSends.append(CEFDevToolsSlowSend(method: method, paramsBytes: bytes, took: took))
+        let ms = Double(took.components.seconds) * 1000 + Double(took.components.attoseconds) / 1e15
+        logger.notice("devtools send held the main thread \(ms, format: .fixed(precision: 1), privacy: .public) ms: \(method, privacy: .public), \(bytes, privacy: .public) bytes of parameters")
+    }
+
+    /// The longest shim call a DevTools send may take before it is recorded: one 60 Hz frame.
+    static let slowDevToolsSend: Duration = .milliseconds(16)
+    /// The most slow sends ``slowDevToolsSends`` keeps.
+    static let slowDevToolsSendLimit = 32
+}
+
+/// A DevTools send whose shim call held the main thread past ``CEFRuntime/slowDevToolsSend``.
+struct CEFDevToolsSlowSend: Equatable {
+    let method: String
+    /// The parameters' JSON text, in UTF-8 bytes.
+    let paramsBytes: Int
+    /// The shim call, entry to return.
+    let took: Duration
 }

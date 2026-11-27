@@ -111,13 +111,16 @@ struct CloudBringBack {
         let progress = CloudMoveProgress(toMachine ? .move : .bringBack) { [services] in
             CloudMove.toast(services, toastID, headline + "\n" + $0, duration: CloudMove.working, working: true)
         }
+        // Back here, the row goes to this Mac at once; to another machine, once the run picks it.
+        cloud.chatMoves.begin(tab, of: services.machines.daemon(forTab: tab).store, to: toMachine ? nil : services.machines.local.machineID, progress: progress)
         let place = cloud.place
-        let work: ActionWork = Task { @MainActor in
+        let work: ActionWork = Task { @MainActor [services] in
             defer { cloud.movingBack.remove(tabID); if let session { place.finished(session) } }
             defer { progress.end() }
             do {
                 let machine = try await body(progress)
                 retries[tabID] = nil
+                cloud.chatMoves.landed(tab: tabID) // its row stays on the machine until the chat's own row is there
                 place.live(session)
                 CloudMove.toast(services, toastID, toMachine ? CloudMoveStrings.moved(machine) : CloudBringBackStrings.broughtBack, duration: .seconds(6))
                 return nil
@@ -157,7 +160,7 @@ struct CloudBringBack {
         switch failure.retry {
         case .askFirst: title = CloudBringBackStrings.askFirst
         case .update: title = CloudMachineUpdateStrings.button
-        default: title = CloudMoveStrings.retry
+        default: title = CloudMoveStrings.retry  // retry-prompt-ok: bringing a chat back copies files over this Mac's folder; the person retries or lets the toast go
         }
         CloudMove.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title)
         return ActionWorkFailure(failure.message)
@@ -255,6 +258,7 @@ struct CloudBringBack {
         if let target {
             again = .move(machineID: target.machineID)
             services.cloud.bringBackRetries[tab.id] = again
+            services.cloud.chatMoves.reach(tab: tab.id, machine: target.machineID) // its sidebar row goes there now
         }
         try place.advance(flow, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
         // To another machine the move's relay fills its folder, then hands the agent over, in one call.
