@@ -44,7 +44,7 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -165,7 +165,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           foreach ($scope in @('view', 'control')) {
             $serve = & .\target\release\cmux-rd.exe windows-serve-selftest --scope $scope --duration-s 3
-            if ($LASTEXITCODE -ne 0) { throw "windows-serve-selftest ($scope) exited $LASTEXITCODE; $serve" }
+            if ($LASTEXITCODE -ne 0) {
+              # The report (failed_at, the host's error, exit code and stderr tail) as an annotation:
+              # the run page shows it to anyone, while the job log needs a token.
+              $line = "$serve" -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+              Write-Output "::error title=windows-serve-selftest ($scope) exited $LASTEXITCODE::$line"
+              throw "windows-serve-selftest ($scope) exited $LASTEXITCODE; $serve"
+            }
             $serve | Tee-Object -Append -FilePath "$env:GITHUB_STEP_SUMMARY"
             if (-not ($serve | ConvertFrom-Json).ok) { throw "windows-serve-selftest ($scope) saw no media" }
           }
@@ -207,7 +213,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -288,7 +294,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}

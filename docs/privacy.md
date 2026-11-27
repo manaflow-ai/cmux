@@ -70,6 +70,11 @@ there, the Rust gate compiles it in, the Swift gate's list is checked equal to i
 table below is generated from it (`python3 scripts/privacy_hosts_from_gate.py`). CI fails when the table and the
 allowlist differ, so this page cannot drift from what the gate lets through.
 
+The gate keeps an audit trail: every connection it sees, allowed or refused, is recorded once per host, caller and
+verdict for the life of the process. Set `CMUX_EGRESS_AUDIT=/path/file.jsonl` and each new record is appended there as
+one JSON line (`ts`, `host`, `site`, `verdict` = listed, named, session, local or unlisted, `mode`, `refused`). The file
+stays on your machine; nothing in it is sent anywhere.
+
 Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
 (Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet, and that list may only shrink. The web
 pages' Content Security Policy comes next.
@@ -140,7 +145,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen | the app's cmux API requests and account token | only when you choose staging | release builds use production unless you choose staging |
 | `cmux-device-hub-dev.debussy.workers.dev` | connects | the device hub in development builds | device pairing and screen-share messages | development builds only, or when you choose that stack | release builds never connect unless you choose it |
 | `cmux-device-hub.debussy.workers.dev` | connects | the device hub: pairing and screen sharing between your devices (production) | device pairing and screen-share messages with your account token | when you pair devices or share a screen | don't pair devices |
-| `cmux-lawrences-mac-mini.tail137216.ts.net` | connects | a team machine's model router, only on a cmux team member's tailnet; nobody else can reach it | model requests from a team member's machine | only on a cmux team member's tailnet | not reachable outside the team's tailnet |
 | `cmux-mobile-api-dev.debussy.workers.dev` | connects | the iPhone pairing API in development builds | iPhone pairing requests | development builds only, or when you choose that stack | release builds never connect unless you choose it |
 | `cmux-platform-development.debussy.workers.dev` | connects | cmux Cloud platform API in development builds | your cmux account token and the Cloud requests you make | development builds only, or when you choose that stack | release builds never connect unless you choose it |
 | `cmux-platform-production.debussy.workers.dev` | connects | cmux Cloud services on our hosting provider (production): platform API | your cmux account token and the Cloud requests you make | when you use cmux Cloud | don't sign in to cmux Cloud |
@@ -168,6 +172,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches | the agent's search words | when an agent uses its web search tool | don't give agents the search tool |
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) | a stream request | when you press Play in the radio player | remove the widget (a customize template you installed) |
+| `index.crates.io` | connects | crates.io's package index, from a Cloud machine's crates cache, only for an index file no peer has fresh; it sends the file's name and its ETag, no code | the index file's name and its ETag | when a Cloud machine's crates cache needs an index file no peer has fresh | create `/etc/cmux/crates-cache.disabled` on the Cloud machine |
 | `lh3.googleusercontent.com` | connects | images in agent replies | an image request (your IP address and the image's URL) | when a GitHub page or agent reply you open shows an image | not a setting: it follows what you open |
 | `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
 | `mail.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
@@ -188,6 +193,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `share-staging.cmux.dev` | connects | shared workspace links on staging, only when chosen | the shared workspace link's contents | only when you choose staging | release builds use production unless you choose staging |
 | `share.cmux.dev` | connects | shared workspace links (production) | the shared workspace link's contents | when you share a workspace or open a shared link | don't share or open shared links |
 | `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) | a station list request | when the radio player widget shows stations | remove the widget (a customize template you installed) |
+| `static.crates.io` | connects | crates.io's package downloads, from a Cloud machine's crates cache, only for a `.crate` neither the machine nor a peer has; it sends the package name and version | the package name and version | when a Cloud machine's crates cache needs a `.crate` neither the machine nor a peer has | create `/etc/cmux/crates-cache.disabled` on the Cloud machine |
 | `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic | a STUN probe: only the device's public address | when a phone or remote-desktop link starts and names no STUN server | don't start a link |
 | `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic | a STUN probe: only the device's public address | when the remote-desktop link's first STUN server fails | don't start a remote-desktop link |
 | `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine | what you type in the address bar | as you type, when Google is your search engine | `browser.omnibar.remoteSuggestions` off, or another `browser.searchEngine` |

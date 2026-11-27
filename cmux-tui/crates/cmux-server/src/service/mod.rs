@@ -402,7 +402,11 @@ fn daemon_cmd(binary: &Path, args: &[&str]) -> Cmd {
 /// `status`, `session` and `pid` of a `daemon ... --json` answer.
 fn daemon_answer(out: &Output) -> Option<(String, String, u64)> {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-    Some((v["status"].as_str()?.to_owned(), v["session"].as_str()?.to_owned(), v["pid"].as_u64()?))
+    Some((
+        v.get("status")?.as_str()?.to_owned(),
+        v.get("session")?.as_str()?.to_owned(),
+        v.get("pid")?.as_u64()?,
+    ))
 }
 
 fn shown_answer(out: &Output) -> String {

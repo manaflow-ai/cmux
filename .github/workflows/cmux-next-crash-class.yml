@@ -17,6 +17,9 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/cmux-next/check-bridge-on-main.py"
+      - "scripts/cmux-next/bridge-on-main-baseline.json"
+      - "tests/test_check_bridge_on_main.py"
       - "scripts/cmux-next/swift_scope.py"
       - "tests/test_check_concurrency_generic_deinit.py"
       - "tests/test_check_concurrency_pipe_reads.py"
@@ -39,6 +42,9 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/cmux-next/check-bridge-on-main.py"
+      - "scripts/cmux-next/bridge-on-main-baseline.json"
+      - "tests/test_check_bridge_on_main.py"
       - "scripts/cmux-next/swift_scope.py"
       - "tests/test_check_concurrency_generic_deinit.py"
       - "tests/test_check_concurrency_pipe_reads.py"
@@ -69,13 +75,15 @@ env:
 jobs:
   crash-class:
     name: cmux-next crash-class rules
-    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `cmux-next-crash-class`
+    # (pr-pipeline.yml); a push and a pull request into any other base still run them here. Tier A of the merged
+    # pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request into a stacked
+    # feat-cmux-next-* base skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # A pull request's merge commit with its parents: the gate fails the
           # PR only for findings in the files it changes.
@@ -90,6 +98,7 @@ jobs:
             tests/test_check_concurrency_generic_deinit.py
             tests/test_check_concurrency_pipe_reads.py
             tests/test_check_concurrency_caller_isolated.py
+            tests/test_check_bridge_on_main.py
             .gitmodules
           sparse-checkout-cone-mode: false
 
@@ -113,6 +122,13 @@ jobs:
       - name: Caller-isolated blocking rule tests
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_check_concurrency_caller_isolated.py
+
+      # The bridge-on-main rules are red on cmux#59531's shape (fileRoot to a welcome op, reached per sidebar
+      # row) and green on cmux#60927's. The tree-wide ratchet runs with check-main-actor-work.py in the checks
+      # job's slow checks (scripts/ci/cmux-next-slow-checks.txt).
+      - name: Bridge-on-main rule tests
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_check_bridge_on_main.py
 
       # Every `super.<member>` must reach a selector its framework superclass
       # answers on each macOS recorded in the table, or be guarded.

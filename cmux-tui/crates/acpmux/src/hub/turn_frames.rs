@@ -7,12 +7,16 @@
 //! - `turn-start`: the turn began.
 //! - `edit`: a finished tool call named a UI file ([`ui_path`]); debounced [`DEBOUNCE`], so a burst
 //!   of edits is one frame.
-//! - `build`: a finished shell call (a build, a reload); debounced the same way.
+//! - `build`: a finished shell call (a build, a reload); debounced the same way. Also a `cmux live`
+//!   loop's build in place ([`built`], `acpmux frame @ --built SOURCE`), at once.
 //! - `turn-end`: the turn's result was written.
 //! - `look`: the agent asked (the `look` MCP tool), the one trigger that costs it tokens.
 //!
-//! The page is the one turn shots take (`turn_shots.rs`): the selected, live, agent-driven http(s)
-//! tab of the chat's workspace, through the app's own browser host. No page: no frame, never a wait.
+//! Sources, first that answers: the page turn shots take (`turn_shots.rs`: the selected, live,
+//! agent-driven http(s) tab of the chat's workspace, through the app's own browser host); in a turn
+//! that drives the iOS Simulator ([`drives_simulator`]), the booted simulator's screen (`xcrun simctl
+//! io booted screenshot`, no screen-recording grant needed); in a turn that customizes the app
+//! ([`customizes_app`]), the app's window. None: no frame, never a wait.
 //!
 //! A frame within [`SAME`] bits (64-bit dHash) of the turn's last kept frame is dropped, so a turn
 //! that changed nothing on screen keeps one frame. At most [`MAX_FRAMES`] a turn (the turn's end
@@ -21,7 +25,8 @@
 //! turns per chat and [`KEEP_CHATS`] chats, as turn shots; a deleted chat's go with it.
 
 use super::Session;
-use super::turn_shots::{capture_page, prune, segment};
+use super::turn_shots::{CapturedPage, capture_page, prune, segment};
+use base64::Engine as _;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -44,8 +49,10 @@ pub(crate) const LOOK_EDGE: u32 = 512;
 const REPL_SESSION: &str = "acpmux-turn-frames";
 const LOOK_REPL_SESSION: &str = "acpmux-turn-frames-look";
 const INDEX: &str = "frames.json";
-/// One app-window capture, run to answer.
+/// One app-window or simulator capture, run to answer.
 const WINDOW_LIMIT: Duration = Duration::from_secs(20);
+/// The largest capture read back (a 6.9" simulator's PNG is about 3 MB).
+const MAX_CAPTURE_BYTES: u64 = 8 << 20;
 
 /// Every frame's place in the daemon's order: the preview window asks for what is newer than the
 /// last it drew.
@@ -86,6 +93,9 @@ struct Turn {
     /// The turn customizes the app itself ([`customizes_app`]): with no agent-driven page, frames
     /// are of the app's window (`cmux window screenshot`, masked by the app).
     chrome: bool,
+    /// The turn drives the iOS Simulator ([`drives_simulator`]): with no agent-driven page, frames
+    /// are of the booted simulator's screen.
+    simulator: bool,
 }
 
 static TURNS: LazyLock<Mutex<HashMap<String, Turn>>> = LazyLock::new(Default::default);
@@ -204,6 +214,18 @@ pub(crate) fn encode(picture: &Rgb) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
+/// Encode the agent-facing `look` response as a compact JPEG. Persisted frames and the preview
+/// strip stay PNG so their lossless pixel data and existing consumers are unchanged.
+pub(crate) fn encode_jpeg(picture: &Rgb) -> Option<Vec<u8>> {
+    let width = u16::try_from(picture.width).ok()?;
+    let height = u16::try_from(picture.height).ok()?;
+    let mut bytes = Vec::new();
+    jpeg_encoder::Encoder::new(&mut bytes, 80)
+        .encode(&picture.pixels, width, height, jpeg_encoder::ColorType::Rgb)
+        .ok()?;
+    Some(bytes)
+}
+
 /// The 64-bit difference hash: 9x8 grey, one bit per left-right step that brightens.
 pub(crate) fn dhash(picture: &Rgb) -> u64 {
     let small = resample(picture, 9, 8);
@@ -294,6 +316,24 @@ pub(crate) fn customizes_app(update: &Value) -> bool {
             .any(|verb| command.contains(verb))
 }
 
+/// A tool call that drives the iOS Simulator: a `simctl` run, a build or test for it
+/// (`xcodebuild ... -sdk iphonesimulator`, `-destination 'platform=iOS Simulator,...'`), or an
+/// edit of a Swift file under an iOS folder.
+pub(crate) fn drives_simulator(update: &Value) -> bool {
+    let command = update
+        .pointer("/rawInput/command")
+        .and_then(|c| c.as_str().map(str::to_owned).or_else(|| Some(c.to_string())))
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let runs = ["simctl", "iphonesimulator", "ios simulator"].iter().any(|v| command.contains(v));
+    runs || named_paths(update).iter().any(|p| {
+        let p = p.to_ascii_lowercase();
+        p.ends_with(".swift")
+            && p.split('/')
+                .any(|seg| seg == "ios" || seg.ends_with("-ios") || seg.starts_with("ios-"))
+    })
+}
+
 /// The turn began: a new frame list, and its first frame. Nothing for a chat with no workspace.
 pub(super) fn turn_began(session: &Session, turn: &str) {
     let workspace =
@@ -314,6 +354,7 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
             debounce: 0,
             kinds: HashMap::new(),
             chrome: false,
+            simulator: false,
         },
     );
     ask(&session.id, "turn-start");
@@ -341,6 +382,9 @@ pub(super) fn record(session: &str, kind: &str, msg: &Value) {
         if customizes_app(update) {
             turn.chrome = true;
         }
+        if drives_simulator(update) {
+            turn.simulator = true;
+        }
         let Some(trigger) = trigger_of(tool, update) else { return };
         turn.debounce += 1;
         (turn.id.clone(), turn.debounce, trigger)
@@ -357,6 +401,36 @@ pub(super) fn record(session: &str, kind: &str, msg: &Value) {
             ask(&session, trigger);
         }
     });
+}
+
+/// Where a `built` ask may come from: a `cmux live` loop that just swapped in its build (RFD 0152).
+pub(crate) const BUILT_SOURCES: [&str; 4] = ["rust", "swift", "chromium", "web"];
+
+/// A frame after a `cmux live` loop's build is in place: the daemon swap, the live code injection or
+/// the engine restart finished, long after the save's own `edit` frame (a Rust build takes minutes).
+/// The loop runs in the chat's shell, so it names the chat (`ACPMUX_SESSION_ID`). A live build
+/// changes the app itself, so the app's window is the fallback when no agent-driven page shows. Its
+/// own `build` frame, at once (the build is already settled); none when the chat has no turn
+/// running. What happened, for the loop's log.
+pub(crate) fn built(session: &str, source: &str) -> Value {
+    let Some(source) = BUILT_SOURCES.iter().find(|s| **s == source) else {
+        return json!({"asked": false, "reason": format!("unknown source {source:?}: one of {}", BUILT_SOURCES.join(", "))});
+    };
+    let turn = {
+        let mut all = turns();
+        match all.get_mut(session).filter(|t| t.live) {
+            Some(turn) => {
+                turn.chrome = true;
+                turn.debounce += 1; // a pending edit frame of the same burst is this one
+                turn.id.clone()
+            }
+            None => {
+                return json!({"asked": false, "reason": "the chat has no turn running"});
+            }
+        }
+    };
+    ask(session, "build");
+    json!({"asked": true, "turnId": turn, "source": source})
 }
 
 /// The turn's result was written: its last frame.
@@ -435,26 +509,29 @@ fn ask(session: &str, trigger: &'static str) {
 /// Takes one frame of `session`'s current turn and keeps it unless it is the same picture as the
 /// last kept. The kept frame, or none. Blocking.
 fn take(session: &str, trigger: &'static str, repl: &str) -> Option<Frame> {
-    let (turn_id, _, dir, picture) = shoot(session, repl)?;
-    keep(session, &turn_id, &dir, &picture, trigger, None)
+    let (turn_id, page, dir, picture) = shoot(session, repl)?;
+    keep(session, &turn_id, &dir, &picture, trigger, page.url)
 }
 
 /// A picture of `session`'s page now: the agent-driven page of its workspace, else, in a turn that
-/// customizes the app, the app's window. The turn, what was shot (a tab id or `window`), the turn's
+/// customizes the app, the app's window. The turn, captured tab metadata (or `window`), the turn's
 /// folder and the picture. Blocking.
-fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
-    let (turn_id, workspace, chrome) = {
+fn shoot(session: &str, repl: &str) -> Option<(String, CapturedPage, PathBuf, Rgb)> {
+    let (turn_id, workspace, chrome, simulator) = {
         let all = turns();
         let turn = all.get(session)?;
-        (turn.id.clone(), turn.workspace.clone(), turn.chrome)
+        (turn.id.clone(), turn.workspace.clone(), turn.chrome, turn.simulator)
     };
     let base = root();
     let dir = turn_dir(&base, session, &turn_id)?;
     crate::home_fs::create_dirs(&dir).ok()?;
     let raw = dir.join(format!("{repl}.capture.png"));
     let mut shown = capture_page(&base, &workspace, &raw, repl, "Turn frames");
+    if shown.is_none() && simulator && simulator_shot(&raw) {
+        shown = Some(CapturedPage { id: "simulator".to_owned(), url: None });
+    }
     if shown.is_none() && chrome && window_shot(&raw) {
-        shown = Some("window".to_owned());
+        shown = Some(CapturedPage { id: "window".to_owned(), url: None });
     }
     let bytes = shown.as_ref().and_then(|_| std::fs::read(&raw).ok());
     let _ = crate::home_fs::remove_file(&raw);
@@ -462,15 +539,58 @@ fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
     Some((turn_id, shown?, dir, picture))
 }
 
+/// Where Swift live mode (`scripts/live-code/live-mode.py`) names the tagged Debug build it runs:
+/// `~/Library/Caches/cmux-next/live-mode/preview.json`, `{"socket", "tag"}`, there only while live
+/// mode is on (RFD 0152: Swift Debug live-code in the preview window).
+pub(crate) const LIVE_PREVIEW: &str = "Library/Caches/cmux-next/live-mode/preview.json";
+
+/// The control socket of the Swift live-code build the agent is patching, when live mode is on
+/// and that socket is there: the window frames show, instead of the app the chat runs in.
+pub(crate) fn live_socket(user_home: &Path) -> Option<PathBuf> {
+    let bytes = std::fs::read(user_home.join(LIVE_PREVIEW)).ok()?;
+    let named: Value = serde_json::from_slice(&bytes).ok()?;
+    let socket = PathBuf::from(named.get("socket")?.as_str().filter(|s| !s.is_empty())?);
+    socket.exists().then_some(socket)
+}
+
 /// `cmux window screenshot --out OUT`: the app's window, its private areas masked by the app
-/// (`ScreenshotHandlers.swift`). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
+/// (`ScreenshotHandlers.swift`); while Swift live mode runs, the live-code build's window
+/// ([`live_socket`]). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
 fn window_shot(out: &Path) -> bool {
+    let binary = crate::login_env::cmux_cli();
+    bounded_shot(binary.as_ref(), &["window", "screenshot", "--out"], out)
+}
+
+/// `xcrun simctl io booted screenshot --type=png OUT`: the booted iOS Simulator's screen. Only on
+/// a Mac (or with `ACPMUX_XCRUN` naming a stand-in); false with no simulator booted, which simctl
+/// says at once. Bounded by [`WINDOW_LIMIT`].
+fn simulator_shot(out: &Path) -> bool {
+    let binary = std::env::var_os("ACPMUX_XCRUN").filter(|v| !v.is_empty());
+    let binary = match binary {
+        Some(b) => b,
+        None if cfg!(target_os = "macos") => "xcrun".into(),
+        None => return false,
+    };
+    simulator_shot_with(binary.as_ref(), out)
+}
+
+fn simulator_shot_with(xcrun: &std::ffi::OsStr, out: &Path) -> bool {
+    bounded_shot(xcrun, &["simctl", "io", "booted", "screenshot", "--type=png"], out)
+}
+
+/// Runs `binary ARGS OUT` to write a PNG at `out`, at most [`WINDOW_LIMIT`]; true when it exited 0
+/// and wrote a picture of a sane size.
+fn bounded_shot(binary: &std::ffi::OsStr, args: &[&str], out: &Path) -> bool {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else { return false };
-    let binary =
-        std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
     let mut command = tokio::process::Command::new(binary);
+    if let Some(socket) = std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .and_then(|home| live_socket(Path::new(&home)))
+    {
+        command.env("CMUX_SOCKET_PATH", socket);
+    }
     command
-        .args(["window", "screenshot", "--out"])
+        .args(args)
         .arg(out)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -480,7 +600,7 @@ fn window_shot(out: &Path) -> bool {
         tokio::time::timeout(WINDOW_LIMIT, command.status()).await.ok().and_then(Result::ok)
     });
     ran.is_some_and(|status| status.success())
-        && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() <= 8 << 20)
+        && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() <= MAX_CAPTURE_BYTES)
 }
 
 /// Keeps `picture` as the turn's next frame unless it matches the last kept one (a `turn-end`
@@ -628,26 +748,28 @@ fn look_now(session: &str) -> Value {
     if !turns().contains_key(session) {
         return json!({"error": "this chat has no workspace page to look at: open the page with the browser or `open` tools first"});
     }
-    // A look may always see the app's own window: the agent asked.
+    // A look may always see the simulator or the app's own window: the agent asked.
     if let Some(turn) = turns().get_mut(session) {
         turn.chrome = true;
+        turn.simulator = true;
     }
-    let Some((turn_id, tab, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
-        return json!({"error": "no agent-driven page is showing in this chat's workspace and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
+    let Some((turn_id, page, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
+        return json!({"error": "no agent-driven page is showing in this chat's workspace, no iOS Simulator is booted and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
     };
-    let kept = keep(session, &turn_id, &dir, &picture, "look", None);
+    let kept = keep(session, &turn_id, &dir, &picture, "look", page.url.clone());
     let hash = dhash(&picture);
     let first = turns().get(session).and_then(|t| t.frames.first().map(|f| f.hash));
     let moved = first.map_or(0, |f| bits(f, hash));
     let small = shrink(&picture, LOOK_EDGE, Some(LOOK_EDGE));
-    let Some(png) = encode(&small) else {
+    let Some(jpeg) = encode_jpeg(&small) else {
         return json!({"error": "the picture could not be encoded"});
     };
     json!({
-        "image": picture_value(&png),
+        "image": json!({"mimeType": "image/jpeg", "data": base64::engine::general_purpose::STANDARD.encode(jpeg)}),
         "width": small.width,
         "height": small.height,
-        "tab": tab,
+        "tab": page.id,
+        "url": page.url,
         "movedBits": moved,
         "kept": kept.map(|f| f.index),
         "turnId": turn_id,

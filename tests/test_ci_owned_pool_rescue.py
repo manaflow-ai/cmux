@@ -2452,7 +2452,8 @@ class Workflow(unittest.TestCase):
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
              "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification",
              "cmux-next car guards", "cmux-rd Windows host", "macOS cross-compile parity",
-             "nightly-next launch smoke", "cmux NEXT Stable"},
+             "nightly-next launch smoke", "cmux NEXT Stable",
+             "Cloud chat proof (staging and production, tagged DEV app)"},
         )
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
         self.assertEqual(
