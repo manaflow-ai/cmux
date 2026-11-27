@@ -96,8 +96,16 @@ pub(in crate::cli) struct Ended {
 }
 
 /// The keys of a `turn_end` item that say why its turn failed (`chat::turn_failure`).
-const FAILURE_KEYS: &[&str] =
-    &["error", "error_code", "code", "error_kind", "error_source", "recovery", "detail", "stalled_ms"];
+const FAILURE_KEYS: &[&str] = &[
+    "error",
+    "error_code",
+    "code",
+    "error_kind",
+    "error_source",
+    "recovery",
+    "detail",
+    "stalled_ms",
+];
 
 /// The `chat.turn_failed` message for `ended`: its status and the reason its end carries, or,
 /// when it carries none, says so and where to look, never a bare "the turn ended failed".
@@ -108,9 +116,7 @@ pub(in crate::cli) fn failed_turn_message(ended: &Ended, chat: &str) -> String {
     };
     let mut message = match field("error") {
         Some(error) => format!("the turn ended {status}: {error}"),
-        None if field("detail") == Some("stalled")
-            || ended.failure.contains_key("stalled_ms") =>
-        {
+        None if field("detail") == Some("stalled") || ended.failure.contains_key("stalled_ms") => {
             match ended.failure.get("stalled_ms").and_then(Value::as_u64) {
                 Some(ms) => format!(
                     "the turn ended {status}: the agent stalled, with no output for {} s",
@@ -173,7 +179,10 @@ pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended>
     let failure = FAILURE_KEYS
         .iter()
         .filter_map(|key| {
-            turn_end.get(*key).filter(|value| !value.is_null()).map(|v| ((*key).to_owned(), v.clone()))
+            turn_end
+                .get(*key)
+                .filter(|value| !value.is_null())
+                .map(|v| ((*key).to_owned(), v.clone()))
         })
         .collect();
     Some(Ended {

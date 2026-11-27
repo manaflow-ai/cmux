@@ -403,7 +403,9 @@ fn a_failed_turn_says_why_it_failed() {
         "the turn ended failed: agent exited (code 1): Error: auth expired"
     );
     assert_eq!(
-        failed(json!({"error": "the agent died.", "recovery": "acpmux restarts it on the next prompt"})),
+        failed(
+            json!({"error": "the agent died.", "recovery": "acpmux restarts it on the next prompt"})
+        ),
         "the turn ended failed: the agent died. acpmux restarts it on the next prompt"
     );
     assert_eq!(
@@ -419,7 +421,10 @@ fn a_failed_turn_says_why_it_failed() {
         "the turn ended cancelled"
     );
     let bare = failed(json!({"code": -32603}));
-    assert!(bare.starts_with("the turn ended failed (code -32603) and acpmux recorded no reason"), "{bare}");
+    assert!(
+        bare.starts_with("the turn ended failed (code -32603) and acpmux recorded no reason"),
+        "{bare}"
+    );
     assert!(bare.contains(CHAT), "it names where to look: {bare}");
     let bare = failed(json!({"error": "   "}));
     assert!(bare.contains("recorded no reason"), "blank is no reason: {bare}");
@@ -464,7 +469,11 @@ fn a_send_queued_behind_a_paused_queue_does_not_wait() {
         "chat": CHAT, "message_id": "m1", "state": "queued", "waits_for": "agent_start"}});
     let mut fake = Fake::new(receipt);
     fake.waits = VecDeque::from([idle()]);
-    fake.reads = VecDeque::from([vec![item(1, "user", "next"), item(2, "assistant", "ok"), end(3, "completed")]]);
+    fake.reads = VecDeque::from([vec![
+        item(1, "user", "next"),
+        item(2, "assistant", "ok"),
+        end(3, "completed"),
+    ]]);
     let outcome = run_turn(&mut fake, &begin, Duration::from_secs(60));
     assert_eq!(answer(&outcome)["reply"], "ok");
 }
