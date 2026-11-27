@@ -34,10 +34,10 @@
     {
       "id": "manaflow-ai/studio-look",
       "name": "Studio",
-      "tagline": "Dark and compact.",
+      "tagline": "Compact rows, orange accents.",
       "traits": [
-        "Black",
-        "Compact"
+        "Compact",
+        "Orange"
       ],
       "repo": "github.com/manaflow-ai/cmux-studio-look",
       "tags": [
