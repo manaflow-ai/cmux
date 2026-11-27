@@ -37,6 +37,7 @@ fn receipt(id: &str, state: &str) -> Receipt {
 #[derive(Default)]
 struct FakeHub {
     sent: Mutex<Vec<OutMessage>>,
+    offline: std::sync::atomic::AtomicBool,
     browsed: Mutex<Vec<(bool, Option<String>, Option<u64>)>>,
     reads: Mutex<Vec<String>>,
     acknowledgements: Mutex<Vec<String>>,
@@ -92,7 +93,14 @@ impl MeshHub for FakeHub {
 
     fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.sent.lock().unwrap().push(message.clone());
-        Box::pin(async { Ok(receipt(OWN_MESSAGE, "queued")) })
+        let offline = self.offline.load(std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move {
+            if offline {
+                Err(HubError::unavailable("offline"))
+            } else {
+                Ok(receipt(OWN_MESSAGE, "queued"))
+            }
+        })
     }
 
     fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
@@ -401,15 +409,13 @@ async fn retry_keys_are_stable_per_proven_sender_and_shared_by_both_send_routes(
             let legacy = reconnected.call(method::MUX_SEND_QUEUE, legacy_team_send(key)).await;
             assert!(legacy.get("error").is_none(), "{legacy}");
             let sent = fake.sent.lock().unwrap();
-            assert_eq!(sent.len(), start + 3);
+            assert_eq!(sent.len(), start + 1, "both routes share durable retry admission");
             assert!(
                 sent[start..].iter().all(|message| message.from.team_address.is_none()),
                 "a bare heartbeat suffix is not a sender address"
             );
             let assigned = &sent[start].idempotency_key;
             assert_ne!(assigned, key, "a raw caller-selected key is not namespaced");
-            assert_eq!(assigned, &sent[start + 1].idempotency_key);
-            assert_eq!(assigned, &sent[start + 2].idempotency_key);
             sender_keys.push(assigned.clone());
         }
         assert_eq!(
@@ -782,4 +788,62 @@ async fn listen_refuses_remote_callers_bad_addresses_and_bad_ids_before_the_hub(
     }
     assert!(fake.listen_calls.lock().unwrap().is_empty());
     assert!(fake.browsed.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn team_offline_rpc_restart_alias_and_sender_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("team-send-queue.json");
+    let (hub, fake) = setup(true);
+    hub.team_send_queue.open(&path);
+    fake.offline.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut sender = Rpc::connect(&hub, Origin::Local, Some((OTHER, true))).await;
+    let sent = sender
+        .call(
+            method::MUX_TEAM_SEND,
+            json!({
+                "to": "@team/reviewer", "body": "first", "idempotencyKey": "offline-first"
+            }),
+        )
+        .await;
+    let id = sent["result"]["messageId"].as_str().unwrap().to_owned();
+    assert!(id.starts_with("teamq:"), "{sent}");
+    let status = json!({"deliveryId": format!("mesh:{id}")});
+    hub.mesh.clear();
+    let queued = sender.call(method::MUX_SEND_STATUS, status.clone()).await;
+    assert_eq!(queued["result"]["status"], "queued", "{queued}");
+    // Both entry points queue without a mesh client, preserving the first item on disk.
+    let legacy = sender.call(method::MUX_SEND_QUEUE, legacy_team_send("offline-second")).await;
+    assert_eq!(legacy["result"]["status"], "queued", "{legacy}");
+    assert_eq!(hub.team_send_queue.pending().len(), 2);
+    drop(sender);
+    drop(hub);
+
+    let (restarted, online) = setup(true);
+    restarted.team_send_queue.open(&path);
+    let mut stranger = Rpc::connect(&restarted, Origin::Local, Some((OWN, true))).await;
+    let denied = stranger.call(method::MUX_SEND_STATUS, status.clone()).await;
+    assert_eq!(denied["error"]["data"]["reason"], "team.forbidden", "{denied}");
+    restarted.config.write().await.mesh_relay.as_mut().unwrap().team_messaging = false;
+    restarted.flush_team_send_queue(online.clone()).await;
+    assert!(online.sent.lock().unwrap().is_empty());
+    restarted.config.write().await.mesh_relay.as_mut().unwrap().team_messaging = true;
+    restarted.flush_team_send_queue(online.clone()).await;
+    assert_eq!(
+        online.sent.lock().unwrap().iter().map(|m| m.body.clone()).collect::<Vec<_>>(),
+        ["first", "hello"]
+    );
+    assert!(restarted.team_send_queue.pending().is_empty());
+    assert!(restarted.sent_team_message(OTHER, OWN_MESSAGE));
+
+    let (after_replay, _) = setup(true);
+    after_replay.team_send_queue.open(&path);
+    let mut sender = Rpc::connect(&after_replay, Origin::Local, Some((OTHER, true))).await;
+    let delivered = sender.call(method::MUX_SEND_STATUS, status).await;
+    assert_eq!(delivered["result"]["status"], "delivered", "{delivered}");
+    let mut stranger = Rpc::connect(&after_replay, Origin::Local, Some((OWN, true))).await;
+    let denied = stranger
+        .call(method::MUX_SEND_STATUS, json!({"deliveryId": format!("mesh:{OWN_MESSAGE}")}))
+        .await;
+    assert_eq!(denied["error"]["data"]["reason"], "team.forbidden", "{denied}");
 }

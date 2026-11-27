@@ -1,17 +1,12 @@
-//! Durable FIFO queue for `team_send` while the mesh hub is unavailable.
-//!
-//! Team messages are hub deliveries, so they must not enter the local prompt outbox. This small
-//! queue keeps the original wire message and retries its head when a heartbeat proves the hub is
-//! reachable again. A transient error leaves the head in place; a hub refusal settles and removes
-//! it so a permanent recipient error cannot spin forever.
+//! Durable FIFO admission and replay for team messages. Pending content and the receipt alias
+//! are changed in one atomic file replacement; ownership is recorded before an item is retired.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-
-use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 
 use crate::mesh::{MeshHub, OutMessage, Receipt};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,69 +19,123 @@ pub(crate) struct QueuedTeamSend {
     pub(crate) receipt: Receipt,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CompletedTeamSend {
+    id: String,
+    idempotency_key: String,
+    address: String,
+    caller: Option<String>,
+    receipt: Receipt,
+    completed_at: u64,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QueueFile {
+    pending: VecDeque<QueuedTeamSend>,
+    completed: VecDeque<CompletedTeamSend>,
+}
+
 #[derive(Default)]
 struct State {
     path: Option<PathBuf>,
-    pending: VecDeque<QueuedTeamSend>,
+    file: QueueFile,
+    load_error: Option<String>,
 }
 
-/// A persisted FIFO queue. The mutex is intentionally synchronous: mutations are tiny and the
-/// daemon calls the disk-backed methods from its blocking pool when handling a client request.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct TeamSendQueue {
-    state: Mutex<State>,
-    flushing: tokio::sync::Mutex<()>,
+    state: Arc<Mutex<State>>,
+    flushing: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl TeamSendQueue {
-    /// Opens the queue file. A missing or malformed file starts empty and is replaced on the next
-    /// enqueue; a malformed queue must not prevent the daemon from serving local sessions.
+    /// A malformed or unreadable file is preserved; new sends fail rather than erase it.
     pub(crate) fn open(&self, path: &Path) {
-        let pending = std::fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<VecDeque<QueuedTeamSend>>(&bytes).ok())
-            .unwrap_or_default();
+        let loaded = match std::fs::read(path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(QueueFile::default()),
+            Err(e) => Err(e.to_string()),
+            Ok(bytes) => serde_json::from_slice::<QueueFile>(&bytes)
+                .or_else(|_| {
+                    // The initial queue stored only its pending array.
+                    serde_json::from_slice::<VecDeque<QueuedTeamSend>>(&bytes)
+                        .map(|pending| QueueFile { pending, ..Default::default() })
+                })
+                .map_err(|e| e.to_string()),
+        };
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.path = Some(path.to_owned());
-        state.pending = pending;
+        match loaded {
+            Ok(file) => {
+                state.file = file;
+                state.load_error = None;
+            }
+            Err(error) => {
+                state.file = QueueFile::default();
+                state.load_error = Some(error);
+            }
+        }
     }
 
-    /// Adds one message, or returns the existing item for the same sender and idempotency key.
-    pub(crate) fn enqueue(
+    /// Clone boot never replays a copied queue, even if setting it aside fails.
+    pub(crate) fn open_at_start(&self, path: &Path, cloned: bool) {
+        if cloned {
+            let aside = path.with_extension("json.clone-boot");
+            if let Err(error) = crate::home_fs::rename(path, &aside)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                state.path = Some(path.to_owned());
+                state.load_error = Some(format!("copied queue could not be set aside: {error}"));
+                return;
+            }
+        }
+        self.open(path);
+    }
+
+    /// All sends, including online ones, enter this durable FIFO before any network attempt.
+    pub(crate) async fn enqueue(
+        &self,
+        message: OutMessage,
+        address: String,
+        caller: Option<String>,
+    ) -> anyhow::Result<Receipt> {
+        let queue = self.clone();
+        tokio::task::spawn_blocking(move || queue.enqueue_blocking(message, address, caller))
+            .await?
+    }
+
+    fn enqueue_blocking(
         &self,
         message: OutMessage,
         address: String,
         caller: Option<String>,
     ) -> anyhow::Result<Receipt> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(existing) = state.pending.iter().find(|entry| {
+        if let Some(error) = &state.load_error {
+            anyhow::bail!("team send queue could not be read: {error}");
+        }
+        if let Some(entry) = state.file.pending.iter().find(|entry| {
             entry.message.idempotency_key == message.idempotency_key
                 && entry.caller == caller
                 && entry.address == address
         }) {
-            return Ok(existing.receipt.clone());
+            return Ok(entry.receipt.clone());
+        }
+        if let Some(entry) = state.file.completed.iter().find(|entry| {
+            entry.idempotency_key == message.idempotency_key
+                && entry.caller == caller
+                && entry.address == address
+        }) {
+            return Ok(entry.receipt.clone());
         }
         let id = format!("teamq:{}", uuid::Uuid::now_v7());
-        let now = crate::store::now_ms();
-        let receipt = Receipt {
-            message_id: id.clone(),
-            state: "queued".into(),
-            to: message.to.clone(),
-            attempt: 0,
-            prompt_id: None,
-            detail: Some("the mesh hub is unavailable; queued for reconnect".into()),
-            created_at: now,
-            leased_until: None,
-            acked_at: None,
-            delivered_at: None,
-            read_at: None,
-            read_by: None,
-            acked_by: None,
-            resolution: None,
-            start_work: None,
-            result: None,
-        };
-        state.pending.push_back(QueuedTeamSend {
+        let receipt: Receipt = serde_json::from_value(serde_json::json!({
+            "messageId": id, "state": "queued", "to": message.to,
+            "createdAt": crate::store::now_ms(), "detail": "queued for the mesh hub"
+        }))?;
+        state.file.pending.push_back(QueuedTeamSend {
             id,
             message,
             address,
@@ -94,80 +143,108 @@ impl TeamSendQueue {
             receipt: receipt.clone(),
         });
         if let Err(error) = persist(&state) {
-            state.pending.pop_back();
+            state.file.pending.pop_back();
             return Err(error);
         }
         Ok(receipt)
     }
 
-    #[cfg(test)]
-    pub(crate) fn pending(&self) -> Vec<QueuedTeamSend> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).pending.iter().cloned().collect()
+    /// Both the original queued id and the eventual hub id resolve to the durable sender.
+    pub(crate) fn lookup(&self, id: &str) -> Option<(Receipt, String, Option<String>)> {
+        let id = id.strip_prefix("mesh:").unwrap_or(id);
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state
+            .file
+            .pending
+            .iter()
+            .find(|e| e.id == id)
+            .map(|e| (e.receipt.clone(), e.address.clone(), e.caller.clone()))
+            .or_else(|| {
+                state
+                    .file
+                    .completed
+                    .iter()
+                    .find(|e| e.id == id || e.receipt.message_id == id)
+                    .map(|e| (e.receipt.clone(), e.address.clone(), e.caller.clone()))
+            })
     }
 
-    /// Sends the queue head in order. Returned entries were taken by the hub and should be
-    /// recorded in the daemon's team receipt journal by the caller.
-    pub(crate) async fn flush(&self, mesh: &dyn MeshHub) -> Vec<(QueuedTeamSend, Receipt)> {
-        let _serial = self.flushing.lock().await;
-        let mut sent = Vec::new();
+    #[cfg(test)]
+    pub(crate) fn pending(&self) -> Vec<QueuedTeamSend> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).file.pending.iter().cloned().collect()
+    }
+
+    /// A concurrent flush exits immediately; heartbeats cannot accumulate waiting workers.
+    /// The callback persists sender ownership before the pending item is atomically retired.
+    /// It runs on the blocking pool along with the queue write.
+    pub(crate) async fn flush<F, A, Fut>(&self, mesh: &dyn MeshHub, record: F, enabled: A)
+    where
+        F: Fn(&QueuedTeamSend, &Receipt) -> bool + Send + Sync + 'static,
+        A: Fn() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        let Ok(_serial) = self.flushing.try_lock() else { return };
+        let record = Arc::new(record);
         loop {
             let item =
-                { self.state.lock().unwrap_or_else(|e| e.into_inner()).pending.front().cloned() };
-            let Some(item) = item else { break };
-            match mesh.send(&item.message).await {
-                Ok(receipt) => {
-                    let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                    if state.pending.front().is_some_and(|front| front.id == item.id) {
-                        state.pending.pop_front();
-                        if let Err(error) = persist(&state) {
-                            // Keep the item for an idempotent retry if its removal was not made
-                            // durable. The hub's idempotency key prevents a duplicate message.
-                            state.pending.push_front(item.clone());
-                            tracing::warn!(
-                                "team send queue: could not persist delivery: {error:#}"
-                            );
-                            break;
-                        }
-                        sent.push((item, receipt));
-                    }
-                }
+                self.state.lock().unwrap_or_else(|e| e.into_inner()).file.pending.front().cloned();
+            let Some(item) = item else { return };
+            if !enabled().await {
+                return;
+            }
+            let receipt = match mesh.send(&item.message).await {
+                Ok(receipt) => receipt,
                 Err(error) if error.refused => {
-                    let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                    if state.pending.front().is_some_and(|front| front.id == item.id) {
-                        state.pending.pop_front();
-                        if let Err(persist_error) = persist(&state) {
-                            state.pending.push_front(item.clone());
-                            tracing::warn!(
-                                "team send queue: could not persist refusal: {persist_error:#}"
-                            );
-                            break;
-                        }
-                        let mut receipt = item.receipt;
-                        receipt.state = "refused".into();
-                        receipt.detail = Some(error.to_string());
-                        sent.push((item, receipt));
-                    }
+                    let mut receipt = item.receipt.clone();
+                    receipt.state = "refused".into();
+                    receipt.detail = Some(error.to_string());
+                    receipt
                 }
-                Err(error) => {
-                    let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(front) =
-                        state.pending.front_mut().filter(|front| front.id == item.id)
-                    {
-                        front.receipt.detail = Some(error.to_string());
-                        let _ = persist(&state);
-                    }
-                    break;
+                Err(_) => return,
+            };
+            let (queue, record) = (self.clone(), record.clone());
+            let settled = tokio::task::spawn_blocking(move || {
+                if !record(&item, &receipt) {
+                    return Ok(false);
+                }
+                let mut state = queue.state.lock().unwrap_or_else(|e| e.into_inner());
+                if state.file.pending.front().is_none_or(|front| front.id != item.id) {
+                    return Ok(true);
+                }
+                let previous = state.file.clone();
+                state.file.pending.pop_front();
+                state.file.completed.push_back(CompletedTeamSend {
+                    id: item.id,
+                    idempotency_key: item.message.idempotency_key,
+                    address: item.address,
+                    caller: item.caller,
+                    receipt,
+                    completed_at: crate::store::now_ms(),
+                });
+                // Same seven-day receipt window as the outbox's team origin records.
+                let cutoff = crate::store::now_ms().saturating_sub(7 * 24 * 60 * 60 * 1000);
+                state.file.completed.retain(|entry| entry.completed_at >= cutoff);
+                if let Err(error) = persist(&state) {
+                    state.file = previous;
+                    return Err(error);
+                }
+                Ok(true)
+            })
+            .await;
+            match settled {
+                Ok(Ok(true)) => {}
+                other => {
+                    tracing::warn!("team send queue could not retire delivery: {other:?}");
+                    return;
                 }
             }
         }
-        sent
     }
 }
 
 fn persist(state: &State) -> anyhow::Result<()> {
     let Some(path) = state.path.as_deref() else { return Ok(()) };
-    let bytes = serde_json::to_vec_pretty(&state.pending)?;
-    crate::config::write_atomic(path, &bytes).map_err(Into::into)
+    crate::config::write_atomic(path, &serde_json::to_vec(&state.file)?).map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -183,6 +260,9 @@ mod tests {
     struct FakeMesh {
         bodies: Mutex<Vec<String>>,
         outcomes: Mutex<VecDeque<Result<Receipt, HubError>>>,
+        pause_first: std::sync::atomic::AtomicBool,
+        began: tokio::sync::Notify,
+        release: tokio::sync::Notify,
     }
 
     impl MeshHub for FakeMesh {
@@ -209,7 +289,14 @@ mod tests {
                 .unwrap()
                 .pop_front()
                 .unwrap_or_else(|| Ok(receipt("hub-message", "delivered")));
-            Box::pin(async move { outcome })
+            let pause = self.pause_first.swap(false, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async move {
+                if pause {
+                    self.began.notify_one();
+                    self.release.notified().await;
+                }
+                outcome
+            })
         }
 
         fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
@@ -242,8 +329,8 @@ mod tests {
         let path = dir.path().join("team-send-queue.json");
         let queue = TeamSendQueue::default();
         queue.open(&path);
-        queue.enqueue(message("first", "one"), "@member/agent".into(), None).unwrap();
-        queue.enqueue(message("second", "two"), "@member/agent".into(), None).unwrap();
+        queue.enqueue(message("first", "one"), "@member/agent".into(), None).await.unwrap();
+        queue.enqueue(message("second", "two"), "@member/agent".into(), None).await.unwrap();
 
         let reopened = TeamSendQueue::default();
         reopened.open(&path);
@@ -253,9 +340,8 @@ mod tests {
         );
 
         let mesh = FakeMesh::default();
-        let sent = reopened.flush(&mesh).await;
+        reopened.flush(&mesh, |_, _| true, || async { true }).await;
         assert_eq!(mesh.bodies.lock().unwrap().as_slice(), ["first", "second"]);
-        assert_eq!(sent.len(), 2);
         assert!(reopened.pending().is_empty());
         let after_restart = TeamSendQueue::default();
         after_restart.open(&path);
@@ -265,12 +351,12 @@ mod tests {
     #[tokio::test]
     async fn transient_failure_keeps_head_and_stops_fifo_flush() {
         let queue = TeamSendQueue::default();
-        queue.enqueue(message("first", "one"), "@member/agent".into(), None).unwrap();
-        queue.enqueue(message("second", "two"), "@member/agent".into(), None).unwrap();
+        queue.enqueue(message("first", "one"), "@member/agent".into(), None).await.unwrap();
+        queue.enqueue(message("second", "two"), "@member/agent".into(), None).await.unwrap();
         let mesh = FakeMesh::default();
         mesh.outcomes.lock().unwrap().push_back(Err(HubError::unavailable("offline")));
 
-        assert!(queue.flush(&mesh).await.is_empty());
+        queue.flush(&mesh, |_, _| true, || async { true }).await;
         assert_eq!(
             queue.pending().iter().map(|item| item.message.body.as_str()).collect::<Vec<_>>(),
             ["first", "second"]
@@ -280,13 +366,107 @@ mod tests {
     #[tokio::test]
     async fn refused_message_is_settled_and_removed() {
         let queue = TeamSendQueue::default();
-        queue.enqueue(message("bad", "one"), "@member/agent".into(), None).unwrap();
+        queue.enqueue(message("bad", "one"), "@member/agent".into(), None).await.unwrap();
         let mesh = FakeMesh::default();
         mesh.outcomes.lock().unwrap().push_back(Err(HubError::refused("unknown recipient")));
 
-        let sent = queue.flush(&mesh).await;
-        assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0].1.state, "refused");
+        queue
+            .flush(
+                &mesh,
+                |_, receipt| {
+                    assert_eq!(receipt.state, "refused");
+                    true
+                },
+                || async { true },
+            )
+            .await;
         assert!(queue.pending().is_empty());
+    }
+
+    #[tokio::test]
+    async fn reconnect_serializes_new_admission_and_overlapping_flushes() {
+        let queue = TeamSendQueue::default();
+        queue.enqueue(message("first", "one"), "@member/agent".into(), None).await.unwrap();
+        let mesh = Arc::new(FakeMesh::default());
+        mesh.pause_first.store(true, std::sync::atomic::Ordering::SeqCst);
+        let (q, m) = (queue.clone(), mesh.clone());
+        let task =
+            tokio::spawn(async move { q.flush(m.as_ref(), |_, _| true, || async { true }).await });
+        tokio::time::timeout(Duration::from_secs(5), mesh.began.notified()).await.unwrap();
+        queue.enqueue(message("second", "two"), "@member/agent".into(), None).await.unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            queue.flush(mesh.as_ref(), |_, _| true, || async { true }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(mesh.bodies.lock().unwrap().as_slice(), ["first"]);
+        mesh.release.notify_one();
+        tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+        assert_eq!(mesh.bodies.lock().unwrap().as_slice(), ["first", "second"]);
+        assert!(queue.pending().is_empty());
+    }
+
+    #[tokio::test]
+    async fn ownership_and_atomic_write_failures_leave_head_replayable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("queue.json");
+        let queue = TeamSendQueue::default();
+        queue.open(&path);
+        let id = queue
+            .enqueue(message("first", "one"), "@member/agent".into(), Some("sender".into()))
+            .await
+            .unwrap()
+            .message_id;
+        let mesh = FakeMesh::default();
+        queue.flush(&mesh, |_, _| false, || async { true }).await;
+        assert_eq!(queue.pending().len(), 1);
+        queue.state.lock().unwrap().path = Some(dir.path().join("missing").join("queue.json"));
+        // A path occupied by a directory makes replacement fail even as root.
+        let bad_path = dir.path().join("directory");
+        std::fs::create_dir(&bad_path).unwrap();
+        queue.state.lock().unwrap().path = Some(bad_path);
+        queue.flush(&mesh, |_, _| true, || async { true }).await;
+        assert_eq!(queue.pending().len(), 1);
+        assert_eq!(queue.lookup(&id).unwrap().0.state, "queued");
+        let restarted = TeamSendQueue::default();
+        restarted.open(&path);
+        assert_eq!(restarted.pending().len(), 1);
+        restarted.flush(&mesh, |_, _| true, || async { true }).await;
+        let delivered = TeamSendQueue::default();
+        delivered.open(&path);
+        assert!(delivered.pending().is_empty());
+        let (receipt, _, caller) = delivered.lookup(&id).unwrap();
+        assert_eq!(receipt.message_id, "hub-message");
+        assert_eq!(caller.as_deref(), Some("sender"));
+    }
+
+    #[tokio::test]
+    async fn corrupt_and_copied_queues_never_overwrite_or_replay_source_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("queue.json");
+        std::fs::write(&path, b"not json").unwrap();
+        let queue = TeamSendQueue::default();
+        queue.open(&path);
+        assert!(queue.enqueue(message("new", "one"), "@member/agent".into(), None).await.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"not json");
+        let source = dir.path().join("source.json");
+        let queue = TeamSendQueue::default();
+        queue.open(&source);
+        queue.enqueue(message("source", "two"), "@member/agent".into(), None).await.unwrap();
+        let copied = TeamSendQueue::default();
+        copied.open_at_start(&source, true);
+        assert!(copied.pending().is_empty());
+        assert!(source.with_extension("json.clone-boot").is_file());
+        // A failed rename also keeps the copied message out of replay, and refuses new sends.
+        let failed_path = dir.path().join("failed.json");
+        std::fs::copy(source.with_extension("json.clone-boot"), &failed_path).unwrap();
+        std::fs::create_dir(failed_path.with_extension("json.clone-boot")).unwrap();
+        let failed = TeamSendQueue::default();
+        failed.open_at_start(&failed_path, true);
+        assert!(failed.pending().is_empty());
+        assert!(
+            failed.enqueue(message("new", "three"), "@member/agent".into(), None).await.is_err()
+        );
     }
 }

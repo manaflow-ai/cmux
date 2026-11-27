@@ -138,11 +138,8 @@ pub(super) async fn queue(
     // local session names. The mesh sender applies the team-messaging gate and address
     // validation before posting them.
     if target.starts_with('@') {
-        if let Some(mesh) = hub.mesh.get() {
-            return super::mesh_send::send(hub, conn, &mesh, &request, &target).await;
-        }
-        return Err(RpcError::invalid_params("team messaging requires a configured mesh relay")
-            .with_data(json!({"reason": "team_messaging_unavailable", "address": target})));
+        let mesh = hub.mesh.get();
+        return super::mesh_send::send(hub, conn, mesh.as_ref(), &request, &target).await;
     }
     // Its prompt id, fixed before anything is sent: the hub's key for it (`mesh_send.rs`) and
     // the outbox's are the same, so a post the outbox sends again is the same message.
@@ -572,7 +569,7 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     }
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
-    if id.starts_with(super::mesh_send::PREFIX)
+    if (id.starts_with(super::mesh_send::PREFIX) || id.starts_with("teamq:"))
         && let Some(reply) = super::mesh_relay::read::mesh_status(hub, conn, id).await
     {
         return reply;

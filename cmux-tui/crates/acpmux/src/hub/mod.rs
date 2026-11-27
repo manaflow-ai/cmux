@@ -2168,24 +2168,42 @@ impl Hub {
         self.outbox.unsettled()
     }
 
-    /// Flushes offline team sends after the relay has proved the hub reachable again.
-    pub(crate) async fn flush_team_send_queue(&self, mesh: Arc<dyn crate::mesh::MeshHub>) {
-        for (queued, receipt) in self.team_send_queue.flush(mesh.as_ref()).await {
-            if !self.outbox.record_team_receipt(
-                &receipt.message_id,
-                &queued.address,
-                queued.caller.as_deref(),
-            ) {
-                tracing::warn!(message_id = %receipt.message_id, "team send receipt could not be persisted");
-                continue;
-            }
-            if let Some(caller) = queued.caller.as_deref()
-                && let Ok(session) = self.resolve(caller)
-                && !self.record_team_send(&session, &receipt.message_id)
-            {
-                tracing::warn!(message_id = %receipt.message_id, "team sender receipt could not be persisted");
-            }
-        }
+    /// Replay is opt-in at the moment of delivery as well as admission.
+    pub(crate) async fn flush_team_send_queue(
+        self: &Arc<Self>,
+        mesh: Arc<dyn crate::mesh::MeshHub>,
+    ) {
+        let hub = self.clone();
+        self.team_send_queue
+            .flush(
+                mesh.as_ref(),
+                move |queued, receipt| {
+                    if !hub.outbox.record_team_receipt(
+                        &receipt.message_id,
+                        &queued.address,
+                        queued.caller.as_deref(),
+                    ) {
+                        return false;
+                    }
+                    if let Some(caller) = queued.caller.as_deref()
+                        && let Ok(session) = hub.resolve(caller)
+                    {
+                        return hub.record_team_send(&session, &receipt.message_id);
+                    }
+                    true
+                },
+                || async {
+                    !self.is_stopping()
+                        && self
+                            .config
+                            .read()
+                            .await
+                            .mesh_relay
+                            .as_ref()
+                            .is_some_and(|relay| relay.team_messaging)
+                },
+            )
+            .await;
     }
 
     /// A background reader of [`Hub::subscribe`] fell `missed` events behind (rework stage 3,
