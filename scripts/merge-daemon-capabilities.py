@@ -2,7 +2,7 @@
 """Git merge driver for plans/cmux-next/daemon-capabilities.json: a three-way set merge.
 
 The file is the app's daemon capability lists (DaemonCapabilityExportTests
-writes it from DaemonEndpoint.swift): one sorted array per list. Two branches
+and check-daemon-capabilities-fresh.py write it from cmux-tui/spec/gui-capabilities.json): one sorted array per list. Two branches
 that each add a capability collide positionally under a line merge, and the
 old `cmux-generated-v1` driver (`true`) kept the current branch's copy whole,
 so a rebase silently dropped the other branch's new entries.

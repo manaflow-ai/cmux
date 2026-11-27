@@ -256,6 +256,10 @@ path = "tests/test_ci_fast_checks_rust_nextest.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_checks_warm_checkout.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_tier_current_base.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_fast_tier_current_base.py"
@@ -391,6 +395,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_homebrew_untrusted_input.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_hot_verify_dispatch_wait_capped.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_hot_verify_gallery_read_capped.py"
 lane = "linux-guard"
 
 [[test]]
@@ -769,6 +781,10 @@ path = "tests/test_ci_production_secrets_protected_env.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_proof_record.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_protocol_skew_check.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_protocol_skew_check.py"
@@ -1142,6 +1158,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_traced_inputs.py"
 
 [[test]]
+path = "tests/test_ci_transcript_replay_report.py"
+lane = "manual"
+reason = "Unit tests of scripts/ci/transcript_replay_report.py, the per-kind summary transcript-replay-perf-report.yml writes. Run python3 tests/test_ci_transcript_replay_report.py after changing the script (seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_tree_result.py"
 lane = "linux-guard"
 
@@ -1159,6 +1180,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tui_tree_checkout_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_proof_verdict.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1201,6 +1226,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_file_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_git_fetch_bounds.py"
 lane = "linux-guard"
 
 [[test]]

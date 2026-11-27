@@ -11,6 +11,7 @@ commit, depth and sparse paths; every other runner, and every non-pull-request r
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -90,7 +91,8 @@ class LightJobsPoolMirrorCheckout(unittest.TestCase):
                     self.assertEqual(pool["env"]["SPARSE"].split(), ["/" + p.strip("/") + "/" for p in sparse.split()])
                 else:
                     self.assertEqual(pool["env"]["SPARSE"], "")
-                fetch = next(line for line in pool["run"].splitlines() if "git fetch" in line)
+                fetch = next(line for line in pool["run"].splitlines()
+                             if re.search(r"\bgit(?:\s+-c\s+\S+)*\s+fetch\s", line))
                 self.assertNotIn("--filter", fetch)
                 self.assertIn("--depth=2", fetch)
                 self.assertNotIn("$TOKEN", fetch)
