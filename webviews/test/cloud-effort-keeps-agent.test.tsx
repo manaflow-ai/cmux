@@ -155,14 +155,14 @@ async function render(snapshot: Snapshot) {
 }
 
 /// The chips gone and drawn again on the same page (Runs On's row redrawn, the page shown again).
-async function remount() {
+async function remount(harness = "codex") {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
   doc()
     .body.querySelectorAll(".ui-popup")
     .forEach((node) => node.remove());
-  await render(await newTab(true, "codex"));
+  await render(await newTab(true, harness));
 }
 
 const doc = () => dom.window.document;
@@ -407,4 +407,56 @@ test("with Cloud picked, a Codex session this Mac opens behind the page never re
   expect(chipFace()).toContain("Opus 5.5");
   expect(chipFace()).toContain("Medium");
   expect(chipFace()).not.toContain("Codex");
+});
+
+/// Opens the model menu on `tab` and clicks a model row there that is not the checked one (a click on
+/// the running model lands nothing); returns that row's name.
+async function pickFirstModel(tab: string): Promise<string> {
+  if (!cols()) await click(chip());
+  await until(
+    () => cols() !== null,
+    () => settle(),
+  );
+  const rail = [...cols()!.querySelectorAll<HTMLElement>('.acpmux-cols-rail [role="tab"]')].find(
+    (candidate) => candidate.getAttribute("aria-label") === tab,
+  );
+  expect(rail, `the ${tab} tab`).toBeDefined();
+  await click(rail!);
+  const row = cols()!.querySelector<HTMLElement>('.acpmux-cols-row[role="option"]:not([aria-selected="true"])');
+  expect(row, `a ${tab} model row`).not.toBeNull();
+  const name = nameOf(row!);
+  await click(row!);
+  return name;
+}
+
+// The other direction: a page that starts on Claude, Cloud picked, Codex picked, then its levels. The
+// chips and the Cloud send stay on Codex; nothing starts Claude here (the report: a Codex Cloud chat
+// came up on Claude, "Claude Code is signed out").
+test("with Cloud picked, a Codex pick on a Claude page then High, elsewhere, Medium stays Codex", async () => {
+  calls.length = 0;
+  const { cloudAgentPick } = await import("../src/agent-session/acpmux/cloudAgentPick");
+  await render(await newTab(true, "claude"));
+  const codex = await pickFirstModel("Codex");
+  expect(cloudAgentPick()).toMatchObject({ harness: "codex" });
+  await elsewhereThenLevel("High");
+  await elsewhereThenLevel("Medium");
+  expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
+  expect(cloudAgentPick()).toMatchObject({ harness: "codex", effort: "medium" });
+  await remount("claude");
+  expect(chipFace()).toContain(codex);
+  expect(chipFace()).toContain("Medium");
+  expect(chipFace()).not.toContain("Opus");
+});
+
+// A Cloud pick of Claude made earlier on the page, then Codex picked on This Mac: the latest pick wins,
+// so Cloud picked again shows and starts Codex, never the earlier Claude.
+test("a This Mac pick of Codex drops an earlier Cloud pick of Claude", async () => {
+  calls.length = 0;
+  const { cloudAgentPick, holdCloudAgentPick } = await import("../src/agent-session/acpmux/cloudAgentPick");
+  holdCloudAgentPick({ harness: "claude", model: "claude-opus-5-5", effort: "high" });
+  await render(await newTab(false, "codex"));
+  await pickFirstModel("Codex");
+  expect(cloudAgentPick()).toBeUndefined();
+  await remount();
+  expect(chipFace()).not.toContain("Opus");
 });
