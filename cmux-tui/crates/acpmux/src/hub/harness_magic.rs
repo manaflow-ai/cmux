@@ -36,6 +36,7 @@ pub(crate) struct Feature {
 pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_rules::FEATURE, on: || enabled(super::turn_rules::FEATURE) },
     Feature { name: super::cache_alarm::FEATURE, on: || enabled(super::cache_alarm::FEATURE) },
+    Feature { name: crate::spec_exec::FEATURE, on: crate::spec_exec::enabled },
     Feature { name: "verify", on: super::verify::enabled },
     Feature { name: "prefetch", on: super::prefetch::enabled },
     Feature { name: "surgery", on: super::surgery::enabled },
@@ -44,7 +45,6 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
-    Feature { name: crate::spec_exec::FEATURE, on: crate::spec_exec::enabled },
     Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
 ];
 
