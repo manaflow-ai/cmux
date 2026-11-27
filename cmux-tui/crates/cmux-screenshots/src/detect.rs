@@ -163,7 +163,7 @@ impl<'a, E: Environment + ?Sized> Detector<'a, E> {
         let text = value.trim();
         if let Some(rest) = text.strip_prefix("file://") {
             let path = match rest.find('/') {
-                Some(slash) => &rest[slash..],
+                Some(slash) => rest.get(slash..)?,
                 None => return None,
             };
             let path = path.split(['?', '#']).next().unwrap_or_default();

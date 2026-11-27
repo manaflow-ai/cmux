@@ -205,14 +205,16 @@ fn rule_from_json(json: &str) -> Option<ScanRule> {
 /// A rule from its JSON object; a missing field takes the default.
 fn rule_from_value(value: &serde_json::Value) -> ScanRule {
     let strings = |key: &str| -> Vec<String> {
-        value[key]
-            .as_array()
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_array)
             .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
             .unwrap_or_default()
     };
     ScanRule {
-        kinds: value["kinds"]
-            .as_u64()
+        kinds: value
+            .get("kinds")
+            .and_then(serde_json::Value::as_u64)
             .and_then(|k| u32::try_from(k).ok())
             .unwrap_or(crate::rule::IMAGES_AND_VIDEOS),
         extra_image_extensions: strings("extraImageExtensions")
@@ -220,8 +222,15 @@ fn rule_from_value(value: &serde_json::Value) -> ScanRule {
             .map(|e| e.to_lowercase())
             .collect(),
         name_prefixes: strings("namePrefixes"),
-        depth: value["depth"].as_u64().and_then(|d| usize::try_from(d).ok()).unwrap_or(0),
-        folder_prefix: value["folderPrefix"].as_str().map(str::to_owned),
+        depth: value
+            .get("depth")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|d| usize::try_from(d).ok())
+            .unwrap_or(0),
+        folder_prefix: value
+            .get("folderPrefix")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
     }
 }
 
