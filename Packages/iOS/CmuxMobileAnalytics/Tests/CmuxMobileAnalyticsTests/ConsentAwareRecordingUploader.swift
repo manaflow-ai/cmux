@@ -1,6 +1,11 @@
+#if canImport(os)
 import os
+#endif
 
 @testable import CmuxMobileAnalytics
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 
 final class ConsentAwareRecordingUploader: AnalyticsUploading, Sendable {
     private let state = OSAllocatedUnfairLock(

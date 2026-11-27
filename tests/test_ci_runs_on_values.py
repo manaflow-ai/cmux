@@ -113,6 +113,37 @@ class ThisTree(unittest.TestCase):
         self.assertIn("b:w.yml a: runs-on reads vars.CI_IOS_INTERNAL_RUNNER", found[0])
         self.assertIn("vars.NEW_ONE", found[1])
 
+    def test_every_repo_variable_handed_in_names_none_missing_and_still_reads_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "w.yml").write_text("jobs:\n  a:\n    runs-on: ${{ vars.NEW_ONE || 'x' }}\n"
+                                          "  b:\n    runs-on: ${{ vars.SET_ONE || 'x' }}\n"
+                                          "  c:\n    runs-on: ${{ vars.UNSET_ONE || 'x' }}\n", encoding="utf-8")
+            env = {check.RUNS_ON_VARIABLES_ENV: "LINUX_RUNNER=cmux-linux\n",
+                   check.ALL_VARIABLES_ENV: '{"NEW_ONE": "cmux-linux", "SET_ONE": "glaeda-runner-one"}'}
+            self.assertEqual(check.main([f"b={tmp}"], env), 1)
+            with tempfile.TemporaryDirectory() as out:
+                summary = Path(out, "s.md")
+                check.main([f"b={tmp}"], env | {"GITHUB_STEP_SUMMARY": str(summary)})
+                text = summary.read_text(encoding="utf-8")
+        self.assertIn("vars.SET_ONE='glaeda-runner-one'", text)
+        self.assertNotIn("does not pass", text)
+
+    def test_a_variable_read_in_another_case_gets_its_value(self) -> None:
+        # GitHub reads vars.new_one and vars.NEW_ONE as the same variable (review round 1).
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "w.yml").write_text("jobs:\n  a:\n    runs-on: ${{ vars.new_one || 'x' }}\n", encoding="utf-8")
+            env = {check.RUNS_ON_VARIABLES_ENV: "LINUX_RUNNER=cmux-linux\n",
+                   check.ALL_VARIABLES_ENV: '{"NEW_ONE": "glaeda-runner-one"}'}
+            with tempfile.TemporaryDirectory() as out:
+                summary = Path(out, "s.md")
+                self.assertEqual(check.main([f"b={tmp}"], env | {"GITHUB_STEP_SUMMARY": str(summary)}), 1)
+                text = summary.read_text(encoding="utf-8")
+        self.assertIn("vars.new_one='glaeda-runner-one'", text)
+
+    def test_without_every_variable_an_unpassed_one_is_still_named(self) -> None:
+        self.assertIsNone(check.parse_all(""))
+        self.assertIsNone(check.parse_all("not json"))
+
 
 def live_step() -> dict | None:
     doc = yaml.load((WORKFLOWS / "ci-repo-variables.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
@@ -135,12 +166,25 @@ class Wiring(unittest.TestCase):
         missing = (check.read_variables([("here", WORKFLOWS)]) | set(check.RUNNER_NAME_VARIABLES)) - set(passed)
         self.assertEqual(missing, set())
 
+    def test_no_variable_list_names_a_variable_twice(self) -> None:
+        # Both checkers refuse a repeated NAME ("a variable's value spans lines"), but they run only on the
+        # schedule, so a duplicated line merged on 2026-11-25 (70f31a8a) kept main's check red for two days.
+        for step in self.workflow()["jobs"]["check"]["steps"]:
+            for env_name, block in (step.get("env") or {}).items():
+                names = re.findall(r"^\s*([A-Za-z0-9_]+)=", block, re.M) if "\n" in block else []
+                repeated = sorted({n for n in names if names.count(n) > 1})
+                self.assertEqual(repeated, [], f"{env_name} names a variable twice")
+
     def test_the_live_check_reads_the_branches_that_run_workflows(self) -> None:
         step = next(s for s in self.workflow()["jobs"]["check"]["steps"] if s.get("id") == "runs-on-values")
         branches = step["env"]["ROUTE_BRANCHES"].split()
         self.assertTrue({"main", "feat-cmux-next", "nightly-next", "rc/cnx-ios-builder"} <= set(branches), branches)
         self.assertIn("python3 scripts/ci/runs_on_values.py", step["run"])
         self.assertIn("schedule", self.workflow()["on"])
+
+    def test_the_live_check_gets_every_repository_variable(self) -> None:
+        step = next(s for s in self.workflow()["jobs"]["check"]["steps"] if s.get("id") == "runs-on-values")
+        self.assertEqual(step["env"][check.ALL_VARIABLES_ENV].strip(), "${{ toJSON(vars) }}")
 
 
 if __name__ == "__main__":

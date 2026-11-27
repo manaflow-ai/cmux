@@ -1,0 +1,83 @@
+name: Spare issue tokens for a failure report
+description: >-
+  Mints issue-writing tokens on the cmux-bot and glaeda-route Apps, each its own installation with its own hourly
+  REST budget, for a workflow's own failure report when the job's GITHUB_TOKEN is rate limited (runs 45548650589
+  and 45551813915: the nightly failure report died on "API rate limit exceeded for installation"). Every mint is
+  optional: a missing App, key or permission leaves that output empty and the report uses the tokens it has.
+  Minting signs with the App's key and does not draw on any installation's budget. Used with
+  scripts/ci/incident_report.cjs (github-script) or scripts/ci/gh-spare (gh CLI). A composite action reads no
+  secrets or vars, so the caller passes them.
+
+inputs:
+  bot-app-id:
+    description: vars.CMUX_BOT_APP_ID
+    required: false
+    default: ''
+  bot-key:
+    description: secrets.CMUX_BOT_APP_KEY
+    required: false
+    default: ''
+  route-app-id:
+    description: vars.GLAEDA_ROUTE_APP_ID
+    required: false
+    default: ''
+  route-key:
+    description: secrets.GLAEDA_ROUTE_APP_KEY
+    required: false
+    default: ''
+
+outputs:
+  cmux-bot:
+    description: The cmux-bot App's token (issues write, actions and contents read), or empty.
+    value: ${{ steps.bot.outputs.token || steps.bot-issues.outputs.token }}
+  glaeda-route:
+    description: The glaeda-route App's token (issues write, actions and contents read), or empty.
+    value: ${{ steps.route.outputs.token || steps.route-issues.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mint the cmux-bot issues token
+      id: bot
+      if: ${{ inputs.bot-app-id != '' && inputs.bot-key != '' }}
+      continue-on-error: true
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        app-id: ${{ inputs.bot-app-id }}
+        private-key: ${{ inputs.bot-key }}
+        permission-issues: write
+        permission-actions: read
+        permission-contents: read
+
+    # The mint is all or nothing: an App without one of the read permissions above still writes issues.
+    - name: Mint the cmux-bot issues token without the reads
+      id: bot-issues
+      if: ${{ inputs.bot-app-id != '' && inputs.bot-key != '' && steps.bot.outputs.token == '' }}
+      continue-on-error: true
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        app-id: ${{ inputs.bot-app-id }}
+        private-key: ${{ inputs.bot-key }}
+        permission-issues: write
+
+    - name: Mint the glaeda-route issues token
+      id: route
+      if: ${{ inputs.route-app-id != '' && inputs.route-key != '' }}
+      continue-on-error: true
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        app-id: ${{ inputs.route-app-id }}
+        private-key: ${{ inputs.route-key }}
+        permission-issues: write
+        permission-actions: read
+        permission-contents: read
+
+    - name: Mint the glaeda-route issues token without the reads
+      id: route-issues
+      if: ${{ inputs.route-app-id != '' && inputs.route-key != '' && steps.route.outputs.token == '' }}
+      continue-on-error: true
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        app-id: ${{ inputs.route-app-id }}
+        private-key: ${{ inputs.route-key }}
+        permission-issues: write

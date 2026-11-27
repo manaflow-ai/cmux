@@ -561,12 +561,18 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/nightly-next-launch-smoke.yml",
     # feat-cmux-next only; calls pr-pipeline.yml, whose ios job takes the ios-runner pool picker's output.
     ".github/workflows/pr-router.yml",
+    # feat-cmux-next only; its build job takes the pool picker job route's output (cmux#55612).
+    ".github/workflows/ios-sim-linux-build.yml",
     ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
     # Its full-text job takes the side label on attempt 1 (on both branches).
     ".github/workflows/test-feed-reply-providers.yml",
+    # feat-cmux-next's manual Cloud chat proof: both proof jobs take the owned gui pool on attempt 1 while
+    # CI_PR_POOL_OWNED is 1, and a re-run takes pick-proof-runner's Blacksmith label or the macos_26 pool
+    # (feat-cmux-next twin: cmux#58158).
+    ".github/workflows/cloud-chat-proof.yml",
 })
 # Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
 # re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
@@ -647,6 +653,43 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",
+    ".github/workflows/cmux-next-head-compile.yml":
+        "feat-cmux-next only; its compile job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a push-time compile data point; the next feat-cmux-next push compiles "
+        "again",
+    ".github/workflows/cmux-next-ios-energy-nightly.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; an energy bench that must run on an owned device host; the next push "
+        "measures again",
+    ".github/workflows/cmux-next-ios-keyboard-motion.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a keyboard motion bench that must run on an owned device host; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-iphone-clips.yml":
+        "feat-cmux-next only; its record job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; records iPhone clips on an owned device host; the next push records again",
+    ".github/workflows/cmux-next-perf-bench.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a dispatched perf bench whose numbers mean owned hardware; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-stress-bench.yml":
+        "feat-cmux-next only; its measure job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a dispatched stress bench whose numbers mean owned hardware; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-tab-switch.yml":
+        "feat-cmux-next only; its frames job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a tab-switch frame bench whose numbers mean owned hardware; the next push "
+        "measures again",
+    ".github/workflows/fleet-compile-check.yml":
+        "feat-cmux-next only; its compile-check job names the literal glaeda-gateway-xcode-26.6 label on every "
+        "attempt, so a re-run would not move it; a dispatched fleet compile check; its cmux-ci caller "
+        "re-dispatches it",
+    ".github/workflows/ios-base-bisect.yml":
+        "feat-cmux-next only; its bisect job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a bisect that nothing required waits on; the next base red starts another",
+    ".github/workflows/screen-stream-eval.yml":
+        "feat-cmux-next only; its eval job names the literal glaeda-gateway-xcode-26.6 label on every attempt, so "
+        "a re-run would not move it; a dispatched screen stream eval; a person re-runs it",
 }
 # Every workflow this rescue acts on (target_from_event()); owned_pool_sources.py
 # must find no owned workflow outside it and UNRESCUED_WORKFLOW_PATHS.
@@ -6305,6 +6348,11 @@ PULL_DISPATCH_RESCUE_CLAUSE = (
     "inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || "
     "inputs.no_reuse == true))"
 )
+# cmux#45176 (feat-cmux-next, 2026-11-17) cut PULL_DISPATCH_RESCUE_CLAUSE from every fallback: a re-run reaches
+# Blacksmith only through the placement's retry label. A head's placement reads such a dispatch as its pull request's
+# run under `pr-rescue` once its macos-placement step sets this variable (next_macos_cascade.PULL_DISPATCH). Without
+# it this gate refused every head after 2026-11-17, even past OWNED_WAIT_BOUND_SECONDS.
+PULL_DISPATCH_PLACEMENT = "CMUX_NEXT_PULL_DISPATCH:"
 
 
 def stall_pull_only(switch: str | None) -> bool:
@@ -6318,8 +6366,8 @@ def stall_pull_only(switch: str | None) -> bool:
 def stall_moves_dispatch(client: GitHub, run: Mapping[str, Any], log: Callable[[str], None]) -> bool:
     """Whether the stall move under `pr-rescue` (stall_pull_only()) may move a cmux-next.yml run that is not a
     pull_request run: a dispatch gating one pull request (same_tree_pull_dispatch()) whose head's cmux-next.yml
-    carries PULL_DISPATCH_RESCUE_CLAUSE, so the bot's re-run leaves the side lane. One read of the workflow at the
-    run's head; a failed read leaves the run to the next scan."""
+    carries PULL_DISPATCH_RESCUE_CLAUSE or PULL_DISPATCH_PLACEMENT, so the bot's re-run leaves the side lane. One
+    read of the workflow at the run's head; a failed read leaves the run to the next scan."""
     if not same_tree_pull_dispatch(run):
         return False
     head = str(run.get("head_sha") or "")
@@ -6329,7 +6377,7 @@ def stall_moves_dispatch(client: GitHub, run: Mapping[str, Any], log: Callable[[
         log(f"[run {run.get('id')}] {STALL_MOVE}: could not read {CMUX_NEXT_WORKFLOW_PATH} at {head[:12]} ({error}); "
             "next scan")
         return False
-    if PULL_DISPATCH_RESCUE_CLAUSE not in (text or ""):
+    if PULL_DISPATCH_RESCUE_CLAUSE not in (text or "") and PULL_DISPATCH_PLACEMENT not in (text or ""):
         log(f"[run {run.get('id')}] {STALL_MOVE} leaves it: its head {head[:12]}'s {CMUX_NEXT_WORKFLOW_PATH} sends a "
             "bot's re-run of this dispatch to the side lane under pr-rescue")
         return False

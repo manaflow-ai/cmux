@@ -268,6 +268,9 @@ class ReadsOnlyTests(unittest.TestCase):
         ("run", "list", "--repo", "o/r", "--workflow", "cmux-tui-artifacts.yml", "--json", "status"),
         ("run", "view", "1", "--json", "jobs"),
         ("workflow", "view", "nightly.yml"),
+        # The nightly continuation's artifact downloads (auto-resume-nightly-notarization.yml).
+        ("run", "download", "1", "--repo", "o/r", "--name", "cmux-nightly-notary-arm64", "--dir", "in"),
+        ("release", "download", "nightly", "--repo", "o/r", "--pattern", "appcast.xml"),
     )
     WRITES = (
         ("workflow", "run", "nightly.yml", "--repo", "o/r", "--ref", "main", "-f", "promote_nightly_next_sha=tick:x"),
@@ -319,6 +322,48 @@ class ReadsOnlyTests(unittest.TestCase):
         self.assertFalse((h.runner_temp / "gh-app-token" / "reads-only").exists())
 
 
+class NightlyContinuationWiringTests(unittest.TestCase):
+    """The nightly continuation's gh jobs read as the cmux-bot App before any gh call, github.token
+    as the fallback: on 2026-11-25 the github.token quota every workflow shares sat at 0/5000 and
+    refused this workflow's artifact downloads (run 45700667186) and its publish for three hours."""
+
+    JOBS = {
+        "auto-resume-nightly-notarization.yml": (
+            "preflight", "poll", "wait-and-staple", "poll-outer", "staple-outer", "poll-stapled", "staple-stapled"),
+        "resume-nightly-notarization.yml": ("resume",),
+    }
+
+    def test_every_gh_job_reads_as_the_app_first(self) -> None:
+        import re
+        import yaml
+        workflows = SCRIPT.parents[2] / ".github" / "workflows"
+        for workflow, jobs in self.JOBS.items():
+            doc = yaml.safe_load((workflows / workflow).read_text(encoding="utf-8"))
+            for name, job in doc["jobs"].items():
+                steps = job["steps"]
+                runs = [str(step.get("run", "")) for step in steps]
+                uses_gh = [i for i, run in enumerate(runs) if re.search(r"(^|[\s;|(])gh\s", run)
+                           and "gh_app_token.sh" not in run and "gh_budget_wait.sh" not in run]
+                if not uses_gh:
+                    continue
+                with self.subTest(workflow=workflow, job=name):
+                    if name in ("publish", "republish-deltas"):
+                        install = next(i for i, run in enumerate(runs) if "gh_app_token.sh --install" in run)
+                    else:
+                        self.assertIn(name, jobs)  # a new gh job joins the list
+                        install = next(i for i, run in enumerate(runs) if "gh_app_token.sh --install --reads-only" in run)
+                        mint = steps[install - 1]
+                        self.assertEqual(mint.get("id"), "read-token")
+                        self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+                        self.assertTrue(mint.get("continue-on-error"))
+                        self.assertEqual(steps[install]["env"]["GH_APP_TOKEN"], "${{ steps.read-token.outputs.token }}")
+                        self.assertEqual(steps[install]["env"]["GH_FALLBACK_TOKEN"], "${{ github.token }}")
+                    self.assertLess(install, min(uses_gh))
+                    budget = [i for i, run in enumerate(runs) if "gh_budget_wait.sh --install" in run]
+                    if budget:
+                        self.assertLess(install, budget[0])  # the budget wait wraps the App wrapper
+
+
 class TickWiringTests(unittest.TestCase):
     """nightly-next-tick.yml's unstick job sends its gh reads as the cmux-bot App, with the
     repository's existing credentials, before any gh call, and keeps its single-shot steps
@@ -330,7 +375,7 @@ class TickWiringTests(unittest.TestCase):
         steps = yaml.safe_load(TICK.read_text(encoding="utf-8"))["jobs"]["unstick"]["steps"]
         names = [step.get("name") for step in steps]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
-        self.assertIn("scripts/ci/gh_app_token.sh", tooling["with"]["sparse-checkout"].split())
+        self.assertNotIn("sparse-checkout", tooling["with"])  # the whole tooling tree: scripts/ci/gh_app_token.sh is in it
         mint = steps[names.index("Mint the cmux-bot token for this job's reads")]
         self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
         self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
@@ -363,7 +408,7 @@ class TickWiringTests(unittest.TestCase):
         names = [step.get("name") for step in steps]
         self.assertNotIn("CI_CONTROL_RUNNER", job["runs-on"])
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
-        self.assertIn("scripts/ci/gh_app_token.sh", tooling["with"]["sparse-checkout"].split())
+        self.assertNotIn("sparse-checkout", tooling["with"])  # the whole tooling tree: scripts/ci/gh_app_token.sh is in it
         mint = steps[names.index("Mint the cmux-bot token for this job's gh calls")]
         self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
         self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")

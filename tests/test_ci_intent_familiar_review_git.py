@@ -144,9 +144,11 @@ class GitPatch(unittest.TestCase):
         self.assertIn("--no-textconv", script)
         self.assertIn("init -q --bare", script)
         self.assertNotIn("checkout", script)
-        # The trusted checkout stays the base's.
-        checkout = steps()[0]
+        # The trusted checkout stays the base's, and so does the raw read before it
+        # (tests/test_ci_prt_raw_base_files.py).
+        checkout = next(s for s in steps() if str(s.get("uses", "")).startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha }}")
+        self.assertEqual(step("raw")["env"]["SHA"], "${{ github.event.pull_request.base.sha }}")
 
 
 if __name__ == "__main__":

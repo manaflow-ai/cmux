@@ -20,6 +20,28 @@ on:
         required: false
         default: ""
         type: string
+      bench:
+        description: "deps: while joined, time cold and warm Cargo and bun installs through `acpmux machine deps warm` (the platform's dependency cache); deps-slow: the same over a link with 150 ms more latency"
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - deps
+          - deps-slow
+      share:
+        description: "while joined, share the machine with no step on it: its daemon sets up cmux-rd's screen host, a viewer of the same account must decode a frame within 60 s, and another account must be refused"
+        required: false
+        default: false
+        type: boolean
+      share_install:
+        description: "with share: where the joined machine's cmux-rd comes from. build: the run's commit, linked into place before the join (tests the commit). channel: nothing is placed; the join line's own cmux-rd step installs it from the feat-cmux-next channel, which must carry cmux-rd"
+        required: false
+        default: build
+        type: choice
+        options:
+          - build
+          - channel
 
 permissions: {}
 

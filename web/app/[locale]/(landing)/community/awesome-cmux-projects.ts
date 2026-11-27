@@ -1128,21 +1128,6 @@ export const awesomeCmuxProjects = [
     ]
   },
   {
-    "name": "multiagentcognition/cmux-agent-mcp",
-    "url": "https://github.com/multiagentcognition/cmux-agent-mcp",
-    "agent": "Multi",
-    "descriptionKey": "p092",
-    "language": "TypeScript",
-    "categories": [
-      "Sidebar & Status Pills",
-      "Progress Bars & Estimation",
-      "Sidebar Logs & Activity Feed",
-      "Multi-Agent Orchestration",
-      "Browser Automation",
-      "Multi-Agent / Agent-Agnostic"
-    ]
-  },
-  {
     "name": "n-filatov/cmux-workspace",
     "url": "https://github.com/n-filatov/cmux-workspace",
     "agent": "Multi",

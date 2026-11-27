@@ -12,14 +12,14 @@ fix-cause label.
 So every job of such a workflow must skip for that event. The check evaluates
 each job's `if:` the way Actions does, with its `needs` (a job whose needs all
 skipped runs only if its condition says always() or !cancelled()). A new
-labeled workflow that runs a job for the event fails here. risk tier is the one
-exemption (EXEMPT): its evidence job takes no job-level if, so a skipped run never
-reads as a passed required check (#38003).
+labeled workflow that runs a job for the event fails here. risk tier is no longer
+exempt: its evidence job skips every label but risk:human-ok and risk:waived (the
+only labels its verdict reads), and that skipped run is named "risk evidence label
+(ignored)", so it never reads as a passed required risk evidence check (#38003).
 
-An open pull request is not exempt from anything: risk tier and the
-backend-migrations gate are required checks read newest-by-name, and a skipped
-newest run would read as a pass. They still grade an open pull request on every
-label.
+Risk tier and the backend-migrations gate are required checks read
+newest-by-name, so a skipped run of either takes another name: the newest run
+under the required name is always a real grade.
 
 `pull_request` workflows are out of scope: a label event there runs the copy of
 the file in the pull request's own merge commit, so no branch's copy decides
@@ -285,10 +285,18 @@ FIX_CAUSE_EVENTS = [
 ]
 
 
-# Workflows that keep running for the event on purpose. risk-tier's evidence job never takes a job-level if:
-# a skipped job reads as a passed required risk evidence check
-# (tests/test_risk_tier_history_admission.py, #38003), so it pays its one job per label.
-EXEMPT = {"risk-tier.yml": "a skipped risk evidence job reads as a pass (#38003)"}
+# Workflows that keep running for the event on purpose (none: risk tier's skipped label run takes another name,
+# tests/test_risk_tier_history_admission.py, #38003).
+EXEMPT: dict[str, str] = {}
+
+
+def job_name(document: dict, job: str, context: dict[str, Any]) -> str:
+    """The check name a job's run shows for this event."""
+    name = str((document.get("jobs") or {})[job].get("name", job))
+    return str(Evaluator(context, {}).run(unwrap(name))) if "${{" in name else name
+
+
+RISK_VERDICT_LABELS = ("risk:human-ok", "risk:waived")
 
 
 def offenders(workflows: dict[str, dict]) -> list[str]:
@@ -310,10 +318,81 @@ MIGRATION_CHANGE = {"plan": {"migrations": "true"}}
 
 
 class FixCauseLabelsStartNoJobs(unittest.TestCase):
-    def test_risk_tier_still_runs_for_the_event(self):
-        # The exemption is real: risk tier is never skipped, not even for a fix-cause label on a closed PR.
-        context = event("labeled", "fix-cause:ci-config")
-        self.assertEqual(jobs_started(label_target_workflows()["risk-tier.yml"], context), ["evidence"])
+    def test_risk_tier_grades_only_on_its_verdict_labels(self):
+        # risk tier grades on the two labels its verdict reads and skips every other label, open or closed, under a
+        # name that is not the required check's (#38003).
+        risk = label_target_workflows()["risk-tier.yml"]
+        for action in sorted(LABEL_ACTIONS):
+            for state in ("open", "closed"):
+                for label in RISK_VERDICT_LABELS:
+                    context = event(action, label, state=state)
+                    self.assertEqual(jobs_started(risk, context), ["evidence"], (action, label, state))
+                    self.assertEqual(job_name(risk, "evidence", context), "risk evidence")
+                for label in ("fix-cause:ci-config", "risk:normal", "risk:high", "area:ios"):
+                    context = event(action, label, state=state)
+                    self.assertEqual(jobs_started(risk, context), [], (action, label, state))
+                    self.assertEqual(job_name(risk, "evidence", context), "risk evidence label (ignored)")
+
+    def test_merge_freeze_checks_only_on_freeze_ok(self):
+        # Only freeze-ok changes the merge freeze verdict; any other label skips under another name, open or closed.
+        # Into main merge-freeze.yml checks; into feat-cmux-next risk tier's evidence job checks (one runner per head),
+        # and merge-freeze.yml's own job only with vars.MERGE_FREEZE_OWN_RUNNER=1.
+        workflows = label_target_workflows()
+        freeze, risk = workflows["merge-freeze.yml"], workflows["risk-tier.yml"]
+        for action in sorted(LABEL_ACTIONS):
+            for state in ("open", "closed"):
+                for own in (False, True):
+                    main = event(action, "freeze-ok", state=state, base="main")
+                    feat = event(action, "freeze-ok", state=state)
+                    if own:
+                        main["vars"]["MERGE_FREEZE_OWN_RUNNER"] = feat["vars"]["MERGE_FREEZE_OWN_RUNNER"] = "1"
+                    self.assertEqual(jobs_started(freeze, main), ["check"], (action, state, own))
+                    self.assertEqual(job_name(freeze, "check", main), "merge freeze")
+                    self.assertEqual(jobs_started(freeze, feat), ["check"] if own else [], (action, state, own))
+                    self.assertEqual(job_name(freeze, "check", feat),
+                                     "merge freeze" if own else "merge freeze (in risk evidence)")
+                    self.assertEqual(jobs_started(risk, feat), [] if own else ["evidence"], (action, state, own))
+                    self.assertEqual(job_name(risk, "evidence", feat),
+                                     "risk evidence label (ignored)" if own else "risk evidence")
+                for label in ("fix-cause:ci-config", "risk:normal", "area:ios"):
+                    for base in ("main", "feat-cmux-next"):
+                        context = event(action, label, state=state, base=base)
+                        self.assertEqual(jobs_started(freeze, context), [], (action, label, state, base))
+                        self.assertEqual(job_name(freeze, "check", context), "merge freeze label (ignored)")
+
+    def test_merge_freeze_into_feat_cmux_next_starts_no_runner_of_its_own(self):
+        # GitHub runs main's copy for every pull request into feat-cmux-next; risk tier's evidence job already
+        # starts a runner on each head and posts the `merge freeze / merge freeze` status there.
+        workflows = label_target_workflows()
+        freeze, risk = workflows["merge-freeze.yml"], workflows["risk-tier.yml"]
+        for action in ("opened", "synchronize", "reopened", "ready_for_review"):
+            feat, main = event(action, "", state="open"), event(action, "", state="open", base="main")
+            self.assertEqual(jobs_started(freeze, feat), [], action)
+            self.assertEqual(job_name(freeze, "check", feat), "merge freeze (in risk evidence)")
+            self.assertEqual(jobs_started(risk, feat), ["evidence"], action)
+            self.assertEqual(jobs_started(freeze, main), ["check"], action)
+            feat["vars"]["MERGE_FREEZE_OWN_RUNNER"] = "1"
+            self.assertEqual(jobs_started(freeze, feat), ["check"], action)
+        steps = {s.get("name"): s for s in risk["jobs"]["evidence"]["steps"]}
+        status = steps["Check the pull request against open freezes (merge freeze status)"]
+        self.assertIn("merge_freeze.py", status["run"])
+        self.assertIn('context="merge freeze / merge freeze"', status["run"])
+        self.assertIs(status["continue-on-error"], True)
+        self.assertIn("!github.event.pull_request.draft", status["if"])
+        self.assertEqual(steps["Checkout the merge freeze checker from main"]["with"]["ref"], "refs/heads/main")  # full ref since #56905
+        self.assertEqual(risk["jobs"]["evidence"]["permissions"]["statuses"], "write")
+
+    def test_risk_tier_skips_a_title_only_edit(self):
+        # risk_tier.py reads the body and the base, never the title.
+        risk = label_target_workflows()["risk-tier.yml"]
+        for changes, runs in (({"title": {"from": "x"}}, False), ({}, False), ({"body": {"from": "x"}}, True),
+                              ({"base": {"ref": {"from": "main"}}}, True),
+                              ({"title": {"from": "x"}, "body": {"from": "y"}}, True)):
+            context = event("edited", "", state="open")
+            context["github"]["event"]["changes"] = changes
+            self.assertEqual(jobs_started(risk, context), ["evidence"] if runs else [], changes)
+            self.assertEqual(job_name(risk, "evidence", context),
+                             "risk evidence" if runs else "risk evidence title edit (ignored)")
 
     def test_the_repository_has_label_target_workflows(self):
         # Guards the scan itself: an empty set would pass everything.
@@ -326,8 +405,6 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
 
     def test_open_pull_requests_still_grade_on_a_fix_cause_label(self):
         workflows = label_target_workflows()
-        context = event("labeled", "fix-cause:ci-config", state="open")
-        self.assertEqual(jobs_started(workflows["risk-tier.yml"], context), ["evidence"])
         # Into main every label plans and gates, including when the migration tree is unchanged.
         into_main = event("labeled", "fix-cause:ci-config", state="open", base="main")
         self.assertIn("gate", jobs_started(workflows["backend-migrations.yml"], into_main, MIGRATION_CHANGE))
@@ -335,9 +412,6 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
 
     def test_other_labels_on_closed_pull_requests_are_unchanged(self):
         workflows = label_target_workflows()
-        context = event("labeled", "risk:normal")
-        self.assertEqual(jobs_started(workflows["risk-tier.yml"], context), ["evidence"])
-        self.assertEqual(jobs_started(workflows["merge-freeze.yml"], context), ["check"])
         into_main = event("labeled", "risk:normal", base="main")
         self.assertEqual(jobs_started(workflows["backend-migrations.yml"], into_main, MIGRATION_CHANGE), ["plan", "gate"])
 

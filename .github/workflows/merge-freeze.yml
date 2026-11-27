@@ -31,13 +31,19 @@ jobs:
   check:
     # A draft cannot merge; it is checked when marked ready (ready_for_review
     # above). Mergers read the freezes again at merge time either way.
-    # A fix-cause:* label on a closed pull request starts no job (tests/test_ci_fix_cause_labels_start_no_jobs.py).
-    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:'))
-    name: merge freeze
+    # Only freeze-ok changes the verdict, so any other label event (risk:* set by risk tier, area:*,
+    # fix-cause:*) starts no job: it takes another name and its own concurrency group, so it neither
+    # reads as a passed "merge freeze" (#38003) nor cancels the real run
+    # (tests/test_ci_fix_cause_labels_start_no_jobs.py).
+    # Into feat-cmux-next the check runs inside risk tier's `risk evidence` job, which already starts a
+    # runner for every head, and posts a `merge freeze / merge freeze` status (risk-tier.yml): this job
+    # then skips as `merge freeze (in risk evidence)`. vars.MERGE_FREEZE_OWN_RUNNER=1 runs it here again.
+    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok') && !(github.event.pull_request.base.ref == 'feat-cmux-next' && vars.MERGE_FREEZE_OWN_RUNNER != '1')
+    name: ${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' && 'merge freeze label (ignored)' || (github.event.pull_request.base.ref == 'feat-cmux-next' && vars.MERGE_FREEZE_OWN_RUNNER != '1') && 'merge freeze (in risk evidence)' || 'merge freeze' }}
     concurrency:
-      group: merge-freeze-${{ github.event.pull_request.number }}
+      group: merge-freeze-${{ github.event.pull_request.number }}${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' || (github.event.pull_request.base.ref == 'feat-cmux-next' && vars.MERGE_FREEZE_OWN_RUNNER != '1')) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a read token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: pull_request_target with a read token
     timeout-minutes: 20
     permissions:
       contents: read
@@ -51,7 +57,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -59,30 +65,70 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/gh_budget_wait.cjs
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Wait through GitHub API rate limits and 5xx in this job
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
+      # The base files over raw.githubusercontent.com at a commit sha (seconds), with actions/checkout below as
+      # the fallback. A sparse blobless checkout of a file or two took 30 to 180 s on Blacksmith (the promisor blob
+      # fetch at `git checkout`, or a ref listing the git mirror proxy answered with a 502 after 90 s): most of this
+      # job's runner time. These are files of a base commit named by sha, never the pull request's head, and nothing
+      # from the pull request runs. scripts/ci/api_call_log is left out: it switched itself off on 2026-11-23.
+      # (tests/test_ci_prt_raw_base_files.py)
+      - name: Read the checker from main
+        id: raw
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          # The job's read token: an unauthenticated raw read is rate limited per address (429), and runner
+          # addresses are shared. Sent only to raw.githubusercontent.com.
+          RAW_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # A pull_request_target run's github.sha is main's newest commit when the event fired.
+          SHA: ${{ github.sha }}
+          FILES: scripts/ci/merge_freeze.py
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          part="$RUNNER_TEMP/raw-base-files"
+          rm -rf "$part"
+          for f in $FILES; do
+            mkdir -p "$part/$(dirname "$f")"
+            code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -o "$part/$f" -w '%{http_code}' \
+              -H "Authorization: token $RAW_TOKEN" \
+              "https://raw.githubusercontent.com/$REPO/$SHA/$f")" || code=000
+            if [ "$code" != 200 ]; then
+              echo "::notice::$f read $code over raw; actions/checkout reads the files instead."
+              exit 1
+            fi
+          done
+          cp -R "$part"/. .
+          echo "ok=true" >> "$GITHUB_OUTPUT"
       - name: Checkout the checker from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.raw.outputs.ok != 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: main
+          ref: refs/heads/main
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/merge_freeze.py
             scripts/ci/api_call_log
+            .github/actions/app-token-spread/
+            .gitmodules
           sparse-checkout-cone-mode: false
       # The manaflow-glaeda-route App's token, so these reads draw on the App's own budget
       # rather than the GITHUB_TOKEN budget every workflow shares (it ran out on 2026-10-21).
       # A failed mint leaves GITHUB_TOKEN, which the checker also falls back to on a refusal.
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
         id: glaeda-token-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -101,10 +147,12 @@ jobs:
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.glaeda-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: read
@@ -172,18 +220,19 @@ jobs:
     concurrency:
       group: merge-freeze-expire
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted issue-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: trusted issue-write token
     timeout-minutes: 5
     permissions:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/merge_freeze.py
             scripts/ci/api_call_log
+            .gitmodules
           sparse-checkout-cone-mode: false
       # The manaflow-glaeda-route App's token, so these reads draw on the App's own budget
       # rather than the GITHUB_TOKEN budget every workflow shares (it ran out on 2026-10-21).

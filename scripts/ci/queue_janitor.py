@@ -987,6 +987,13 @@ FLEET_GATES_HELD = ("total", "units", "cpu", "livelock", "other")
 FLEET_GATES_MAX_LABELS = 200
 
 
+def fleet_gates_label(label: Any) -> bool:
+    """A label the fleet gates own: a glaeda Mac pool, or an owned Linux one (pr_runner_pool.OWNED_POOL_LEAD_LINUX,
+    which the dashboard's reading has carried since `cmux-fleet-linux-x64` got native listeners; until 2026-11-25 this
+    reader took glaeda- labels alone and refused every such reading whole, so starved-label pages said no reading)."""
+    return isinstance(label, str) and (label.startswith("glaeda-") or label in OWNED_POOL_LEAD_LINUX)
+
+
 def fleet_gates(raw: str | None) -> tuple[dict[str, Any] | None, str | None]:
     """(reading, None) from the CI_FLEET_GATES variable's text, checked and cut to the fields above, or (None, why).
 
@@ -1016,7 +1023,7 @@ def fleet_gates(raw: str | None) -> tuple[dict[str, Any] | None, str | None]:
     out: dict[str, dict[str, Any]] = {}
     for label, row in labels.items():
         held = row.get("held_offline") if isinstance(row, dict) else None
-        if (not isinstance(label, str) or not label.startswith("glaeda-") or not isinstance(held, dict)
+        if (not fleet_gates_label(label) or not isinstance(held, dict)
                 or not all(count(row.get(key)) for key in FLEET_GATES_COUNTS)
                 or not all(count(held.get(key)) for key in FLEET_GATES_HELD)):
             return None, f"CI_FLEET_GATES label {str(label)[:80]!r} is out of shape"
