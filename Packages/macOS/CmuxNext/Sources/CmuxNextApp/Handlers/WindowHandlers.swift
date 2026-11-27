@@ -91,6 +91,7 @@ enum WindowHandlers {
     }
 
     private static func showMainWindow(_ context: AppActionContext) {
+        if context.services.backgroundReady.showIfHidden("show cmux") { return }  // hidden by `app.backgroundReady`: all it hid comes back
         guard let window = context.activeWindow?.window else {
             context.services.windows.reopenOrCreateWindow()
             return

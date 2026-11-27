@@ -28,6 +28,7 @@
               "app.startAgentGlobalHotKey",
               "app.captureScreenshotGlobalHotKey",
               "app.hideDockIconWithoutWindows",
+              "app.backgroundReady",
               "app.showMenuBarIcon"
             ],
             "title" : {
@@ -4861,6 +4862,181 @@
       "title" : {
         "key" : "settings.app.hideDockIconWithoutWindows",
         "text" : "Hide Dock Icon When No Windows Are Open"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "warmAtLogin",
+        "afterQuit",
+        "afterQuitAndLogin"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundReadyOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundReadyWarmAtLogin",
+            "text" : "Warm at Login"
+          },
+          "value" : "warmAtLogin"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundReadyAfterQuit",
+            "text" : "After Quit"
+          },
+          "value" : "afterQuit"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundReadyAfterQuitAndLogin",
+            "text" : "After Quit and at Login"
+          },
+          "value" : "afterQuitAndLogin"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.backgroundReady.help",
+        "text" : "After Quit, cmux keeps running hidden, so it opens instantly. Uses more memory. Warm at Login keeps nothing running: at login, a small reader loads cmux’s code into memory and exits, so the first open after a restart is faster."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.backgroundReady",
+      "keywords" : [
+        "background",
+        "ready",
+        "instant",
+        "fast",
+        "launch",
+        "startup",
+        "quit",
+        "hidden",
+        "login",
+        "memory",
+        "warm",
+        "preload",
+        "restart"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "backgroundReady"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.app.backgroundReady.summary",
+        "text" : "Runs hidden after Quit to open instantly, at a memory cost"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:app.backgroundReady"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.backgroundReady",
+        "text" : "Stay Ready in the Background"
       },
       "validation" : "portable"
     },

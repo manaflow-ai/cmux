@@ -153,6 +153,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         var end: [Item] = []
         if state.account != nil { end.append(.action("palette.auth.signOut", title: nil, symbol: "rectangle.portrait.and.arrow.right")) }
         end.append(.action("quit", title: nil, symbol: "power"))
+        if state.quitCompletely { end.append(.action("quitCompletely", title: nil, symbol: "power")) }
         return [computerUse, unread, running, account, agents, open, help, community, app, logs, end]
     }
 

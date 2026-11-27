@@ -196,7 +196,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 9c8ab5bee0767a4a3dd208415f871154cae4c21cd807929a66056e6742aee873
+// app-ffi-pin-checksum: 8e6922c5955aa35ddaaf1c1ab02fbed5dd6267c09f4be3b2eae4921ce6d9aac5
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -461,6 +461,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPhoneAccess",
                 "CmuxNextPopups",
                 "CmuxNextProcessEnvironment",
+                "CmuxNextQuit",
                 "CmuxNextRemote",
                 "CmuxNextRemoteBrowser",
                 "CmuxNextRemoteFetch",
@@ -1456,6 +1457,26 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The quit's domain (architecture-refactor-DESIGN.md section 4, "CmuxNextQuit (new, domain)"): the quit
+        // rules' App side (QuitPolicy) and the background ready copy (app.backgroundReady, off by default),
+        // whose decisions are cmux-background-ready's over the app FFI (CCmuxAppFFI). ui while it orders
+        // windows (Design) and reads the updater's flow (Updater).
+        .target(
+            name: "CmuxNextQuit",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextActions",
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextDaemonService",
+                "CmuxNextDesign",
+                "CmuxNextSettings",
+                "CmuxNextUpdater",
+                "CmuxNextWakeups",
+            ],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         // Comment… on a terminal selection (comment-threads-v1): the card over a terminal that shows
@@ -3050,6 +3071,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPagesTestSupport",
                 "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
+                "CmuxNextQuit",
                 "CmuxNextRemote",
                 "CmuxNextRemoteLocalhostService",
                 "CmuxNextRemoteViewSessions",
