@@ -66,7 +66,7 @@ status=$?
 kill "$watchdog" 2>/dev/null
 wait "$watchdog" 2>/dev/null
 [[ -s "$json" ]] || fail "measure.mjs exited $status without a json"
-# The loop's own row from bound.py (bound, simulated bound, ratio, per-stage gap) under `bound`, so a run of this
+# The loop's own row from bound.py (bound, simulated bound, ratio, per-stage gap) under the key bound, so a run of this
 # loop alone reads its ratio without a full dev-loop-ceiling.sh report; bound.py ignores the key.
 python3 -I - "$json" "$here" <<'PY'
 import json, sys
