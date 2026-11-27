@@ -110,7 +110,7 @@ fn tasks(pid: u32) -> Vec<i32> {
 
 /// Nanoseconds the threads of `pid` (and its children) waited on a run queue, summed. Threads
 /// that ended took theirs with them: a lower bound.
-fn runqueue_wait_ns(pid: u32) -> u64 {
+pub(super) fn runqueue_wait_ns(pid: u32) -> u64 {
     tasks(pid)
         .iter()
         .filter_map(|t| {

@@ -61,7 +61,7 @@ enum PeerAskRun {
 }
 
 /// The record kind of a peer's `_acpmux/permission_pending`, relayed to
-/// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
+/// this daemon's watchers (`server/delivery.rs` `deliver`); never stored.
 pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
 /// A peer left events out of this daemon's link (`_acpmux/lagged`, `Conn::send`): each client
 /// reading one of that peer's chats here reads it again from its last record.
@@ -84,6 +84,7 @@ fn remote_row_event(peer: &str, summary: impl Into<PeerRow>, kind: &str) -> Opti
         }),
         remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
         update_line: Default::default(),
+        event_params: Default::default(),
         row: Default::default(),
         list_seq: 0,
         peer_batch: false,
@@ -186,6 +187,7 @@ impl Hub {
             self.peer_notices.clone(),
             leased,
         );
+        peer.coalesce_lists();
         if let Some(transport) = &self.wireguard
             && let Some(configured) = &pc.wireguard
             && let Some(address) = transport.route_for(name, configured)
@@ -929,6 +931,13 @@ impl Hub {
             match notice {
                 // Whether a name missing from its rows is final, and messages waiting for the
                 // peer go now (`hub/no_session.rs`).
+                PeerNotice::WaitingList(number) => {
+                    if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation)
+                        && let Some(rows) = p.take_waiting_list(number)
+                    {
+                        self.apply_peer_notice(&peer, generation, PeerNotice::Sessions(rows));
+                    }
+                }
                 PeerNotice::Listed => self.peer_listed(&peer, generation),
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
@@ -1165,6 +1174,7 @@ impl Hub {
                                     .unwrap_or_else(|| PeerRow::new(&json!({"sessionId": mux_id}))),
                             }),
                             update_line: Default::default(),
+                            event_params: Default::default(),
                             row: Default::default(),
                             list_seq: 0,
                             peer_batch: false,
@@ -1264,6 +1274,7 @@ impl Hub {
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary: announced }),
                         update_line: Default::default(),
+                        event_params: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
                         peer_batch: false,
@@ -1312,6 +1323,7 @@ impl Hub {
                             summary: PeerRow::new(&Value::Null),
                         }),
                         update_line: Default::default(),
+                        event_params: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
                         peer_batch: false,
@@ -1343,6 +1355,7 @@ impl Hub {
                                 summary: PeerRow::new(&Value::Null),
                             }),
                             update_line: Default::default(),
+                            event_params: Default::default(),
                             row: Default::default(),
                             list_seq: 0,
                             peer_batch: false,
@@ -1370,7 +1383,7 @@ impl Hub {
                     // The row is not parsed for each record: a streamed one's watchers read only
                     // its id (`server/wait.rs` `concerns`), and its harness is kept hot. A
                     // record of the peer's own (`peer`) carries the whole row, as a notice does
-                    // (`server/mod.rs` `deliver`).
+                    // (`server/delivery.rs` `deliver`).
                     let row = self
                         .remote_sessions
                         .read()
@@ -1398,7 +1411,7 @@ impl Hub {
                         },
                         // A record of the peer's session; an ask in it reaches
                         // an attached client as `_acpmux/permission_pending`
-                        // (`server/mod.rs` `deliver`), so the same rule.
+                        // (`server/delivery.rs` `deliver`), so the same rule.
                         method::MUX_EVENT => {
                             let kind = params.get("kind").and_then(Value::as_str).unwrap_or("");
                             // An ask can be held with its params whole (`hold_peer_ask`); any
@@ -1515,6 +1528,7 @@ impl Hub {
                         record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                         update_line: Default::default(),
+                        event_params: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
                         peer_batch: false,

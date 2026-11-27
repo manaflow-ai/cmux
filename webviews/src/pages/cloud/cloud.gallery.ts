@@ -50,6 +50,8 @@ const samplePorts: PortForward[] = [
     port: 3000,
     host: "127.0.0.1",
     localPort: 49152,
+    scheme: "http",
+    url: "http://127.0.0.1:49152/",
     generation: 1,
     state: "up",
     reason: null,
@@ -197,8 +199,10 @@ const monthUsage: CloudUsage = {
   memory_gib_seconds: 1650.4 * 3600,
   stored_gib_seconds: 12.5 * 730 * 3600,
   usd: { vcpu: 18.57, memory: 23.93, stored: 1.25, total: 43.75 },
+  rates: { vcpu_hour_usd: 0.045, memory_gib_hour_usd: 0.0145, stored_gib_month_usd: 0.1 },
   payment_method: { attached: true, brand: "visa", last4: "4242" },
 };
+const { rates: _rates, ...unratedUsage } = monthUsage;
 const gapUsage: CloudUsage = {
   ...monthUsage,
   gaps: ["untracked_run"],
@@ -556,7 +560,7 @@ export default cloudPageEntry({
       snapshots,
     },
     "usage-card": {
-      note: "This month's usage with its cost per meter (the server's dollars) and the card on file with Change.",
+      note: "This month's usage with each meter's list rate and its cost (the server's dollars), and the card on file with Change.",
       usage: monthUsage,
       machines,
       snapshots,
@@ -570,6 +574,12 @@ export default cloudPageEntry({
     "usage-live-mode": {
       note: "Live payments: no Test mode label.",
       usage: { ...monthUsage, stripe_mode: "live" },
+      machines,
+      snapshots,
+    },
+    "usage-no-rates": {
+      note: "A server that sends no rates yet: each line shows its amount and dollars only.",
+      usage: unratedUsage,
       machines,
       snapshots,
     },
