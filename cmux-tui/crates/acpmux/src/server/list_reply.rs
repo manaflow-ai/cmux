@@ -257,7 +257,8 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     // A client watching again may have lost row notices (a host left them out): each chat's next
     // row goes whole, a base it can patch (`session_patch.rs`).
     if on {
-        *conn.sent_rows.lock_or_recover() = Default::default();
+        *conn.sent_rows.lock_or_recover() =
+            super::session_patch::SentRows::bounded(super::session_patch::bound(conn.raw_text));
     }
     // Off is a pause (a hidden page, webviews sessionPages.ts `pause`): the client keeps the rows and
     // cursor it holds and follows from them when it turns the watch on again, so no list is built
