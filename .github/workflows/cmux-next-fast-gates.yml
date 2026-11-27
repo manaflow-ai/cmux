@@ -512,6 +512,7 @@ jobs:
             # guard_delta.py after #61088, run 45997666983).
             /tests/test_egress_gate.py
             /tests/test_outbound_hosts.py
+            /tests/guard_delta.py
             /tests/test_classic_cloud_routes.py
             /tests/guard_delta.py
             /docs/mdm/
