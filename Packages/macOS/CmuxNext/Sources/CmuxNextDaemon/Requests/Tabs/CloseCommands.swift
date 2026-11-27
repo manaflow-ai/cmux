@@ -1,12 +1,5 @@
 import Foundation
 
-public struct CloseTabRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "close-surface"
-    public var surface: SurfaceID
-    public init(surface: SurfaceID) { self.surface = surface }
-}
-
 /// `endTerminals` (`batch-close-v1`) also ends, in the same commit, each
 /// terminal whose tabs all close and that is not kept. Sent only when true.
 public struct ClosePaneRequest: DaemonRequest {

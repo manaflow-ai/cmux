@@ -72,7 +72,10 @@ final class ChromiumPageHost: PageChromiumHosting {
         let made = try await cef.makeTab(configuration)
         guard let tab = made as? CEFTab else { made.close(); throw Failure.notChromium }
         (tab.pageThemeSurface, tab.keyRouter) = (.internalPage, keyRouter)
-        tab.onReadyForKeys = { [weak keyRouter, weak tab, firstPage] in keyRouter?.creationInputCoordinator.pageArrived(nil); if let tab { firstPage.ask(tab, script: LaunchFirstPage.script) { for mark in LaunchFirstPage.marks($0) { DebugTimings.markLaunch(mark.name, at: mark.at) } } } } // its grant ends a key hold that waited for it; the first page's load times (startup-tti)
+        tab.onReadyForKeys = { [weak keyRouter] in keyRouter?.creationInputCoordinator.pageArrived(nil) } // its grant ends a key hold that waited for it
+        // The first page's load times (startup-tti), asked once its own document loaded and painted: a page made with no
+        // URL is ready for keys on its empty document, which has no DOMContentLoaded or contentful paint to report.
+        tab.onRealDocumentLoaded = { [weak tab, firstPage] in if let tab { firstPage.ask(tab, script: LaunchFirstPage.script) { for mark in LaunchFirstPage.marks($0) { DebugTimings.markLaunch(mark.name, at: mark.at) } } } }
         let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()

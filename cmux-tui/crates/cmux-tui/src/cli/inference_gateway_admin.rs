@@ -111,7 +111,11 @@ pub(super) fn parse(
         }
     }
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     // The app runs these with its own environment, which names no API (hq#15762): the app's token says which.
     let api = match api.or_else(|| env("CMUX_CLOUD_API_URL")) {
@@ -423,7 +427,7 @@ pub(super) fn app_route(
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Option<(String, String)> {
     let direct = ["--api", "--team", "--token-file", "--token-command"];
-    if env("CMUX_CLOUD_ACCESS_TOKEN").is_some()
+    if super::api_tokens::env_credential(env).is_some()
         || words.iter().any(|w| direct.iter().any(|d| w == d || w.starts_with(&format!("{d}="))))
     {
         return None;

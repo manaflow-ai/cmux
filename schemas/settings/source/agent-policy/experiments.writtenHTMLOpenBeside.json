@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Off by default; on, it only adds a button, and the page still opens only on the person's own click."
+}

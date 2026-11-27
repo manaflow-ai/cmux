@@ -149,7 +149,9 @@ impl NextTurn {
         // Its line as the turn showed it (`prompt_line.rs`); an older record has none.
         let (turn_id, prompt_id) = (text("turnId")?, text("promptId")?);
         let mut next = match text("promptLine") {
-            Some(line) => TurnInfo::prompted_as(&client, &prompt, &turn_id, &prompt_id, control, &line),
+            Some(line) => {
+                TurnInfo::prompted_as(&client, &prompt, &turn_id, &prompt_id, control, &line)
+            }
             None => TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control),
         };
         let flag = |k: &str| record.get(k).and_then(Value::as_bool).unwrap_or(false);
@@ -281,6 +283,7 @@ impl Hub {
         from: &str,
         next: &NextTurn,
         slot: Option<RunSlot>,
+        install_turn: crate::harness_health::turns::Turn,
     ) {
         // The turn as it is now: a Web steer may have raised its control since it was put in
         // place (`check_steer`).
@@ -296,7 +299,10 @@ impl Hub {
         let continues = Some(next.continues.clone());
         self.scope.spawn_named(
             "carried-turn",
-            Box::pin(async move { hub.run_carried(session, child, turn, continues, slot).await }),
+            Box::pin(async move {
+                let _install_turn = install_turn;
+                hub.run_carried(session, child, turn, continues, slot).await
+            }),
         );
     }
 
@@ -346,7 +352,10 @@ impl Hub {
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         self.scope.spawn_named(
             "recovered-carried-turn",
-            Box::pin(async move { hub.run_carried(session, child, turn, continues, None).await }),
+            Box::pin(async move {
+                let _install_turn = hub.harness_turn(&session).await;
+                hub.run_carried(session, child, turn, continues, None).await
+            }),
         );
     }
 

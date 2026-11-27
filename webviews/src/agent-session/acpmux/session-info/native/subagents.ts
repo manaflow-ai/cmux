@@ -12,7 +12,7 @@ import { nestAgents } from "../../subagents/agentsPillModel";
 import { elapsed } from "../../subagents/subagentGroupModel";
 import { subagentProgress } from "../../subagents/subagentProgress";
 import { namedAction } from "../../subagents/trayDetail";
-import { retrying } from "../../subagents/retryState";
+import { retrying, type RetryQuiet } from "../../subagents/retryState";
 import { canResume, subsessionResumeRow, type ResumeRun } from "../../subagents/resumeState";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "../childSessionRowsModel";
@@ -53,6 +53,9 @@ export type SubagentsSectionInput = {
   onOpenSession?: (sessionId: string) => void;
   /// The clock the elapsed times read (the page's `useNow`).
   now: number;
+  /// Whether a row's retry has waited out the shared bound (the page's `useConnectionQuietKeys`,
+  /// retryState.ts ``retryWords``): until then its line reads running.
+  connectionQuiet: RetryQuiet;
   /// Every running line shows, not only the first five; `onShowAll` flips it.
   showAll?: boolean;
   onShowAll?: (showAll: boolean) => void;
@@ -129,7 +132,7 @@ export function subagentsSection(
       name: agent.name,
       detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       status,
-      state: subagentStateText(t, agent, waiting, now),
+      state: subagentStateText(t, agent, waiting, input.connectionQuiet, now),
       time: formatDuration(elapsed(agent, input.now)),
       progress: subagentProgress(t, input.language ?? "en", agent, { usage: false }).join(" · ") || undefined,
       task: agent.task && agent.task !== agent.name ? agent.task : undefined,
@@ -142,7 +145,7 @@ export function subagentsSection(
     };
   };
   const sessionLine = (child: StartedSession): SubagentLine => {
-    const state = sessionStateText(t, child);
+    const state = sessionStateText(t, child, input.connectionQuiet);
     return {
       key: `session:${child.sessionId}`,
       identity: child.sessionId,

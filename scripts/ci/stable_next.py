@@ -24,7 +24,7 @@ segment, and only the cmux NEXT classification accepts ring-tagged items. Every 
       pulled from the cmux NEXT feed, a build pulled from the stable feed, and a fail verdict.
   published-tonight --stable STABLE.xml --night-start ISO
       published=true|false: whether the stable feed's newest item was published since night_start.
-  merge-feed --new NEW.xml [--live LIVE.xml] --out OUT.xml [--keep N]
+  merge-feed --new NEW.xml [--live LIVE.xml] --out OUT.xml --source-sha SHA [--keep N]
       The stable feed after publishing NEW's one item: that item, tagged cmux-next-stable, then the
       live feed's items below its build, newest first, KEEP (3) items in all, so a rollback always
       has earlier stable builds to serve. Refuses when the live feed already has this build or a newer.
@@ -291,12 +291,27 @@ def set_channel(item: str, channel: str) -> str:
     return item.replace("<item>", f"<item>\n            <sparkle:channel>{channel}</sparkle:channel>", 1)
 
 
-def merge_feed(new: str, live: str | None, keep: int = KEEP) -> str:
+SOURCE_TAG = re.compile(r"<cmux:sourceCommit(?:\s[^>]*)?>\s*[0-9a-fA-F]{7,40}\s*</cmux:sourceCommit>")
+
+
+def set_source(item: str, source: str) -> str:
+    """Stamp the build's source commit on the new stable item, as the nightly writer does."""
+    if not re.fullmatch(r"[0-9a-f]{40}", source):
+        raise Refused(f"the stable item needs a full lowercase source commit, got {source!r}")
+    tag = f'<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">{source}</cmux:sourceCommit>'
+    if SOURCE_TAG.search(item):
+        return SOURCE_TAG.sub(tag, item, count=1)
+    return item.replace("</item>", f"    {tag}\n        </item>", 1)
+
+
+def merge_feed(new: str, live: str | None, keep: int = KEEP, source: str | None = None) -> str:
     fresh = items(new)
     if len(fresh) != 1:
         raise Refused(f"the new feed must hold exactly one item, it holds {len(fresh)}")
     match, build = fresh[0]
     item = set_channel(match.group(0).strip("\n"), STABLE_CHANNEL)
+    if source is not None:
+        item = set_source(item, source)
     kept = []
     if live:
         older = []
@@ -470,6 +485,8 @@ def main(argv: list[str]) -> int:
     m.add_argument("--live")
     m.add_argument("--out", required=True)
     m.add_argument("--keep", type=int, default=KEEP)
+    m.add_argument("--source-sha", required=True,
+                   help="the build's full source commit, stamped as the new item's cmux:sourceCommit")
     r = sub.add_parser("rollback")
     r.add_argument("--live", required=True)
     r.add_argument("--out", required=True)
@@ -513,7 +530,8 @@ def main(argv: list[str]) -> int:
             out({"published": "true" if published_tonight(read_optional(args.stable), start) else "false"},
                 github_output)
         elif args.command == "merge-feed":
-            merged = merge_feed(Path(args.new).read_text(encoding="utf-8"), read_optional(args.live), args.keep)
+            merged = merge_feed(Path(args.new).read_text(encoding="utf-8"), read_optional(args.live), args.keep,
+                                args.source_sha.lower())
             Path(args.out).write_text(merged, encoding="utf-8")
             print(f"stable feed: {', '.join(str(b) for _, b in items(merged))}")
         elif args.command == "rollback":
