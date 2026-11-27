@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The parent view of a pane's Chromium window. The fork's
 /// `CmuxParentViewTracker` keeps the page window over this view, clips it to
@@ -534,10 +535,12 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         layoutAfterResizePending = true
         layoutAfterResizeSize = bounds.size
         layoutAfterResizeGeneration = layoutInvalidationGeneration
+        AfterFrameCommit().run { [weak self] in
+            self?.layoutAfterResizePending = false
+        }
     }
 
     /// Marks a layout request so a resize callback cannot consume a later state change's layout pass.
-    /// All state changes that invalidate this container use this helper, which also invalidates a pending resize pair.
     func requestLayout() {
         layoutInvalidationGeneration &+= 1
         needsLayout = true

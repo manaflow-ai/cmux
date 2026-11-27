@@ -27,4 +27,16 @@ import Testing
 
         #expect(content.layoutContentInvocationCount == 2)
     }
+
+    @Test func appKitResizeLaysOutFitFrameOnce() {
+        let content = CEFTabContentView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let fitFrame = BrowserFitFrameView()
+        content.addSubview(fitFrame)
+
+        content.setFrameSize(NSSize(width: 640, height: 360))
+        content.layoutSubtreeIfNeeded()
+
+        #expect(content.layoutContentInvocationCount == 1)
+        #expect(fitFrame.frame == content.bounds)
+    }
 }

@@ -882,6 +882,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Idle chats off this machine while it stays over budget: only with `autoEvacuate.enabled`
     // (off by default); off runs no timer (`hub/auto_evacuate.rs`).
     hub.start_auto_evacuate().await;
+    // A dead lane on a peer tells the session here that started it, once per death
+    // (`hub/lane_death_watch.rs`); off with ACPMUX_LANE_DEATH_WATCH=0.
+    hub.start_lane_death_watch();
     // Placed work yields when the owner comes back: only on a machine enrolled in AutoCloud
     // (off by default); off runs no timer (`hub/owner_return.rs`).
     hub.start_owner_return().await;
@@ -973,6 +976,15 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     #[cfg(unix)]
     let unix =
         tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx, v2.clone()));
+    // The connections the previous daemon had accepted and handed over (`server/conn_handover.rs`):
+    // served as the ones accepted above.
+    #[cfg(unix)]
+    if let Some(side) = handed.conns {
+        let (hub, v2) = (hub.clone(), v2.clone());
+        listener_handover::receive_connections(side, move |stream| {
+            crate::server::serve_accepted(hub.clone(), stream, v2.clone());
+        });
+    }
     #[cfg(not(unix))]
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
@@ -1218,6 +1230,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                         let _packs = hub.pack_as_it_grows_worker();
                         // Archives inactive chats when set (`hub/inactive_archive.rs`).
                         hub.inactive_archive_worker();
+                        // Every chat's held messages, once every log is read: a deadline wake the
+                        // restart lost is armed again, and what no turn can take expires back to
+                        // its sender (`hub/inbox_deadline.rs`).
+                        let _deadlines = hub.inbox_deadline_worker();
                     });
                 }
                 // A chat a machine's Full-access setting moved out of its policy's mode goes back:
@@ -1551,6 +1567,16 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         }
     };
     let sessions_took = sessions_started.elapsed();
+    // A take-over that asked for them gets the connections that hold no state
+    // (`server/conn_handover.rs`): their readers stop, what each already read is answered, and
+    // their sockets go to the next daemon, where a request sent from now on is answered. Before
+    // the drain, which refuses whatever a connection reads after it.
+    #[cfg(unix)]
+    if listener_handover::takes_connections() {
+        let parked = crate::server::conn_handover::park();
+        let moved = listener_handover::hand_connections(parked).await;
+        tracing::info!(moved, "handed the connections that hold no state to the next daemon");
+    }
     // The requests still in flight are answered as restarting before the close cancels their
     // connections, within a bound inside the deadline (`server/shutdown_drain.rs`).
     crate::server::shutdown_drain::drain_in_flight(&hub, cleanup_deadline).await;
