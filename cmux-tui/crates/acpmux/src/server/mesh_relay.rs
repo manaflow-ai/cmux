@@ -108,6 +108,8 @@ impl MeshRelay {
         let (daemon, own) = watch::channel(None);
         let refusals = Arc::new(Refusals::default());
         let beat = Arc::new(Beat::new());
+        // A chat moved here lists itself before its move answers (`Hub::list_on_mesh_now`).
+        *hub.mesh_beat.lock_or_recover() = Arc::downgrade(&beat);
         let beats = heartbeats(
             Arc::downgrade(hub),
             client.clone(),
@@ -282,6 +284,15 @@ async fn read_book(
         return;
     };
     if let Some(hub) = hub.upgrade() {
+        // RFD 0170: the same read feeds the team directory; an unchanged book keeps its snapshot.
+        if let Some(team) = crate::machine_record::machine_credential()
+            .ok()
+            .flatten()
+            .map(|c| c.team_id)
+            .filter(|t| !t.is_empty())
+        {
+            hub.apply_team_book(&team, Some(&own_user), &book);
+        }
         hub.apply_mesh_book(book, &own_user, own_daemon);
     }
 }
@@ -294,7 +305,7 @@ const START_LISTED_WAIT: Duration = Duration::from_secs(5);
 /// session was taken, so the sender's next message to it finds it in the hub's address book
 /// (the hub routes a name only to a session a heartbeat listed, `mesh.unknown_recipient`
 /// otherwise); waiting for the timer left a send right after the start refused for up to 30 s.
-struct Beat {
+pub(crate) struct Beat {
     nudge: tokio::sync::Notify,
     /// Requests made; a heartbeat covers every request made before it read the sessions.
     asked: std::sync::atomic::AtomicU64,
@@ -313,7 +324,7 @@ impl Beat {
 
     /// A heartbeat now (no sooner than the floor after the last one), and its taking, waited
     /// for at most `within`.
-    async fn now(&self, within: Duration) {
+    pub(crate) async fn now(&self, within: Duration) {
         let want = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let mut listed = self.listed.subscribe();
         self.nudge.notify_one();
@@ -382,7 +393,22 @@ async fn heartbeats(
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
-        let listing = Heartbeat { host: host.clone(), sessions, leaving: false };
+        let health = match hub.upgrade() {
+            Some(hub) => {
+                // timeout: a slow reading is left off this heartbeat; the beat itself never waits on it.
+                let reading = tokio::time::timeout(
+                    Duration::from_secs(3),
+                    super::peer_status::host_health(&hub, crate::conn_origin::Origin::Peer),
+                )
+                .await
+                .ok();
+                reading
+                    .map(|r| crate::peer::health::wire(&r))
+                    .filter(|w| w.as_object().is_some_and(|o| !o.is_empty()))
+            }
+            None => break,
+        };
+        let listing = Heartbeat { host: host.clone(), sessions, leaving: false, health };
         let mut taken = false;
         let wait = tokio::select! {
             r = client.heartbeat(&listing) => match r {
@@ -474,7 +500,7 @@ async fn heartbeats(
         hub.set_mesh_book_machines(Default::default());
         hub.set_mesh_book(Default::default(), Vec::new());
     }
-    let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
+    let last = Heartbeat { host, sessions: Vec::new(), leaving: true, health: None };
     // timeout: the leaving heartbeat is best effort; the relay must still end.
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }
@@ -836,7 +862,7 @@ impl ControlHook for MeshControlHook {
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                // A rename or retry through the hub is a change: only a sender trusted with a lifecycle op
+                // A rename, retry, hold or tag through the hub is a change: only a sender trusted with a lifecycle op
                 // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
                 let writes = ["start", "resume", "stop"].iter().any(|op| {
                     self.allowed
@@ -1327,6 +1353,14 @@ pub async fn deliver(
     // receiver never starts a turn.
     let (class, text) =
         if team { (None, message.body.as_str()) } else { inline_class(&message.body) };
+    // A plain send no agent made (a shell's `acpmux send HOST/ID`, a probe's) runs as a prompt
+    // over a peer link, as it does on its own machine. Named here so its label is the machine
+    // the hub proved, it would file as an unclassed agent's FYI, which no longer wakes an idle
+    // chat on a first lease (#58035): the turn a hub-moved chat owed never ran. It asks as a
+    // question, which wakes the chat as the peer link's prompt does.
+    let class = class.or_else(|| {
+        (!team && names_no_sender(message)).then_some(crate::prompt_class::PromptClass::Question)
+    });
     let body = if team {
         format!(
             "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
@@ -1342,6 +1376,8 @@ pub async fn deliver(
             "steer": !team && message.mode == Mode::Now,
             "promptId": prompt_id,
             "resend": true,
+            // Only a lease after the first waited (`prompt_provenance::resend_waited`).
+            (crate::prompt_provenance::LEASE_ATTEMPT): message.attempt,
             "fromAgent": from_name,
             "teamMessage": team,
             "startWork": message.start_work,
@@ -1379,27 +1415,71 @@ pub async fn deliver(
         Err((why, Next::Fail)) => {
             Some(Ack { prompt_id: Some(prompt_id.to_owned()), ..Ack::refused(why) })
         }
-        // No such session here is the lease's to bring back too, as before (`Next::NoSession`
-        // settles only an outbox delivery).
-        // A chat moved away or mid-move: the lease brings it back too. A relayed prompt runs
-        // as a peer's (`Origin::Peer`), so it is not handed to this daemon's own outbox, whose
-        // attempts go as the local socket's.
-        Err((
-            why,
-            Next::Retry
-            | Next::Unsent
-            | Next::NoSession
-            | Next::Stale
-            | Next::Moved(_)
-            | Next::MovedToSocket { .. }
-            | Next::Moving,
-        )) => {
+        // A chat mid-move: the lease brings it back, and it runs here if the move aborts or
+        // is refused below once it commits.
+        Err((why, Next::Moving)) => {
+            tracing::info!(
+                "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
+            );
+            None
+        }
+        // Nothing here will ever run it: a chat that moved away (the hub leases it to this
+        // daemon again, never where the chat went), or no such session any more. Refused at
+        // once with why, so the sender reads where the chat went instead of the hub's "leased
+        // 60 times and never acked" an hour on. A relayed prompt runs as a peer's
+        // (`Origin::Peer`), so it is not handed to this daemon's own outbox to follow.
+        Err((why, next @ (Next::NoSession | Next::Moved(_) | Next::MovedToSocket { .. }))) => {
+            Some(Ack {
+                prompt_id: Some(prompt_id.to_owned()),
+                ..Ack::refused(gone_reason(&why, &next))
+            })
+        }
+        // Tried again on its next lease, up to [`MAX_RETRY_LEASES`]: then refused with the
+        // last error, never left to the hub's hour of leases.
+        Err((why, Next::Retry | Next::Unsent | Next::Stale)) => {
+            if message.attempt >= MAX_RETRY_LEASES {
+                return Some(Ack {
+                    prompt_id: Some(prompt_id.to_owned()),
+                    ..Ack::refused(format!("not delivered after {} leases: {why}", message.attempt))
+                });
+            }
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );
             None
         }
     }
+}
+
+/// How many leases a relayed prompt whose attempt failed for a reason that may pass (a timeout,
+/// a busy agent, a session made again) is tried on before the relay refuses it with that reason.
+/// The hub's lease is a minute and it expires a message after 60 (cmux-platform mesh `Core.ts`),
+/// so the sender heard only "leased 60 times and never acked", an hour on, and never why.
+pub const MAX_RETRY_LEASES: u32 = 10;
+
+/// The refusal of a relayed prompt nothing on this daemon will run: `why`, and where the chat
+/// went when it moved.
+fn gone_reason(why: &str, next: &super::outbox::Next) -> String {
+    use super::outbox::Next;
+    match next {
+        Next::Moved(to) => format!("the chat moved to {to}: {why}"),
+        Next::MovedToSocket { socket, session } => {
+            format!("the chat moved to daemon {socket} as {session}: {why}")
+        }
+        _ => why.to_owned(),
+    }
+}
+
+/// Whether `message` names no sender at all: no session, no name, no relay record, no team
+/// address. A plain `acpmux send` outside any agent and session, which a peer link carries as a
+/// plain prompt (`peer_forward::name_sender` names only a proven caller).
+fn names_no_sender(message: &InMessage) -> bool {
+    let blank = |v: Option<&str>| v.is_none_or(|v| v.trim().is_empty());
+    let from = &message.from;
+    blank(from.session_id.as_deref())
+        && blank(from.name.as_deref())
+        && blank(from.team_address.as_deref())
+        && from.relay.is_none()
 }
 
 /// Whether `message` is delivered by the team rules (information unless the hub allows work).
@@ -1456,6 +1536,44 @@ mod tests {
             assert_eq!(inline_class(&body), (Some(class), "You stopped on a 529."), "{class}");
         }
         assert_eq!(inline_class("[blocker]\nfix it"), (Some(PromptClass::Block), "fix it"));
+    }
+
+    /// Only a send that names no one at all asks as a question (`deliver`): a session's, a named
+    /// program's, a relay's or a team address's message keeps its class.
+    #[test]
+    fn only_a_send_naming_no_one_names_no_sender() {
+        let mut bare = from("h", "n");
+        bare.from.name = None;
+        assert!(names_no_sender(&bare));
+        bare.from.name = Some("  ".into());
+        assert!(names_no_sender(&bare));
+        assert!(!names_no_sender(&from("h", "n")));
+        let mut session = bare.clone();
+        session.from.session_id = Some("s-1".into());
+        assert!(!names_no_sender(&session));
+        let mut relayed = bare.clone();
+        relayed.from.relay = Some(json!({"by": "lane-gh", "machine": "h"}));
+        assert!(!names_no_sender(&relayed));
+        let mut team = bare;
+        team.from.team_address = Some("@member/coordinator".into());
+        assert!(!names_no_sender(&team));
+    }
+
+    /// A refusal for a chat that moved away names where it went.
+    #[test]
+    fn a_moved_chats_refusal_names_where_it_went() {
+        use super::super::outbox::Next;
+        let why = "transfer.moved: this chat moved";
+        assert_eq!(
+            gone_reason(why, &Next::Moved("host-b/s-2".into())),
+            format!("the chat moved to host-b/s-2: {why}")
+        );
+        let socket = Next::MovedToSocket { socket: "/run/a.sock".into(), session: "s-3".into() };
+        assert_eq!(
+            gone_reason(why, &socket),
+            format!("the chat moved to daemon /run/a.sock as s-3: {why}")
+        );
+        assert_eq!(gone_reason("no session matches", &Next::NoSession), "no session matches");
     }
 
     #[test]

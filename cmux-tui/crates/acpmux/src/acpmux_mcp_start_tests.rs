@@ -95,3 +95,21 @@ fn machine_start_resumes_a_named_machine_or_makes_a_new_one() {
     assert_eq!(machine_start_argv(&json!({})).unwrap(), ["vm", "new", "--json"]);
     assert!(machine_start_argv(&json!({"machine": "-rf"})).is_err());
 }
+
+/// In the daemon's gateway the chat's env (its caller token among it) lives only in the request's
+/// `tool_env` scope, never the process env: a `new` the chat runs must still carry it, or the CLI
+/// declares itself the person's terminal and the new chat has no parent, so its starter's later
+/// action waits for the result deadline instead of waking it.
+#[tokio::test]
+async fn new_runs_its_cli_with_the_chats_scoped_caller_token() {
+    let token = crate::person_tokens::CALLER_TOKEN_ENV;
+    let script = format!("printf %s \"${token}\"");
+    let me = crate::self_command::SelfCommand::new(
+        "/bin/sh".into(),
+        vec!["-c".into(), script.into(), "sh".into()],
+    );
+    let env = std::collections::HashMap::from([(token.to_owned(), "chat-token".to_owned())]);
+    let out = crate::tool_env::scope(env, run_cli(&me, &[], None, Duration::from_secs(10))).await;
+    let Ok(out) = out else { panic!("the child did not run") };
+    assert_eq!(out, "chat-token", "the child ran without the chat's caller token");
+}

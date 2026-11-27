@@ -25,6 +25,11 @@
 //   renderer_main_busy_pct  the renderer main thread's task time over the window's wall time (CDP TaskDuration), %
 //   long_tasks              tasks of 50 ms or more in the window, and longest_task_ms
 //   records                 the records sent in the window
+//   painter                 --painter ARM, who paints the viewport (bench-only A/B, support/viewportPainter.ts):
+//                           react (the real pane, the default), dom-floor (a minimal main-thread page appending text
+//                           nodes: the floor of any main-thread painter) or worker (the real pane plus an
+//                           OffscreenCanvas painted from a dedicated Worker on its own socket and frame loop; frame_*
+//                           are then the worker's frames and react_frame_p95_ms the pane's, in the same run)
 //   bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile]
 // Exit 0 with a reading (even a null frame p95, which says why), 1 when the page never attached or the run failed.
 /// <reference types="bun" />
@@ -36,6 +41,7 @@ import type { CDPSession } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { parseLog, type ReplayLog } from "./replayLogs";
 import { printProfile, type CpuProfile } from "./support/profile";
+import { DOM_FLOOR_HTML, PAINTER_WORKER_JS, workerOverlay } from "./support/viewportPainter";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -54,6 +60,7 @@ const PROFILE = argv.includes("--profile");
 /// profile beside it, as {trace, profile} JSON, for scripts/measure/replay-attribution.py to attribute every main-thread
 /// task over 8 ms to its owner. Tracing costs the page time of its own, so a traced run's busy % reads high.
 const TRACE = flag("--trace");
+const PAINTER = flag("--painter") ?? "react";
 /// Fewer gaps than this in the window is no frame p95 (the goal's sensor holds the same floor, perf_sensor.py).
 const MIN_FRAMES = 60;
 /// frameTally.ts BUCKET_MS and BUCKETS: bucket i holds gaps in [i * 0.1, (i + 1) * 0.1) ms; BUCKETS holds 100 ms+.
@@ -61,9 +68,12 @@ const BUCKET_MS = 0.1;
 const BUCKETS = 1000;
 /// frameTally.ts FLUSH_MS, plus margin: the window's last gaps arrive at most this long after it closes.
 const FLUSH_WAIT_MS = 6_000;
-if (![RATE, SECONDS, WARM].every((n) => Number.isFinite(n) && n > 0)) {
+if (
+  ![RATE, SECONDS, WARM].every((n) => Number.isFinite(n) && n > 0) ||
+  !["react", "dom-floor", "worker"].includes(PAINTER)
+) {
   console.error(
-    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE]",
+    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE] [--painter react|dom-floor|worker]",
   );
   process.exit(2);
 }
@@ -83,7 +93,11 @@ export function quantile(counts: Map<number, number>, p: number): number | null 
 
 /** Adds one `_acpmux/perf {op:"tally"}` request's gaps into counts (pure on its input; ignores anything else). */
 export function addTally(counts: Map<number, number>, params: unknown): number {
-  const p = params as { op?: unknown; bucketMs?: unknown; gaps?: unknown } | null;
+  const p = params as {
+    op?: unknown;
+    bucketMs?: unknown;
+    gaps?: unknown;
+  } | null;
   if (!p || p.op !== "tally" || p.bucketMs !== BUCKET_MS || !Array.isArray(p.gaps)) return 0;
   let added = 0;
   for (const pair of p.gaps) {
@@ -106,6 +120,8 @@ type Reading = {
   rate: number;
   seconds: number;
   records: number;
+  painter: string;
+  react_frame_p95_ms?: number | null;
   frames: number;
   frame_p50_ms: number | null;
   frame_p95_ms: number | null;
@@ -121,7 +137,9 @@ type Reading = {
 };
 
 async function taskSeconds(cdp: CDPSession): Promise<number> {
-  const { metrics } = (await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] };
+  const { metrics } = (await cdp.send("Performance.getMetrics")) as {
+    metrics: { name: string; value: number }[];
+  };
   return metrics.find((m) => m.name === "TaskDuration")?.value ?? 0;
 }
 
@@ -132,9 +150,12 @@ async function run(): Promise<Reading> {
     // ---------- the stand-in acpmux: serves the session, keeps the frame tally the page sends ----------
     let served = 0;
     let status = "running";
-    let socket: { send(data: string): void } | undefined;
+    // Every attached socket gets the records: the worker arm's painter attaches beside the pane.
+    const sockets = new Set<{ send(data: string): void }>();
     let measuring = false;
     const counts = new Map<number, number>();
+    /// The pane's own tally in the worker arm (frame_* there are the worker's).
+    const paneCounts = new Map<number, number>();
     const summary = () => ({
       ...log.summary,
       status,
@@ -148,13 +169,26 @@ async function run(): Promise<Reading> {
     const answer = (method: string): unknown => {
       switch (method) {
         case "initialize":
-          return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+          return {
+            protocolVersion: 1,
+            _meta: {
+              acpmux: { origin: "local", extensions: [], operations: [] },
+            },
+          };
         case "_acpmux/watch":
           return { sessions: [summary()] };
         case "_acpmux/attach":
-          return { session: summary(), lastSeq: log.events[served - 1]?.seq ?? 0, events: log.events.slice(0, served) };
+          return {
+            session: summary(),
+            lastSeq: log.events[served - 1]?.seq ?? 0,
+            events: log.events.slice(0, served),
+          };
         case "_acpmux/events":
-          return { events: [], hasMore: false, lastSeq: log.events[served - 1]?.seq ?? 0 };
+          return {
+            events: [],
+            hasMore: false,
+            lastSeq: log.events[served - 1]?.seq ?? 0,
+          };
         default:
           return null;
       }
@@ -167,32 +201,66 @@ async function run(): Promise<Reading> {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: unknown };
-          if (message.method === "_acpmux/attach") socket = ws;
-          if (message.method === "_acpmux/perf" && measuring) addTally(counts, message.params);
+          const message = JSON.parse(String(raw)) as {
+            id?: number;
+            method: string;
+            params?: unknown;
+          };
+          if (message.method === "_acpmux/attach") sockets.add(ws);
+          if (message.method === "_acpmux/perf" && measuring) {
+            // The arm's painter counts as the reading; a tally without `painter` is the pane's.
+            const by = (message.params as { painter?: string } | null)?.painter ?? "react";
+            if (by === PAINTER) addTally(counts, message.params);
+            else if (by === "react") addTally(paneCounts, message.params);
+          }
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                result: answer(message.method),
+              }),
+            );
         },
       },
     });
     releases.push(() => daemon.stop(true));
-    const emit = (event: EventRecord) =>
-      socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+    const emit = (event: EventRecord) => {
+      const text = JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: event,
+      });
+      for (const ws of sockets) ws.send(text);
+    };
 
     // ---------- the pane, built as production React ----------
     const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "replay-under-load-"));
     releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
     const { build } = await import("vite");
-    await build({
-      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true, ...(PROFILE || TRACE ? { minify: false } : {}) },
-      logLevel: "error",
-    });
+    if (PAINTER !== "dom-floor")
+      await build({
+        configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+        build: {
+          outDir: out,
+          emptyOutDir: true,
+          ...(PROFILE || TRACE ? { minify: false } : {}),
+        },
+        logLevel: "error",
+      });
     const statics = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
       async fetch(request) {
         const pathname = new URL(request.url).pathname;
+        if (pathname === "/__painter-worker.js")
+          return new Response(PAINTER_WORKER_JS, {
+            headers: { "content-type": "text/javascript" },
+          });
+        if (pathname === "/__painter-dom.html")
+          return new Response(DOM_FLOOR_HTML, {
+            headers: { "content-type": "text/html" },
+          });
         const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
         return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
       },
@@ -200,7 +268,9 @@ async function run(): Promise<Reading> {
     releases.push(() => statics.stop(true));
     const browser = await chromium.launch({ headless: true });
     releases.push(() => browser.close());
-    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 700 },
+    });
     await page.addInitScript(() => {
       const w = window as unknown as { __long: { at: number; ms: number }[] };
       w.__long = [];
@@ -215,8 +285,14 @@ async function run(): Promise<Reading> {
       await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
       await cdp.send("Profiler.start");
     }
+    const endpoint = `ws://127.0.0.1:${daemon.port}/`;
+    if (PAINTER === "worker")
+      await page.addInitScript(workerOverlay, {
+        endpoint,
+        session: log.sessionId,
+      });
     const url =
-      `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}` +
+      `http://127.0.0.1:${statics.port}/${PAINTER === "dom-floor" ? "__painter-dom.html" : ""}#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}` +
       `&token=t&session=${encodeURIComponent(log.sessionId)}` +
       // A shipped build's scheme, as Leo's NIGHTLY names: the dev host's default `cmux-dev` turns on the dev-only
       // layout-motion audit (devMotionAudit.ts), which sampled every box each frame and was ~8% of this reading.
@@ -226,15 +302,16 @@ async function run(): Promise<Reading> {
     page.on("pageerror", (e) => consoleTail.push(`pageerror: ${e.message}`.slice(0, 300)));
     await page.goto(url);
     try {
-      await page.locator(".acpmux-scroll").waitFor({ timeout: 120_000 });
+      await page.locator(PAINTER === "dom-floor" ? "#painter" : ".acpmux-scroll").waitFor({ timeout: 120_000 });
     } catch (error) {
       const body = (await page.evaluate(() => document.body?.innerText ?? "")).slice(0, 400);
       throw new Error(
         `the pane never drew its transcript: ${String(error).split("\n")[0]}; page: ${JSON.stringify(body)}; console: ${consoleTail.slice(-8).join(" | ")}`,
       );
     }
-    for (let tries = 0; !socket && tries < 600; tries++) await page.waitForTimeout(50);
-    if (!socket) throw new Error(`${log.name}: the pane never attached`);
+    const want = PAINTER === "worker" ? 2 : 1;
+    for (let tries = 0; sockets.size < want && tries < 600; tries++) await page.waitForTimeout(50);
+    if (sockets.size < want) throw new Error(`${log.name}: the pane never attached`);
 
     // ---------- the replay: RATE records a second on the stand-in's clock, never waiting on a frame ----------
     let sent = 0;
@@ -301,12 +378,14 @@ async function run(): Promise<Reading> {
     const enough = frames >= MIN_FRAMES;
     return {
       schema: "replay-under-load/v1",
-      scenario: `replay ${log.name} at ${RATE} records/s, ${SECONDS} s window`,
+      scenario: `replay ${log.name} at ${RATE} records/s, ${SECONDS} s window${PAINTER === "react" ? "" : `, painter ${PAINTER}`}`,
       log: log.name,
       log_records: log.events.length,
       rate: RATE,
       seconds: SECONDS,
       records: sent,
+      painter: PAINTER,
+      ...(PAINTER === "worker" ? { react_frame_p95_ms: quantile(paneCounts, 0.95) } : {}),
       frames,
       frame_p50_ms: quantile(counts, 0.5),
       frame_p95_ms: enough ? quantile(counts, 0.95) : null,
@@ -344,7 +423,17 @@ if (import.meta.main) {
         `${reading.renderer_main_busy_pct ?? "null"}% busy, ${reading.records} records in ${reading.seconds} s`,
     );
   } catch (error) {
-    console.error(`replay-under-load: FAILED: ${error instanceof Error ? error.message : String(error)}`);
+    // One line with the cause: a vite build error's message starts "Build failed with 1 error:" and names the file
+    // and the Babel error only on the lines after it, and the sensor keeps a log's tail, which is stack frames.
+    const message = error instanceof Error ? error.message : String(error);
+    const cause = message
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(" | ");
+    console.error(`replay-under-load: FAILED: ${cause.slice(0, 500)}`);
+    if (message.includes("\n")) console.error(message);
     process.exitCode = 1;
   }
 }

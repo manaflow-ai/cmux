@@ -13,6 +13,18 @@ export type AddressId = string
 
 export type AgentId = string
 
+export type AppKvApp = string
+
+export type AppKvKey = string
+
+export type AppKvRow = {
+  readonly app: string
+  readonly key: string
+  readonly value: unknown
+  readonly revision: number | "Infinity" | "-Infinity" | "NaN"
+  readonly updated_ms: number | "Infinity" | "-Infinity" | "NaN"
+}
+
 export type Automation = {
   readonly id: AutomationId
   readonly owner: TeamId
@@ -131,6 +143,103 @@ export type ChiefId = string
 
 /** 1 to 128 printable ASCII characters (idempotency key, client_msg_id). */
 export type ClientToken = string
+
+export type CloudAllotmentAdvice = {
+  readonly position: "down" | "hold" | "up"
+  readonly seats: number
+  readonly to_seats: number
+  readonly window_hours: number
+  readonly floor: number
+  readonly burst: number
+  readonly peak: number
+  readonly lendable: number
+  readonly ceiling_hours7: number
+  readonly used_minutes: number
+  readonly seat_minutes: number
+  readonly reason: {
+    readonly kind: "ceiling"
+    readonly hours: number
+    readonly hours7: number
+    readonly peak: number
+    readonly add: number
+  } | {
+    readonly kind: "spare"
+    readonly release: number
+    readonly members: ReadonlyArray<CloudAllotmentAdviceMember>
+  } | {
+    readonly kind: "fits"
+  }
+  readonly summary: string
+  readonly members: ReadonlyArray<CloudAllotmentAdviceMember>
+}
+
+export type CloudAllotmentAdviceMember = {
+  readonly member: string
+  readonly minutes: number
+  readonly seat_percent: number
+  readonly active_hours: number
+  readonly floor: number
+  readonly burst: number
+}
+
+export type CloudAllotmentMember = {
+  readonly member: string
+  readonly tier: "standard" | "plus" | "max"
+  readonly month_micros: number
+  readonly usd14_micros: number
+  readonly active_days14: number
+  readonly share_micros: number
+  readonly rank: number
+  readonly over_share14: number
+  readonly plan_limit_ms14: number
+  readonly spare_micros: number
+}
+
+export type CloudAllotmentReason = {
+  readonly kind: "unused"
+  readonly members: ReadonlyArray<string>
+} | {
+  readonly kind: "over"
+  readonly member: string
+  readonly count: number
+} | {
+  readonly kind: "runaway"
+  readonly member: string
+  readonly rate_micros_h: number
+} | {
+  readonly kind: "tier"
+  readonly member: string
+  readonly to: "standard" | "plus" | "max"
+  readonly costs_micros: number
+}
+
+export type CloudAllotmentSetting = {
+  readonly commit_micros: number
+  readonly mode: "ask" | "auto"
+  readonly auto_max_micros: number | null
+  readonly tiers: Readonly<Record<string, "standard" | "plus" | "max">>
+  readonly snoozed_until: number | null
+  readonly changed_at: number
+  readonly changed_by: string
+}
+
+export type CloudAllotmentView = {
+  readonly allotment: CloudAllotmentSetting | null
+  readonly decision: {
+    readonly allot_micros: number
+    readonly forecast_micros: number
+    readonly position: "down" | "hold" | "up"
+    readonly to_commit_micros: number
+    readonly reasons: ReadonlyArray<CloudAllotmentReason>
+    readonly members: ReadonlyArray<CloudAllotmentMember>
+    readonly order: ReadonlyArray<string>
+    readonly apply: boolean
+  }
+  readonly advice: CloudAllotmentAdvice
+  readonly hard_cap_micros: number | null
+  readonly as_of: number
+  readonly names: Readonly<Record<string, string>>
+}
 
 export type CloudConnectInfo = {
   readonly machine: MachineId
@@ -446,6 +555,11 @@ export type CloudUsageCurrent = {
     readonly memory: number | "Infinity" | "-Infinity" | "NaN"
     readonly stored: number | "Infinity" | "-Infinity" | "NaN"
     readonly total: number | "Infinity" | "-Infinity" | "NaN"
+  }
+  readonly rates?: {
+    readonly vcpu_hour_usd: number | "Infinity" | "-Infinity" | "NaN"
+    readonly memory_gib_hour_usd: number | "Infinity" | "-Infinity" | "NaN"
+    readonly stored_gib_month_usd: number | "Infinity" | "-Infinity" | "NaN"
   }
   readonly gaps: ReadonlyArray<string>
   readonly payment_method: {
@@ -1744,6 +1858,39 @@ export type WgPublicKey = string
 
 /** Params and result of every cloud op, keyed by op name. */
 export interface CloudOps {
+  /** Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds. */
+  readonly "appkv.delete": {
+    readonly params: {
+      readonly app: AppKvApp
+      readonly key: AppKvKey
+    }
+    readonly result: {
+      readonly app: string
+      readonly key: string
+      readonly existed: boolean
+    }
+  }
+  /** Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000). */
+  readonly "appkv.list": {
+    readonly params: {
+      readonly after_revision?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly rows: ReadonlyArray<AppKvRow>
+      readonly next_after_revision: number | "Infinity" | "-Infinity" | "NaN" | null
+      readonly revision: string
+    }
+  }
+  /** Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins. */
+  readonly "appkv.set": {
+    readonly params: {
+      readonly app: AppKvApp
+      readonly key: AppKvKey
+      readonly value: unknown
+    }
+    readonly result: AppKvRow
+  }
   /** The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret. */
   readonly "automation.audit.list": {
     readonly params: {
@@ -2067,6 +2214,11 @@ export interface CloudOps {
       readonly brain_place?: ChiefBrainPlace | null
     }
     readonly result: HomeChief
+  }
+  /** This team's Cloud allotment and the scheduler's proposal from metered use: scale the pooled monthly commit down, hold it or scale it up, with each member's use this month and over 14 days, and the reasons (unused seats, starts past the allotment, a runaway). A read. */
+  readonly "cloud.allotment.get": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: CloudAllotmentView
   }
   /** Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment. Agent principals are refused; the client asks a person first. */
   readonly "cloud.billing.checkout": {
@@ -4600,6 +4752,9 @@ export type CloudOpName = keyof CloudOps
 
 /** Routing metadata: mutations go to /v1/ops (keyed unless idempotency is none), reads to /v1/read. */
 export const cloudOpMeta = {
+  "appkv.delete": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "appkv.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "appkv.set": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "automation.audit.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.create": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.delete": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "destructive" },
@@ -4629,6 +4784,7 @@ export const cloudOpMeta = {
   "chief.delete": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
   "chief.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "cloud.allotment.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.billing.checkout": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.environment.boot": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.environment.build": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },

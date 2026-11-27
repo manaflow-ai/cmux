@@ -55,7 +55,7 @@ export default componentEntry<ForumGalleryProps>({
       note: "The last feed pull failed: the cached threads stay, the badge says Offline.",
       props: { layout: "columns", data: "offline", thread: 41 },
     },
-    off: { note: "The forum is not on for this team.", props: { data: "off" } },
+    off: { note: "This team's forum is off.", props: { data: "off" } },
     "signed-out": { note: "Not signed in.", props: { data: "signed-out" } },
     loading: { note: "The first snapshot has not arrived.", props: { data: "loading" } },
   },
