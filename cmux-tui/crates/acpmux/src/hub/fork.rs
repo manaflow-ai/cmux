@@ -355,6 +355,9 @@ impl Hub {
             );
         }
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
+        // Its parent's recorded namespace while it works in the same folder: the fork's Codex
+        // answer is read from it while its digest is the same (`session_manifest.rs`).
+        crate::session_manifest::mark(&mut fork_env, parent_meta.manifest.as_ref(), &cwd);
         // The modern ForkStart route and an explicit own-harness retarget use the same
         // model validation and spawn handling.
         let mut start = start;
