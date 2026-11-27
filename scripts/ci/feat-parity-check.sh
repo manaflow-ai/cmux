@@ -419,6 +419,9 @@ if [[ "$mode" == clippy-changed ]]; then
   # A cold step (no free slot) builds it in its own checkout as before, and the worker removes it with the checkout.
   [[ -n "${CARGO_TARGET_DIR:-}" ]] || export CARGO_TARGET_DIR="$root/.build/cmux-tui-clippy-target"
   echo "cargo target: $CARGO_TARGET_DIR"
+  # A cold target (a just-created slot or a per-job checkout) starts from the base's build, written only by
+  # cmux-tui-clippy-seed.yml on feat-cmux-next; a reused slot is left alone, a miss builds cold as before.
+  step "clippy base seed" bash scripts/ci/clippy-base-seed.sh restore "$CARGO_TARGET_DIR"
   # The clippy step writes this when every error it found is in a file the change does not touch (a base red).
   export CMUX_CLIPPY_BASE_RED_FILE="$tools/clippy-base-red"
   step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base"

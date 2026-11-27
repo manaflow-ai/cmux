@@ -16,6 +16,10 @@
 //!
 //! A `#[path]` module's own `mod x;` resolves next to its file (`src/x.rs`), not in
 //! `src/<name>/`: a module with a directory names each child's file (`#[path = "focus/codec.rs"]`).
+//!
+//! Each `mod` line carries `#[path]`, so rustc resolves a module's own submodules from `src/`,
+//! not `src/NAME/`: a module with submodules in `src/NAME/` declares each one
+//! `#[path = "NAME/sub.rs"] mod sub;` (as `focus` and `window_close_selection` do).
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};

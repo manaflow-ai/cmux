@@ -22,6 +22,10 @@
 #                new copy's pre-main is made of (NFL-PREMAIN, NFL-PREMAIN-LOG and NFL-VERIFY lines)
 # Prints NFL-FACT, NFL-LAUNCH, NFL-MARKS and NFL-MEDIAN lines; keeps report.json in report.tgz.
 set -uo pipefail
+# measure_quiet, before any checkout: a base commit may predate build-progress.sh. From the checkout this file is in
+# (launch-ready.sh sources a copy of it from its scratch folder inside the checkout). A new shell after checkout
+# uses the carrier's saved helper via NFL_BUILD_PROGRESS, as quit-gamut.sh's bounded builds do.
+source "${NFL_BUILD_PROGRESS:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)/scripts/measure/build-progress.sh}" || exit 3
 
 # One function, called on the last line: bash has read all of it before a base=SHA checkout changes this file.
 main() {
@@ -114,7 +118,8 @@ build_dmg() {
     cp "$NFL_SCREEN_HELPER_PHASE" "$phase" && overlaid=1 && echo "NFL $name builds with this checkout's $phase"
   fi
   local started=$SECONDS
-  env ${acpmux[@]+"${acpmux[@]}"} CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "nflab-$name" --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
+  measure_quiet "NFL build $name" "$out/build-$name.log" \
+    env ${acpmux[@]+"${acpmux[@]}"} CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "nflab-$name" --no-global-cli-links "${configuration[@]}"
   [[ "$overlaid" == 0 ]] || git checkout --quiet -- "$phase"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$name.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
