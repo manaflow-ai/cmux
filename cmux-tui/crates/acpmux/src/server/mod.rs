@@ -82,6 +82,7 @@ mod connection_loop;
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
 mod connections;
+mod consent_grant;
 pub(crate) mod controls;
 mod delivery;
 pub(crate) mod dual_requests;

@@ -1671,7 +1671,16 @@ async fn dispatch_request_with_identity(
         method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
             Err(crate::hub::person::person_required("changing or reading trusted approvers"))
         }
-        method::MUX_MAC_APPROVER_SET if conn.is_person() => hub.person.macs.set_own(&params),
+        method::MUX_MAC_APPROVER_SET if conn.is_person() => {
+            let set = hub.person.macs.set_own(&params);
+            // The app gives its key apart from sign-in, so it can arrive after the enrollment
+            // pass that would have pinned it: while the window is open, collect again.
+            #[cfg(all(feature = "hub-carrier", not(test)))]
+            if set.is_ok() {
+                crate::consent_grant_service::collect_if_open(hub);
+            }
+            set
+        }
         method::MUX_MAC_APPROVER_SET => {
             Err(crate::hub::person::person_required("setting this Mac's approver key"))
         }
@@ -4086,6 +4095,13 @@ async fn dispatch_request_with_identity(
                 Some(_) => return Err(RpcError::invalid_params("live must be a boolean")),
             }
             Ok(json!({"live": hub.presence.is_live()}))
+        }
+        method::MUX_LIVE_LIST => {
+            if view::a_link(conn) {
+                return Err(crate::hub::presence::peer_unsupported());
+            }
+            let people = serde_json::to_value(hub.presence.live_list()).unwrap_or_default();
+            Ok(json!({"live": hub.presence.is_live(), "people": people}))
         }
         method::MUX_HERE_BEAT => {
             if view::a_link(conn) {
