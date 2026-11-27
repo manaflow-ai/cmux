@@ -130,6 +130,7 @@ for (const host of [
       const deadline = Date.now() + 20_000;
       while (!done()) {
         if (Date.now() > deadline) throw new Error(`never: ${what}`);
+        // fixed-wait: a 20 ms poll step bounded by the deadline above; the pane's own 250 ms retry timers are real time here
         await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
       }
     };

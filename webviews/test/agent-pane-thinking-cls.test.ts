@@ -26,26 +26,26 @@ type Shift = {
   sources: { node: string; from: number[]; to: number[] }[];
 };
 
-/// web-vitals CLS: the largest session window's sum (a window ends after a 1 s gap or at 5 s).
-export function clsOf(shifts: readonly { at: number; value: number; recent: boolean }[]): number {
-  let best = 0;
-  let sum = 0;
-  let first = -Infinity;
-  let last = -Infinity;
-  for (const shift of shifts) {
-    if (shift.recent) continue;
-    if (shift.at - last > 1000 || shift.at - first > 5000) {
-      sum = 0;
-      first = shift.at;
-    }
-    sum += shift.value;
-    last = shift.at;
-    best = Math.max(best, sum);
-  }
-  return best;
-}
-
 await requireBrowserLane("agent-pane-thinking-cls.test.ts", async () => {
+  /// web-vitals CLS: the largest session window's sum (a window ends after a 1 s gap or at 5 s).
+  function clsOf(shifts: readonly { at: number; value: number; recent: boolean }[]): number {
+    let best = 0;
+    let sum = 0;
+    let first = -Infinity;
+    let last = -Infinity;
+    for (const shift of shifts) {
+      if (shift.recent) continue;
+      if (shift.at - last > 1000 || shift.at - first > 5000) {
+        sum = 0;
+        first = shift.at;
+      }
+      sum += shift.value;
+      last = shift.at;
+      best = Math.max(best, sum);
+    }
+    return best;
+  }
+
   setDefaultTimeout(300_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -150,6 +150,7 @@ await requireBrowserLane("agent-pane-thinking-cls.test.ts", async () => {
       (count) =>
         new Promise<void>((done) => {
           let left = count;
+          // raf-read: this only counts frames to let the page settle; it reads no layout in them
           const next = () => (--left <= 0 ? done() : requestAnimationFrame(next));
           requestAnimationFrame(next);
         }),
