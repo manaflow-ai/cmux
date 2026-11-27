@@ -455,7 +455,6 @@ fn a_bare_id_reads_only_its_own_row_at_12000_rows() {
     assert_eq!(rows.short_named("missing").len(), 0);
 }
 
- 
 /// `exact_of_peer` finds every row of the peer a walk finds naming the key exactly, by its
 /// name, alias (stored or spoken), handle (set or default) in any case, a former name or an
 /// id prefix, through a rename and a removal.
@@ -486,12 +485,10 @@ fn the_exact_index_finds_every_row_a_walk_names_exactly() {
         let (key, r) = row(peer, mux, extra);
         rows.insert(key, r);
     }
-    let mut keys: Vec<String> = [
-        "lane", "fig-lane", "FIG-LANE", "big lane", "big+lane", "0a1b", "0a1b-4", "x",
-        "missing",
-    ]
-    .map(String::from)
-    .to_vec();
+    let mut keys: Vec<String> =
+        ["lane", "fig-lane", "FIG-LANE", "big lane", "big+lane", "0a1b", "0a1b-4", "x", "missing"]
+            .map(String::from)
+            .to_vec();
     keys.push(
         crate::session_handle::default_handle("4f0e2c1a-0000-4000-8a2b-0123456789ab")
             .to_uppercase(),
@@ -528,10 +525,7 @@ fn the_exact_index_finds_every_row_a_walk_names_exactly() {
     let (key, r) = row("a", "0a1b-2", json!({"name": "renamed", "handle": "Fig-Other"}));
     rows.insert(key, r);
     check(&rows);
-    assert!(
-        rows.exact_of_peer("a", "fig-lane").is_empty(),
-        "a changed handle leaves its old one"
-    );
+    assert!(rows.exact_of_peer("a", "fig-lane").is_empty(), "a changed handle leaves its old one");
     rows.take_peer("a");
     rows.take_peer("b");
     assert!(rows.names.is_empty(), "no name entry is left behind");
