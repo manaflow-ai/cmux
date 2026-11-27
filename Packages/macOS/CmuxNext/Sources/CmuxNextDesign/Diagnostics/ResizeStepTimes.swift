@@ -82,6 +82,7 @@ public struct ResizeStepTimes {
         let start = beginStep(.window, input: input())
         body()
         recordLive("set_frame", since: start, detail: detail())
+        if let end = live.stepDidLayOut, live.passDepth == 0 { end(.window) }
     }
 
     /// Passes running now (``pass(_:_:)``), and the steps and timed phases that ran inside one: a pass's callbacks that
