@@ -441,5 +441,4 @@ impl Hub {
         }
         json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})
     }
-
 }

@@ -313,7 +313,11 @@ impl Hub {
         // author/forwarder context to the provenance used by the inbox projection.
         let message =
             super::super::message_events::message_context(self, session, &blocks, &opts, prompt_id);
-        super::super::message_events::embed_message_context(&mut opts, message.as_ref(), &session.id);
+        super::super::message_events::embed_message_context(
+            &mut opts,
+            message.as_ref(),
+            &session.id,
+        );
         let sender_identity =
             crate::prompt_provenance::sender_record(opts.provenance.as_ref(), Some(lane), None);
         let fresh = {
@@ -368,7 +372,12 @@ impl Hub {
             crate::prompt_provenance::marked(msg, opts.provenance.as_ref()),
         );
         if let Some(message) = message.as_ref() {
-            super::super::message_events::record_message_context(self, &session.id, message, &Value::Null);
+            super::super::message_events::record_message_context(
+                self,
+                &session.id,
+                message,
+                &Value::Null,
+            );
         }
         // Existing readers can replay these marks without knowing the new deliveredRead flag.
         self.append(
@@ -412,7 +421,9 @@ impl Hub {
         if session.id != id {
             return false;
         }
-        if session.meta().status != SessionStatus::Closed && super::super::queue::queue_waits(&session) {
+        if session.meta().status != SessionStatus::Closed
+            && super::super::queue::queue_waits(&session)
+        {
             return true;
         }
         let name = session.meta().name;
@@ -474,13 +485,16 @@ impl Hub {
                             held_by_person = turn.persons;
                             // Nor does a turn a Stop is ending: what is new goes in as the next
                             // turn, at once (`cancel.rs` module docs).
-                            let stopping = super::super::cancel::is_stopping(session, &turn.turn_id);
+                            let stopping =
+                                super::super::cancel::is_stopping(session, &turn.turn_id);
                             if stopping {
                                 inbox.due_now = true;
                             }
                             if stopping
                                 || !steers
-                                || turn.prompt_id.starts_with(super::super::cold_wake::COMPACT_ID_PREFIX)
+                                || turn
+                                    .prompt_id
+                                    .starts_with(super::super::cold_wake::COMPACT_ID_PREFIX)
                                 || turn.persons
                                 || inbox.held_by_person
                                 || capped(&meta, turn.started_at, now)
@@ -617,5 +631,4 @@ impl Hub {
             Next::Wake => self.deliver_notice(session, false),
         }
     }
-
 }
