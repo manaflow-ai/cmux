@@ -186,6 +186,7 @@ fn a_failed_heartbeat_without_a_reason_still_projects_failure() {
             agent_session_id: None,
             host_build: None,
             handle: None,
+            updated_at: None,
         },
     );
     assert_eq!(row["status"], "idle");
@@ -213,6 +214,7 @@ fn heartbeat_roundtrip_preserves_an_optional_stuck_reason() {
             handle: None,
             former_names: Vec::new(),
             roles: Vec::new(),
+            updated_at: None,
         }],
         leaving: false,
     };
