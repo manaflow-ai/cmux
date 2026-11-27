@@ -94,43 +94,38 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
     match cmd {
         Command::ClearPeerSnapshots => crate::daemon::clear_peer_snapshots().await,
         Command::Session(control) => crate::cli::mesh_control::run(control, json_out).await,
-        Command::Retention(args) => {
+        Command::TranscriptOffload(args) => {
+            super::history_upkeep::transcript_offload(args, json_out).await
+        }
+        Command::Retention(args) => super::history_upkeep::retention(args, json_out).await,
+        Command::HistoryDelete(args) => super::history_upkeep::history_delete(args, json_out).await,
+        Command::Lifecycle(args) => {
             let client = connect(true).await?;
-            let archive = args.archive.map(std::path::absolute).transpose()?;
-            let v = client
-                .request(
-                    method::MUX_RETENTION,
-                    json!({"dryRun": args.dry_run, "archive": archive, "olderThanDays": args.older_than_days, "only": args.only, "unreadOnly": args.unread_only}),
-                )
-                .await?;
+            let v = client.request(method::MUX_LIFECYCLE, json!({"dryRun": args.dry_run})).await?;
             if json_out {
                 print_json(&v);
             } else {
-                let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
-                println!(
-                    "{} closed chats older than {} days: {:.1} MB of {:.1} MB {}",
-                    v["chats"],
-                    v["olderThanDays"],
-                    mb("freedBytes"),
-                    mb("bytesBefore"),
-                    if args.dry_run { "would be freed (dry run)" } else { "freed" }
-                );
-                println!("skipped: {}", v["skipped"]);
-                let read_back = v.get("readBack").and_then(|r| r.as_array());
-                for chat in read_back.into_iter().flatten() {
-                    let text = |key: &str| chat.get(key).and_then(|x| x.as_str()).unwrap_or("?");
-                    let num = |key: &str| chat.get(key).and_then(|x| x.as_u64()).unwrap_or(0);
-                    println!(
-                        "{}: {} -> {} bytes, reads back the same {} rows (digest {})",
-                        text("sessionId"),
-                        num("bytesBefore"),
-                        num("bytesAfter"),
-                        num("rows"),
-                        text("digest")
-                    );
-                }
+                print_lifecycle_report(&v);
             }
             Ok(())
+        }
+        Command::Restore { session } => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_LIFECYCLE, json!({"restore": session})).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                println!(
+                    "{} restored (unarchived: {}, log back: {})",
+                    v.get("sessionId").and_then(Value::as_str).unwrap_or("?"),
+                    v.get("unarchived").unwrap_or(&Value::Null),
+                    v.get("rehydrated").unwrap_or(&Value::Null),
+                );
+            }
+            Ok(())
+        }
+        Command::HistoryOffload(args) => {
+            super::history_upkeep::history_offload(args, json_out).await
         }
         Command::Cancel { session } => {
             let client = connect(true).await?;
@@ -144,7 +139,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Kill { session, purge, condition, close } => {
+        Command::Kill { session, purge, now, condition, close } => {
             let client = connect(true).await?;
             // An older daemon would ignore the condition and stop a busy session.
             if condition.if_idle && !client.daemon_lists(crate::hub::stop_if_idle::FEATURE) {
@@ -152,12 +147,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     crate::cli::errors::Code::Runtime,
                     "stop_if_idle_unsupported",
                     "the running daemon predates `session stop --if-idle`: nothing was stopped; \
-                     restart it on the installed acpmux, then retry",
+                     `acpmux daemon restart` runs the installed one",
                 )
                 .into());
             }
             let id = crate::cli::resolve::control_id(&client, &session).await?;
             let mut params = json!({"sessionId": id, "purge": purge});
+            // A delete keeps the chat 7 days, restorable, unless `--now` (`hub/soft_delete.rs`).
+            // An older daemon ignores `grace` and deletes at once; the line below says which.
+            if purge && !now {
+                cmux_json::JsonSet::set(&mut params, "grace", json!(true));
+            }
             if condition.if_idle {
                 cmux_json::JsonSet::set(&mut params, "ifIdle", json!(true));
             }
@@ -175,9 +175,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if json_out {
                 print_json(&v)
             } else {
-                println!("{}", if purge { "purged" } else { "closed" })
+                println!("{}", crate::cli::soft_delete::kill_line(purge, now, &v))
             }
             Ok(())
+        }
+        Command::Undelete { session } => {
+            let client = connect(true).await?;
+            crate::cli::soft_delete::undelete(&client, &session, json_out).await
+        }
+        Command::Deleted => {
+            let client = connect(true).await?;
+            crate::cli::soft_delete::deleted(&client, json_out).await
         }
         Command::PauseAgent { session } => {
             let client = connect(true).await?;
@@ -186,18 +194,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let v = client.request(method::MUX_PAUSE, json!({"sessionId": id})).await?;
             if json_out {
                 print_json(&v);
-            } else if v["paused"] == true {
+            } else if v.get("paused").and_then(Value::as_bool) == Some(true) {
                 println!(
                     "paused: its agent exited in {} ms; its next prompt or `acpmux session wake {session}` resumes the same conversation",
-                    v["exitMs"]
+                    v.get("exitMs").unwrap_or(&Value::Null)
                 );
-            } else if v["reason"] == "paused" {
+            } else if v.get("reason").and_then(Value::as_str) == Some("paused") {
                 println!("already paused");
             } else {
                 println!("not running: it is stopped, and its next prompt resumes it");
             }
             Ok(())
         }
+        Command::PlaceSession(args) => place_session(args, json_out).await,
         Command::WakeAgent { session } => {
             let client = connect(true).await?;
             unsupported_pause(&client)?;
@@ -205,16 +214,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let v = client.request(method::MUX_WAKE, json!({"sessionId": id})).await?;
             if json_out {
                 print_json(&v);
-            } else if v["woke"] == true {
-                println!("resumed its conversation in {} ms", v["tookMs"]);
-            } else if v["reason"] == "running" {
+            } else if v.get("woke").and_then(Value::as_bool) == Some(true) {
+                println!(
+                    "resumed its conversation in {} ms",
+                    v.get("tookMs").unwrap_or(&Value::Null)
+                );
+            } else if v.get("reason").and_then(Value::as_str) == Some("running") {
                 println!("not paused: its agent is running");
             } else {
                 println!("not paused: it is stopped, and its next prompt resumes it");
             }
             Ok(())
         }
-        Command::SessionHold { session, held, fleet, allow, set_allow, reason, status } => {
+        Command::SessionHold {
+            session,
+            held,
+            fleet,
+            allow,
+            set_allow,
+            reason,
+            status,
+            hold_for,
+        } => {
             let client = connect(true).await?;
             if !client.daemon_lists(crate::hub::session_hold::FEATURE) {
                 return Err(crate::cli::errors::AppError::new(
@@ -237,20 +258,56 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 // Read first: `--allow` adds to what is there, and the change is printed.
                 let before = client.request(method::MUX_FLEET_HOLD, json!({})).await?;
+                let hold_now = serde_json::from_value::<crate::hub::session_hold::FleetHold>(
+                    before.get("fleetHold").cloned().unwrap_or_default(),
+                )
+                .unwrap_or_default();
+                let active = hold_now.active(crate::store::now_ms());
                 if status {
                     if json_out {
                         print_json(&before);
-                    } else if before.pointer("/fleetHold/on").and_then(Value::as_bool) == Some(true)
-                    {
-                        println!("fleet hold on; allowed: {}", shown(&allow_of(&before)));
+                    } else if active {
+                        println!("{}", crate::cli::hold_line::fleet_hold_line(&hold_now, None));
+                        println!("allowed: {}", shown(&allow_of(&before)));
                     } else {
                         println!("fleet hold off");
                     }
                     return Ok(());
                 }
-                let was = allow_of(&before);
+                // `--allow` adds to a hold that is on; with none on it is no order to start one
+                // (2026-11-25: `hold --fleet --allow X` meant to admit X started a hold that idled
+                // every other chat on the host). `--set-allow`, or `hold --fleet` alone, starts one.
+                if held && !active && !allow.is_empty() && set_allow.is_none() {
+                    if json_out {
+                        print_json(&json!({"fleetHold": hold_now, "changed": false,
+                            "reason": "no_fleet_hold"}));
+                    } else {
+                        println!(
+                            "fleet hold off: --allow only adds to a hold that is on, so nothing \
+                             changed. To start a hold that lets only these run: `acpmux session \
+                             hold --fleet --set-allow {}`",
+                            allow.join(",")
+                        );
+                    }
+                    return Ok(());
+                }
+                let was = if active { allow_of(&before) } else { Vec::new() };
                 let next = crate::hub::session_hold::next_allow(&was, set_allow.as_deref(), &allow);
                 let mut p = json!({"on": held, "allow": next});
+                if held {
+                    let for_ms = match hold_for.as_deref().map(str::trim) {
+                        None => crate::hub::session_hold::DEFAULT_FOR_MS,
+                        Some("never" | "0") => 0,
+                        Some(text) => crate::cli::run::ls::parse_duration_ms(text)?,
+                    };
+                    cmux_json::JsonSet::set(&mut p, "forMs", json!(for_ms));
+                    let by = std::env::var("ACPMUX_SESSION_NAME")
+                        .ok()
+                        .or_else(|| std::env::var("ACPMUX_SESSION_ID").ok())
+                        .filter(|v| !v.trim().is_empty())
+                        .unwrap_or_else(|| "person".to_owned());
+                    cmux_json::JsonSet::set(&mut p, "by", json!(by));
+                }
                 let reason = reason.or_else(|| {
                     held.then(|| before.pointer("/fleetHold/reason").and_then(Value::as_str))
                         .flatten()
@@ -264,12 +321,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     print_json(&v);
                 } else if v.pointer("/fleetHold/on").and_then(Value::as_bool) == Some(true) {
                     let now = allow_of(&v);
+                    let set: crate::hub::session_hold::FleetHold =
+                        serde_json::from_value(v["fleetHold"].clone()).unwrap_or_default();
                     println!(
-                        "fleet hold on{}",
-                        v.get("held")
-                            .and_then(Value::as_u64)
-                            .map(|n| format!(", {n} sessions held"))
-                            .unwrap_or_default(),
+                        "{}",
+                        crate::cli::hold_line::fleet_hold_line(
+                            &set,
+                            v.get("held").and_then(Value::as_u64)
+                        )
                     );
                     println!("allowed before: {}", shown(&was));
                     println!("allowed now:    {}", shown(&now));
@@ -306,19 +365,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::RouteDeath { facts } => {
-            let text = if facts.as_os_str() == "-" {
-                let mut buf = String::new();
-                std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
-                buf
-            } else {
-                std::fs::read_to_string(&facts)
-                    .with_context(|| format!("reading {}", facts.display()))?
-            };
-            let f: crate::death_route::Facts =
-                serde_json::from_str(&text).context("facts are not the death-route JSON")?;
-            print_json(&serde_json::to_value(crate::death_route::route(&f))?);
-            Ok(())
+        Command::RouteDeath { session, facts, show_facts } => {
+            super::route_death::run(session, facts, show_facts).await
         }
         Command::RestartAgent { session } => {
             let client = connect(true).await?;
@@ -461,6 +509,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
+        Command::Register { auto: true, name: Some(name), .. } => {
+            // cmux's hook's step: bounded, and never a failure the session sees.
+            let v = crate::cli::reply_address::auto(name).await;
+            if json_out {
+                print_json(&v);
+            }
+            Ok(())
+        }
         Command::Register { renew: true, .. } => {
             // A hook's step: bounded, silent, and never a failure the session sees.
             let v = crate::cli::reply_address::renew().await;
@@ -469,7 +525,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Register { name, code, renew: false } => {
+        Command::Register { name, code, renew: false, .. } => {
             let name = name.unwrap_or_default();
             let client = connect(true).await?;
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
@@ -498,6 +554,92 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     field("family"),
                     field("agentSessionId")
                 );
+            }
+            Ok(())
+        }
+        Command::Succeed { session, names } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_SUCCEED, json!({"sessionId": id, "names": names}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let added: Vec<&str> =
+                    v["added"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                println!("{id} answers to {}", added.join(", "));
+            }
+            Ok(())
+        }
+        Command::Role { cmd } => {
+            let client = connect(true).await?;
+            let (op, params) = match cmd {
+                RoleCmd::Ls => ("ls", json!({"op": "ls"})),
+                RoleCmd::Claim { address, session } => {
+                    let id = crate::cli::resolve::control_id(&client, &session).await?;
+                    ("claim", json!({"op": "claim", "sessionId": id, "address": address}))
+                }
+                RoleCmd::Release { address, session } => {
+                    let id = crate::cli::resolve::control_id(&client, &session).await?;
+                    ("release", json!({"op": "release", "sessionId": id, "address": address}))
+                }
+            };
+            let v = client.request(method::MUX_ROLE, params).await?;
+            if json_out {
+                print_json(&v);
+                return Ok(());
+            }
+            match op {
+                "ls" => {
+                    for row in v["sessions"].as_array().into_iter().flatten() {
+                        let roles: Vec<&str> = row["roles"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|r| r["address"].as_str())
+                            .collect();
+                        let succeeds: Vec<&str> = row["succeeds"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .collect();
+                        println!(
+                            "{}\troles: {}\tsucceeds: {}",
+                            row["name"].as_str().unwrap_or_default(),
+                            if roles.is_empty() { "-".into() } else { roles.join(", ") },
+                            if succeeds.is_empty() { "-".into() } else { succeeds.join(", ") },
+                        );
+                    }
+                }
+                "claim" => println!(
+                    "{} holds {}",
+                    v["sessionId"].as_str().unwrap_or_default(),
+                    v["address"].as_str().unwrap_or_default()
+                ),
+                _ => println!(
+                    "{} gave up {}",
+                    v["sessionId"].as_str().unwrap_or_default(),
+                    v["address"].as_str().unwrap_or_default()
+                ),
+            }
+            Ok(())
+        }
+        Command::Frame { session, built } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_TURN_FRAMES, json!({"sessionId": id, "built": built}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else if v.get("asked").and_then(Value::as_bool) == Some(true) {
+                let turn = v.get("turnId").and_then(Value::as_str).unwrap_or_default();
+                println!("frame asked for turn {turn}");
+            } else {
+                let why = v.get("reason").and_then(Value::as_str);
+                println!("no frame: {}", why.unwrap_or("the daemon took none"));
             }
             Ok(())
         }
@@ -555,7 +697,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             } else if handle {
                 println!(
                     "{}",
-                    v["handle"].as_str().ok_or_else(|| anyhow!("rename returned no handle"))?
+                    v.get("handle")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| anyhow!("rename returned no handle"))?
                 );
             } else {
                 println!("renamed")
@@ -578,11 +722,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if let Some(m) = model {
                 acpmux.insert("model".into(), json!(m));
             }
+            // One id for this fork, sent again on the retry after a daemon restart: the daemon
+            // answers the fork the first request made instead of a second one (cmux#50084).
+            acpmux.insert("requestId".into(), json!(uuid::Uuid::now_v7().to_string()));
             let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": acpmux}});
             if let Some(c) = cwd {
                 p["cwd"] = json!(c);
             }
-            let v = client.request(method::SESSION_FORK, p).await?;
+            let v = match client.request(method::SESSION_FORK, p.clone()).await {
+                Err(e) if crate::cli::output::daemon_closed_error(&e) => {
+                    let client = crate::cli::output::reconnect_after_update().await?;
+                    client.request(method::SESSION_FORK, p).await?
+                }
+                answer => answer?,
+            };
             super::launch::print_new_warnings(&v);
             if json_out {
                 print_json(&v)
@@ -667,6 +820,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             answer_permission(&session, None, Answer::Deny, json_out).await
         }
         Command::Answer { session, answer } => answer_question(&session, &answer, json_out).await,
+        Command::Place { session, on, reason } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let mut p = json!({"sessionId": id, "on": on});
+            if let Some(r) = reason {
+                p["reason"] = json!(r);
+            }
+            let v = client.request(method::MUX_CHAT_MOVE, p).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let to = v["to"].as_str().unwrap_or("?");
+                match v["status"].as_str() {
+                    Some("moved") => println!("moved {id} to {to}"),
+                    Some("moving") => println!("moving {id} to {to}"),
+                    Some("already") => println!("{id} already runs {to}"),
+                    _ => println!(
+                        "not moved: {}\nthe person runs: {}",
+                        v["why"].as_str().unwrap_or_default(),
+                        v["command"].as_str().unwrap_or_default()
+                    ),
+                }
+            }
+            Ok(())
+        }
         Command::Export { session, dest } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -735,9 +913,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             max_moves,
             timeout,
             undo,
+            machine,
         }) => {
             super::rebalance::run(
-                super::rebalance::Args { dry_run, force, max_moves, timeout, undo },
+                super::rebalance::Args { dry_run, force, max_moves, timeout, undo, machine },
                 json_out,
             )
             .await
@@ -932,6 +1111,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
                     }
+                    if let Some(line) = crate::gauges::carrier::status_line(&v["gauges"]["carrier"])
+                    {
+                        println!("carrier:  {line}");
+                    }
+                    if let Some(fleet) = v.get("fleetHold").filter(|f| !f.is_null())
+                        && let Ok(hold) = serde_json::from_value::<
+                            crate::hub::session_hold::FleetHold,
+                        >(fleet.clone())
+                    {
+                        let held = fleet.get("held").and_then(Value::as_u64);
+                        println!(
+                            "hold:     {}",
+                            crate::cli::hold_line::fleet_hold_line(&hold, held)
+                        );
+                    }
                     if let Some(line) = crate::session_budget::budget_line(&v["sessionBudgets"]) {
                         println!("budget:   {line}");
                     }
@@ -986,6 +1180,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
         Command::DaemonFelt => crate::cli::daemon_felt::run(json_out).await,
+        Command::DaemonWatchdogHold => crate::cli::watchdog_hold::run().await,
         Command::DaemonPlacement { message } => crate::cli::daemon_placement::run(&message).await,
         Command::DaemonStats { by, since, top } => {
             crate::cli::daemon_stats::run(by, &since, top, json_out).await
@@ -1114,8 +1309,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         // No daemon connection: the update must work while the daemon does not.
-        Command::Host(PeerCmd::SelfUpdate { channel, now, allow_downgrade }) => {
-            crate::cli::hosts::self_update(&channel, now, allow_downgrade, json_out).await
+        Command::Host(PeerCmd::SelfUpdate {
+            channel,
+            now,
+            allow_downgrade,
+            fast_patch,
+            commit,
+        }) => {
+            let fast_patch = fast_patch.then_some(commit);
+            crate::cli::hosts::self_update(&channel, now, allow_downgrade, fast_patch, json_out)
+                .await
         }
         // A file of this machine's; the daemon, when it runs, only reloads it.
         Command::Host(PeerCmd::Approvals { cmd }) => {
@@ -1125,8 +1328,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
         // Its own socket, a fresh daemon connection per client: none held here.
         #[cfg(unix)]
-        Command::Host(PeerCmd::BrokerForward { owner, socket }) => {
-            crate::cli::host_broker_forward::run(owner, socket).await
+        Command::Host(PeerCmd::BrokerForward { owners, socket }) => {
+            crate::cli::host_broker_forward::run(owners, socket).await
+        }
+        // Its own socket to the daemon, one per pipe (`host_pipe.rs`).
+        #[cfg(all(unix, feature = "hub-carrier"))]
+        Command::Host(PeerCmd::Pipe { machine, port }) => {
+            crate::cli::host_pipe::run(machine, port).await
+        }
+        #[cfg(not(all(unix, feature = "hub-carrier")))]
+        Command::Host(PeerCmd::Pipe { .. }) => {
+            Err(anyhow!("machine pipe needs unix sockets and the hub carrier"))
         }
         #[cfg(not(unix))]
         Command::Host(PeerCmd::BrokerForward { .. }) => {
@@ -1255,6 +1467,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
+        // The account's consent authority, read and narrowed here; no daemon.
+        Command::Host(PeerCmd::Grantors { cmd }) => {
+            crate::cli::consent_grant::run_grantors(cmd, json_out)
+        }
+        Command::Host(PeerCmd::Hypervisor { cmd }) => {
+            crate::cli::machine_hypervisor::run(cmd, json_out).await
+        }
         Command::Host(PeerCmd::Consent { cmd }) => {
             let (screen, control, signed_in_machines, granted) = match cmd {
                 crate::cli::command_host::ConsentCmd::Grant {
@@ -1355,6 +1574,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         // Reads the home directory and writes one file; no daemon (`disk_usage.rs`).
         Command::Host(PeerCmd::DiskWalk) => crate::disk_usage::walk_and_store(),
+        // Reads the fleet listing and the registry; changes nothing (`cell_report.rs`).
+        Command::Host(PeerCmd::Cells) => super::ls::cells(json_out).await,
+        // Writes one file in acpmux's home; no daemon (`placement/reach.rs`).
+        Command::Host(PeerCmd::Unreachable { name, why, clear }) => {
+            use crate::placement::reach::{COOLDOWN_MS, Failures};
+            let line = Failures::update(&crate::config::home(), |failures| {
+                if clear {
+                    if failures.clear(&name) {
+                        format!("{name}: failure forgotten; machine pick weighs it again")
+                    } else {
+                        format!("{name}: no failure recorded")
+                    }
+                } else {
+                    let why = why.as_deref().unwrap_or("a transfer failed");
+                    failures.record(&name, why, crate::store::now_ms());
+                    format!("{name}: machine pick passes it over for {} min", COOLDOWN_MS / 60_000)
+                }
+            })?;
+            if json_out {
+                print_json(&json!({"name": name, "unreachable": !clear, "message": line}));
+            } else {
+                println!("{line}");
+            }
+            Ok(())
+        }
         // Pure: judges the readings on stdin, no daemon (`cli/host_budget.rs`).
         Command::Host(PeerCmd::Verdict) => crate::cli::host_budget::verdict_stdin(),
         // Only a running daemon's chats: no daemon, no chats to tell.
@@ -1415,7 +1659,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         let (message, warning) = if url.starts_with("ssh://") && has_token {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux machine ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`; `acpmux machine ls` shows when it connects (the saved WebSocket token is retained)"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
@@ -1437,7 +1681,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         } else {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; run `acpmux machine ls` and retry after it shows connected"
+                                    "peer {name} was saved and is probing in the background; `acpmux machine ls` shows when it connects"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
@@ -1498,11 +1742,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return Ok(());
                 }
                 PeerCmd::Load { .. }
+                | PeerCmd::Cells
+                | PeerCmd::Unreachable { .. }
                 | PeerCmd::DiskWalk
                 | PeerCmd::Verdict
                 | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(
-                        "machine load, disk-walk, verdict and notice are handled before connecting"
+                        "machine load, cells, unreachable, disk-walk, verdict and notice are handled before connecting"
                     ));
                 }
                 PeerCmd::Rm { name } => {
@@ -1519,11 +1765,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 // Dispatched before the connect (above); kept here so the
                 // match stays total without a panic.
-                PeerCmd::SelfUpdate { channel, now, allow_downgrade } => {
+                PeerCmd::SelfUpdate { channel, now, allow_downgrade, fast_patch, commit } => {
                     return crate::cli::hosts::self_update(
                         &channel,
                         now,
                         allow_downgrade,
+                        fast_patch.then_some(commit),
                         json_out,
                     )
                     .await;
@@ -1622,11 +1869,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::LeaveIntent { .. }
                 | PeerCmd::EnrollSelf { .. }
                 | PeerCmd::Consent { .. }
+                | PeerCmd::Grantors { .. }
                 | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }
                 | PeerCmd::Deps { .. }
+                | PeerCmd::Hypervisor { .. }
                 | PeerCmd::Key { .. }
-                | PeerCmd::BrokerForward { .. } => {
+                | PeerCmd::BrokerForward { .. }
+                | PeerCmd::Pipe { .. } => {
                     return Err(anyhow!(
                         "host join, leave, consent, vault and deps are handled before daemon connection"
                     ));
@@ -1773,6 +2023,112 @@ async fn print_start_modes() {
         );
     }
     println!("# change: acpmux config --set permissions.default=yolo|standard|ask|default");
+}
+
+/// `acpmux session place-set`: `_acpmux/place_set`, `place_undo` or `place_get`, and what each chat
+/// answered. A refused or unconfirmed chat ends the command non-zero.
+async fn place_session(args: crate::cli::command::PlaceSessionArgs, json_out: bool) -> Result<()> {
+    use crate::cli::errors::{AppError, Code};
+    let client = connect(true).await?;
+    let mut ids = Vec::new();
+    for s in &args.sessions {
+        ids.push(resolve_id(&client, s).await?);
+    }
+    let v = if args.undo {
+        let mut chats = Vec::new();
+        for id in &ids {
+            let one = client
+                .request("_acpmux/place_undo", json!({"sessionId": id, "confirm": args.yes}))
+                .await?;
+            chats.extend(one["chats"].as_array().cloned().unwrap_or_default());
+        }
+        json!({"chats": chats})
+    } else if args.status {
+        client.request("_acpmux/place_get", json!({"sessionIds": ids})).await?
+    } else {
+        let mut place = match args.mode.as_deref() {
+            Some("cloud") => json!({"mode": "cloud"}),
+            Some("machine") => {
+                let Some(machine) = args.machine.as_deref() else {
+                    return Err(AppError::usage("--mode machine needs --machine NAME").into());
+                };
+                json!({"mode": "machine", "machine": machine})
+            }
+            _ => json!({"mode": "auto"}),
+        };
+        if let Some(cwd) = &args.cwd {
+            cmux_json::JsonSet::set(&mut place, "cwd", json!(cwd));
+        }
+        let mut params = json!({"sessionIds": ids, "place": place, "confirm": args.yes});
+        if let Some(why) = &args.why {
+            cmux_json::JsonSet::set(&mut params, "why", json!(why));
+        }
+        client.request("_acpmux/place_set", params).await?
+    };
+    let chats = v["chats"].as_array().cloned().unwrap_or_default();
+    if json_out {
+        print_json(&v);
+    } else {
+        for c in &chats {
+            let reason = c["reason"].as_str().map(|r| format!(": {r}")).unwrap_or_default();
+            println!(
+                "{}: {}{reason}",
+                c["sessionId"].as_str().unwrap_or("?"),
+                c["state"].as_str().unwrap_or("?")
+            );
+            for l in c["leftBehind"].as_array().into_iter().flatten() {
+                println!("  stays here: {}", l["detail"].as_str().unwrap_or("?"));
+            }
+            if c["state"] == "needs_confirm" {
+                println!("  pass --yes to move anyway");
+            }
+        }
+    }
+    let bad =
+        chats.iter().find(|c| matches!(c["state"].as_str(), Some("refused" | "needs_confirm")));
+    match bad {
+        Some(c) if c["state"] == "refused" => Err(AppError::new(
+            Code::Refused,
+            "place_refused",
+            c["reason"].as_str().unwrap_or("refused"),
+        )
+        .into()),
+        Some(_) => Err(AppError::new(
+            Code::Refused,
+            "place_needs_confirm",
+            "the move leaves things behind: nothing moved; pass --yes to move anyway",
+        )
+        .into()),
+        None => Ok(()),
+    }
+}
+
+/// The text form of a session lifecycle report.
+fn print_lifecycle_report(v: &Value) {
+    let num = |key: &str| v.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let flag = |key: &str| v.get(key).and_then(Value::as_bool) == Some(true);
+    let mb = |key: &str| num(key) as f64 / 1_048_576.0;
+    println!(
+        "{} chats {} ({} offloaded{}), {:.1} MB to {:.1} MB, {:.1} MB freed",
+        num("archived"),
+        if flag("dryRun") { "would be archived (dry run)" } else { "archived" },
+        num("offloaded"),
+        if flag("cloud") { "" } else { "; cloud history not set up" },
+        mb("bytesBefore"),
+        mb("bytesAfter"),
+        mb("bytesFreed"),
+    );
+    for chat in v.get("chats").and_then(Value::as_array).into_iter().flatten() {
+        let text = |key: &str| chat.get(key).and_then(Value::as_str).unwrap_or("");
+        let id = text("id");
+        println!(
+            "  {}  {}  {}",
+            if id.is_empty() { "?" } else { id },
+            text("reason"),
+            text("name"),
+        );
+    }
+    println!("skipped: {}", v.get("skipped").unwrap_or(&Value::Null));
 }
 
 #[cfg(test)]

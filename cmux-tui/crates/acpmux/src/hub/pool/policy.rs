@@ -69,6 +69,33 @@ pub struct PoolKey {
 }
 
 impl PoolKey {
+    /// The fields of `self` another key differs in, by name (never a value: `auth` and
+    /// `account` are fingerprints, and none is logged). A discard logs them, so a spare that
+    /// keeps missing says why.
+    pub fn differing(&self, other: &PoolKey) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        let mut check = |name: &'static str, same: bool| {
+            if !same {
+                out.push(name);
+            }
+        };
+        check("origin", self.origin == other.origin);
+        check("cwd", self.cwd == other.cwd);
+        check("harness", self.harness == other.harness);
+        check("preset", self.preset == other.preset);
+        check("args", self.args == other.args);
+        check("systemPromptSha256", self.system_prompt_sha256 == other.system_prompt_sha256);
+        check("auth", self.auth == other.auth);
+        check("account", self.account == other.account);
+        check("machine", self.machine == other.machine);
+        check("promptSuggestions", self.prompt_suggestions == other.prompt_suggestions);
+        check("toolServers", self.tool_servers == other.tool_servers);
+        check("settingsFile", self.settings_file == other.settings_file);
+        check("model", self.model == other.model);
+        check("effort", self.effort == other.effort);
+        out
+    }
+
     /// Entries in one slot compete: a new key for a slot replaces the old one.
     fn same_slot(&self, other: &PoolKey) -> bool {
         self.origin == other.origin
@@ -135,8 +162,9 @@ pub enum Take<T> {
     Warming(watch::Receiver<u64>),
     /// Nothing for this key (or a remote-origin key).
     Miss,
-    /// The slot held a session under another key: end it, start cold.
-    Discard(Option<T>),
+    /// The slot held a session under another key: end it, start cold. With the fields the
+    /// keys differed in (`PoolKey::differing`).
+    Discard(Option<T>, Vec<&'static str>),
 }
 
 /// What `want` asks the caller to do.
@@ -209,6 +237,17 @@ impl<T> Pool<T> {
     /// key is refused: nothing starts.
     pub fn want(&mut self, role: Role, key: PoolKey, now: Duration) -> Wanted<T> {
         if key.origin == Origin::Remote {
+            return Wanted::default();
+        }
+        // A spare never takes a reserved home chat's slot (`reserved.rs`): the reserved entry is
+        // this harness's warm agent in that folder already, on the key a home chat with no pick
+        // asks for. A personal spare moved into the reserved folder on another model replaced it,
+        // so the first home chat started cold (prod journey 45975681836, 11-27: warm-home answered
+        // "another key holds its slot (ready), differing in model"). The spare starts nothing; a
+        // chat that asks for its model starts cold as it would with no spare at all.
+        if role == Role::Spare
+            && self.entries.iter().any(|e| e.reserved && e.key != key && e.key.same_slot(&key))
+        {
             return Wanted::default();
         }
         let mut evicted = Vec::new();
@@ -418,10 +457,14 @@ impl<T> Pool<T> {
         {
             let e = self.entries.remove(i);
             e.settle();
-            return Take::Discard(match e.slot {
-                Slot::Ready(t) => Some(t),
-                _ => None,
-            });
+            let fields = e.key.differing(key);
+            return Take::Discard(
+                match e.slot {
+                    Slot::Ready(t) => Some(t),
+                    _ => None,
+                },
+                fields,
+            );
         }
         Take::Miss
     }

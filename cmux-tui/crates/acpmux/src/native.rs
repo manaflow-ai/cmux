@@ -26,7 +26,7 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
             for p in walk(&root, 4) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                if name.ends_with(".jsonl") && name.contains(sid) {
+                if is_codex_rollout(&name, sid) {
                     out.push(("codex-rollout".to_owned(), p));
                 }
             }
@@ -34,11 +34,19 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
         "claude" => {
             // ~/.claude/projects/<cwd-with-dashes>/<session-id>.jsonl
             let root = home.join(".claude").join("projects");
+            // The file under the chat's own folder's name is the one its agent reads and
+            // writes: when it is there it is the chat's, and no other folder's copy of the
+            // id (one the chat left behind in a folder it ran in before) goes with it. It
+            // also spares a snapshot the walk of every project.
+            let own = root.join(claude_project_dir(&meta.cwd)).join(format!("{sid}.jsonl"));
+            if std::fs::symlink_metadata(&own).is_ok_and(|m| m.file_type().is_file()) {
+                return claude_transcript_with_children(own);
+            }
             for p in walk(&root, 2) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 if name == format!("{sid}.jsonl") {
-                    out.push(("claude-project".to_owned(), p));
+                    out.extend(claude_transcript_with_children(p));
                 }
             }
         }
@@ -56,6 +64,57 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
         _ => {}
     }
     out
+}
+
+/// Whether the file named `name` is the Codex rollout of the session `sid`:
+/// `rollout-<time>-<sid>.jsonl`. The id is the name's whole end after a dash, so a word that is
+/// merely somewhere in a name (`rollout`, a date, the start of another id) names no file.
+fn is_codex_rollout(name: &str, sid: &str) -> bool {
+    name.starts_with("rollout-") && name.ends_with(&format!("-{sid}.jsonl"))
+}
+
+/// The folder beside a Claude transcript (`<session-id>/subagents`) that holds its subagents'.
+/// A Claude transcript and its `Task` children's transcripts
+/// (`<session-id>/subagents/*.jsonl` beside it, which Claude reads back for the subagents
+/// it ran). Both the chat's own folder and the walk of every project list through this, so
+/// neither leaves the children behind.
+fn claude_transcript_with_children(transcript: PathBuf) -> Vec<(String, PathBuf)> {
+    let children = transcript.with_extension("").join(CLAUDE_SUBAGENTS);
+    let mut out = vec![("claude-project".to_owned(), transcript)];
+    for child in walk(&children, 0) {
+        if child.extension().is_some_and(|e| e == "jsonl") {
+            out.push((CLAUDE_SUBAGENT_LABEL.to_owned(), child));
+        }
+    }
+    out
+}
+
+const CLAUDE_SUBAGENTS: &str = "subagents";
+/// The bundle label of a Claude subagent's transcript (`<session-id>/subagents/*.jsonl`).
+pub const CLAUDE_SUBAGENT_LABEL: &str = "claude-subagent";
+
+/// Where a bundled Claude subagent transcript goes: `rel` must be
+/// `.claude/projects/<dir>/<sid>/subagents/<name>.jsonl`, and it lands under the target cwd's
+/// project directory, beside the session's own transcript.
+fn claude_subagent_target(meta: &SessionMeta, sid: &str, rel: &Path) -> Option<PathBuf> {
+    let parts: Vec<&str> = rel.iter().map(|p| p.to_str()).collect::<Option<_>>()?;
+    match parts.as_slice() {
+        [".claude", "projects", dir, s, CLAUDE_SUBAGENTS, name]
+            if !dir.is_empty()
+                && *s == sid
+                && name.len() > ".jsonl".len()
+                && name.ends_with(".jsonl") =>
+        {
+            Some(
+                PathBuf::from(".claude/projects")
+                    .join(claude_project_dir(&meta.cwd))
+                    .join(sid)
+                    .join(CLAUDE_SUBAGENTS)
+                    .join(name),
+            )
+        }
+        _ => None,
+    }
 }
 
 /// pi's session folder under the home folder.
@@ -232,10 +291,9 @@ fn restore_target(meta: &SessionMeta, label: &str, rel: &Path) -> Option<PathBuf
             // the destination cwd may differ from the exporting machine's.
             Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
         }
+        ("claude", CLAUDE_SUBAGENT_LABEL) => claude_subagent_target(meta, sid, rel),
         ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
-                && name.ends_with(".jsonl")
-                && name.contains(sid) =>
+            if rel.starts_with(".codex/sessions") && is_codex_rollout(&name, sid) =>
         {
             Some(rel.to_path_buf())
         }
@@ -270,6 +328,34 @@ pub fn restore_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usiz
     restore_in_with(bundle, meta, home, false)
 }
 
+/// [`restore`] of a copy that is the chat (Auto mode's Cloud copy, `hub/auto_import.rs`): a
+/// file here that holds other bytes is replaced, whatever it holds, since the chat's log here
+/// was replaced the same way. The file that was here stays beside it under
+/// [`REPLACED_SUFFIX`].
+pub fn restore_replacing(bundle: &Path, meta: &SessionMeta) -> Result<usize> {
+    restore_replacing_in(bundle, meta, &dirs::home_dir().unwrap_or_default())
+}
+
+/// [`restore_replacing`] under the home folder `home`.
+pub fn restore_replacing_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usize> {
+    restore_as(bundle, meta, home, Placing::Replace)
+}
+
+/// The name a replaced agent file is kept under, after its own: no agent reads a file of this
+/// ending as a session.
+pub const REPLACED_SUFFIX: &str = ".before-cloud-copy";
+
+/// What a restore does with a file the home folder holds already, and how it puts a new one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Placing {
+    /// Overwritten only when it is a shorter start of the bundled one; a new file is copied.
+    Copy,
+    /// [`Placing::Copy`], and a new file is a link to the bundle's.
+    Link,
+    /// Overwritten unless it holds the same bytes.
+    Replace,
+}
+
 /// [`restore_in`]; `link`: [`restore_linked`].
 pub fn restore_in_with(
     bundle: &Path,
@@ -277,6 +363,11 @@ pub fn restore_in_with(
     home: &Path,
     link: bool,
 ) -> Result<usize> {
+    restore_as(bundle, meta, home, if link { Placing::Link } else { Placing::Copy })
+}
+
+fn restore_as(bundle: &Path, meta: &SessionMeta, home: &Path, placing: Placing) -> Result<usize> {
+    let link = placing == Placing::Link;
     let native = bundle.join("native");
     if !native.is_dir() {
         return Ok(0);
@@ -300,9 +391,13 @@ pub fn restore_in_with(
             let target = home.join(target);
             if target.exists() {
                 // A chat back on a machine it ran on: this machine's copy is the start of the
-                // log the chat kept writing elsewhere. Any other copy is left as it is.
+                // log the chat kept writing elsewhere. Any other copy is left as it is, unless
+                // the bundle is the chat (`Placing::Replace`).
                 if !is_strict_prefix(&target, &file)? {
-                    continue;
+                    if placing != Placing::Replace || same_bytes(&target, &file)? {
+                        continue;
+                    }
+                    keep_replaced(&target)?;
                 }
                 replace_with(&file, &target)?;
                 n += 1;
@@ -329,6 +424,22 @@ fn is_strict_prefix(old: &Path, new: &Path) -> Result<bool> {
     }
     let (a, b) = (std::fs::read(old)?, std::fs::read(new)?);
     Ok(b.starts_with(&a))
+}
+
+/// Whether two files hold the same bytes.
+fn same_bytes(a: &Path, b: &Path) -> Result<bool> {
+    if std::fs::metadata(a)?.len() != std::fs::metadata(b)?.len() {
+        return Ok(false);
+    }
+    Ok(std::fs::read(a)? == std::fs::read(b)?)
+}
+
+/// Keeps the file at `target` beside itself under [`REPLACED_SUFFIX`], in place of any kept
+/// before: what this machine's agent wrote after the chat's last copy left.
+fn keep_replaced(target: &Path) -> Result<()> {
+    let mut name = target.file_name().unwrap_or_default().to_os_string();
+    name.push(REPLACED_SUFFIX);
+    replace_with(target, &target.with_file_name(name))
 }
 
 /// Puts a copy of `src` at `target` in one rename, so the agent never reads a half-written file.
@@ -408,10 +519,9 @@ fn guarded_target(meta: &SessionMeta, sid: &str, label: &str, rel: &Path) -> Opt
         {
             Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
         }
+        ("claude", CLAUDE_SUBAGENT_LABEL) => claude_subagent_target(meta, sid, rel),
         ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
-                && name.starts_with("rollout-")
-                && name.ends_with(&format!("-{sid}.jsonl")) =>
+            if rel.starts_with(".codex/sessions") && is_codex_rollout(name, sid) =>
         {
             Some(rel.to_path_buf())
         }

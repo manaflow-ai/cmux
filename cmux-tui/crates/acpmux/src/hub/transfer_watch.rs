@@ -22,8 +22,8 @@
 //!   (`taken_back`). The watch goes on asking, so a target that answers later still ends it.
 //!
 //! Its state is in the move's directory, so a daemon that restarts mid-move watches it again:
-//! `alive` (touched by begin and each read), `read` (each file read to its end), `to` and
-//! `to-ssh` and `to-host`, `undecided` (when its target first could not say), `offered`.
+//! `alive` (touched by begin and each read), `paged` (a page was read), `read` (each file read to
+//! its end), `to` and `to-ssh` and `to-host`, `undecided` (when its target first could not say), `offered`.
 
 use super::transfer_out::{bundle_files, names_a_move, transfer_epoch_marker, transfers_dir};
 use super::*;
@@ -130,6 +130,23 @@ pub(super) fn fully_read(dir: &Path) -> Option<bool> {
     let read: Vec<&str> = read.lines().collect();
     // An empty file needs no page: the target has it whole without one.
     Some(files.iter().all(|(path, size)| *size == 0 || read.contains(&path.as_str())))
+}
+
+/// The file that says a client read a page of the move: its copy began, so a client is driving it.
+const PAGED: &str = "paged";
+
+/// A client read a page of the move in `dir` (`transfer_read`): stamps [`PAGED`] once.
+pub(super) fn note_paged(dir: &Path) {
+    let path = dir.join(PAGED);
+    if !path.exists() {
+        let _ = crate::home_fs::write(&path, "");
+    }
+}
+
+/// Whether any page of the move in `dir` was read: a client began its copy.
+pub(super) fn was_paged(dir: &Path) -> bool {
+    dir.join(PAGED).exists()
+        || std::fs::read_to_string(dir.join("read")).is_ok_and(|r| !r.trim().is_empty())
 }
 
 /// How long ago the move last heard from its driver. A missing or malformed stamp is
@@ -287,14 +304,34 @@ impl Hub {
             .then(|| MoveWatch { hub: self.clone(), transfer_id: transfer_id.to_owned() })
     }
 
-    /// Watches the move `transfer_id` of `session` until it ends, unless another holds its watch.
-    pub(super) fn watch_transfer(self: &Arc<Self>, session: &Arc<Session>, transfer_id: &str) {
+    /// Watches the move `transfer_id` of `session`, which this daemon found at start, until it
+    /// ends, unless another holds its watch. A move nobody read a page of cannot have landed
+    /// anywhere and has no client copying it, so it ends now (the chat runs here again) rather
+    /// than after a lease the chat spends frozen (RFD 0063, "Nothing lives only on the VM"). A
+    /// move a client was midway through copying is kept for its lease: a take-over
+    /// (`acpmux daemon run --take-over`) leaves that client reading, and its copy goes on from
+    /// the offset it reached against the new daemon. A move read to its end waits for its lease.
+    pub(super) fn watch_transfer_after_restart(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        transfer_id: &str,
+    ) {
         if tokio::runtime::Handle::try_current().is_err() {
             return;
         }
-        if let Some(watch) = self.claim_move_watch(transfer_id) {
-            self.watch_claimed(session, watch);
-        }
+        let Some(watch) = self.claim_move_watch(transfer_id) else { return };
+        let (hub, session) = (self.clone(), session.clone());
+        self.scope.spawn_until_cancelled("move-watch-restart", async move {
+            let dir = transfers_dir().join(&watch.transfer_id);
+            if dir.is_dir()
+                && fully_read(&dir) == Some(false)
+                && !was_paged(&dir)
+                && hub.end_stalled_move(&session, &watch.transfer_id, &dir).await
+            {
+                return;
+            }
+            hub.transfer_watch(&session, &watch.transfer_id).await;
+        });
     }
 
     /// Watches the move `watch` claims until it ends; the claim goes with the watch.
@@ -313,7 +350,7 @@ impl Hub {
         self.refreeze_stopped_moves();
         for session in self.sessions() {
             if let Some(transfer_id) = session.moving().filter(|id| names_a_move(id)) {
-                self.watch_transfer(&session, &transfer_id);
+                self.watch_transfer_after_restart(&session, &transfer_id);
             }
         }
     }

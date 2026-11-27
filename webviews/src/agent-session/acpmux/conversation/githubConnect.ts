@@ -26,15 +26,71 @@ export const GITHUB_CONNECT_CLI = "cmux accounts github-connect";
 
 /// Why the chat needs a connect: none for this team, one that needs linking again, or one that
 /// does not cover the repository (GitHub's page picks it).
-export type GitHubConnectReason = "not-connected" | "needs-reauth" | "not-covered";
+/// `asked`: the agent asked for the connection itself (acpmux `settings_ask`, settingsAsk below).
+/// `permissions-pending`: the cmux GitHub App asked for more (contents: read & write) and this installation has not
+/// accepted yet (the API's `github.permissions_pending`): Sign in with GitHub opens the installation's page to accept.
+export type GitHubConnectReason = "not-connected" | "needs-reauth" | "not-covered" | "permissions-pending" | "asked";
 
 export type GitHubConnectNeed = {
   reason: GitHubConnectReason;
   /// `OWNER/REPO` the failed call named, when it named a well-formed one.
   repo?: string;
+  /// The GitHub account or org the agent asked to connect (`settings_ask` `connection:github:ORG`).
+  org?: string;
+  /// The agent's one line on why it asked (`settings_ask` `why`), drawn as the card's line.
+  why?: string;
   /// The failed call's id: the card's identity within its turn.
   callId: string;
 };
+
+/// A GitHub account or org name as GitHub allows it (1 to 39 letters, digits and inner dashes);
+/// the Mac checks the same (AgentPaneRequest+Decoding.swift `isGitHubOwner`).
+export function isGitHubOwner(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(value);
+}
+
+/// acpmux's `settings_ask` tool (acpmux_mcp_settings_ask.rs; Leo, 2026-11-25: "what about just a
+/// simple styled consistently popover for that specific setting? a la something similar to needs
+/// you or whatever"): its name on acpmux's own server, and behind the folding `cmux` server.
+export const SETTINGS_ASK = "settings_ask";
+const SETTINGS_ASK_FOLDED = "acpmux_settings_ask";
+const MAX_WHY = 160;
+
+/// What a completed `settings_ask` call asks for: a GitHub connection, for an org or a repository
+/// when it named a well-formed one. The tool already checked the target (a refused call is
+/// failed); its arguments are read again here, and only well-formed names pass on.
+export function settingsAskCall(tool: Tool): Omit<GitHubConnectNeed, "callId"> | undefined {
+  if (tool.status !== "completed" || tool.command || tool.kind === "execute") return undefined;
+  const call = mcpCall(tool);
+  const named =
+    call &&
+    ((call.server === "acpmux" && call.tool === SETTINGS_ASK) ||
+      (call.server === "cmux" && call.tool === SETTINGS_ASK_FOLDED));
+  if (!named || !isRecord(call.args)) return undefined;
+  const args = call.args;
+  const text = (...keys: string[]) =>
+    keys
+      .map((k) => args[k])
+      .find((v): v is string => typeof v === "string" && v.trim() !== "")
+      ?.trim();
+  const target = text("target", "setting", "connection", "id", "key", "name");
+  if (!target) return undefined;
+  const rest = target.replace(/^connection:/, "");
+  const [provider, ...scopeParts] = rest.split(":");
+  if (provider?.toLowerCase() !== "github") return undefined;
+  const scope = scopeParts
+    .join(":")
+    .trim()
+    .replace(/^https:\/\/github\.com\//, "")
+    .replace(/\/$/, "");
+  const why = text("why", "reason", "message", "text")?.slice(0, MAX_WHY);
+  const names = isGitHubRepo(scope)
+    ? { repo: scope, org: scope.split("/")[0]! }
+    : isGitHubOwner(scope)
+      ? { org: scope }
+      : {};
+  return { reason: "asked", ...names, ...(why && { why }) };
+}
 
 /// A GitHub repository's full name as GitHub allows it (an owner of up to 39 letters, digits and
 /// inner dashes; a name of letters, digits, `.`, `_`, `-`, never `.` or `..`). The Mac checks the
@@ -45,7 +101,8 @@ export function isGitHubRepo(value: unknown): value is string {
   return Boolean(match && match[2] !== "." && match[2] !== "..");
 }
 
-const CODE = /\b(integration\.not_found|github\.not_connected|needs_reauth|policy\.denied)\b/;
+const CODE =
+  /\b(integration\.not_found|github\.not_connected|needs_reauth|policy\.denied|github\.permissions_pending)\b/;
 
 function reasonOf(code: string | undefined): GitHubConnectReason | undefined {
   switch (code) {
@@ -56,6 +113,9 @@ function reasonOf(code: string | undefined): GitHubConnectReason | undefined {
       return "needs-reauth";
     case "policy.denied":
       return "not-covered";
+    case "github.permissions_pending":
+    case "permissions_pending":
+      return "permissions-pending";
     default:
       return undefined;
   }
@@ -108,7 +168,7 @@ export function githubConnectNeed(rows: readonly AcpmuxRow[]): GitHubConnectNeed
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const tool = items[index]!.tool;
       if (!tool || tool.status === "pending" || tool.status === "in_progress") continue;
-      const need = githubConnectCall(tool);
+      const need = githubConnectCall(tool) ?? settingsAskCall(tool);
       if (need) return { ...need, callId: tool.id };
     }
   }
@@ -199,6 +259,6 @@ export function afterVisibility(phase: GitHubConnectPhase, visible: boolean): Gi
 /// this chat's link (the host hands it to GitHub's return); Continue sends the chat's Continue
 /// prompt (turnActions.ts `CONTINUE_PROMPT`). Connect rejects with the app's reason when it did not run.
 export type GitHubConnectOffer = {
-  connect(repo: string | undefined): Promise<void>;
+  connect(repo: string | undefined, org?: string): Promise<void>;
   continue(): Promise<void>;
 };

@@ -199,7 +199,7 @@ export const BENCHES: readonly Bench[] = [
   },
   // A chat at any length (goal chats-flat-at-any-length): a 100k-row chat opened and grown live, one and 20 at once,
   // against empty chats; renderer idle CPU, streaming CPU and PSS, and their worst ratio. perf-cron.py's web-ui-flat
-  // part runs it, under that part's 30-minute run cap.
+  // part runs it, under that part's 45-minute run cap (its run_seconds).
   {
     name: "chat-100k-flat",
     file: "chat-100k-flat.bench.ts",
@@ -230,7 +230,7 @@ export const BENCHES: readonly Bench[] = [
     ownPart: true,
   },
   // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
-  // part, under that part's 55-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
+  // part, under that part's 55-minute run cap (its run_seconds). Its windows are 5 s (three of each kind, as in the main part) so the
   // repeats fit under that cap.
   {
     name: "chat-100k-flat-grown",
@@ -268,7 +268,11 @@ export const BENCHES: readonly Bench[] = [
   {
     name: "composer-typing",
     file: "composer-typing.bench.ts",
-    args: ["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60", "--keys", "500", "--gap", "20"],
+    // --repeat 3: each case's median-p99 attempt, so a burst from another runner slot on the host is not the reading.
+    args: [
+      ...["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60"],
+      ...["--keys", "500", "--gap", "20", "--repeat", "3"],
+    ],
     timeoutMs: 1_500_000,
     ownPart: true,
   },
@@ -376,7 +380,7 @@ export const BENCHES: readonly Bench[] = [
 export const SHARED_BUILDS_CAP_MS = 1_200_000;
 
 /// What the benches without `ownPart` and the shared builds may take together at their timeouts: perf-cron.py's
-/// 50-minute cap on the web-ui part (LINUX_RUN_SECONDS_BY_PART), less 30 s. A budget the timeouts are sized to, not a
+/// 50-minute cap on the web-ui part (its run_seconds), less 30 s. A budget the timeouts are sized to, not a
 /// bound the suite keeps at runtime: test/web-ui-suite-order.test.ts holds the timeouts' sum to it, and perf-cron.py's
 /// cap is what kills a run past it.
 export const SUITE_CAP_MS = 2_970_000;

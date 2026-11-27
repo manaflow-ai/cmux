@@ -54,6 +54,42 @@ pub const SEGMENT: u64 = 4 << 20;
 pub const TASK_MARK: &str = "ACPMUX_BG_TASK";
 /// From SIGTERM to SIGKILL on a stop.
 pub const GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+/// How often a stop's grace looks whether the task already ended.
+#[cfg(unix)]
+const GRACE_LOOK: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// Sleeps until `ended` holds or `grace` passes, looking every [`GRACE_LOOK`]; whether it ended.
+#[cfg(unix)]
+fn ended_within(grace: std::time::Duration, mut ended: impl FnMut() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + grace;
+    loop {
+        if ended() {
+            return true;
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        std::thread::sleep(GRACE_LOOK.min(deadline - now));
+    }
+}
+
+/// Whether child `pid` exited, without reaping it (its pid keeps the group id the task's).
+#[cfg(unix)]
+fn leader_exited(pid: u32) -> bool {
+    // SAFETY: waitid into a zeroed siginfo this function owns; WNOWAIT leaves the child unreaped.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let r = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOWAIT | libc::WNOHANG,
+        )
+    };
+    // SAFETY: si_pid is set by waitid when a child changed state, else left zero.
+    r == 0 && unsafe { info.si_pid() } != 0
+}
 
 /// What the daemon hands the runner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -481,10 +517,24 @@ pub fn main() -> anyhow::Result<()> {
     // Set once a stop sent its SIGKILL: the reap waits for it, so the group id stays the task's
     // until then.
     let killed = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    // Set once the task's output pipe ended (every holder of it is gone).
+    let pipe_ended = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Whether no process carrying the task's mark still runs. Not `tree::descendants` of this
+    // runner: it lists by running `ps`, a child of this runner, so it is never empty. The
+    // leader itself stays, unreaped, until the reap: it is not a running process. A process
+    // that dropped the mark from its environment still gets the SIGKILL that follows.
+    let signal_tree_empty = {
+        let mark = mark.clone();
+        move |leader: u32| {
+            crate::agent_host::tree::marked(TASK_MARK, &mark).iter().all(|p| p.pid == leader)
+        }
+    };
     let stop = {
         let (task, dir, give_up, killed) =
             (task.clone(), dir.clone(), give_up.clone(), killed.clone());
         let signal_tree = signal_tree.clone();
+        let signal_tree_empty = signal_tree_empty.clone();
+        let pipe_ended = pipe_ended.clone();
         let held_id = id.clone();
         move || {
             let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
@@ -504,6 +554,8 @@ pub fn main() -> anyhow::Result<()> {
             drop(held);
             let (task, give_up, killed) = (task.clone(), give_up.clone(), killed.clone());
             let signal_tree = signal_tree.clone();
+            let signal_tree_empty = signal_tree_empty.clone();
+            let pipe_ended = pipe_ended.clone();
             std::thread::spawn(move || {
                 let sent = || {
                     *killed.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -522,8 +574,23 @@ pub fn main() -> anyhow::Result<()> {
                     signal_tree(signal);
                     if signal == libc::SIGKILL {
                         sent();
+                        // The pipe already ended: nothing is left for the grace to wait for.
+                        if pipe_ended.load(std::sync::atomic::Ordering::SeqCst) {
+                            break;
+                        }
+                        std::thread::sleep(GRACE);
+                    } else {
+                        // Up to the grace, and no longer than the task takes to end: once the
+                        // leader exited, the pipe ended and nothing of its tree still runs,
+                        // SIGKILL goes at once (to anything that left the group and the pipe
+                        // too). A stop took the whole 5 s grace for a task that ended on its
+                        // SIGTERM in milliseconds: bg_stop answered in 5.5 s at p50.
+                        ended_within(GRACE, || {
+                            pipe_ended.load(std::sync::atomic::Ordering::SeqCst)
+                                && leader_exited(pid)
+                                && signal_tree_empty(pid)
+                        });
                     }
-                    std::thread::sleep(GRACE);
                 }
                 // Every way out lets the reap go on, and ends the wait for a pipe a process
                 // outside the group (or one this runner cannot signal) still holds.
@@ -653,7 +720,7 @@ pub fn main() -> anyhow::Result<()> {
         }
     });
     {
-        let (task, dir) = (task.clone(), dir.clone());
+        let (task, dir, pipe_ended) = (task.clone(), dir.clone(), pipe_ended.clone());
         std::thread::spawn(move || {
             let mut buf = vec![0u8; 64 << 10];
             let mut failed = false;
@@ -673,6 +740,7 @@ pub fn main() -> anyhow::Result<()> {
                     let _ = write_record(&dir, &held.record);
                 }
             }
+            pipe_ended.store(true, std::sync::atomic::Ordering::SeqCst);
             let _ = done_tx.send(());
         });
     }
@@ -723,90 +791,5 @@ pub fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn workflow_spool_retains_more_than_the_normal_two_segments() {
-        let dir = cmux_unix_socket::short_test_dir("bg-workflow-spool");
-        let mut spool = Spool::create_with_retention(dir.path(), "t", SEGMENT, true).unwrap();
-        let data: Vec<u8> = (0..(2 * SEGMENT + 123) as usize).map(|i| (i % 251) as u8).collect();
-        for chunk in data.chunks(64 << 10) {
-            spool.write(chunk).unwrap();
-        }
-        drop(spool);
-        assert_eq!(segments(dir.path(), "t").unwrap(), [0]);
-        let complete = read_output(dir.path(), "t", Some(0), u64::MAX).unwrap();
-        assert_eq!(complete.kept_from, 0);
-        assert_eq!(complete.total, data.len() as u64);
-        assert_eq!(complete.data, data);
-    }
-
-    #[test]
-    fn legacy_bg_specs_keep_bounded_retention() {
-        let spec: Spec = serde_json::from_value(serde_json::json!({
-            "dir":"/tmp", "id":"task", "sessionId":"owner", "command":"true",
-            "cwd":"/tmp", "segment":10
-        }))
-        .unwrap();
-        assert!(!spec.retain_all);
-    }
-
-    /// A summary line names the task by its description (else its command) on one line, says
-    /// how it ended, and its status is `ok` only for exit 0.
-    #[test]
-    fn a_tasks_outcome_is_one_line_and_a_status() {
-        use serde_json::json;
-        let view = |v: serde_json::Value| outcome(&v);
-        let ran = view(json!({"state": "running", "command": "make\n  test", "description": " "}));
-        assert_eq!(ran, ("Background command running: make test".to_owned(), "running"));
-        let ok =
-            view(json!({"state": "exited", "exitCode": 0, "command": "x", "description": "build"}));
-        assert_eq!(ok, ("Background command finished: build (exit 0)".to_owned(), "ok"));
-        let bad = view(json!({"state": "exited", "exitCode": 2, "command": "x"}));
-        assert_eq!(bad, ("Background command finished: x (exit 2)".to_owned(), "failed"));
-        let killed = view(json!({"state": "killed", "signal": 9, "command": "x"}));
-        assert_eq!(killed, ("Background command killed: x (signal 9)".to_owned(), "failed"));
-        assert_eq!(view(json!({"state": "stopped", "command": "x"})).1, "failed");
-        assert_eq!(view(json!({"state": "lost", "command": "x"})).1, "failed");
-        let long = label(None, &"a".repeat(500));
-        assert_eq!(long.chars().count(), LABEL_MAX);
-        assert!(long.ends_with('…'));
-    }
-
-    /// Rotation keeps the newest two segments, named by their start, and a read by whole-output
-    /// offset crosses them; one before the oldest kept byte starts at it.
-    #[test]
-    fn the_spool_keeps_two_segments_and_reads_across_them() {
-        let dir = cmux_unix_socket::short_test_dir("bg-spool");
-        let mut spool = Spool::create(dir.path(), "t", 10).unwrap();
-        let data: Vec<u8> = (0..35u8).map(|i| b'a' + i % 26).collect();
-        for chunk in data.chunks(4) {
-            spool.write(chunk).unwrap();
-        }
-        assert_eq!(segments(dir.path(), "t").unwrap(), [20, 30]);
-        let tail = read_output(dir.path(), "t", None, 8).unwrap();
-        assert_eq!((tail.start, tail.total, tail.kept_from), (27, 35, 20));
-        assert_eq!(tail.data, data[27..]);
-        let across = read_output(dir.path(), "t", Some(0), 12).unwrap();
-        assert_eq!((across.start, across.data.as_slice()), (20, &data[20..32]));
-    }
-
-    /// A segment that is listed but gone at every open (here a dangling link, as a rotation
-    /// between the listing and the open leaves it) is an error, not an empty output; a spool
-    /// with no segment at all is empty.
-    #[cfg(unix)]
-    #[test]
-    fn a_read_that_loses_every_race_with_rotation_is_an_error() {
-        let dir = cmux_unix_socket::short_test_dir("bg-spool-race");
-        let none = read_output(dir.path(), "t", None, 8).unwrap();
-        assert_eq!((none.data.len(), none.total), (0, 0));
-        let mut spool = Spool::create(dir.path(), "t", 10).unwrap();
-        spool.write(b"0123456789abc").unwrap();
-        let gone = segment_path(dir.path(), "t", 0);
-        std::fs::remove_file(&gone).unwrap();
-        std::os::unix::fs::symlink(dir.path().join("nowhere"), &gone).unwrap();
-        let err = read_output(dir.path(), "t", None, 8).unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted, "{err}");
-    }
-}
+#[path = "bg_run_tests.rs"]
+mod tests;

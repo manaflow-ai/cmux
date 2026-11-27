@@ -40,18 +40,23 @@ mod inventory_socket;
 mod side;
 #[path = "agent_session_side_known.rs"]
 mod side_known;
+#[cfg(test)]
+#[path = "agent_session_test_hooks.rs"]
+mod test_hooks;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
+pub(crate) use agent_session_start::chat_folder_prewarm_on;
 pub use agent_session_start::{
-    AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
@@ -123,8 +128,8 @@ const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The longest login id, code or API key a login step carries, in bytes.
 const MAX_LOGIN_BYTES: usize = 4096;
 
-pub(crate) const MAX_ATTACHMENTS_PER_CLIENT: usize = 8;
-pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
+// Attached tabs are not capped by count: each holds one acpmux link (a unix socket, two
+// descriptors here) and its reader thread with a [`THREAD_STACK_BYTES`] stack, a constant cost.
 /// Records per attach or events page.
 pub(crate) const MAX_PAGE: u64 = 500;
 pub(crate) const MAX_PROMPT_BYTES: usize = 64 * 1024;
@@ -175,6 +180,9 @@ pub(crate) struct AgentSessions {
     link_shares: proxy::shares::LinkShares,
     /// Unix connections past their first line: a proxy binds only on its first.
     spoken: Mutex<HashSet<u64>>,
+    /// Bound tailnet teammates whose bind asked for presence (`labs.chatMultiplayer`): their
+    /// typing and view reach acpmux as their own. Set only by the bind, never by `set-client-info`.
+    proxy_presence: Mutex<HashSet<u64>>,
     /// A tab's session changes under the write side; every write to or for a teammate's
     /// attachment checks the tab under the read side, so none lands after a rebind.
     rebinding: RwLock<()>,
@@ -196,12 +204,9 @@ struct AttachState {
 }
 
 impl AttachState {
+    /// The client's attached and reserved tabs (the proxy-author trust check reads it; no cap does).
     fn count(&self, client: u64) -> usize {
         self.attachments.keys().chain(self.reserved.iter()).filter(|(c, _)| *c == client).count()
-    }
-
-    fn total(&self) -> usize {
-        self.attachments.len() + self.reserved.len()
     }
 }
 
@@ -216,12 +221,6 @@ impl AgentSessions {
             ),
             ..Self::default()
         }
-    }
-
-    /// Turns the stage S1 publication of the proxy authors on or off (tests).
-    #[cfg(test)]
-    pub(crate) fn set_publishing_for_test(&self, on: bool) {
-        self.proxy_authors.set_publishing_for_test(on);
     }
 
     /// The live attachment of `surface` on `client`; an ended one is dropped.
@@ -264,13 +263,6 @@ impl AgentSessions {
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
     }
 
-    /// Runs `hold` while this thread holds the host proxy authors (tests that prove a key does not wait for them).
-    #[cfg(test)]
-    pub(crate) fn hold_proxy_authors_for_test(&self, hold: &dyn Fn()) {
-        let _held = self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner());
-        hold();
-    }
-
     /// The connection ended: every attachment of it closes.
     pub(crate) fn disconnect(&self, client: u64) {
         self.inventory_watches.disconnect(client);
@@ -285,6 +277,7 @@ impl AgentSessions {
             }
         }
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
+        self.proxy_presence.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
         let gone: Vec<Arc<Attachment>> = {
             let mut state = self.lock();
             state.reserved.retain(|(c, _)| *c != client);
@@ -297,17 +290,22 @@ impl AgentSessions {
         }
     }
 
+    /// The bind asked for presence for `client` (`agent_session_proxy::bind`).
+    pub(super) fn set_proxy_presence(&self, client: u64) {
+        self.proxy_presence.lock().unwrap_or_else(|e| e.into_inner()).insert(client);
+    }
+
+    /// Whether `client`'s bind asked for presence.
+    pub(super) fn proxy_presence(&self, client: u64) -> bool {
+        self.proxy_presence.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
+    }
+
     fn remove(&self, attachment: &Attachment) {
         let mut state = self.lock();
         let key = (attachment.client, attachment.surface);
         if state.attachments.get(&key).is_some_and(|live| std::ptr::eq(live.as_ref(), attachment)) {
             state.attachments.remove(&key);
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn attachment_count(&self) -> usize {
-        self.lock().attachments.len()
     }
 }
 
@@ -356,6 +354,21 @@ impl Attachment {
         self.mux.upgrade().is_some_and(|mux| {
             mux.control_clients.supports_capability(self.client, AGENT_SESSION_PRESENCE_CAPABILITY)
         })
+    }
+
+    /// Whether acpmux's who-is-here set goes to this attachment: the owner's app that echoed
+    /// `agent-session-presence-v1`, or a tailnet teammate whose bind asked for presence
+    /// (`labs.chatMultiplayer`, design chat-multiplayer phase 1b), so both people see each
+    /// other's face. A link guest and a Cloud member hear it on no path here.
+    fn hears_presence(&self) -> bool {
+        match &self.author {
+            None => self.wants_presence(),
+            Some(author) if proxy::is_guest(author) || proxy::is_member(author) => false,
+            Some(_) => self
+                .mux
+                .upgrade()
+                .is_some_and(|mux| mux.control_clients.agent_sessions.proxy_presence(self.client)),
+        }
     }
 
     fn stamp(&self, mut params: Value) -> Value {
@@ -938,7 +951,7 @@ impl Refusal {
             Self::BadRequest => "bad request",
             Self::UnknownTab => "not an agent tab with a session in this daemon",
             Self::NotAttached => "the tab is not attached on this connection",
-            Self::Limit => "too many attached agent tabs",
+            Self::Limit => "the agent tab could not attach now; try again",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
             Self::BadList => "acpmux's session list could not be read whole",
@@ -978,7 +991,6 @@ impl Refusal {
         match error {
             LinkError::Closed => Self::Unavailable,
             LinkError::Timeout => Self::Timeout,
-            LinkError::Busy => Self::Limit,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
             LinkError::BadList(_) => Self::BadList,
         }
@@ -1474,10 +1486,7 @@ fn attach(
     {
         let mut state = sessions.lock();
         let key = (client, params.surface);
-        if state.reserved.contains(&key)
-            || state.count(client) >= MAX_ATTACHMENTS_PER_CLIENT
-            || state.total() >= MAX_ATTACHMENTS_TOTAL
-        {
+        if state.reserved.contains(&key) {
             return refuse(writer, id, Refusal::Limit);
         }
         state.reserved.insert(key);
@@ -1565,12 +1574,27 @@ mod proxy;
 use media::{media, media_range};
 pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
-    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
+    TRANSFER_FIELD, abort_transferred_chat_shares, close_chat_shares, close_listed_chat_shares,
+    close_unlisted_chat_shares, detach_transferred_chat_shares, finish_transferred_chat_shares,
+    freeze_transferred_chat_shares, open_chat_shares, reconcile_transferred_chat_shares,
+    stage_transferred_chat_shares,
 };
+
+#[cfg(test)]
+pub(crate) fn export_transferred_chat_shares(mux: &Mux, session: &str) -> Option<Value> {
+    mux.control_clients
+        .agent_sessions
+        .link_shares
+        .export_for_transfer(mux.session_state_directory().as_deref(), session)
+}
+
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;
 use stream::connect_and_attach;
+#[path = "agent_session_call.rs"]
+mod call;
+use call::call;
 
 /// Runs a call that waits on acpmux off the connection thread. Calls of one
 /// attachment may run side by side; the link bounds how many wait.
@@ -1630,12 +1654,17 @@ fn run_on_worker(
         return refuse(writer, id, Refusal::NotTrusted);
     }
     // A teammate (a bound proxy author) never answers the host's asks: an allow
-    // would run a tool on the owner's machine (design section 7). Nor does it say it types or
-    // views yet: acpmux would count that as the owner's own presence. A link guest's typing and
-    // view carry its author.
+    // would run a tool on the owner's machine (design section 7). Without presence it does not
+    // say it types or views either. A link guest's typing and view carry its author.
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
     // A Cloud team member's typing and view carry its own author (acpmux presence), like a guest's.
     let member = attachment.author.as_ref().is_some_and(proxy::is_member);
+    // A tailnet teammate whose bind asked for presence (`labs.chatMultiplayer`, design
+    // chat-multiplayer phase 1b) types and views as its own author too; without it, as before.
+    let teammate_presence = attachment.author.is_some()
+        && !guest
+        && !member
+        && mux.control_clients.agent_sessions.proxy_presence(attachment.client);
     // Only the owner answers an ask or decides a held prompt (acpmux refuses an author too).
     if attachment.author.is_some()
         && matches!(
@@ -1648,7 +1677,8 @@ fn run_on_worker(
         return refuse(writer, id, if member { Refusal::OwnerOnly } else { Refusal::NotTrusted });
     }
     if attachment.author.is_some()
-        && (!(guest || member) || matches!(&command, AgentSessionCommand::Permission(_)))
+        && (!(guest || member || teammate_presence)
+            || matches!(&command, AgentSessionCommand::Permission(_)))
         && matches!(
             &command,
             AgentSessionCommand::Permission(_)
@@ -1703,232 +1733,6 @@ fn run_on_worker(
         return refuse(writer, id, Refusal::Limit);
     }
     true
-}
-
-fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, Refused> {
-    let session = attachment.session.as_str();
-    let answer: Result<Value, Refusal> = match command {
-        AgentSessionCommand::Attach(params) => {
-            let newest_first = params.after_seq.is_none() || params.before_seq.is_some();
-            let mut params = page_params(session, &params, true)?;
-            if attachment.author.is_some() {
-                teammate_kinds(&mut params);
-            }
-            let page =
-                attachment.link.call("_acpmux/attach", attachment.stamp(params), CALL_TIMEOUT);
-            page.map_err(Refusal::of)
-                .and_then(|page| attachment.private(bound_page(page, newest_first)))
-        }
-        AgentSessionCommand::Events(params) => {
-            let newest_first = params.before_seq.is_some();
-            let mut params = page_params(session, &params, false)?;
-            if attachment.author.is_some() {
-                teammate_kinds(&mut params);
-            }
-            let page =
-                attachment.link.call("_acpmux/events", attachment.stamp(params), CALL_TIMEOUT);
-            page.map_err(Refusal::of)
-                .and_then(|page| attachment.private(bound_page(page, newest_first)))
-        }
-        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, steer, .. }) => {
-            return prompt(attachment, prompt_id, text, content, steer);
-        }
-        AgentSessionCommand::QueueApprove(QueueDecisionParams {
-            prompt_id,
-            turn_id,
-            revision,
-            ..
-        }) => {
-            let (Some(turn_id), Some(revision)) = (turn_id, revision) else {
-                return Err(Refusal::BadRequest.into());
-            };
-            if !valid_prompt_id(&prompt_id) || turn_id.is_empty() || turn_id.len() > 128 {
-                return Err(Refusal::BadRequest.into());
-            }
-            let params = json!({"sessionId": session, "promptId": prompt_id, "turnId": turn_id,
-                "revision": revision});
-            attachment.link.call("_acpmux/queue_approve", params, CALL_TIMEOUT).map_err(Refusal::of)
-        }
-        AgentSessionCommand::QueueDecline(QueueDecisionParams { prompt_id, .. }) => {
-            if !valid_prompt_id(&prompt_id) {
-                return Err(Refusal::BadRequest.into());
-            }
-            let params = json!({"sessionId": session, "promptId": prompt_id});
-            attachment.link.call("_acpmux/queue_decline", params, CALL_TIMEOUT).map_err(Refusal::of)
-        }
-        AgentSessionCommand::Permission(PermissionParams {
-            permission_id,
-            option_id,
-            answers,
-            annotations,
-            decision_nonce,
-            person_decision,
-            answered_by,
-            ..
-        }) => {
-            if option_id.is_empty() || option_id.len() > 256 {
-                return Err(Refusal::BadRequest.into());
-            }
-            let answers = answers.filter(|a| !a.is_null());
-            let annotations = annotations.filter(|a| !a.is_null());
-            let bad = |v: &Option<Value>| {
-                v.as_ref()
-                    .is_some_and(|a| !a.is_object() || a.to_string().len() > MAX_ANSWERS_BYTES)
-            };
-            // Annotations go only beside answers.
-            if bad(&answers) || bad(&annotations) || (annotations.is_some() && answers.is_none()) {
-                return Err(Refusal::BadRequest.into());
-            }
-            if !decision_nonce.as_deref().is_none_or(is_hex64)
-                || !person_decision.as_deref().is_none_or(is_hex64)
-                || answered_by
-                    .as_ref()
-                    .is_some_and(|a| !is_answer_id(&a.device) || !is_answer_id(&a.feed_item))
-            {
-                return Err(Refusal::BadRequest.into());
-            }
-            if !attachment.has_permission(&permission_id) {
-                return Err(Refusal::UnknownPermission.into());
-            }
-            let mut params =
-                json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
-            if let Some(answers) = answers {
-                params["answers"] = answers;
-            }
-            if let Some(annotations) = annotations {
-                params["annotations"] = annotations;
-            }
-            let mut meta = serde_json::Map::new();
-            if let Some(nonce) = decision_nonce {
-                meta.insert("decisionNonce".into(), Value::String(nonce));
-            }
-            if let Some(proof) = person_decision {
-                meta.insert("personDecision".into(), Value::String(proof));
-            }
-            if let Some(by) = answered_by {
-                meta.insert(
-                    "answeredBy".into(),
-                    json!({"device": by.device, "feedItem": by.feed_item}),
-                );
-            }
-            if !meta.is_empty() {
-                params.insert("_meta", json!({"acpmux": meta}));
-            }
-            let answered = attachment.link.call(
-                "_acpmux/permission_respond",
-                attachment.stamp(params),
-                CALL_TIMEOUT,
-            );
-            // A failed answer stays answerable; a delivered one is spent.
-            if answered.is_ok() {
-                attachment.forget_permission(&permission_id);
-            }
-            answered.map_err(Refusal::of)
-        }
-        // A shared chat covers that chat only: a teammate lists no descendants.
-        AgentSessionCommand::Children(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
-        AgentSessionCommand::Children(_) => agent_session_children::list(attachment),
-        // Forking creates a machine/transcript descendant and is owner-only. Shared Cloud
-        // attachments may read and drive their pinned chat, but must not spend owner resources.
-        AgentSessionCommand::Fork(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
-        AgentSessionCommand::Fork(ForkParams { through_seq, name, .. }) => {
-            if through_seq == 0 || name.as_ref().is_some_and(|name| name.len() > 256) {
-                return Err(Refusal::BadRequest.into());
-            }
-            let mut params = json!({
-                "sessionId": session,
-                "throughSeq": through_seq,
-            });
-            if let (Some(name), Some(fields)) =
-                (name.filter(|name| !name.trim().is_empty()), params.as_object_mut())
-            {
-                fields.insert("name".to_owned(), Value::String(name));
-            }
-            let forked = attachment
-                .link
-                // Use acp.session.fork, the validated through-turn boundary. A plain session/fork
-                // strips the internal throughSeq metadata and would copy a later snapshot.
-                .call("acp.session.fork", attachment.stamp(params), CALL_TIMEOUT)
-                .map_err(Refusal::of)?;
-            // The fork's id is this machine's acpmux answer, never the request's: follow and
-            // remember it like a listed child, so `new-conversation-tab` admits its sibling tab
-            // (a fork carries `parentId`, which the children walk does not read).
-            if let Some(id) =
-                forked.get("sessionId").and_then(Value::as_str).filter(|id| !id.is_empty())
-            {
-                attachment.follow_children(&[id.to_owned()]);
-            }
-            Ok(forked)
-        }
-        // A side chat is a new chat on the owner's machine, as a fork is: the owner's only.
-        AgentSessionCommand::Side(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
-        AgentSessionCommand::Side(params) => side::call(attachment, params),
-        AgentSessionCommand::Media(MediaParams {
-            path,
-            offset: None,
-            length: None,
-            handle: None,
-            ..
-        }) => media(attachment, path),
-        AgentSessionCommand::Media(MediaParams {
-            path,
-            offset: Some(offset),
-            length,
-            handle,
-            ..
-        }) => media_range(attachment, path, offset, length, handle),
-        AgentSessionCommand::Media(_) => Err(Refusal::BadRequest),
-        // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
-        // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
-        // so again with its next keystroke.
-        AgentSessionCommand::Typing(TypingParams { on, .. }) => {
-            let params = attachment.stamp(json!({"sessionId": session, "on": on}));
-            attachment.link.call("_acpmux/typing", params, CALL_TIMEOUT).map_err(|error| {
-                match &error {
-                    LinkError::Rpc(_, data)
-                        if data.get("reason").and_then(Value::as_str)
-                            == Some("typing.rate_limited") =>
-                    {
-                        Refusal::Limit
-                    }
-                    _ => Refusal::of(error),
-                }
-            })
-        }
-        AgentSessionCommand::View(ViewParams { visible, attending, seen_seq, .. }) => {
-            let mut fields = serde_json::Map::new();
-            fields.insert("sessionId".into(), json!(session));
-            fields.insert("visible".into(), json!(visible));
-            if let Some(attending) = attending {
-                fields.insert("attending".into(), json!(attending));
-            }
-            if let Some(seen_seq) = seen_seq {
-                fields.insert("seenSeq".into(), json!(seen_seq));
-            }
-            let params = attachment.stamp(Value::Object(fields));
-            attachment.link.call("_acpmux/view", params, CALL_TIMEOUT).map_err(Refusal::of)
-        }
-        // The person's picks, on the tab's own session; acpmux's answer goes back unchanged (a
-        // set_config_option answers the agent's whole `configOptions`, which the page shows).
-        AgentSessionCommand::SetModel(SetModelParams { model_id, .. }) => {
-            let ok = is_setting_id(&model_id);
-            setting(attachment, ok, "session/set_model", json!({"modelId": model_id}))
-        }
-        AgentSessionCommand::SetMode(SetModeParams { mode_id, .. }) => {
-            let ok = is_setting_id(&mode_id);
-            setting(attachment, ok, "session/set_mode", json!({"modeId": mode_id}))
-        }
-        AgentSessionCommand::SetConfig(SetConfigParams { config_id, value, .. }) => {
-            let ok = is_setting_id(&config_id) && is_setting_id(&value);
-            let params = json!({"configId": config_id, "value": value});
-            setting(attachment, ok, "session/set_config_option", params)
-        }
-        AgentSessionCommand::Login(params) => login(attachment, params),
-        AgentSessionCommand::Context(params) => context::call(attachment, params),
-        AgentSessionCommand::Btw(BtwParams { question, .. }) => btw(attachment, question),
-        AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
-    };
-    answer.map_err(Refused::from)
 }
 
 /// One setting (`session/set_model`, `session/set_mode` or `session/set_config_option`) on the
@@ -2054,8 +1858,7 @@ fn submit_steering_prompt(
     if attachment.cloud_mobile {
         params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
     }
-    // The owner's and a team member's steer. A link guest never steers: its prompt waits for
-    // the owner (acpmux holds it whatever the flag says; the flag is not even sent).
+    // Only the owner and team members steer. Even a Drive invite submits ordinary prompts.
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
     if steer
         && !guest
@@ -2092,8 +1895,11 @@ fn submit_steering_prompt(
             "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),
             // `steered`, `queued` or `started` (acpmux's own word; null from an older acpmux).
             "state": accepted.get("state").cloned().unwrap_or(Value::Null),
-            // Held for the owner's approval (a link guest's prompt).
-            "awaiting_owner": accepted.get("awaitingOwner").cloned().unwrap_or(json!(false)),
+            // A replay or older acpmux may omit the marker. A Talk prompt still awaits the owner
+            // until its queue decision is observed.
+            "awaiting_owner": accepted.get("awaitingOwner").and_then(Value::as_bool)
+                .unwrap_or_else(|| attachment.author.as_ref().is_some_and(|author|
+                    proxy::is_guest(author) && author.get("role").and_then(Value::as_str) != Some("drive"))),
         })),
         Ok(Err(error)) => Err(Refused::of_prompt(error)),
         Err(_) => Err(Refusal::Timeout.into()),
@@ -2260,30 +2066,5 @@ impl Mux {
 mod unsent_tests;
 
 #[cfg(test)]
-mod unknown_params_tests {
-    use super::*;
-
-    /// A newer page's field never refuses a verb: it is dropped unread. A redirecting name
-    /// (a session id, a cwd, ...) is still a bad request.
-    #[test]
-    fn an_unknown_param_is_ignored_and_a_redirect_is_refused() {
-        let parsed = AgentSessionCommand::parse(
-            "agent-session-typing",
-            json!({"surface": 7, "on": true, "from_a_newer_page": {"x": 1}}),
-        );
-        assert!(matches!(parsed, Some(AgentSessionCommand::Typing(TypingParams { on: true, .. }))));
-        let prompt = AgentSessionCommand::parse(
-            "agent-session-prompt",
-            json!({"surface": 7, "prompt_id": "p1", "text": "hi", "initialize": {"v": 2}}),
-        );
-        assert!(matches!(prompt, Some(AgentSessionCommand::Prompt(_))));
-        for redirect in REDIRECT_PARAMS {
-            let mut params = json!({"surface": 7, "on": true});
-            params[*redirect] = json!("other");
-            assert!(
-                AgentSessionCommand::parse("agent-session-typing", params).is_none(),
-                "{redirect} must stay a bad request"
-            );
-        }
-    }
-}
+#[path = "agent_session_attach_unknown_params_tests.rs"]
+mod unknown_params_tests;

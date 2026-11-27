@@ -205,6 +205,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/host_health", Run(json!({}))),
         ("_acpmux/peer_status", Run(json!({}))),
         ("_acpmux/vm_host", Run(json!({}))),
+        ("_acpmux/autocloud_enroll", Run(json!({}))),
         ("_acpmux/host_notice", Run(json!({"text": "test notice"}))),
         ("_acpmux/peer_snapshot", Run(json!({"sessionId": "nopeer/x1"}))),
         ("_acpmux/place", Run(json!({}))),
@@ -317,6 +318,17 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         // `archived: false` brings a log back: an in-memory store has no archive file, so the
         // chat `$S` stays as it is for the rows after this one.
         (method::MUX_COLD_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
+        // This hub runs no holder loop, so the switch answers `auto.unavailable` (the arm's own
+        // answer); `$S` has no kept changes, so `show` lists none.
+        (method::MUX_AUTO_SESSION_SET, Run(json!({"sessionId": "$S", "auto": false}))),
+        // No holder loop here either: the move answers `auto.unavailable`.
+        (method::MUX_AUTO_SESSION_MOVE, Run(json!({"sessionId": "$S", "to": "cloud"}))),
+        // `$S` has Auto off, so it is local already and nothing is asked of a holder loop.
+        (method::MUX_CHAT_MOVE, Run(json!({"sessionId": "$S", "on": "local"}))),
+        (method::MUX_AUTO_SESSION_LEFTOVER, Run(json!({"sessionId": "$S", "action": "show"}))),
+        (method::MUX_AUTO_SESSION_WAKE, Run(json!({}))),
+        // No holder loop: the chat's own log is its transcript (`projection: null`).
+        (method::MUX_AUTO_SESSION_TRANSCRIPT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_SIDE, Run(json!({"sessionId": "$S", "chat": "lso-no-such-chat"}))),
         (
             method::MUX_HARNESS_ENABLE,
@@ -436,6 +448,14 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             ),
         ),
         (method::MUX_TURN_SHOTS, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
+        (method::MUX_TURN_FRAMES, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
+        (
+            method::MUX_CUSTOMIZE_RUN,
+            Any(
+                json!({"run": {"customize": "try", "target": "--help"}}),
+                "target must be pr:N, branch:B, sha:S, dir:PATH or a profile name (invalid params)",
+            ),
+        ),
         (method::MUX_QUEUE_TEXT, Run(json!({"sessionId": "$S", "promptId": "p1"}))),
         (
             method::MUX_MAIL_SEND,
@@ -469,6 +489,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_TEAM_ACK,
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
+            method::MUX_TEAM_LISTEN,
+            Any(json!({"op": "ls"}), "team messaging is off without a mesh relay (invalid params)"),
         ),
         (
             method::MUX_REGISTER,

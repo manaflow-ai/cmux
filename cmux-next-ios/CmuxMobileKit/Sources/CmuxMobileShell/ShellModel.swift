@@ -54,12 +54,18 @@ final class ShellModel {
             updateShownMacs()
         }
     }
-    var homePath = NavigationPath() { didSet { updateInteractiveOpen() } }
+    var homePath = NavigationPath() {
+        didSet {
+            holdRootTransition(.home, wasEmpty: oldValue.isEmpty, isEmpty: homePath.isEmpty)
+            updateInteractiveOpen()
+        }
+    }
     /// Typed: a workspace page must not nest a SwiftUI NavigationStack (the
     /// terminal tab hosts its own page), or SwiftUI traps with
     /// `comparisonTypeMismatch` when the nested stack joins this path.
     var workspacesPath: [Workspace] = [] {
         didSet {
+            holdRootTransition(.workspaces, wasEmpty: oldValue.isEmpty, isEmpty: workspacesPath.isEmpty)
             if let workspace = workspacesPath.last {
                 let id = store.resolvedWorkspaceID(workspace.id)
                 lastWorkspace.save(id)
@@ -71,8 +77,23 @@ final class ShellModel {
     }
     /// The Workspaces list shows a Mac's panel (its recovery, or every Mac offline).
     var workspacesMacPanelShown = false
-    var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
-    var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
+    var feedPath: [AgentChatDestination] = [] {
+        didSet {
+            holdRootTransition(.feed, wasEmpty: oldValue.isEmpty, isEmpty: feedPath.isEmpty)
+            updateInteractiveOpen()
+        }
+    }
+    var settingsPath: [SettingsRoute] = [] {
+        didSet {
+            holdRootTransition(.settings, wasEmpty: oldValue.isEmpty, isEmpty: settingsPath.isEmpty)
+            updateInteractiveOpen()
+        }
+    }
+    /// Tabs whose navigation stack is mid-transition (a swipe back, held or let go, or Back).
+    /// SwiftUI empties a path as a swipe back starts, so a tab's root chrome drawn outside its
+    /// stack (the tab bar, New Task) waits for the page to finish leaving instead of showing
+    /// over it (Leo, 2026-11-25: "tons of bullshit overlap ... esp near composer bar").
+    var stackMoving: Set<RootTab> = []
     /// Taps on the selected tab at its root, per tab: each one asks that tab's list to scroll to
     /// its top (`TabRetapScroll`; the Feed takes its own).
     private(set) var topRequests: [RootTab: Int] = [:]
@@ -101,6 +122,8 @@ final class ShellModel {
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
     var sizingService: (any TerminalSizingService)? { live }
+    /// The Macs that install a pull request's cmux Dev on this phone (Settings → Developer).
+    var tryPullRequestService: (any TryPullRequestService)? { live }
     /// Screen Sharing with the account's Macs while signed in (Settings → Screen Sharing).
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
@@ -135,6 +158,8 @@ final class ShellModel {
     struct CloudChatsPresentation: Identifiable {
         let id = UUID()
         let attention: CloudChatAttention?
+        /// A New Task on a Cloud machine: its chat starts with this first message.
+        var task: CloudChatTask? = nil
     }
     /// A Mac screen link being opened: Screen Sharing as a sheet, that device's share asked for.
     var macScreenLink: MacScreenLinkPresentation?
@@ -327,6 +352,7 @@ final class ShellModel {
         creator.onTaskNotDelivered = { [weak self] workspace, task, failure in
             self?.taskNotDelivered(workspace, task: task, failure: failure)
         }
+        wireCloudTasks()
         creator.onManageFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()
@@ -480,8 +506,13 @@ final class ShellModel {
             terminalTabs.hasLiveSession = { [weak live] id, macID in live?.hasLiveSession(tabID: id, macID: macID) ?? false }
             terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
             terminalTabs.macLinkUp = { [weak store] macID in store?.macConnection[macID].map { $0 == .connected } ?? true }
+            terminalTabs.linkStatus = { [weak store] macID in store?.macLinkStatus[macID] }
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
+            terminalTabs.attachmentSenderProvider = { [weak live] tab, macID in
+                EngineAttachmentSender { [weak live] in live?.terminalAttachmentDestination(tabID: tab.id, macID: macID) }
+            }
+            terminalTabs.uploaderDirectoryProvider = { [weak live] tab, macID in live?.terminalDirectory(tabID: tab.id, macID: macID) }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
             // Grid cards and the close prompt's programs follow the Mac's output, not a timer.
             live.onTerminalOutput = { [weak terminalTabs] tab, macID in terminalTabs?.macOutput(tabID: tab, macID: macID) }
@@ -516,14 +547,29 @@ final class ShellModel {
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
             StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
+            // New browser tabs open on the phone or stream (Settings → Browser → Open New Pages),
+            // and an HTML file on the Mac reads over its link to show here.
+            StreamedBrowserDirectory.shared.browserTabsListed = { NativeBrowserTabs.shared.listed(macID: $0, browserTabs: $1) }
+            NativeBrowserTabs.shared.readMacHTML = { [weak live] url, macID in
+                guard let live else { throw CancellationError() }
+                return try await live.macHTMLPage(url, macID: macID)
+            }
             // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
             NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
+            // An agent on the Mac drives a tab shown on this iPhone (`tab_…@phone`, RFD 0089).
+            PhonePageChannel.answer = { method, params, macID in
+                await NativeBrowserTabs.shared.answerPageVerb(method: method, params: params, macID: macID)
+                    .mapError { PhonePageChannel.PageError(code: $0.code, message: $0.message) }
+            }
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
                 macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.forwardCapability) ?? false
             }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
+            PhonePageChannel.answer = nil
+            StreamedBrowserDirectory.shared.browserTabsListed = nil
+            NativeBrowserTabs.shared.readMacHTML = nil
             ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
@@ -533,8 +579,11 @@ final class ShellModel {
             terminalTabs.showConnectedDevices = nil
             terminalTabs.hasLiveSession = nil
             terminalTabs.macLinkUp = nil
+            terminalTabs.linkStatus = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
+            terminalTabs.attachmentSenderProvider = nil
+            terminalTabs.uploaderDirectoryProvider = nil
             terminalTabs.screenTextProvider = nil
             creator.backend = offlineCreation
         }
@@ -720,8 +769,14 @@ final class ShellModel {
         LastPlaceMemory.shared.noteLocation(workspaceID: location.workspaceID, tabID: location.tabID, isChat: tab?.kind == .agent)
     }
 
+    /// Hold the root before SwiftUI renders an emptied path. UIKit may begin the pop later;
+    /// the tab-bar enforcer releases this only when its transition or nonanimated pop settles.
+    private func holdRootTransition(_ tab: RootTab, wasEmpty: Bool, isEmpty: Bool) {
+        if !SwipeBackWholePage.legacy, !wasEmpty, isEmpty { stackMoving.insert(tab) }
+    }
+
     /// How many screens are pushed on `tab`'s stack.
-    private func depth(of tab: RootTab) -> Int {
+    func depth(of tab: RootTab) -> Int {
         switch tab {
         case .home: homePath.count
         case .workspaces: workspacesPath.count
@@ -743,7 +798,12 @@ final class ShellModel {
     /// showed over the bar, and a screen that hid it in some branches only
     /// (a conversation still loading) showed it in the others.
     func showsTabBar(on tab: RootTab) -> Bool {
-        tab == .settings || depth(of: tab) == 0
+        tab == .settings || (depth(of: tab) == 0 && !stackMoving.contains(tab))
+    }
+
+    /// Whether a tab's root shows on its own: its stack empty and no page still leaving it.
+    func atRoot(_ tab: RootTab) -> Bool {
+        depth(of: tab) == 0 && !stackMoving.contains(tab)
     }
 
     /// A tap on the tab that is already selected (the iOS Mail pattern): a pushed screen pops
@@ -765,6 +825,9 @@ final class ShellModel {
     /// The drawer pan only opens from a tab root (stack depth 1).
     private func updateInteractiveOpen() {
         sidebar.allowsInteractiveOpen = depth(of: tab) == 0
+        // A path change pushes or pops (Back, a link, a tab re-tap): panes follow the
+        // transition it starts, which no appearance callback reaches them for.
+        NotificationCenter.default.post(name: PaneLayerNotes.navigationWillChange, object: nil)
     }
 
     /// A team switch (a tap or a follow): screens that show the old team's Macs close (an
@@ -1092,17 +1155,31 @@ extension ShellModel {
         let stackHub: URL? = nil
         #endif
         let auth = auth
+        // The build's cloud data space, as every other cloud client of this build sends it: a tagged Debug build is a
+        // device of its tag's space on the hub; one with no usable tag makes no hub calls.
+        let space = auth.buildSpace
+        let hubSpace: DeviceHubBuildSpace = if space.refusal != nil { .unusable } else if let dev = space.space { .dev(dev.headerValue) } else { .nightly }
         let configuration = ScreenSharingService.Configuration(
             baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: environment, stackHub: stackHub),
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
-            deviceName: UIDevice.current.name,
+            deviceName: DeviceInstanceName(device: UIDevice.current.name, bundle: .main).value,
             tokens: DeviceHubAccountToken { try await auth.accessToken() },
-            accountID: auth.user?.id
+            accountID: auth.user?.id,
+            buildSpace: hubSpace
         )
         let service = ScreenSharingService(configuration: configuration)
         // The Share <Mac> tap's carrier (cmuxterm-hq#18912): the device hub's share-approval route.
         service.shareCarrier = { approval, target, hub in
             try await hub.sendShareApproval(target: target.id, approvalJSON: approval)
+        }
+        // Mac Screen over Link: the Macs this phone holds a link to, by name, with what their hosts
+        // list in `version` (a Mac listing `mac-display-v1` can show its screen on the link).
+        service.linkedMacs = { [weak self] in
+            guard let self, let live = self.live else { return [] }
+            let names = Dictionary(self.store.teams.flatMap(\.macs).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+            return live.linkedMacIDs.compactMap { macID in
+                names[macID].map { ScreenSharingLinkedMac(macID: macID, name: $0, capabilities: self.store.macCapabilities[macID]) }
+            }
         }
         #if DEBUG
         if let demo = ScreenSharingService.demoMode() {

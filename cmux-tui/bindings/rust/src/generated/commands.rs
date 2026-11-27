@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a778a465a40b641793e328255ee0e5328b1b6c4c4546a3a9c2fe5b9492d54b75.
+// cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.rs.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1210,6 +1210,8 @@ pub struct ConversationImportResult {
 pub struct ConversationInboxOpRequest {
     pub conversation: String,
     pub op: Nullable<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub op_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1693,6 +1695,9 @@ pub struct CreateWorkspaceRequest {
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
+    /// user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name_source: Optional<T::NameSource>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
 }
@@ -1936,6 +1941,17 @@ pub struct FloatPaneRequest {
 pub type FloatPaneResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FlushLaunchSnapshotRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlushLaunchSnapshotResult {
+    pub flushed: bool,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FocusDirectionRequest {
     pub dir: T::PaneDirection,
@@ -2079,6 +2095,8 @@ pub struct HomeInboxResult {
 pub struct IdentifyRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_metadata: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub restore_progress: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub revisions: Option<bool>,
 }
@@ -2949,6 +2967,16 @@ pub struct NotifyRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OfferLinkToPhoneRequest {
+    pub terminal_id: String,
+    pub url: String,
+}
+
+#[rustfmt::skip]
+pub type OfferLinkToPhoneResult = T::PhoneLinkOfferResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PageCredentialRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3567,6 +3595,8 @@ pub type SendKeyResult = T::EmptyResult;
 pub struct ServerStatsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub include: Optional<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub restore_progress: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -3944,6 +3974,8 @@ pub struct SetWorkspaceMetadataRequest {
     pub expected_revision: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub keep_awake: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5202,6 +5234,10 @@ impl CmuxClient {
         self.execute(&FLOAT_PANE_METADATA, &request)
     }
 
+    pub fn flush_launch_snapshot(&mut self, request: FlushLaunchSnapshotRequest) -> Result<FlushLaunchSnapshotResult> {
+        self.execute(&FLUSH_LAUNCH_SNAPSHOT_METADATA, &request)
+    }
+
     pub fn focus_direction(&mut self, request: FocusDirectionRequest) -> Result<T::FocusDirectionResult> {
         self.execute(&FOCUS_DIRECTION_METADATA, &request)
     }
@@ -5254,6 +5290,9 @@ impl CmuxClient {
         if request.machine_metadata.is_some() {
             self.require_protocol_field("identify", 12)?;
             self.require_capability_field("identify", "machine-identity-v1")?;
+        }
+        if request.restore_progress.is_some() {
+            self.require_protocol_field("identify", 12)?;
         }
         if request.revisions.is_some() {
             self.require_protocol_field("identify", 12)?;
@@ -5683,6 +5722,10 @@ impl CmuxClient {
         self.execute(&NOTIFY_METADATA, &request)
     }
 
+    pub fn offer_link_to_phone(&mut self, request: OfferLinkToPhoneRequest) -> Result<OfferLinkToPhoneResult> {
+        self.execute(&OFFER_LINK_TO_PHONE_METADATA, &request)
+    }
+
     pub fn page_credential(&mut self, request: PageCredentialRequest) -> Result<PageCredentialResult> {
         self.execute(&PAGE_CREDENTIAL_METADATA, &request)
     }
@@ -5951,6 +5994,9 @@ impl CmuxClient {
     }
 
     pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
+        if request.restore_progress.is_some() {
+            self.require_protocol_field("server-stats", 12)?;
+        }
         self.execute(&SERVER_STATS_METADATA, &request)
     }
 
@@ -6144,6 +6190,10 @@ impl CmuxClient {
     }
 
     pub fn set_workspace_metadata(&mut self, request: SetWorkspaceMetadataRequest) -> Result<SetWorkspaceMetadataResult> {
+        if !request.keep_awake.is_missing() {
+            self.require_protocol_field("set-workspace-metadata", 12)?;
+            self.require_capability_field("set-workspace-metadata", "workspace-keep-awake-v1")?;
+        }
         if !request.marked_unread.is_missing() {
             self.require_protocol_field("set-workspace-metadata", 12)?;
             self.require_capability_field("set-workspace-metadata", "notification-mark-unread-v1")?;

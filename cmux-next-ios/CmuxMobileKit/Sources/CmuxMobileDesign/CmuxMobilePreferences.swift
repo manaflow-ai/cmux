@@ -35,15 +35,26 @@ public enum CmuxMobilePreferences {
         /// Fall back if need be"): on, a full-screen app shows at the Mac's grid, zoomed, and only
         /// typing into it resizes the Mac (`TerminalProjectingSession`, Rust `fit_policy`).
         public static let terminalZoomFullScreenApps = "cmuxMobile.settings.terminalZoomFullScreenApps"
+        /// Settings → Terminal → Find in Whole History (off by default; Leo, 2026-11-24: "don't
+        /// unilaterally MERGE ui stuff yet ... having people be able to easily toggle"): on, Find
+        /// asks the Mac's daemon (`terminal-find`) for matches in the terminal's whole history.
+        public static let terminalHistoryFind = "cmuxMobile.settings.terminalHistoryFind"
         /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
         public static let ultra = "cmuxMobile.settings.ultra"
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
         /// the app's keepalive timers (`KeepaliveBeat.defaultsKey`, the same key).
         public static let alignKeepalives = "cmuxMobile.settings.alignKeepalives"
+        /// Settings → Transport → Direct on Wi-Fi (on by default); read at each dial
+        /// (`FFIMacLinkDialer.applyLanDirectToCore`, the same key).
+        public static let lanDirect = "cmuxMobile.settings.lanDirect"
         /// Settings → Transport → Agent CLI Screen Changes (off by default): a Claude Code,
         /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
         public static let agentCLIHybrid = "cmuxMobile.settings.agentCLIHybrid"
+        /// Settings → Transport → Mac Screen over Link (off by default): Screen Sharing shows a
+        /// Mac that lists `mac-display-v1` as rd/1 on its cmux-wg link (`surface` tab `d~0`, view
+        /// only) instead of the device hub's WebRTC session. Read when a Mac is opened.
+        public static let macScreenOverLink = "cmuxMobile.settings.macScreenOverLink"
         /// Settings → Transport → Quiet Cloud Connections (off by default; Leo, 2026-11-24: "don't
         /// unilaterally MERGE ui stuff yet ... having people be able to easily toggle" it): on, a Cloud
         /// list or machine that answers within ``QuietStatusGate/threshold`` never shows its wait, and
@@ -54,8 +65,14 @@ public enum CmuxMobilePreferences {
         /// Settings → Composer → Swipe Down to Collapse (off by default; `ComposerReturnTextView`).
         public static let swipeDownCollapsesComposer = "cmuxMobile.settings.swipeDownCollapsesComposer"
         public static let followUp = "cmuxMobile.settings.followUp"
+        /// Settings → Composer → Session Facts (RFD 0130, off by default): `off`, `pulse` (live
+        /// counters beside the context meter) or `door` (an info mark); either opens the Session card.
+        public static let composerFooterFacts = "cmuxMobile.settings.composerFooterFacts"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
+        /// Settings → Advanced → Site Monograms on Tab Cards (taste prototype, off by default): a
+        /// browser card with no picture yet shows its site's letter on the site's hue, not the globe.
+        public static let tabCardMonograms = "cmuxMobile.settings.tabCardMonograms"
         /// Settings → Needs You Look (the Mac's `notifications.attention.mark`, the same values):
         /// `badge` (default) or `glow`, a waiting workspace row that glows until it is opened.
         public static let attentionMark = "cmuxMobile.settings.attentionMark"
@@ -68,7 +85,7 @@ public enum CmuxMobilePreferences {
     /// The sizes Settings offers (and the terminal accepts).
     public static let terminalFontSizes = 9...24
     public static let defaultWrapCode = false
-    public static let defaultKeyClicks = true
+    public static let defaultKeyClicks = false
     public static let defaultPredictiveEcho = true
     public static let defaultPredictiveEchoFullScreen = false
     public static let defaultTerminalFitToPhone = false
@@ -77,11 +94,13 @@ public enum CmuxMobilePreferences {
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
     public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
-    /// Off until Leo picks it up (UI merges default-off).
-    public static let defaultTerminalPlainScroll = false
+    /// Off again (iOS regression row 18, Aziz 2026-11-26, Leo "Ok"); `TerminalScrollDefault` holds the value Settings reads too.
+    public static let defaultTerminalPlainScroll = TerminalScrollDefault.plainScroll
     public static let defaultQuietCloudConnect = false
     public static let defaultTerminalZoomFullScreenApps = false
+    public static let defaultTerminalHistoryFind = true
     public static let defaultDismissKeyboardAfterSend = true
+    public static let defaultTabCardMonograms = false
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
     /// easily toggle" it).
     public static let defaultSwipeDownCollapsesComposer = false
@@ -145,6 +164,13 @@ public enum CmuxMobilePreferences {
             ? defaultTerminalZoomFullScreenApps : defaults.bool(forKey: Key.terminalZoomFullScreenApps)
     }
 
+    /// Whether Find searches the Mac's whole history for a terminal (on) or only the rows the
+    /// phone holds (off, the default). Read at each search.
+    public static func terminalHistoryFind(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.terminalHistoryFind) == nil
+            ? defaultTerminalHistoryFind : defaults.bool(forKey: Key.terminalHistoryFind)
+    }
+
     /// Typed characters show at once over a slow link, underlined until the
     /// remote echoes them (the terminal's `TerminalSurfacePrediction`).
     public static func predictiveEcho(_ defaults: UserDefaults = .standard) -> Bool {
@@ -199,6 +225,12 @@ public enum CmuxMobilePreferences {
 
     /// `FollowUpBehavior.queue.rawValue`.
     public static let queueFollowUp = "queue"
+
+    /// Whether browser cards with no picture show the site monogram (off by default).
+    public static func tabCardMonograms(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.tabCardMonograms) == nil ? defaultTabCardMonograms : defaults.bool(forKey: Key.tabCardMonograms)
+    }
 
     public static func compactWorkspaceList(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: Key.compactWorkspaceList)

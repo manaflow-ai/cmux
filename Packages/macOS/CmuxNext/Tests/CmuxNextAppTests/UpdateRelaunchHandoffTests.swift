@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextDesign
 import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextUpdater
@@ -70,5 +72,55 @@ import Testing
         updater.syncFlowPhase()
         #expect(abandoned == 1, "a failed automatic install did not bring the windows back")
         #expect(!updater.automaticInstallInFlight)
+    }
+    /// Leo, 2026-11-24: "it def percievably changed a lot bc the agent pane blanked". The quit pictured the chats only
+    /// from windows on screen, after the handoff had ordered them out, so it found none and dropped every saved page:
+    /// the relaunched agent panes had no picture to draw. The pages' save runs while the windows are still on screen,
+    /// they leave once it ended, and the quit awaits that same save (``UpdaterService/savedForRelaunch``).
+    @Test func thePagesArePicturedBeforeTheWindowsLeave() async {
+        _ = NSApplication.shared
+        let updater = Self.updater()
+        let handoff = UpdateWindowHandoff(unsaved: QuitUnsavedRegistry())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 160), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        var onScreenAtSave: Bool?
+        handoff.savesBeforeLeaving = { onScreenAtSave = window.isVisible }
+        handoff.attach(to: updater)
+        #expect(handoff.hide())
+        let saved = updater.savedForRelaunch
+        #expect(saved != nil, "the quit has no relaunch save to await, and would picture windows already off screen")
+        await saved?.value
+        for _ in 0..<20 where window.isVisible { await Task.yield() }
+        #expect(onScreenAtSave == true, "the pages were pictured after their windows left the screen")
+        #expect(!window.isVisible, "the windows stayed on screen after the save")
+        handoff.restore()
+        #expect(updater.savedForRelaunch == nil, "a relaunch that did not happen left its save for the next quit")
+    }
+
+    /// ask-ad4a68e740 (Leo, 2026-11-25: the restart closes slowly, "the end to end proess be fast"): the pages are
+    /// pictured at the Restart to Update click, while the click's feed read and pre-warm run, and the relaunch uses
+    /// that save, so its windows do not wait on screen for a second one.
+    @Test func theClickPicturesThePagesSoTheRelaunchUsesThem() async {
+        _ = NSApplication.shared
+        let updater = Self.updater()
+        let handoff = UpdateWindowHandoff(unsaved: QuitUnsavedRegistry())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 160), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        var saves = 0, paused = 0
+        handoff.savesBeforeLeaving = { saves += 1 }
+        handoff.pausesPictures = { paused += 1 }
+        handoff.attach(to: updater)
+        updater.picturesAtClick?()
+        #expect(handoff.hide())
+        await updater.savedForRelaunch?.value
+        for _ in 0..<20 where window.isVisible { await Task.yield() }
+        #expect(saves == 1, "the relaunch saved the pages again instead of using the click's save")
+        #expect(paused == 1, "the running picture saver kept saving from windows off screen")
+        #expect(!window.isVisible)
+        handoff.restore()
     }
 }

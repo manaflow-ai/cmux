@@ -131,7 +131,7 @@ impl Answer {
                 "themes": roots.config_dir.join("themes"),
                 "views": roots.customize_dir,
                 "styles": roots.config_dir.join("agent-pane/theme.css"),
-                "automations": roots.config_dir.join("automations"),
+                "automations": roots.automations_dir.clone(),
                 "profiles": roots.profiles_dir(),
                 "generations": roots.state_dir,
             }),
@@ -230,6 +230,10 @@ impl Answer {
                 }
                 out.push_str(&format!(
                     "  cmux customize use {}    preview it, here or on another machine (send the file)\n",
+                    saved.name
+                ));
+                out.push_str(&format!(
+                    "  wrap_up actions: [{{\"label\":\"Try it on\",\"run\":{{\"customize\":\"try\",\"target\":\"{0}\",\"minutes\":10}}}},{{\"label\":\"Keep\",\"run\":{{\"customize\":\"keep\"}}}},{{\"label\":\"Revert\",\"run\":{{\"customize\":\"revert\"}}}}]\n",
                     saved.name
                 ));
             }

@@ -10,6 +10,7 @@
 // code size, else the default. Sizes and width never follow the viewer: the two views have their
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
+import { COMPACT_SHORT_TURNS_KEY, setCompactShortTurns } from "./conversation/compactShortTurns";
 import {
   DEFAULT_RAIL_SHOW,
   isRailShow,
@@ -18,6 +19,15 @@ import {
   type RailShow,
 } from "./threadMinimap/railShow";
 import { useSyncExternalStore } from "react";
+import type { SessionInfoPlacement } from "./session-info/sessionInfoModel";
+import {
+  defaultDetailOf,
+  presentationOfDetail,
+  transcriptViewOfDetail,
+  type ChatDetail,
+  type Presentation,
+  type TranscriptView,
+} from "./chatDetail";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
 import { isArm, experimentArm } from "../../experiments/experiment";
@@ -48,8 +58,11 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { hiddenSessionInfoSections, type PickableSessionInfoSection } from "./session-info/shownSections";
+import { configureKeyStyle } from "../../ui/keyStyle";
 import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
+import { configureStreamingStyle } from "./conversation/streamingStyle";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 import {
   DEFAULT_RESOLVED_TRANSCRIPT_LOOK,
@@ -107,7 +120,8 @@ export interface ChatDisplay {
   /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
-  sessionInfo: "push" | "overlay";
+  /// `inline` draws it as a band atop the transcript, in the chat's flow (sessionInfoModel.ts).
+  sessionInfo: SessionInfoPlacement;
   /// The prompt rail edge; its context menu writes the same saved setting.
   railSide: "left" | "right";
   /// cmux's Minimal Mode (`sidebar.minimal`, the palette's Enable Minimal Mode), which the chat
@@ -133,6 +147,9 @@ export interface ChatDisplay {
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
 /// The host sends a value saved under the row's old key under this one (Swift RenamedSettingKeys).
 export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.sessionInfo.placement";
+/// A saved Session Info placement; anything else is the default, `overlay`.
+export const sessionInfoPlacementOf = (value: unknown): SessionInfoPlacement =>
+  value === "push" || value === "inline" ? value : "overlay";
 export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
@@ -141,11 +158,18 @@ export const MINIMAL_MODE_KEY = "sidebar.minimal";
 /// Settings > Agent Chat > VS Code Minimap (chatMinimap/ChatMinimap.tsx), off by default. Not part of
 /// ChatDisplay: turning it on or off must not measure the transcript's rows again.
 export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
-/// Settings > Agent Chat > Pin Task List in Chat, off by default: the running turn's todo list pinned
-/// under its latest message (conversation/turns.ts). Off, the composer's hat shows it
-/// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
-/// Not part of ChatDisplay: switching it measures no transcript row again.
-export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
+/// Settings > Agent Chat > Status Pills in All Chats (newtab/AllChatsList.tsx ChatStatusPill), off by
+/// default: a taste prototype (Taste Board #19). Not part of ChatDisplay: no transcript row is measured again.
+export const CHAT_LIST_STATUS_PILLS_KEY = "agentPane.display.chatListStatusPills";
+/// Settings > Agent Chat > Header Path, off by default (taste prototype, Taste Board #20): the header's
+/// title drawn as one monospace slash path, `repo / branch / title` (header/ThreadTitle.tsx). Off, the
+/// header shows the plain title as before. Not part of ChatDisplay: switching it measures no row again.
+export const HEADER_BREADCRUMB_KEY = "agentPane.display.headerBreadcrumb";
+/// Settings > Agent Chat > Subagent Of in Header, off by default: a subagent's own pane says whose it is,
+/// "Subagent of <chat>" muted beside its name in the header (subagents/subagentPanes.ts `paneHeading`; Leo,
+/// 2026-11-22: "it is prob ok to somehow denote the \"subagent of\"... at the top i feel like"). Off, the
+/// header names the subagent alone. Not part of ChatDisplay: switching it measures no row again.
+export const SUBAGENT_OF_KEY = "agentPane.display.subagentOf";
 /// Settings > Agent Chat > Tuck Away Running Tray, off by default: the hat over the composer
 /// (subagents/SubagentTray.tsx) tucks away to a chevron at the top middle of the composer, shown on
 /// hover, which brings it back (subagents/TrayPullTab.tsx; Leo, 2026-11-04: "what if you wanted to
@@ -157,6 +181,9 @@ export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
 /// the rule's gate. Off by default because Leo, 2026-11-22: "hm im not necessarily sure if people
 /// will be wanting to do the send pop by default". Not part of ChatDisplay: no row is measured again.
 export const SEND_POP_KEY = "agentPane.display.sendPop";
+/// A sent prompt scrolls to the top of the transcript, with room under it for the reply (off by default;
+/// Leo, cmux#56827: "sent message scrolls to top"). Read by VirtualTranscript's room under the rows.
+export const SEND_SCROLLS_TO_TOP_KEY = "agentPane.display.sendScrollsToTop";
 /// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
 /// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
 /// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
@@ -179,6 +206,12 @@ export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 /// AutoCloud (autoCloud.ts): hidden in cmux-next.json, off unless set true. The host sends it with the
 /// chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const AUTO_CLOUD_KEY = "cloud.autoCloud";
+/// Settings > Cloud > Default Image: the Cloud environment a new Cloud chat starts from, "auto" (the
+/// default) or an environment id (chatCloudEnvironment.ts). The host sends it with the chat's keys
+/// (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
+export const DEFAULT_IMAGE_KEY = "cloud.defaultImage";
+/// A Cloud environment's id, as the cmux platform makes them.
+const CLOUD_ENVIRONMENT_ID = /^d?env_[0-9a-f]{24}$/;
 /// cmux-next.json only: the command rules and presets the running tray names background commands
 /// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
 export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
@@ -206,9 +239,19 @@ export const MODEL_CHIP_ICON_KEY = "agentPane.display.modelChipIcon";
 /// Settings > Agent Chat > Queue Prompts During a Turn (queueing.ts), on unless set false; a queued
 /// row's menu and the composer's button row write it. Not part of ChatDisplay.
 export const QUEUEING_KEY = "agentPane.display.queueing";
+/// The model picker's harness tab order (modelPickerOrder.ts): a drag on the picker's rail writes it.
+/// Not part of ChatDisplay.
+export const MODEL_PICKER_ORDER_KEY = "agentPane.display.modelPickerOrder";
+/// Settings > Agent Chat > Model Picker Style: what a click on the model chip opens (ModelPicker.tsx).
+/// "list", the default: on a New Tab or a chat that can switch harness, the harness rail and its
+/// model columns. "menu": the compact menu a started chat opens (QuickModelMenu.tsx), with the
+/// harness's models, an Effort submenu and Fast mode, after the Claude Code app's model menu. A look
+/// turns it on. Not part of ChatDisplay.
+export const MODEL_PICKER_STYLE_KEY = "agentPane.display.modelPickerStyle";
+export type ModelPickerStyle = "list" | "menu";
 /// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
 /// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
-const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY] as const;
+const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY, MODEL_PICKER_ORDER_KEY] as const;
 
 /// A font pack's families (a community typography theme from the app store; Swift
 /// AgentPaneDisplaySetting sends them with the chat's keys): a CSS family or comma stack without
@@ -220,22 +263,22 @@ export const UI_FAMILY_KEY = "agentPane.display.font.uiFamily";
 export const PROSE_FAMILY_KEY = "agentPane.display.font.proseFamily";
 export { CHAT_FONT_FACES_KEY };
 
-/// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
-/// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
-/// itself; the rows it opens measure as they draw.
-export const TRANSCRIPT_VIEW_KEY = "agentPane.display.transcriptView";
-/// Normal: the compact transcript. Thinking: thoughts open. Verbose: tool output open too.
-export type TranscriptView = "normal" | "thinking" | "verbose";
-export const TRANSCRIPT_VIEWS: readonly TranscriptView[] = ["normal", "thinking", "verbose"];
-export const isTranscriptView = (value: unknown): value is TranscriptView =>
-  value === "normal" || value === "thinking" || value === "verbose";
-
-/// Settings > Agent Chat > Presentation (conversation/presentation.ts): whether a chat shows the
-/// complete transcript or the Messages-style bubble view with tool rows hidden.
-export const PRESENTATION_KEY = "agentPane.display.presentation";
-export type Presentation = "transcript" | "messages";
-export const PRESENTATIONS: readonly Presentation[] = ["transcript", "messages"];
-export const isPresentation = (value: unknown): value is Presentation => value === "transcript" || value === "messages";
+/// Settings > Agent Chat > Chat Detail (chatDetail.ts, conversation/chatDetailChoice.ts): the detail
+/// ladder's level of a chat without one of its own. The old Presentation and Transcript View keys
+/// still read (defaultDetailOf). Not part of ChatDisplay: a switch measures no row again by itself;
+/// the rows it opens measure as they draw.
+export {
+  DETAIL_KEY,
+  TRANSCRIPT_VIEW_KEY,
+  TRANSCRIPT_VIEWS,
+  isTranscriptView,
+  PRESENTATION_KEY,
+  PRESENTATIONS,
+  isPresentation,
+  type TranscriptView,
+  type Presentation,
+  type ChatDetail,
+} from "./chatDetail";
 
 /// Settings > Agent Chat > Working Status Verbs. The mode is `thinking` by default; `rotate` opts
 /// into the per-turn -ing verbs and `custom` reads the comma-separated list in `STATUS_VERB_CUSTOM_KEY`.
@@ -385,7 +428,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     codeLigatures: !declaresFirstFamily(values[CHAT_FONT_FACES_KEY], codeFamily),
-    sessionInfo: values[SESSION_INFO_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    sessionInfo: sessionInfoPlacementOf(values[SESSION_INFO_PLACEMENT_KEY]),
     railSide: values[RAIL_SIDE_KEY] === "right" ? "right" : "left",
     minimal: values[MINIMAL_MODE_KEY] === true,
     environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
@@ -482,12 +525,29 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   };
 }
 
+/// The code block size and line the chat sets (`--cv-codeblock-size`, `--cv-codeblock-line-height`), or null where it
+/// sets none and code keeps the page's (`--cmux-diff-font-size`, `--cmux-diff-line-height`): at the default text size
+/// and code scale. The diff card's rows (conversation/editDiffBox.ts) are drawn and estimated with it.
+export function chatCodeBlock(
+  display: ChatDisplay = current,
+  density: number = densityTextScale,
+): { size: number; line: number } | null {
+  if (
+    drawnFontSize(display, density) === DEFAULT_CHAT_DISPLAY.fontSize &&
+    display.codeScale === DEFAULT_CHAT_DISPLAY.codeScale
+  )
+    return null;
+  const metrics = chatMetrics(display, density);
+  return { size: metrics.blockCodeSize, line: metrics.codeLineHeight };
+}
+
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
 export function chatDisplayVariables(
   display: ChatDisplay,
   density: number = densityTextScale,
 ): Record<string, string | null> {
   const metrics = chatMetrics(display, density);
+  const code = chatCodeBlock(display, density);
   const fontSize = drawnFontSize(display, density);
   const isDefault = (key: keyof ChatDisplay) =>
     key === "fontSize" ? fontSize === DEFAULT_CHAT_DISPLAY.fontSize : display[key] === DEFAULT_CHAT_DISPLAY[key];
@@ -524,9 +584,8 @@ export function chatDisplayVariables(
         : `${round(display.fontSize * display.lineHeight)}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
-    "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,
-    "--cv-codeblock-line-height":
-      isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.codeLineHeight}px`,
+    "--cv-codeblock-size": code ? `${code.size}px` : null,
+    "--cv-codeblock-line-height": code ? `${code.line}px` : null,
     "--cv-mono": codeFont,
     // The stylesheet's default is the default width's column, so only another width or Full Width
     // sets it; chatWidth.ts displayColumn mirrors both for the row estimator.
@@ -546,7 +605,10 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
-let pinnedPlanOn = false;
+let statusPillsOn = false;
+let headerBreadcrumbOn = false;
+let subagentOfOn = false;
+let sendScrollsToTopOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
@@ -554,14 +616,18 @@ let railShow: RailShow = DEFAULT_RAIL_SHOW;
 let railControlOn = false;
 let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
-let transcriptView: TranscriptView = "normal";
-let presentation: Presentation = "transcript";
+let chatDetail: ChatDetail = "normal";
 let featureTipsOn = false;
 let autoCloudOn = false;
+let defaultImage = "auto";
 let commandLabels = "null";
 let promptCoachOn = true;
+/// The Session Info sections the person turned off (session-info/shownSections.ts), none by default.
+const NO_HIDDEN_SECTIONS: readonly PickableSessionInfoSection[] = [];
+let sessionInfoHidden: readonly PickableSessionInfoSection[] = NO_HIDDEN_SECTIONS;
 let environmentCardOn = false;
 let changesPillOn = false;
+let modelPickerStyle: ModelPickerStyle = "list";
 /// The PICKED_KEYS values as JSON, so a change to one of them alone reaches its listeners.
 let picked = "[]";
 /// Whether a `display` value came (the host's, or the page's own change): until then the picks are
@@ -615,13 +681,21 @@ export function setChatDisplay(value: unknown): void {
   configureStatusVerbs(raw);
   configureChatLayout(raw);
   configureThinkingLook(raw);
+  configureStreamingStyle(raw);
   configureSenderIconLook(raw);
+  // `app.keyStyle` and `app.shortcutLayout` (Swift AgentPaneDisplaySetting.followedAppPaths): every list here.
+  configureKeyStyle(raw);
   const readingValues = readingLookValues(raw, experimentArm(readingLook));
   const nextHighContrastArm = experimentArm(highContrastLook);
   const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
-  const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
+  const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
+  const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
+  const subagentOf = raw[SUBAGENT_OF_KEY] === true;
+  const sendScrollsToTop = raw[SEND_SCROLLS_TO_TOP_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  // Read by turns.ts at shaping time and part of each turn's cache key, so a change shapes the turns again.
+  setCompactShortTurns(raw[COMPACT_SHORT_TURNS_KEY] === true);
   // The pop's gate: written only when the setting changes, so a page that set its own
   // `data-send-pop` (the gallery's variants, the benches' arms) keeps it.
   const sendPop = raw[SEND_POP_KEY] === true;
@@ -638,16 +712,20 @@ export function setChatDisplay(value: unknown): void {
   const railControl = raw[RAIL_CONTROL_KEY] === true;
   const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
   const threadMinimap = resolveThreadMinimapArm(raw);
-  const stored = raw[TRANSCRIPT_VIEW_KEY];
-  const view = isTranscriptView(stored) ? stored : "normal";
-  const storedPresentation = raw[PRESENTATION_KEY];
-  const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
+  const detail = defaultDetailOf(raw);
   const tips = raw[FEATURE_TIPS_KEY] === true;
   const autoCloud = raw[AUTO_CLOUD_KEY] === true;
+  const storedImage = raw[DEFAULT_IMAGE_KEY];
+  // Only a Cloud environment id (`env_` or `denv_` and 24 hex digits, cmux-tui start_chat_cli.rs valid_environment): any
+  // other value (a typo set from the CLI) would fail every Cloud send, so it reads as Auto.
+  const image = typeof storedImage === "string" && CLOUD_ENVIRONMENT_ID.test(storedImage) ? storedImage : "auto";
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
+  const hiddenSections = hiddenSessionInfoSections(raw);
+  const sameHiddenSections = hiddenSections.join(",") === sessionInfoHidden.join(",");
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
   const changesPill = raw[CHANGES_PILL_KEY] === true;
+  const pickerStyle: ModelPickerStyle = raw[MODEL_PICKER_STYLE_KEY] === "menu" ? "menu" : "list";
   const pickedNow = JSON.stringify(PICKED_KEYS.map((key) => raw[key] ?? null));
   const first = !received;
   received = true;
@@ -673,40 +751,50 @@ export function setChatDisplay(value: unknown): void {
     sameLook &&
     !facesChanged &&
     minimap === minimapOn &&
-    pinnedPlan === pinnedPlanOn &&
+    statusPills === statusPillsOn &&
+    headerBreadcrumb === headerBreadcrumbOn &&
+    subagentOf === subagentOfOn &&
+    sendScrollsToTop === sendScrollsToTopOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
     show === railShow &&
     railControl === railControlOn &&
     banner === unreadBanner &&
     threadMinimap === threadMinimapArm &&
-    view === transcriptView &&
-    nextPresentation === presentation &&
+    detail === chatDetail &&
     tips === featureTipsOn &&
     autoCloud === autoCloudOn &&
+    image === defaultImage &&
     labels === commandLabels &&
     coach === promptCoachOn &&
     environmentCard === environmentCardOn &&
-    changesPill === changesPillOn
+    changesPill === changesPillOn &&
+    pickerStyle === modelPickerStyle &&
+    sameHiddenSections
   )
     return;
+  if (!sameHiddenSections) sessionInfoHidden = hiddenSections.length === 0 ? NO_HIDDEN_SECTIONS : hiddenSections;
   picked = pickedNow;
   commandLabels = labels;
   promptCoachOn = coach;
   environmentCardOn = environmentCard;
   changesPillOn = changesPill;
+  modelPickerStyle = pickerStyle;
   minimapOn = minimap;
-  pinnedPlanOn = pinnedPlan;
+  statusPillsOn = statusPills;
+  headerBreadcrumbOn = headerBreadcrumb;
+  subagentOfOn = subagentOf;
+  sendScrollsToTopOn = sendScrollsToTop;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
   railShow = show;
   railControlOn = railControl;
   unreadBanner = banner;
   threadMinimapArm = threadMinimap;
-  transcriptView = view;
-  presentation = nextPresentation;
+  chatDetail = detail;
   featureTipsOn = tips;
   autoCloudOn = autoCloud;
+  defaultImage = image;
   if (same) {
     // The faces changed what the measure stacks name until they load.
     if (facesChanged) current = { ...current };
@@ -822,20 +910,26 @@ export function resetChatDisplayForTests(): void {
   unsent.clear();
   displayHost = undefined;
   raw = {};
+  chatDetail = "normal";
   picked = "[]";
   received = false;
 }
 const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;
-const transcriptViewSnapshot = () => transcriptView;
-const presentationSnapshot = () => presentation;
-/// The Transcript View setting: the view of a chat without its own (conversation/transcriptView.ts).
-export const defaultTranscriptView = (): TranscriptView => transcriptView;
+const chatDetailSnapshot = () => chatDetail;
+const transcriptViewSnapshot = () => transcriptViewOfDetail(chatDetail);
+const presentationSnapshot = () => presentationOfDetail(chatDetail);
+/// The Chat Detail setting: the level of a chat without its own (conversation/chatDetailChoice.ts).
+export const defaultChatDetail = (): ChatDetail => chatDetail;
+export const useDefaultChatDetail = (): ChatDetail =>
+  useSyncExternalStore(subscribe, chatDetailSnapshot, chatDetailSnapshot);
+/// The default level as the old Transcript View the disclosure reads.
+export const defaultTranscriptView = (): TranscriptView => transcriptViewOfDetail(chatDetail);
 export const useDefaultTranscriptView = (): TranscriptView =>
   useSyncExternalStore(subscribe, transcriptViewSnapshot, transcriptViewSnapshot);
-/// The presentation setting for a chat without its own (conversation/presentation.ts).
-export const defaultPresentation = (): Presentation => presentation;
+/// The default level as the old presentation (Messages or Transcript).
+export const defaultPresentation = (): Presentation => presentationOfDetail(chatDetail);
 export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
@@ -843,12 +937,21 @@ const autoCloudSnapshot = () => autoCloudOn;
 /// Whether `cloud.autoCloud` is on in cmux-next.json (AUTO_CLOUD_KEY): the Where menu's Auto chevron
 /// and its Cloud leg (autoCloud.ts) show only with it and the plan.
 export const useAutoCloudKey = (): boolean => useSyncExternalStore(subscribe, autoCloudSnapshot, autoCloudSnapshot);
+/// Settings > Cloud > Default Image (DEFAULT_IMAGE_KEY): "auto" or the environment id a new Cloud
+/// chat starts from when it picks none (chatCloudEnvironment.ts).
+export const defaultCloudImage = (): string => defaultImage;
+export const useDefaultCloudImage = (): string => useSyncExternalStore(subscribe, defaultCloudImage, defaultCloudImage);
 /// Whether the prompt coach is on (PROMPT_COACH_KEY): the client reads it before it asks for or
 /// draws a rewrite (direct.ts), and a card already drawn hides when it goes off (rows/PromptCoachRow.tsx).
 export const promptCoachEnabled = (): boolean => promptCoachOn;
 const promptCoachSnapshot = () => promptCoachOn;
 export const usePromptCoachOn = (): boolean =>
   useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
+const sessionInfoHiddenSnapshot = () => sessionInfoHidden;
+/// The Session Info sections the person turned off (`agentPane.display.sessionInfo.sections.<id>`
+/// false): SessionInfo.tsx draws none of them. Not part of ChatDisplay: no transcript row moves.
+export const useSessionInfoHiddenSections = (): readonly PickableSessionInfoSection[] =>
+  useSyncExternalStore(subscribe, sessionInfoHiddenSnapshot, sessionInfoHiddenSnapshot);
 const environmentCardSnapshot = () => environmentCardOn;
 /// Whether the chat draws its Environment card at its top right (ENVIRONMENT_CARD_KEY).
 export const useEnvironmentCardOn = (): boolean =>
@@ -857,9 +960,14 @@ const changesPillSnapshot = () => changesPillOn;
 /// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
 export const useChangesPillOn = (): boolean =>
   useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
-const pinnedPlanSnapshot = () => pinnedPlanOn;
-/// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
-export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
+const sendScrollsToTopSnapshot = () => sendScrollsToTopOn;
+/// Whether a sent prompt scrolls to the transcript's top (SEND_SCROLLS_TO_TOP_KEY).
+export const useSendScrollsToTop = (): boolean =>
+  useSyncExternalStore(subscribe, sendScrollsToTopSnapshot, sendScrollsToTopSnapshot);
+const modelPickerStyleSnapshot = () => modelPickerStyle;
+/// What a click on the model chip opens (MODEL_PICKER_STYLE_KEY): the harness columns or the compact menu.
+export const useModelPickerStyle = (): ModelPickerStyle =>
+  useSyncExternalStore(subscribe, modelPickerStyleSnapshot, modelPickerStyleSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
 /// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
 /// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.
@@ -883,6 +991,10 @@ const trayHandleSnapshot = () => trayHandle;
 /// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
 export const useTrayHandle = (): TrayHandleSide =>
   useSyncExternalStore(subscribe, trayHandleSnapshot, trayHandleSnapshot);
+const statusPillsSnapshot = () => statusPillsOn;
+/// Whether All Chats draws a status pill on its live chats (CHAT_LIST_STATUS_PILLS_KEY).
+export const useChatListStatusPills = (): boolean =>
+  useSyncExternalStore(subscribe, statusPillsSnapshot, statusPillsSnapshot);
 const railShowSnapshot = () => railShow;
 const railControlSnapshot = () => railControlOn;
 /// What the prompt rail shows (RAIL_SHOW_KEY), separate from the measured look: a change remeasures no row.
@@ -894,6 +1006,13 @@ export const setRailShow = (show: RailShow): void =>
   changeChatDisplay(RAIL_SHOW_KEY, show === DEFAULT_RAIL_SHOW ? null : show);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
+const headerBreadcrumbSnapshot = () => headerBreadcrumbOn;
+/// Whether the header draws its title as a slash path (HEADER_BREADCRUMB_KEY).
+export const useHeaderBreadcrumb = (): boolean =>
+  useSyncExternalStore(subscribe, headerBreadcrumbSnapshot, headerBreadcrumbSnapshot);
+const subagentOfSnapshot = () => subagentOfOn;
+/// Whether a subagent's own pane says "Subagent of <chat>" in its header (SUBAGENT_OF_KEY).
+export const useSubagentOf = (): boolean => useSyncExternalStore(subscribe, subagentOfSnapshot, subagentOfSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
 export const useThreadMinimapArm = (): ThreadMinimapArm | null =>
   useSyncExternalStore(subscribe, threadMinimapSnapshot, threadMinimapSnapshot);

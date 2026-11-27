@@ -16,10 +16,19 @@ final class MacSession {
     let link: LinkController
     let workspaces: WorkspaceSync
     let acpmux = AcpmuxHub()
+    /// This Mac link's last progress (Rust `LinkProgressClock`): bytes heard on any channel, a
+    /// write taken, the link reaching a step. Every send-path wait on this Mac is bounded by
+    /// silence on it, not by a fixed time (Leo, 2026-11-24: "if it's making good progress, it
+    /// shiukd be allowed to keep going?").
+    let progress = LinkProgress()
     /// Separate ACP clients: VM-local session ids never collide with this Mac's.
     var cloudChats: [String: CloudChatRelay] = [:]
     let feed: LiveFeed
     let terminalFeed: TerminalFeed
+    #if canImport(CmuxMobileLinkFFI)
+    /// Keys typed from the Feed, held until the Mac has them (``TerminalKeyOutbox``).
+    let terminalKeys = TerminalKeyOutbox()
+    #endif
     /// The Mac app's own Feed requests (held PRs, sign-ins, consent cards).
     let needsYou: MacNeedsYouFeed
     /// Workspace and tab changes on this Mac.
@@ -32,7 +41,11 @@ final class MacSession {
     /// `currentLink` once its `auth` channel opened (at once without pairing keys): what
     /// terminal tabs, files, uploads and browser tabs open their channels on, so none of
     /// them reaches the Mac ahead of `auth` (hostd refuses those `unpaired`).
-    var servedLink: (any MacLink)?
+    var servedLink: (any MacLink)? {
+        // The attachment queue follows the served link: an upload waiting for
+        // this Mac goes on from its last acked byte on the next one.
+        didSet { if servedLink !== oldValue { AttachmentUploadClient.shared.setLink(macID: macID, link: servedLink) } }
+    }
     /// The pairing run on a link: input-lane channels (another stream, which can
     /// overtake `auth`) wait for it (review m6), and Retry re-runs a refused one (M2).
     var pairingGate: (link: any MacLink, passed: Task<Bool, Never>)?
@@ -57,6 +70,9 @@ final class MacSession {
     var stallTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
     var chatsError: String?
+    /// The chats channel bound again by itself after it failed on a link that stayed up (bounded,
+    /// `RetryBounds.chatsRebindDelay`); a newer link or a bind that succeeds ends it.
+    var chatsRebind: Task<Void, Never>?
     var daemonError: String?
     var workspacesTimeout: Task<Void, Never>?
     /// The link fed this Mac's data and connection state (cleared when it closes).
@@ -79,6 +95,7 @@ final class MacSession {
         needsYou = MacNeedsYouFeed(store: feedStore)
         creation = LiveWorkspaceCreationBackend(sync: workspaces, link: link, acpmux: nil)
         feed.hub = acpmux
+        acpmux.linkProgress = progress
         feed.terminal = terminalFeed
         creation.attach(acpmux: acpmux)
     }

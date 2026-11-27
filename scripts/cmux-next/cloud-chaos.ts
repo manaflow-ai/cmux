@@ -50,7 +50,30 @@ export type ChaosResult = {
   carrier: string;
   turn: string;
   detail: string;
+  /**
+   * Where the fault cut the stream and how the client resumed it, so a red names the frame that went missing: the
+   * step of the counting turn the client had seen at the cut, the newest seq it held then (the seq its re-attach asks
+   * after: acked), and each re-attach since with the `after_seq` it sent and the seq range its pages replayed.
+   */
+  resume?: ResumeFacts;
 };
+
+export type Replay = { after_seq: number; first: number | null; last: number | null };
+export type ResumeFacts = { drop_at: string; acked_seq: number; replays: Replay[] };
+
+/** The seq range the pages of one re-attach delivered: the `received` entries from `from` that came on a page. */
+export function replayOf(afterSeq: number, received: Array<{ seq: number; via: string }>, from: number): Replay {
+  const seqs = received.slice(from).filter((r) => r.via === "page").map((r) => r.seq);
+  return { after_seq: afterSeq, first: seqs.length ? Math.min(...seqs) : null, last: seqs.length ? Math.max(...seqs) : null };
+}
+
+/** The resume facts as a clause for a fault's detail: `acked seq 40, replayed 41..77 after 40`. */
+export function resumeText(r: ResumeFacts): string {
+  const replays = r.replays.length
+    ? r.replays.map((p) => (p.first === null ? `nothing after ${p.after_seq}` : `${p.first}..${p.last} after ${p.after_seq}`)).join(", ")
+    : "no re-attach";
+  return `dropped at ${r.drop_at}, acked seq ${r.acked_seq}, replayed ${replays}`;
+}
 
 export type ChaosContext = {
   cmux: string;
@@ -438,6 +461,8 @@ export class ChatClient {
   received: Received[] = [];
   /** Indexes into `received` where a re-attach's page began. */
   reconnects: number[] = [];
+  /** Each re-attach after the baseline: when, the seq it asked after, and the seq range its pages replayed. */
+  replays: Array<Replay & { at: number }> = [];
   held = 0;
   overlaps = 0;
   surface: number | null = null;
@@ -476,6 +501,21 @@ export class ChatClient {
     this.session = String(started.session ?? "");
     if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
     await this.attach(undefined);
+  }
+
+  /**
+   * `start`, then, when it started a session, the attach the app makes before its first send: the daemon refuses
+   * `agent-session-prompt` on a tab with no attachment on this connection (`agent_session.not_attached`,
+   * agent_session_attach.rs), so a prompt right after a bare start never reaches the chat. The start's answer is
+   * returned as it came, a refusal unattached.
+   */
+  async startAttached(harness: string): Promise<any> {
+    const reply = await this.start(harness);
+    const session = reply?.ok === true ? String(reply?.data?.session ?? "") : "";
+    if (!session) return reply;
+    this.session = session;
+    await this.attach(undefined);
+    return reply;
   }
 
   /** Dial and make the chat tab for `harness`, as the app does for a new Cloud chat, before any start. */
@@ -638,6 +678,7 @@ export class ChatClient {
       for (let i = 0; more && i < 200; i++) {
         more = this.take(answerOf(await this.dial.request({ cmd: "agent-session-events", surface: this.surface, after_seq: this.held, limit: 500 })));
       }
+      this.replays.push({ at: Date.now(), ...replayOf(after, this.received, from) });
     } finally {
       this.flushStash(from);
     }
@@ -1195,6 +1236,8 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const movesBefore = chat.surfaceMoves;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
       // A drop may hold the exec's own answer until it ends, so its budget covers the drop.
+      const ackedSeq = chat.held;
+      const replaysBefore = chat.replays.length;
       const injectedAt = Date.now();
       const injected = await ctx.exec(`${ctx.guest}${f.command}`, f.secs * 1000 + 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
       if (!/@@ok/.test(injected.stdout)) {
@@ -1219,6 +1262,11 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const turn = await turnOutcome(ctx, marker, chat.session);
       const loss = await lossVerdict(ctx, chat, tag, baseline, from, turn.interrupted === true, { step: reached, running: state.running });
       const terminal = await terminalVerdict(ctx, seqError ? null : seq, seqError);
+      const resume: ResumeFacts = {
+        drop_at: `step ${reached} of ${COUNT_STEPS} (seq ${ackedSeq})`,
+        acked_seq: ackedSeq,
+        replays: chat.replays.slice(replaysBefore).map(({ at: _at, ...r }) => r),
+      };
       const ok = feel.felt_ms !== null && feltTurn.ok && recover !== null && turn.ok && loss.ok && terminal.ok;
       const feltText = feel.felt_ms === null
         ? `no reply within ${RECOVER_DEADLINE_MS / 1000} s of a send at the cause's end (${feel.tries} tries${feel.error ? `; last error ${feel.error}` : ""})`
@@ -1230,7 +1278,8 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         recover_ms: recover,
         carrier: how,
         turn: turn.text,
-        detail: `injected ${when}; ${feltText}, its turn ${feltTurn.text}; ${recover === null ? `the carrier gave no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `the carrier answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}`,
+        detail: `injected ${when}; ${feltText}, its turn ${feltTurn.text}; ${recover === null ? `the carrier gave no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `the carrier answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}; ${resumeText(resume)}`,
+        resume,
       };
       // A daemon restart: where the time to the take went, from the machine's own journal.
       if (f.name === "agent daemon restart") {

@@ -258,6 +258,11 @@ fn http_date_ms(s: &str) -> Option<u64> {
     })
 }
 
+/// The wait, in ms, an error's own `retry after Ss` (or `Retry-After`) names, as [`reset_at`] reads it.
+pub fn retry_after_ms(text: &str) -> Option<u64> {
+    retry_after(text, 0)
+}
+
 fn retry_after(text: &str, now_ms: u64) -> Option<u64> {
     let lower = text.to_ascii_lowercase();
     for marker in ["retry after", "retry-after", "retry_after"] {

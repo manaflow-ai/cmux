@@ -3,7 +3,8 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    autosize, cli, folder, ledger, pin, progress, seed, targets, wait,
+    asks, autosize, chat_moves, cli, folder, handoff, ledger, machine_update, pin, place, priority,
+    progress, seed, session_transfer, settle, targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -48,6 +49,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             cli::read(request.reading, &request.output)
         }
         // The working toast's second line while a move runs: its step, why it waits, about how long is left.
+        b"cloud_move_chat_move" => {
+            #[derive(Deserialize)]
+            struct Request {
+                prior: Option<chat_moves::Move>,
+                event: chat_moves::Event,
+            }
+            let request: Request = read(request)?;
+            json!({ "next": to_value(chat_moves::step(request.prior, request.event))? })
+        }
         b"cloud_move_progress" => {
             let facts: progress::Facts = read(request)?;
             to_value(progress::line(&facts))?
@@ -69,6 +79,250 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 "answer": to_value(request.run.legacy_update_answer(&request.commit))?,
                 "lastLine": request.run.last_line(),
                 "failureDetail": request.run.failure_detail(),
+            })
+        }
+        // A machine update's outcome for the shared update policy, held to the build it asked for.
+        b"cloud_move_machine_update_outcome" => {
+            let ran: machine_update::Ran = read(request)?;
+            to_value(machine_update::checked(&ran))?
+        }
+        // The build `machine_update_unsupported` judged older: the exec update runs only then.
+        b"cloud_move_machine_update_legacy_judged" => {
+            let answer: cli::Answer = read(request)?;
+            json!({ "judged": machine_update::legacy_judged(&answer) })
+        }
+        // The "Update Machine" button's stop for its answer.
+        b"cloud_move_machine_update_stop" => {
+            let answer: cli::Answer = read(request)?;
+            to_value(machine_update::stop(&answer))?
+        }
+        // The legacy exec update's run: `plan` starts it; each exec's answer (`ran`, none when it
+        // threw) with the `state` it carried gives the next exec or the answer.
+        b"cloud_move_legacy_run" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                plan: Option<machine_update::Plan>,
+                #[serde(default)]
+                state: Option<machine_update::State>,
+                #[serde(default)]
+                ran: Option<cli::ExecRun>,
+            }
+            let request: Request = read(request)?;
+            match (request.plan, request.state) {
+                (_, Some(state)) => to_value(machine_update::advance(state, request.ran.as_ref()))?,
+                (Some(plan), None) => to_value(machine_update::begin(&plan))?,
+                (None, None) => return Err(ERR_INVALID),
+            }
+        }
+        b"cloud_move_legacy_commands" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                pin: pin::Pin,
+                #[serde(default)]
+                script: String,
+                nonce: String,
+                #[serde(default)]
+                directory: Option<String>,
+                #[serde(default)]
+                wait_seconds: Option<u64>,
+                #[serde(default)]
+                expected: Option<String>,
+            }
+            let request: Request = read(request)?;
+            let directory = request.directory.as_deref().unwrap_or(machine_update::DIRECTORY);
+            json!({
+                "start": machine_update::start_command(&request.pin, &request.script, &request.nonce, directory, request.expected.as_deref()),
+                "wait": machine_update::wait_command(&request.nonce, directory, request.wait_seconds.unwrap_or(machine_update::WAIT_SECONDS)),
+                "install": machine_update::install_command(&request.pin),
+                "unit": machine_update::unit(&request.nonce),
+                "url": machine_update::url(&request.pin),
+            })
+        }
+        // Moving sessions between builds: a classic workspace's split tree.
+        b"cloud_move_transfer_layout" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                layout: Value,
+                #[serde(default)]
+                terminals: usize,
+            }
+            let request: Request = read(request)?;
+            json!({ "layout": session_transfer::Layout::parse(&request.layout, request.terminals) })
+        }
+        // A classic peer's `surface.list` surfaces as movable items (the others dropped).
+        b"cloud_move_transfer_classic_items" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                surfaces: Vec<Value>,
+                workspace: String,
+                #[serde(default)]
+                fallback_cwd: Option<String>,
+            }
+            let request: Request = read(request)?;
+            let items: Vec<_> = request
+                .surfaces
+                .iter()
+                .filter_map(|surface| {
+                    session_transfer::classic_item(
+                        surface,
+                        &request.workspace,
+                        request.fallback_cwd.as_deref(),
+                    )
+                })
+                .collect();
+            json!({ "items": items })
+        }
+        // A peer's `system.identify` answer; `identity` null for this build itself.
+        b"cloud_move_transfer_identity" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                answer: Value,
+                own_pid: i64,
+            }
+            let request: Request = read(request)?;
+            json!({ "identity": session_transfer::identity(&request.answer, request.own_pid) })
+        }
+        // A chat move: its acpmux arguments, its session here, what its failure means.
+        b"cloud_move_transfer_chat" => {
+            #[derive(Deserialize)]
+            struct Request {
+                session: String,
+                to: String,
+                #[serde(default)]
+                interrupt: bool,
+                #[serde(default)]
+                cwd: Option<String>,
+            }
+            let request: Request = read(request)?;
+            json!({ "arguments": session_transfer::transfer_arguments(&request.session, &request.to, request.interrupt, request.cwd.as_deref()) })
+        }
+        b"cloud_move_transfer_chat_result" => {
+            #[derive(Deserialize)]
+            struct Request {
+                session: String,
+                #[serde(default)]
+                status: i32,
+                #[serde(default)]
+                stdout: String,
+                #[serde(default)]
+                stderr: String,
+            }
+            let request: Request = read(request)?;
+            if request.status == 0 {
+                json!({ "session": session_transfer::moved_session(&request.stdout, &request.session) })
+            } else {
+                json!({ "failure": session_transfer::acpmux_failure(&request.stderr, request.status) })
+            }
+        }
+        // Reopening a terminal: the SSH command, and whether a peer's error means an older build.
+        b"cloud_move_transfer_ssh_command" => {
+            #[derive(Deserialize)]
+            struct Request {
+                target: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "command": session_transfer::ssh_command(&request.target) })
+        }
+        b"cloud_move_transfer_missing_method" => {
+            #[derive(Deserialize)]
+            struct Request {
+                code: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "missing": session_transfer::is_missing_transfer_method(&request.code) })
+        }
+        // Move to Cloud's ask card (CloudMoveAsks): a new ask, a started, ended or unfinished
+        // move, an answer and whether an agent's target is its own chat.
+        b"cloud_move_ask_open" => to_value(asks::open(read(request)?))?,
+        b"cloud_move_ask_started" => {
+            #[derive(Deserialize)]
+            struct Request {
+                always: bool,
+            }
+            let request: Request = read(request)?;
+            to_value(asks::started(request.always))?
+        }
+        b"cloud_move_ask_ended" => {
+            #[derive(Deserialize)]
+            struct Request {
+                failed: bool,
+                #[serde(default)]
+                retry: bool,
+            }
+            let request: Request = read(request)?;
+            json!({ "card": asks::ended(request.failed, request.retry) })
+        }
+        b"cloud_move_ask_unfinished" => {
+            #[derive(Deserialize)]
+            struct Request {
+                show: bool,
+            }
+            let request: Request = read(request)?;
+            to_value(asks::unfinished(request.show))?
+        }
+        b"cloud_move_ask_answer" => to_value(asks::answer(read(request)?))?,
+        b"cloud_move_ask_own_target" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                kind: Option<String>,
+                id: Option<String>,
+                tab: String,
+                resource: Option<String>,
+            }
+            let request: Request = read(request)?;
+            json!({ "own": asks::own_target(request.kind.as_deref(), request.id.as_deref(), &request.tab, request.resource.as_deref()) })
+        }
+        // Transfer to This Mac's menu row and `path`, and a hand-off turn's pane and refusal codes.
+        b"cloud_move_transfer_hidden" => {
+            #[derive(Deserialize)]
+            struct Request {
+                host: Option<String>,
+                session: Option<String>,
+                #[serde(default)]
+                moved: bool,
+            }
+            let request: Request = read(request)?;
+            json!({ "hidden": handoff::transfer_hidden(request.host.as_deref(), request.session.as_deref(), request.moved) })
+        }
+        b"cloud_move_transfer_folder" => {
+            #[derive(Deserialize)]
+            struct Request {
+                path: Option<String>,
+                home: String,
+            }
+            let request: Request = read(request)?;
+            to_value(handoff::transfer_folder(request.path.as_deref(), &request.home))?
+        }
+        b"cloud_move_handoff_owns" => {
+            #[derive(Deserialize)]
+            struct Request {
+                recorded: Option<String>,
+                asked: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "owns": handoff::owns_session(request.recorded.as_deref(), &request.asked) })
+        }
+        b"cloud_move_handoff_refusal" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                cloud_allowed: bool,
+                signed_in: bool,
+                loaded_current: bool,
+                code: Option<String>,
+            }
+            let request: Request = read(request)?;
+            json!({
+                "refusal": handoff::refusal(request.cloud_allowed, request.signed_in, request.loaded_current),
+                "storeCode": handoff::store_code(request.code.as_deref()),
             })
         }
         // The legacy update's pin: the bundled manifest's for `build`, else the CLI's answer.
@@ -333,6 +587,17 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         }
         // The waits' rules.
         b"cloud_move_deadlines" => to_value(wait::DEADLINES)?,
+        b"cloud_move_settle" => {
+            // One machine's transient states for every caller that needs it running (ask-259986a6c4).
+            let mut look: settle::SettleLook = read(request)?;
+            look.killed |= settle::killed(std::env::var(settle::KILL_SWITCH).ok().as_deref());
+            let act = settle::settle(look);
+            let mut answer = to_value(act)?;
+            if let Value::Object(fields) = &mut answer {
+                fields.insert("waking".to_owned(), Value::Bool(act.waking()));
+            }
+            answer
+        }
         b"cloud_move_link_look" => {
             let look: wait::LinkLook = read(request)?;
             let (done, cleared) = wait::link_look(look);
@@ -500,6 +765,88 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_move_plan_request" => {
             let facts: wait::PlanFacts = read(request)?;
             json!({ "request": wait::plan_request(&facts) })
+        }
+        // Where a chat runs and moving it (`moves/place.rs`): the move's state machine and its
+        // view, the Auto rule, Evacuate's plan and the own-VM pick.
+        b"cloud_move_place_reduce" => {
+            #[derive(Deserialize)]
+            struct Request {
+                flow: Option<place::Flow>,
+                event: place::Event,
+            }
+            let request: Request = read(request)?;
+            let (flow, next) = place::reduce(request.flow, request.event);
+            json!({ "flow": flow, "next": next })
+        }
+        b"cloud_move_place_view" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                flow: place::Flow,
+                now_ms: u64,
+            }
+            let request: Request = read(request)?;
+            to_value(place::view(&request.flow, request.now_ms))?
+        }
+        b"cloud_move_place_auto" => {
+            #[derive(Deserialize)]
+            struct Request {
+                mode: place::Mode,
+                chat: place::ChatState,
+                signals: place::Signals,
+            }
+            let request: Request = read(request)?;
+            to_value(place::auto(request.mode, &request.chat, &request.signals))?
+        }
+        b"cloud_move_place_evacuate" => {
+            #[derive(Deserialize)]
+            struct Request {
+                chats: Vec<place::EvacuateChat>,
+                #[serde(default)]
+                selected: Option<Vec<String>>,
+                /// `toCloud` (Evacuate, the default) or `toLocal` (Bring Back All).
+                #[serde(default)]
+                direction: Option<place::Direction>,
+            }
+            let request: Request = read(request)?;
+            to_value(place::evacuate_toward(
+                &request.chats,
+                request.selected.as_deref(),
+                request.direction.unwrap_or(place::Direction::ToCloud),
+            ))?
+        }
+        // One chat's cloud control: blocked (signed out, no plan) or every slot held
+        // (`moves/priority.rs` `control`, from `Admit`). The app sends facts; the state is Rust's.
+        b"cloud_move_place_control" => {
+            let facts: priority::ControlFacts = read(request)?;
+            to_value(priority::control(&facts))?
+        }
+        b"cloud_move_place_vm_failure" => {
+            let error: place::VmError = read(request)?;
+            to_value(serde_json::json!({ "cause": place::vm_failure_cause(&error) }))?
+        }
+        b"cloud_move_place_own_machine" => {
+            #[derive(Deserialize)]
+            struct Request {
+                session: String,
+                #[serde(default)]
+                before: Option<String>,
+                #[serde(default)]
+                machines: Vec<place::Machine>,
+            }
+            let request: Request = read(request)?;
+            to_value(place::own_machine(
+                &request.session,
+                request.before.as_deref(),
+                &request.machines,
+            ))?
+        }
+        b"cloud_move_place_steps" => {
+            let steps: Vec<_> = place::Step::ALL
+                .iter()
+                .map(|step| json!({ "step": step.name(), "cancellable": step.cancellable(), "landed": step.landed(), "agentMovePhases": step.agent_move_phases() }))
+                .collect();
+            json!({ "steps": steps, "budgetMs": place::BUDGET_MS })
         }
         _ => return Err(ERR_INVALID),
     };

@@ -38,6 +38,8 @@ export type GuestMarks = {
   surface_lost?: Record<string, unknown>;
 };
 
+type StartAttempt = { sent_at_ms: number; answered_at_ms: number; http_status: number; machine_status: string | null; timing_ms: Record<string, number> };
+
 export type WakeCycle = {
   i: number;
   ok: boolean;
@@ -57,6 +59,7 @@ export type WakeCycle = {
   state_json: boolean;
   state_wake: unknown;
   start_retries?: string[];
+  start_attempts?: StartAttempt[];
 };
 
 /** Phases from marks already on the runner clock, as ms after wake_at (null: not marked). */
@@ -100,6 +103,60 @@ export function summarize(cycles: WakeCycle[]) {
   return { cycles: cycles.length, echoed: echoed.length, failed: cycles.length - echoed.length, rows, biggest, causes };
 }
 
+/**
+ * Wake on intent (cmux#55110, hq#21300): the app starts the wake at the person's intent (focus, a terminal shown, an
+ * unlock) instead of at the first key, `lead` ms before that key. The hint changes when the start is sent, never the
+ * wake itself, so each measured cycle gives its intent arm too, paired, with no extra machine: on a client-side timer
+ * the key lands at wake_at + lead and its echo is seen at echo_at. Before the guest is ready the key waits in the client
+ * and echoes at echo_at (key-to-echo = echo - lead); once it is ready the key's echo takes the cycle's own echo phase
+ * (echo - input). So key-to-echo = echo - min(input, lead); lead 0 is the baseline (the typing prewarm wakes at the key):
+ * echo - 0 = wake-to-first-echo.
+ */
+/** A prefetch A/B run's cycles carry `arm` (cmux#54915's artifacts); a plain run's cycles are all "off". */
+export type PrefetchArm = "off" | "on";
+const armOf = (c: WakeCycle): PrefetchArm => ((c as WakeCycle & { arm?: PrefetchArm }).arm ?? "off");
+export const INTENT_TARGET_MS = 1000;
+/** The leads each table shows: until hq#21300 has the app's own `wake hint outcome ... tag=used ... ms=` lines (the
+ *  hint's resume to the first input, which is the lead), a sweep of plausible focus-to-first-key gaps. */
+export const INTENT_LEADS_MS = [500, 1000, 2000, 4000];
+/** Idle bound of a hint wake nobody used (cmux-cloud-handlers `wake_hint::IDLE_BOUND_MS`). */
+export const INTENT_IDLE_BOUND_MS = 30_000;
+export function keyToEcho(c: Pick<WakeCycle, "ok" | "marks_ms">, leadMs: number): number | null {
+  const { echo, input } = c.marks_ms;
+  if (!c.ok || echo === undefined || input === undefined) return null;
+  return Math.round(echo - Math.min(input, Math.max(0, leadMs)));
+}
+/** The four arms (prefetch off/on x hint at lead 0 / `leadMs`) over cycles of a prefetch A/B run, n and p50/p95 each. */
+export function intentArms(cycles: WakeCycle[], leadMs: number, targetMs = INTENT_TARGET_MS) {
+  const arms = [
+    { arm: "baseline", prefetch: "off" as PrefetchArm, lead: 0 },
+    { arm: "prefetch", prefetch: "on" as PrefetchArm, lead: 0 },
+    { arm: "wake-on-intent", prefetch: "off" as PrefetchArm, lead: leadMs },
+    { arm: "both", prefetch: "on" as PrefetchArm, lead: leadMs },
+  ];
+  return arms.map((a) => {
+    const xs = cycles.filter((c) => armOf(c) === a.prefetch).map((c) => keyToEcho(c, a.lead)).filter((x): x is number => x !== null);
+    return { ...a, n: xs.length, p50: percentile(xs, 50), p95: percentile(xs, 95), under_target: xs.filter((x) => x <= targetMs).length };
+  });
+}
+/**
+ * What one false hint wake (no input within the bound, re-paused) costs, per measured cycle: the wait from the start's
+ * answer to running (the bound counts from running), the bound, and the pause until it lands.
+ */
+export function falseWakeCost(cycles: WakeCycle[]) {
+  const xs = cycles.filter((c) => c.ok && typeof c.phases.restore === "number" && c.answered_ms !== null && c.paused_ms !== null)
+    .map((c) => Math.max(0, c.phases.restore! - c.answered_ms!) + INTENT_IDLE_BOUND_MS + c.paused_ms!);
+  return { n: xs.length, p50: percentile(xs, 50), p95: percentile(xs, 95) };
+}
+export function intentMarkdown(cycles: WakeCycle[], leadsMs: number[], targetMs = INTENT_TARGET_MS): string {
+  const f = (x: number | null) => (x === null ? "-" : (x / 1000).toFixed(2));
+  const lines = ["### Wake on intent: key-to-echo by arm (client timer, paired cycles)", "", `Target ${f(targetMs)} s. Lead: the hint's start before the first key.`, "", "| lead | arm | n | p50 | p95 | under target |", "|---|---|---|---|---|---|"];
+  for (const lead of leadsMs) for (const a of intentArms(cycles, lead, targetMs)) lines.push(`| ${f(lead)} | ${a.arm} | ${a.n} | ${f(a.p50)} | ${f(a.p95)} | ${a.under_target}/${a.n} |`);
+  const cost = falseWakeCost(cycles);
+  lines.push("", `A false wake (no input in ${INTENT_IDLE_BOUND_MS / 1000} s) costs ${f(cost.p50)} s awake p50, ${f(cost.p95)} s p95 (n ${cost.n}): wait to running + the bound + the pause.`);
+  return `${lines.join("\n")}\n`;
+}
+
 export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unknown>): string {
   const s = summarize(cycles);
   const asked = typeof meta.asked === "number" ? meta.asked : null;
@@ -113,6 +170,7 @@ export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unkno
     "",
     `Biggest phase by p95: **${s.biggest ?? "none"}**. state.json carried a wake block in ${cycles.filter((c) => c.state_wake != null).length} of ${cycles.length} cycles.`,
   ];
+  lines.push("", intentMarkdown(cycles, INTENT_LEADS_MS).trimEnd());
   if (meta.stopped) lines.push("", `Stopped early: ${meta.stopped}.`);
   const bad = cycles.filter((c) => !c.ok);
   if (bad.length) {
@@ -147,7 +205,7 @@ export type WakeEchoDeps = {
   /** pause call, then resolves once the machine reads paused (ms from the call to the read). */
   pause: () => Promise<number>;
   /** cloud.machine.start, answered; resolves with a note per retry it took (startWithRetry). */
-  wake: () => Promise<void | string[]>;
+  wake: (recordAttempt?: (attempt: StartAttempt) => void) => Promise<void | string[]>;
   status: () => Promise<string>;
   holdMs: number;
   deadlineAt?: number;
@@ -273,7 +331,7 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       c.paused_ms = await d.pause();
       await sleep(d.holdMs);
       const wakeAt = Date.now();
-      const retries = await d.wake();
+      const retries = await d.wake((attempt) => (c.start_attempts ??= []).push(attempt));
       c.answered_ms = Date.now() - wakeAt;
       if (retries && retries.length) { c.start_retries = retries; c.warnings.push(`start retried: ${retries.join("; ")}`); }
       // Read the result back: exec polls (the guest may not answer yet) until the probe's file is there.
@@ -334,3 +392,14 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
 }
 
 export { awaitPaused };
+
+// `bun scripts/cmux-next/cloud-wake-echo.ts intent wake-echo.json... [--lead MS]...`: the wake-on-intent table over runs'
+// artifacts (cycles pooled), with no machine.
+if (import.meta.main && process.argv[2] === "intent") {
+  const args = process.argv.slice(3);
+  const leads: number[] = [];
+  const files: string[] = [];
+  for (let i = 0; i < args.length; i++) if (args[i] === "--lead") leads.push(Number(args[++i])); else files.push(args[i]!);
+  const cycles = files.flatMap((f) => (JSON.parse(readFileSync(f, "utf8")).cycles ?? []) as WakeCycle[]);
+  process.stdout.write(intentMarkdown(cycles, leads.length ? leads : INTENT_LEADS_MS));
+}

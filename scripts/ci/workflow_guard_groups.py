@@ -126,6 +126,7 @@ PATH_OWNERS = {
     # resolver also backs the project-file merge driver below.
     "scripts/ci/merge_main_resolver.py": frozenset(("preflight", "ci")),
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
+    "scripts/merge-cargo-lock.py": frozenset(("ci",)),  # test_merge_cargo_lock.py
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
     # test_merge_pbxproj.py runs the merge driver, which runs the normalizer
     # above and borrows union_pbxproj from the local resolver.
@@ -176,7 +177,8 @@ PATH_OWNERS = {
     "scripts/swift_source_mask.py": frozenset(("preflight",)),
     # test_ci_reusable_workflow_permissions.py loads it; cmux.ci.guard runs that.
     "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
-    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
+    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution", "ci")),
+    "scripts/ci/package-test-lane/swift_suite_outcomes.py": frozenset(("ci",)),
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     # run-swift-testing-suites.sh runs it.
     "scripts/ci/swift_package_submodules.py": frozenset(("app-host-execution",)),
@@ -185,6 +187,8 @@ PATH_OWNERS = {
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # tests/test_ci_pr_media_lint.py (ci) loads the warn-only lint by path.
+    "scripts/ci/pr_media_lint.py": frozenset(("ci",)),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.
@@ -426,27 +430,53 @@ def _workflow_path_owners() -> dict[str, frozenset[str]] | None:
 TEST_MODULE = re.compile(r"tests/([A-Za-z_][A-Za-z0-9_]*)\.py")
 
 
+@lru_cache(maxsize=4)
+def _test_importers(root: Path) -> dict[str, frozenset[str]]:
+    """Build the reverse import graph for the test modules under ``root`` once.
+
+    Route classification asks about several shared helpers in one invocation. Scanning every test
+    file for each helper made a single route decision take seconds on the full checkout. The graph
+    keeps the same line-oriented import matching while making the filesystem walk one-time per root.
+    """
+    importers: dict[str, set[str]] = {}
+    for candidate in sorted((root / "tests").glob("*.py")):
+        relative = f"tests/{candidate.name}"
+        try:
+            text = candidate.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        for line in text.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("from "):
+                match = re.match(r"from\s+([A-Za-z_][A-Za-z0-9_]*)\s+import\b", stripped)
+                if match:
+                    importers.setdefault(match.group(1), set()).add(relative)
+                continue
+            if not stripped.startswith("import "):
+                continue
+            # The old line-oriented matcher accepted trailing comments, including the
+            # ``# noqa`` comments used by most tests. Keep that behavior while indexing
+            # comma-separated imports in one pass.
+            for item in stripped[7:].split("#", 1)[0].split(","):
+                module = item.strip().split(" as ", 1)[0].split(".", 1)[0]
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", module):
+                    importers.setdefault(module, set()).add(relative)
+    return {module: frozenset(paths) for module, paths in importers.items()}
+
+
 def _importers(stem: str, root: Path) -> set[str]:
     """tests/*.py files that import the sibling module `stem`, directly or through another
     sibling module (tests/test_x.py imports job_lists_routing, which imports workflow_jobs)."""
     found: set[str] = set()
     pending = [stem]
+    graph = _test_importers(root)
     while pending:
         module = pending.pop()
-        pattern = re.compile(
-            rf"^\s*(?:from\s+{module}\s+import\b|import\s+(?:[\w.]+\s*,\s*)*{module}\b)", re.M
-        )
-        for candidate in sorted((root / "tests").glob("*.py")):
-            relative = f"tests/{candidate.name}"
+        for relative in graph.get(module, ()):
             if relative in found:
                 continue
-            try:
-                text = candidate.read_text(encoding="utf-8")
-            except (OSError, UnicodeError):
-                continue
-            if pattern.search(text):
-                found.add(relative)
-                pending.append(candidate.stem)
+            found.add(relative)
+            pending.append(Path(relative).stem)
     return found
 
 

@@ -2,6 +2,9 @@ import CmuxAgentQuestion
 import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
 import CmuxMobileArtifacts
+#if canImport(CmuxMobileLinkFFI)
+import CmuxMobileLinkFFI
+#endif
 import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
@@ -10,6 +13,26 @@ import OSLog
 import UniformTypeIdentifiers
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "acpmux")
+
+/// The chat prompt outboxes' clock (``ChatPromptOutbox``'s `nowMs`): milliseconds on the
+/// continuous clock from a fixed origin well before any instant the app or a test passes.
+enum ChatPromptClock {
+    static let origin = ContinuousClock.now - .seconds(10_000_000)
+
+    static func milliseconds(_ instant: ContinuousClock.Instant) -> UInt64 {
+        milliseconds(instant - origin)
+    }
+
+    static func milliseconds(_ duration: Duration) -> UInt64 {
+        let (seconds, attoseconds) = duration.components
+        guard seconds >= 0 else { return 0 }
+        return UInt64(seconds) * 1000 + UInt64(attoseconds / 1_000_000_000_000_000)
+    }
+
+    static func instant(_ milliseconds: UInt64) -> ContinuousClock.Instant {
+        origin + .milliseconds(Int64(clamping: milliseconds))
+    }
+}
 
 /// The app's acpmux client for the connected Mac. It outlives links: each
 /// new link binds a fresh `acpmux` channel, runs `initialize` and
@@ -27,12 +50,18 @@ public final class AcpmuxHub {
     public private(set) var lastError: String?
     /// The link the channel rides on (artifact previews open `file` channels on it).
     @ObservationIgnored public var macLink: (any MacLink)?
+    /// The Mac link's last progress (``MacSession/progress``), told by every channel bound here;
+    /// nil: each channel keeps its own.
+    @ObservationIgnored public var linkProgress: LinkProgress?
 
     @ObservationIgnored var connection: AcpmuxConnection?
     /// Recovers this hub's channel when a read stalls on it (`AcpmuxHub+Steady.swift`): the live
     /// coordinator opens a fresh `acpmux` channel on the same link and binds it. Nil: no recovery,
     /// a stalled read fails at its deadline as before.
     @ObservationIgnored public var onStall: (@MainActor () async -> Void)?
+    /// The person sent something on this hub (every prompt passes through ``submit(_:_:)``): a
+    /// Cloud chat reports it as wake on intent's input (`CloudWakeOnIntent`).
+    @ObservationIgnored public var onSubmit: (@MainActor () -> Void)?
     /// The one recovery running now; every stalled read waits on it rather than starting its own.
     @ObservationIgnored var recovering: Task<Void, Never>?
     /// Requests ride out a reconnect (wait for the next ready channel) and retry an idempotent read
@@ -84,6 +113,10 @@ public final class AcpmuxHub {
     /// Every chat of the Mac is in `sessions` (the whole list was read on this connection). A
     /// chat not in `sessions` before then may be one of the older ones still being read.
     public internal(set) var listWhole = false
+    /// The list position the hub's rows are current to, across its connections
+    /// (`AcpmuxHub+ListFollow.swift`): a reconnect with the whole list held reads only the rows
+    /// changed since it.
+    @ObservationIgnored var listCursor = AcpmuxListCursor()
     /// Where each chat keeps its newest records on this phone (nil: none kept, as in tests and
     /// Cloud chats). Set by the live coordinator before any chat opens.
     @ObservationIgnored public var transcriptCache: AgentTranscriptCache?
@@ -103,6 +136,24 @@ public final class AcpmuxHub {
     /// The protocol surfaces the Mac's acpmux serves (`initialize` `_meta.acpmux.capabilities`,
     /// acpmux `capabilities.rs`); empty until this connection initializes.
     @ObservationIgnored private(set) var capabilities: Set<String> = []
+    /// Whether an `initialize` from this Mac has answered since launch: until then
+    /// `capabilities` is unknown, not empty (``pipelineAttaches``).
+    @ObservationIgnored private var capabilitiesKnown = false
+    var supportsPromptUploads: Bool {
+        features.contains("promptUploads") && features.contains("filePutChunks")
+    }
+    /// The features the Mac's acpmux lists (`initialize` `_meta.acpmux.features`, acpmux
+    /// `initialize.rs`): `promptUploads` and `filePutChunks` let a photo go by reference
+    /// (``AcpmuxSessionSource``'s upload path); empty until this connection initializes.
+    @ObservationIgnored private(set) var features: Set<String> = []
+    /// This connection's compact chunks and row patches, read back into whole records and rows
+    /// (``AcpmuxDeltas``); a new one per connection, as the Mac keeps its side per connection.
+    @ObservationIgnored var deltas = AcpmuxDeltas()
+    /// The connection a row gap already recovered (``rowGap(_:)``): the gaps after the first on
+    /// it wait for that recovery, never start another.
+    @ObservationIgnored private weak var rowGapRecovered: AcpmuxConnection?
+    /// Catch-up attaches answered from the write beside `initialize` (``pipelineAttaches``).
+    @ObservationIgnored var pipelinedAttachesRead = 0
 
     /// The phone's approval signer for the linked Mac.
     public struct Approver: Sendable {
@@ -146,16 +197,32 @@ public final class AcpmuxHub {
         case permissionResolved(sessionID: String)
         /// Every session, as the watch reported them on (re)connecting.
         case sessionsLoaded([AcpmuxSession])
+        /// The sessions a follow from the list cursor changed (a reconnect, a refresh, a watch that
+        /// dropped notices); every other session stands.
+        case sessionsChanged(AcpmuxFollowed)
     }
 
     private struct WeakSource { weak var source: AcpmuxSessionSource? }
     /// A chat with an expired replay cache may still have an open reader. Keep routing
     /// to it while a new reader loads its own complete snapshot from the Mac.
-    private var liveSources: [AcpmuxSessionSource] {
+    var liveSources: [AcpmuxSessionSource] {
         sources.values.flatMap { $0.compactMap(\.source) }
     }
 
-    public init() {}
+    /// The open sources of one chat (`AcpmuxHub+CatchUp.swift`).
+    func liveSources(of sessionID: String) -> [AcpmuxSessionSource] {
+        (sources[sessionID] ?? []).compactMap(\.source)
+    }
+
+    public init() {
+        // An upload's acked bytes are bytes heard from the Mac: a prompt the outbox holds keeps
+        // going while an attachment is still moving (a hub gone leaves a no-op behind).
+        UploadActivity.listen(self) { [weak self] macID in
+            for source in self?.liveSources ?? [] where source.summary.macID == macID {
+                source.linkProgressed()
+            }
+        }
+    }
 
     /// Binds a new `acpmux` channel (nil unbinds after a link drop).
     /// `gate`: a channel opened behind `auth` before its pairing finished. `initialize` and the first
@@ -167,10 +234,13 @@ public final class AcpmuxHub {
         pumpTask?.cancel()
         restOfList?.cancel()
         restOfList = nil
+        // The whole list held at a cursor: the next watch follows from it.
+        let following = listWhole ? listCursor.position : nil
         toldSinceWatch = []
         purgedSinceWatch = []
         droppedSinceWatch = false
         listWhole = false
+        deltas = AcpmuxDeltas()
         if let old = connection { Task { await old.close() } }
         connection = nil
         isReady = false
@@ -178,7 +248,7 @@ public final class AcpmuxHub {
         fullAccess = false
         for source in liveSources { source.linkDown() }
         guard let channel else { return }
-        let connection = AcpmuxConnection(channel: channel, held: gate != nil)
+        let connection = AcpmuxConnection(channel: channel, held: gate != nil, progress: linkProgress ?? LinkProgress())
         self.connection = connection
         await connection.start()
         let notifications = connection.notifications
@@ -197,6 +267,11 @@ public final class AcpmuxHub {
             ConnectivityTelemetry.shared.record(.hub, "channel_closed", outcome: .failure,
                                                 fields: ["last_error": .text(self.lastError ?? "")])
             for source in self.liveSources { source.linkDown() }
+            if channel.closedBy?.code == "partial_message" {
+                // The transport retired only this channel to discard an unfinished JSON prefix.
+                // The link can still carry the queued prompt on a fresh channel.
+                await self.recover(from: connection, why: "partial_message", method: "write")
+            }
         }
         do {
             // `initialize` and the first page go out together: acpmux answers a connection's
@@ -208,12 +283,16 @@ public final class AcpmuxHub {
                 "protocolVersion": .number(1),
                 "clientInfo": .object(["name": .string("cmux-ios"), "version": .string("1")]),
                 "clientCapabilities": .object([:]),
-                // The phone draws no time breakdown: none in any attach or chat row on this
-                // connection (acpmux `server/requests/time_breakdown_gate.rs`); an older Mac
-                // ignores the key.
-                "_meta": .object(["acpmux": .object(["omitTimeBreakdown": .bool(true)])]),
+                // Streamed text and row changes in their compact forms (`AcpmuxDeltas`), and no time
+                // breakdown: the phone draws none in any attach or chat row on this connection (acpmux
+                // `server/requests/time_breakdown_gate.rs`). A Mac that predates a key ignores it and
+                // sends that part whole, as before.
+                "_meta": .object(["acpmux": .object(AcpmuxDeltas.initializeMeta.merging(["omitTimeBreakdown": .bool(true)]) { $1 })]),
             ]), timeout: requestTimeout)
-            let pageID = try await connection.submit("_acpmux/watch", Self.firstPageParams, timeout: requestTimeout)
+            let pageID = try await connection.submit("_acpmux/watch", watchParams(following: following), timeout: requestTimeout)
+            // Each open chat's catch-up attach goes in the same burst (acpmux answers in order,
+            // after `initialize`), so a resumed chat is one round trip from its page, not two.
+            await pipelineAttaches(connection, timeout: requestTimeout)
             if let gate, !(await gate()) {
                 // The pairing failed: nothing this Mac sent is applied, and nothing is said here
                 // (the pairing says why).
@@ -226,11 +305,19 @@ public final class AcpmuxHub {
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))
+            capabilitiesKnown = true
+            features = Set((initialized["_meta"]?["acpmux"]?["features"]?.arrayValue ?? []).compactMap(\.stringValue))
             let page = try await Self.reply(connection, pageID, "_acpmux/watch", timeout: requestTimeout)
+            if let follow = AcpmuxListFollow(page) {
+                guard !(await connection.isClosed), self.connection === connection else { return }
+                try await followed(follow, on: connection, requestTimeout: requestTimeout)
+                return
+            }
             let first = (rows: try AcpmuxConnection.pageRows(page), cursor: try AcpmuxConnection.nextCursor(page))
             guard !(await connection.isClosed), self.connection === connection else { return }
             let firstPage = applyFirstPage(first.rows, whole: first.cursor == nil)
             let firstIDs = firstPage.ids
+            listCursor.listed(seq: AcpmuxListCursor.seq(page["listSeq"]), epoch: page["listEpoch"]?.stringValue)
             let next = sessions
             isReady = true
             lastError = nil
@@ -273,6 +360,62 @@ public final class AcpmuxHub {
                                                     detail: String(describing: error))
             }
         }
+    }
+
+    /// Writes each open chat's first catch-up attach right behind `initialize` and the watch,
+    /// with the kinds the last connection to this Mac allowed (`capabilities` stays until this
+    /// connection's `initialize` answers). The chat's catch-up reads that reply instead of asking
+    /// again (``AcpmuxSessionSource/readPages``); when `initialize` names other kinds, or the
+    /// chat's cursor moved, the reply is dropped and the attach is asked as before. On the first
+    /// connection since launch (no kinds known yet) it asks for every kind the phone draws: a
+    /// current Mac answers that, so the cold open's chat is one round trip from its page, not
+    /// two; an older one refuses it or names fewer kinds, and the attach is asked again as
+    /// before. A Mac whose `initialize` named no capabilities gets none (an old Mac).
+    private func pipelineAttaches(_ connection: AcpmuxConnection, timeout: Duration) async {
+        guard !capabilities.isEmpty || !capabilitiesKnown else { return }
+        let kinds = capabilitiesKnown ? AcpmuxSessionSource.kinds(self) : AcpmuxSessionSource.chatKindsWithElevation
+        for source in liveSources {
+            guard let params = source.pipelineAttachParams(kinds: kinds),
+                  let id = try? await connection.submit("_acpmux/attach", .object(params), timeout: timeout)
+            else { continue }
+            source.notePipelined(.init(connection: connection, id: id, params: params))
+        }
+    }
+
+    /// The watch followed the cursor (``bind(_:requestTimeout:until:)``): the hub held the whole list
+    /// at it, so it lays the changed rows over it and is ready, whole, with no page read. Asks are
+    /// seeded only in the chats that changed: the others' are known already (seeded or notified).
+    private func followed(_ follow: AcpmuxListFollow, on connection: AcpmuxConnection, requestTimeout: Duration) async throws {
+        var changed = AcpmuxFollowed()
+        lay(follow, into: &changed)
+        var more = follow.more
+        var tries = 1
+        while more, tries < Self.followTries, let cursor = listCursor.position {
+            tries += 1
+            let reply = try await connection.request("_acpmux/watch", watchParams(following: cursor), timeout: requestTimeout)
+            guard self.connection === connection else { return }
+            guard let next = AcpmuxListFollow(reply) else { break }
+            lay(next, into: &changed)
+            more = next.more
+        }
+        // Cut short, the list is not known whole: the next connection reads it from its first page.
+        listWhole = !more
+        isReady = true
+        lastError = nil
+        let waiters = readyWaiters
+        readyWaiters = [:]
+        for waiter in waiters.values { waiter.resume(returning: true) }
+        log.info("acpmux ready, followed \(changed.changed.count, privacy: .public) of \(self.sessions.count, privacy: .public) sessions")
+        ConnectivityTelemetry.shared.record(.hub, "ready", outcome: .success, fields: [
+            "sessions": .number(Double(sessions.count)),
+            "followed": .number(Double(changed.changed.count)),
+            "full_access": .flag(fullAccess),
+            "capabilities": .number(Double(capabilities.count)),
+        ], detail: capabilities.sorted().joined(separator: ","))
+        for source in liveSources { source.linkUp() }
+        onWatchEvent?(.sessionsChanged(changed))
+        await seedPending(connection, requestTimeout: requestTimeout, among: Set(changed.changed.keys))
+        try Task.checkCancellation()
     }
 
     /// Asks that were already open before this connection watched: acpmux
@@ -361,8 +504,11 @@ public final class AcpmuxHub {
     /// ``AcpmuxConnection/submit(_:_:)`` on the current connection: returns once the request
     /// is written, with the connection that answers it. Waits for a channel that is coming back;
     /// never retried (a submit is a send).
-    public func submit(_ method: String, _ params: JSONValue) async throws -> (AcpmuxConnection, Int) {
+    public func submit(_ method: String, _ params: JSONValue,
+                       onWriting: (@MainActor (AcpmuxConnection) -> Void)? = nil) async throws -> (AcpmuxConnection, Int) {
+        onSubmit?()
         let connection = try await readyConnection()
+        onWriting?(connection)
         return (connection, try await connection.submit(method, params, base: writeBase))
     }
 
@@ -542,33 +688,51 @@ public final class AcpmuxHub {
     }
 
     private func handle(_ notification: AcpmuxConnection.Notification) {
+        // Anything heard from the Mac is the link making progress: a prompt waiting its turn
+        // keeps going rather than coming back at a fixed 10 s (Leo, 2026-11-24).
+        for source in liveSources { source.linkProgressed() }
         let params = notification.params
         let sessionID = params["sessionId"]?.stringValue
         switch notification.method {
+        case "_cmux/prompt_resend":
+            // The Mac's outbox resends a prompt it holds for this phone: Rust turns the notice
+            // into the chat's look (retrying) or its end (refused).
+            if let sessionID {
+                for entry in sources[sessionID] ?? [] { entry.source?.receive(promptResend: params) }
+            }
         case "_acpmux/event":
+            let params = deltas.event(params)
             if let sessionID {
                 for entry in sources[sessionID] ?? [] { entry.source?.receive(record: params) }
             }
+        case "_acpmux/chunk":
+            switch deltas.chunk(params) {
+            case let .event(sessionID, params):
+                for entry in sources[sessionID] ?? [] { entry.source?.receive(record: params) }
+            case .unknownRef:
+                // Its full event never came here (dropped, or from before this connection), and a
+                // compact chunk does not say whose it is: every open chat reads on from its last
+                // record, as for a lag. Attaching again has the Mac send the next chunk whole.
+                ConnectivityTelemetry.shared.record(.hub, "chunk_unknown_ref", outcome: .failure)
+                for source in liveSources { source.refill() }
+            }
+        case "_acpmux/session_patch":
+            switch deltas.patch(params) {
+            case let .changed(changed):
+                sessionChanged(changed)
+            case let .gap(sessionID):
+                rowGap(sessionID)
+            }
         case "_acpmux/session_changed":
-            guard let value = params["session"], let session = AcpmuxSession(value) else { return }
-            let kind = params["recordKind"]?.stringValue ?? params["kind"]?.stringValue ?? ""
-            let changed = kind == "purged" || sessions[session.id] != session
-            sessions[session.id] = session
-            toldSinceWatch.insert(session.id)
-            let seq = Int(params["seq"]?.numberValue ?? 0)
-            if changed {
-                onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
-            }
-            if params["kind"]?.stringValue == "permission_resolved" { onWatchEvent?(.permissionResolved(sessionID: session.id)) }
-            if params["kind"]?.stringValue == "purged" {
-                sessions[session.id] = nil
-                purgedSinceWatch.insert(session.id)
-            }
+            sessionChanged(deltas.changed(params))
         case "_acpmux/permission_pending":
             guard let sessionID, let permissionID = params["permissionId"]?.stringValue, let request = params["request"] else { return }
             onWatchEvent?(.permissionPending(sessionID: sessionID, permissionID: permissionID, request: request))
         case "_acpmux/lagged":
-            if (params["dropped"]?.numberValue ?? 0) > 0 { droppedSinceWatch = true }
+            if (params["dropped"]?.numberValue ?? 0) > 0 {
+                droppedSinceWatch = true
+                listCursor.dropped()
+            }
             // A list reply that went out after a `session_changed` (acpmux `send_serialized`,
             // `list_changed`) dropped nothing: that notice came before it and is applied above,
             // so nothing is read again, neither the list nor an open chat's history. Asking
@@ -580,13 +744,59 @@ public final class AcpmuxHub {
             // chats first, before the next notification: a record after the dropped ones must
             // be held for the refill, not applied ahead of it.
             for source in liveSources { source.refill() }
-            // The watch runs again; its reply is not read, so one row is asked for, not the list.
+            // The watch runs again. With the whole list held at a cursor it follows from the last
+            // reply's position, so the rows whose notices were dropped are read, and only those;
+            // else its reply is not read, so one row is asked for, not the list.
             Task { [weak self] in
                 guard let self, let connection = self.connection else { return }
+                if let followed = try? await self.followList(on: connection, timeout: .seconds(20)) {
+                    self.onWatchEvent?(.sessionsChanged(followed))
+                    return
+                }
                 _ = try? await connection.request("_acpmux/watch", .object(["enabled": .bool(true), "limit": .number(1)]))
             }
         default:
             break
+        }
+    }
+
+    /// A chat's row, whole (`session_changed`, or a patch applied to the row held).
+    private func sessionChanged(_ params: JSONValue) {
+        guard let value = params["session"], let session = AcpmuxSession(value) else { return }
+        // A notice older than the row held (a reply built after it went out first) is dropped.
+        guard listCursor.admits(session.id, listSeq: AcpmuxListCursor.seq(params["listSeq"])) else { return }
+        let kind = params["recordKind"]?.stringValue ?? params["kind"]?.stringValue ?? ""
+        let changed = kind == "purged" || sessions[session.id] != session
+        sessions[session.id] = session
+        toldSinceWatch.insert(session.id)
+        let seq = Int(params["seq"]?.numberValue ?? 0)
+        if changed {
+            // A title generated after the chat opened names it in the open chat too.
+            if let name = session.chatName { emitLocal(.update(.sessionInfo(title: name)), sessionID: session.id) }
+            onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
+            // The open chat's footer facts (RFD 0130), from the row acpmux decided them on.
+            let facts = AgentFooterFacts(composerStatus: value["composerStatus"])
+            for entry in sources[session.id] ?? [] { entry.source?.footerFactsChanged(facts) }
+        }
+        if params["kind"]?.stringValue == "permission_resolved" { onWatchEvent?(.permissionResolved(sessionID: session.id)) }
+        if params["kind"]?.stringValue == "purged" {
+            sessions[session.id] = nil
+            purgedSinceWatch.insert(session.id)
+        }
+    }
+
+    /// A patch whose base is not the row held: the Mac and this phone no longer agree on what
+    /// the phone holds, and only a new connection resets the Mac's side (its rows go whole
+    /// again). The channel is recovered once, as for a stalled read (one recovery for every gap
+    /// that came on it); until then the row shown stays the last one applied. A hub with nothing
+    /// to recover its channel (``onStall`` nil) keeps that row until the
+    /// chat's next whole row (an attach, a detach).
+    private func rowGap(_ sessionID: String) {
+        ConnectivityTelemetry.shared.record(.hub, "row_patch_gap", outcome: .failure)
+        guard let connection, onStall != nil, rowGapRecovered !== connection else { return }
+        rowGapRecovered = connection
+        Task { [weak self] in
+            await self?.recover(from: connection, why: "row_gap", method: "_acpmux/session_patch")
         }
     }
 }
@@ -816,7 +1026,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         flushOpenChunk()
         if replay.requiresResync {
             guard let hub else {
-                continuation.yield(.clientError("Reconnect to load this chat."))
+                // The Mac session this chat came from has ended; the chat opened again comes from the
+                // new one. Nothing here for the person to do over.
+                continuation.yield(.clientError("This chat's connection to the Mac closed."))
                 continuation.finish()
                 return (head, stream)
             }
@@ -861,105 +1073,186 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public func send(_ intent: AgentClientIntent) {
         guard let hub else { return }
-        let session = JSONValue.string(sessionID)
         if case .prompt(let text, let attachments, let steer, let promptID, let resend) = intent {
+            #if canImport(CmuxMobileLinkFFI)
+            // Text, and photos the Mac takes by reference, go to the outbox at the tap: nothing
+            // waits behind a photo's bytes (``sendAtTap``).
+            if sendsAtTap(attachments, hub: hub) {
+                sendAtTap(text: text, attachments: attachments, steer: steer, promptID: promptID, resend: resend, hub: hub)
+                return
+            }
+            #endif
             // Messages reach the Mac in the order they were sent: each waits for the one before
             // it to be written (or held) before its own goes (an upload can take a while).
             let sentAt = now()
+            // One trace id from the tap to the Mac's write of the prompt (``PhoneTrace``).
+            let traceID = PhoneTrace.newTraceID()
             let previous = promptChain
             // The files already uploading since their pick go with this prompt; emptying the
             // composer after Send does not cancel them.
-            let prestaged = prestager.claim(attachments)
+            let directory = baseDirectory
+            let prestaged = prestager.claim(attachments, directory: directory)
             let task = Task { [weak self] in
-                await previous?.value
+                if let previous {
+                    do {
+                        // Stop works while this waits its turn behind an earlier send (that one's
+                        // video may take minutes on LTE): `await previous.value` ignored the cancel.
+                        try await CancellableWait.until(previous)
+                    } catch {
+                        for entry in prestaged.values { entry.cancel() }
+                        self?.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                                  reason: "Not sent: you stopped it."))
+                        self?.sendTasks[promptID] = nil
+                        // Messages after this one still wait for the earlier one: their order holds.
+                        await previous.value
+                        return
+                    }
+                }
                 guard let self else { return }
                 defer { self.sendTasks[promptID] = nil }
                 let blocks: [JSONValue]
                 do {
                     try Task.checkCancellation()
-                    blocks = try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub,
-                                                         prestaged: prestaged)
+                    blocks = try await PhoneTrace.$traceID.withValue(traceID) {
+                        try await PhoneTrace.action("send-attachments", args: ["count": "\(attachments.count)"]) {
+                            try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub, directory: directory,
+                                                        prestaged: prestaged)
+                        }
+                    }
                     try Task.checkCancellation()
                 } catch {
                     // Stopped or failed before every early upload was linked: none of them is wanted now.
-                    for entry in prestaged.values { entry.task.cancel() }
+                    for entry in prestaged.values { entry.cancel() }
                     let reason = error is CancellationError ? "Not sent: you stopped it." : AcpmuxSessionSource.message(error)
                     self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
                     return
                 }
                 await self.sendPrompt(HeldPrompt(text: text, attachments: attachments, promptID: promptID,
-                                                 steer: steer, resend: resend, blocks: blocks, at: sentAt))
+                                                 steer: steer, resend: resend, blocks: blocks, at: sentAt, traceID: traceID))
             }
             promptChain = task
             sendTasks[promptID] = task
             return
         }
-        if case .cancelSend(let promptID) = intent {
+        // Every message on its way has an exit, at every stage: before the outbox has it, its
+        // upload is cancelled; once it has it, Rust says how to take it back (`stopPrompt`).
+        switch intent {
+        case .cancelSend(let promptID):
             sendTasks[promptID]?.cancel()
+            stopPrompt(promptID, delete: false)
             return
+        case .deleteSend(let promptID):
+            sendTasks[promptID]?.cancel()
+            stopPrompt(promptID, delete: true)
+            return
+        case .retrySend(let promptID):
+            retryPromptNow(promptID)
+            return
+        default:
+            break
         }
+        let stoppedTurn = runningTurnID
         Task {
-            do {
-                switch intent {
-                case .prompt, .cancelSend:
-                    break // handled above
-                case .retryFailedTurn:
-                    _ = try await hub.request("_acpmux/retry", .object(["sessionId": session]))
-                case .cancel:
-                    try await hub.notify("session/cancel", .object(["sessionId": session]))
-                case .respondPermission(let permissionID, let optionID):
-                    try await hub.respond(sessionID: sessionID, permissionID: permissionID, optionID: optionID)
-                case .answerElevation(let ask, let password):
-                    try await hub.answerElevation(sessionID: sessionID, ask: ask, password: password)
-                case .answerQuestion(let questionID, let answer):
-                    guard let question = questions[questionID] else {
-                        self.emitLocal(.clientError("This question is no longer open on \(self.summary.macName)."))
+            // A call the link lost (a timeout, a dropped channel) waits for the link and goes once
+            // more; only one that still can't reach the Mac past ``heldPromptWindow`` says so, as
+            // the chat's one quiet line (never the link's own words in a toast).
+            var waitedForLink = false
+            while true {
+                do {
+                    try await self.perform(intent, hub: hub, stoppedTurn: stoppedTurn)
+                    return
+                } catch {
+                    if Self.isTransient(error) {
+                        if case .cancel = intent,
+                           !Self.stopStillApplies(pressedFor: stoppedTurn, running: self.runningTurnID) { return }
+                        if !waitedForLink, await hub.waitUntilReady(timeout: self.heldPromptWindow, clock: ContinuousClock()) {
+                            waitedForLink = true
+                            if case .cancel = intent,
+                               !Self.stopStillApplies(pressedFor: stoppedTurn, running: self.runningTurnID) { return }
+                            continue
+                        }
+                        self.emitLocal(.clientError(AgentChatStore.unreachableNotice))
                         return
                     }
-                    try await hub.answer(question, with: answer)
-                case .setModel(let id):
-                    _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(id)]))
-                    // The menu's check follows the pick (no record carries the model change).
-                    if !self.knownModels.isEmpty { self.emitLocal(.modelsAvailable(self.knownModels, current: id)) }
-                case .retryWithModel(let model, let text, let attachments, let promptID):
-                    // As the Mac's Retry with another model: the move first; a refusal (acpmux's
-                    // own words, e.g. a Claude chat the Mac started) sends nothing.
-                    _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(model)]))
-                    if !self.knownModels.isEmpty { self.emitLocal(.modelsAvailable(self.knownModels, current: model)) }
-                    self.send(.prompt(text: text, attachments: attachments, steer: false, promptID: promptID, resend: false))
-                case .setMode(let id):
-                    _ = try await hub.request("session/set_mode", .object(["sessionId": session, "modeId": .string(id)]))
-                case .setConfigOption(let id, let value):
-                    _ = try await hub.request("session/set_config_option", .object(["sessionId": session, "configId": .string(id), "value": .string(value)]))
-                case .removeQueued(let promptID):
-                    _ = try await hub.request("_acpmux/queue_remove", .object(["sessionId": session, "promptId": .string(promptID)]))
-                case .editQueued(let promptID, let text):
-                    _ = try await hub.request("_acpmux/queue_edit", .object([
-                        "sessionId": session, "promptId": .string(promptID), "op": .string("update"), "text": .string(text),
-                    ]))
-                case .sendQueuedNow(let promptID):
-                    _ = try await hub.request("_acpmux/queue_edit", .object([
-                        "sessionId": session, "promptId": .string(promptID), "op": .string("send_now"),
-                    ]))
-                case .moveQueued(let promptID, let index):
-                    _ = try await hub.request("_acpmux/queue_edit", .object([
-                        "sessionId": session, "promptId": .string(promptID), "op": .string("move"), "index": .number(Double(index)),
-                    ]))
-                case .resumeQueue:
-                    // `resume` names no prompt: it lets the whole held queue go (hub/queue_edit.rs).
-                    _ = try await hub.request("_acpmux/queue_edit", .object(["sessionId": session, "op": .string("resume")]))
+                    if AcpmuxSessionSource.isFullAccessRefusal(error) { hub.fullAccessRefused() }
+                    self.emitLocal(.clientError(AcpmuxSessionSource.message(error)))
+                    return
                 }
-            } catch {
-                if AcpmuxSessionSource.isFullAccessRefusal(error) { hub.fullAccessRefused() }
-                self.emitLocal(.clientError(AcpmuxSessionSource.message(error)))
             }
+        }
+    }
+
+    /// A failure the link heals on its own: nothing for a person to read or do
+    /// (``LinkError/isTransient``, a cancelled wait, a socket that dropped).
+    nonisolated static func isTransient(_ error: any Error) -> Bool {
+        if let error = error as? LinkError { return error.isTransient }
+        if error is CancellationError || error is URLError { return true }
+        return false
+    }
+
+    /// One non-prompt intent, sent once.
+    func perform(_ intent: AgentClientIntent, hub: AcpmuxHub, stoppedTurn: String?) async throws {
+        let session = JSONValue.string(sessionID)
+        switch intent {
+        case .prompt, .cancelSend, .deleteSend, .retrySend:
+            break // handled above
+        case .retryFailedTurn:
+            _ = try await hub.request("_acpmux/retry", .object(["sessionId": session]))
+        case .cancel:
+            let connection = try await hub.liveConnection()
+            // Even the first attempt may wait for a reconnect. Recheck after that wait,
+            // immediately before writing, so Stop cannot spill into the next turn.
+            guard Self.stopStillApplies(pressedFor: stoppedTurn, running: runningTurnID) else { return }
+            try await connection.notify("session/cancel", .object(["sessionId": session]))
+        case .respondPermission(let permissionID, let optionID):
+            try await hub.respond(sessionID: sessionID, permissionID: permissionID, optionID: optionID)
+        case .answerElevation(let ask, let password):
+            try await hub.answerElevation(sessionID: sessionID, ask: ask, password: password)
+        case .answerQuestion(let questionID, let answer):
+            guard let question = questions[questionID] else {
+                self.emitLocal(.clientError("This question is no longer open on \(self.summary.macName)."))
+                return
+            }
+            try await hub.answer(question, with: answer)
+        case .setModel(let id):
+            _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(id)]))
+            // The menu's check follows the pick (no record carries the model change).
+            if !self.knownModels.isEmpty { self.emitLocal(.modelsAvailable(self.knownModels, current: id)) }
+        case .retryWithModel(let model, let text, let attachments, let promptID):
+            // As the Mac's Retry with another model: the move first; a refusal (acpmux's
+            // own words, e.g. a Claude chat the Mac started) sends nothing.
+            _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(model)]))
+            if !self.knownModels.isEmpty { self.emitLocal(.modelsAvailable(self.knownModels, current: model)) }
+            self.send(.prompt(text: text, attachments: attachments, steer: false, promptID: promptID, resend: false))
+        case .setMode(let id):
+            _ = try await hub.request("session/set_mode", .object(["sessionId": session, "modeId": .string(id)]))
+        case .setConfigOption(let id, let value):
+            _ = try await hub.request("session/set_config_option", .object(["sessionId": session, "configId": .string(id), "value": .string(value)]))
+        case .removeQueued(let promptID):
+            _ = try await hub.request("_acpmux/queue_remove", .object(["sessionId": session, "promptId": .string(promptID)]))
+        case .editQueued(let promptID, let text):
+            _ = try await hub.request("_acpmux/queue_edit", .object([
+                "sessionId": session, "promptId": .string(promptID), "op": .string("update"), "text": .string(text),
+            ]))
+        case .sendQueuedNow(let promptID):
+            _ = try await hub.request("_acpmux/queue_edit", .object([
+                "sessionId": session, "promptId": .string(promptID), "op": .string("send_now"),
+            ]))
+        case .moveQueued(let promptID, let index):
+            _ = try await hub.request("_acpmux/queue_edit", .object([
+                "sessionId": session, "promptId": .string(promptID), "op": .string("move"), "index": .number(Double(index)),
+            ]))
+        case .resumeQueue:
+            // `resume` names no prompt: it lets the whole held queue go (hub/queue_edit.rs).
+            _ = try await hub.request("_acpmux/queue_edit", .object(["sessionId": session, "op": .string("resume")]))
         }
     }
 
     // MARK: Prompts across a blip
 
     /// A prompt on its way to the Mac: its blocks (attachments already uploaded) and when it
-    /// was sent.
+    /// was sent. What goes, when and as what is the Rust outbox's (``promptOutbox``); this is
+    /// what is written once it says so.
     struct HeldPrompt {
         var text: String
         var attachments: [AgentAttachment]
@@ -969,50 +1262,396 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         var blocks: [JSONValue]
         /// When it was sent: its place among the held prompts.
         var at: ContinuousClock.Instant
-        /// When it began to wait for the link (its send, or the failure that lost it): its age.
-        var waitingSince: ContinuousClock.Instant? = nil
-        var waitStart: ContinuousClock.Instant { waitingSince ?? at }
+        /// The send's trace id (``PhoneTrace``), sent as `_meta.traceId`.
+        var traceID: String = PhoneTrace.newTraceID()
     }
 
-    /// Prompts the link lost or could not take (a blip), oldest first: they go again once
-    /// the link is back, in order, each under its own id (acpmux runs a `promptId` once, and
-    /// `resend` checks the session log), while younger than ``heldPromptWindow``. Older,
-    /// they come back to the composer with what happened (``expireHeldPrompts()``).
-    private(set) var heldPrompts: [HeldPrompt] = []
-    /// The held prompts are being written to a new link.
-    private var flushingHeld = false
-    /// How long a prompt may wait for the link before it comes back to the composer: the
-    /// terminal's key hold (`DaemonTerminalSession.inputHoldLimit`), so a blip is ridden out
-    /// the same way in both (Leo, 2026-11-12, on LTE: "thjs chatters too often with connectivity").
-    var heldPromptWindow: Duration = .seconds(10)
+    /// How long a prompt may go with no progress on the link (nothing heard from the Mac, no
+    /// write taken) before the chat marks it not sent: a stall bound, long enough that a resume,
+    /// a network switch or a slow first link never reaches the person (Leo, 2026-11-12, on LTE:
+    /// "thjs chatters too often with connectivity"; 2026-11-22: "i dont wanna see connecting to
+    /// cosmic-gray... with the spinner, i want it to just work").
+    var heldPromptWindow: Duration = AgentChatStore.sendDeadline {
+        didSet {
+            #if canImport(CmuxMobileLinkFFI)
+            promptOutbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(heldPromptWindow))
+            #endif
+        }
+    }
+    /// The outbox's default quiet window: Rust's `chat_prompt_default_hold_ms` where the FFI links
+    /// (iOS); a build without it (the macOS host build of the package) has no outbox, and takes the
+    /// same 30 s the Rust test pins.
+    static var defaultHeldPromptWindow: Duration {
+        #if canImport(CmuxMobileLinkFFI)
+        .milliseconds(Int64(clamping: chatPromptDefaultHoldMs()))
+        #else
+        .seconds(30)
+        #endif
+    }
     /// The clock prompts are aged on (tests inject one).
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
 
-    /// The last message's send, which the next one waits for (``send(_:)``).
+    /// The last message's upload, which the next one waits for (``send(_:)``).
     private var promptChain: Task<Void, Never>?
+    /// Each prompt the outbox holds, by its `promptId`: what to write when it goes.
+    private var promptPayloads: [String: HeldPrompt] = [:]
     /// Each message's send until it is written or held, by prompt id: Stop cancels its upload.
     private var sendTasks: [String: Task<Void, Never>] = [:]
     /// The composer's files, uploading to the Mac since they were picked (``prestageAttachments(_:)``).
     private let prestager = AttachmentPrestager()
+    /// The current composer contents, retained while the Mac link is down so the next link can
+    /// resume optimistic transfers without requiring another attachment change in the UI.
+    private var composerAttachments: [AgentAttachment] = []
 
-    /// Sends a prompt now, or after the ones held before it (the Mac gets them in order).
-    /// Returns once it is written or held; its answer is awaited apart.
+    #if canImport(CmuxMobileLinkFFI)
+    /// The chat's prompts until the Mac answers them (Rust, `cmux_composer_send::chat`): one
+    /// `promptId` per prompt for every attempt, a resend once a written one's answer was lost
+    /// (acpmux runs a `promptId` once and checks its log), one write at a time in send order,
+    /// retried with a jittered, capped backoff, queued while the link is down and given back
+    /// past ``heldPromptWindow``. This source only writes what it hands out and reports back.
+    private let promptOutbox = ChatPromptOutbox(holdMs: ChatPromptClock.milliseconds(AgentChatStore.sendDeadline), seed: UInt64.random(in: 0...UInt64.max))
+    /// The wake for the outbox's next hold or retry.
+    private var promptWake: Task<Void, Never>?
+    /// While a prompt is being written, bytes on its serialized ACP channel belong to that
+    /// write or an earlier write it is waiting for. Read them at the queued prompts' own wake.
+    private var promptWrite: (connection: AcpmuxConnection, bytes: UInt64)?
+
+
+    /// Prompts the link lost or could not take (a blip), oldest first: they go again once the
+    /// link is back, in order, while younger than ``heldPromptWindow``; older, they come back to
+    /// the composer with what happened.
+    var heldPrompts: [HeldPrompt] {
+        promptOutbox.unwritten().compactMap { promptPayloads[$0] }
+    }
+
+    /// Preparation just completed. The outbox starts its hold here; the original tap still
+    /// orders it among the other prompts.
     private func sendPrompt(_ prompt: HeldPrompt) async {
+        guard hub != nil else { return }
+        let nowMs = ChatPromptClock.milliseconds(now())
+        promptPayloads[prompt.promptID] = prompt
+        _ = promptOutbox.push(promptId: prompt.promptID, text: prompt.text, uploadIds: [], resend: prompt.resend,
+                              tappedMs: ChatPromptClock.milliseconds(prompt.at), nowMs: nowMs)
+        pumpPrompts()
+    }
+
+    /// Whether a prompt goes to the outbox at the tap: text alone, or photos alone when the
+    /// Mac's acpmux takes prompt uploads in chunks. Files, PDFs and videos (and any photo for
+    /// an older Mac) take the ordered path, uploading before the outbox has them.
+    private func sendsAtTap(_ attachments: [AgentAttachment], hub: AcpmuxHub) -> Bool {
+        if attachments.isEmpty { return true }
+        guard hub.supportsPromptUploads else { return false }
+        return attachments.allSatisfy { $0.imageMIMEType != nil && $0.data != nil }
+    }
+
+    /// The outbox has the prompt at once; each photo uploads beside it (`_acpmux/file_put_*`,
+    /// acpmux docs/prompt-uploads.md) and goes as a reference, so the photo's bytes never sit in
+    /// front of a later message on the link: the outbox writes a later prompt while this one's
+    /// uploads are on their way (Rust `cmux_composer_send::chat`), and this one once they are
+    /// done. Stop cancels the upload; a failed one gives the draft back with why.
+    private func sendAtTap(text: String, attachments: [AgentAttachment], steer: Bool, promptID: String,
+                           resend: Bool, hub: AcpmuxHub) {
+        let sentAt = now()
+        let keys = attachments.map { "\(promptID)#\($0.id)" }
+        promptPayloads[promptID] = HeldPrompt(text: text, attachments: attachments, promptID: promptID, steer: steer,
+                                              resend: resend, blocks: Self.promptBlocks(text: text, attachments: []),
+                                              at: sentAt)
+        _ = promptOutbox.push(promptId: promptID, text: text, uploadIds: keys, resend: resend,
+                              tappedMs: ChatPromptClock.milliseconds(sentAt), nowMs: ChatPromptClock.milliseconds(now()))
+        pumpPrompts()
+        guard !attachments.isEmpty else { return }
+        let prestaged = prestager.claim(attachments, directory: baseDirectory)
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.sendTasks[promptID] = nil }
+            var references: [JSONValue] = []
+            for (attachment, key) in zip(attachments, keys) {
+                do {
+                    let reference = try await self.uploadByReference(attachment, early: prestaged[attachment.id],
+                                                                     key: key, promptID: promptID, hub: hub)
+                    references.append(reference)
+                } catch {
+                    for entry in prestaged.values { entry.cancel() }
+                    // Stopped or given back while it went: the outbox already has nothing of it.
+                    guard let held = self.promptPayloads[promptID] else { return }
+                    let reason = error is CancellationError ? "Not sent: you stopped it." : Self.message(error)
+                    _ = self.promptOutbox.uploadFailed(uploadId: key, reason: reason)
+                    self.promptPayloads[promptID] = nil
+                    self.emit(.promptNotSent(text: held.text, attachments: held.attachments, promptID: promptID, reason: reason))
+                    self.pumpPrompts()
+                    return
+                }
+                if key == keys.last, var held = self.promptPayloads[promptID] {
+                    // What is written once the outbox hands it out: the text, then each photo's reference.
+                    held.blocks = (text.isEmpty ? [] : Self.promptBlocks(text: text, attachments: [])) + references
+                    self.promptPayloads[promptID] = held
+                }
+                self.promptOutbox.uploaded(uploadId: key, macPath: "", nowMs: ChatPromptClock.milliseconds(self.now()))
+            }
+            self.pumpPrompts()
+        }
+        sendTasks[promptID] = task
+    }
+
+    private func uploadByReference(_ attachment: AgentAttachment, early: AttachmentPrestager.Entry?,
+                                   key: String, promptID: String, hub: AcpmuxHub) async throws -> JSONValue {
+        let report: AttachmentPrestager.Report = { [weak self] step in
+            guard let self, self.promptPayloads[promptID] != nil else { return }
+            self.emit(.promptUploading(promptID: promptID, step))
+            self.promptOutbox.uploadProgressed(uploadId: key, nowMs: ChatPromptClock.milliseconds(self.now()))
+        }
+        try Task.checkCancellation()
+        if let early {
+            early.progress.observe(report)
+            if let result = await Self.prestagedResult(early, attachment: attachment, progress: nil),
+               case .prompt(let id, let name, let owner) = result {
+                try Task.checkCancellation()
+                return Self.promptReference(attachment, id: id, name: name, owner: owner)
+            }
+        }
+        try Task.checkCancellation()
+        guard promptPayloads[promptID] != nil else { throw CancellationError() }
+        guard let data = attachment.data else {
+            throw AgentFeatureUnavailable("The photo has no contents to send. Attach it again.")
+        }
+        let connection = try await hub.liveConnection()
+        let result = try await Self.uploadPrompt(.data(data), name: attachment.name, sessionID: sessionID,
+                                                 over: connection, report: report)
+        guard case .prompt(let id, let name, let owner) = result else {
+            throw AgentFeatureUnavailable("The Mac did not finish the photo upload.")
+        }
+        return Self.promptReference(attachment, id: id, name: name, owner: owner)
+    }
+
+    /// Does what the outbox says is due: gives back prompts past the hold, writes the next one,
+    /// and wakes for the next hold or retry.
+    private func pumpPrompts() {
         guard let hub else { return }
-        if !heldPrompts.isEmpty || flushingHeld || !hub.isReady {
-            // Its wait for the link starts now, not at its send (an upload may have taken long).
-            var waiting = prompt
-            waiting.waitingSince = now()
-            hold(waiting)
+        let nowMs = ChatPromptClock.milliseconds(now())
+        promptOutbox.setLink(up: hub.isReady, nowMs: nowMs)
+        if let write = promptWrite, write.connection === hub.connection,
+           let bytes = write.connection.sentBytes, bytes > write.bytes {
+            promptWrite = (write.connection, bytes)
+            promptOutbox.progressed(nowMs: nowMs)
+        }
+        promptsGaveUp(promptOutbox.expire(nowMs: nowMs))
+        if let request = promptOutbox.nextRequest(nowMs: nowMs) {
+            if var prompt = promptPayloads[request.promptId] {
+                prompt.resend = request.resend
+                Task { [weak self] in await self?.writePrompt(prompt, hub: hub) }
+            } else {
+                _ = promptOutbox.answered(promptId: request.promptId)
+            }
+        }
+        schedulePromptWake(nowMs)
+        publishPendingSends(nowMs)
+    }
+
+    /// The pending rows last told to the chat.
+    private var shownPendingSends: [AgentPendingSend] = []
+
+    /// Tells the chat the rows of the prompts on their way, as the outbox draws them (shown ones
+    /// only, with the actions each has), when they changed.
+    private func publishPendingSends(_ nowMs: UInt64) {
+        let rows = promptOutbox.pendingSends(nowMs: nowMs).filter(\.shown).map {
+            AgentPendingSend(promptID: $0.promptId, text: $0.text, waiting: $0.look == .retrying,
+                             canSendNow: $0.canSendNow, stopping: $0.stopping)
+        }
+        guard rows != shownPendingSends else { return }
+        shownPendingSends = rows
+        emit(.pendingSends(rows))
+    }
+
+    /// Stop (`delete` false: its text comes back to the composer, to edit and send again) or
+    /// Delete a prompt the outbox holds, at any stage. Rust says which: one that never left is
+    /// back at once; one that may be on the Mac is never sent again and is taken off the Mac's
+    /// queue first (too late when its turn already started: it shows as it runs).
+    private func stopPrompt(_ promptID: String, delete: Bool) {
+        let held = promptPayloads[promptID]
+        let step = delete ? promptOutbox.delete(promptId: promptID) : promptOutbox.cancel(promptId: promptID)
+        switch step {
+        case .returned(let done)?:
+            promptPayloads[promptID] = nil
+            promptStopped(promptID, text: held?.text ?? done.text, attachments: held?.attachments ?? [], delete: delete)
+        case .removeOnMac(let id)?:
+            Task { [weak self] in
+                guard let self, let hub = self.hub else { return }
+                var removed = false
+                do {
+                    let reply = try await hub.request("_acpmux/queue_remove", .object([
+                        "sessionId": .string(self.sessionID), "promptId": .string(id),
+                    ]))
+                    removed = reply["removed"] == .bool(true)
+                } catch {
+                    self.emitLocal(.clientError(AcpmuxSessionSource.message(error)))
+                }
+                let done = self.promptOutbox.removeAnswered(promptId: id, removed: removed)
+                self.promptPayloads[id] = nil
+                if removed, done == nil || done?.outcome == .cancelled {
+                    self.promptStopped(id, text: held?.text ?? done?.text ?? "", attachments: held?.attachments ?? [], delete: delete)
+                } else if !delete {
+                    self.emitLocal(.clientError("Too late to stop: \(self.summary.macName) already started it."))
+                }
+                self.pumpPrompts()
+            }
+        case nil:
+            break
+        }
+        pumpPrompts()
+    }
+
+    /// A stopped prompt comes back to the composer; a deleted one is gone (the chat dropped its row).
+    private func promptStopped(_ promptID: String, text: String, attachments: [AgentAttachment], delete: Bool) {
+        emit(.promptNotSent(text: delete ? "" : text, attachments: delete ? [] : attachments, promptID: promptID,
+                            reason: "Not sent: you stopped it."))
+    }
+
+    /// Send now: a prompt waiting on a retry goes at once (Rust decides whether it may).
+    private func retryPromptNow(_ promptID: String) {
+        if promptOutbox.retryNow(promptId: promptID, nowMs: ChatPromptClock.milliseconds(now())) {
+            pumpPrompts()
+        }
+    }
+
+    private func writePrompt(_ prompt: HeldPrompt, hub: AcpmuxHub) async {
+        do {
+            let (connection, id) = try await Self.tracedSubmit(prompt, session: sessionID, hub: hub) { connection in
+                self.promptWrite = connection.sentBytes.map { (connection, $0) }
+            }
+            promptWrite = nil
+            promptOutbox.wrote(promptId: prompt.promptID)
+            promptOutbox.progressed(nowMs: ChatPromptClock.milliseconds(now()))
+            pumpPrompts()
+            do {
+                _ = try await connection.reply(to: id)
+                _ = promptOutbox.answered(promptId: prompt.promptID)
+                promptPayloads[prompt.promptID] = nil
+            } catch {
+                promptFailed(prompt, error, written: true)
+            }
+        } catch {
+            promptWrite = nil
+            promptFailed(prompt, error, written: false)
+        }
+        pumpPrompts()
+    }
+
+    private func schedulePromptWake(_ nowMs: UInt64) {
+        promptWake?.cancel()
+        // A row's look changing (a prompt starting to wait) wakes it too, to redraw its row.
+        let waits = [promptOutbox.nextWakeMs(nowMs: nowMs), promptOutbox.nextLookChangeMs(nowMs: nowMs)].compactMap { $0 }
+        guard let wait = waits.min() else { promptWake = nil; return }
+        promptWake = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int64(clamping: wait)))
+            guard !Task.isCancelled else { return }
+            self?.pumpPrompts()
+        }
+    }
+
+    /// The link lost the prompt (it may have reached the Mac: it goes again as a resend, which
+    /// acpmux runs at most once), or the Mac refused it (the draft comes back with the reason).
+    private func promptFailed(_ prompt: HeldPrompt, _ error: any Error, written: Bool) {
+        let nowMs = ChatPromptClock.milliseconds(now())
+        guard let rpc = error as? AcpmuxConnection.RPCError else {
+            if written {
+                promptOutbox.lost(promptId: prompt.promptID, nowMs: nowMs)
+            } else {
+                promptOutbox.writeFailed(promptId: prompt.promptID, nowMs: nowMs)
+            }
             return
         }
-        let params = Self.promptParams(prompt, session: sessionID)
-        let attempted = now()
+        // Rust decides: a "not now" goes again after its backoff (1 s doubling to 30 s) and is
+        // not given back; only a real refusal fails, with acpmux's own text.
+        switch promptOutbox.refusal(promptId: prompt.promptID, origin: rpc.origin, code: rpc.dataCode,
+                                    reason: rpc.reason, nowMs: nowMs) {
+        case .retry?, nil:
+            return
+        case .final?:
+            break
+        }
+        promptPayloads[prompt.promptID] = nil
+        let fullAccess = Self.isFullAccessRefusal(error)
+        if fullAccess { hub?.fullAccessRefused() }
+        emit(.promptNotSent(text: prompt.text, attachments: prompt.attachments, promptID: prompt.promptID,
+                            reason: fullAccess ? AgentChatStore.fullAccessOffPromptNotice : Self.message(error)))
+    }
+
+    /// Prompts the outbox gave back past the hold: each comes back to the composer with what
+    /// happened (none went after an earlier one that did not).
+    private func promptsGaveUp(_ done: [ChatPromptDone]) {
+        guard !done.isEmpty else { return }
+        // One quiet line on each bubble (the chat marks it not sent; a tap sends it again).
+        let reason = AgentChatStore.unreachableNotice
+        log.notice("\(done.count, privacy: .public) held prompt(s) of \(self.sessionID, privacy: .public) not sent: the link was down past the window")
+        for prompt in done {
+            guard let held = promptPayloads.removeValue(forKey: prompt.promptId) else { continue }
+            sendTasks[prompt.promptId]?.cancel()
+            emit(.promptNotSent(text: held.text, attachments: held.attachments, promptID: held.promptID, reason: reason))
+        }
+    }
+
+    /// The link is back (or a prompt waits): what is due goes, in order.
+    func flushHeldPrompts() {
+        pumpPrompts()
+    }
+
+    /// The Mac's `_cmux/prompt_resend` notice (`promptId`, `state`: sent | accepted | retrying |
+    /// refused, `retryInMs`, `message`): Rust changes the prompt's look; a refusal gives it back.
+    func receive(promptResend params: JSONValue) {
+        guard let promptID = params["promptId"]?.stringValue, let state = params["state"]?.stringValue else { return }
+        let nowMs = ChatPromptClock.milliseconds(now())
+        let retryIn = params["retryInMs"]?.numberValue.map { UInt64(max($0, 0)) }
+        if promptOutbox.resendNotice(promptId: promptID, state: state, retryInMs: retryIn, nowMs: nowMs) != nil,
+           let held = promptPayloads.removeValue(forKey: promptID) {
+            let reason = params["message"]?.stringValue ?? params["reason"]?.stringValue ?? "Not sent."
+            emit(.promptNotSent(text: held.text, attachments: held.attachments, promptID: held.promptID, reason: reason))
+        }
+        pumpPrompts()
+    }
+
+    /// The link dropped: prompts wait for the next one.
+    private func promptLinkDown() {
+        promptOutbox.setLink(up: false, nowMs: ChatPromptClock.milliseconds(now()))
+        pumpPrompts()
+    }
+    #else
+    /// Without the Rust outbox (the macOS test build): no prompt is held.
+    var heldPrompts: [HeldPrompt] { [] }
+
+    private func sendPrompt(_ prompt: HeldPrompt) async {
+        guard let hub else { return }
         do {
-            let (connection, id) = try await hub.submit("session/prompt", params)
-            Task { [weak self] in await self?.awaitPromptReply(prompt, connection: connection, id: id) }
+            let (connection, id) = try await Self.tracedSubmit(prompt, session: sessionID, hub: hub)
+            Task { [weak self] in
+                do { _ = try await connection.reply(to: id) } catch { self?.promptNotSent(prompt, error) }
+            }
         } catch {
-            promptFailed(prompt, error, written: false, attempted: attempted)
+            promptNotSent(prompt, error)
+        }
+    }
+
+    private func promptNotSent(_ prompt: HeldPrompt, _ error: any Error) {
+        let fullAccess = Self.isFullAccessRefusal(error)
+        if fullAccess { hub?.fullAccessRefused() }
+        emit(.promptNotSent(text: prompt.text, attachments: prompt.attachments, promptID: prompt.promptID,
+                            reason: fullAccess ? AgentChatStore.fullAccessOffPromptNotice : Self.message(error)))
+    }
+
+    func flushHeldPrompts() {}
+    func receive(promptResend params: JSONValue) {}
+    private func promptLinkDown() {}
+    private func stopPrompt(_ promptID: String, delete: Bool) {}
+    private func retryPromptNow(_ promptID: String) {}
+    #endif
+
+    /// Writes the prompt as the `send` action of its trace (``PhoneTrace``): the span ends when the
+    /// Mac's channel took it, one round trip at the floor; the answer comes when the turn ends.
+    static func tracedSubmit(_ prompt: HeldPrompt, session: String, hub: AcpmuxHub,
+                             onWriting: (@MainActor (AcpmuxConnection) -> Void)? = nil) async throws -> (AcpmuxConnection, Int) {
+        try await PhoneTrace.$traceID.withValue(prompt.traceID) {
+            try await PhoneTrace.action("send", floorRoundTrips: 1, args: ["resend": "\(prompt.resend)"]) {
+                try await hub.submit("session/prompt", promptParams(prompt, session: session), onWriting: onWriting)
+            }
         }
     }
 
@@ -1025,112 +1664,6 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         ])
     }
 
-    /// A written prompt's answer (its turn's end); a link that drops first holds it again.
-    private func awaitPromptReply(_ prompt: HeldPrompt, connection: AcpmuxConnection, id: Int) async {
-        do {
-            _ = try await connection.reply(to: id)
-        } catch {
-            promptFailed(prompt, error, written: true)
-        }
-    }
-
-    /// The link lost the prompt (it may have reached the Mac: it goes again as a resend, which
-    /// acpmux runs at most once), or the Mac refused it (the draft comes back with the reason).
-    private func promptFailed(_ prompt: HeldPrompt, _ error: any Error, written: Bool,
-                              attempted: ContinuousClock.Instant? = nil) {
-        if !(error is AcpmuxConnection.RPCError) {
-            var again = prompt
-            // It may have run: sent again it is a resend (acpmux checks its log).
-            if written { again.resend = true }
-            // The window counts only time without a usable link, never the tap, an upload or a
-            // slow write (a write on a ready link can take longer than the window, and bounced
-            // at once as "unreachable" though the Mac was there). So its wait is moved on by
-            // what the failed write took, not restarted: a write that fails at once on a
-            // channel that still says ready ages as before and comes back after the window,
-            // instead of being held for good.
-            if let attempted, !written {
-                again.waitingSince = (prompt.waitingSince ?? attempted) + (now() - attempted)
-            } else {
-                again.waitingSince = now()
-            }
-            hold(again)
-            return
-        }
-        let fullAccess = Self.isFullAccessRefusal(error)
-        if fullAccess { hub?.fullAccessRefused() }
-        emit(.promptNotSent(text: prompt.text, attachments: prompt.attachments, promptID: prompt.promptID,
-                            reason: fullAccess ? AgentChatStore.fullAccessOffPromptNotice : Self.message(error)))
-    }
-
-    /// Keeps a prompt for the next link, in the order it was sent; it comes back to the
-    /// composer if the link is not back within ``heldPromptWindow`` of its wait's start.
-    private func hold(_ prompt: HeldPrompt) {
-        let index = heldPrompts.firstIndex { $0.at > prompt.at } ?? heldPrompts.endIndex
-        heldPrompts.insert(prompt, at: index)
-        guard !expireHeldPrompts() else { return }
-        let wait = max(.zero, prompt.waitStart + heldPromptWindow - now())
-        Task { [weak self] in
-            try? await Task.sleep(for: wait)
-            self?.expireHeldPrompts()
-        }
-        // The next link's `linkUp` writes them; a link that is up now gets them after a short
-        // pause (not at once: one that just failed would be written to again in a loop).
-        Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            self?.flushHeldPrompts()
-        }
-    }
-
-    /// Held prompts older than ``heldPromptWindow``: all of them come back to the composer
-    /// (none goes after an earlier one that did not), each with what happened. True when
-    /// they did.
-    @discardableResult
-    private func expireHeldPrompts() -> Bool {
-        let window = heldPromptWindow
-        let instant = self.now()
-        guard heldPrompts.contains(where: { instant - $0.waitStart >= window }) else { return false }
-        let dropped = heldPrompts
-        heldPrompts = []
-        // Short, with nothing to decode: the draft is back in the composer and Send is the action
-        // (Leo 2026-11-23: the old copy was "way too long and unactionable").
-        let reason = "Not sent: \(summary.macName) is offline."
-        log.notice("\(dropped.count, privacy: .public) held prompt(s) of \(self.sessionID, privacy: .public) not sent: the link was down past the window")
-        for prompt in dropped {
-            emit(.promptNotSent(text: prompt.text, attachments: prompt.attachments, promptID: prompt.promptID, reason: reason))
-        }
-        return true
-    }
-
-    /// Writes the held prompts to the link, oldest first, each once written before the next
-    /// (their answers come at their turns' ends, awaited apart). A link that drops again
-    /// keeps the rest for the next one.
-    func flushHeldPrompts() {
-        guard !flushingHeld, !heldPrompts.isEmpty, let hub, hub.isReady else { return }
-        // A link back after the app was suspended may come before the expiry timer runs:
-        // nothing older than the window is sent.
-        guard !expireHeldPrompts() else { return }
-        flushingHeld = true
-        Task { [weak self] in
-            while true {
-                guard let self, !self.heldPrompts.isEmpty else { break }
-                let prompt = self.heldPrompts.removeFirst()
-                let attempted = self.now()
-                do {
-                    let (connection, id) = try await hub.submit("session/prompt", Self.promptParams(prompt, session: self.sessionID))
-                    Task { [weak self] in await self?.awaitPromptReply(prompt, connection: connection, id: id) }
-                } catch {
-                    self.flushingHeld = false
-                    // Not written: held again (first, its order kept), for the next link.
-                    self.promptFailed(prompt, error, written: false, attempted: attempted)
-                    return
-                }
-            }
-            self?.flushingHeld = false
-            // A send or a `linkUp` that came while this ran is not left waiting.
-            self?.flushHeldPrompts()
-        }
-    }
-
     /// acpmux's refusal of what the Mac's mobile host sent marked `requireFullAccess` for this
     /// phone (`server/remote_guard.rs`): its Full-access setting does not cover it.
     nonisolated static func isFullAccessRefusal(_ error: any Error) -> Bool {
@@ -1140,18 +1673,48 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// This phone's Full-access setting, for the chat's mode menus.
     func fullAccessChanged(_ on: Bool) { emit(.fullAccess(on)) }
 
+    /// When the link's last progress was told to the outbox: told at most every quarter second.
+    private var progressToldMs: UInt64 = 0
+
+    /// The link made progress (a message from the Mac, a write taken): the outbox's hold
+    /// bounds a stall, so prompts waiting their turn keep going (Rust decides; this only tells).
+    func linkProgressed() {
+        #if canImport(CmuxMobileLinkFFI)
+        let nowMs = ChatPromptClock.milliseconds(now())
+        guard nowMs >= progressToldMs + 250, !promptPayloads.isEmpty else { return }
+        progressToldMs = nowMs
+        promptOutbox.progressed(nowMs: nowMs)
+        schedulePromptWake(nowMs)
+        #endif
+    }
+
     /// The composer's attachments changed: files a prompt would upload start uploading now, into the
     /// same folder Send uploads to; files taken off stop (``AttachmentPrestager``).
     public func prestageAttachments(_ attachments: [AgentAttachment]) {
+        composerAttachments = attachments
         let cwd = baseDirectory
         let macName = summary.macName
-        var upload: AttachmentPrestager.Upload?
-        if let link: any MacLink = hub?.macLink {
-            upload = { @Sendable (payload: LinkUpload.Payload, name: String) async throws -> String in
-                try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName)
+        guard let hub, hub.isReady else {
+            prestager.cancelAll()
+            return
+        }
+        let connection = hub.supportsPromptUploads ? hub.connection : nil
+        let session = sessionID
+        let link = hub.macLink
+        let upload: AttachmentPrestager.Upload = { payload, attachment, report in
+            if attachment.kind == .image, let connection {
+                return try await Self.uploadPrompt(payload, name: attachment.name, sessionID: session,
+                                                   over: connection, report: report)
+            }
+            guard let link else { throw LinkError(code: "offline", message: "The Mac link closed.") }
+            return .path(try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName))
+        }
+        let eligible = link == nil ? attachments.filter { $0.kind == .image && connection != nil } : attachments
+        prestager.sync(eligible, directory: cwd, upload: upload, promptUploads: connection != nil) { result in
+            if case .prompt(let id, _, let owner) = result, let connection, let owner {
+                await Self.cancelPromptUpload(id, owner: owner, session: session, connection: connection)
             }
         }
-        prestager.sync(attachments, upload: upload)
     }
 
     /// ACP prompt content: the text, then per attachment
@@ -1164,26 +1727,38 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Each upload shows on the message as it starts (``AgentSessionEvent/promptUploading(promptID:_:)``).
     /// Its bounds, resume and byte progress are the upload engine's (`AttachmentUploadClient`,
     /// lane/ios-attachment-send).
-    func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub,
+    func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub, directory: String?,
                       prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
         let progress: @Sendable (AgentUploadProgress) -> Void = { [weak self] step in
             Task { @MainActor in self?.emit(.promptUploading(promptID: promptID, step)) }
         }
-        return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory,
-                                           macName: summary.macName, progress: progress, prestaged: prestaged)
+
+        var promptUpload: (@Sendable (LinkUpload.Payload, String) async throws -> AttachmentPrestager.Result)?
+        if hub.supportsPromptUploads, let connection = hub.connection {
+            let session = sessionID
+            promptUpload = { payload, name in
+                try await Self.uploadPrompt(payload, name: name, sessionID: session, over: connection,
+                                            report: { progress($0) })
+            }
+        }
+        return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: directory,
+                                           macName: summary.macName, progress: progress, prestaged: prestaged,
+                                           promptUpload: promptUpload)
     }
 
     /// A prompt's content for any session in `cwd`, without a chat source: PDFs inline when
     /// they fit, other files uploaded to `cwd` (or the Mac's uploads folder) and linked.
     static func promptBlocks(text: String, attachments: [AgentAttachment], link: (any MacLink)?, cwd: String?,
                              macName: String, progress: (@Sendable (AgentUploadProgress) -> Void)? = nil,
-                             prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
+                             prestaged: [String: AttachmentPrestager.Entry] = [:],
+                             promptUpload: (@Sendable (LinkUpload.Payload, String) async throws -> AttachmentPrestager.Result)? = nil) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
         // past the prompt's inline budget the rest go as links to their uploaded copies.
         let attachments = await Self.inlinePDFs(attachments)
         let inline = Self.inlineDocuments(attachments)
-        for attachment in attachments where attachment.imageMIMEType == nil && !inline.contains(attachment.id) {
+        var promptRefs: [String: (uploadID: String, fileName: String, ownerToken: String?)] = [:]
+        for attachment in attachments where Self.needsUpload(attachment, inline: inline, promptUpload: promptUpload != nil) {
             let payload: LinkUpload.Payload
             if attachment.data == nil, attachment.fileURL == nil, let path = attachment.macPath {
                 // A recorded video (Retry of an earlier prompt) is on the Mac already: its link goes again.
@@ -1197,39 +1772,52 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             } else {
                 throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
             }
-            if let early = prestaged[attachment.id], let path = await Self.prestagedPath(early, attachment: attachment, progress: progress) {
-                uploaded[attachment.id] = path
+            if let early = prestaged[attachment.id], let result = await Self.prestagedResult(early, attachment: attachment, progress: progress) {
+                switch result {
+                case .path(let path): uploaded[attachment.id] = path
+                case .prompt(let uploadID, let fileName, let ownerToken): promptRefs[attachment.id] = (uploadID, fileName, ownerToken)
+                }
                 continue
             }
             try Task.checkCancellation()
-            guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
+            if promptUpload == nil, link == nil {
+                throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).")
+            }
             progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
                                           phase: .opening, attempt: 1))
-            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
+            if attachment.kind == .image, let promptUpload {
+                switch try await promptUpload(payload, attachment.name) {
+                case .path(let path): uploaded[attachment.id] = path
+                case .prompt(let uploadID, let fileName, let ownerToken): promptRefs[attachment.id] = (uploadID, fileName, ownerToken)
+                }
+            } else {
+                guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
+                uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
+            }
         }
         // Base64 of PDFs and video frames (megabytes) is made off the main actor.
         return await Task.detached(priority: .userInitiated) {
-            Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded, inlineDocuments: inline)
+            Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded, promptRefs: promptRefs, inlineDocuments: inline)
         }.value
     }
 
     /// The Mac path of a file that began uploading when it was picked, once that upload ends; nil
     /// when it failed (Send uploads the file afresh). Stopping the send stops the upload. Logs how
     /// long Send waited and the file's pick-to-available time (`upload` category).
-    static func prestagedPath(_ early: AttachmentPrestager.Entry, attachment: AgentAttachment,
-                              progress: (@Sendable (AgentUploadProgress) -> Void)?) async -> String? {
+    static func prestagedResult(_ early: AttachmentPrestager.Entry, attachment: AgentAttachment,
+                                progress: (@Sendable (AgentUploadProgress) -> Void)?) async -> AttachmentPrestager.Result? {
         let waitStart = ContinuousClock.now
         progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
                                       phase: .opening, attempt: 1))
         let task = early.task
-        let path = await withTaskCancellationHandler {
+        let result = await withTaskCancellationHandler {
             try? await task.value
         } onCancel: {
             task.cancel()
         }
         let end = ContinuousClock.now
-        AttachmentPrestager.log.info("prestage send waited_ms=\(AttachmentPrestager.ms(end - waitStart)) pick_to_available_ms=\(AttachmentPrestager.ms(end - early.started)) ok=\(path != nil)")
-        return path
+        AttachmentPrestager.log.info("prestage send waited_ms=\(AttachmentPrestager.ms(end - waitStart)) pick_to_available_ms=\(AttachmentPrestager.ms(end - early.started)) ok=\(result != nil)")
+        return result
     }
 
     /// The most PDF bytes one prompt carries inline: their base64 stays well under acpmux's
@@ -1256,9 +1844,103 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link)
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
             return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
+        } catch let failure as LinkUpload.Failure where failure.code == "cancelled" {
+            // Stop cancelled the engine's upload: the message comes back as stopped, not failed.
+            throw CancellationError()
         } catch let failure as LinkUpload.Failure {
             throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
         }
+    }
+
+    /// Reads and encodes a chunk at a time. The same transfer can start in the composer or at Send.
+    private nonisolated static let uploadChunkBytes = 512 << 10
+
+    nonisolated static func uploadPrompt(_ payload: LinkUpload.Payload, name: String, sessionID: String,
+                                         over connection: AcpmuxConnection,
+                                         report: @escaping AttachmentPrestager.Report) async throws -> AttachmentPrestager.Result {
+        let size: Int
+        let nextChunk: (Int) throws -> Data
+        let close: () -> Void
+        switch payload {
+        case .data(let data):
+            size = data.count
+            nextChunk = { offset in
+                let end = min(data.count, offset + uploadChunkBytes)
+                return data.subdata(in: (data.startIndex + offset)..<(data.startIndex + end))
+            }
+            close = {}
+        case .file(let url):
+            let access = ScopedFile(url).open()
+            let handle: FileHandle
+            do {
+                handle = try FileHandle(forReadingFrom: url)
+                size = Int(try handle.seekToEnd())
+                try handle.seek(toOffset: 0)
+            } catch {
+                access.close()
+                throw LinkUpload.Failure(code: "unreadable", message: "Couldn't read \(name) on this iPhone.")
+            }
+            nextChunk = { offset in
+                try handle.seek(toOffset: UInt64(offset))
+                return try handle.read(upToCount: uploadChunkBytes) ?? Data()
+            }
+            close = { try? handle.close(); access.close() }
+        }
+        defer { close() }
+        let safeName = Self.uploadFileName(name, mime: Self.mimeType(name: name))
+        try Task.checkCancellation()
+        await report(AgentUploadProgress(name: name, sent: 0, total: size, phase: .opening))
+        let begin = try await connection.request("_acpmux/file_put_begin", .object([
+            "sessionId": .string(sessionID), "fileName": .string(safeName), "size": .number(Double(size)),
+            "forPrompt": .bool(true), "source": .string("cmux-ios"),
+        ]))
+        guard let id = begin["uploadId"]?.stringValue, let owner = begin["ownerToken"]?.stringValue else {
+            throw LinkUpload.Failure(code: "upload.invalid", message: "The Mac did not open the upload.")
+        }
+        let fileName = begin["fileName"]?.stringValue ?? safeName
+        do {
+            var offset = 0
+            while offset < size {
+                try Task.checkCancellation()
+                let chunk = try nextChunk(offset)
+                guard !chunk.isEmpty else {
+                    throw LinkUpload.Failure(code: "unreadable", message: "The picked file ended before the upload finished.")
+                }
+                let reply = try await connection.request("_acpmux/file_put_chunk", .object([
+                    "sessionId": .string(sessionID), "uploadId": .string(id), "offset": .number(Double(offset)),
+                    "ownerToken": .string(owner), "data": .string(chunk.base64EncodedString()),
+                ]))
+                let end = offset + chunk.count
+                guard reply["offset"]?.numberValue == Double(end) else {
+                    throw LinkUpload.Failure(code: "upload.offset", message: "The Mac did not confirm the uploaded bytes.")
+                }
+                offset = end
+                await report(AgentUploadProgress(name: name, sent: offset, total: size, phase: .sending))
+            }
+            try Task.checkCancellation()
+            await report(AgentUploadProgress(name: name, sent: size, total: size, phase: .saving))
+            let finished = try await connection.request("_acpmux/file_put_finish", .object([
+                "sessionId": .string(sessionID), "uploadId": .string(id), "fileName": .string(fileName),
+                "size": .number(Double(size)), "ownerToken": .string(owner),
+            ]))
+            guard finished["uploadId"]?.stringValue == id, finished["size"]?.numberValue == Double(size),
+                  let path = finished["path"]?.stringValue, !path.isEmpty else {
+                throw LinkUpload.Failure(code: "upload.invalid", message: "The Mac did not confirm the saved attachment.")
+            }
+            try Task.checkCancellation()
+            return .prompt(uploadID: id, fileName: fileName, ownerToken: owner)
+        } catch {
+            await Self.cancelPromptUpload(id, owner: owner, session: sessionID, connection: connection)
+            throw error
+        }
+    }
+
+    nonisolated static func cancelPromptUpload(_ id: String, owner: String, session: String, connection: AcpmuxConnection) async {
+        await Task {
+            _ = try? await connection.request("_acpmux/file_put_cancel", .object([
+                "sessionId": .string(session), "uploadId": .string(id), "ownerToken": .string(owner),
+            ]))
+        }.value
     }
 
     /// Each PDF up to `AgentAttachment.maxDocumentBytes` that the composer kept by its URL, with
@@ -1288,12 +1970,17 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The blocks for `text` and `attachments`, with each file's path on the Mac. A video's
     /// link is followed by its frames note and each frame (label, then image), as the Mac sends it.
     nonisolated static func promptBlocks(text: String, attachments: [AgentAttachment], uploaded: [String: String] = [:],
+                                         promptRefs: [String: (uploadID: String, fileName: String, ownerToken: String?)] = [:],
                                          inlineDocuments: Set<String>? = nil) -> [JSONValue] {
         let inline = inlineDocuments ?? Self.inlineDocuments(attachments)
         var blocks: [JSONValue] = []
         if !text.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string(text)])) }
         for attachment in attachments {
-            if let mime = attachment.imageMIMEType, let data = attachment.data {
+            if let ref = promptRefs[attachment.id] {
+                blocks.append(Self.promptReference(attachment, id: ref.uploadID, name: ref.fileName, owner: ref.ownerToken))
+                continue
+            }
+            if uploaded[attachment.id] == nil, let mime = attachment.imageMIMEType, let data = attachment.data {
                 blocks.append(.object(["type": .string("image"), "mimeType": .string(mime), "data": .string(data.base64EncodedString())]))
             } else if inline.contains(attachment.id), let data = documentData(attachment) {
                 blocks.append(.object(["type": .string("document"), "mimeType": .string("application/pdf"),
@@ -1325,6 +2012,50 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         if blocks.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string("")])) }
         return blocks
+    }
+
+    nonisolated static func promptReference(_ attachment: AgentAttachment, id: String, name: String, owner: String?) -> JSONValue {
+        var upload: [String: JSONValue] = ["uploadId": .string(id), "fileName": .string(name)]
+        if let owner { upload["owned"] = .string(owner) }
+        let metadata: JSONValue = .object(["acpmux": .object(["upload": .object(upload)])])
+        if attachment.kind == .image {
+            var block: [String: JSONValue] = ["type": .string("image"), "name": .string(name), "_meta": metadata]
+            if let mime = attachment.imageMIMEType { block["mimeType"] = .string(mime) }
+            return .object(block)
+        }
+        return .object(["type": .string("resource_link"), "uri": .string("acpmux-upload:\(id)"),
+                        "name": .string(name), "_meta": metadata])
+    }
+
+    /// A name acpmux takes for an upload (`file_put_begin`): one plain component, no leading
+    /// dot, no control or direction characters; a photo with none left is `photo.<ext>`.
+    nonisolated static func uploadFileName(_ name: String, mime: String) -> String {
+        let base = (name as NSString).lastPathComponent
+        var scalars = String.UnicodeScalarView()
+        for scalar in base.unicodeScalars {
+            switch scalar.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator, .surrogate, .privateUse, .unassigned:
+                continue
+            default:
+                scalars.append(scalar == "/" || scalar == "\\" ? "_" : scalar)
+            }
+        }
+        var plain = String(scalars).trimmingCharacters(in: .whitespaces)
+        while plain.hasPrefix(".") { plain.removeFirst() }
+        if plain.isEmpty {
+            let ext = UTType(mimeType: mime)?.preferredFilenameExtension ?? "png"
+            plain = "photo.\(ext)"
+        }
+        return plain
+    }
+
+    nonisolated static func needsUpload(_ attachment: AgentAttachment, inline: Set<String>, promptUpload: Bool) -> Bool {
+        if attachment.kind == .image {
+            if promptUpload { return true }
+            guard let data = attachment.data, attachment.imageMIMEType != nil else { return true }
+            return data.count > AttachmentPrestager.inlineImageBytes
+        }
+        return !inline.contains(attachment.id)
     }
 
     nonisolated static func mimeType(name: String) -> String {
@@ -1464,9 +2195,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     public func revokeChatPermission() async throws {
         let reply = try await call("_acpmux/permission_chat_revoke", ["sessionId": .string(sessionID)])
         // acpmux answers `{active: false}` and nothing else (the Mac's client checks the same).
-        guard reply["active"] == .bool(false) else {
-            throw AgentFeatureUnavailable(String(localized: "\(summary.macName) didn't confirm the revoke. Refresh and try again."))
+        guard reply["active"] != .bool(false) else { return }
+        // No confirmation in the reply: read the chat's allowance again (the Refresh the copy used
+        // to ask the person for) and count the revoke done when the Mac no longer allows the chat.
+        guard let now = try? await chatPermissions() else {
+            throw AgentFeatureUnavailable(String(localized: "\(summary.macName) didn't confirm the revoke."))
         }
+        if !now.allowedForChat { return }
+        // retry-prompt-ok: revoking is the person's own change, and the Mac still allows the chat
+        // after it; whether to revoke again is theirs to decide.
+        throw AgentFeatureUnavailable(String(localized: "\(summary.macName) still allows this chat. Try again."))
     }
 
     /// Reads the open asks again: a reattach from the last record applied, whose reply lists
@@ -1515,7 +2253,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let ready: Bool
         if let hub { ready = hub.isReady ? true : await hub.waitUntilReady(timeout: hub.readyGrace, clock: ContinuousClock()) } else { ready = false }
         guard let hub, ready else {
-            throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected. Try again in a moment."))
+            // Already waited for, up to the hub's ready grace: nothing to wait for here.
+            throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected."))
         }
         do {
             return try await hub.request(method, .object(params))
@@ -1698,8 +2437,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     func linkDown() {
+        prestager.cancelAll()
         // An attach still waiting on the old connection ends without touching this chat.
         generation += 1
+        dropPipelined()
         attachTask?.cancel()
         attachTask = nil
         retryTask?.cancel()
@@ -1719,6 +2460,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if lastSeq > 0 { emit(.historyLoading(true)) }
         // Only a connection's own `initialize` says Full access covers it (`attach` sends it again).
         fullAccessChanged(false)
+        promptLinkDown()
     }
 
     /// The Mac dropped notifications to this connection (`_acpmux/lagged`): attach again
@@ -1756,6 +2498,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         flushHeldPrompts()
         // Kept records still being read: the attach starts once they are in (`restoreKept`).
         guard !attaching, !restoring, let hub, hub.isReady else { return }
+        prestageAttachments(composerAttachments)
         retryTask?.cancel()
         retryTask = nil
         gapTask?.cancel()
@@ -1766,8 +2509,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         // The task holds the source only between its requests, never across one: a chat
         // nobody keeps goes away while a page is read, and its deinit cancels the read.
         attachTask = Task { [weak self] in
+            var pipelined = self?.takePipelined()
             while let read = self?.nextRead(generation) {
-                let pages = await Self.readPages(hub, read) { [weak self] in self?.generation == generation }
+                // A chat's first read is the "open-chat" action (``PhoneTrace``): its pages are
+                // its round trips; one, the pipelined attach, is the floor.
+                let pages = await PhoneTrace.action(read.firstAttach ? "open-chat" : "catch-up", floorRoundTrips: 1) {
+                    await Self.readPages(hub, read, pipelined: pipelined) { [weak self] in self?.generation == generation }
+                }
+                pipelined = nil
                 guard self?.caughtUp(pages, read, generation) == true else { return }
             }
         }
@@ -1798,6 +2547,45 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             self?.retryTask = nil
             self?.linkUp()
         }
+    }
+
+    /// A first catch-up attach written with `initialize` and the watch (``AcpmuxHub/bind``),
+    /// whose reply the catch-up reads instead of asking again.
+    struct PipelinedAttach: Sendable {
+        let connection: AcpmuxConnection
+        let id: Int
+        let params: [String: JSONValue]
+        /// Not read: its reply is taken and let go, so the connection keeps nothing for it.
+        func drop() {
+            let (connection, id) = (connection, id)
+            Task { _ = try? await connection.reply(to: id) }
+        }
+    }
+    /// Set from the write until the catch-up takes it; records that come meanwhile are held.
+    private var pipelined: PipelinedAttach?
+
+    /// The attach the next catch-up would send now, to write with `initialize` and the watch;
+    /// nil when the chat would not attach at once (an attach running, kept records loading).
+    func pipelineAttachParams(kinds: JSONValue) -> [String: JSONValue]? {
+        guard !attaching, !restoring, hub != nil else { return nil }
+        let read = CatchUpRead(sessionID: sessionID, after: lastSeq, allowGap: gapFill == nil,
+                               fromKept: keptRestored, timeBreakdownVersion: timeBreakdownVersion)
+        return Self.attachParams(read, kinds: kinds)
+    }
+
+    func notePipelined(_ attach: PipelinedAttach) {
+        pipelined?.drop()
+        pipelined = attach
+    }
+
+    private func takePipelined() -> PipelinedAttach? {
+        defer { pipelined = nil }
+        return pipelined
+    }
+
+    private func dropPipelined() {
+        pipelined?.drop()
+        pipelined = nil
     }
 
     /// One catch-up's start: from the last record applied (none: a first attach).
@@ -1895,160 +2683,197 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// first prompt; older pages come with ``loadEarlierHistory()``). Each request is bounded, and none is sent once the
     /// attach is no longer `current` (the link dropped, another attach started, the chat went
     /// away): the hub's next connection is not its own.
-    private static func readPages(_ hub: AcpmuxHub, _ read: CatchUpRead, current: @escaping () -> Bool) async -> CatchUpPages {
+    private static func readPages(_ hub: AcpmuxHub, _ read: CatchUpRead, pipelined: PipelinedAttach? = nil,
+                                  current: @escaping () -> Bool) async -> CatchUpPages {
         var out = CatchUpPages()
         func request(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
             guard current(), !Task.isCancelled else { throw CancellationError() }
             return try await hub.request(method, .object(params), timeout: pageTimeout)
         }
         do {
-            var params: [String: JSONValue] = [
-                "sessionId": .string(read.sessionID),
-                "limit": .number(Double(pageSize)),
-                "kinds": kinds(hub),
-                "eventStream": .bool(true),
-            ]
-            if let version = read.timeBreakdownVersion {
-                params["timeBreakdownVersion"] = .string(version)
-                // The phone draws no breakdown: once the daemon has named a version (it knows the
-                // field), ask it to leave the breakdown out even after new turns changed it.
-                params["omitTimeBreakdown"] = .bool(true)
-            }
-            if read.firstAttach {
-                params["maxBytes"] = .number(Double(openBytes))
-                params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
+            let params = attachParams(read, kinds: kinds(hub))
+            if let pipelined, pipelined.params == params, pipelined.connection === hub.connection, current(),
+               let reply = try? await AcpmuxHub.reply(pipelined.connection, pipelined.id, "_acpmux/attach", timeout: pageTimeout) {
+                // Written with `initialize` and the watch (``AcpmuxHub/pipelineAttaches``). A Mac
+                // that refused it (an older one, other kinds) is asked again below.
+                hub.pipelinedAttachesRead += 1
+                out.result = reply
             } else {
-                params["afterSeq"] = .number(Double(read.after))
-                if read.allowGap, !read.fromKept {
-                    // Tail-first: with both cursors acpmux reads the newest `limit` records
-                    // between them (`_acpmux/attach`, cmux-tui acpmux server/requests.rs),
-                    // capped as an open is, so a reattach after hours away reads what an
-                    // open reads, not every record it missed.
-                    params["beforeSeq"] = .number(tailBeforeSeq)
-                    params["maxBytes"] = .number(Double(openBytes))
-                    params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
-                }
-                // From kept records the read stays forward: a gap past one page drops the kept
-                // copy (`keptTooOld`) instead of filling in behind it.
+                pipelined?.drop()
+                out.result = try await request("_acpmux/attach", params)
             }
-            out.result = try await request("_acpmux/attach", params)
-            let page = out.result["events"]?.arrayValue ?? []
-            // A reattach (the link came back, or the Mac said this connection lagged) needs
-            // every record after the last one applied, in order. Otherwise the next live record
-            // moves `lastSeq` past the rest of the gap, and the chat never sees what was in it (a
-            // turn's end, a decision made on the Mac). A page that holds them all (no
-            // `hasMore`) is applied as it is. A longer gap is read tail-first: the newest page
-            // shows now, and the records before it go in at once when all are read
-            // (`startGapFill`); a gap wider than ``bridgeMaxSeqs`` is not read, and the chat
-            // opens on the newest page (`holeTooWide`). Without a gap (one gap filling already, a
-            // Mac that pages forward only, a newest page inside one turn longer than itself) the
-            // reattach pages forward from the last record applied to the log's end, at most
-            // ``forwardMaxSeqs`` on; past that it opens on the newest page too.
-            if read.fromKept, out.result["hasMore"] == .bool(true) {
-                // The kept copy is more than a page behind: open on the newest page instead
-                // (``dropKept()``), not on a gap after an old copy.
-                out.page = page
-                out.keptTooOld = true
-                return out
-            }
-            if !read.firstAttach {
-                var more = out.result["hasMore"] == .bool(true)
-                var cursor: Double?
-                if more, read.allowGap, let first = page.first?["seq"]?.numberValue, Int(first) > read.after + 1,
-                   let newest = page.last?["seq"]?.numberValue {
-                    // Records are missing before the page. acpmux sent the newest ones (its
-                    // `hasMore`: older records after `afterSeq`); a Mac that ignores
-                    // `beforeSeq` sent the oldest (`hasMore`: newer ones, written before its
-                    // reply's `lastSeq`). One read after the page tells them apart, and is the
-                    // forward page either way.
-                    let next = try await request("_acpmux/events", [
-                        "sessionId": .string(read.sessionID), "afterSeq": .number(newest),
-                        "limit": .number(Double(pageSize)), "kinds": kinds(hub),
-                    ])
-                    let events = next["events"]?.arrayValue ?? []
-                    let nextMore = !events.isEmpty && next["hasMore"] == .bool(true)
-                    if let after = events.first?["seq"]?.numberValue, Int(after) <= stateSeq(out.result) {
-                        out.page = page + events
-                        more = nextMore
-                    } else if let tail = tailStart(page, after: read.after) {
-                        out.page = Array(page[tail.index...]) + events
-                        more = nextMore
-                        if tail.gap.seq - read.after - 1 > bridgeMaxSeqs {
-                            // Too wide to read: the page opens the chat (`holeTooWide`).
-                            out.holeTooWide = true
-                        } else {
-                            out.gap = tail.gap
-                        }
-                    } else if Int(first) - read.after - 1 > bridgeMaxSeqs {
-                        // The newest page is inside one turn longer than itself, past a hole too
-                        // wide to read: the chat opens again as a first attach, which reads that
-                        // turn's prompt.
-                        out.holeTooWide = true
-                        return out
-                    } else {
-                        // The newest page is inside one turn longer than itself: it has no
-                        // prompt to start at, so the gap is read forward first.
-                        cursor = Double(read.after)
-                    }
-                } else {
-                    out.page = page
-                }
-                cursor = cursor ?? out.page.last?["seq"]?.numberValue
-                let loopStart = cursor.map { Int($0) } ?? read.after
-                while more, let from = cursor {
-                    if Int(from) - loopStart > forwardMaxSeqs {
-                        // Still not at the log's end (`forwardMaxSeqs`): the rest is not read
-                        // either. The chat opens again as a first attach.
-                        out.page = []
-                        out.gap = nil
-                        out.holeTooWide = true
-                        return out
-                    }
-                    let next = try await request("_acpmux/events", [
-                        "sessionId": .string(read.sessionID), "afterSeq": .number(from),
-                        "limit": .number(Double(pageSize)), "kinds": kinds(hub),
-                    ])
-                    let events = next["events"]?.arrayValue ?? []
-                    out.page += events
-                    cursor = events.last?["seq"]?.numberValue
-                    more = !events.isEmpty && next["hasMore"] == .bool(true)
-                }
-            } else {
-                out.page = page
-            }
-            // First attach: the newest page only; older pages come as the reader scrolls up.
-            out.earlier = read.firstAttach && out.result["hasMore"] == .bool(true)
-            if out.earlier {
-                if let first = out.page.firstIndex(where: isPrompt) {
-                    // What is before the first prompt belongs to an older turn: it comes with
-                    // that turn's page, never twice.
-                    out.page.removeFirst(first)
-                } else if let opener = out.result["turnOpener"], Self.isPrompt(opener),
-                          let seq = opener["seq"]?.numberValue {
-                    // acpmux read the turn's prompt with the page (cmux-tui
-                    // `requests/turn_opener.rs`): the page has its turn with no read of its own.
-                    // An older Mac sends none (or null when its read found none): the read below.
-                    out.page = [opener] + out.page
-                    out.earlier = seq > 1
-                } else if let oldest = out.page.first?["seq"]?.numberValue {
-                    // The page is inside one turn longer than itself (a long run): its prompt
-                    // alone is read, so the page has a turn to go in. Without it the chat
-                    // opened empty.
-                    // A few, since messages steered into the turn are `user_message`s too.
-                    let opener = try await request("_acpmux/events", [
-                        "sessionId": .string(read.sessionID), "beforeSeq": .number(oldest),
-                        "limit": .number(16), "kinds": .array([.string("user_message")]),
-                    ])
-                    let records = opener["events"]?.arrayValue ?? []
-                    let start = records.lastIndex(where: isPrompt)
-                    out.page = start.map { [records[$0]] + out.page } ?? out.page
-                    out.earlier = start.map { $0 > 0 || opener["hasMore"] == .bool(true) } ?? false
-                }
-            }
+            // `out` keeps what was read before a failed page: the chat applies it and reads on
+            // from its last record, not again from the cursor.
+            try await readRest(hub, read, &out, request)
         } catch {
             out.failure = error
         }
         return out
+    }
+
+    /// The first catch-up's `_acpmux/attach` params for `read`, asking for `kinds`.
+    static func attachParams(_ read: CatchUpRead, kinds: JSONValue) -> [String: JSONValue] {
+        var params: [String: JSONValue] = [
+            "sessionId": .string(read.sessionID),
+            "limit": .number(Double(pageSize)),
+            "kinds": kinds,
+            "eventStream": .bool(true),
+        ]
+        if let version = read.timeBreakdownVersion {
+            params["timeBreakdownVersion"] = .string(version)
+            // The phone draws no breakdown: once the daemon has named a version (it knows the
+            // field), ask it to leave the breakdown out even after new turns changed it.
+            params["omitTimeBreakdown"] = .bool(true)
+        }
+        if read.firstAttach {
+            params["maxBytes"] = .number(Double(openBytes))
+            params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
+        } else {
+            params["afterSeq"] = .number(Double(read.after))
+            if read.allowGap, !read.fromKept {
+                // Tail-first: with both cursors acpmux reads the newest `limit` records
+                // between them (`_acpmux/attach`, cmux-tui acpmux server/requests.rs),
+                // capped as an open is, so a reattach after hours away reads what an
+                // open reads, not every record it missed.
+                params["beforeSeq"] = .number(tailBeforeSeq)
+                params["maxBytes"] = .number(Double(openBytes))
+                params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
+            }
+            // From kept records the read stays forward: a gap past one page drops the kept
+            // copy (`keptTooOld`) instead of filling in behind it.
+        }
+        return params
+    }
+
+    /// An attach reply whose page holds every record of the kinds asked through the log's end
+    /// (`pageThrough` at least `lastSeq`, cmux-tui acpmux server/requests.rs
+    /// `page_reaches_end`): the chat is current with no read after it. An older Mac that sends
+    /// no `pageThrough`, or one short of `lastSeq`, is read after as before.
+    static func pageReachesEnd(_ result: JSONValue) -> Bool {
+        guard let through = result["pageThrough"]?.numberValue, let last = result["lastSeq"]?.numberValue else { return false }
+        return through >= last
+    }
+
+    /// The rest of a catch-up after its attach reply (`out.result`), into `out` as it reads, so
+    /// a page that fails leaves the pages before it in place.
+    private static func readRest(_ hub: AcpmuxHub, _ read: CatchUpRead, _ out: inout CatchUpPages,
+                                 _ request: (String, [String: JSONValue]) async throws -> JSONValue) async throws {
+        let page = out.result["events"]?.arrayValue ?? []
+        // A reattach (the link came back, or the Mac said this connection lagged) needs
+        // every record after the last one applied, in order. Otherwise the next live record
+        // moves `lastSeq` past the rest of the gap, and the chat never sees what was in it (a
+        // turn's end, a decision made on the Mac). A page that holds them all (no
+        // `hasMore`) is applied as it is. A longer gap is read tail-first: the newest page
+        // shows now, and the records before it go in at once when all are read
+        // (`startGapFill`); a gap wider than ``bridgeMaxSeqs`` is not read, and the chat
+        // opens on the newest page (`holeTooWide`). Without a gap (one gap filling already, a
+        // Mac that pages forward only, a newest page inside one turn longer than itself) the
+        // reattach pages forward from the last record applied to the log's end, at most
+        // ``forwardMaxSeqs`` on; past that it opens on the newest page too.
+        if read.fromKept, out.result["hasMore"] == .bool(true) {
+            // The kept copy is more than a page behind: open on the newest page instead
+            // (``dropKept()``), not on a gap after an old copy.
+            out.page = page
+            out.keptTooOld = true
+            return
+        }
+        if !read.firstAttach {
+            var more = out.result["hasMore"] == .bool(true)
+            var cursor: Double?
+            if more, read.allowGap, let first = page.first?["seq"]?.numberValue, Int(first) > read.after + 1,
+               let newest = page.last?["seq"]?.numberValue {
+                // Records are missing before the page. acpmux sent the newest ones (its
+                // `hasMore`: older records after `afterSeq`); a Mac that ignores
+                // `beforeSeq` sent the oldest (`hasMore`: newer ones, written before its
+                // reply's `lastSeq`). One read after the page tells them apart, and is the
+                // forward page either way; a page that says it reaches the end
+                // (`pageReachesEnd`, a current Mac) needs none.
+                let next: JSONValue = pageReachesEnd(out.result)
+                    ? .object(["events": .array([]), "hasMore": .bool(false)])
+                    : try await request("_acpmux/events", [
+                        "sessionId": .string(read.sessionID), "afterSeq": .number(newest),
+                        "limit": .number(Double(pageSize)), "kinds": kinds(hub),
+                    ])
+                let events = next["events"]?.arrayValue ?? []
+                let nextMore = !events.isEmpty && next["hasMore"] == .bool(true)
+                if let after = events.first?["seq"]?.numberValue, Int(after) <= stateSeq(out.result) {
+                    out.page = page + events
+                    more = nextMore
+                } else if let tail = tailStart(page, after: read.after) {
+                    out.page = Array(page[tail.index...]) + events
+                    more = nextMore
+                    if tail.gap.seq - read.after - 1 > bridgeMaxSeqs {
+                        // Too wide to read: the page opens the chat (`holeTooWide`).
+                        out.holeTooWide = true
+                    } else {
+                        out.gap = tail.gap
+                    }
+                } else if Int(first) - read.after - 1 > bridgeMaxSeqs {
+                    // The newest page is inside one turn longer than itself, past a hole too
+                    // wide to read: the chat opens again as a first attach, which reads that
+                    // turn's prompt.
+                    out.holeTooWide = true
+                    return
+                } else {
+                    // The newest page is inside one turn longer than itself: it has no
+                    // prompt to start at, so the gap is read forward first.
+                    cursor = Double(read.after)
+                }
+            } else {
+                out.page = page
+            }
+            cursor = cursor ?? out.page.last?["seq"]?.numberValue
+            let loopStart = cursor.map { Int($0) } ?? read.after
+            while more, let from = cursor {
+                if Int(from) - loopStart > forwardMaxSeqs {
+                    // Still not at the log's end (`forwardMaxSeqs`): the rest is not read
+                    // either. The chat opens again as a first attach.
+                    out.page = []
+                    out.gap = nil
+                    out.holeTooWide = true
+                    return
+                }
+                let next = try await request("_acpmux/events", [
+                    "sessionId": .string(read.sessionID), "afterSeq": .number(from),
+                    "limit": .number(Double(pageSize)), "kinds": kinds(hub),
+                ])
+                let events = next["events"]?.arrayValue ?? []
+                out.page += events
+                cursor = events.last?["seq"]?.numberValue
+                more = !events.isEmpty && next["hasMore"] == .bool(true)
+            }
+        } else {
+            out.page = page
+        }
+        // First attach: the newest page only; older pages come as the reader scrolls up.
+        out.earlier = read.firstAttach && out.result["hasMore"] == .bool(true)
+        if out.earlier {
+            if let first = out.page.firstIndex(where: isPrompt) {
+                // What is before the first prompt belongs to an older turn: it comes with
+                // that turn's page, never twice.
+                out.page.removeFirst(first)
+            } else if let opener = out.result["turnOpener"], Self.isPrompt(opener),
+                      let seq = opener["seq"]?.numberValue {
+                // acpmux read the turn's prompt with the page (cmux-tui
+                // `requests/turn_opener.rs`): the page has its turn with no read of its own.
+                // An older Mac sends none (or null when its read found none): the read below.
+                out.page = [opener] + out.page
+                out.earlier = seq > 1
+            } else if let oldest = out.page.first?["seq"]?.numberValue {
+                // The page is inside one turn longer than itself (a long run): its prompt
+                // alone is read, so the page has a turn to go in. Without it the chat
+                // opened empty.
+                // A few, since messages steered into the turn are `user_message`s too.
+                let opener = try await request("_acpmux/events", [
+                    "sessionId": .string(read.sessionID), "beforeSeq": .number(oldest),
+                    "limit": .number(16), "kinds": .array([.string("user_message")]),
+                ])
+                let records = opener["events"]?.arrayValue ?? []
+                let start = records.lastIndex(where: isPrompt)
+                out.page = start.map { [records[$0]] + out.page } ?? out.page
+                out.earlier = start.map { $0 > 0 || opener["hasMore"] == .bool(true) } ?? false
+            }
+        }
     }
 
     /// Applies a catch-up's pages. False when it caught up or ended (failed: a retry is
@@ -2104,6 +2929,67 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return false
     }
 
+    // MARK: One-request catch-up page (`catch-up` link service)
+
+    /// The last record applied, for a `catch-up` request (``AcpmuxHub/catchUpChats()``).
+    var heldSeq: Int { lastSeq }
+
+    /// Applies a page the `catch-up` link service read for this chat (its `_acpmux/attach`
+    /// result, newest screenful first) as an attach applies its reply, through `readRest` and
+    /// `caughtUp`: a page that starts past the records held opens the gap that fills behind it
+    /// (`tailStart`), or, wider than ``bridgeMaxSeqs``, opens the chat on the page with older
+    /// records read on scroll (`holeTooWide`); with nothing held the page opens the chat as a
+    /// first attach does, older records from ``loadEarlierHistory()``. Only a chat neither
+    /// attached nor attaching takes it: an attached chat's stream is newer than the page, and
+    /// an attach in flight reads the same records. After it the chat is still not attached, so
+    /// the hub's next `linkUp` attaches from the page's last record and the connection's event
+    /// stream reaches it. A page that needed a read the hub could not make applies nothing: the
+    /// next attach reads it. True when the page was applied.
+    func applyCatchUpPage(_ result: JSONValue) async -> Bool {
+        guard !attached, !attaching, !restoring, pipelined == nil, let hub,
+              result["events"]?.arrayValue != nil else { return false }
+        retryTask?.cancel()
+        retryTask = nil
+        attaching = true
+        refillPending = false
+        generation += 1
+        let generation = generation
+        var read = CatchUpRead(sessionID: sessionID, after: lastSeq, allowGap: gapFill == nil,
+                               fromKept: keptRestored, timeBreakdownVersion: timeBreakdownVersion)
+        // Twice at most: a kept copy found too old (`keptTooOld`) is dropped, and the same page
+        // then opens the chat as a first attach's would.
+        for _ in 0..<2 {
+            var pages = CatchUpPages()
+            pages.result = result
+            do {
+                try await Self.readRest(hub, read, &pages) { [weak self] method, params in
+                    guard self?.generation == generation, !Task.isCancelled else { throw CancellationError() }
+                    return try await hub.request(method, .object(params), timeout: Self.pageTimeout)
+                }
+            } catch {
+                pages.failure = error
+            }
+            // The link dropped or an attach started meanwhile: that one owns the chat now.
+            guard generation == self.generation else { return false }
+            guard pages.failure == nil else { break }
+            let again = caughtUp(pages, read, generation)
+            if !again, attached {
+                // Shown, but this connection's event stream does not reach the chat yet.
+                attached = false
+                linkUp()
+                return true
+            }
+            guard again, !refillPending, lastSeq == 0 else { break }
+            read = CatchUpRead(sessionID: sessionID, after: 0, timeBreakdownVersion: timeBreakdownVersion)
+        }
+        guard generation == self.generation else { return false }
+        attaching = false
+        attachTask = nil
+        held = []
+        linkUp()
+        return false
+    }
+
     // MARK: Reconnect gap (tail-first)
 
     /// What of a tail-first reattach's gap is still on the Mac: the records after `cursor`
@@ -2120,6 +3006,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The reads filling it, after the newest records showed; cancelled when the link drops
     /// or another attach starts.
     private var gapTask: Task<Void, Never>?
+    /// Consecutive gap-page failures, for the bounded retry backoff.
+    private var gapFailures = 0
     /// Each gap page's byte cap, as an older page's.
     static let gapBytes = olderBytes
 
@@ -2127,10 +3015,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// (they are newer than anything in it), then sends it to the chat once (`applyGap`): the
     /// turns above the newest one change one time, not once a page. The gap is at most
     /// ``bridgeMaxSeqs`` wide (a wider one opens no gap: `holeTooWide`), so this is a few reads
-    /// at most. A page that fails stops the fill with nothing of it shown; the next attach that
-    /// catches up (the link back, a lag) reads it again from its start.
+    /// at most. A page that fails retries from its cursor with bounded backoff; a link drop
+    /// cancels the fill, and the next attach reads it again from its start.
     private func startGapFill() {
         guard gapTask == nil, let fill = gapFill, attached, let hub, hub.isReady else { return }
+        gapFailures = 0
         let generation = generation
         let sessionID = sessionID
         // The task holds the source only between its requests, never across one.
@@ -2146,13 +3035,19 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                         "toolOutputMaxBytes": .number(Double(Self.toolOutputMaxBytes)), "kinds": Self.kinds(hub),
                     ]), timeout: Self.pageTimeout)
                 } catch {
-                    if self?.generation == generation {
-                        log.info("gap \(sessionID, privacy: .public) after \(fill.cursor, privacy: .public): page after \(cursor, privacy: .public) failed, waits for the next attach")
-                        self?.gapTask = nil
+                    guard let self, self.generation == generation, !Task.isCancelled else { return }
+                    self.gapFailures += 1
+                    let delay = Self.retryDelay(afterFailures: self.gapFailures)
+                    log.info("gap \(sessionID, privacy: .public) after \(fill.cursor, privacy: .public): page after \(cursor, privacy: .public) failed, retries in \(delay)")
+                    do {
+                        try await Task.sleep(for: delay)
+                    } catch {
+                        return
                     }
-                    return
+                    continue
                 }
                 guard let self, self.generation == generation, !Task.isCancelled else { return }
+                self.gapFailures = 0
                 let part = Self.gapPart(page, after: cursor, end: fill.end)
                 gapRecords += part.records
                 cursor = part.cursor
@@ -2227,8 +3122,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let (result, page) = (pages.result, pages.page)
         log.info("attach \(self.sessionID, privacy: .public) after \(read.after, privacy: .public): \(page.count, privacy: .public) records, through \(page.last?["seq"]?.numberValue ?? 0, privacy: .public), held \(self.held.count, privacy: .public), failed \(pages.failure != nil, privacy: .public)")
         if let failure = pages.failure {
-            // Said once per run of failures, not on every retry.
-            if failures == 0 { emit(.clientError(Self.message(failure))) }
+            // Said once per run of failures, and never for a link that is coming back (a
+            // timeout, a dropped channel): the kept rows stay and the retry catches up quietly.
+            if failures == 0, !Self.isTransient(failure) { emit(.clientError(Self.message(failure))) }
             // A first attach's page is the newest records, with a gap before them until the
             // older pages are in: nothing of it is applied. A reattach's is the oldest after
             // `lastSeq`: what was read has no gap and is applied.
@@ -2243,6 +3139,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let detail = result["session"], let session = AcpmuxSession(detail) {
             summary.status = session.summaryStatus
             if let name = session.shownName { summary.name = name }
+            // The chat's real name (never its prompt) for the header and the composer.
+            if let name = session.chatName { emit(.update(.sessionInfo(title: name))) }
         }
         // The replay boundary is the attach reply: its page (and the session state it
         // carries) is history, applied as one change, so the chat opens on the whole
@@ -2321,7 +3219,25 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             if let id = entry["permissionId"]?.stringValue, !laterAsks.contains(id), let request = entry["request"],
                let event = records.permission(id, request: request) { emitPermission(event, listedOnly: true) }
         }
+        // Always, unlike a row's: the attach's catch-up is what a new reader starts from.
+        if let detail = result["session"] {
+            let facts = AgentFooterFacts(composerStatus: detail["composerStatus"])
+            lastFooterFacts = facts
+            emit(.footerFacts(facts))
+        }
         emit(.status(summary.status))
+    }
+
+    /// The footer facts last sent to the chat: a row that repeats them (each turn event's
+    /// `session_changed`) adds nothing to the replay.
+    private var lastFooterFacts: AgentFooterFacts?
+
+    /// The session's footer facts from its row (`composerStatus.facts`, RFD 0130), sent to the chat
+    /// when they changed.
+    func footerFactsChanged(_ facts: AgentFooterFacts) {
+        guard facts != lastFooterFacts else { return }
+        lastFooterFacts = facts
+        emit(.footerFacts(facts))
     }
 
     /// The session's models (from attach), for the menu after a pick.
@@ -2584,7 +3500,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard attached else {
             // Only while an attach runs: its pages may end before them. With no attach
             // running, the next one reads from `lastSeq` to the log's end, these included.
-            if attaching { held.append(record) }
+            if attaching || pipelined != nil { held.append(record) }
             return
         }
         apply(record: record)
@@ -2657,9 +3573,29 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     fileprivate func receiveLocal(_ event: AgentSessionEvent) { emit(event) }
 
-    private func emit(_ event: AgentSessionEvent) {
+    /// The turn the Mac is running, as the events say: a Stop pressed for it is tied to it.
+    private(set) var runningTurnID: String?
+
+    private func trackRunningTurn(_ event: AgentSessionEvent) {
         switch event {
-        case .clientError, .promptNotSent, .historyLoading:
+        case .turnStarted(let turnID, _): runningTurnID = turnID
+        case .turnResult(let turnID, _, _, _): if runningTurnID == turnID { runningTurnID = nil }
+        case .batch(let events): for inner in events { trackRunningTurn(inner) }
+        default: break
+        }
+    }
+
+    /// Whether a Stop pressed while `pressedFor` ran still applies to what runs now: not when that
+    /// turn ended and another started while the call waited for the link. Unknown (nil) goes.
+    nonisolated static func stopStillApplies(pressedFor: String?, running: String?) -> Bool {
+        guard let pressedFor else { return true }
+        return running == pressedFor
+    }
+
+    private func emit(_ event: AgentSessionEvent) {
+        trackRunningTurn(event)
+        switch event {
+        case .clientError, .promptNotSent, .pendingSends, .historyLoading:
             // Not history: a later reader learns the load state from `events()` itself.
             break
         default:

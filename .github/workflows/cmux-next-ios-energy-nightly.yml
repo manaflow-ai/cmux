@@ -1,0 +1,133 @@
+name: cmux-next iPhone energy bench (nightly)
+
+# The battery and memory bench of the cmux-next iPhone app (scripts/ci/cmux-next-ios-sim.sh energy;
+# cmux-next-ios/verify/energy.md), every night on the nightly-next tip: the Demo app in mock mode on a
+# fleet simulator, each default case sampled once a second from the kernel (proc_pid_rusage: CPU %,
+# wakeups/s, energy in mW, memory footprint), plus a 15 s Time Profiler trace (xctrace) of the busy
+# cases. Reported, not gating: SUMMARY.md goes to the run summary and energy/ to an artifact, so a
+# regression shows up night over night; nothing fails on a number.
+#
+# Its own workflow, with no pull_request trigger, so it adds no job a pull request can start. As
+# cmux-next-iphone-clips.yml, the job is a thin cmux-ci client on the build-fleet gateway runner
+# (vars.CI_EVAL_STEP_GATEWAY) that runs one simulator step through the fleet controller; with the
+# variable unset nothing runs.
+
+on:
+  push:
+    branches: [nightly-next]
+
+permissions: {}
+
+concurrency:
+  # One run at a time per workflow on nightly-next tips, not one per commit (ci-min-per-pr-30; Leo, 2026-11-21:
+  # "de facto, im asking for 99% fewer minutes of ci time, period."). nightly-next moves about 20 times a day,
+  # and a per-commit group let every push start its own gateway job at once: they queued behind one another
+  # at the fleet's one simulator per Mac while each held a gateway runner, and on 11-26 eleven clips and
+  # energy runs sat to their timeout (240 and 150 min) and were cancelled: 1,172 of the 2,071 runner-min the
+  # three simulator benches spent in the timing feed's 24 h to 19Z. One group keeps the run in flight and only the newest pushed tip pending (GitHub drops the older
+  # pending one, a tip the newer one supersedes), and a pending run holds no runner. cmux-next-media.yml's
+  # nightly tour does the same (cmux-next-media-nightly-tip).
+  group: cmux-next-ios-energy-nightly-tip
+  cancel-in-progress: false
+
+jobs:
+  # At most one bench per CMUX_NEXT_ENERGY_MIN_INTERVAL_HOURS (default 6; 0 benches every push), not one per
+  # nightly-next tip (ci-min-per-pr-14; Leo: "de facto, im asking for 99% fewer minutes of ci time, period.").
+  # The bench reports night over night and gates nothing, yet nightly-next moved 54 times in the 48 h to 11-27 10Z
+  # and the bench ran 30 of them at 95 gateway job-min each, about 1,425 min a day. The newest kept bench
+  # artifact dates the last bench; a push inside the interval skips, the first push after it benches its tip.
+  # No artifact (none yet, expired, or a bench that kept no files) or an unreadable answer benches.
+  gate:
+    name: Bench due
+    if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    runs-on: cmux-linux
+    timeout-minutes: 3
+    permissions:
+      actions: read
+    outputs:
+      due: ${{ steps.due.outputs.due }}
+    steps:
+      - name: Due
+        id: due
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HOURS: ${{ vars.CMUX_NEXT_ENERGY_MIN_INTERVAL_HOURS || '6' }}
+        run: |
+          set -uo pipefail
+          last="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-next-ios-energy&per_page=20" \
+            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "nightly-next")] | max_by(.created_at) | .created_at // ""' 2>/dev/null || true)"
+          due=true
+          if [[ "$HOURS" =~ ^[0-9]+$ ]] && [ "$HOURS" -gt 0 ] && [ -n "$last" ]; then
+            age=$(( $(date -u +%s) - $(date -u -d "$last" +%s 2>/dev/null || echo 0) ))
+            [ "$age" -lt $(( HOURS * 3600 )) ] && due=false
+          fi
+          echo "last bench artifact ${last:-(none)}; interval ${HOURS} h; due=$due"
+          echo "due=$due" >> "$GITHUB_OUTPUT"
+
+  bench:
+    name: Energy bench on a fleet simulator
+    needs: gate
+    if: ${{ needs.gate.outputs.due != 'false' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    steps:
+      - name: Bench
+        env:
+          HEAD: ${{ github.sha }}
+        # A failed or missing step is a warning: the bench reports, it does not gate.
+        run: |
+          set +e
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=iPhone energy bench::$client is not installed on runner $RUNNER_NAME; no bench"
+            exit 0
+          fi
+          log="$RUNNER_TEMP/energy-step.log"
+          # Bounded to fit the job's 240 min, as cmux-next-iphone-clips.yml's record step: the queue wait ends at
+          # QUEUE_S and the run at RUN_S (cmux-ci leaves up to 5400 s of compile out of --timeout): 60 + 90 + 60 =
+          # 210 min. Before, --queue-timeout was cmux-ci's default 0 (wait forever) and --timeout 7200, so a step
+          # queued behind the fleet's one simulator per Mac sat to the job limit and was cancelled with no
+          # result (17.5 runner-h/day, cmuxterm-hq#29655); now it ends with a warning, as a failed step does.
+          QUEUE_S=3600 RUN_S=3600
+          rank=()
+          if "$client" run --help 2>/dev/null | grep -q -- '--priority {'; then
+            rank=(--priority pr --deadline "${QUEUE_S}s")
+          fi
+          "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD" \
+            --queue-timeout "$QUEUE_S" --timeout "$RUN_S" ${rank[@]+"${rank[@]}"} \
+            --artifact artifacts/ios-sim/evidence.zip --arg energy 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          zip="$RUNNER_TEMP/energy.zip"
+          out="$RUNNER_TEMP/energy-bench"
+          mkdir -p "$out"
+          if [ -z "$step" ] || ! { "$client" artifact "$step" "$zip" || "$client" artifact --failed "$step" "$zip"; }; then
+            echo "::warning title=iPhone energy bench::the simulator step ${step:-(none)} (exit $status) returned no artifact"
+            exit 0
+          fi
+          unzip -oq "$zip" -d "$out" || echo "::warning title=iPhone energy bench::the step's artifact did not unzip"
+          if [ -f "$out/SUMMARY.md" ]; then
+            {
+              echo "Fleet simulator step \`$step\` at \`$HEAD\` (exit $status)."
+              echo
+              cat "$out/SUMMARY.md"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=iPhone energy bench::no SUMMARY.md in step $step's artifact (exit $status)"
+          fi
+          [ "$status" -eq 0 ] || echo "::warning title=iPhone energy bench::the simulator step $step exited $status"
+
+      - name: Keep the bench
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-ios-energy
+          path: |
+            ${{ runner.temp }}/energy-bench/SUMMARY.md
+            ${{ runner.temp }}/energy-bench/energy
+          if-no-files-found: ignore
+          retention-days: 3

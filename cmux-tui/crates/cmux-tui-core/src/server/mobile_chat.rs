@@ -444,7 +444,6 @@ fn link_error(error: LinkError) -> (&'static str, String) {
         LinkError::Rpc(message, _) => ("acpmux_refused", message),
         LinkError::MethodNotFound(message) => ("unsupported", message),
         LinkError::Timeout => ("timeout", "acpmux did not answer in time".into()),
-        LinkError::Busy => ("busy", "acpmux is busy".into()),
         LinkError::Closed => ("unavailable", "acpmux connection closed".into()),
         LinkError::BadList(message) => ("acpmux_invalid", message),
     }

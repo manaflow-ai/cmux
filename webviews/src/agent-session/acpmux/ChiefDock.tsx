@@ -6,15 +6,8 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import { IllustratedEmpty } from "../../ui/EmptyState/IllustratedEmpty";
 import { SenderIdentityLabel } from "./SenderIdentityLabel";
 import { resolveSenderIdentity } from "./senderIdentity";
-import {
-  activityTime,
-  listed,
-  sessionTitle,
-  sessionMark,
-  type AcpmuxSessionEntry,
-  type SessionMark,
-  withoutChildren,
-} from "./sessionList";
+import { sessionTitle, sessionMark, type AcpmuxSessionEntry, type SessionMark } from "./sessionList";
+import { ChiefRanking } from "./sessionReaders";
 
 export type ChiefMascot =
   | "fox"
@@ -71,21 +64,6 @@ export type ChiefDockProps = {
 const MAX_CARDS = 4;
 type ChiefStatus = "streaming" | "attention" | "error" | "complete" | "unread" | "idle";
 
-const urgency = (session: AcpmuxSessionEntry, selected: boolean): number => {
-  switch (sessionMark(session, selected)) {
-    case "input":
-      return 5;
-    case "error":
-      return 4;
-    case "running":
-      return 3;
-    case "unread":
-      return 2;
-    default:
-      return 1;
-  }
-};
-
 const status = (session: AcpmuxSessionEntry, selected: boolean): ChiefStatus => {
   const mark = sessionMark(session, selected);
   if (session.indicator === "done") return "complete";
@@ -128,18 +106,13 @@ export function ChiefDock({
   const [attached, setAttached] = useState(true);
   const [expanded, setExpanded] = useState(defaultExpanded);
   const mascotButton = useRef<HTMLButtonElement>(null);
-  const ranked = useMemo(
-    () =>
-      withoutChildren(sessions.filter(listed)).sort(
-        (left, right) =>
-          urgency(right, right.sessionId === currentId) - urgency(left, left.sessionId === currentId) ||
-          (activityTime(right) ?? 0) - (activityTime(left) ?? 0),
-      ),
+  // Kept as the list changes (sessionReaders.ts): a chat's change moves that chat, not a sort of every chat.
+  // Every chat that waits counts in `attention`, also one past the four cards drawn.
+  const ranking = useRef<ChiefRanking | null>(null);
+  const { cards, attention } = useMemo(
+    () => (ranking.current ??= new ChiefRanking()).read(sessions, currentId, MAX_CARDS),
     [currentId, sessions],
   );
-  const cards = ranked.slice(0, MAX_CARDS);
-  // Every chat that waits counts, also one past the four cards drawn.
-  const attention = ranked.filter((session) => urgency(session, session.sessionId === currentId) >= 4).length;
   const cardsRef = useRef<HTMLDivElement>(null);
   // Folding makes the cards inert: focus on one of them (a card's close, Escape) moves to the
   // mascot instead of dropping to the page.
@@ -209,7 +182,8 @@ export function ChiefDock({
                   targets="own"
                 >
                   <article
-                    className="acpmux-chief-card"
+                    className="acpmux-chief-card ui-glass"
+                    data-glass-level="popover"
                     data-selected={selected}
                     data-status={cardStatus}
                     data-steering={steering ? "true" : undefined}
@@ -288,7 +262,7 @@ export function ChiefDock({
               </span>
             )}
           </button>
-          <div className="acpmux-chief-dock-rail">
+          <div className="acpmux-chief-dock-rail ui-glass" data-glass-level="popover">
             <button
               type="button"
               className="acpmux-chief-dock-tool"

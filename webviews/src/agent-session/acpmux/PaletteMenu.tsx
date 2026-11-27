@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState, useContext } from "react";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
@@ -7,18 +7,21 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { usePopupSettle } from "../../ui/popupSettle";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
-import { registerPicker } from "./pickerOpeners";
+import { useListKeys } from "../../ui/useListKeys";
+import { registerPicker, ChatViewParked } from "./pickerOpeners";
+import { KeyHint } from "../../ui/KeyHint";
+import { hintIsKey } from "./composerPickerModel";
 
 import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
-import { Keycap } from "./Keycap";
 import {
   type PaletteSection,
   filterPaletteSections,
   type PaletteReturnLook,
   descriptionRestatesName,
 } from "./paletteMenuModel";
+import { focusRoute } from "../../ui/focusRoute";
 type Props = {
   label: string;
   className?: string;
@@ -133,7 +136,8 @@ export function PaletteMenu({
     if (!open || !rows.length) return;
     scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
   }, [open, rows.length, menuId, selected]);
-  useEffect(() => registerPicker(label, openMenu), [label, openMenu]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, openMenu)), [label, openMenu, parked]);
   const pick = async (index: number) => {
     const row = rows[index];
     if (!row) return;
@@ -151,10 +155,38 @@ export function PaletteMenu({
       );
     }
   };
+  // `app.keyStyle`: in the list Vim's j/k, gg/G and l (pick), / (the search field); in the field
+  // Vim's Esc (Emacs' Ctrl-G) gives the keyboard to the list, whose Esc closes as before; Emacs'
+  // Ctrl-N/P move in both and Ctrl-A/E go to the ends in the list.
+  const listKeys = useListKeys({
+    onCommand: (command, event) => {
+      const inField = event.target === search.current;
+      if (command === "list.next" || command === "list.previous") {
+        const step = command === "list.next" ? 1 : -1;
+        if (rows.length) setActive((current) => (current + step + rows.length) % rows.length);
+        return;
+      }
+      if (command === "list.leave") {
+        const list = menu.current?.ownerDocument.getElementById(menuId);
+        if (!inField || !list) return false;
+        focusRoute(list, "person", "key style list key", { preventScroll: true });
+        return;
+      }
+      if (inField) return false;
+      if (command === "list.first" || command === "list.last") {
+        if (rows.length) setActive(command === "list.first" ? 0 : rows.length - 1);
+      } else if (command === "list.open") void pick(selected);
+      else if (command === "list.search")
+        focusRoute(search.current, "person", "key style list key", { preventScroll: true });
+      else return false;
+    },
+  });
   const keyDown = (event: React.KeyboardEvent) => {
     // IME commit keys (including WebKit's keyCode 229 after compositionend) belong to the
     // editor. Never dispatch or close the palette for them; the following plain Enter may pick.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    listKeys(event);
+    if (event.defaultPrevented) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -310,11 +342,16 @@ export function PaletteMenu({
                           <span className="acpmux-menu-label">{choice.name}</span>
                           {description && <span className="acpmux-menu-description">{description}</span>}
                         </span>
-                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                        {choice.hint &&
+                          (hintIsKey(choice.hint) ? (
+                            <KeyHint keys={choice.hint} className="acpmux-menu-hint" />
+                          ) : (
+                            <span className="acpmux-menu-hint acpmux-menu-arg">{choice.hint}</span>
+                          ))}
                         {returnLook !== "none" && at === selected && (
                           <span className="acpmux-palette-return" aria-hidden="true">
                             {verb && <span className="acpmux-palette-return-verb">{verb}</span>}
-                            <Keycap>↩</Keycap>
+                            <KeyHint keys="↩" />
                           </span>
                         )}
                       </div>
@@ -327,7 +364,7 @@ export function PaletteMenu({
           </div>
           {outcome && (
             <div id={outcomeId} className="acpmux-palette-outcome">
-              <Keycap>↩</Keycap>
+              <KeyHint keys="↩" />
               <span className="acpmux-palette-outcome-text">{outcome}</span>
             </div>
           )}

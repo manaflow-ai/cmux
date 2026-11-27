@@ -1,4 +1,7 @@
-use super::{MAX_EVENT_PAGES, Transcript, load, sender_name_of};
+use super::{
+    MAX_EVENT_PAGES, Transcript, load, sender_name_of, shown_in_workspace, turn_failure,
+    waiting_in_chat,
+};
 use serde_json::{Value, json};
 
 fn update(seq: u64, update: Value) -> Value {
@@ -310,24 +313,98 @@ fn reads_of_one_acpmux_share_one_connection() {
     assert_eq!(requests.load(Ordering::SeqCst), 5);
 }
 
-/// cmux#55066: a failed turn's end carries its agent's own words, so `cmux chat --wait` here can
-/// say what happened ("You've hit your weekly limit · resets …"), not only that it failed.
+/// A NIGHTLY, 2026-11-25: a failed turn read back as `turn_end status:failed text:""`. Its turn end
+/// now carries what acpmux recorded: the error (stderr tail included), code and recovery.
 #[test]
-fn a_failed_turns_end_carries_its_agents_words() {
+fn a_failed_turn_end_carries_its_cause() {
     let events = vec![
-        mux(1, "user_message", json!({"text": "reply ok"})),
-        mux(2, "turn_result", json!({"status": "failed", "error": "You've hit your weekly limit"})),
-        mux(3, "user_message", json!({"text": "again"})),
-        mux(4, "turn_result", json!({"status": "failed", "errorText": "API Error: 500"})),
-        mux(5, "user_message", json!({"text": "fine"})),
-        mux(6, "turn_result", json!({"status": "completed"})),
+        mux(1, "user_message", json!({"text": "go"})),
+        mux(
+            2,
+            "turn_result",
+            json!({"status": "failed", "error": "agent exited (code 1)\nstderr: boom",
+                   "code": -32603, "errorKind": "agent_exit", "recovery": "send again to restart it"}),
+        ),
     ];
-    let mut loads = 0;
-    let (transcript, more, cursor) = load(0, 10, source(events, 10, false, &mut loads)).unwrap();
-    let page = transcript.page("c", 0, 10, more, cursor);
-    let ends: Vec<&Value> =
-        page["items"].as_array().unwrap().iter().filter(|i| i["role"] == "turn_end").collect();
-    assert_eq!(ends[0]["error"], "You've hit your weekly limit", "{page}");
-    assert_eq!(ends[1]["error"], "API Error: 500", "{page}");
-    assert_eq!(ends[2].get("error"), None, "{page}");
+    let page = transcript(&events).page("c", 0, 10, false, 2);
+    let end = &page["items"][1];
+    assert_eq!(end["role"], "turn_end", "{page}");
+    assert_eq!(end["status"], "failed", "{page}");
+    assert_eq!(end["error"], "agent exited (code 1)\nstderr: boom", "{page}");
+    assert_eq!(end["code"], -32603, "{page}");
+    assert_eq!(end["error_kind"], "agent_exit", "{page}");
+    assert_eq!(end["recovery"], "send again to restart it", "{page}");
+
+    // A completed turn carries none of it.
+    let page = transcript(&[mux(1, "turn_result", json!({"status": "completed"}))])
+        .page("c", 0, 10, false, 1);
+    assert!(page["items"][0].get("error").is_none(), "{page}");
+}
+
+#[test]
+fn a_turn_failure_prefers_error_text_reads_objects_masks_and_caps() {
+    let failure = turn_failure(&json!({"errorText": "  shown  ", "error": "raw"}));
+    assert_eq!(failure["error"], "shown");
+    let failure = turn_failure(&json!({"error": {"message": "from an object", "code": 7}}));
+    assert_eq!(failure["error"], "from an object");
+    let failure = turn_failure(&json!({"error": "", "errorText": "   "}));
+    assert!(failure.get("error").is_none(), "blank is no error: {failure:?}");
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let failure = turn_failure(&json!({"error": format!("bad key {key}"), "recovery": key}));
+    assert_eq!(failure["error"], "bad key [AWS access key]");
+    assert_eq!(failure["recovery"], "[AWS access key]");
+    let long = "é".repeat(5000);
+    let failure = turn_failure(&json!({"error": long}));
+    let error = failure["error"].as_str().unwrap();
+    assert!(error.ends_with('…') && error.len() <= 4096 + '…'.len_utf8(), "{}", error.len());
+    let failure = turn_failure(&json!({"stalledMs": 325000, "detail": "stalled"}));
+    assert_eq!(failure["stalled_ms"], 325000);
+    assert_eq!(failure["detail"], "stalled");
+    assert!(turn_failure(&json!({"status": "completed"})).is_empty());
+}
+
+/// A NIGHTLY, 2026-11-25: a `chat send` while the agent was still starting answered `delivered`,
+/// then the first turn failed, paused the queue, and the message never ran. A prompt still in
+/// acpmux's queue answers `queued`, with what it waits for.
+#[test]
+fn a_send_still_in_the_queue_says_what_it_waits_for() {
+    let info = json!({"queued": 1, "queuePaused": false, "starting": true, "turn": null});
+    assert!(waiting_in_chat(&info, false).is_none(), "it went in: delivered stands");
+    let waiting = waiting_in_chat(&info, true).unwrap();
+    assert_eq!(waiting["state"], "queued");
+    assert_eq!(waiting["waits_for"], "agent_start");
+    assert_eq!(waiting["queued"], 1);
+
+    let paused = json!({"queued": 2, "queuePaused": true, "starting": false, "turn": null});
+    let waiting = waiting_in_chat(&paused, true).unwrap();
+    assert_eq!(waiting["waits_for"], "resume");
+    assert!(waiting["reason"].as_str().unwrap().contains("paused"), "{waiting:?}");
+
+    let busy = json!({"queued": 1, "queuePaused": false, "starting": false, "turn": {"id": "t"}});
+    assert_eq!(waiting_in_chat(&busy, true).unwrap()["waits_for"], "turn_end");
+    let idle = json!({"queued": 1});
+    assert_eq!(waiting_in_chat(&idle, true).unwrap()["waits_for"], "queue");
+}
+
+/// A chat brought back from a Cloud machine runs with no workspace in its env (the move clears
+/// it); the app's tab for it in a workspace of this session puts it in scope (probe
+/// cloud-session-move-to-local-production, chat.out_of_scope). A tab in another session's
+/// workspace, or a tab of another chat, does not.
+#[test]
+fn a_chat_a_tab_of_this_session_shows_is_in_scope() {
+    let chat = "01a218d8-3400-74e8-bd76-510a00992eb2";
+    let other = "01a218d8-1111-7000-8000-000000000000";
+    let snapshot = json!({"workspaces": [{"id": "ws_ours", "extra": {"key": "k1"}}]});
+    let topology = json!({"workspaces": [
+        {"id": "ws_ours", "panes": [{"tabs": [
+            {"id": "tab-moved", "kind": "conversation", "agent_session": format!("acp:{chat}")},
+        ]}]},
+        {"id": "ws_theirs", "panes": [{"tabs": [
+            {"id": "tab-elsewhere", "kind": "conversation", "agent_session": other},
+        ]}]},
+    ]});
+    assert!(shown_in_workspace(&snapshot, &topology, chat));
+    assert!(!shown_in_workspace(&snapshot, &topology, other));
+    assert!(!shown_in_workspace(&json!({"workspaces": []}), &topology, chat));
+    assert!(!shown_in_workspace(&snapshot, &json!({}), chat));
 }

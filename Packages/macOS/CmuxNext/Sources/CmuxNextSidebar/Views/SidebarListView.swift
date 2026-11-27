@@ -29,10 +29,13 @@ final class SidebarListView: NSView {
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
     /// The spaces the person left, each as the list drew it: a space shown again lays out no row (`SidebarSpacePage`).
     var spacePages = SidebarSpacePages()
-    /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
-    var splicedRow: SidebarRowKey?
-    /// The row the apply running now takes out, or moves (`spliceRemoval`): its only change, no row new to the list.
-    var splicedOut: (key: SidebarRowKey, moved: Bool)?
+    /// The rows the apply running now splices in, takes out and moves (`spliceInsertion`, `spliceRemoval`,
+    /// `spliceEdits`; none for `spliceHeights`): its only change, no other row added or removed.
+    var splice: SidebarListSplice?
+    /// Rows whose new content changed their height since the last reload (`patchRowsNow`), with that content, and the
+    /// full layout they change (`spliceBase` then): the next reload moves the rows below them, no row is laid out
+    /// again. Nil `base`: a change no splice shows (a folded parent's roll-up), laid out in full.
+    var pendingHeights: (base: (revision: UInt64, options: SidebarLayoutOptions)?, rows: [SidebarRowKey: WorkspaceRowContent])?
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
@@ -245,6 +248,7 @@ final class SidebarListView: NSView {
     /// The hover pill still follows the rows at once; only the forward waits.
     var scrollHoverSettle: Duration = .milliseconds(100)
     let scrollHoverForward = DemandTimer(owner: "SidebarListView.scrollHoverForward")
+    let relativeTimesTick = DemandTimer(owner: "SidebarListView.relativeTimes") // `scheduleRelativeTimesTick`
     /// The newest scheduled or cancelled scroll forward: a fire the timer already claimed when a later
     /// scroll frame or a pointer move replaced it does nothing, so the rested row is forwarded once.
     var scrollHoverGeneration: UInt64 = 0

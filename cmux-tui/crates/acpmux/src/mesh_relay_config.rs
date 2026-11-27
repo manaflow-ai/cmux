@@ -25,6 +25,13 @@ pub struct MeshRelayConfig {
     /// other sender the machine owner opts in by its daemon id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub control_from: Vec<MeshControlFrom>,
+    /// While the hub is down, a send the hub provably never took goes straight to its machine's
+    /// daemon over the hub carrier, and this daemon takes such sends from the person's other
+    /// machines (`server/mesh_direct.rs`, RFD 0086). Off unless `"directSend": true`: new
+    /// security policy, so never on by default (Leo, TBD d-a6cc56afd2: "Yes, behind a switch,
+    /// only machines in your mesh book").
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub direct_send: bool,
 }
 
 /// An owner-configured control sender: one daemon by its hub-stamped id (`daemonId`), or every
@@ -61,6 +68,7 @@ impl Default for MeshRelayConfig {
             team_messaging: true,
             credential: None,
             control_from: Vec::new(),
+            direct_send: false,
         }
     }
 }
@@ -165,6 +173,18 @@ pub fn policy_reach(policy: crate::config::PermissionPolicy) -> u8 {
     }
 }
 
+/// The `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its owner) becomes
+/// the one a join writes now, so the person's own machines keep starting chats on each other in
+/// the policy they name. An entry the owner changed keeps its choice. True when one changed.
+pub fn upgrade_join_entries(control_from: &mut [MeshControlFrom]) -> bool {
+    let mut changed = false;
+    for entry in control_from.iter_mut().filter(|entry| entry.is_unmarked_join_entry()) {
+        *entry = MeshControlFrom::same_user();
+        changed = true;
+    }
+    changed
+}
+
 /// The widest cap among `entries` that grant `op` to `from` here (each entry's
 /// [`MeshControlFrom::policy_cap`]), or None when none grants it.
 pub fn control_cap(
@@ -214,46 +234,5 @@ impl MeshRelayConfig {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::mesh::Sender;
-
-    fn sender(user: Option<&str>, daemon: Option<&str>) -> Sender {
-        Sender {
-            user: user.map(str::to_owned),
-            daemon_id: daemon.map(str::to_owned),
-            ..Sender::default()
-        }
-    }
-
-    #[test]
-    fn move_out_has_the_same_owner_only_grant_as_move() {
-        let entry = MeshControlFrom {
-            same_user: true,
-            ops: vec![MOVE_OP.to_owned()],
-            ..Default::default()
-        };
-        let own = sender(Some("person"), Some("daemon"));
-        assert!(entry.allows(&own, Some("person"), MOVE_OP));
-        assert!(entry.allows(&own, Some("person"), MOVE_OUT_OP));
-        assert!(!entry.allows(&own, Some("other"), MOVE_OUT_OP));
-        assert!(!entry.allows(&sender(None, Some("daemon")), Some("person"), MOVE_OUT_OP));
-        assert!(!entry.allows(&sender(Some("person"), None), Some("person"), MOVE_OUT_OP));
-        assert!(!entry.allows(&own, None, MOVE_OUT_OP));
-    }
-
-    #[test]
-    fn move_out_cannot_be_granted_by_daemon_id_or_lifecycle_defaults() {
-        let by_daemon = MeshControlFrom {
-            daemon_id: "daemon".into(),
-            ops: vec![MOVE_OP.into()],
-            ..Default::default()
-        };
-        let from = sender(Some("person"), Some("daemon"));
-        assert!(!by_daemon.allows(&from, Some("person"), MOVE_OUT_OP));
-        let default = MeshControlFrom::same_user();
-        assert!(!default.allows(&from, Some("person"), MOVE_OUT_OP));
-        let only_move_out = MeshControlFrom { ops: vec![MOVE_OUT_OP.into()], ..default };
-        assert!(!only_move_out.allows(&from, Some("person"), MOVE_OUT_OP));
-    }
-}
+#[path = "mesh_relay_config_tests.rs"]
+mod tests;

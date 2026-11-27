@@ -53,10 +53,16 @@ use std::process::{Child, Command, Stdio};
 
 #[path = "host_self_update_rd.rs"]
 pub(super) mod rd;
+
+#[path = "host_self_update_fast_patch.rs"]
+pub(crate) mod fast_patch;
 use rd::{RdOutcome, RdPaths};
 
 #[path = "host_self_update_tui.rs"]
 pub(super) mod tui;
+
+#[path = "host_update_watch.rs"]
+pub(super) mod watch;
 use tui::{TuiOutcome, TuiSource};
 
 /// Where CI publishes the cmux-tui builds: public, no credentials.
@@ -79,6 +85,12 @@ pub(crate) struct Channel {
     pub(super) commit: String,
     /// Each binary's sha256, by its published name (`cmux-tui-acpmux-<target>`).
     pub(super) binaries: BTreeMap<String, String>,
+    /// Builds pulled from the channel (hq RFD "One update system for every place cmux runs"):
+    /// each a 40-hex commit or a 64-hex binary sha256. A host running one goes back to the
+    /// channel's build at once, as `--allow-downgrade --now` would, and no marker naming one is
+    /// installed. Missing in channel files from before the field.
+    #[serde(default)]
+    pub(super) revoked: Vec<String>,
 }
 
 impl Channel {
@@ -91,6 +103,14 @@ impl Channel {
         }
         if !lower_hex(&channel.commit, 40) {
             bail!("the channel file names no commit");
+        }
+        if let Some(bad) = channel.revoked.iter().find(|r| !lower_hex(r, 40) && !lower_hex(r, 64)) {
+            bail!("the channel file revokes {bad:?}, not a commit or a sha256");
+        }
+        if channel.revoked.contains(&channel.commit)
+            || channel.binaries.values().any(|sha| channel.revoked.contains(sha))
+        {
+            bail!("the channel file names a build it also revokes");
         }
         Ok(channel)
     }
@@ -106,6 +126,21 @@ impl Channel {
             bail!("the channel's sha256 for {name} is not a sha256");
         }
         Ok(sha)
+    }
+
+    /// Why the build `sha256` (of commit `commit`, when known) is revoked by this channel.
+    pub(super) fn revokes(&self, sha256: &str, commit: Option<&str>) -> Option<String> {
+        let hit = self.revoked.iter().find(|r| {
+            r.as_str() == sha256
+                || commit.is_some_and(|c| c.len() >= 7 && r.len() == 40 && r.starts_with(c))
+        })?;
+        Some(format!("the channel revokes {hit}"))
+    }
+
+    /// [`Channel::revokes`] for a binary's bytes.
+    pub(super) fn revokes_binary(&self, bytes: &[u8]) -> Option<String> {
+        let build = embedded_build(bytes);
+        self.revokes(&crate::sha256::sha256_hex(bytes), build.as_deref().and_then(build_commit))
     }
 
     pub(crate) fn binary_url(&self, target: &str) -> String {
@@ -433,8 +468,11 @@ pub(super) struct Plan {
     pub(super) rd: RdOutcome,
     /// The controller's marker or the R2 channel.
     pub(super) picked: Picked,
-    /// [`Paths::allow_downgrade`].
+    /// [`Paths::allow_downgrade`], or the installed build is revoked.
     allow_downgrade: bool,
+    /// Why the installed build is revoked by the channel ([`Channel::revoked`]): the update
+    /// goes back to the channel's build now, past the restart window.
+    pub(super) revoked_installed: Option<String>,
     /// The R2 channel's tree for cmux-tui ([`tui::refresh`] after acpmux's step), or why the
     /// channel could not be read.
     pub(super) tui_source: Result<TuiSource, String>,
@@ -502,10 +540,24 @@ pub(super) async fn prepare(
     };
     let downloads = paths.home.join("update");
     let installed = std::fs::read(&paths.installed).ok();
+    // A revoked installed build is pulled back to the channel's, newer or not.
+    let revoked_installed = match (&feed, installed.as_deref()) {
+        (Ok(feed), Some(bytes)) => feed.revokes_binary(bytes),
+        _ => None,
+    };
+    let allow_downgrade = paths.allow_downgrade || revoked_installed.is_some();
     let marker_skipped = match controller {
         None => NO_CONTROLLER.to_owned(),
         Some(ctl) => match ctl.marker(channel, paths.target).await {
             Err(why) => why,
+            Ok(marker)
+                if let Some(why) = feed
+                    .as_ref()
+                    .ok()
+                    .and_then(|f| f.revokes(&marker.sha256, Some(marker.commit.as_str()))) =>
+            {
+                format!("the marker names a revoked build ({why})")
+            }
             Ok(marker) => {
                 let picked = Picked {
                     source: Source::Controller,
@@ -522,7 +574,8 @@ pub(super) async fn prepare(
                             step,
                             rd,
                             picked,
-                            allow_downgrade: paths.allow_downgrade,
+                            allow_downgrade,
+                            revoked_installed,
                             tui_source,
                             dir: downloads.join(&marker.sha256),
                             lease,
@@ -544,7 +597,7 @@ pub(super) async fn prepare(
     // most likely the marker's, is kept, not swapped for R2's every run the
     // controller is down. One of a newer commit is kept by `apply`
     // (`newerInstalled`). `--allow-downgrade` installs R2's build anyway.
-    let ours = installed.as_deref().filter(|_| !paths.allow_downgrade);
+    let ours = installed.as_deref().filter(|_| !allow_downgrade);
     if let Some(bytes) = ours
         && let Some(why) = same_commit(bytes, &feed.commit, None)
     {
@@ -576,7 +629,8 @@ pub(super) async fn prepare(
         step,
         rd,
         picked,
-        allow_downgrade: paths.allow_downgrade,
+        allow_downgrade,
+        revoked_installed,
         tui_source,
         lease,
     }))
@@ -623,6 +677,7 @@ fn kept(
         rd,
         picked,
         allow_downgrade: paths.allow_downgrade,
+        revoked_installed: None,
         tui_source,
         dir,
         lease,
@@ -669,7 +724,14 @@ async fn choose(
         return Ok(Ok(Some(Step::Install(dir))));
     }
     let (url, whose) = match from {
-        Origin::R2(feed) => (feed.binary_url(paths.target), "the channel's"),
+        Origin::R2(feed) => {
+            let url = feed.binary_url(paths.target);
+            if let Some(bytes) = smaller(fetch, &url, installed, sha).await {
+                keep(&dir, paths.target, &bytes)?;
+                return Ok(Ok(Some(Step::Install(dir))));
+            }
+            (url, "the channel's")
+        }
         Origin::Controller(ctl) => match ctl.binary_url(sha).await {
             Ok(url) => (url, "the controller's marker's"),
             Err(why) => return Ok(Err(why)),
@@ -738,6 +800,53 @@ async fn download(
     }
     keep(&dir, target, &bytes)?;
     Ok(dir)
+}
+
+/// The largest window a published patch or `.zst` may use (`zstd --long=31`).
+const ZSTD_WINDOW_LOG_MAX: u32 = 31;
+
+/// The channel's binary rebuilt from one of the smaller files published
+/// beside `url` (RFD 0166, "Cloud machine and acpmux binary updates"): a
+/// patch against the installed build (`<url>.from-<installed sha256>.zst`,
+/// `zstd --patch-from`, about a tenth of the binary) when there is one, else
+/// the whole binary compressed (`<url>.zst`, about a third). None when
+/// neither is there, decodes, or rebuilds a binary of sha256 `sha`: the
+/// caller then downloads the binary itself, so a missing or bad file costs a
+/// request, never the update.
+async fn smaller(
+    fetch: &dyn Fetch,
+    url: &str,
+    installed: Option<&[u8]>,
+    sha: &str,
+) -> Option<Vec<u8>> {
+    let mut tries: Vec<(String, &[u8])> = Vec::new();
+    if let Some(old) = installed {
+        tries.push((format!("{url}.from-{}.zst", crate::sha256::sha256_hex(old)), old));
+    }
+    tries.push((format!("{url}.zst"), &[]));
+    for (url, old) in tries {
+        let Ok(packed) = fetch.get(&url, BINARY_MAX_BYTES).await else { continue };
+        match unpack(&packed, old) {
+            Ok(bytes) if crate::sha256::sha256_hex(&bytes) == sha => return Some(bytes),
+            _ => continue,
+        }
+    }
+    None
+}
+
+/// `packed` decoded, against `old` (a raw-content dictionary: what
+/// `--patch-from` encoded against) when it is not empty; at most
+/// [`BINARY_MAX_BYTES`].
+pub(super) fn unpack(packed: &[u8], old: &[u8]) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut decoder = zstd::stream::read::Decoder::with_dictionary(packed, old)?;
+    decoder.window_log_max(ZSTD_WINDOW_LOG_MAX)?;
+    let mut bytes = Vec::new();
+    decoder.take(BINARY_MAX_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > BINARY_MAX_BYTES {
+        return Err(std::io::Error::other("above the binary limit"));
+    }
+    Ok(bytes)
 }
 
 /// `dir/acpmux-<target>` holds `bytes` (already checked), written beside and
@@ -1007,10 +1116,17 @@ impl Remote for LocalRemote {
 /// by hand with `host update` is replaced by the channel's at the next run,
 /// unless automatic updates are off or the installed build is of a newer
 /// commit than the channel's (`--allow-downgrade` replaces that too).
+///
+/// `fast_patch` (`--fast-patch [--commit SHA]`, RFD 0060; see
+/// [`fast_patch`]): the run is the same update with `now` (no restart
+/// window), refused when `SHA` is given and the channel names another
+/// commit, and it appends one line to the fast-patch runs file; `--json`
+/// carries the line as `fastPatch` once the update ran.
 pub(crate) async fn self_update(
     channel: &str,
     now: bool,
     allow_downgrade: bool,
+    fast_patch: Option<Option<String>>,
     json_out: bool,
 ) -> Result<()> {
     if std::env::consts::OS != "linux" {
@@ -1018,19 +1134,38 @@ pub(crate) async fn self_update(
             "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux machine update NAME`"
         );
     }
+    let now = now || fast_patch.is_some();
     let paths = Paths::here(now, allow_downgrade)?;
+    let mut run = fast_patch.map(|asked| fast_patch::Run::start(asked, &paths.installed));
+    // A run that changed nothing: its line (stderr says so), then the
+    // update's own answer on stdout.
+    let refuse = |run: Option<fast_patch::Run>, why: &str| {
+        if let Some(run) = run {
+            run.finish("refused", why);
+            eprintln!("acpmux: fast-patch refused: {why}");
+        }
+    };
     let controller =
         Controller::configured().map(|url| Controller { url, fetch: &CONTROLLER_FETCH });
-    let plan = match prepare(&paths, &R2_FETCH, controller.as_ref(), channel).await? {
+    let prepared = match prepare(&paths, &R2_FETCH, controller.as_ref(), channel).await {
+        Ok(prepared) => prepared,
+        Err(e) => {
+            refuse(run, &format!("{e:#}"));
+            return Err(e);
+        }
+    };
+    let plan = match prepared {
         Prepared::Off => {
             let why = format!(
                 "automatic updates are off on this host (remove {} to turn them on)",
                 paths.off.display()
             );
+            refuse(run, &why);
             return skipped(channel, "off", &why, None, json_out);
         }
         Prepared::Locked => {
             let why = "another update of this host is running (a host update, or this timer)";
+            refuse(run, why);
             return skipped(channel, "locked", why, None, json_out);
         }
         Prepared::RolledBackBefore(commit, rd, picked) => {
@@ -1038,16 +1173,51 @@ pub(crate) async fn self_update(
                 "the {channel} build of commit {commit} ({}) was rolled back on this host before; waiting for a newer one",
                 picked.source.name()
             );
+            if let Some(run) = run.as_mut() {
+                let _ = run.check_commit(&commit);
+            }
+            refuse(run, &why);
             print_rd(&rd, json_out);
+            crate::update_inventory::record_in(
+                &paths.home,
+                json!({
+                    "channel": channel, "commit": commit, "source": picked.source.name(),
+                    "skipped": "rolledBack", "message": why, "build": installed_build(&paths.installed),
+                    "prevBuild": installed_build(&prev_of(&paths.installed)),
+                }),
+            );
             return skipped(channel, "rolledBack", &why, Some(&picked), json_out);
         }
         Prepared::Ready(plan) => plan,
     };
-    let up = apply(&LocalRemote, &plan, paths.target, now);
+    if let Some(r) = run.as_mut()
+        && let Err(why) = r.check_commit(&plan.commit)
+    {
+        // Nothing installed: dropping the plan releases the update lock.
+        refuse(run, &why);
+        bail!("fast-patch refused: {why}");
+    }
+    let up = apply(&LocalRemote, &plan, paths.target, now || plan.revoked_installed.is_some());
+    crate::update_inventory::record_in(
+        &paths.home,
+        inventory_run(channel, &plan, &up, &paths.installed),
+    );
     let tui = refresh_tui(&paths, &R2_FETCH, &plan, &up).await;
     let name = crate::hand::pair::hostname();
+    let fast_patch_line = run.map(|run| {
+        let line = run.finish(fast_patch::outcome(&up), &fast_patch::detail(&up));
+        eprintln!(
+            "acpmux: fast-patch {} {}: {} in {} s",
+            fast_patch::SERVICE,
+            plan.commit.get(..12).unwrap_or(&plan.commit),
+            line.get("outcome").and_then(|v| v.as_str()).unwrap_or_default(),
+            line.get("seconds").cloned().unwrap_or_default()
+        );
+        line
+    });
     if json_out {
         print_json(&json!({
+            "fastPatch": fast_patch_line,
             "channel": channel,
             "commit": plan.commit,
             "sha256": plan.sha256,
@@ -1074,6 +1244,39 @@ pub(crate) async fn self_update(
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// The build a binary on disk carries, when it can be read.
+fn installed_build(path: &Path) -> Option<String> {
+    std::fs::read(path).ok().as_deref().and_then(embedded_build)
+}
+
+/// `acpmux.prev` beside `installed`: the build an update replaced, kept for its rollback.
+fn prev_of(installed: &Path) -> PathBuf {
+    let mut name = installed.file_name().unwrap_or_default().to_os_string();
+    name.push(".prev");
+    installed.with_file_name(name)
+}
+
+/// One run's row in the host's version inventory ([`crate::update_inventory`]).
+pub(super) fn inventory_run(
+    channel: &str,
+    plan: &Plan,
+    up: &PeerUpdate,
+    installed: &Path,
+) -> serde_json::Value {
+    json!({
+        "channel": channel,
+        "commit": plan.commit,
+        "sha256": plan.sha256,
+        "source": plan.picked.source.name(),
+        "outcome": up.outcome.as_str(),
+        "reason": up.reason,
+        "error": up.error,
+        "build": up.build,
+        "prevBuild": installed_build(&prev_of(installed)),
+        "revokedInstalled": plan.revoked_installed,
+    })
 }
 
 /// cmux-rd's line, when there is one to print (`--json` carries it as `cmuxRd`).

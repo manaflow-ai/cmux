@@ -17,6 +17,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -48,7 +49,9 @@ mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod phone;
 mod published;
+mod record;
 mod renderers;
 mod right;
 mod run;
@@ -58,8 +61,11 @@ mod space;
 mod try_cmd;
 mod version;
 pub(super) mod wait;
+mod web_cas;
 mod web_pieces;
+pub(super) use try_cmd::cu_upgrade;
 pub(crate) use try_cmd::spawn_daemon_updates;
+pub(super) use web_cas::USAGE as WEB_CAS_USAGE;
 pub(super) use web_pieces::USAGE as WEB_PIECES_USAGE;
 
 /// Scopes that belong to the app, whatever follows.
@@ -88,7 +94,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
 /// Control-plane requests answer within the app's own 2 s deadline. A run
 /// that waits for its work may wait for a terminal to start (6 s) or for a
 /// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
-/// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
+/// 40 s), so the CLI gives the app longer than that.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// The app method `cmux app remote-views` reads; the app registers it in every
 /// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
@@ -191,6 +197,12 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
+    /// `browser tab_…@phone <verb>`: a page verb on the tab the iPhone shows
+    /// in its own web view, through this Mac's link host (app/phone.rs).
+    Phone {
+        device: Option<String>,
+        then: Box<AppCommand>,
+    },
     /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
     Renderers {
         params: Value,
@@ -227,11 +239,15 @@ pub(super) enum AppCommand {
     Published(cmux_apps::cli::Parsed),
     /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
     LaunchTimes(launch_times::Command),
+    /// `cmux window record` / `cmux pane record`: a clip from the app's own screenshots (app/record.rs).
+    Record(record::Request),
     /// `cmux app health`: chat, model picker and terminal checks (cli/app/health.rs).
     Health(health::Command),
     /// `cmux app web-pieces check|status`: what each web piece of a web update serves, from the
     /// signed switch file (app/web_pieces.rs).
     WebPieces(web_pieces::Command),
+    /// `cmux app web-cas fetch`: a web update by cas/1 Range GETs (app/web_cas.rs).
+    WebCas(web_cas::Command),
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -250,6 +266,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             timeout: Some(READ_TIMEOUT),
             pick: None,
         }));
+    }
+    if scope == "browser"
+        && let [_, target, phone_args @ ..] = args
+        && let Some(command) = phone::parse(target, phone_args)
+    {
+        return command.map(Some);
     }
     if scope == "browser"
         && let Some(target) = args.get(1)
@@ -341,6 +363,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", _) if published::owns(rest) => {
             AppCommand::Published(published::parse(rest).map_err(UsageError::new)?)
         }
+        ("app", Some(verb @ ("versions" | "use"))) => {
+            AppCommand::Nightly(nightly::parse_app(verb, rest.get(1..).unwrap_or_default())?)
+        }
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
@@ -348,6 +373,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("launch-times")) => launch_times::parse(rest)?,
         ("app", Some("health")) => health::parse(rest)?,
         ("app", Some("web-pieces")) => web_pieces::parse(rest)?,
+        ("app", Some("web-cas")) => web_cas::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
@@ -423,6 +449,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 pick: None,
             }
         }
+        ("window", Some("record")) => record::parse(record::Noun::Window, rest)?,
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -710,7 +737,12 @@ pub(super) fn run_action(
             return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
         };
         match name {
-            "wait" | "no-wait" | "interactive" => {
+            "wait" | "no-wait" | "interactive" | "join-only" => {
+                if name == "join-only" {
+                    params.insert("join_only".into(), json!(true));
+                    index += 1;
+                    continue;
+                }
                 let key = if name == "interactive" { "interactive" } else { "wait" };
                 params.insert(key.into(), json!(name != "no-wait"));
                 index += 1;
@@ -879,6 +911,20 @@ pub(super) fn new_window_spelling(name: &str, args: &[String]) -> Option<(String
     Some((format!("{noun} move-to-new-window"), rest))
 }
 
+/// `cmux pane record …` (`pane` is not an app scope: its other verbs are app actions or the mux's):
+/// the recording, or `None` for any other words.
+pub(super) fn run_pane_record(global: &GlobalArgs, args: &[String]) -> Option<i32> {
+    if args.first().map(String::as_str) != Some("pane")
+        || args.get(1).map(String::as_str) != Some("record")
+    {
+        return None;
+    }
+    Some(match record::parse(record::Noun::Pane, args.get(1..).unwrap_or_default()) {
+        Ok(command) => run(global, command),
+        Err(error) => failure("usage.invalid", &error.0, global.output, 2),
+    })
+}
+
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name.
 /// `None` when no app answers or the app has no CLI action by that name, so
 /// the caller reports its own usage error. One connection, one `action.run`.
@@ -935,8 +981,14 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
+        // Its own connections, one per capture in flight.
+        AppCommand::Record(request) => return Ran::Done(record::run(global, request.clone())),
         AppCommand::Health(command) => return Ran::Done(health::run(global, command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
+        AppCommand::Phone { device, then } => {
+            return Ran::Done(phone::run(global, device.as_deref(), then));
+        }
+        AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, command)),
         _ => {}
     }
     let mut stream = match connect_command(global) {
@@ -1074,6 +1126,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
         }
+        AppCommand::Record(request) => return Ran::Done(record::run(global, request)),
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
@@ -1089,6 +1142,10 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::Health(command) => return Ran::Done(health::run(global, &command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
+        AppCommand::Phone { device, then } => {
+            return Ran::Done(phone::run(global, device.as_deref(), &then));
+        }
+        AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
@@ -1155,6 +1212,12 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     {
         eprintln!("{note}");
     }
+    // `tab new-mac-screen` answers with the tab it opened: the Screen Sharing tabs before the run,
+    // so the new one is the one that was not there (mac_screen_view).
+    let mac_screens_before = super::mac_screen_view::opens_tab(method, &params)
+        .then(|| super::mac_screen_view::request_state(stream, None).ok())
+        .flatten()
+        .map(|state| super::mac_screen_view::keys(&state));
     let response = match wait::request(global, stream, method, &params, timeout)
         .and_then(|response| join_change(global, stream, method, &params, timeout, response))
     {
@@ -1175,6 +1238,14 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 None => None,
             }
             .unwrap_or(result);
+            let mut value = value;
+            if let Some(before) = &mac_screens_before
+                && let Ok(after) = super::mac_screen_view::request_state(stream, None)
+            {
+                let device = params.pointer("/args/device").and_then(Value::as_str);
+                let row = super::mac_screen_view::opened_row(before, &after, device);
+                super::mac_screen_view::with_opened(&mut value, row);
+            }
             warn_unstable_handles(method, &value, global.output);
             open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human
@@ -1253,7 +1324,7 @@ fn join_change(
 }
 
 /// After a person's `cloud new-machine` (`cmux machine new`) made a machine, the app opens it
-/// (`cloud open-machine`): a workspace on the machine is shown, so the window's new-terminal
+/// (`cloud new-terminal-on-machine`): a workspace on the machine is shown, so the window's new-terminal
 /// button opens there (Leo, 2026-11-06: "the terminal I open on the top right button works thru
 /// that machine"). A JSON or quiet run (a script, an agent) leaves the window as it was, and so
 /// does a machine still starting. A failed open is a note: the machine is made either way.
@@ -1272,11 +1343,13 @@ fn open_created(global: &GlobalArgs, stream: &mut UnixStream, params: &Value, va
     }
 }
 
-/// [`open_created`]'s `cloud open-machine` run. `--focus`: a CLI run changes the window only
-/// when it asks to (the app's `allowsViewChange`).
+/// [`open_created`]'s `cloud new-terminal-on-machine` run: a new machine has no workspace yet,
+/// so this opens its first one. Not `cloud open-machine`, which is the app's own (GUI-only, no
+/// CLI verb: the CLI's run of it failed with "No CLI command"). `--focus`: a CLI run changes
+/// the window only when it asks to (the app's `allowsViewChange`).
 fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
     let args = ["--target".to_owned(), target, "--focus".to_owned()];
-    run_action("cloud open-machine", &args, ActionName::Cli)
+    run_action("cloud new-terminal-on-machine", &args, ActionName::Cli)
 }
 
 /// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.
@@ -1351,7 +1424,7 @@ fn busy_retry_delay(error: &Value) -> Duration {
 }
 
 /// The app control socket of a command the app serves (`cmux identify`,
-/// `cmux app …`, `cmux window list`, action verbs, `cmux coderouter …`).
+/// `cmux app …`, `cmux window list`, action verbs).
 ///
 /// This is the one owner of the explicit-socket rule for the app (cx-siev):
 /// a socket the caller names is the only socket tried, never a default
@@ -1537,9 +1610,9 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
     if let Some(session) = set("CMUX_AGENT_SESSION") {
         let mut caller = json!({ "agent_session": session });
         if home_chat {
-            caller["home_chat"] = json!(true);
+            caller.set("home_chat", json!(true));
         } else if let Some(workspace) = set("CMUX_WORKSPACE_ID") {
-            caller["workspace"] = json!(workspace);
+            caller.set("workspace", json!(workspace));
         }
         return Some(caller);
     }

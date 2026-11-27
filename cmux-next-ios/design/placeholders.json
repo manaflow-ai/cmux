@@ -3,27 +3,7 @@
   "max_bound_ms": 2000,
   "known_over_bound": [
     {
-      "id": "tabgrid.terminal.placeholder",
-      "item": "item 1a (mobile-open-fast)",
-      "fix": "cmux#54985"
-    },
-    {
-      "id": "tabgrid.terminal.connecting",
-      "item": "item 1a (mobile-open-fast)",
-      "fix": "cmux#54985"
-    },
-    {
       "id": "tabgrid.terminal.unavailable",
-      "item": "item 1a (mobile-open-fast)",
-      "fix": "cmux#54985"
-    },
-    {
-      "id": "tabgrid.browser.globe",
-      "item": "item 1a (mobile-open-fast)",
-      "fix": "cmux#54985"
-    },
-    {
-      "id": "tabgrid.stream.icon",
       "item": "item 1a (mobile-open-fast)",
       "fix": "cmux#54985"
     },
@@ -249,36 +229,20 @@
       "root_fix": "1b"
     },
     {
-      "id": "tabgrid.browser.globe",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/BrowserTab.swift",
-      "line": 394,
-      "bound_ms": 1000,
-      "waits_for": "a browser tab's card with no snapshot and no last-known picture: a globe",
-      "root_fix": "1a"
+      "id": "settings.trypr.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/TryPullRequestPages.swift",
+      "line": 57,
+      "bound_ms": 2000,
+      "waits_for": "Try a Pull Request's open iPhone pull requests, listed by the Mac",
+      "root_fix": "1c"
     },
     {
-      "id": "tabgrid.stream.icon",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/StreamedBrowserPage.swift",
-      "line": 319,
-      "bound_ms": 1000,
-      "waits_for": "a streamed browser or simulator card with no frame yet: a globe or iPhone icon",
-      "root_fix": "1a"
-    },
-    {
-      "id": "tabgrid.terminal.connecting",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalTabPage.swift",
-      "line": 214,
-      "bound_ms": 1000,
-      "waits_for": "the tab grid's terminal card before its first frame: a skeleton of bars",
-      "root_fix": "1a"
-    },
-    {
-      "id": "tabgrid.terminal.placeholder",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalTabPage.swift",
-      "line": 253,
-      "bound_ms": 1000,
-      "waits_for": "the tab grid's terminal card with no snapshot or screen text: a black card with the program's name",
-      "root_fix": "1a"
+      "id": "vault.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/VaultScreen.swift",
+      "line": 77,
+      "bound_ms": 2000,
+      "waits_for": "the vault's status from the cmux server",
+      "root_fix": "1c"
     },
     {
       "id": "tabgrid.terminal.unavailable",
@@ -321,6 +285,14 @@
       "root_fix": "1a"
     },
     {
+      "id": "vault.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/VaultScreen.swift",
+      "line": 78,
+      "bound_ms": 2000,
+      "waits_for": "the vault's status, its first load (Settings > Cloud > Vault)",
+      "root_fix": "1c"
+    },
+    {
       "id": "workspaces.page.skeleton",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift",
       "line": 650,
@@ -339,13 +311,18 @@
   ],
   "exempt": [
     {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/QuietUpdatingGallery.swift",
+      "text": "ConnectionChip(.init(.macOffline, sentence: \"Mac Studio is offline.\"), downSince: nil)",
+      "reason": "design gallery: the quiet-updating variants drawn for review, not in a flow"
+    },
+    {
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
       "text": "TerminalConnectingView(topInset: 60)",
       "reason": "design gallery: draws the state for review, not in a flow"
     },
     {
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
-      "text": "CmuxSpinner(label: Text(\"Connecting to your Mac…\")).frame(height: 120)",
+      "text": "CmuxSpinner(label: Text(\"Loading chats…\")).frame(height: 120)",
       "reason": "design gallery"
     },
     {
@@ -402,7 +379,23 @@
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
       "text": "default: SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .spoken)",
       "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "TerminalConnectingView(topInset: 60, screenText: saved).background(Color.black)",
+      "reason": "design gallery: draws the terminal cover states for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "TerminalConnectingView(topInset: 60).background(Color.black)",
+      "reason": "design gallery: draws the terminal cover states for review, not in a flow"
     }
   ],
-  "known_layout_shifts": []
+  "known_layout_shifts": [
+    {
+      "flow": "offline-send",
+      "max_shift_frames": 4,
+      "issue": "https://github.com/manaflow-ai/cmux/issues/59189"
+    }
+  ]
 }

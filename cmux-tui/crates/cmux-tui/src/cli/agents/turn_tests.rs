@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
-use super::{Begin, Ended, Outcome, Port, last_turn, newest_prompt, run_turn};
+use super::{Begin, Ended, Outcome, Port, failed_turn_message, last_turn, newest_prompt, run_turn};
 
 const CHAT: &str = "0d4f9a52-8c1e-4b7a-9f3e-2a6b5c7d8e9f";
 
@@ -288,7 +288,7 @@ fn the_reply_is_the_last_answer_of_the_last_turn() {
             seq: 8,
             status: "completed".into(),
             reply: Some("two, steered".into()),
-            error: None
+            failure: Map::new(),
         })
     );
     // A turn that ended at or before the baseline is not the one waited on, and neither is one
@@ -417,7 +417,7 @@ fn a_failed_turn_here_says_the_agents_words_and_an_account_limits_way_on() {
     assert_eq!(error["details"]["errorKind"], "usage.limit");
     assert_eq!(error["details"]["agent_error"], weekly);
 
-    // Another failure keeps its own words; no words at all keeps the status.
+    // Another failure keeps its own words, as the base says them (`failed_turn_message`).
     let mut fake = Fake::new(new_receipt());
     fake.waits = VecDeque::from([idle()]);
     fake.turn_start = 1;
@@ -425,7 +425,7 @@ fn a_failed_turn_here_says_the_agents_words_and_an_account_limits_way_on() {
     fake.reads = VecDeque::from([vec![item(1, "user", "go"), other]]);
     let outcome = run_turn(&mut fake, &Begin::New(vec!["go".into()]), Duration::from_secs(60));
     let Outcome::Failed { error, .. } = &outcome else { panic!("{outcome:?}") };
-    assert_eq!(error["message"], "API Error: 500");
+    assert_eq!(error["message"], "the turn ended failed: API Error: 500");
     assert!(error["details"].get("errorKind").is_none(), "{error}");
 }
 
@@ -455,4 +455,98 @@ fn a_send_or_wait_on_a_used_up_codex_chat_names_codex_and_the_way_to_claude() {
         assert_eq!(error["details"]["harness"], "codex");
         assert_eq!(error["details"]["sign_in"], "cmux harness login codex");
     }
+}
+
+fn ended(status: &str, failure: Value) -> Ended {
+    Ended {
+        seq: 2,
+        status: status.into(),
+        reply: None,
+        failure: failure.as_object().cloned().unwrap_or_default(),
+    }
+}
+
+/// A NIGHTLY, 2026-11-25: a turn that failed after 325 s printed `chat.turn_failed` "the turn ended
+/// failed" with no reason. The reason acpmux recorded now rides the turn end into the error.
+#[test]
+fn a_failed_turn_says_why_it_failed() {
+    let failed = |failure| failed_turn_message(&ended("failed", failure), CHAT);
+    assert_eq!(
+        failed(json!({"error": "agent exited (code 1): Error: auth expired"})),
+        "the turn ended failed: agent exited (code 1): Error: auth expired"
+    );
+    assert_eq!(
+        failed(
+            json!({"error": "the agent died.", "recovery": "acpmux restarts it on the next prompt"})
+        ),
+        "the turn ended failed: the agent died. acpmux restarts it on the next prompt"
+    );
+    assert_eq!(
+        failed(json!({"error": "rate limited", "recovery": "retry later"})),
+        "the turn ended failed: rate limited. retry later"
+    );
+    assert_eq!(
+        failed(json!({"detail": "stalled", "stalled_ms": 325_000})),
+        "the turn ended failed: the agent stalled, with no output for 325 s"
+    );
+    assert_eq!(
+        failed_turn_message(&ended("cancelled", json!({})), CHAT),
+        "the turn ended cancelled"
+    );
+    let bare = failed(json!({"code": -32603}));
+    assert!(
+        bare.starts_with("the turn ended failed (code -32603) and acpmux recorded no reason"),
+        "{bare}"
+    );
+    assert!(bare.contains(CHAT), "it names where to look: {bare}");
+    let bare = failed(json!({"error": "   "}));
+    assert!(bare.contains("recorded no reason"), "blank is no reason: {bare}");
+}
+
+#[test]
+fn chat_turn_failed_carries_the_reason_through_last_turn() {
+    let mut failed_end = end(2, "failed");
+    failed_end["error"] = json!("agent exited (code 137): killed");
+    failed_end["code"] = json!(-32603);
+    let ended = last_turn(&[item(1, "user", "go"), failed_end.clone()], 0).unwrap();
+    assert_eq!(ended.failure["error"], "agent exited (code 137): killed");
+    assert_eq!(ended.failure["code"], -32603);
+
+    let mut fake = Fake::new(new_receipt());
+    fake.waits = VecDeque::from([idle()]);
+    fake.reads = VecDeque::from([vec![item(1, "user", "go"), failed_end]]);
+    let outcome = run_turn(&mut fake, &Begin::New(vec!["go".into()]), Duration::from_secs(60));
+    assert_eq!(error(&outcome), ("chat.turn_failed", 1));
+    let Outcome::Failed { error, .. } = &outcome else { unreachable!() };
+    assert!(
+        error.to_string().contains("agent exited (code 137): killed"),
+        "the reason reaches the error: {error}"
+    );
+}
+
+/// A send queued behind a failed turn (its queue paused) says so at once instead of waiting out
+/// the clock for a turn that never starts.
+#[test]
+fn a_send_queued_behind_a_paused_queue_does_not_wait() {
+    let receipt = json!({"schema_version": 1, "action": "chat.send", "result": {
+        "chat": CHAT, "message_id": "m1", "state": "queued", "waits_for": "resume",
+        "reason": "the chat's last turn failed, so its queue is paused"}});
+    let mut fake = Fake::new(receipt);
+    let begin = Begin::Send { session: CHAT.into(), text: "next".into() };
+    let outcome = run_turn(&mut fake, &begin, Duration::from_secs(60));
+    assert_eq!(error(&outcome), ("chat.queue_paused", 2));
+    assert!(fake.slices.is_empty(), "no wait");
+
+    // Queued behind a starting agent: it goes in by itself, so the wait goes on.
+    let receipt = json!({"schema_version": 1, "action": "chat.send", "result": {
+        "chat": CHAT, "message_id": "m1", "state": "queued", "waits_for": "agent_start"}});
+    let mut fake = Fake::new(receipt);
+    fake.waits = VecDeque::from([idle()]);
+    fake.reads = VecDeque::from([vec![
+        item(1, "user", "next"),
+        item(2, "assistant", "ok"),
+        end(3, "completed"),
+    ]]);
+    let outcome = run_turn(&mut fake, &begin, Duration::from_secs(60));
+    assert_eq!(answer(&outcome)["reply"], "ok");
 }

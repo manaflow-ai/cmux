@@ -23,6 +23,16 @@
   --acpmux-attach-height: 32px;
   --acpmux-attach-top: 6px;
 }
+/* A pane about 200 px tall has no room for a 64 px tile band, a line of draft and the controls under
+   the header: the band covered + and Send (ask c-6a24624c5c). There the strip takes the chips size,
+   the shortest one, so the tiles, the draft and the controls all stay in sight. */
+@media (height < 220px) {
+  /* Match the attach-size attribute rule above so a compact strip also takes the chips size. */
+  .acpmux-composer-box[data-attach-size] {
+    --acpmux-attach-height: 32px;
+    --acpmux-attach-top: 6px;
+  }
+}
 .acpmux-attachments {
   /* A column flex item: a 100% basis would be the box's height, and shrinking would clip the
      thumbnails under the prompt. */
@@ -265,7 +275,7 @@
   color: var(--agent-muted);
   text-align: center;
 }
-/* With its Retry (attachmentIntake.tsx BrokenImageChip): the glyph, the note and Retry fit the tile. */
+/* An image that cannot be drawn (attachmentIntake.tsx BrokenImageChip): the glyph and the note fit the tile. */
 .acpmux-attachment-image-failed {
   gap: 4px;
 }
@@ -305,7 +315,7 @@
   min-width: 48px;
   max-width: 128px;
 }
-/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, HEADER_WAIT_MS at most): held
+/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, SHAPE_WAIT_MS at most, inside the drop's frame): held
    zero wide and unseen, so its first frame shown is its final size, not a stand-in width. */
 :is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing] {
   visibility: hidden;
@@ -345,8 +355,8 @@
   flex: none;
 }
 /* A file that could not be attached (composer/attachmentIntake.tsx PendingChip): its shape kept,
-   its kind's glyph (and a file's name), one small retry button and its ×; why is in its tooltip.
-   Never an empty tile with an underlined "Retry" (Leo, 2026-10-31: "video attachments (big
+   its kind's glyph (and a file's name) and its ×; why is in its tooltip. A failed upload is no
+   such tile: it keeps loading and is asked again on its own (composer/uploadRetry.ts). Never an empty tile with an underlined "Retry" (Leo, 2026-10-31: "video attachments (big
    attachments?) still sucks"). */
 .acpmux-attachment-failed {
   display: flex;
@@ -374,30 +384,6 @@
   min-width: 0;
   max-width: none;
 }
-/* The one retry control of a failed attachment, in the strip and in the text: a small round glyph
-   button on the composer's own surface, like the tile's × beside it. */
-.acpmux-attachment-retry,
-.acpmux-attachment-original-retry {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 10px;
-  background: var(--ds-surface-inset);
-  color: var(--agent-text);
-  text-decoration: none;
-  cursor: default;
-}
-.acpmux-attachment-retry:hover {
-  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
-}
-.acpmux-attachment-retry:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: 1px;
-}
 /* A file streaming to the chat's machine: a ring that fills on its tile (PendingChip UploadProgress). */
 .acpmux-attachment-progress {
   flex: none;
@@ -412,27 +398,22 @@
   stroke-linecap: round;
   transition: stroke-dashoffset var(--agent-motion-in, 120ms) linear;
 }
-/* A staged image whose original could not be saved: its preview still sends; a Retry badge in its
-   corner uploads the original again, and its tooltip says why it failed (attachmentIntake.tsx). */
-/* In the thumbnail's corner, the size of its × in the other corner: the middle stays the image's
-   (a click there opens it). */
-.acpmux-attachment-original-retry {
+/* A staged image whose original could not be saved: its preview still sends, the original is
+   saved again on its own, and once that has lasted a small mark in its corner says so; its tooltip
+   says why (attachmentIntake.tsx). No button: there is nothing to decide. In the thumbnail's corner,
+   the size of its × in the other corner: the middle stays the image's (a click there opens it). */
+.acpmux-attachment-original-still {
   position: absolute;
   bottom: 4px;
   left: 4px;
+  display: grid;
+  place-items: center;
   width: 16px;
-  height: auto;
   aspect-ratio: 1;
   border-radius: 8px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
   background: rgb(0 0 0 / 0.6);
-}
-.acpmux-attachment-original-retry:hover {
-  background: rgb(0 0 0 / 0.75);
-}
-.acpmux-attachment-original-retry:focus-visible {
-  outline: 1.5px solid #fff; /* theme-fixed: on its own black scrim over media */
-  outline-offset: 1px;
+  pointer-events: none;
 }
 .acpmux-attachment-file {
   display: flex;
@@ -596,11 +577,19 @@
   grid-template-rows: 1fr auto;
   align-content: center;
   gap: 2px 6px;
-  padding: 7px 24px 7px 8px;
+  /* No room kept for the hover-only ×: it lies over the name's end (Leo, 2026-11-24: "if the buttons
+     show on hover, then we should show the whole line before ellipsis-ing. and when the area is
+     hovered over, there's that whatever some amount of good fading that makes it all feel like one
+     motion"; "you're early ellipsis-ing because of a button that doesnt even always show"). The name
+     is a .ui-reveal-text (ui/motion/motion.css) of a data-reveal-overlap host: it fades under the ×
+     while the × shows, and fades at its end instead of an ellipsis only where it is cut. */
+  --acpmux-document-meta-pad-block: 7px;
+  padding: var(--acpmux-document-meta-pad-block) 8px;
   color: var(--agent-text);
 }
 .acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
 .acpmux-attachment-document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-attachment-document-name.ui-reveal-text { text-overflow: clip; }
 .acpmux-attachment-document-pages { color: var(--agent-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .acpmux-attachment-document .acpmux-attachment-remove { top: 20px; }
 /* The chat composer's and the New Tab card's (.nt-box): without it the New Tab badge drew as a
@@ -1188,7 +1177,13 @@ button.acpmux-attachment-pasted-open:hover {
   color: var(--agent-text);
   vertical-align: middle;
 }
-.acpmux-file-chip--removable { padding-right: 32px; }
+/* A removable chip keeps no room for its × (hover only): the × lies over the end of the chip's text
+   (.acpmux-file-chip__text, a .ui-reveal-text of a data-reveal-overlap host, ui/motion/motion.css),
+   which fades under it (Leo, 2026-11-24, as above). A failed chip's × is always shown, so its text
+   always gives way. */
+.acpmux-file-chip__text { display: flex; align-items: center; gap: var(--acpmux-file-chip-gap); flex: 0 1 auto; min-width: 0; }
+.acpmux-attachment-file .acpmux-file-chip__text { text-overflow: clip; }
+.acpmux-md-inline-chip > .acpmux-attachment-failed .ui-reveal-text { --ui-reveal-cover: var(--ui-reveal-controls-w, 0px); }
 .acpmux-file-chip > svg { flex: none; color: var(--agent-muted); }
 .acpmux-file-chip > .acpmux-file-chip__status {
   display: grid;
@@ -1293,9 +1288,9 @@ button.acpmux-attachment-pasted-open:hover {
    do we have a solid color thing anyway? Shouldn't it also be glass?"). No drop shadow: it sits in
    the composer's glass, not over the page. */
 :is(.acpmux-md-inline-chip, .acpmux-attachment).acpmux-paste-loading {
+  /* The element carries ui-glass (PASTE_LOADING_CLASS), which paints the frost; the chip's own
+     background and rim keep winning over the chip's class here. */
   background: var(--glass-tint);
-  -webkit-backdrop-filter: var(--glass-backdrop);
-  backdrop-filter: var(--glass-backdrop);
   box-shadow: var(--glass-rim-shadow);
   color: var(--agent-muted);
   opacity: 0.85;

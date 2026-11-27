@@ -14,16 +14,18 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
   type Ref,
   type UIEventHandler,
+  useMemo,
 } from "react";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
+import type { ListCommand } from "./keyStyle";
+import { useListKeys } from "./useListKeys";
 import "./popupSurface.css";
 
 export interface ListboxProps<T> {
@@ -127,6 +129,27 @@ export function Listbox<T>({
     element?.scrollIntoView?.({ block: "nearest" });
   }, [activeId]);
 
+  const last = items.length - 1;
+  // `app.keyStyle` (Vim j/k/gg/G/l, Emacs Ctrl-N/P/A/E/F): the same moves as the arrows, Home,
+  // End and Return. The rest (h, /, Esc, paging) is not this list's, so it goes on unchanged.
+  const listKeys = useListKeys({
+    onCommand: (command) => {
+      const to: Partial<Record<ListCommand, number>> = {
+        "list.next": Math.min(last, current + 1),
+        "list.previous": Math.max(0, current - 1),
+        "list.first": 0,
+        "list.last": last,
+      };
+      if (command in to) {
+        if (items.length) setCurrentHighlight(to[command]!);
+        return;
+      }
+      if (command !== "list.open") return false;
+      const item = items[current];
+      if (item) onOpen(item);
+    },
+  });
+
   // The list's own window: the scroller's offset and height, and each mounted row's measured height
   // by its key (a new Map when one changes, so the offsets below recompute).
   const ownWindow = visibleWindow === undefined && items.length > LISTBOX_WINDOW_AFTER;
@@ -150,25 +173,61 @@ export function Listbox<T>({
     observer.observe(node);
     return () => observer.disconnect();
   }, [ownWindow, readView]);
-  // When the mounted rows can change (the list, the scroll, the highlight), read their heights (only
-  // those, so it costs the window, not the list); a row whose height is new or changed updates the
-  // map once.
+  // A mounted row that changes height on its own (an interface scale or text size change, a line
+  // added to it) reads the heights again: one observer for the list, each row observed once.
+  const [resized, setResized] = useState(0);
+  const rowObserver = useRef<{ observer: ResizeObserver; rows: Set<Element> } | undefined>(undefined);
+  useEffect(() => {
+    if (!ownWindow || typeof ResizeObserver === "undefined") return;
+    const watch = { observer: new ResizeObserver(() => setResized((count) => count + 1)), rows: new Set<Element>() };
+    rowObserver.current = watch;
+    return () => {
+      watch.observer.disconnect();
+      if (rowObserver.current === watch) rowObserver.current = undefined;
+    };
+  }, [ownWindow]);
+  // When the mounted rows can change (the list, the scroll, the highlight, a row's size), read their
+  // heights (only those, so it costs the window, not the list); a row whose height is new or changed
+  // updates the map once. When every mounted row changed at once (two or more: an interface scale,
+  // text size or look change), the heights measured before for the rows not mounted are dropped too,
+  // so they take the mounted rows' mean and the list's length follows without visiting them.
   useLayoutEffect(() => {
     if (!ownWindow) return;
     const rows = scroller.current?.querySelectorAll<HTMLElement>(":scope > [role='option']") ?? [];
+    const watch = rowObserver.current;
+    if (watch) {
+      for (const row of watch.rows)
+        if (!row.isConnected) {
+          watch.observer.unobserve(row);
+          watch.rows.delete(row);
+        }
+      for (const row of rows)
+        if (!watch.rows.has(row)) {
+          watch.observer.observe(row);
+          watch.rows.add(row);
+        }
+    }
     let next: Map<string, number> | undefined;
+    let measured = 0;
+    let changed = 0;
+    const mounted = new Map<string, number>();
     for (const row of rows) {
       const index = Number(row.getAttribute("aria-posinset")) - 1;
       const item = items[index];
       const px = row.offsetHeight;
       if (item === undefined || px <= 0) continue;
       const key = getKey(item);
-      if ((next ?? heights).get(key) === px) continue;
+      mounted.set(key, px);
+      const before = (next ?? heights).get(key);
+      if (before !== undefined) measured += 1;
+      if (before === px) continue;
+      if (before !== undefined) changed += 1;
       next ??= new Map(heights);
       next.set(key, px);
     }
+    if (changed >= 2 && changed === measured && heights.size > mounted.size) next = mounted;
     if (next) setHeights(next);
-  }, [ownWindow, items, getKey, heights, view, current]);
+  }, [ownWindow, items, getKey, heights, view, current, resized]);
   const offsets = useMemo(
     () => (ownWindow ? listboxOffsets(items, getKey, heights) : undefined),
     [ownWindow, items, getKey, heights],
@@ -197,9 +256,10 @@ export function Listbox<T>({
   }, []);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    listKeys(event);
+    if (event.defaultPrevented) return;
     // Cmd, Ctrl and Option chords are the app's.
     if (event.metaKey || event.altKey || event.ctrlKey) return;
-    const last = items.length - 1;
     const moves: Record<string, number> = {
       ArrowDown: Math.min(last, current + 1),
       ArrowUp: Math.max(0, current - 1),
@@ -248,14 +308,15 @@ export function Listbox<T>({
         onScroll?.(event);
       }}
     >
-      {/* One flat keyed array: a row that moves between segments keeps its element. */}
+      {/* One flat keyed array: a row that moves between segments keeps its element. Rows and spacers
+          key apart ("row:", "spacer:"), so a caller's key that reads like a spacer's is still its row's. */}
       {segments.flatMap((segment, place) => [
-        segment.before > 0 && <div key={`space-${place}`} aria-hidden="true" style={{ height: segment.before }} />,
+        segment.before > 0 && <div key={`spacer:${place}`} aria-hidden="true" style={{ height: segment.before }} />,
         ...items.slice(segment.start, segment.end).map((item, offset) => {
           const index = segment.start + offset;
           return (
             <ListboxRow
-              key={getKey(item)}
+              key={`row:${getKey(item)}`}
               item={item}
               index={index}
               id={getItemId?.(item, index) ?? `${id}-${index}`}

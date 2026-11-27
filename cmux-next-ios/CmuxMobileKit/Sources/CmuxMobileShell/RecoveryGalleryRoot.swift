@@ -27,6 +27,7 @@ import SwiftUI
 ///   unavailable on this account), then the variants it was picked from, B and C;
 /// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots;
 ///   `cloudmachines-held`: the same with a start and a new machine waiting for approval in the Feed.
+/// - `vault-off`, `vault-pending`, `vault-on`: Settings → Cloud → Vault in each state, fixed data.
 /// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
 /// - `chip`: the terminal's connection chip (Leo 2026-11-21: "a symbol or short thing,
 ///   not a sentence. stop layout shifting"): A, the top-center toast the terminal shows,
@@ -35,12 +36,18 @@ import SwiftUI
 /// - `chiplist`: a list's connection state (the Workspaces list, Home, Agent Chats) as a chip over
 ///   the rows, which never move: A, top center (the one `cmuxMobileBanner` draws), in the link
 ///   states and over the signed-out banner; B, top leading; C, symbol only at the top trailing edge.
+/// - `panefilter`: the tab overview's pane filter, A (the one the grid shows), B and C (`PaneFilterGallery`).
 /// - `stills`: what a tab card's picture draws for math, a running tool's spinner and a menu, A (the
 ///   app's), B and C, each through `ImageRenderer` (`StillPictureGallery`).
 /// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
 /// - `lastsent`: the terminal's top strip back to the last line sent (Leo 2026-11-23: "click (tap)
 ///   the top bit of the terminal in phone to jump to that last sent bit"): A, the pill the page
 ///   shows; B, a full-width bar; C, the top edge alone (`TerminalLastSentGallery`).
+/// - `favicons`: browser tab cards with no picture: today's globe, then the site monogram (A, Settings
+///   → Advanced → Site Monograms on Tab Cards) and the variants it was picked from, B and C.
+/// - `quiet-before`, `quiet-a`, `quiet-b`, `quiet-c`: the places that said "Updating…" over rows
+///   the phone had, before and in three variants (Leo 2026-11-24: "they dont need to know that
+///   it's updating before they KNOW it's updating"); A is the one the app shows (`QuietUpdatingGallery`).
 /// - `skeleton`: the Workspaces list's placeholder rows with nothing cached (Leo 2026-11-24: "i noticed
 ///   the skeleton for this was a bit off on ios"; 2026-11-12: "just show the cache"): A, the rows at the
 ///   list's text column and row height with the caption spoken only (the one the list shows); B, the
@@ -49,9 +56,15 @@ import SwiftUI
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
+/// - `notsent`: a chat message the Mac never took within the send deadline (``NotSentGallery``):
+///   A, the inline line the chat shows, then B and C.
+/// - `agentmark`: a terminal agent's avatar beside a GUI agent chat's (Leo 2026-11-24: "both of them rn
+///   are just claude icon"), every variant side by side; `agentmark-a` ... `agentmark-d`, one variant on
+///   Feed-like rows (`AgentAvatarHostGallery`).
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
+            || ProcessInfo.processInfo.environment["CMUX_MOBILE_RECOVERY_GALLERY"]?.isEmpty == false
     }
 
     let scene: String
@@ -62,9 +75,12 @@ public struct RecoveryGalleryRoot: View {
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
-        let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
+        // The always-on simulator launches with an environment, not arguments (`ios-live`'s launch.env).
+        let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil }
+            ?? ProcessInfo.processInfo.environment["CMUX_MOBILE_RECOVERY_GALLERY"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? "states"
         let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
-        if ["chip", "chiplist", "stills", "skeleton"].contains(parts[0]), parts.count == 2 {
+        if ["chip", "chiplist", "quiet", "stills", "skeleton", "agentmark", "terminal"].contains(parts[0]), parts.count == 2 {
             scene = parts[0]
             variant = parts[1]
         } else {
@@ -79,8 +95,7 @@ public struct RecoveryGalleryRoot: View {
         Group {
             switch scene {
             case "terminal":
-                TerminalConnectingView(topInset: 60)
-                    .background(Color.black)
+                terminalCover
             case "card":
                 cards
             case "cloud":
@@ -95,18 +110,27 @@ public struct RecoveryGalleryRoot: View {
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
             case "reconnect":
                 reconnect
+            case "notsent":
+                NotSentGallery().background(CmuxMobileTheme.standard.colors.bg.color)
             case "skeleton":
                 skeletons
             case "chip":
                 connectionChips
             case "chiplist":
                 listChips
+            case "quiet":
+                QuietUpdatingGallery(variant: variant ?? "a")
+            case "vault-off", "vault-pending", "vault-on":
+                // Settings → Cloud → Vault, off, waiting for an approve, and on (`VaultModel.gallery`).
+                NavigationStack { VaultScreen(model: .gallery(state: String(scene.dropFirst(6)))) }
             case "cloudmachines-held":
                 NavigationStack { CloudMachinesScreen(model: .gallery(held: true), openChats: {}) }
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
             case "keybar":
                 TerminalKeyBarGallery()
+            case "panefilter":
+                PaneFilterGallery()
             case "stills":
                 // `stills-mocha`, `stills-solarized`: the same under a Mac's dark or light theme.
                 StillPictureGallery()
@@ -117,6 +141,10 @@ public struct RecoveryGalleryRoot: View {
                     }
             case "lastsent":
                 TerminalLastSentGallery()
+            case "favicons":
+                SiteMonogramGallery()
+            case "agentmark":
+                AgentAvatarHostGallery(variant: variant)
             default:
                 states
             }
@@ -124,6 +152,35 @@ public struct RecoveryGalleryRoot: View {
         .ignoresSafeArea(edges: scene == "terminal" ? .all : [])
         .accessibilityIdentifier("recoveryGallery.\(scene)")
         .preferredColorScheme(scheme)
+    }
+
+    /// A terminal page with no rows of its own yet (Leo, 2026-11-25: "the placeholder's also bad"):
+    /// `terminal` (or `terminal-loading`), the skeleton inside ``TerminalLoadWatch/bound``;
+    /// `terminal-saved`, the Mac's screen as last kept, drawn as it is; `terminal-stalled`, no
+    /// saved copy past the bound: Retry; `terminal-offline`, the Mac offline, with the link's
+    /// own line as the reason.
+    @ViewBuilder private var terminalCover: some View {
+        let saved = """
+        ~/Projects $ git status
+        On branch main
+        Your branch is up to date with 'origin/main'.
+
+        nothing to commit, working tree clean
+        ~/Projects $ claude
+        ✻ Waiting for 5 background agents to finish
+        ❯
+        """
+        switch variant {
+        case "saved":
+            TerminalConnectingView(topInset: 60, screenText: saved).background(Color.black)
+        case "stalled":
+            TerminalLoadStalledPanel(state: .reattaching(mac: "Mac Studio"), retry: {}).background(Color.black)
+        case "offline":
+            TerminalLoadStalledPanel(state: .offline(mac: "Mac Studio"), linkStatus: "This network blocks the connection",
+                                     retry: {}).background(Color.black)
+        default:
+            TerminalConnectingView(topInset: 60).background(Color.black)
+        }
     }
 
     /// The Workspaces placeholder rows, as `skeleton` above describes.
@@ -166,7 +223,7 @@ public struct RecoveryGalleryRoot: View {
     private var states: some View {
         VStack(spacing: 0) {
             EmptyState(symbol: "wifi.exclamationmark", title: "Couldn't load this Mac's Home.",
-                       message: "Check that the Mac is awake and online.", retry: {})
+                       message: "Check that the Mac is awake and online.")
             Divider()
             ContentUnavailableView {
                 Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
@@ -223,7 +280,7 @@ public struct RecoveryGalleryRoot: View {
                 }
                 .padding(.horizontal, 20)
                 galleryLabel("Timed out")
-                CloudChatsConnectFailed(cause: "No answer from atlas-dev through Aziz's Mac Studio in 40 s.") {}
+                CloudChatsConnectFailed(cause: "No answer from atlas-dev through Aziz's Mac Studio in 40 s.", autoRetry: AutoRetry())
                     .frame(height: 300)
                 galleryLabel("No Mac")
                 CloudChatsConnectMac {}
@@ -260,8 +317,8 @@ public struct RecoveryGalleryRoot: View {
         .background(CmuxMobileTheme.standard.colors.bg.color)
     }
 
-    /// A (picked): a quiet line at the top of the list, the same place and type as "Updating…",
-    /// so a blip reads as the list refreshing, not as a problem; rows stay tappable.
+    /// A (picked): a quiet line at the top of the list, the same place and type the list's old
+    /// "Updating…" line used, so a blip does not read as a problem; rows stay tappable.
     /// B: a floating glass pill over the bottom of the list (motion over content; covers the
     /// last row and competes with the tab bar).
     /// C: a thin indeterminate bar under the title with the rows dimmed (reads as blocked, and
@@ -305,12 +362,12 @@ public struct RecoveryGalleryRoot: View {
         }
         return ScrollView {
             VStack(spacing: 12) {
-                galleryLabel("A · picked · reconnecting")
-                list(.reconnecting)
+                galleryLabel("A · picked · reconnecting: nothing (Leo 2026-11-22)")
+                list(nil)
                 galleryLabel("A · past the bound, rows kept")
                 list(.stale)
-                galleryLabel("A · empty list, connecting")
-                CmuxSpinner(label: Text("Connecting to your Mac…")).frame(height: 120)
+                galleryLabel("A · empty list, loading")
+                CmuxSpinner(label: Text("Loading chats…")).frame(height: 120)
                 galleryLabel("B · floating pill")
                 list(nil)
                     .overlay(alignment: .bottom) {
@@ -407,7 +464,8 @@ public struct RecoveryGalleryRoot: View {
         VStack(spacing: 24) {
             ConnectionBanner(.offline, retry: {})
             ConnectionBanner(.signedOut, retry: {})
-            FailureCard(title: "Couldn't load your teams", message: "Check your connection, then retry.") {}
+            // retry-prompt-ok: signing in again is the person's step
+            FailureCard(title: "This device was signed out", message: "Sign in again to load your teams.", actionTitle: "Sign In") {}
                 .padding(.horizontal, 20)
             VStack(spacing: 10) {
                 Text("The simulator closed on your Mac.").font(.footnote).foregroundStyle(.secondary)

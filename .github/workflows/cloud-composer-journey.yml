@@ -56,7 +56,7 @@ on:
         required: false
         default: ""
         type: string
-  # No pull_request trigger: the run tests a published nightly, not the PR's code, and stays red until the
+  # No pull-request trigger: the run tests a published nightly, not the PR's code, and stays red until the
   # product reds its cells record are fixed, so it would only gate a harness PR on them. The harness's own
   # logic is covered by tests/test_cloud_composer_journey.py in tooling-tests.
 
@@ -71,7 +71,7 @@ jobs:
   resolve:
     # The nightly build and its source commit, from the live feed (no secret).
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: RUNNER_POOLS.linux_4 (#54437)
     timeout-minutes: 5
     outputs:
       build: ${{ steps.pick.outputs.build }}
@@ -123,7 +123,7 @@ jobs:
     # the job holds an account pair).
     if: github.repository == 'manaflow-ai/cmux'
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: RUNNER_POOLS.linux_4 (#54437)
     timeout-minutes: 5
     permissions:
       contents: read
@@ -131,8 +131,8 @@ jobs:
     outputs:
       label: ${{ steps.pool.outputs.label }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: github.run_attempt == 1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: github.run_attempt == 1 && vars.CI_BLACKSMITH_MACOS == 'on'
         with:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
@@ -141,11 +141,13 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Pick the Blacksmith macOS 26 pool
         id: pool
-        if: github.run_attempt == 1
+        # Why: note-350 (Blacksmith macOS is off unless vars.CI_BLACKSMITH_MACOS is `on`).
+        if: github.run_attempt == 1 && vars.CI_BLACKSMITH_MACOS == 'on'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -164,7 +166,7 @@ jobs:
     environment:
       name: ${{ inputs.backend == 'prod' && 'cmux-next-cloud-journey' || 'cmux-next-vm-image-dev' }}
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-runner.outputs.label || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 240
     permissions:
       contents: read
@@ -178,14 +180,14 @@ jobs:
       SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
       - name: Checkout the nightly's source commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.resolve.outputs.commit }}
           persist-credentials: false
           submodules: recursive
 
       - name: Checkout the harness from this run's ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: harness
           persist-credentials: false
@@ -203,6 +205,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Install build prerequisites
         run: |

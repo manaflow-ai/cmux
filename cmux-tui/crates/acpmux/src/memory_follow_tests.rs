@@ -12,29 +12,82 @@ fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 fn a_chat_leaving_a_machine_with_memory_on_carries_its_owner() {
     let on = r#"{"agents": {"memory": {"enabled": true, "owner": "mac-mini", "ownerArgs": ["--peer", "x"]}}}"#;
     assert_eq!(
-        outgoing(Some(on), &BTreeMap::new()),
+        outgoing(Some(on), &BTreeMap::new(), None),
         Some(json!({"owner": "mac-mini", "ownerArgs": ["--peer", "x"]}))
     );
-    // The machine itself holds the index: memory still follows, with no route.
+    // The machine itself holds the index and serves no remote daemon: memory still follows,
+    // with no route.
     let own = r#"{"agents": {"memory": {"enabled": true}}}"#;
     assert_eq!(
-        outgoing(Some(own), &BTreeMap::new()),
+        outgoing(Some(own), &BTreeMap::new(), None),
         Some(json!({"owner": null, "ownerArgs": []}))
     );
+}
+
+#[test]
+fn a_mac_that_owns_its_index_sends_the_route_back_to_itself() {
+    let here = route_back(Some("127.0.0.1:7781"), Some("bWFjLWtleQ=="));
+    assert_eq!(
+        here,
+        Some(Followed {
+            owner: Some("ws://127.0.0.1:7781/v1/link".into()),
+            owner_args: vec!["--via-machine".into(), "bWFjLWtleQ==".into()],
+        })
+    );
+    let own = r#"{"agents": {"memory": {"enabled": true}}}"#;
+    let field = outgoing(Some(own), &BTreeMap::new(), here.clone()).unwrap();
+    assert_eq!(
+        field,
+        json!({"owner": "ws://127.0.0.1:7781/v1/link", "ownerArgs": ["--via-machine", "bWFjLWtleQ=="]})
+    );
+    // The Cloud machine it lands on records that route and hands it to the memory server.
+    let mut session_env = BTreeMap::new();
+    apply(&mut session_env, &json!({(MANIFEST_FIELD): field}));
+    let followed = followed(&session_env).unwrap();
+    assert_eq!(Some(followed.clone()), here);
+    assert_eq!(
+        server_env(&followed),
+        vec![
+            (OWNER_ENV.to_owned(), "ws://127.0.0.1:7781/v1/link".to_owned()),
+            (OWNER_ARGS_ENV.to_owned(), r#"["--via-machine","bWFjLWtleQ=="]"#.to_owned()),
+        ]
+    );
+
+    // A set owner, or the owner the chat came in with, still wins over the route back.
+    let set = r#"{"agents": {"memory": {"enabled": true, "owner": "ssh://studio"}}}"#;
+    assert_eq!(
+        outgoing(Some(set), &BTreeMap::new(), here.clone()).unwrap()["owner"],
+        "ssh://studio"
+    );
+    let brought = env(&[(FOLLOWS_ENV, "1"), (OWNER_ENV, "mac-mini")]);
+    assert_eq!(outgoing(Some(own), &brought, here.clone()).unwrap()["owner"], "mac-mini");
+    // Memory off here sends nothing, route or not.
+    let off = r#"{"agents": {"memory": {"enabled": false}}}"#;
+    assert_eq!(outgoing(Some(off), &BTreeMap::new(), here), None);
+
+    // No route without a loopback remote daemon and a carrier key.
+    assert_eq!(route_back(None, Some("k")), None);
+    assert_eq!(route_back(Some("127.0.0.1:7781"), None), None);
+    assert_eq!(route_back(Some("10.0.0.2:7781"), Some("k")), None);
+    assert_eq!(route_back(Some("127.0.0.1:0"), Some("k")), None);
+    assert_eq!(route_back(Some("127.0.0.1:7781"), Some("a\nb")), None);
 }
 
 #[test]
 fn memory_off_or_unset_carries_nothing_unless_the_chat_brought_it() {
     let off = r#"{"agents": {"memory": {"enabled": false, "owner": "mac-mini"}}}"#;
     let brought = env(&[(FOLLOWS_ENV, "1"), (OWNER_ENV, "mac-mini")]);
-    assert_eq!(outgoing(Some(off), &brought), None);
-    assert_eq!(outgoing(None, &BTreeMap::new()), None);
-    assert_eq!(outgoing(Some("{}"), &BTreeMap::new()), None);
+    assert_eq!(outgoing(Some(off), &brought, None), None);
+    assert_eq!(outgoing(None, &BTreeMap::new(), None), None);
+    assert_eq!(outgoing(Some("{}"), &BTreeMap::new(), None), None);
     // Moved on again from a machine with no setting: it keeps what it brought.
-    assert_eq!(outgoing(None, &brought), Some(json!({"owner": "mac-mini", "ownerArgs": []})));
+    assert_eq!(outgoing(None, &brought, None), Some(json!({"owner": "mac-mini", "ownerArgs": []})));
     // A machine with memory on and no owner of its own passes the brought owner on.
     let own = r#"{"agents": {"memory": {"enabled": true}}}"#;
-    assert_eq!(outgoing(Some(own), &brought), Some(json!({"owner": "mac-mini", "ownerArgs": []})));
+    assert_eq!(
+        outgoing(Some(own), &brought, None),
+        Some(json!({"owner": "mac-mini", "ownerArgs": []}))
+    );
 }
 
 #[test]

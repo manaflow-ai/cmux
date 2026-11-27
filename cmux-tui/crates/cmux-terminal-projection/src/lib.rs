@@ -27,7 +27,9 @@
 pub mod fit_policy;
 pub mod held;
 pub mod project;
+pub mod relayout;
 pub mod style;
+pub mod sync;
 pub mod terminal;
 pub mod unicode;
 pub mod zoom;
@@ -448,6 +450,27 @@ impl Projection {
     /// Bytes painted and resets since creation.
     pub fn stats(&self) -> (u64, u64) {
         self.view.as_ref().map_or((0, 0), |v| (v.bytes_out, v.resets))
+    }
+
+    /// Where a daemon `terminal-find` cell (`host_from_bottom`: 1 is the
+    /// host's last row; `host_column`) lands on the phone's re-wrapped rows
+    /// ([`project::locate`]). None: the model does not hold that row.
+    pub fn locate(&self, host_from_bottom: usize, host_column: usize) -> Option<project::Located> {
+        let cols = self.viewport()?.0;
+        project::locate(&self.term, cols, self.compact, host_from_bottom, host_column)
+    }
+
+    /// The host cell under a phone cell (`phone_from_bottom`: 1 is the
+    /// phone's last re-wrapped row) ([`project::host_cell`]), as host rows
+    /// from the bottom and a host column. None: no viewport, or the model
+    /// does not hold that row.
+    pub fn host_cell(
+        &self,
+        phone_from_bottom: usize,
+        phone_column: usize,
+    ) -> Option<(usize, usize)> {
+        let cols = self.viewport()?.0;
+        project::host_cell(&self.term, cols, self.compact, phone_from_bottom, phone_column)
     }
 
     /// On the alternate screen with rows held: the held rows and the app's

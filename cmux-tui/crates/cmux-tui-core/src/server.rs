@@ -148,13 +148,14 @@ pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkErr
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_PREWARM_CAPABILITY,
-    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
-    AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
-    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
-    AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource, set_link_share_app_scheme, start_link_share_bridge,
+    AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
+    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    set_link_share_app_scheme, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -197,6 +198,7 @@ pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
+mod app_features;
 mod attachment_http;
 mod bookmarks;
 mod bookmarks_routed;
@@ -234,7 +236,11 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
-pub(crate) use launch_snapshot::{LAUNCH_SNAPSHOT_FILE, MAX_LAUNCH_SNAPSHOT_BYTES};
+#[cfg(unix)]
+pub(crate) mod machine_state_push;
+pub(crate) use launch_snapshot::{
+    LAUNCH_SNAPSHOT_FILE, LaunchSnapshotFlush, MAX_LAUNCH_SNAPSHOT_BYTES,
+};
 #[cfg(unix)]
 mod carrier_role;
 #[cfg(unix)]
@@ -259,6 +265,8 @@ mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
+pub mod identify_reply;
+pub use identify_reply::install_identify;
 mod cmd_sizing;
 mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
@@ -292,6 +300,7 @@ mod tab_create_wire;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
+pub(crate) use cmd_subscribe::AGENT_PRESENCE_REPLAY_CAPABILITY;
 pub(crate) use cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
 pub(crate) use cmd_subscribe::TREE_SELECTION_DELTAS_CAPABILITY;
@@ -340,17 +349,16 @@ use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_a
 mod capabilities;
 pub use capabilities::{build_capabilities, static_capabilities};
 mod daemon_build;
-pub use daemon_build::{
-    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
-};
-mod socket_path;
 #[cfg(test)]
-use socket_path::default_socket_path_in_runtime_dir;
+use crate::socket_path::default_socket_path_in_runtime_dir;
 #[cfg(unix)]
-pub(crate) use socket_path::unix_socket_path_fits;
-pub use socket_path::{
+pub(crate) use crate::socket_path::unix_socket_path_fits;
+pub use crate::socket_path::{
     default_socket_path, try_default_socket_path, try_default_socket_path_in_base,
     try_default_socket_path_in_base_scoped, validate_session_name,
+};
+pub use daemon_build::{
+    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
 };
 pub(crate) mod activity;
 mod browser_input;
@@ -363,6 +371,7 @@ mod chief_registry_resource;
 mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
+mod phone_link;
 mod shell_wire;
 mod url_open;
 #[cfg(test)]
@@ -434,13 +443,7 @@ pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
 /// the connection and its relay sub-views; `reattach-view` restores it. The
 /// daemon advertises it in `identify`.
 pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
-/// A phone or tablet view that lists this in `set-client-info` shows a
-/// terminal grid larger than its own correctly (letterbox or pan). Without it
-/// the daemon never applies a PTY grid larger than that view's reported size
-/// while the view is attached with one (`mux/terminal_sizing/handheld_ceiling.rs`):
-/// such a phone renders the PTY's output into its own grid, so a wider PTY
-/// overprints and cuts its rows. The daemon advertises it in `identify`.
-pub const HOST_GRID_VIEW_CAPABILITY: &str = "host-grid-view-v1";
+pub use crate::server_protocol::HOST_GRID_VIEW_CAPABILITY;
 /// A client that lists this in `set-client-info` decodes every
 /// `device_kind` of a size state and reads a kind it does not know as
 /// `unknown`. It receives `linux` and `windows` (and later kinds) as they
@@ -482,7 +485,7 @@ pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 pub const TERMINAL_PUBLIC_IDS_CAPABILITY: &str = "terminal-public-ids-v1";
 pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
-pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
+pub use crate::server_protocol::MAX_CREATION_SELECTOR_FALLBACKS;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
@@ -593,6 +596,9 @@ pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// The manual workspace unread mark: `marked_unread` on
 /// `set-workspace-metadata` and the `marked_unread` workspace field.
 pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
+/// Keep Workspace Awake mirrored from a Mac: `keep_awake` on `set-workspace-metadata` and the
+/// `keep_awake` workspace field. The freeing timer never ends a kept-awake workspace's shells.
+pub const WORKSPACE_KEEP_AWAKE_CAPABILITY: &str = "workspace-keep-awake-v1";
 /// The manual tab unread mark: `marked_unread` on `tab.update` and the tab
 /// resource's `extra.marked_unread`. It needs no notification; clients clear
 /// it when the person views the tab.
@@ -640,10 +646,7 @@ pub const TERMINAL_EXIT_STATUS_CAPABILITY: &str = "terminal-exit-status-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
-/// Frontend-rendered browser tabs (WebKit or CEF): `new-frontend-browser-tab`,
-/// `update-frontend-browser-tab`, and the `browser_renderer`,
-/// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
-pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
+pub use crate::server_protocol::FRONTEND_BROWSER_TABS_CAPABILITY;
 pub use frontend_browser_history::{
     FRONTEND_BROWSER_HISTORY_CAPABILITY, FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
 };
@@ -699,6 +702,9 @@ pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
 /// `launch_snapshot_path` in `identify`: a read-only file with the last
 /// settled tree and frontend projections, for drawing before connecting.
 pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
+/// `flush-launch-snapshot`: the launch snapshot written at once, with no
+/// settle or byte-budget wait (a quitting frontend asks after its last save).
+pub const LAUNCH_SNAPSHOT_FLUSH_CAPABILITY: &str = "launch-snapshot-flush-v1";
 /// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
 /// `create-terminal`: arguments for the terminal's shell.
 pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
@@ -754,11 +760,10 @@ pub fn api_revision_range() -> (u32, u32) {
 pub fn api_revision_compat() -> &'static cmux_api_compat::Compat {
     api_revision_wire::compat()
 }
-mod protocol_key;
 #[cfg(test)]
-use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
-pub use protocol_key::ProtocolKeyInput;
-pub(crate) use protocol_key::{
+use crate::protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
+pub use crate::protocol_key::ProtocolKeyInput;
+pub(crate) use crate::protocol_key::{
     decode_terminal_host_clear_history, encode_terminal_host_clear_history,
 };
 
@@ -913,6 +918,13 @@ enum Command {
         /// `install` and `update_command` (server/api_revision_wire.rs).
         #[serde(default)]
         revisions: bool,
+        /// Answered while the owner restores its session too, with
+        /// `lifecycle_ready: false` and `restore` (server/restoring.rs);
+        /// without it, held until the restore ends. A ready owner ignores it.
+        #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
+        restore_progress: bool,
     },
     BrowserHostProvider,
     /// cmux Remote (`remote-host-v1`, server/remote_host_command.rs).
@@ -981,6 +993,12 @@ enum Command {
         request_id: String,
         opened: bool,
     },
+    /// The Mac app asks before it opens a link a terminal program asked a browser for: the phone
+    /// that drives the terminal gets it (`phone_link.rs`). Unix, this Mac's own app only.
+    OfferLinkToPhone {
+        terminal_id: String,
+        url: String,
+    },
     TerminalClipboardSubscribe {
         terminal_ids: Vec<String>,
     },
@@ -1006,6 +1024,12 @@ enum Command {
     /// optional sections (`resource_projection`); unknown names are ignored.
     ServerStats {
         include: Option<Vec<String>>,
+        /// While the owner restores: refused with `server.restoring` and the
+        /// restore's progress at once, instead of held until it ends.
+        #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
+        restore_progress: bool,
     },
     /// The terminal hosts this daemon holds and every record root it can
     /// read, each host classified from records, leases and session guards,
@@ -1216,6 +1240,9 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
+    /// `flush-launch-snapshot` (`launch-snapshot-flush-v1`): write the launch
+    /// snapshot now, not after changes settle (a quitting frontend's last save).
+    FlushLaunchSnapshot,
     JournalFrontendEvent {
         event: crate::FrontendJournalEvent,
     },
@@ -1597,6 +1624,11 @@ enum Command {
         /// same request (`{kind: "browser", url, engine, ...}`).
         #[serde(default)]
         first_tab: Option<frontend_browser_history::FirstTabParams>,
+        /// `user`: `name` is exactly what the caller asked for (`agents chat
+        /// new --name`), pinned like a rename (#56422). Absent or `auto`: a
+        /// starting name the automatic namer may replace.
+        #[serde(default)]
+        name_source: Option<crate::resource_name::NameSource>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2052,7 +2084,8 @@ enum Command {
         mutation: MutationRequest,
     },
     /// Set, clear (`null`), or keep (absent) a workspace's shared color,
-    /// SF Symbol icon, and custom title, and set or keep its sidebar pin and manual unread mark.
+    /// SF Symbol icon, and custom title, and set or keep its sidebar pin, manual unread mark
+    /// and Keep Awake.
     SetWorkspaceMetadata {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -2068,6 +2101,9 @@ enum Command {
         pinned: Option<bool>,
         #[serde(default)]
         marked_unread: Option<bool>,
+        /// Keep Workspace Awake (`workspace-keep-awake-v1`).
+        #[serde(default)]
+        keep_awake: Option<bool>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2945,6 +2981,9 @@ const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
+/// Connections served at once. Measured: a `mux-conn` thread each on the default 2 MiB
+/// stack (virtual), and each may queue up to `OUTBOUND_CONNECTION_BYTE_CAPACITY` (8 x the
+/// 32 MiB attach budget) of output, all of them together `OUTBOUND_GLOBAL_BYTE_CAPACITY`.
 const MAX_SERVER_CONNECTIONS: usize = 64;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
 const WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -2991,12 +3030,15 @@ const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
 const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
-const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
-const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
-const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// The stack of a resource stream's or a detached wait's worker thread. No
+/// count bounds them: each one's cost is this stack (virtual; the pages it
+/// touches are its RSS), its socket's share of the connection's outbound byte
+/// budget (`OUTBOUND_CONNECTION_BYTE_CAPACITY`) and a few small records.
+const RESOURCE_WORKER_STACK_BYTES: usize = 256 * 1024;
 /// v1 `subscribe` event streams: each is a `mux-events-out` thread and an
 /// event mailbox that live until the connection closes (server/cmd_subscribe.rs).
+/// Measured: a `mux-events-out` thread each on the default 2 MiB stack (virtual) plus
+/// its mailbox, for the life of the connection; not yet given a small stack.
 const EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY: usize = 32;
 const EVENT_SUBSCRIPTIONS_SERVER_CAPACITY: usize = 1024;
 
@@ -3008,9 +3050,10 @@ use worker_admission::{
 };
 
 mod render_service;
+pub use render_service::ATTACH_FRAMES_CAPABILITY;
 use render_service::{
-    BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io, write_base64_json_string,
-    write_kitty_image_aliases_json, write_kitty_replay_state_json,
+    BudgetedFrame, BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io,
+    write_base64_json_string, write_kitty_image_aliases_json, write_kitty_replay_state_json,
 };
 #[cfg(test)]
 use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
@@ -3325,12 +3368,19 @@ mod starter_exit_tests;
 mod terminal_resume_tests;
 
 #[cfg(test)]
+#[path = "server/new_workspace_room_pin_tests.rs"]
+mod new_workspace_room_pin_tests;
+#[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
 
 #[cfg(test)]
 #[path = "server/attach_output_coalesce_tests.rs"]
 mod attach_output_coalesce_tests;
+
+#[cfg(test)]
+#[path = "server/attach_frames_tests.rs"]
+mod attach_frames_tests;
 
 #[cfg(test)]
 #[path = "server/agent_cli_hybrid_tests.rs"]
@@ -3383,6 +3433,10 @@ mod creation_burst_tests;
 #[cfg(test)]
 #[path = "server/run_public_ids_tests.rs"]
 mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/tree_schema_tests.rs"]
+mod tree_schema_tests;
 
 #[cfg(test)]
 #[path = "server/open_persistent_bench_tests.rs"]

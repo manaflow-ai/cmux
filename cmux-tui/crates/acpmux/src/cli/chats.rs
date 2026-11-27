@@ -242,7 +242,7 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
                 query.as_deref(),
                 limit,
             );
-            let page = client.request("_acpmux/chats", params).await?;
+            let page = ready_page(&client, "_acpmux/chats", params).await?;
             if json_out {
                 print_json(&page);
             } else {
@@ -355,6 +355,40 @@ fn now_ms() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
+/// How long `chats list` and `chats search` wait for the chat index to finish its scan.
+const INDEX_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The answer to `m` once the chat index finished scanning (`ready`), asked again while it
+/// scans, up to [`INDEX_WAIT`]; past it, the last (partial) answer. A person never runs the
+/// command again just because the daemon had only now started.
+async fn ready_page(client: &Client, m: &str, params: Value) -> Result<Value> {
+    use cmux_tui_util::retry::{Attempt, Patience};
+    let answer = Patience::new("the chat index to finish scanning", INDEX_WAIT)
+        .spaced(std::time::Duration::from_millis(200), std::time::Duration::from_secs(2))
+        .run_async(
+            || Err(anyhow::anyhow!("{m}: the chat index did not answer in time")),
+            move || {
+                let params = params.clone();
+                async move {
+                    let page =
+                        client.request(m, params).await.map_err(|e| Attempt::Fail(Err(e)))?;
+                    if scanning(&page) { Err(Attempt::Retry(Ok(page))) } else { Ok(page) }
+                }
+            },
+        )
+        .await;
+    match answer {
+        Ok(page) | Err(Ok(page)) => Ok(page),
+        Err(Err(e)) => Err(e),
+    }
+}
+
+/// Whether `page` came from a chat index still scanning (and chats are on).
+fn scanning(page: &Value) -> bool {
+    page.get("ready").and_then(Value::as_bool) == Some(false)
+        && page.get("enabled").and_then(Value::as_bool) != Some(false)
+}
+
 /// The `list` table: key, harness, age, title, folder; one chat per line.
 pub fn list_text(page: &Value, now_ms: i64) -> String {
     let chats = page.get("chats").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -364,7 +398,7 @@ pub fn list_text(page: &Value, now_ms: i64) -> String {
         return out;
     }
     if page.get("ready").and_then(Value::as_bool) == Some(false) {
-        out.push_str("the chat index is still scanning; try again in a moment\n");
+        out.push_str("the chat index is still scanning: chats it has not reached are not listed\n");
     }
     if chats.is_empty() {
         out.push_str("no chats\n");
@@ -408,7 +442,7 @@ async fn search_all(client: &Client, mut params: Value, limit: usize) -> Result<
     let (mut unreadable, mut scanned) = (0_u64, 0_u64);
     loop {
         params.set("limit", json!(limit.saturating_sub(hits.len())));
-        let mut page = client.request("_acpmux/chats_search", params.clone()).await?;
+        let mut page = ready_page(client, "_acpmux/chats_search", params.clone()).await?;
         let next = page.get("nextCursor").and_then(Value::as_str).map(str::to_owned);
         if let Some(Value::Array(found)) = page.get_mut("hits").map(Value::take) {
             hits.extend(found);
@@ -442,7 +476,7 @@ pub fn search_text(found: &Value) -> String {
         return out;
     }
     if found.get("ready").and_then(Value::as_bool) == Some(false) {
-        out.push_str("the chat index is still scanning; try again in a moment\n");
+        out.push_str("the chat index is still scanning: no chat was searched yet\n");
         return out;
     }
     let hits = found.get("hits").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -554,22 +588,5 @@ fn outcome_text(outcome: &OpenOutcome) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn search_text_prints_each_chat_with_its_snippet_and_what_was_left_out() {
-        let found = json!({"ready": true, "enabled": true, "unreadable": 1,
-            "nextCursor": "k1.2", "hits": [
-            {"chat": {"key": "codex:a", "title": "Bump\nit"}, "role": "answer", "snippet": "…to 1.2…"},
-            {"chat": {"key": "claude-code:b", "title": null}, "role": "prompt", "snippet": "bump"},
-        ]});
-        assert_eq!(
-            search_text(&found),
-            "codex:a  Bump it\n    answer: …to 1.2…\nclaude-code:b  (untitled)\n    prompt: bump\n\
-             (1 chats could not be read)\n(the first 2 found; raise --limit for more)\n"
-        );
-        let none = json!({"ready": true, "enabled": true, "hits": [], "nextCursor": null});
-        assert_eq!(search_text(&none), "no chat says that\n");
-    }
-}
+#[path = "chats_tests.rs"]
+mod tests;

@@ -29,6 +29,10 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// The device that sets the Mac's grid changed (its name, or nil when it
     /// is this phone or unknown), for the letterbox note.
     case hostGridOwner(String?)
+    /// A program in the terminal asked a browser for this public page while this phone drove
+    /// the terminal (`gh auth login`, `open URL`): the Mac's daemon sent it here instead of
+    /// opening it on the Mac (`phone-open-link`), so it opens on this phone.
+    case openLink(URL)
     /// The Mac stamped the redraw whose bytes the session just gave (`pseq`), and its line
     /// arrived at `receivedMs` (epoch ms): the screen reports when it painted it
     /// (``TerminalPaintTally``, `phone-frames` `paint`).
@@ -66,23 +70,15 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
-    /// Whether a tab's grid card shows the connecting placeholder (spinner
-    /// and label): only once its session was started (its page was laid
-    /// out). A tab not opened in this launch has no session yet, so a spinner
-    /// there never ends (D5, T-TABS-02): it shows its saved frame, or the
-    /// static placeholder.
-    public func cardShowsConnecting(sessionStarted: Bool) -> Bool {
-        !isAttached && sessionStarted
-    }
+    /// The Mac's name for status lines, "your Mac" when it has none.
+    private static func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
 
     /// The quiet line by the composer once an outage has lasted
-    /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
-    /// transport error ("daemon channel closed").
+    /// `QuietStatusGate.threshold`. Connecting and reattaching stay silent;
+    /// offline and failed states use plain words, never transport errors.
     public var quietLine: String? {
-        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
-        case .connecting(let mac): return "Connecting to \(named(mac))…"
-        case .reattaching(let mac): return "Reconnecting to \(named(mac))…"
+        case .connecting, .reattaching: return nil
         case .offline(let mac): return mac.flatMap { $0.isEmpty ? nil : "\($0) is offline" } ?? "Your Mac is offline"
         case .failed: return "Can't reach this terminal"
         case .attached: return nil
@@ -129,10 +125,9 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// once the terminal is back, or comes back to the composer if it never
     /// comes (``TerminalSessionEvent/inputNotSent(bytes:)``).
     public var composerNotSentNotice: String? {
-        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
         case .attached: return nil
-        case .offline(let mac): return "Not sent: \(named(mac)) is offline. Send again when it's back."
+        case .offline(let mac): return "Not sent: \(Self.named(mac)) is offline. Send again when it's back."
         case .failed(let message): return message
         // A first attach usually lands within a few hundred ms: the send
         // goes to the session, which holds it that long and says so if the
@@ -142,12 +137,11 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
-    /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
-    public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
     /// Said while keys typed before the attach wait for it (``TerminalSessionEvent/inputHeld(bytes:)``),
     /// beside Discard.
     public static let inputHeldNotice = "Keys you typed go when the terminal reconnects."
-    /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
+    /// Said only when voice mode's prompt did not reach the Mac's terminal: its words are not in the
+    /// composer to come back. A composer send that did not go says nothing (its draft comes back).
     public static let composerSendNotSentNotice = "Your message was not sent."
     /// Said when the composer's message may have reached the Mac's terminal but its answer never
     /// came (the link failed after it went out): its text stays out of the composer, so a second
@@ -259,6 +253,18 @@ public protocol TerminalSession: AnyObject {
     /// ``TerminalScrollPlace``), so a session that attaches with the latest
     /// screen first asks for at least that much history at once. Others ignore it.
     func requestHistoryRows(_ rows: Int)
+    /// One page of Find over the Mac's whole history for this terminal (`terminal-find`,
+    /// newest match first). Nil: this session cannot (no Mac daemon, or one without the
+    /// command, or the mirror's rows are not the Mac's rows, as in a projection): the screen
+    /// searches its mirror instead.
+    func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage?
+    /// How much of the Mac's history the mirror holds (``TerminalFindRowMap``). Nil with no Mac daemon.
+    var findMirror: TerminalFindMirror? { get }
+    /// The mirror should hold the Mac's history row `daemonRow`, `rowsFromBottom` rows above its
+    /// bottom row, which it does not now (a Find match older than the mirror): a replay with that
+    /// history follows, as for ``loadOlderHistory()``. Returns whether it asked.
+    @discardableResult
+    func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool
     /// The phone projects this terminal itself (``TerminalProjectingSession``):
     /// the session claims a size only when told to, and never holds the
     /// Mac's own grid back from the screen while the primary screen shows.
@@ -302,6 +308,12 @@ public protocol TerminalSession: AnyObject {
     /// Drops the keys held for the attach (``TerminalSessionEvent/inputHeld(bytes:)``), at the
     /// person's word: none is sent. Sessions that hold no keys ignore it.
     func discardHeldInput()
+    /// Keeps the terminal submission waiting for attachment bytes subject to the same
+    /// disconnect hold as typed input. Expiry does not cancel the file transfer.
+    func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID
+    /// Rechecks the hold synchronously before submission, then releases its registration.
+    /// False means the submission expired; the caller must keep the draft unsent.
+    @discardableResult func endAttachmentSubmission(_ id: UUID) -> Bool
 }
 
 /// A full-screen app's transcript (Leo, 2026-11-24: "where's us simply
@@ -325,6 +337,9 @@ public struct TerminalTUITranscript: Equatable, Sendable {
 }
 
 extension TerminalSession {
+    public func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID { UUID() }
+    @discardableResult public func endAttachmentSubmission(_ id: UUID) -> Bool { true }
+
     /// Sessions that never hold keys send a reply as they send keys.
     public func sendReply(_ bytes: Data) { send(bytes) }
 
@@ -363,6 +378,13 @@ extension TerminalSession {
     public func loadNewerHistory(toTheScreen: Bool) -> Bool { false }
 
     public func requestHistoryRows(_ rows: Int) {}
+
+    public func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage? { nil }
+
+    public var findMirror: TerminalFindMirror? { nil }
+
+    @discardableResult
+    public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool { false }
 
     public func setProjectsLocally(_ projects: Bool) {}
 

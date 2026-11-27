@@ -37,6 +37,18 @@
   font: inherit;
   cursor: default;
 }
+/* A sub-session's Open (subagents/ChildAsk.tsx) carries an icon for the narrow line (cardFit.css). */
+.acpmux-pending-ask__actions > .acpmux-pending-ask__dismiss {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+}
+/* A fit card takes its parent's width: inline-size containment collapses a box sized to its content. */
+.acpmux-pending-ask__head.cv-fit-row {
+  box-sizing: border-box;
+  width: 100%;
+  column-gap: var(--ds-space-2, 8px);
+}
 .acpmux-pending-ask__dismiss:hover {
   background: var(--acpmux-question-hover);
   color: var(--agent-text);

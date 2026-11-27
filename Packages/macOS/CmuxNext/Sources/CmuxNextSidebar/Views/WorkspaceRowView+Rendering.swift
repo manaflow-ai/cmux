@@ -85,8 +85,7 @@ extension WorkspaceRowView {
             // Archived (archiving-DESIGN.md): the title drops to the detail ink, no opacity of its own (Leo 2026-10-27).
             [subtitle, timeLabel, metaLabel, tabCount].forEach { $0.setColor(SidebarStyle.TextInk.tertiary.color) }
             mutedMark.setTint(Palette.textTertiary)
-            cloudMark.setTint(Palette.textTertiary)
-            usageWarningMark.setTint(Palette.attention)
+            pinMark.setTint(Palette.textTertiary)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
@@ -95,12 +94,7 @@ extension WorkspaceRowView {
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
             let painted = colorFill() ?? fill // `workspaceColors.indicatorStyle` (#25653): fill or rail
-            // With subagent lines under it the fill takes the name's part only (`headFill`).
-            let headOnly = subagentsHeight > 0
-            paintFill(headOnly ? nil : painted)
-            headFill.isHidden = !headOnly || painted == nil
-            headFill.backgroundColor = headOnly ? painted?.cgColor : nil
-            subagentsView.tint()
+            paintFill(painted)
             // The one border: the focus ring of the group this row stands for, as its header draws it.
             layer?.borderColor = Palette.focusRing.cgColor
             layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
@@ -118,8 +112,7 @@ extension WorkspaceRowView {
         layoutNeedsYouGlow()
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
-        // The chat's subagent lines, when shown, hang under the status block.
-        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight - subagentsHeight)
+        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Entering a row should reveal its controls immediately. Keep the
@@ -197,7 +190,7 @@ extension WorkspaceRowView {
             prBadge.frame.origin.y = SidebarStyle.textY(prBadge, centerY: cy)
             trailing = columns.trailingEdge(before: prBadge.frame)
         }
-        let hoverCloses = isClosable && !(revealsHoverControls && isPinned?() == true)
+        let hoverCloses = isClosable
         let showClose = revealsHoverControls && !isShowingPlaceholder && hoverCloses
         let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
         // An end action owns the column. Tree controls and chips remain visible and clickable
@@ -219,9 +212,9 @@ extension WorkspaceRowView {
         // nothing moves. Marks under them hide while they show. An unread
         // badge keeps its slot at rest, and the action that lands there on
         // hover hides it.
-        // A pinned workspace's row draws no x on hover; it closes from its right-click menu (Lawrence msg 19392:
-        // "hover on pinned tab should not have close button, should only be able to close in right click"). Its ⋮
-        // takes the x's place, as on a row that cannot close. The pin is read only while the controls show.
+        // A pinned workspace's row keeps its x on hover, as every row does, so its ⋮ and Unpin stay where an unpinned
+        // row's ⋮ and Pin are (Leo 2026-11-23, ask c-b5d3e0efb6: "you cant close a pinned tab? no good reason for
+        // these limitations"). Only a row that cannot close puts its ⋮ in the x's place.
         setHoverShown(closeSlot, showClose, fades: controlFades)
         setHoverPainted(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
@@ -268,26 +261,13 @@ extension WorkspaceRowView {
             activity.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
             trailing = columns.trailingEdge(before: activity.frame)
         }
+        if !pinMark.isHidden {
+            pinMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
+            trailing = columns.trailingEdge(before: pinMark.frame)
+        }
         if !mutedMark.isHidden {
             mutedMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
             trailing = columns.trailingEdge(before: mutedMark.frame)
-        }
-        // Where the row runs is a status mark like the bell-slash: a Cloud row's small muted cloud sits in the trailing
-        // cluster, never in the leading slot or against the name (Leo 2026-11-22).
-        if !cloudMark.isHidden {
-            cloudMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
-            trailing = columns.trailingEdge(before: cloudMark.frame)
-        }
-        if !usageWarningMark.isHidden {
-            // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
-            // column's mark (`layoutColumnMark`), centered where every spinner above it centers (Lawrence 2026-10-30:
-            // "triangle not aligned, not sure if triangle is even centered": it ended at the row's inset, in a smaller
-            // box). Like every other mark it gives way to the hover controls in place (no move); the row's hover card
-            // still names each warning.
-            if columnMark?.view !== usageWarningMark {
-                usageWarningMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
-                trailing = usageWarningMark.frame.minX - Metrics.space2
-            }
         }
         if audioSlot.made?.isHidden == false {
             audioSlot.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
@@ -312,6 +292,7 @@ extension WorkspaceRowView {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
+        textX = layoutSignature(textX: textX, cy: cy)
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
         title.isHidden = renaming || (isShowingPlaceholder && !titleArrival)
@@ -346,15 +327,15 @@ extension WorkspaceRowView {
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
         // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the hovered
         // buttons should just replace the other ones"): while the ✕, the ⋮ or the pin shows, the dot, the spinner, the
-        // status stack, the counts, the time and the usage warning hide in place (no layout shift). Only what a person
-        // points at keeps its place: the audio button, and the Cloud mark, which belongs to the name.
+        // status stack, the counts and the time hide in place (no layout shift). Only what a person
+        // points at keeps its place: the audio button.
         let controlsShow = !shownControls.isEmpty
-        for mark in ([activity, rowBadge, agentMark, mutedMark, cloudMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
+        for mark in ([activity, rowBadge, agentMark, pinMark, mutedMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             // A leading status mark sits before the title, clear of the hover controls: it never gives way.
             let statusMark = mark === activity || (mark === agentMark && markReplacesStatus)
             let status = !statusLeads && statusMark
-            let keepsPlace = (statusLeads && statusMark) || mark === cloudMark || mark === audioSlot.made
+            let keepsPlace = (statusLeads && statusMark) || mark === audioSlot.made
                 || (mark === agentMark && agentMarkVariant == .besideTitle)
             let covered = mark === columnMark?.view ? markGivesWay || controlsShow
                 : (controlsShow && !keepsPlace) || (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
@@ -367,12 +348,11 @@ extension WorkspaceRowView {
         // before it, clears (Leo 2026-11-22: "this too. fucking overlapping icons. over 24 hours ago.": the blue dot
         // drew on a tree parent's ⋮ beside its chevron).
         clearMarksMeetingIcons(keep: [closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator],
-                               marks: [rowBadge, badge, activity, agentMark, keycap, pullRequests, rollUp, mutedMark, cloudMark,
+                               marks: [rowBadge, badge, activity, agentMark, keycap, pullRequests, rollUp, pinMark, mutedMark,
                                        presenceDots, tabCount, prBadge, timeLabel],
                                fades: fades)
         if showsNeedsYouGlow { hideMarksForNeedsYouGlow() } else { marksHiddenForGlow = false } // the mark pass showed them
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
-        layoutSubagents(textX: textX, head: b.maxY + statusHeight, full: full)
         if titleArrivalPending && !titleArrivalScheduled {
             titleArrivalScheduled = true
             CATransaction.setCompletionBlock { [weak self] in self?.startTitleArrival() }

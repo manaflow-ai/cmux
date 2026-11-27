@@ -27,15 +27,16 @@
 //! Off when the person turned it off ([`set_cellular_assist`]), in Low Data
 //! Mode (a constrained interface), and while the app is backgrounded.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::ops::Deref;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use cmux_transport::PathId;
+use cmux_transport::{DatagramClass, PathId, classify};
 use cmux_wg::{Origin, Received};
 use serde::{Deserialize, Serialize};
 use tokio::io::ReadBuf;
@@ -44,7 +45,7 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 use super::{Carrier, HybridUnderlay, Route, UDP_PATH, no_plain_udp};
-use crate::class_queue::SendClass;
+use crate::class_queue::{INPUT_MAX, SendClass};
 
 /// The `wg-offer` / `wg-answer` protocol version at which a side takes a
 /// second socket's datagrams and the `metered` announcement list.
@@ -154,6 +155,78 @@ const MAX_ERRORS: usize = 8;
 /// the metered address: then no copy goes out before Wi-Fi dies.
 const STUN_RETRY_FIRST: Duration = Duration::from_millis(200);
 const STUN_RETRY_MAX: Duration = Duration::from_secs(2);
+/// Small data datagrams that authenticated, kept so a copy that lost the
+/// race (WireGuard's replay window drops it unread) can still be told from
+/// a stranger's: at most this many, for at most [`AUTHENTIC_KEEP`].
+const AUTHENTIC_MAX: usize = 128;
+const AUTHENTIC_KEEP: Duration = Duration::from_secs(2);
+
+/// A small WireGuard data datagram's identity: receiver index and counter
+/// (bytes 4..16) and its Poly1305 tag (the last 16 bytes). The tag is a MAC
+/// under the session key over that header and the ciphertext, so nobody
+/// without the key makes a datagram with the key of one that authenticated
+/// except by copying it whole.
+type CopyKey = [u8; 28];
+
+fn copy_key(datagram: &[u8]) -> Option<CopyKey> {
+    if datagram.len() > INPUT_MAX || classify(datagram) != DatagramClass::WireGuardData {
+        return None;
+    }
+    let mut key = [0u8; 28];
+    key[..12].copy_from_slice(&datagram[4..16]);
+    key[12..].copy_from_slice(&datagram[datagram.len() - 16..]);
+    Some(key)
+}
+
+/// A tunnel UDP socket: IPv4, or dual-stack IPv6 (a second socket on an
+/// IPv6-only cellular network, 464XLAT or NAT64). On a dual-stack one an
+/// IPv4 target leaves as `::ffff:a.b.c.d` (Darwin refuses an IPv4 sockaddr
+/// on an IPv6 socket) and an IPv4 source comes back as plain IPv4, so the
+/// addresses it sees compare equal to the peer's and STUN servers'.
+pub(super) struct TunnelSocket {
+    socket: UdpSocket,
+    v6: bool,
+}
+
+impl TunnelSocket {
+    pub(super) fn new(socket: UdpSocket) -> Self {
+        let v6 = socket.local_addr().is_ok_and(|addr| addr.is_ipv6());
+        Self { socket, v6 }
+    }
+
+    fn wire(&self, target: SocketAddr) -> SocketAddr {
+        match target {
+            SocketAddr::V4(v4) if self.v6 => SocketAddr::from((v4.ip().to_ipv6_mapped(), v4.port())),
+            _ => target,
+        }
+    }
+
+    pub(super) fn try_send_to(&self, datagram: &[u8], target: SocketAddr) -> io::Result<usize> {
+        self.socket.try_send_to(datagram, self.wire(target))
+    }
+
+    pub(super) fn poll_recv_from(
+        &self,
+        cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<SocketAddr>> {
+        self.socket
+            .poll_recv_from(cx, buffer)
+            .map_ok(|source| if self.v6 { canonical(source) } else { source })
+    }
+}
+
+impl Deref for TunnelSocket {
+    type Target = UdpSocket;
+    fn deref(&self) -> &UdpSocket {
+        &self.socket
+    }
+}
+
+/// `::ffff:a.b.c.d` as `a.b.c.d`.
+fn canonical(addr: SocketAddr) -> SocketAddr {
+    SocketAddr::new(addr.ip().to_canonical(), addr.port())
+}
 
 /// A socket bound to the second interface, as the session hands it over.
 pub(super) struct SecondarySocket {
@@ -168,7 +241,7 @@ pub(super) struct SecondarySocket {
 }
 
 pub(super) struct Secondary {
-    socket: UdpSocket,
+    socket: TunnelSocket,
     interface: String,
     /// The peer address its datagrams last came from on this socket.
     peer: Option<SocketAddr>,
@@ -224,13 +297,28 @@ pub(super) struct Assist {
     /// The Mac: the phone's addresses on its metered interface, as it
     /// announced them ([`HybridUnderlay::is_metered`]).
     peer_metered: HashSet<SocketAddr>,
-    /// The Mac: the metered address the phone's datagrams last came from.
+    /// The Mac: the metered address the phone's authenticated datagrams
+    /// last came from.
     metered_from: Option<(SocketAddr, Instant)>,
+    /// The Mac: the small data datagram last handed to WireGuard, and where
+    /// from; it joins [`Assist::authentic`] if WireGuard authenticates it.
+    handed: Option<(Origin, CopyKey)>,
+    /// The Mac: small data datagrams that authenticated lately (newest
+    /// last). A byte-for-byte copy of one, arriving from a metered address,
+    /// is the phone's losing copy: authenticated by the tag it shares.
+    authentic: VecDeque<(CopyKey, Instant)>,
     /// When a promotion moved the session onto the warm socket.
     promoted: Option<Instant>,
     /// Copies sent on the second interface (telemetry and tests).
     pub(super) copies: u64,
+    /// Datagrams the primary socket returned in a row: past
+    /// [`PRIMARY_BURST`] the second socket is read first once, so a busy
+    /// Wi-Fi socket never starves the cell one.
+    pub(super) primary_streak: usize,
 }
+
+/// See [`Assist::primary_streak`].
+pub(super) const PRIMARY_BURST: usize = 16;
 
 impl HybridUnderlay {
     /// A path on the primary interface answers and the selector trusts it.
@@ -258,7 +346,7 @@ impl HybridUnderlay {
         }
         let Some(SecondarySocket { socket, interface, stun, reflexive }) = socket else { return };
         let socket = match UdpSocket::from_std(socket) {
-            Ok(socket) => socket,
+            Ok(socket) => TunnelSocket::new(socket),
             Err(error) => {
                 tracing::debug!(%error, interface, "second socket not taken");
                 return;
@@ -304,8 +392,21 @@ impl HybridUnderlay {
         tracing::debug!(metered = ?self.assist.peer_metered, "the peer's metered addresses");
         let learned = std::mem::take(&mut self.learned);
         self.learned = learned.into_iter().filter(|addr| !self.is_metered(*addr)).collect();
+        // A cellular route learned before the announcement arrived must not
+        // keep carrying bulk: demote it, and the selector picks again.
+        if self.direct.is_some_and(|route| {
+            route.carrier == Carrier::Udp && self.assist.peer_metered.contains(&route.addr)
+        }) {
+            self.direct = None;
+            self.pinned_until = None;
+            self.demote("the route's address is metered");
+        }
         if self.assist.metered_from.is_some_and(|(addr, _)| !self.is_metered(addr)) {
             self.assist.metered_from = None;
+        }
+        if self.assist.peer_metered.is_empty() {
+            self.assist.handed = None;
+            self.assist.authentic.clear();
         }
     }
 
@@ -377,29 +478,25 @@ impl HybridUnderlay {
 
     /// The second socket's next datagram (`None`: nothing now).
     pub(super) fn poll_secondary(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Option<Received> {
-        let known: HashSet<SocketAddr> = if self.assist.secondary.is_some() {
-            self.candidates
-                .iter()
-                .chain(self.learned.iter())
-                .chain(self.labels.peer_relayed.iter())
-                .copied()
-                .collect()
-        } else {
-            HashSet::new()
-        };
         for _ in 0..MAX_ERRORS {
             let secondary = self.assist.secondary.as_mut()?;
             let mut read = ReadBuf::new(buffer);
             match secondary.socket.poll_recv_from(cx, &mut read) {
                 Poll::Ready(Ok(source)) => {
                     let len = read.filled().len();
-                    if secondary.stun_answer(&buffer[..len], source) || self.options.block_udp {
+                    if secondary.stun_answer(&buffer[..len], source)
+                        || self.options.block_udp
+                        || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
+                    {
                         continue;
                     }
                     // A copy that lost the race to the primary interface
                     // never authenticates (WireGuard's replay window drops
                     // it), so a known peer address counts as heard here.
-                    if known.contains(&source) {
+                    if self.candidates.contains(&source)
+                        || self.learned.contains(&source)
+                        || self.labels.peer_relayed.contains(&source)
+                    {
                         secondary.peer = Some(source);
                         secondary.last_heard = Some(Instant::now());
                     }
@@ -413,22 +510,59 @@ impl HybridUnderlay {
                 Poll::Pending => return None,
             }
         }
+        // Ready every time, so no waker is registered: ask to be polled
+        // again, or what is left on the socket waits for the primary's.
+        cx.waker().wake_by_ref();
         None
     }
 
     /// On the primary socket, before authentication: a datagram from one
-    /// of the phone's metered addresses tells where copies go (a copy that
-    /// lost the race never authenticates).
-    pub(super) fn note_arrival(&mut self, source: SocketAddr) {
-        if !self.assist.peer_metered.is_empty() && self.is_metered(source) {
-            self.assist.metered_from = Some((source, Instant::now()));
+    /// of the phone's metered addresses moves where copies go only if it
+    /// is a copy of one that authenticated (a copy that lost the race to
+    /// Wi-Fi fails WireGuard's replay check unread). Anything else from a
+    /// metered IP (another subscriber behind the carrier NAT, a spoofer)
+    /// waits for WireGuard ([`Self::assist_heard`]).
+    pub(super) fn note_arrival(&mut self, source: SocketAddr, datagram: &[u8]) {
+        if self.assist.peer_metered.is_empty() || !self.is_metered(source) {
+            return;
         }
+        let Some(key) = copy_key(datagram) else { return };
+        let now = Instant::now();
+        if self
+            .assist
+            .authentic
+            .iter()
+            .any(|(seen, at)| *seen == key && now.duration_since(*at) <= AUTHENTIC_KEEP)
+        {
+            self.assist.metered_from = Some((source, now));
+        }
+    }
+
+    /// The Mac, as a datagram goes to WireGuard: remember it, in case it
+    /// authenticates.
+    pub(super) fn note_handed(&mut self, datagram: &[u8], origin: Origin) {
+        self.assist.handed = if self.assist.peer_metered.is_empty() {
+            None
+        } else {
+            copy_key(datagram).map(|key| (origin, key))
+        };
     }
 
     /// `true`: an authenticated datagram the route rules must not see (it
     /// came on the second interface, or from the phone's metered one while
     /// a primary path lives).
     pub(super) fn assist_heard(&mut self, origin: Origin, now: Instant) -> bool {
+        if let Some((handed, key)) = self.assist.handed.take()
+            && handed == origin
+        {
+            let authentic = &mut self.assist.authentic;
+            while authentic.len() >= AUTHENTIC_MAX
+                || authentic.front().is_some_and(|(_, at)| now.duration_since(*at) > AUTHENTIC_KEEP)
+            {
+                authentic.pop_front();
+            }
+            authentic.push_back((key, now));
+        }
         let Some(addr) = origin.addr else { return false };
         if origin.path == SECONDARY_PATH {
             if let Some(secondary) = &mut self.assist.secondary {
@@ -521,31 +655,76 @@ fn is_cgnat(ip: Ipv4Addr) -> bool {
     a == 100 && (64..128).contains(&b)
 }
 
-/// Bind a tunnel socket to `interface` (iOS `IP_BOUND_IF`, Linux
-/// `SO_BINDTODEVICE`), so what it sends leaves there whatever the default
-/// route is.
+/// Bind a tunnel socket to `interface` (iOS `IP_BOUND_IF`/`IPV6_BOUND_IF`,
+/// Linux `SO_BINDTODEVICE`), so what it sends leaves there whatever the
+/// default route is. Dual-stack IPv6 where the system has it (an IPv6-only
+/// cellular network reaches the peer's IPv6 candidates, and its IPv4 ones
+/// through 464XLAT), else IPv4.
 pub(super) fn bind_udp_on(interface: &str) -> io::Result<std::net::UdpSocket> {
-    let socket =
-        socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
+    let index = interface_index(interface)?;
+    bind_dual_stack(Some(index)).or_else(|error| {
+        tracing::debug!(%error, interface, "no dual-stack second socket; IPv4 only");
+        bind_v4(Some(index))
+    })
+}
+
+fn tunnel_socket(domain: socket2::Domain) -> io::Result<socket2::Socket> {
+    let socket = socket2::Socket::new(domain, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
     let _ = socket.set_recv_buffer_size(super::UDP_BUFFER);
     let _ = socket.set_send_buffer_size(super::UDP_BUFFER);
     socket.set_nonblocking(true)?;
-    bind_device(&socket, interface)?;
+    Ok(socket)
+}
+
+fn bind_dual_stack(index: Option<std::num::NonZeroU32>) -> io::Result<std::net::UdpSocket> {
+    let socket = tunnel_socket(socket2::Domain::IPV6)?;
+    socket.set_only_v6(false)?;
+    if index.is_some() {
+        bind_device_v6(&socket, index)?;
+    }
+    socket.bind(&SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0)).into())?;
+    Ok(socket.into())
+}
+
+fn bind_v4(index: Option<std::num::NonZeroU32>) -> io::Result<std::net::UdpSocket> {
+    let socket = tunnel_socket(socket2::Domain::IPV4)?;
+    if index.is_some() {
+        bind_device_v4(&socket, index)?;
+    }
     socket.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)).into())?;
     Ok(socket.into())
 }
 
 #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-fn bind_device(socket: &socket2::Socket, interface: &str) -> io::Result<()> {
+fn interface_index(interface: &str) -> io::Result<std::num::NonZeroU32> {
     let name = std::ffi::CString::new(interface).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
     // SAFETY: `name` is a valid NUL-terminated string for the call.
     let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
-    let index = std::num::NonZeroU32::new(index).ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
-    socket.bind_device_by_index_v4(Some(index))
+    std::num::NonZeroU32::new(index).ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+fn bind_device_v4(socket: &socket2::Socket, index: Option<std::num::NonZeroU32>) -> io::Result<()> {
+    socket.bind_device_by_index_v4(index)
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+fn bind_device_v6(socket: &socket2::Socket, index: Option<std::num::NonZeroU32>) -> io::Result<()> {
+    socket.bind_device_by_index_v6(index)
 }
 
 #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android")))]
-fn bind_device(_socket: &socket2::Socket, _interface: &str) -> io::Result<()> {
+fn interface_index(_interface: &str) -> io::Result<std::num::NonZeroU32> {
+    Err(io::Error::from(io::ErrorKind::Unsupported))
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android")))]
+fn bind_device_v4(_socket: &socket2::Socket, _index: Option<std::num::NonZeroU32>) -> io::Result<()> {
+    Err(io::Error::from(io::ErrorKind::Unsupported))
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android")))]
+fn bind_device_v6(_socket: &socket2::Socket, _index: Option<std::num::NonZeroU32>) -> io::Result<()> {
     Err(io::Error::from(io::ErrorKind::Unsupported))
 }
 
@@ -565,6 +744,15 @@ mod tests {
     }
 
     fn underlay(peer_endpoints: &[String], socket: UdpSocket, peer_version: u32) -> HybridUnderlay {
+        underlay_with(peer_endpoints, socket, peer_version, &DialOptions::default())
+    }
+
+    fn underlay_with(
+        peer_endpoints: &[String],
+        socket: UdpSocket,
+        peer_version: u32,
+        options: &DialOptions,
+    ) -> HybridUnderlay {
         let (reach_out, _reaches) = mpsc::unbounded_channel();
         let (_control, control) = mpsc::unbounded_channel();
         HybridUnderlay::new(
@@ -581,7 +769,7 @@ mod tests {
                 control,
                 relay_shared: Default::default(),
             },
-            &DialOptions::default(),
+            options,
         )
     }
 
@@ -694,6 +882,7 @@ mod tests {
             stun: Vec::new(),
             reflexive,
             timeline: crate::timing::Timeline::new(),
+            new_hop_port: tokio::sync::oneshot::channel().0,
         });
         assert_eq!(
             underlay.socket.local_addr().unwrap(),
@@ -721,6 +910,7 @@ mod tests {
             stun: Vec::new(),
             reflexive,
             timeline: crate::timing::Timeline::new(),
+            new_hop_port: tokio::sync::oneshot::channel().0,
         });
         assert_eq!(underlay.socket.local_addr().unwrap(), fresh_addr);
         assert!(underlay.assist.secondary.is_some());
@@ -819,7 +1009,6 @@ mod tests {
         drive(&mut mac, wifi_addr, Instant::now());
         mac.socket.writable().await.unwrap();
         mac.apply(Control::PeerMetered(vec![cell_addr.to_string()]));
-        mac.note_arrival(cell_addr);
         mac.authenticated(Origin { path: UDP_PATH, addr: Some(cell_addr) });
         assert_eq!(mac.direct, Some(Route { carrier: Carrier::Udp, addr: wifi_addr }));
         assert!(mac.learned.is_empty(), "a metered address is no path");
@@ -832,6 +1021,75 @@ mod tests {
             drain(&cell, Duration::from_millis(150)).await.is_empty(),
             "no stream on cell while Wi-Fi lives"
         );
+    }
+
+    /// Review F1: a cellular route the Mac took before the phone's
+    /// `metered` announcement arrived stops being the route once it does.
+    #[tokio::test]
+    async fn a_route_that_turns_out_metered_is_demoted() {
+        let wifi = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let wifi_addr = wifi.local_addr().unwrap();
+        let cell = UdpSocket::bind("127.0.0.2:0").await.unwrap();
+        let cell_addr = cell.local_addr().unwrap();
+        let mut mac =
+            underlay(&[wifi_addr.to_string()], UdpSocket::bind("127.0.0.1:0").await.unwrap(), WG_VERSION);
+        mac.direct = Some(Route { carrier: Carrier::Udp, addr: cell_addr });
+        mac.apply(Control::PeerMetered(vec![wifi_addr.to_string()]));
+        assert_eq!(mac.direct, Some(Route { carrier: Carrier::Udp, addr: cell_addr }), "not metered: kept");
+        mac.apply(Control::PeerMetered(vec![cell_addr.to_string()]));
+        assert_eq!(mac.direct, None, "a metered route is no longer the route");
+    }
+
+    /// Review F2: `restrict_inbound_udp` holds on the second socket too.
+    #[tokio::test]
+    async fn the_second_socket_drops_strangers_when_inbound_is_restricted() {
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let peer_addr = peer.local_addr().unwrap();
+        let stranger = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let options = DialOptions { restrict_inbound_udp: true, ..DialOptions::default() };
+        let mut underlay = underlay_with(
+            &[peer_addr.to_string()],
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            WG_VERSION,
+            &options,
+        );
+        let cell = attach(&mut underlay).await;
+        stranger.send_to(&data(120, 1), cell).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut buffer = [0u8; 2048];
+        let got = std::future::poll_fn(|cx| Poll::Ready(underlay.poll_secondary(cx, &mut buffer))).await;
+        assert!(got.is_none(), "a datagram from an address never sent to is dropped");
+        underlay.sent_to.insert(peer_addr);
+        peer.send_to(&data(120, 2), cell).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let got = std::future::poll_fn(|cx| Poll::Ready(underlay.poll_secondary(cx, &mut buffer))).await;
+        assert_eq!(got.map(|received| received.origin.addr), Some(Some(peer_addr)));
+    }
+
+    /// Review F3: a busy primary socket does not starve the second one.
+    #[tokio::test]
+    async fn a_busy_primary_socket_does_not_starve_the_second() {
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let peer_addr = peer.local_addr().unwrap();
+        let primary = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let primary_addr = primary.local_addr().unwrap();
+        let mut underlay = underlay(&[peer_addr.to_string()], primary, WG_VERSION);
+        let cell = attach(&mut underlay).await;
+        for tag in 0..64u8 {
+            peer.send_to(&data(120, tag), primary_addr).await.unwrap();
+        }
+        peer.send_to(&data(120, 0xEE), cell).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut buffer = [0u8; 2048];
+        let mut position = None;
+        for index in 0..(PRIMARY_BURST + 2) {
+            let received = std::future::poll_fn(|cx| underlay.poll_recv(cx, &mut buffer)).await.unwrap();
+            if received.origin.path == SECONDARY_PATH {
+                position = Some(index);
+                break;
+            }
+        }
+        assert!(position.is_some(), "the cell datagram waited behind more than {PRIMARY_BURST} Wi-Fi ones");
     }
 
     /// Old against new, both ways: a side without a second interface sends
@@ -847,6 +1105,152 @@ mod tests {
         old.send(&data(120, 1));
         assert_eq!(drain(&peer, Duration::from_millis(150)).await.len(), 1);
         assert_eq!(old.assist.copies, 0);
+    }
+
+    /// The next datagram the underlay hands to WireGuard, if one is there.
+    async fn next(underlay: &mut HybridUnderlay) -> Option<Received> {
+        let mut buffer = [0u8; 2048];
+        tokio::time::timeout(
+            Duration::from_millis(200),
+            std::future::poll_fn(|cx| underlay.poll_recv(cx, &mut buffer)),
+        )
+        .await
+        .ok()
+        .map(|received| received.unwrap())
+    }
+
+    /// Review P2 (follow-up 1): a datagram from the phone's metered IP that
+    /// never authenticated (another subscriber behind the carrier NAT, a
+    /// spoofer) does not move the Mac's copies; a byte-for-byte copy of one
+    /// that authenticated (the losing copy, which WireGuard's replay check
+    /// drops unread) does, from any port.
+    #[tokio::test]
+    async fn only_an_authenticated_copy_moves_the_macs_copies() {
+        let wifi = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let wifi_addr = wifi.local_addr().unwrap();
+        let cell = UdpSocket::bind("127.0.0.2:0").await.unwrap();
+        let cell_addr = cell.local_addr().unwrap();
+        let stranger = UdpSocket::bind("127.0.0.2:0").await.unwrap();
+        let mut mac =
+            underlay(&[wifi_addr.to_string()], UdpSocket::bind("127.0.0.1:0").await.unwrap(), WG_VERSION);
+        let mac_addr = mac.socket.local_addr().unwrap();
+        drive(&mut mac, wifi_addr, Instant::now());
+        mac.apply(Control::PeerMetered(vec![cell_addr.to_string()]));
+
+        // Wi-Fi's copy wins and authenticates.
+        let keystroke = data(120, 7);
+        wifi.send_to(&keystroke, mac_addr).await.unwrap();
+        let received = next(&mut mac).await.unwrap();
+        assert_eq!(received.origin.addr, Some(wifi_addr));
+        mac.authenticated(received.origin);
+
+        // Junk from the metered IP on another port: WireGuard drops it.
+        let mut forged = data(120, 9);
+        forged[4..16].copy_from_slice(&keystroke[4..16]);
+        stranger.send_to(&forged, mac_addr).await.unwrap();
+        stranger.send_to(&data(120, 8), mac_addr).await.unwrap();
+        assert!(next(&mut mac).await.is_some());
+        assert!(next(&mut mac).await.is_some());
+        assert_eq!(mac.assist.metered_from, None, "an unauthenticated datagram moved the copies");
+
+        // The losing copy of the authenticated keystroke, from the carrier
+        // NAT's other port: copies go there.
+        cell.send_to(&keystroke, mac_addr).await.unwrap();
+        assert!(next(&mut mac).await.is_some());
+        assert_eq!(mac.assist.metered_from.map(|(addr, _)| addr), Some(cell_addr));
+    }
+
+    /// Review P2 (follow-up 2): a second socket that returned only datagrams
+    /// it skips asks to be polled again (no waker is registered on Ready).
+    #[tokio::test]
+    async fn a_second_socket_full_of_skipped_datagrams_asks_to_be_polled_again() {
+        struct Count(std::sync::atomic::AtomicUsize);
+        impl std::task::Wake for Count {
+            fn wake(self: Arc<Self>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let stranger = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let options = DialOptions { restrict_inbound_udp: true, ..DialOptions::default() };
+        let mut underlay = underlay_with(
+            &[peer.local_addr().unwrap().to_string()],
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            WG_VERSION,
+            &options,
+        );
+        let cell = attach(&mut underlay).await;
+        for tag in 0..(MAX_ERRORS + 2) as u8 {
+            stranger.send_to(&data(120, tag), cell).await.unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let count = Arc::new(Count(std::sync::atomic::AtomicUsize::new(0)));
+        let waker = std::task::Waker::from(count.clone());
+        let mut cx = Context::from_waker(&waker);
+        let mut buffer = [0u8; 2048];
+        assert!(underlay.poll_secondary(&mut cx, &mut buffer).is_none());
+        assert_eq!(count.0.load(Ordering::SeqCst), 1, "datagrams are left on the socket with no wake");
+    }
+
+    /// Review P3 (follow-up 4): a datagram on the second socket costs no
+    /// allocation.
+    #[tokio::test]
+    async fn the_second_socket_receives_without_allocating() {
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let peer_addr = peer.local_addr().unwrap();
+        let mut underlay =
+            underlay(&[peer_addr.to_string()], UdpSocket::bind("127.0.0.1:0").await.unwrap(), WG_VERSION);
+        let cell = attach(&mut underlay).await;
+        peer.send_to(&data(120, 1), cell).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut buffer = [0u8; 2048];
+        let waker = std::task::Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        let (received, allocations) = counting::allocations(|| underlay.poll_secondary(&mut cx, &mut buffer));
+        assert_eq!(received.map(|received| received.origin.addr), Some(Some(peer_addr)));
+        assert_eq!(allocations, 0);
+    }
+
+    /// Review P2 (follow-up 3): the second socket is dual-stack. It reaches
+    /// an IPv4 peer and an IPv6 one, and an IPv4 peer's datagrams come back
+    /// from its plain IPv4 address (not `::ffff:`), so they match the
+    /// peer's candidates.
+    #[tokio::test]
+    async fn the_second_socket_is_dual_stack() {
+        let socket = bind_dual_stack(None).unwrap();
+        assert!(socket.local_addr().unwrap().is_ipv6());
+        let socket = TunnelSocket::new(UdpSocket::from_std(socket).unwrap());
+        let port = socket.local_addr().unwrap().port();
+        let v4 = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let v4_addr = v4.local_addr().unwrap();
+        socket.writable().await.unwrap();
+        socket.try_send_to(b"to v4", v4_addr).unwrap();
+        let mut buffer = [0u8; 64];
+        let (len, from) =
+            tokio::time::timeout(Duration::from_secs(1), v4.recv_from(&mut buffer)).await.unwrap().unwrap();
+        assert_eq!((&buffer[..len], from.port()), (&b"to v4"[..], port));
+        v4.send_to(b"back", SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await.unwrap();
+        let source = tokio::time::timeout(
+            Duration::from_secs(1),
+            std::future::poll_fn(|cx| socket.poll_recv_from(cx, &mut ReadBuf::new(&mut buffer))),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(source, v4_addr, "an IPv4 source compares as IPv4");
+        if let Ok(v6) = UdpSocket::bind("[::1]:0").await {
+            let v6_addr = v6.local_addr().unwrap();
+            socket.try_send_to(b"to v6", v6_addr).unwrap();
+            let (len, _) = tokio::time::timeout(Duration::from_secs(1), v6.recv_from(&mut buffer))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(&buffer[..len], b"to v6");
+        }
+        // Bound to an interface: dual-stack where the system allows it.
+        if let Ok(bound) = bind_udp_on("lo") {
+            assert!(bound.local_addr().unwrap().is_ipv6(), "the bound socket fell back to IPv4");
+        }
     }
 
     fn up(name: &str, kind: InterfaceKind, primary: bool) -> NetInterface {
@@ -870,12 +1274,61 @@ mod tests {
         let both = [up("en0", InterfaceKind::Wifi, true), up("pdp_ip0", InterfaceKind::Cellular, false)];
         assert_eq!(secondary_interface(&both, false, false), None);
         assert_eq!(secondary_interface(&both, true, true), None);
-        let mut low_data = both.clone();
+        let mut low_data = both;
         low_data[0].constrained = true;
         assert_eq!(secondary_interface(&low_data, true, false), None);
         let cell_only = [up("pdp_ip0", InterfaceKind::Cellular, true)];
         assert_eq!(secondary_interface(&cell_only, true, false), None);
         let wifi_only = [up("en0", InterfaceKind::Wifi, true)];
         assert_eq!(secondary_interface(&wifi_only, true, false), None);
+    }
+}
+
+/// Allocations made on this thread inside [`counting::allocations`] (the
+/// test binary's allocator; every other allocation passes straight on).
+#[cfg(test)]
+mod counting {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    struct Counting;
+
+    thread_local! {
+        static ON: Cell<bool> = const { Cell::new(false) };
+        static COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    // SAFETY: every call goes to `System` unchanged; the count is a
+    // const-initialized thread local, which never allocates.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if ON.with(Cell::get) {
+                COUNT.with(|count| count.set(count.get() + 1));
+            }
+            // SAFETY: the caller's contract, passed on.
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            // SAFETY: the caller's contract, passed on.
+            unsafe { System.dealloc(pointer, layout) }
+        }
+        unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+            if ON.with(Cell::get) {
+                COUNT.with(|count| count.set(count.get() + 1));
+            }
+            // SAFETY: the caller's contract, passed on.
+            unsafe { System.realloc(pointer, layout, size) }
+        }
+    }
+
+    #[global_allocator]
+    static ALLOCATOR: Counting = Counting;
+
+    pub(super) fn allocations<T>(run: impl FnOnce() -> T) -> (T, usize) {
+        COUNT.with(|count| count.set(0));
+        ON.with(|on| on.set(true));
+        let value = run();
+        ON.with(|on| on.set(false));
+        (value, COUNT.with(Cell::get))
     }
 }

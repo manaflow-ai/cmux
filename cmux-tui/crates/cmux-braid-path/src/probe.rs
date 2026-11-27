@@ -68,6 +68,11 @@ impl Default for ProbeConfig {
 pub(crate) struct PathProbe {
     next_at: Option<Instant>,
     outstanding: Option<(u64, Instant)>,
+    /// When the last ping left, answered or not.
+    last_ping: Option<Instant>,
+    /// Something asked for a probe now (`due_now`): it goes out whatever
+    /// traffic says.
+    urgent: bool,
 }
 
 impl PathProbe {
@@ -82,6 +87,7 @@ impl PathProbe {
         if self.next_at.is_none_or(|at| at > now) {
             self.next_at = Some(now);
         }
+        self.urgent = true;
     }
 }
 
@@ -95,6 +101,10 @@ pub struct PathWatch {
     unanswered_since: Option<Instant>,
     /// The outstanding probe that already made this path suspect.
     flagged_probe: Option<u64>,
+    /// An authenticated datagram arrived on the path since its last ping.
+    heard_since_ping: bool,
+    /// Routine pings wait until then (`hold_routine`).
+    routine_floor: Option<Instant>,
 }
 
 /// What a [`PathWatch`] found at one step.
@@ -122,6 +132,7 @@ impl PathWatch {
     /// An authenticated datagram arrived on the path: it is not silent.
     pub fn heard(&mut self) {
         self.unanswered_since = None;
+        self.heard_since_ping = true;
     }
 
     /// Probe at the next step, whatever the interval says: something on
@@ -131,9 +142,42 @@ impl PathWatch {
         self.probe.due_now(now);
     }
 
+    /// [`Self::probe_now`], also when a probe is outstanding: one sent at
+    /// least `min_age` ago is given up (reported neither answered nor lost;
+    /// a late answer to it is ignored), so the new one goes at the next step
+    /// instead of after the old one's timeout. For a path the peer just
+    /// reached us on while it was dead or never answered: the outstanding
+    /// probe went out while the path was black-holed, and waiting out its
+    /// 1 s timeout is what kept a session on the relay after the direct path
+    /// opened (RFD 0142 R1). `min_age` bounds it to one probe per that long
+    /// however many datagrams arrive.
+    pub fn probe_now_fresh(&mut self, now: Instant, min_age: Duration) {
+        if let Some((_, sent)) = self.probe.outstanding
+            && now.saturating_duration_since(sent) >= min_age
+        {
+            self.probe.outstanding = None;
+            self.flagged_probe = None;
+        }
+        self.probe.due_now(now);
+    }
+
+    /// Hold this path's routine pings until `floor` (the link's idle air
+    /// gap: the radio stays asleep between the tunnel's own sends), or lift
+    /// the hold with `None`. A ping something asked for (`probe_now`, a
+    /// path gone quiet) and a new or suspect path's pings never wait.
+    pub fn hold_routine(&mut self, floor: Option<Instant>) {
+        self.routine_floor = floor;
+    }
+
     /// The round trip of probe `id`'s answer, if it is the one outstanding.
+    /// The answer also says the path is not silent. It is the path's own
+    /// probe coming back, not other traffic, so it does not stand in for the
+    /// next routine ping (`skip_proven_ping`).
     pub fn answer(&mut self, config: &ProbeConfig, id: u64, now: Instant) -> Option<u64> {
-        config.answer(&mut self.probe, id, now)
+        let rtt_us = config.answer(&mut self.probe, id, now)?;
+        self.unanswered_since = None;
+        self.heard_since_ping = false;
+        Some(rtt_us)
     }
 
     /// The path's step at `now`. `current` is whether the selector sends on
@@ -170,7 +214,14 @@ impl PathWatch {
                 },
             }
         }
+        if current {
+            self.skip_proven_ping(config, view, now);
+        }
+        self.wait_for_floor(view, now);
         let step = config.step(&mut self.probe, view, current, next_id, now);
+        if step.ping.is_some() {
+            self.heard_since_ping = false;
+        }
         found.lost = step.lost;
         found.ping = step.ping;
         if step.ping.is_some() && chosen {
@@ -182,6 +233,46 @@ impl PathWatch {
             (a, b) => a.or(b),
         };
         found
+    }
+}
+
+impl PathWatch {
+    /// The current path's routine ping is due, but the path delivered an
+    /// authenticated datagram since its last one: traffic (the link's own
+    /// keepalive and its answer, a key, a frame) already proved it, so the
+    /// ping would only spend a radio wake. It waits another interval, up to
+    /// `other_interval` after the last ping, when one goes anyway to keep
+    /// the round trip current. A ping something asked for (`due_now`: the
+    /// path went quiet, a network change) and a suspect or new path are
+    /// never skipped.
+    fn skip_proven_ping(&mut self, config: &ProbeConfig, view: &PathView, now: Instant) {
+        let probe = &mut self.probe;
+        let routine_due = probe.outstanding.is_none() && probe.next_at.is_some_and(|at| now >= at);
+        if !routine_due || probe.urgent || !self.heard_since_ping || view.state != PathState::Alive
+        {
+            return;
+        }
+        let Some(last) = probe.last_ping else { return };
+        let refresh = last + config.other_interval;
+        if now >= refresh {
+            return;
+        }
+        // A path that later goes quiet under a send is caught by the
+        // silence watch (`unanswered_since`), not by this ping.
+        probe.next_at = Some((now + config.current_interval).min(refresh));
+    }
+}
+
+impl PathWatch {
+    /// A routine ping due before the hold's floor waits for it.
+    fn wait_for_floor(&mut self, view: &PathView, now: Instant) {
+        let Some(floor) = self.routine_floor.filter(|floor| *floor > now) else { return };
+        let probe = &mut self.probe;
+        let routine_due = probe.outstanding.is_none() && probe.next_at.is_some_and(|at| now >= at);
+        if routine_due && !probe.urgent && matches!(view.state, PathState::Alive | PathState::Dead)
+        {
+            probe.next_at = Some(floor);
+        }
     }
 }
 
@@ -224,6 +315,8 @@ impl ProbeConfig {
         if probe.outstanding.is_none() && probe.next_at.is_none_or(|at| now >= at) {
             *next_id += 1;
             probe.outstanding = Some((*next_id, now));
+            probe.last_ping = Some(now);
+            probe.urgent = false;
             probe.next_at = Some(now + self.interval(view, current));
             step.ping = Some(*next_id);
         }
@@ -247,5 +340,79 @@ impl ProbeConfig {
                 .unwrap_or(u64::MAX)
                 .max(1),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cmux_transport::{Medium, PathId, PathKind};
+
+    fn alive() -> PathView {
+        PathView {
+            id: PathId(0),
+            kind: PathKind::DirectLan,
+            medium: Medium::Lan,
+            state: PathState::Alive,
+            rtt_us: Some(10_000),
+        }
+    }
+
+    /// One step of the current, chosen path: the ping it sent, if any.
+    fn step(watch: &mut PathWatch, id: &mut u64, now: Instant) -> Option<u64> {
+        watch.step(&ProbeConfig::default(), &alive(), (true, true), id, now).ping
+    }
+
+    /// The first ping at `start`, answered at once.
+    fn proven(start: Instant) -> (PathWatch, u64) {
+        let mut watch = PathWatch::default();
+        let mut id = 0;
+        let ping = step(&mut watch, &mut id, start).expect("the first ping");
+        watch.answer(&ProbeConfig::default(), ping, start).expect("answered");
+        (watch, id)
+    }
+
+    #[test]
+    fn traffic_on_the_current_path_stands_in_for_its_ping_up_to_the_refresh() {
+        let start = Instant::now();
+        let secs = |n| start + Duration::from_secs(n);
+        let (mut watch, mut id) = proven(start);
+        watch.heard();
+        for at in [5, 10, 15, 20, 25] {
+            assert_eq!(step(&mut watch, &mut id, secs(at)), None, "skipped at {at} s");
+        }
+        assert!(step(&mut watch, &mut id, secs(30)).is_some(), "the round trip refresh");
+    }
+
+    #[test]
+    fn the_answer_to_its_own_ping_does_not_stand_in_for_the_next() {
+        let start = Instant::now();
+        let mut watch = PathWatch::default();
+        let mut id = 0;
+        let ping = step(&mut watch, &mut id, start).expect("the first ping");
+        watch.heard(); // the pong's datagram is heard before it is matched
+        watch.answer(&ProbeConfig::default(), ping, start).expect("answered");
+        assert!(step(&mut watch, &mut id, start + Duration::from_secs(5)).is_some());
+    }
+
+    #[test]
+    fn a_silent_current_path_is_pinged_on_schedule() {
+        let start = Instant::now();
+        let (mut watch, mut id) = proven(start);
+        assert!(step(&mut watch, &mut id, start + Duration::from_secs(5)).is_some());
+    }
+
+    #[test]
+    fn the_air_gap_holds_routine_pings_but_not_one_asked_for() {
+        let start = Instant::now();
+        let secs = |n| start + Duration::from_secs(n);
+        let (mut watch, mut id) = proven(start);
+        watch.hold_routine(Some(secs(20)));
+        assert_eq!(step(&mut watch, &mut id, secs(5)), None, "held to the floor");
+        watch.probe_now(secs(6));
+        let urgent = step(&mut watch, &mut id, secs(6)).expect("asked for: goes now");
+        watch.answer(&ProbeConfig::default(), urgent, secs(6));
+        assert_eq!(step(&mut watch, &mut id, secs(11)), None);
+        assert!(step(&mut watch, &mut id, secs(20)).is_some(), "the floor passed");
     }
 }

@@ -17,6 +17,8 @@ const PIERRE_FILETYPES_QUERY = "?cmux-editor";
 const pierreFiletypes =
   fileURLToPath(new URL("./node_modules/@pierre/diffs/dist/utils/getFiletypeFromFileName.js", import.meta.url)) +
   PIERRE_FILETYPES_QUERY;
+const monacoVimSource = fileURLToPath(new URL("./node_modules/monaco-vim/src/index.ts", import.meta.url));
+const vimShiftCommand = fileURLToPath(new URL("./src/pages/editor/vimShiftCommand.ts", import.meta.url));
 
 export default defineConfig({
   cacheDir: viteCacheDir,
@@ -56,12 +58,26 @@ export default defineConfig({
       "src/icon-picker/generated/**",
       // cmux-tui/bindings/codegen/page_router.py --check owns these bytes.
       "src/pages/shared/generated/**",
+      // Gitignored output of scripts/gen-component-manifest.ts.
+      "src/ui/components.generated.json",
+      "src/ui/llms.txt",
+      "src/ui/docs/**",
     ],
   }),
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
-  resolve: { alias: [{ find: "cmux:pierre-filetypes", replacement: pierreFiletypes }] },
+  resolve: {
+    alias: [
+      { find: "cmux:pierre-filetypes", replacement: pierreFiletypes },
+      // The code editor's vim mode (src/pages/editor/vimMode.ts): monaco-vim from its TypeScript
+      // source, on the page's Monaco 0.57. Its published dist inlines Monaco 0.33 internals, and its
+      // imports name Monaco's pre-0.50 `esm/vs/...` paths.
+      { find: /^monaco-vim$/, replacement: monacoVimSource },
+      { find: /^monaco-editor\/esm\/vs\/editor\/editor\.api$/, replacement: "monaco-editor/editor/editor.api.js" },
+      { find: /^monaco-editor\/esm\/vs\/editor\/common\/commands\/shiftCommand$/, replacement: vimShiftCommand },
+    ],
+  },
   // `bun run dev`: every surface on one port (dev-server/plugins.ts). Build ignores it.
   server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [

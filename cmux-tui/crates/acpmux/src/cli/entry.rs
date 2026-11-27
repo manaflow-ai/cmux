@@ -64,6 +64,8 @@ pub unsafe fn process_main() -> Result<()> {
     // SAFETY: as above, before any thread exists.
     unsafe {
         cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::ACPMUX_ARENAS);
+        // macOS: malloc read its space-efficient mode at exec; children start without it (malloc_space.rs).
+        cmux_tui_platform::malloc_space::forget();
     }
     main(std::env::args_os().skip(1).collect(), Invocation::default())
 }
@@ -82,8 +84,7 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     crate::daemon::set_daemon_prefix(invocation.daemon_prefix.clone());
     // An agent host serves one harness for its controller; it has no CLI.
-    // Agent work yields CPU and disk to the app (`qos.rs`): before any thread
-    // starts, since on macOS this re-executes the host in place under a clamp.
+    // Its tier (`qos.rs`) is set before any thread starts.
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
         crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::AgentHost);
@@ -95,9 +96,19 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
+    // A listener keeper across a service-manager restart (`daemon/listener_keeper.rs`).
+    #[cfg(unix)]
+    if args.first().is_some_and(|a| a == crate::daemon::listener_keeper::HOLD_ARG) {
+        return crate::daemon::listener_keeper::main(args.get(1..).unwrap_or_default());
+    }
     // A bench's sized chat, written by this build's store (`god_fixture.rs`): no daemon, no CLI.
     if args.first().is_some_and(|a| a == crate::god_fixture::SEED_CHAT_ARG) {
         return crate::god_fixture::seed_chat_main(args.get(1..).unwrap_or_default());
+    }
+    // A shared MCP server's relay for a harness (`mcp_pool.rs`): no runtime, stdout is MCP's.
+    #[cfg(unix)]
+    if args.first().is_some_and(|a| a == crate::mcp_pool::SHIM_ARG) {
+        return crate::mcp_pool::shim_main(args.get(1..).unwrap_or_default());
     }
     // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
@@ -110,10 +121,15 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::github_lane_mint::CLI_ARG) {
         crate::install_github_source();
         let rest: Vec<String> =
-            args[1..].iter().map(|a| a.to_string_lossy().into_owned()).collect();
+            args.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
         let code = cmux_host::github_cli::run(&rest);
         // crash-allow: git and gh read this exit code (a helper's refusal, gh's own status); no runtime or daemon runs yet
         std::process::exit(i32::from(code));
+    }
+    // The held pipes' host (`hub_carrier_pipe_host.rs`): its own runtime, no daemon start.
+    #[cfg(all(unix, feature = "hub-carrier"))]
+    if args.first().is_some_and(|a| a == crate::hub_carrier_pipe_host::PIPE_HOST_ARG) {
+        return crate::hub_carrier_pipe_host::main(args.get(1..).unwrap_or_default());
     }
     // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
@@ -268,11 +284,11 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
     // (`acpmux --json exec …`), so these rewrites see the same command.
     let at = command_index(&argv);
     // `acpmux daemon` with nothing after it means `daemon run`.
-    if at + 1 == argv.len() && argv[at] == "daemon" {
+    if at + 1 == argv.len() && argv.get(at).is_some_and(|a| a == "daemon") {
         argv.push("run".into());
     }
-    if argv.get(at).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
-        argv[at] = "skill".into();
+    if let Some(word) = argv.get_mut(at).filter(|a| *a == "--skill" || *a == "--guide") {
+        *word = "skill".into();
     }
     // `acpmux stop NAME` stops that session (`session stop`), never the daemon (`daemon stop`).
     if let Some(word) = argv.get_mut(at).filter(|a| *a == "stop") {
@@ -308,13 +324,30 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
                 e
             };
             let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
-                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name))
-                .or_else(|| {
-                    json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten()
-                });
-            match refusal {
-                Some(refusal) => errors::exit_with(&refusal.into(), json_out),
-                None => e.exit(),
+                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name));
+            if let Some(refusal) = refusal {
+                errors::exit_with(&refusal.into(), json_out)
+            }
+            // The one form a mistyped or wishful one meant (cmux-intent, the shared layer of
+            // tools/intent.py): run and said on stderr when clear and safe, else listed or
+            // refused with its exact form. A destructive or outward form is never rewritten.
+            let words: Vec<String> =
+                argv.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+            let Some(fixed) = cmux_intent::recover(&grammar, "acpmux", name, &words, &e) else {
+                match json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten() {
+                    Some(refusal) => errors::exit_with(&refusal.into(), json_out),
+                    None => e.exit(),
+                }
+            };
+            argv = argv
+                .first()
+                .cloned()
+                .into_iter()
+                .chain(fixed.into_iter().map(OsString::from))
+                .collect();
+            match grammar.try_get_matches_from_mut(argv.clone()) {
+                Ok(matches) => matches,
+                Err(again) => again.exit(),
             }
         }
     };
@@ -415,10 +448,10 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             match crate::log_sink::Sink::start(out) {
                 Ok(sink) => {
                     sink.install();
-                    logs.with_writer(sink).init();
+                    init_logs(logs.with_writer(sink).finish());
                 }
                 Err(e) => {
-                    logs.init();
+                    init_logs(logs.finish());
                     tracing::warn!(
                         "no log writer thread, lines are written where they are logged: {e}"
                     );
@@ -602,6 +635,13 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Memory(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::memory::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Trigger(cmd)) => {
             let json_out = cli.json;
             match crate::cli::trigger::run(cmd, json_out).await {
@@ -651,6 +691,37 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
             Ok(())
+        }
+        // A heavy shell call the Bash hook sent to a run VM (`placement/run_vm.rs`): no daemon.
+        // A CI log through the shared cache (`ci_log_cache.rs`): no daemon.
+        Some(cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. })) => {
+            let code = match cmd {
+                Command::RunVm { shim, command } => {
+                    let ran = match shim {
+                        Some(program) => {
+                            crate::placement::exec_router::shim_main(&program, &command).await
+                        }
+                        None if command.is_empty() => {
+                            Err(anyhow::anyhow!("run-vm: no command after --"))
+                        }
+                        None => crate::placement::run_vm::main(&command.join(" ")).await,
+                    };
+                    match ran {
+                        Ok(code) => code,
+                        Err(e) => errors::exit_with(&e, cli.json),
+                    }
+                }
+                Command::CiLogCache { command } => crate::ci_log_cache::main(&command),
+                _ => 1,
+            };
+            // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
+            std::process::exit(code)
+        }
+        Some(Command::Exec(crate::cli::command::ExecCmd::Trace { last })) => {
+            match crate::placement::exec_router::trace_main(last, cli.json) {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
         }
         // No daemon: what this binary serves (`capabilities.rs`).
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
@@ -710,6 +781,17 @@ fn command_index(argv: &[OsString]) -> usize {
         .position(|a| a != "--json" && a != "--suppress-reads")
         .map(|i| i + 1)
         .unwrap_or(argv.len())
+}
+
+/// The daemon's subscriber, plus a Chrome trace (Perfetto) file when `CMUX_TRACE_FILE` is set
+/// (`perf_trace.rs`).
+fn init_logs<S>(logs: S)
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync,
+{
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    logs.with(crate::perf_trace::from_env()).init();
 }
 
 #[cfg(test)]

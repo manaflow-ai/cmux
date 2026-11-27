@@ -762,11 +762,12 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     await linkGitHub(other.session, other.team)
     const elsewhere = await list(vm.bearer, `team=${other.team}`)
     expect([elsewhere.status, elsewhere.body.error.code]).toEqual([403, "auth.forbidden"])
-    // A VM of a team with no GitHub link lists nothing of a's, whatever team it names.
+    // A VM of a's in a team with no GitHub link names only that team, and lists a's own connection there (linked in a's
+    // personal team, cmux#55104), never another member's: the person's own GitHub follows them onto their machines.
     const unlinked = await signedInWithInstall("gh-repos-vm-3", "cli")
     const theirs = await vmInstall(unlinked.team, MACHINE)
     expect((await list(theirs.bearer, `team=${a.team}`)).status).toBe(403)
-    expect((await list(theirs.bearer, "")).status).not.toBe(200)
+    expect((await list(theirs.bearer, "")).body.repos?.map((r: any) => r.full_name)).toEqual(["acme/web", "acme/api"])
     // A machine that is no longer this install's live machine (vmGate), then a revoked install: refused.
     live.delete(MACHINE)
     const gone = await list(vm.bearer, `team=${a.team}`)

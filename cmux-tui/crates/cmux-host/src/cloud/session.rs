@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use super::sender::{Answer, AttentionQueue, EventOutcome, EventQueue, OpRequest, Reporter};
+use super::wake_echo::WakeEcho;
 use super::wire::{
     ACP_ACTIVITY_TTL_MS, ATTENTION_EMIT_OP, Activity, ActivityChange, DaemonInfo, EVENT_EMIT_OP,
     activity_from_daemon,
@@ -33,9 +34,13 @@ pub struct Session {
     /// The applied machine.toml's idle window (cmux-cloud-start-core `machine_config::idle`), read
     /// on each workload probe; None while the file declares none.
     idle_window: Option<u64>,
+    /// The pressure probe's block (`pressure.rs`), as last reported; None while nothing is short.
+    pressure: Option<Value>,
     /// This service is the restart a flip or a rollback queued: the reports say degraded until
     /// the restarted session host answers `identify` ([`Session::after_restart`]).
     awaiting_daemon: bool,
+    /// Wake-to-first-echo timing of the latest resume (`wake_echo.rs`).
+    wake: WakeEcho,
 }
 
 /// What the machine's acpmux daemons last said: each one's sessions at work and until when it
@@ -191,7 +196,9 @@ impl Session {
             stream_live: false,
             workload: None,
             idle_window: None,
+            pressure: None,
             awaiting_daemon: false,
+            wake: WakeEcho::default(),
         }
     }
 
@@ -217,14 +224,28 @@ impl Session {
     }
 
     /// The guest resumed (the supervisor's clock-set wake, a confirmed
-    /// unchanged instance id): one report named `resume`.
-    pub fn resume(&mut self, now: u64) -> Vec<OpRequest> {
+    /// unchanged instance id) at wall-clock `wall`: one report named `resume`, and the wake's
+    /// timing starts (`wake_echo.rs`).
+    pub fn resume(&mut self, now: u64, wall: u64) -> Vec<OpRequest> {
+        if let Some(ended) = self.wake.resumed(now, wall) {
+            self.reporter.replace_wake(Some(ended));
+        }
         self.reporter.trigger("resume", now).into_iter().collect()
     }
 
     /// One `subscribe-activity` snapshot or `activity-changed` event.
     pub fn daemon_activity(&mut self, activity: &Value, now: u64) -> Vec<OpRequest> {
-        self.own_activity(&activity_from_daemon(activity), now)
+        let mut out = match self.wake.daemon_activity(activity) {
+            Some(block) => self.reporter.set_wake(block, now).into_iter().collect(),
+            None => Vec::new(),
+        };
+        out.extend(self.own_activity(&activity_from_daemon(activity), now));
+        out
+    }
+
+    /// The wake being timed, or else the last one timed (the role's state file).
+    pub fn wake_latest(&self) -> Option<Value> {
+        self.wake.latest()
     }
 
     /// The daemon's or the socket's activity changed: every change is reported.
@@ -292,18 +313,21 @@ impl Session {
         );
         activity.workload = self.workload.as_ref().map(Workload::to_json);
         activity.idle_window_seconds = self.idle_window;
+        activity.pressure = self.pressure.clone();
         activity
     }
 
     /// The daemon block as it stands: `activity` while the stream is live, `activity-turns` with
     /// it while acpmux's count is known, `activity-phases` with that while its phases are,
     /// `activity-turn-end` with `activity-turns` while every daemon promised it, and
-    /// `activity-workload` with `activity` while the workload probe reads.
+    /// `activity-workload` with `activity` while the workload probe reads, and `acpmux-ready` while
+    /// an acpmux daemon's report holds.
     fn daemon_now(&self) -> DaemonInfo {
         self.base
             .with_activity(self.stream_live, self.acp.known(), self.acp.phases().is_some())
             .with_turn_end(self.acp.turn_end())
             .with_workload(self.workload.is_some())
+            .with_acpmux_ready(!self.acp.daemons.is_empty())
     }
 
     /// One workload probe (`workload.rs`; None: it did not read). A report goes when the machine
@@ -334,6 +358,29 @@ impl Session {
             return Vec::new();
         }
         self.acp_refresh(now)
+    }
+
+    /// The pressure probe's block (`pressure.rs`; None: nothing is short). A report goes when it
+    /// changed, so the Cloud's sizer looks at the machine within seconds of it running short.
+    /// A block that names something newly short goes at once, past the report's floor
+    /// (`pressure::rose`, `Reporter::trigger_now`).
+    pub fn pressure(&mut self, block: Option<Value>, now: u64) -> Vec<OpRequest> {
+        if block == self.pressure {
+            return Vec::new();
+        }
+        let urgent = super::pressure::rose(self.pressure.as_ref(), block.as_ref());
+        self.pressure = block;
+        let activity = self.activity();
+        if urgent {
+            let _ = self.reporter.set_activity(activity, false, now);
+            return self.reporter.trigger_now("pressure", now).into_iter().collect();
+        }
+        self.reporter.set_activity(activity, true, now).into_iter().collect()
+    }
+
+    /// The pressure block as last set (None: nothing short).
+    pub fn pressure_block(&self) -> Option<&Value> {
+        self.pressure.as_ref()
     }
 
     /// The applied machine.toml's idle window as it stands (`machine_config::idle::read`). A report
@@ -468,6 +515,9 @@ impl Session {
             self.acp.expire(now);
             out.extend(self.acp_refresh(now));
         }
+        if let Some(block) = self.wake.fire(now) {
+            out.extend(self.reporter.set_wake(block, now));
+        }
         out.extend(self.reporter.fire(now));
         out.extend(self.events.fire(now));
         if let Some(req) = self.attention.fire(now) {
@@ -501,6 +551,9 @@ impl Session {
             return (next.into_iter().collect(), note);
         }
         let note = Some(report_note(&request.reason, answer));
+        if answer.ok() {
+            self.wake.report_ok(now);
+        }
         (self.reporter.finished(answer, now, random).into_iter().collect(), note)
     }
 
@@ -510,6 +563,7 @@ impl Session {
             self.events.next_deadline(),
             self.attention.next_deadline(),
             self.acp.next_expiry(),
+            self.wake.next_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -564,6 +618,31 @@ mod tests {
         assert!(next.is_empty());
         assert_eq!(session.attention.len(), 0);
     }
+    /// M3: `acpmux-ready` turns on in the report that follows acpmux's first line, with or
+    /// without the activity stream, and off in the report its lapse sends.
+    #[test]
+    fn acpmux_ready_is_pushed_when_a_daemon_reports_and_dropped_when_it_lapses() {
+        use super::super::wire::ACPMUX_READY_CAPABILITY;
+        let ready = |r: &OpRequest| {
+            r.params["daemon"]["capabilities"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(ACPMUX_READY_CAPABILITY))
+        };
+        let mut s = session();
+        let start = s.start(0);
+        assert!(!ready(&start[0]), "no acpmux line yet: not ready");
+        s.answered(&start[0], &ok(), 0, 0.5);
+        let (r, _) =
+            s.line(&json!({"acp_activity": {"turns": 0, "daemon": "/a.sock"}}).to_string(), 20_000);
+        assert_eq!(r.len(), 1, "acpmux's first line is reported at once");
+        assert!(ready(&r[0]), "acpmux answered: ready");
+        s.answered(&r[0], &ok(), 20_000, 0.5);
+        let r = s.fire(20_000 + ACP_ACTIVITY_TTL_MS);
+        assert_eq!(r.len(), 1, "one report for the lapse");
+        assert!(!ready(&r[0]), "acpmux stopped reporting: not ready");
+    }
+
     fn session() -> Session {
         Session::new(
             "vm_m0000000000000000001",
@@ -717,7 +796,14 @@ mod tests {
         s.activity_stream(true, 0);
         assert_eq!(caps(&s), [ACTIVITY_CAPABILITY], "a fresh agent: no word from acpmux yet");
         s.line(&acp(0, None), 1_000);
-        assert_eq!(caps(&s), [ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY]);
+        assert_eq!(
+            caps(&s),
+            [
+                ACTIVITY_CAPABILITY,
+                ACTIVITY_TURNS_CAPABILITY,
+                super::super::wire::ACPMUX_READY_CAPABILITY
+            ]
+        );
         s.line(&acp(0, None), 21_000);
         s.fire(21_000 + ACP_ACTIVITY_TTL_MS);
         assert_eq!(caps(&s), [ACTIVITY_CAPABILITY], "acpmux went quiet");
@@ -729,7 +815,9 @@ mod tests {
     /// `identify` replaces it, keeps the activity capabilities, and goes in a report at once.
     #[test]
     fn the_running_session_hosts_identify_replaces_the_bakes_daemon_block() {
-        use super::super::wire::{ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY};
+        use super::super::wire::{
+            ACPMUX_READY_CAPABILITY, ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY,
+        };
         let baked = DaemonInfo { version: "0.1.0+aaaaaaaaaaaa".into(), capabilities: vec![] };
         let mut s = Session::new("vm_m0000000000000000001", baked.clone(), 3_600_000);
         let start = s.start(0);
@@ -750,7 +838,7 @@ mod tests {
         assert_eq!(r[0].params["daemon"]["version"], "0.1.0+bbbbbbbbbbbb");
         assert_eq!(
             r[0].params["daemon"]["capabilities"],
-            json!([ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY]),
+            json!([ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY, ACPMUX_READY_CAPABILITY]),
             "the stream and acpmux's count still hold"
         );
         s.answered(&r[0], &ok(), 40_000, 0.5);

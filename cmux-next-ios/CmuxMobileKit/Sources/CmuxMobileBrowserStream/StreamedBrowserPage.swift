@@ -21,6 +21,8 @@ public struct StreamedBrowserPage: View {
     /// A JavaScript prompt's answer while its alert shows.
     @State private var promptText = ""
     @Environment(\.openURL) private var openURL
+    /// A failed open is opened again on its own; one quiet line past the bound.
+    @State private var autoRetry = AutoRetry()
 
     /// What the page says when the Mac cannot stream browser tabs.
     public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac.")
@@ -51,6 +53,19 @@ public struct StreamedBrowserPage: View {
                     // The link is coming back: a chip over the last frame, not a sentence (Leo,
                     // 2026-11-21: "a symbol or short thing, not a sentence. stop layout shifting").
                     linkChip(chip)
+                } else if model.openFailed, !autoRetry.isQuietLineShown {
+                    // Opened again on its own (AutoRetry): the loading line stays until the quiet bound.
+                    status(String(localized: "Loading browser session…"))
+                        .placeholderBound("browser.stream.loading", .milliseconds(2000))
+                } else if model.openFailed {
+                    // Still failing past the quiet bound: why, and one quiet line (no Retry).
+                    VStack(spacing: 8) {
+                        Text(reason).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        AutoRetryQuietLine(autoRetry)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 18))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     status(reason)
                 }
@@ -120,6 +135,7 @@ public struct StreamedBrowserPage: View {
         }
         .onChange(of: keyboard) { _, shown in if !shown { raisedForField = false } }
         .onDisappear { model.setVisible(false) }
+        .autoRetry(autoRetry, failing: model.openFailed) { await model.reconnectAnswered() }
         // The page's `<select>`: its options in a sheet. Swiping it away cancels; the page
         // closing the popup itself closes the sheet.
         .sheet(item: Binding(get: { model.selectMenu }, set: { [shown = model.selectMenu?.token] next in
@@ -177,6 +193,8 @@ public struct StreamedBrowserPage: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            // retry-prompt-ok: Reopen takes the page back from another device, or evicts another page the
+            // Mac stopped this one for; the person chooses which one wins.
             Button("Reopen") { model.reopen() }
                 .buttonStyle(.glass)
                 .accessibilityIdentifier("browser.reopen")
@@ -271,10 +289,9 @@ struct StreamedBrowserOverlay: View {
     }
 }
 
-/// The grid card: the last frame, else a globe (an iPhone for a simulator tab).
+/// The grid card: the last frame, else the tab's last-known picture, else the page's background.
 public struct StreamedBrowserCard: View {
     let model: StreamedBrowserModel
-    let placeholder: String
     /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
     let fit: Bool
     /// A page's insets (`StreamedBrowserPage`'s): its picture sits where the
@@ -283,14 +300,16 @@ public struct StreamedBrowserCard: View {
     let insets: EdgeInsets?
     /// The tab's last-known picture, kept across launches: shown until this launch has a frame.
     let lastKnown: CGImage?
+    /// Persisted dimensions for a picture whose bytes are still decoding.
+    let lastKnownSize: CGSize?
 
-    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false,
-                insets: EdgeInsets? = nil, lastKnown: CGImage? = nil) {
+    public init(model: StreamedBrowserModel, fit: Bool = false,
+                insets: EdgeInsets? = nil, lastKnown: CGImage? = nil, lastKnownSize: CGSize? = nil) {
         self.model = model
-        self.placeholder = placeholder
         self.fit = fit
         self.insets = insets
         self.lastKnown = lastKnown
+        self.lastKnownSize = lastKnownSize
     }
 
     public var body: some View {
@@ -299,6 +318,8 @@ public struct StreamedBrowserCard: View {
             if fit, let image = model.snapshot?.image ?? lastKnown {
                 Color.black
                 Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
+            } else if fit, let size = lastKnownSize {
+                Color.black.aspectRatio(size.width / max(1, size.height), contentMode: .fit)
             } else if let image = model.snapshot?.image ?? lastKnown, let insets {
                 // The page's layer: the picture fitted in the area between the insets, on black.
                 Color.black
@@ -312,13 +333,13 @@ public struct StreamedBrowserCard: View {
                         .frame(width: geo.size.width,
                                height: geo.size.width * CGFloat(image.height) / CGFloat(max(1, image.width)))
                 }
-            } else {
-                Image(systemName: placeholder)
-                    .font(.system(size: 72, weight: .light))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .placeholderBound("tabgrid.stream.icon", .milliseconds(1000))
+            } else if let size = lastKnownSize {
+                GeometryReader { geo in
+                    Color.black.frame(width: geo.size.width,
+                                      height: geo.size.width * size.height / max(1, size.width))
+                }
             }
+            // No frame yet: the page's background, never a stand-in glyph.
         }
     }
 }

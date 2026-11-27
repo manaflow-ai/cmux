@@ -32,6 +32,14 @@
 //! reader, never half read. The registry switch `lane_overflow.rebalance.enabled` (absent: off)
 //! decides whether a pass moves anything; with it off a pass only plans (`--force` acts anyway,
 //! on one person's or agent's say).
+//!
+//! One lane per machine (Leo, 2026-11-24: "each guy gets their individual lil machine for now"):
+//! `hosts` turns the switch on per host only (absent: every host `enabled` reaches);
+//! `own_machine` sends each move to a machine of its own, claimed from `lane_overflow.providers`
+//! (freestyle-lanes `one-per-lane`, GCP as the fallback) instead of a host with room; and
+//! `awake_secs` leaves a session idle past it where it is until it next wakes (none is woken just
+//! to move). A pass may run from a hub for a peer (`--machine HOST`): its rows are that host's
+//! `session info`, the move the hub's `session move HOST/ID`.
 
 use serde_json::{Value, json};
 
@@ -48,6 +56,46 @@ pub const MAX_MOVES: usize = 4;
 pub const MIN_IDLE_SECS: u64 = 300;
 /// The capability with which an absent `workingBelow` means false.
 pub const IDLE_FACTS: &str = crate::capabilities::SESSION_IDLE_FACTS;
+/// The row field counting the daemon's background tasks the session runs, carried with
+/// [`crate::capabilities::SESSION_BG_FACTS`]; absent: unknown, the session stays.
+pub const BG_TASKS: &str = "bgTasksRunning";
+/// The row field listing those of them that are re-armable waits (`rearm.rs`), carried with
+/// [`crate::capabilities::SESSION_BG_WAITS`]; absent: none known, so any task holds the session.
+pub const BG_WAITS: &str = "bgWaits";
+
+/// The re-armable waits `row` runs (`bgWaits`), when its every running background task is one
+/// with a minute or more left (`rearm::MIN_LEFT_MS`); `Err`: why it stays. No task: no waits.
+pub fn waits(row: &Value, now_ms: u64) -> Result<Vec<Value>, &'static str> {
+    let Some(running) = row.get(BG_TASKS).and_then(Value::as_u64) else {
+        return Err("its background tasks are unknown (its daemon predates session-bg-facts-v1)");
+    };
+    if running == 0 {
+        return Ok(Vec::new());
+    }
+    let Some(waits) = row.get(BG_WAITS).and_then(Value::as_array) else {
+        return Err(
+            "a background task runs and its daemon predates session-bg-waits-v1 (a move cannot \
+             re-arm it at the destination)",
+        );
+    };
+    if waits.len() as u64 != running {
+        return Err(
+            "a background task runs that a move cannot re-arm (only a pr_wait or ci_wait with a \
+             repo and a deadline moves)",
+        );
+    }
+    for w in waits {
+        match crate::rearm::Wait::from_json(w) {
+            Ok(wait) if wait.left_ms(now_ms) >= crate::rearm::MIN_LEFT_MS => {}
+            Ok(_) => return Err("a wait ends within a minute: it ends here"),
+            Err(_) => return Err("a wait's target is not one this acpmux re-arms"),
+        }
+        if w.get("id").and_then(Value::as_str).is_none_or(str::is_empty) {
+            return Err("a wait has no task id to stop once it is re-armed");
+        }
+    }
+    Ok(waits.clone())
+}
 
 /// The registry's `lane_overflow.rebalance`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,11 +103,36 @@ pub struct Conf {
     pub enabled: bool,
     pub max_moves: usize,
     pub min_idle_secs: u64,
+    /// The hosts the switch is on for; `None`: every host.
+    pub hosts: Option<Vec<String>>,
+    /// Each move claims a machine of its own instead of a host with room.
+    pub own_machine: bool,
+    /// A session idle longer than this stays until it next wakes; `None`: no bound.
+    pub awake_secs: Option<u64>,
 }
 
 impl Default for Conf {
     fn default() -> Self {
-        Conf { enabled: false, max_moves: MAX_MOVES, min_idle_secs: MIN_IDLE_SECS }
+        Conf {
+            enabled: false,
+            max_moves: MAX_MOVES,
+            min_idle_secs: MIN_IDLE_SECS,
+            hosts: None,
+            own_machine: false,
+            awake_secs: None,
+        }
+    }
+}
+
+impl Conf {
+    /// Whether the switch is on for `host`: `enabled`, and `host` listed when `hosts` is set.
+    pub fn on_for(&self, host: &str) -> bool {
+        let host = crate::placement::canonical(host);
+        self.enabled
+            && self
+                .hosts
+                .as_ref()
+                .is_none_or(|hs| hs.iter().any(|h| crate::placement::canonical(h) == host))
     }
 }
 
@@ -74,7 +147,48 @@ pub fn conf(registry: Option<&Value>) -> Conf {
     if let Some(n) = spec.get("min_idle_secs").and_then(Value::as_u64) {
         c.min_idle_secs = n;
     }
+    if let Some(hs) = spec.get("hosts").and_then(Value::as_array) {
+        c.hosts = Some(hs.iter().filter_map(Value::as_str).map(str::to_owned).collect());
+    }
+    c.own_machine = spec.get("own_machine").and_then(Value::as_bool) == Some(true);
+    c.awake_secs = spec.get("awake_secs").and_then(Value::as_u64);
     c
+}
+
+/// A peer's `session info` as a row a pass judges: its `peer` dropped (the pass runs for that
+/// host), and `workingBelow` from what does run below it when it has none (a field `session
+/// info` does not carry): a background command (`commandsRunning`), a background subagent
+/// (`subagentsRunning`) or a working sub-session (`subagentsWorkingSince`). `backgroundsWork`
+/// is not one: it says the harness can background a turn (Ctrl-B), true for every Claude Code
+/// session, so reading it as work held every peer session. Unknown stays unknown: no
+/// `workingBelow` is invented from a row missing all three.
+pub fn peer_row(info: &Value) -> Value {
+    let mut row = info.clone();
+    if let Some(o) = row.as_object_mut() {
+        o.remove("peer");
+        if !o.contains_key("workingBelow") {
+            let cmds = o.get("commandsRunning").and_then(Value::as_u64);
+            let subs = o.get("subagentsRunning").and_then(Value::as_u64);
+            let since = o.get("subagentsWorkingSince");
+            if cmds.is_some() || subs.is_some() || since.is_some() {
+                let below = cmds.unwrap_or(0) > 0
+                    || subs.unwrap_or(0) > 0
+                    || since.is_some_and(Value::is_u64);
+                o.insert("workingBelow".into(), Value::Bool(below));
+            }
+        }
+    }
+    row
+}
+
+/// Why `row` stays this pass under `conf` ([`held`], then the awake bound); `None`: it may move.
+pub fn stays(row: &Value, idle_facts: bool, now_ms: u64, conf: &Conf) -> Option<&'static str> {
+    held(row, idle_facts, now_ms, conf.min_idle_secs.saturating_mul(1000)).or_else(|| {
+        let awake_ms = conf.awake_secs?.saturating_mul(1000);
+        let at = updated_ms(row)?;
+        (now_ms.saturating_sub(at) > awake_ms)
+            .then_some("asleep (idle past awake_secs): it moves when it next wakes")
+    })
 }
 
 fn local(row: &Value) -> bool {
@@ -147,6 +261,16 @@ pub fn held(row: &Value, idle_facts: bool, now_ms: u64, min_idle_ms: u64) -> Opt
         _ if idle_facts => {}
         _ => return Some("work below it is unknown (its daemon predates session-idle-facts-v1)"),
     }
+    // The daemon's own background tasks (`bg_start`, `run_wait`, a backgrounded shell) stay on
+    // this host when the session moves: its wake would be lost. A move re-arms the waits among
+    // them at the destination (`rearm.rs`, `_acpmux/bg/rearm`), so a session whose every running
+    // task is one may move (to a destination that re-arms them, `plan`); `sleep`, a shell
+    // command, a build or a test holds it. A row without the count (a daemon before
+    // `session-bg-facts-v1`, old or a peer's), or with tasks and no `bgWaits` (before
+    // `session-bg-waits-v1`), is unknown and held too.
+    if let Err(why) = waits(row, now_ms) {
+        return Some(why);
+    }
     if set(row, "starting") {
         return Some("it is starting");
     }
@@ -176,6 +300,33 @@ pub fn held(row: &Value, idle_facts: bool, now_ms: u64, min_idle_ms: u64) -> Opt
 pub struct Target {
     pub name: String,
     pub room: f64,
+    /// It re-arms a moved session's waits (its link lists `bgRearm`, `_acpmux/peers`); the
+    /// caller fills it ([`rearm_targets`]), `false` until then.
+    pub rearm: bool,
+}
+
+/// Marks each of `targets` that re-arms waits: `_acpmux/peers`' answer lists it with
+/// `bgRearm: true`.
+pub fn rearm_targets(targets: &mut [Target], peers: &Value) {
+    let listed: Vec<&str> = peers
+        .get("peers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|p| p.get("bgRearm").and_then(Value::as_bool) == Some(true))
+        .filter_map(|p| p.get("name").and_then(Value::as_str))
+        .collect();
+    for t in targets {
+        let name = crate::placement::canonical(&t.name);
+        t.rearm = listed.iter().any(|p| crate::placement::canonical(p) == name);
+    }
+}
+
+/// Whether `peers` (`_acpmux/peers`' answer) lists `host` as re-arming waits.
+pub fn rearms(peers: &Value, host: &str) -> bool {
+    let mut t = [Target { name: host.to_owned(), room: 0.0, rearm: false }];
+    rearm_targets(&mut t, peers);
+    t[0].rearm
 }
 
 /// The hosts of a `_acpmux/place` verdict that may take a session from `here`: not this one, not
@@ -197,7 +348,7 @@ pub fn targets(verdict: &Value, registry: Option<&Value>, here: &str) -> Vec<Tar
                 && crate::placement::canonical(name) != here
                 && crate::placement::auto_move_refusal(registry, name).is_none()
                 && crate::placement::held(registry, name).is_none())
-            .then(|| Target { name: name.to_owned(), room })
+            .then(|| Target { name: name.to_owned(), room, rearm: false })
         })
         .collect();
     out.sort_by(|a, b| b.room.partial_cmp(&a.room).unwrap_or(std::cmp::Ordering::Equal));
@@ -223,6 +374,8 @@ pub struct Plan {
     pub moves: Vec<Move>,
     /// Sessions over the cap that could move but found no host with room: a fresh machine's worth.
     pub spill: usize,
+    /// Those sessions (`target` empty): with `own_machine`, each goes to a machine claimed for it.
+    pub fresh: Vec<Move>,
     /// Each live session that stays, and why (only while over the cap).
     pub held: Vec<(String, &'static str)>,
     pub why: String,
@@ -235,6 +388,8 @@ impl Plan {
             "excess": self.excess, "spill": self.spill, "why": self.why,
             "moves": self.moves.iter().map(|m| json!({"sessionId": m.session_id, "name": m.name,
                 "target": m.target})).collect::<Vec<_>>(),
+            "fresh": self.fresh.iter().map(|m| json!({"sessionId": m.session_id, "name": m.name}))
+                .collect::<Vec<_>>(),
             "held": self.held.iter().map(|(id, why)| json!({"sessionId": id, "why": why}))
                 .collect::<Vec<_>>(),
         })
@@ -262,11 +417,10 @@ pub fn plan(
         p.why = format!("{} live, at or under its cap of {cap}", live.len());
         return p;
     }
-    let min_idle_ms = conf.min_idle_secs.saturating_mul(1000);
     let mut movable: Vec<&Value> = Vec::new();
     for r in &live {
         let id = r.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
-        match held(r, idle_facts, now_ms, min_idle_ms) {
+        match stays(r, idle_facts, now_ms, conf) {
             Some(why) => p.held.push((id, why)),
             None => movable.push(r),
         }
@@ -275,22 +429,36 @@ pub fn plan(
     movable.sort_by_key(|r| updated_ms(r).unwrap_or(u64::MAX));
     let want = p.excess.min(conf.max_moves);
     for r in movable.into_iter().take(want) {
-        let Some(t) = targets.iter_mut().find(|t| t.room >= 1.0) else {
+        let id = r.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let name = r.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
+        // A session with waits goes only where they are re-armed; with own_machine the move
+        // checks its fresh machine before it moves (`cli/run/rebalance.rs`).
+        let rearm = !waits(r, now_ms).unwrap_or_default().is_empty();
+        let any_room = targets.iter().any(|t| t.room >= 1.0);
+        let free = if conf.own_machine {
+            None
+        } else {
+            targets.iter_mut().find(|t| t.room >= 1.0 && (t.rearm || !rearm))
+        };
+        if free.is_none() && rearm && !conf.own_machine && any_room {
+            p.held.push((id, "its waits need a destination that re-arms them (lists bgRearm)"));
+            continue;
+        }
+        let Some(t) = free else {
             p.spill += 1;
+            p.fresh.push(Move { session_id: id, name, target: String::new() });
             continue;
         };
         t.room -= 1.0;
-        let id = r.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
-        let name = r.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
         p.moves.push(Move { session_id: id, name, target: t.name.clone() });
     }
     p.why = format!(
-        "{} live over its cap of {cap}: {} to move (at most {} a pass), {} with no host that has \
-         room, {} held",
+        "{} live over its cap of {cap}: {} to move (at most {} a pass), {} {}, {} held",
         live.len(),
         p.moves.len(),
         conf.max_moves,
         p.spill,
+        if conf.own_machine { "to a machine of its own" } else { "with no host that has room" },
         p.held.len()
     );
     p
@@ -310,6 +478,9 @@ pub struct Done {
     pub unavailable_ms: u64,
     /// The receipt this one undoes, for a move back.
     pub undoes: Option<String>,
+    /// Its waits' handoff (`_acpmux/bg/rearm`): `{rearmed, expired, released, refused}`; `None`
+    /// when it ran none.
+    pub rearm: Option<Value>,
 }
 
 /// A move's receipt: one JSON line in the rebalance log.
@@ -319,7 +490,7 @@ pub fn receipt(id: &str, at_ms: u64, d: &Done, why: &str) -> Value {
         "id": id, "atMs": at_ms, "source": d.source, "sessionId": d.session_id, "name": d.name,
         "target": d.target, "ok": d.error.is_none(),
         "there": d.there.as_ref().map(|(h, s)| json!({"host": h, "sessionId": s})),
-        "error": d.error, "unavailableMs": d.unavailable_ms, "undoes": d.undoes, "why": why,
+        "error": d.error, "unavailableMs": d.unavailable_ms, "undoes": d.undoes, "rearm": d.rearm, "why": why,
         "undo": d.error.is_none().then(|| format!("acpmux session rebalance --undo {id}")),
     })
 }

@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use cmux_migrate::apply::{self, Cloud, Created, Event, Local, PatchRoute, WorkPatch};
 use cmux_migrate::ledger::{Ledger, Load};
+use cmux_migrate::preview::Preview;
 use cmux_migrate::sources::competitors::{self, Product, Route};
 use cmux_migrate::sources::{compose, devcontainer, laptop, nix, ssh_host};
 use cmux_migrate::{Plan, Step};
@@ -22,7 +23,7 @@ use super::cloud_start_chat::{Ran, Runner, SelfRunner, shell_quote, step_result}
 use super::{GlobalArgs, OutputMode};
 
 pub(super) const USAGE: &str = "\
-usage: cmux migrate plan SOURCE [--json] [--out FILE]
+usage: cmux migrate plan SOURCE [--json] [--out FILE] [--preview]
        cmux migrate apply PLAN.json|SOURCE [--only KEY]... [--dry-run] [--headless [--backend B]]
        cmux migrate undo SOURCE_ID --yes
        cmux migrate status
@@ -41,6 +42,8 @@ SOURCE:
   ssh:HOST                      a box you reach over SSH (one read-only probe)
   codespaces | coder            your workspaces there (gh / coder CLI, signed in)
   gitpod [PATH]                 a checkout's .gitpod.yml
+  t3code | t3 [t3code:PATH]     T3 Code's projects, thread worktrees and their
+                                Claude Code / Codex sessions (CMUX_SWITCH_KIT=1)
   daytona | exe.dev | namespace | devpod | devin | capy
                                 how that product's workspaces move (`routes`)
 
@@ -54,6 +57,34 @@ skipped (said so), and a later run in the app carries them.
 Shell history is listed unchecked (it can hold typed tokens): check it in the
 plan to carry it.
 ";
+
+/// The switch kit (cmuxterm-hq#23822) is off until `CMUX_SWITCH_KIT=1`.
+fn switch_kit_on() -> bool {
+    std::env::var("CMUX_SWITCH_KIT").is_ok_and(|v| v == "1")
+}
+
+/// `t3code` or `t3code:PATH` (a T3 home), when the switch kit is on.
+fn t3code_source(source: &str) -> Option<Option<&str>> {
+    if !switch_kit_on() {
+        return None;
+    }
+    match source {
+        "t3code" | "t3" => Some(None),
+        _ => source.strip_prefix("t3code:").map(Some),
+    }
+}
+
+/// Reads T3 Code's database read-only and plans its projects and thread worktrees.
+fn t3code_plan(home: &Path, path: Option<&str>) -> Result<Plan, String> {
+    use cmux_migrate::sources::t3code;
+    let env = std::env::var("T3CODE_HOME").ok();
+    let t3_home = match path {
+        Some(p) => std::path::absolute(p).map_err(|e| format!("{p}: {e}"))?,
+        None => t3code::home_dir(home, env.as_deref()),
+    };
+    let catalog = t3code::read(&t3_home.join(t3code::DATABASE)).map_err(|e| e.to_string())?;
+    Ok(t3code::plan(home, &t3_home, &catalog, &laptop::GitCli::default()))
+}
 
 /// One external reader (ssh probe, `gh`, `coder`) ends by then.
 const READER_BOUND: Duration = Duration::from_secs(120);
@@ -102,9 +133,21 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Command {
-    Plan { source: String, out: Option<PathBuf> },
-    Apply { from: String, only: Vec<String>, dry_run: bool, headless: Option<String> },
-    Undo { source_id: String },
+    /// `preview`: print what a confirmation shows (cmux_migrate::preview) instead of the plan.
+    Plan {
+        source: String,
+        out: Option<PathBuf>,
+        preview: bool,
+    },
+    Apply {
+        from: String,
+        only: Vec<String>,
+        dry_run: bool,
+        headless: Option<String>,
+    },
+    Undo {
+        source_id: String,
+    },
     Status,
     Routes,
 }
@@ -112,8 +155,8 @@ pub(super) enum Command {
 pub(super) fn parse(words: &[String]) -> Result<Command, String> {
     let (verb, rest) = words.split_first().ok_or("a verb: plan, apply, undo, status, routes")?;
     let mut positional = Vec::new();
-    let (mut out, mut only, mut dry_run, mut headless, mut backend, mut yes) =
-        (None, Vec::new(), false, false, None::<String>, false);
+    let (mut out, mut only, mut dry_run, mut headless, mut backend, mut yes, mut preview) =
+        (None, Vec::new(), false, false, None::<String>, false, false);
     let mut it = rest.iter();
     while let Some(word) = it.next() {
         let mut value = |flag: &str| it.next().cloned().ok_or(format!("{flag} needs a value"));
@@ -124,6 +167,7 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
             "--dry-run" => dry_run = true,
             "--headless" => headless = true,
             "--yes" => yes = true,
+            "--preview" => preview = true,
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => positional.push(word.clone()),
         }
@@ -140,7 +184,7 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
         }
     };
     match verb.as_str() {
-        "plan" => Ok(Command::Plan { source: one("SOURCE")?, out }),
+        "plan" => Ok(Command::Plan { source: one("SOURCE")?, out, preview }),
         "apply" => Ok(Command::Apply {
             from: one("PLAN.json or SOURCE")?,
             only,
@@ -173,7 +217,7 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             });
             Ok(0)
         }
-        Command::Plan { source, out } => {
+        Command::Plan { source, out, preview } => {
             if let Some(product) = product_named(&source)
                 && !matches!(product, Product::Codespaces | Product::Coder | Product::Gitpod)
             {
@@ -186,6 +230,20 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             if let Some(out) = out {
                 std::fs::write(&out, format!("{text}\n"))
                     .map_err(|e| format!("{}: {e}", out.display()))?;
+            }
+            if preview {
+                let preview = Preview::of(&plan, &load_ledger()?);
+                print_answer(
+                    output,
+                    &serde_json::to_value(&preview).unwrap_or(Value::Null),
+                    || {
+                        format!(
+                            "{} project(s) to move, {} already moved",
+                            preview.moving, preview.already
+                        )
+                    },
+                );
+                return Ok(0);
             }
             print_answer(output, &serde_json::to_value(&plan).unwrap_or(Value::Null), || {
                 plan_words(&plan)
@@ -302,6 +360,9 @@ pub(super) fn read_source(source: &str) -> Result<Plan, String> {
             .map_err(|e| format!("{}: {e}", root.join(".gitpod.yml").display()))?;
         let repo = cmux_migrate::sources::project_files::repo_at(&root).url;
         return competitors::gitpod_plan(&root.display().to_string(), repo.as_deref(), &yml);
+    }
+    if let Some(t3) = t3code_source(source) {
+        return t3code_plan(&home, t3);
     }
     match source {
         "this-computer" | "laptop" | "this-mac" => {

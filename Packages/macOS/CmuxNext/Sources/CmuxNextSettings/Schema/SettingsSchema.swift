@@ -12,8 +12,8 @@ public nonisolated enum SettingsSchema {
     /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
     public static let all: [SettingDescriptor] = {
         let next = GeneralSettingsSchema.language + GeneralSettingsSchema.history + GeneralSettingsSchema.window + TabSettingsSchema.descriptors + GeneralSettingsSchema.quitting + GeneralSettingsSchema.columns
-            + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + MachineSettingsSchema.computerUse + MachineSettingsSchema.freeModel + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + MachineColorsSettingsSchema.descriptors + MachineSettingsSchema.sshLinks + MachineSettingsSchema.hosts + MachineSettingsSchema.cloud + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + McpServersSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + ModelsSettingsSchema.descriptors + AgentCacheSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MachineSettingsSchema.mobile + GeneralSettingsSchema.layout
+            + KeyboardStyleSettingsSchema.descriptors + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
+            + MachineSettingsSchema.computerUse + MachineSettingsSchema.freeModel + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + MachineColorsSettingsSchema.descriptors + MachineSettingsSchema.sshLinks + MachineSettingsSchema.hosts + MachineSettingsSchema.cloud + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + McpServersSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + ModelsSettingsSchema.descriptors + AgentCacheSettingsSchema.descriptors + AgentSettleSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MachineSettingsSchema.mobile + GeneralSettingsSchema.layout
             + GeneralSettingsSchema.workspaceList + GeneralSettingsSchema.palette + CustomizeChecklistSettingsSchema.descriptors
             + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + MachineSettingsSchema.storage + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
             + SidebarSettingsSchema.sidebar + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefPermissionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
@@ -23,7 +23,7 @@ public nonisolated enum SettingsSchema {
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + AgentDefaultsSettingsSchema.toolsDescriptors + HangReportsSettingsSchema.descriptors + DeveloperToolsSettingsSchema.descriptors
             + DeveloperToolsSettingsSchema.internalDeveloperMode
-            + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenViewing + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote
+            + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenViewing + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote + MachineSettingsSchema.remoteDesktop
             + MachineSettingsSchema.deviceHub + GeneralSettingsSchema.menus + MachineSettingsSchema.imessage + TailnetJoinSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
@@ -52,7 +52,9 @@ public nonisolated enum SettingsSchema {
     static var appearance: [SettingDescriptor] {
         AppearanceSettingsSchema.iconTheme + AppearanceSettingsSchema.appTheme + AppearanceSettingsSchema.windowBackground + AppearanceSettingsSchema.tuning
             + AppearanceSettingsSchema.look + AppearanceSettingsSchema.chromeStyle + AppearanceSettingsSchema.lookMotion
-            + AppearanceSettingsSchema.panes + AppearanceSettingsSchema.focusRing + MotionSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
+            + AppearanceSettingsSchema.menuLook + AppearanceSettingsSchema.panes + AppearanceSettingsSchema.focusRing + AppearanceSettingsSchema.agentSignature
+            + AppearanceSettingsSchema.themeFlourishes
+            + MotionSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
             + DiffViewerSettingsSchema.descriptors + MarkdownViewerSettingsSchema.descriptors + AgentPaneDisplaySettingsSchema.descriptors
     }
 

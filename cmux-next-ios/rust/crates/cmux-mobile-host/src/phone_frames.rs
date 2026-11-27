@@ -323,6 +323,7 @@ pub fn record_paint(
         wire_p50_p95 = part(&summary.wire).as_deref().unwrap_or("-"),
         phone_p50_p95 = part(&summary.phone_paint).as_deref().unwrap_or("-"),
         total_p50_p95 = part(&summary.total).as_deref().unwrap_or("-"),
+        transports = ?summary.transports,
         "phone paint"
     );
     let _guard = WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -331,6 +332,9 @@ pub fn record_paint(
     }
     Ok(summary)
 }
+
+/// How long a paint summary waits for room in the phone's channel queue before it is dropped.
+pub const PAINT_ANSWER_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// The `phone-frames` service: reads pan lines until the phone closes or [`MAX_PANS`] came.
 pub async fn serve(
@@ -370,11 +374,20 @@ pub async fn serve_on(
                         }
                     }
                     Some(Line::Clock(_)) => {}
-                    Some(Line::Paint) => {
-                        if let Err(why) = record_paint(&bytes, phone, path, route()) {
-                            tracing::info!(phone, ?why, "phone paint dropped");
+                    Some(Line::Paint) => match record_paint(&bytes, phone, path, route()) {
+                        // The join goes back to the phone (its DEBUG overlay); a phone that
+                        // closed after its report never reads it, and that is not an error.
+                        // A phone whose queue is full (a stalled link) gets no answer after
+                        // [`PAINT_ANSWER_WAIT`]: the overlay is advisory, and this loop must
+                        // keep reading the next probe or pan line, not wait on the phone.
+                        Ok(summary) => {
+                            let answer = sender.send(bytes::Bytes::from(summary.answer()));
+                            if tokio::time::timeout(PAINT_ANSWER_WAIT, answer).await.is_err() {
+                                tracing::info!(phone, "paint summary not sent: phone queue full");
+                            }
                         }
-                    }
+                        Err(why) => tracing::info!(phone, ?why, "phone paint dropped"),
+                    },
                     None => {
                         if let Err(why) = record_on(&bytes, phone, path, route()) {
                             tracing::info!(phone, ?why, "phone frames dropped");
