@@ -2159,20 +2159,24 @@ export const isAgentPrompt = (row: AcpmuxRow) =>
       !row.incoming.message.fromPerson &&
       row.incoming.message.notice?.severity !== "fire"));
 
-/// How many messages between agents `rows` hold: each send among their calls, and each message
-/// received (an inbox notice counts the messages it brought, as messageRuns.ts does).
-function foldedAgentMessages(rows: readonly AcpmuxRow[]): {
-  sent: number;
-  received: number;
-} {
-  let sent = 0;
+/// How many messages from other agents `rows` hold: each message received (an inbox notice counts
+/// the messages it brought, as messageRuns.ts does).
+function receivedAgentMessages(rows: readonly AcpmuxRow[]): number {
   let received = 0;
-  for (const row of rows) {
+  for (const row of rows)
     if (isReceivedLine(row) && row.kind === "user")
       received += row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
-    else if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
-  }
-  return { sent, received };
+  return received;
+}
+
+/// How many messages to other agents `rows` sent: each send among their calls. It groups every
+/// step's calls (toolGroups.ts), most of a finished turn's shaping at a chat's open, so a fold's label
+/// asks for it only when it reads it (`shapeTurn`): the default `calls` arm counts received messages
+/// alone.
+function sentAgentMessages(rows: readonly AcpmuxRow[]): number {
+  let sent = 0;
+  for (const row of rows) if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
+  return sent;
 }
 
 /// The messages one step's calls sent, by its immutable items array: a running turn's "Worked for"
@@ -2510,12 +2514,15 @@ function shapeTurn(
       : [...(foldsPrompt && first ? [user] : []), ...work.filter((row) => !keptOut.has(row.id))];
     const previous = style.countsMessages && foldMixesMessages(hidden) ? foldedMessages(hidden) : undefined;
     // The messages between agents it folds count as calls by default (workedForMessages.experiment.ts).
-    const messages = foldedAgentMessages(hidden);
+    // Those it received are counted here; those it sent, only where the label reads them (`sent`).
+    const received = receivedAgentMessages(hidden);
+    let sentCount: number | undefined;
+    const sent = () => (sentCount ??= sentAgentMessages(hidden));
     const messagesArm = experimentArm(workedForMessages);
     // A turn split in order counts each fold's own calls; one fold counts the turn's.
     const calls = segments.length > 1 ? callsIn(work) : summary.toolCount;
-    const toolCount = messagesArm === "calls" && calls !== undefined ? calls + messages.received : calls;
-    const named = messagesArm === "messages" && messages.sent + messages.received > 0;
+    const toolCount = messagesArm === "calls" && calls !== undefined ? calls + received : calls;
+    const named = messagesArm === "messages" && sent() + received > 0;
     // Unknown stays unknown (the label counts calls instead): a turn whose prompt is in an older
     // page starts at a row inside it, and the time since that row is too short.
     const durationMs =
@@ -2543,8 +2550,8 @@ function shapeTurn(
     const unlabeled =
       compactOnly ||
       (previous === undefined &&
-        messages.sent + messages.received === 0 &&
-        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)));
+        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)) &&
+        sent() + received === 0);
     // A turn the person sent that only replied (no calls, no steers) still ends on its "Worked for": its
     // "Working for" stood over the reply from the turn's first frame (shapeLiveTurn), and a header gone at
     // the end would pull the reply up into its place. The closed line holds no rows.
@@ -2588,7 +2595,7 @@ function shapeTurn(
         .flatMap((row) => (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool) : []));
       const labelVersion = mixVersion(
         (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
-        named ? messages.sent * 1_000 + messages.received + 1 : 0,
+        named ? sent() * 1_000 + received + 1 : 0,
       );
       const runsVersion = workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion;
       const worked: AcpmuxRow = {
@@ -2601,7 +2608,7 @@ function shapeTurn(
         foldOpen: open,
         status: final ? summary.status : "completed",
         toolCount,
-        ...(named && { workedMessages: messages }),
+        ...(named && { workedMessages: { sent: sent(), received } }),
         // The turn's one outer count, over the runs that each count their own (Leo, 2026-11-07: "do you
         // think we should distinguish the absolute top level one versus the inner ones").
         ...(style.countsCalls && (calls ?? 0) > 0 ? { workedCalls: calls } : {}),

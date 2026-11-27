@@ -3,6 +3,7 @@
 // writes the copy the next launch draws (capture.ts), from the visible window only.
 import { slackTimersFor } from "../../../pages/shared/slackTimers";
 import { captureMiss, captureSnapshot } from "./capture";
+import { liveComposerTakes, watchLiveComposer } from "./liveComposer";
 import { liveMatchesCopy, noteSwap, swapDiff } from "./swapDiff";
 import {
   SNAPSHOT_GLOBAL,
@@ -23,6 +24,7 @@ import { LIVE_THINKING } from "../conversation/turns";
 /// what still differed between the copy's composer and the live one (`composerDifference`).
 type Shown = {
   at: number;
+  composerAt?: number;
   swappedAt?: number;
   chromeOnly?: boolean;
   hold?: { by: string; at: number; differs?: string };
@@ -98,11 +100,15 @@ export function copyShowsRunningTurn(): boolean {
 }
 
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
-export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | null; chrome_only?: true } | undefined {
+export function chatSnapshotTimes():
+  | { painted_ms: number; composer_live_ms: number | null; swapped_ms: number | null; chrome_only?: true }
+  | undefined {
   const value = shown();
   if (!value) return undefined;
   return {
     painted_ms: Math.round(value.at),
+    // When the live composer showed through the copy (liveComposer.ts): typing and clicks from then.
+    composer_live_ms: value.composerAt === undefined ? null : Math.round(value.composerAt),
     swapped_ms: value.swappedAt === undefined ? null : Math.round(value.swappedAt),
     // Written at another size: the pane's chrome drew, the transcript's rows did not (shared.ts `fitsChromeOnly`).
     ...(value.chromeOnly ? { chrome_only: true as const } : {}),
@@ -385,6 +391,14 @@ export function reportChatSnapshot(
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
     // and click). A wheel ends the copy and scrolls. Stops with the copy.
     const end = (event?: Event) => {
+      // The live composer showing through the copy (liveComposer.ts) takes its own typing and
+      // clicks, and the copy stays; a press on another of its controls ends the copy and acts.
+      const composer = event ? liveComposerTakes(event) : undefined;
+      if (composer === "keep") return;
+      if (composer === "reveal") {
+        removeChatSnapshot();
+        return stop();
+      }
       // A press or key in the copy's prompt field (skeleton.ts) is the person typing: it keeps the copy.
       const field = skeletonField(document);
       if (event && field && event.target instanceof Node && field.contains(event.target)) return;
@@ -400,9 +414,11 @@ export function reportChatSnapshot(
     };
     const timer = window.setTimeout(end, SNAPSHOT_HOLD_MS);
     const events = ["pointerdown", "keydown", "wheel"] as const;
+    const stopComposer = watchLiveComposer();
     const stop = () => {
       window.clearTimeout(timer);
       for (const name of events) window.removeEventListener(name, end, true);
+      stopComposer();
     };
     for (const name of events) window.addEventListener(name, end, { capture: true, passive: name === "wheel" });
     stopCopyInput = stop;
