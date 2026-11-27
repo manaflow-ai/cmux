@@ -39,6 +39,13 @@ pub struct Params {
     /// instead of TCP streams. Off: the same TCP the copy uses today, so a before/after compares
     /// codec and ordering alone. The hill-climb never flips it (the model would always pick it).
     pub paced: bool,
+    /// Most bytes the prefetch holds ahead of a chat's reads ("what chats could possibly use").
+    pub prefetch_budget: u64,
+    /// Candidates less likely than this to be read are never prefetched.
+    pub prefetch_min_likelihood: f64,
+    /// Idle seconds between opening a chat on the machine and its first read: what the fill
+    /// carries before the first turn.
+    pub prefetch_window_s: f64,
 }
 
 impl Default for Params {
@@ -59,6 +66,9 @@ impl Default for Params {
             dict_bytes: 64 * 1024,
             dict_max_bandwidth: 50e6,
             paced: false,
+            prefetch_budget: 64 << 20,
+            prefetch_min_likelihood: 0.02,
+            prefetch_window_s: 3.0,
         }
     }
 }
@@ -85,6 +95,9 @@ impl Params {
             "dict_bytes" => self.dict_bytes = p(value)?,
             "dict_max_bandwidth" => self.dict_max_bandwidth = p(value)?,
             "paced" => self.paced = p(value)?,
+            "prefetch_budget" => self.prefetch_budget = p(value)?,
+            "prefetch_min_likelihood" => self.prefetch_min_likelihood = p(value)?,
+            "prefetch_window_s" => self.prefetch_window_s = p(value)?,
             _ => return Err(format!("unknown param {key}")),
         }
         Ok(())
@@ -108,6 +121,9 @@ impl Params {
             ("dict_bytes", self.dict_bytes.to_string()),
             ("dict_max_bandwidth", self.dict_max_bandwidth.to_string()),
             ("paced", self.paced.to_string()),
+            ("prefetch_budget", self.prefetch_budget.to_string()),
+            ("prefetch_min_likelihood", self.prefetch_min_likelihood.to_string()),
+            ("prefetch_window_s", self.prefetch_window_s.to_string()),
         ]
     }
 }

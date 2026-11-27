@@ -689,3 +689,108 @@ pub fn jitter(seed: u64, i: u64) -> (f64, f64) {
     let b = f64::from(word(&h, 1)) / f64::from(u32::MAX);
     (0.8 + 0.3 * a, 0.95 + 0.45 * b * b)
 }
+
+/// One (folder, profile) prefetch result, averaged over the runs' simulated chats.
+#[derive(Clone, Debug, Default)]
+pub struct PrefetchRow {
+    /// Today: the whole folder streams in fill order; what is held at the first turn is the
+    /// prefix the link carried in the window, and the whole folder is held by the end.
+    pub today: crate::prefetch::HitStats,
+    /// The ranker: every candidate in rank order over the idle window before the first turn,
+    /// then `prefetch_budget` of those above the floor kept.
+    pub new: crate::prefetch::HitStats,
+}
+
+/// The chance a simulated chat reads `e`, from its heat: instructions and manifests about 0.9,
+/// shallow source a quarter, dependency trees near zero.
+fn read_chance(e: &Entry) -> f64 {
+    let h = f64::from(order::heat(e));
+    0.9 / (1.0 + h / 12.0).powi(2)
+}
+
+/// A uniform 0..1 from `(seed, salt, path)`.
+fn unit(seed: u64, salt: u8, path: &str) -> f64 {
+    let mut b = seed.to_le_bytes().to_vec();
+    b.push(salt);
+    b.extend_from_slice(path.as_bytes());
+    f64::from(word(&blake3::hash(&b), 0)) / f64::from(u32::MAX)
+}
+
+/// Simulates `runs` chats over `entries` and measures both holdings.
+///
+/// The chat model: each file is read with [`read_chance`]; a read of a file hotter than 20
+/// (instructions, shallow source, recent edits) happens on the first turn. The ranker sees a
+/// noisy estimate of the chance (0.6 to 1.4 times the truth), as the projection's hold model
+/// would give it, never the truth itself.
+pub fn prefetch_eval(entries: &[Entry], params: &Params, p: &Profile, runs: u64) -> PrefetchRow {
+    use crate::prefetch::{self, Candidate, HitStats};
+    let mut sum = PrefetchRow::default();
+    let runs = runs.max(1);
+    let add = |acc: &mut HitStats, h: HitStats| {
+        acc.first_turn_hit_rate += h.first_turn_hit_rate / runs as f64;
+        acc.first_turn_hit_bytes_rate += h.first_turn_hit_bytes_rate / runs as f64;
+        acc.held_never_read_bytes += h.held_never_read_bytes / runs;
+        acc.held_bytes += h.held_bytes / runs;
+        acc.first_turn_reads += h.first_turn_reads / runs;
+    };
+    for seed in 0..runs {
+        let (bw, _) = jitter(seed ^ 0x5eed, 0);
+        let idle = p.bandwidth * bw;
+        let (mut first, mut later) = (Vec::new(), Vec::new());
+        let mut cands = Vec::with_capacity(entries.len());
+        for e in entries {
+            let chance = read_chance(e);
+            if unit(seed, 0, &e.path) < chance {
+                let r = (e.path.clone(), e.size);
+                if order::heat(e) < 20 { first.push(r) } else { later.push(r) }
+            }
+            let est = (chance * (0.6 + 0.8 * unit(seed, 1, &e.path))).min(1.0);
+            cands.push(Candidate { path: e.path.clone(), likelihood: est as f32, size: e.size });
+        }
+        // Today: the fill-order prefix at the first turn, the whole folder after.
+        let carried = (idle * params.prefetch_window_s) as u64;
+        let mut at_first = HashMap::new();
+        let mut sent = 0u64;
+        for e in entries {
+            if sent + e.size > carried {
+                break;
+            }
+            sent += e.size;
+            at_first.insert(e.path.clone(), e.size);
+        }
+        let all: HashMap<String, u64> = entries.iter().map(|e| (e.path.clone(), e.size)).collect();
+        let mut today = prefetch::hit_stats(&at_first, &first, &later);
+        let end = prefetch::hit_stats(&all, &first, &later);
+        today.held_never_read_bytes = end.held_never_read_bytes;
+        today.held_bytes = end.held_bytes;
+        add(&mut sum.today, today);
+        // New: before the first turn the idle link carries every candidate in rank order (no
+        // floor, no budget: the window is spare link either way), the hot files included: the
+        // ranker orders them better than fill order (on lossy, 4 MiB of fill-order hot files
+        // fill the whole window and halve the hit rate). After it the machine keeps the
+        // budget's worth above the floor too. Held-never-read counts all of it.
+        let none = std::collections::HashSet::new();
+        let window = prefetch::plan(
+            &prefetch::rank(&cands, &none, 0.0),
+            idle,
+            params.prefetch_window_s,
+            u64::MAX,
+        );
+        let kept = prefetch::plan(
+            &prefetch::rank(&cands, &none, params.prefetch_min_likelihood as f32),
+            idle,
+            f64::INFINITY,
+            params.prefetch_budget,
+        );
+        let at_first: HashMap<String, u64> =
+            window.iter().map(|c| (c.path.clone(), c.size)).collect();
+        let mut held = at_first.clone();
+        held.extend(kept.into_iter().map(|c| (c.path, c.size)));
+        let mut new = prefetch::hit_stats(&at_first, &first, &later);
+        let end = prefetch::hit_stats(&held, &first, &later);
+        new.held_never_read_bytes = end.held_never_read_bytes;
+        new.held_bytes = end.held_bytes;
+        add(&mut sum.new, new);
+    }
+    sum
+}

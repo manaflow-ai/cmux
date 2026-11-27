@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5fe476a9ccfd02153853187f72260b4679e56a06cafbb47940da1b8f304842f6" as const;
+export const SDK_IR_SHA256 = "77e8232b68ccd2af08d54f534e3199096a008d38ec836d64f88852673ec6c23e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2441,6 +2441,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "offer-link-to-phone": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Unix connection of this Mac's own app only (never a remote device). HTTP(S) only. Sends one phone-open-link control event to the phone that drives the terminal when its last key into it came from that phone within two minutes, a connection of that phone that declared phone-open-link-v1 is attached to it, and the address is public; otherwise offered is false and nothing happens. No resource or journal mutation; the URL is never logged."
+    ]
+  },
   "page-credential": {
     "authority": "local-admin",
     "since": 12,
@@ -4223,6 +4233,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "client-disconnected-by": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "client-list-invalidated": {
     "since": 9,
     "capability": null,
@@ -4587,6 +4605,14 @@ export const EVENT_METADATA = {
     "capability": "profiles-v1",
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "phone-open-link": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -8847,6 +8873,89 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     }
   },
+  "LayoutColumnNode": {
+    "additional_properties": false,
+    "fields": {
+      "dock": {
+        "description": "dock-columns-v1: the viewport edge the column is pinned to.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "layout": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Layout"
+        }
+      },
+      "rows": {
+        "description": "rows-v1: only for a column with two or more rows.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "LayoutRowNode"
+          },
+          "kind": "array"
+        }
+      },
+      "width": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LayoutRowNode": {
+    "additional_properties": false,
+    "fields": {
+      "height": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "layout": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Layout"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "LayoutSizePaneWidth": {
     "additional_properties": false,
     "fields": {
@@ -9202,6 +9311,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "resource_id": {
+        "description": "The pane's public id.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "short_id": {
         "constraints": [
           {
@@ -9214,6 +9333,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "tab_groups": {
+        "description": "The pane's tab group runs.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "TabGroupRun"
+          },
+          "kind": "array"
         }
       },
       "tabs": {
@@ -9902,6 +10034,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "PhoneLinkOfferResult": {
+    "additional_properties": false,
+    "fields": {
+      "offered": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -11364,6 +11510,72 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "color": {
+        "description": "The screen color.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "columns": {
+        "description": "The screen's layout columns.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "LayoutColumnNode"
+          },
+          "kind": "array"
+        }
+      },
+      "floating": {
+        "description": "floating-panes-v1: panes above the tiled layout, back to front.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "group": {
+        "description": "The screen group the screen is in.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "hidden_dividers": {
+        "description": "split-divider-visibility-v1: splits whose divider is hidden.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "icon": {
+        "description": "The screen icon.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "id": {
         "nullable": false,
         "presence": "required",
@@ -11399,6 +11611,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "array"
         }
       },
+      "pinned": {
+        "description": "The screen is pinned.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "quick_terminal": {
+        "description": "quick-terminal-v1: the screen's quick terminal.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "resource_id": {
+        "description": "The screen's public id.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "short_id": {
         "constraints": [
           {
@@ -11413,12 +11655,117 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "viewport_base_width": {
+        "description": "The viewport width the split widths are relative to.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "viewport_splits": {
+        "description": "Viewport widths of splits.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ViewportSplitWidth"
+          },
+          "kind": "array"
+        }
+      },
       "zoomed_pane": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ScreenGroupRun": {
+    "additional_properties": false,
+    "fields": {
+      "collapsed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "color": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "count": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "icon": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "saved_id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screens": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "start": {
+        "description": "The index of the run's first screen.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -14198,6 +14545,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "Tab": {
     "additional_properties": false,
     "fields": {
+      "app": {
+        "description": "app-screens-v1: the app (and route) an app tab shows.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "attention": {
+        "description": "tab-attention-v1: an agent needs the person in this tab.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "TabAttention"
+        }
+      },
+      "browser_engine": {
+        "description": "A frontend browser's engine.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "browser_error": {
         "nullable": true,
         "presence": "optional",
@@ -14214,6 +14591,39 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "boolean"
+        }
+      },
+      "browser_owner": {
+        "description": "The frontend that owns the browser.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "browser_profile_id": {
+        "description": "A frontend browser's profile.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "browser_renderer": {
+        "description": "Who renders a browser tab.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "enum",
+          "values": [
+            "daemon",
+            "frontend"
+          ]
         }
       },
       "browser_source": {
@@ -14240,12 +14650,102 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           ]
         }
       },
+      "content_resource_id": {
+        "description": "The public id of what the tab shows.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "description": "What a conversation tab shows.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "ConversationTabRecord"
+        }
+      },
+      "cwd": {
+        "description": "The terminal's working directory.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "dead": {
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "boolean"
+        }
+      },
+      "end": {
+        "description": "terminal-state-v1: why a dead terminal ended.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "favicon_url": {
+        "description": "A frontend browser's favicon.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "git_branch": {
+        "description": "The git branch of cwd.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "git_detached": {
+        "description": "cwd's checkout has a detached HEAD.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "group": {
+        "description": "The tab group the tab is in.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "host_record_version": {
+        "description": "The record version of a terminal its host has but cannot adopt.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "kind": {
@@ -14256,7 +14756,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "values": [
             "pty",
             "browser",
-            "conversation"
+            "conversation",
+            "remote-terminal"
           ]
         }
       },
@@ -14277,6 +14778,26 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "NotificationMarker"
         }
       },
+      "pinned": {
+        "description": "The tab is pinned.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "pinned_url": {
+        "description": "A pinned browser tab's home URL.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "program_status": {
         "nullable": true,
         "presence": "optional",
@@ -14284,6 +14805,26 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ShownProgramStatus"
+        }
+      },
+      "relaunch": {
+        "description": "How the tab relaunches after a restart.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "remote": {
+        "description": "A remote terminal tab's record.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
         }
       },
       "short_id": {
@@ -14324,6 +14865,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "tab_resource_id": {
+        "description": "The tab's public id.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "terminal_host_fallback": {
@@ -14367,6 +14918,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "terminal_state": {
+        "description": "running, reconnecting, failed or exited, for a terminal tab.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "title": {
         "nullable": false,
         "presence": "required",
@@ -14388,6 +14949,40 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "optional",
         "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "description": "A browser tab's URL.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TabAttention": {
+    "additional_properties": false,
+    "fields": {
+      "at_ms": {
+        "description": "When it was marked, in Unix milliseconds.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "reason": {
+        "description": "Why the tab needs the person.",
+        "nullable": false,
+        "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -14537,6 +15132,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "icon": {
+        "description": "tab-group-icon-v1: the group's icon string.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "id": {
@@ -16331,6 +16936,29 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "groups": {
+        "description": "The sidebar workspace groups.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "WorkspaceGroup"
+          },
+          "kind": "array"
+        }
+      },
+      "lines_written_before_read": {
+        "description": "How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "next": {
         "capability": "list-workspaces-page-v1",
         "constraints": [
@@ -16499,6 +17127,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ViewportSplitWidth": {
+    "additional_properties": false,
+    "fields": {
+      "split": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "width": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "VtStateResult": {
     "additional_properties": false,
     "fields": {
@@ -16596,12 +17246,62 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "app": {
+        "description": "The app an app workspace shows.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "color": {
+        "description": "The workspace color.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "group": {
+        "description": "The sidebar group the workspace is in.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "icon": {
+        "description": "The workspace icon.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "id": {
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "keep_awake": {
+        "description": "workspace-keep-awake-v1: the freeing timer never ends this workspace's shells.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       },
       "key": {
@@ -16617,6 +17317,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "kind": {
+        "description": "What the workspace is.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "enum",
+          "values": [
+            "normal",
+            "home",
+            "app"
+          ]
+        }
+      },
+      "marked_unread": {
+        "description": "The person marked the workspace unread.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       },
       "name": {
@@ -16652,6 +17376,49 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "NameSource"
         }
       },
+      "pinned": {
+        "description": "The workspace is pinned.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "recovered": {
+        "description": "workspace-recovered-v1: every tab is a recovered terminal.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "resource_id": {
+        "description": "The workspace's public id.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screen_groups": {
+        "description": "The workspace's screen group runs.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ScreenGroupRun"
+          },
+          "kind": "array"
+        }
+      },
       "screens": {
         "nullable": false,
         "presence": "required",
@@ -16675,6 +17442,26 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "title": {
+        "description": "The workspace title.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "unread_count": {
+        "description": "Tabs with an unread notification.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -16787,6 +17574,52 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "kind": "object"
       }
     }
+  },
+  "WorkspaceGroup": {
+    "additional_properties": false,
+    "fields": {
+      "collapsed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "color": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "index": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
   },
   "WorkspaceMutationResult": {
     "additional_properties": false,
@@ -26901,6 +27734,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "NotifyResult"
     }
   },
+  "offer-link-to-phone": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "PhoneLinkOfferResult"
+    }
+  },
   "page-credential": {
     "request": {
       "additional_properties": false,
@@ -33326,6 +34187,32 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "client-disconnected-by": {
+    "additional_properties": false,
+    "fields": {
+      "by": {
+        "constraints": [
+          "The participant that disconnected this client. Absent when the request named nobody."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "SizeDetachActor"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "client-disconnected-by"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "client-list-invalidated": {
     "additional_properties": false,
     "fields": {
@@ -35277,6 +36164,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "phone-open-link": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "phone-open-link"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

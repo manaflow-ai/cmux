@@ -36,9 +36,11 @@ use crate::rpc::RpcError;
 /// How long a prompt waits for admission, and how long it may hold it.
 pub(crate) const ADMISSION_BOUND: Duration = Duration::from_secs(3);
 /// How long after it came a prompt someone waits on goes without an answer before it is queued.
+// timeout: past it the prompt is queued and answered, not dropped.
 pub(crate) const ANSWER_BOUND: Duration = Duration::from_secs(5);
 /// How long a prompt someone waits on waits in `queue_slot` for a turn lock held with no turn
 /// shown (or a restore) before it joins the queue, which answers it (#55502's bound).
+// timeout: past it the prompt joins the queue, which answers it (#55502).
 pub(crate) const TURN_LOCK_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug)]
@@ -63,8 +65,6 @@ pub struct Admission {
     stage: StdMutex<Stage>,
     committed: AtomicBool,
     acquired: AtomicBool,
-    queue_owned: AtomicBool,
-    defer_requested: AtomicBool,
     came: Instant,
     /// Someone waits on its acceptance or refusal.
     listened: AtomicBool,
@@ -89,8 +89,6 @@ impl Admission {
             stage: StdMutex::new(Stage::Setup("admission")),
             committed: AtomicBool::new(false),
             acquired: AtomicBool::new(false),
-            queue_owned: AtomicBool::new(false),
-            defer_requested: AtomicBool::new(false),
             came,
             listened: AtomicBool::new(false),
             session: session.id.clone(),
@@ -101,7 +99,6 @@ impl Admission {
     pub(super) fn none(session: &Session) -> Arc<Self> {
         let admission = Self::new(session);
         admission.acquired.store(true, Ordering::SeqCst);
-        admission.queue_owned.store(true, Ordering::SeqCst);
         admission
     }
 
@@ -165,25 +162,6 @@ impl Admission {
         self.committed.load(Ordering::SeqCst)
     }
 
-    /// A bounded setup probe found a lock that did not return in time. The caller can durably
-    /// queue this prompt instead of returning a late "started" answer.
-    pub(super) fn request_defer(&self) {
-        self.defer_requested.store(true, Ordering::SeqCst);
-    }
-
-    pub(super) fn defer_requested(&self) -> bool {
-        self.defer_requested.load(Ordering::SeqCst)
-    }
-
-    /// A prompt already owned by the durable queue: it may wait for the child outside admission.
-    pub(super) fn queue_owned(&self) -> bool {
-        self.queue_owned.load(Ordering::SeqCst)
-    }
-
-    pub(super) fn listened(&self) -> bool {
-        self.listened.load(Ordering::SeqCst)
-    }
-
     /// When an unanswered prompt is queued instead.
     pub(crate) fn answer_due(&self) -> Instant {
         self.came + ANSWER_BOUND
@@ -232,6 +210,7 @@ pub(super) struct Deferral {
 }
 
 /// How a prompt with no answer by its due time ends.
+#[allow(clippy::large_enum_variant)] // one per unanswered prompt, matched at once; boxing buys nothing
 pub(super) enum Unanswered {
     /// Queued durably; its run from the queue answers it.
     Defer(Deferral),
@@ -380,6 +359,7 @@ impl Hub {
             {
                 return Err(restore_deadline());
             }
+            // Counted as `queue_slot` counts a prompt that queues, before it goes in.
             session.queued.fetch_add(1, Ordering::SeqCst);
             self.enqueue_admitted(session, &slot, &turn_id, limits, claimed, |row, _| {
                 let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
@@ -391,8 +371,7 @@ impl Hub {
                     .unwrap_or_else(|e| e.into_inner())
                     .push((row.prompt_id.clone(), row.turn_id.clone()));
                 outcome
-            })
-            .map_err(|refused| refused)?
+            })?
         };
         // The queue's own from now on, as `restore_queues` makes a prompt it read back: the
         // queue runs it, and a resend of its id waits on its ledger entry.

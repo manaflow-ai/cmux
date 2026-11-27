@@ -180,14 +180,14 @@ export function environmentSection(
         : {}),
     });
   if (cloud) {
-    // The web's Runs On menu: the row shows the choice, its menu the three.
-    const names = { auto: "hybrid.mode.hybrid", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
+    // The web's Runs On menu: the row shows the choice, its menu the three in the web's order.
+    const names = { auto: "composer.auto", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
     rows.push({
       id: "runsOn",
       symbol: "cloud",
       title: t("hybrid.pin"),
       trailing: t(names[cloud.view.pin]),
-      menu: (["auto", "cloud", "local"] as const).map((pin) => ({
+      menu: (["local", "auto", "cloud"] as const).map((pin) => ({
         label: t(names[pin]),
         action: actions.add(`environment.runsOn:${pin}`, () => cloud.setPin(pin)),
       })),
