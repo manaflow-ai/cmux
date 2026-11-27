@@ -58,6 +58,7 @@ pub struct Frame {
     pub encode_ms: f64,
     /// The encoder's bitrate after this frame.
     pub kbps: u32,
+    pub ltr_token: Option<u64>,
     /// The profile this frame was encoded with, when the encoder applies one (None when it has
     /// no ultra mode and kept its settings).
     pub profile: Option<EncodeProfile>,
@@ -238,6 +239,8 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     source.set_picture(req.picture);
     let capture_start_us = now_ns() / 1000;
     source.capture(req.damage)?;
+    source.set_acknowledged_ltr_tokens(&req.acknowledged_ltr_tokens);
+    source.set_force_ltr_refresh(req.force_ltr_refresh);
     let t_capture_us = now_ns() / 1000;
     source.set_profile(req.profile, req.refine);
     source.set_changed_pixels(u64::from(req.damage.width) * u64::from(req.damage.height));
@@ -258,6 +261,7 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
         picked_times: source.picked_times(),
         encode_ms: (t1 - t0) as f64 / 1e6,
         kbps: source.kbps(),
+        ltr_token: source.ltr_token(),
         profile: source.applies_profile().then_some(req.profile),
     })
 }

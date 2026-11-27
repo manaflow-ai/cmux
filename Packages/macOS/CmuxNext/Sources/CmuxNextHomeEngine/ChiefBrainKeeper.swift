@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextHomeModel
 import Darwin
 public import Foundation
 import os
@@ -10,6 +11,9 @@ import os
 /// through `ensure()`, so no "open Home" step is ever needed. The home's
 /// lock keeps one host per home, so a host another process started keeps
 /// running with its token: no new token revokes its binding.
+///
+/// The answers are `chief_brain.keeper_*` in cmux-home-rules; this class reads what they need
+/// (the marker's stat, the lock, the watch) and runs their effects in order.
 @MainActor
 public final class ChiefBrainKeeper {
     /// The Chief owner's connection, nil while it is not connected.
@@ -53,26 +57,49 @@ public final class ChiefBrainKeeper {
     /// does not.
     @discardableResult
     public func ensure(asked: Bool) -> Bool {
-        if watch?.isStopped == true || !HomeBrainHost.canStart() { return false }
-        let marker = home.shutdownMarker
+        let reply: KeeperEnsureReply? = try? HomeRules.chiefBrain("keeper_ensure", KeeperEnsureRequest(asked: asked, keeper: view()))
+        return reply.map(run) ?? false
+    }
+
+    /// What the rules read of this keeper. The marker's stat and the lock read are made each time,
+    /// where Swift made them only on the branch that needed them; both are small local reads.
+    /// `needsCanStart`: false for an answer that does not read it (`keeper_is_running`), which skips
+    /// the executable checks.
+    private func view(needsCanStart: Bool = true) -> KeeperView {
         // concurrency-allow: one small stat per ask
-        if FileManager.default.fileExists(atPath: marker.path) {
-            guard asked else { return false }
-            try? FileManager.default.removeItem(at: marker)
+        let marker = FileManager.default.fileExists(atPath: home.shutdownMarker.path)
+        let canStart = needsCanStart && watch?.isStopped != true && HomeBrainHost.canStart()
+        return KeeperView(canStart: canStart, shutdownMarker: marker,
+                          starting: starting, hasWatch: watch != nil, watchStopped: watch?.isStopped == true,
+                          watchWatching: watch?.isWatching == true, runningPid: ChiefHostStop.runningHostPID(home: home))
+    }
+
+    /// Runs an ensure answer's effects in order; whether a host is starting or watched afterwards.
+    private func run(_ reply: KeeperEnsureReply) -> Bool {
+        for effect in reply.effects {
+            switch effect.kind {
+            case "removeShutdownMarker":
+                try? FileManager.default.removeItem(at: home.shutdownMarker)
+            case "watch":
+                if let pid = effect.pid { watch?.watch(pid) }
+            case "dropWatch":
+                // A watch that gave up (a host that kept dying) is armed again by this ask. It is
+                // stopped before it goes: a launch that printed no pid leaves its lock sources armed
+                // while ``ChiefBrainWatch/isWatching`` is false, and a watch that is only dropped runs
+                // no cancel handler, so those descriptors would live until the app quits.
+                watch?.stop()
+                watch = nil
+            case "start":
+                start()
+            default:
+                logger.error("chief brain keeper: unknown effect \(effect.kind, privacy: .public)")
+            }
         }
-        if starting || watch?.isWatching == true { return true }
-        if let watch, let running = ChiefHostStop.runningHostPID(home: home) {
-            watch.watch(running)
-            return true
+        switch reply.answer {
+        case "yes": return true
+        case "ifStarted": return starting
+        default: return false
         }
-        // A watch that gave up (a host that kept dying) is armed again by this ask. It is stopped
-        // before it goes: a launch that printed no pid leaves its lock sources armed while
-        // ``ChiefBrainWatch/isWatching`` is false, and a watch that is only dropped runs no cancel
-        // handler, so those descriptors would live until the app quits, one pair per retry.
-        watch?.stop()
-        watch = nil
-        start()
-        return starting
     }
 
     /// The watch stopped restarting a host that kept dying (``ChiefBrainWatch/hasGivenUp``), until the next ask.
@@ -81,8 +108,8 @@ public final class ChiefBrainKeeper {
     /// Whether this home's brain host runs or is starting: one this app watches, or one
     /// another process started (it holds the home's lock).
     public var isRunning: Bool {
-        if starting || watch?.isWatching == true { return true }
-        return ChiefHostStop.runningHostPID(home: home) != nil
+        let reply: KeeperRunningReply? = try? HomeRules.chiefBrain("keeper_is_running", KeeperRequest(keeper: view(needsCanStart: false)))
+        return reply?.running ?? false
     }
 
     /// A Chief chat that found nothing on the Chief home's acpmux socket asks for the host
@@ -90,9 +117,8 @@ public final class ChiefBrainKeeper {
     /// or is starting. A watch that gave up (a host that kept dying) is armed again only by an
     /// ask, never by a chat's retries, which would relaunch a crashing host every few seconds.
     public func ensureForChat() -> Bool {
-        if starting { return true }
-        if let watch, !watch.isWatching { return false }
-        return ensure(asked: false)
+        let reply: KeeperEnsureReply? = try? HomeRules.chiefBrain("keeper_ensure_for_chat", KeeperRequest(keeper: view()))
+        return reply.map(run) ?? false
     }
 
     /// A person's message in a conversation of the default Chief is an ask
@@ -102,10 +128,11 @@ public final class ChiefBrainKeeper {
     /// a page gets the same answer; the daemon starts every other Chief's
     /// brain on the same rule (cmux-tui chief_brains.rs `woken_by`).
     public func ask(after message: ConversationMessage, in summary: ConversationSummary?) {
-        let mux = HomeChiefName.muxID
-        guard message.author != mux, let summary, summary.participants.contains(where: { $0.id == mux }),
-              summary.participants.first(where: { $0.id == message.author })?.kind == .human else { return }
-        ensure(asked: true)
+        let participants = summary?.participants.map { ChiefBrainParticipant(id: $0.id, kind: $0.kind.rawValue) }
+        let request = KeeperAskRequest(author: message.author, participants: participants, keeper: view())
+        guard let reply: KeeperAskReply = try? HomeRules.chiefBrain("keeper_ask", request),
+              reply.asks, let ensure = reply.ensure else { return }
+        _ = run(ensure)
     }
 
     /// Quit: the brain stops on purpose; it is not started again.
@@ -130,14 +157,23 @@ public final class ChiefBrainKeeper {
 
     private func watchHost(_ host: HomeBrainHost, pid: pid_t?) {
         // Quit came while this start ran: the host must not outlive the quit.
-        if watch?.isStopped == true {
-            if let pid, ChiefHostStop.isChiefHost(pid) || ChiefHostStop.isFilesHostLauncher(pid) { kill(pid, SIGTERM) }
+        let stopped = watch?.isStopped == true
+        let request = KeeperAfterStartRequest(
+            pid: pid, hasWatch: watch != nil, watchStopped: stopped,
+            pidIsHost: stopped && pid.map { ChiefHostStop.isChiefHost($0) || ChiefHostStop.isFilesHostLauncher($0) } == true)
+        let after: KeeperAfterStart? = try? HomeRules.chiefBrain("keeper_after_start", request)
+        switch after?.kind {
+        case "terminate":
+            if let pid = after?.pid { kill(pid, SIGTERM) }
             return
-        }
-        // Known gap: a launch whose pid the shell did not print, before the
-        // host holds the lock, leaves nothing to watch until the next ask.
-        if let watch {
-            watch.watch(pid)
+        case "createWatch":
+            break
+        case "watch":
+            // Known gap: a launch whose pid the shell did not print, before the
+            // host holds the lock, leaves nothing to watch until the next ask.
+            watch?.watch(after?.pid)
+            return
+        default:
             return
         }
         let watch = ChiefBrainWatch(home: home, restart: { [weak self] in
@@ -146,7 +182,7 @@ public final class ChiefBrainKeeper {
             return await launch(host, connection: connection)
         }, watching: { [weak self] pid in self?.hostChanged?(pid) })
         self.watch = watch
-        watch.watch(pid)
+        watch.watch(after?.pid)
     }
 
     private func launch(_ host: HomeBrainHost, connection: DaemonConnection) async -> pid_t? {
@@ -160,4 +196,63 @@ public final class ChiefBrainKeeper {
             return nil
         }
     }
+}
+
+/// `chief_brain::keeper::KeeperView`.
+private nonisolated struct KeeperView: Encodable {
+    var canStart: Bool
+    var shutdownMarker: Bool
+    var starting: Bool
+    var hasWatch: Bool
+    var watchStopped: Bool
+    var watchWatching: Bool
+    var runningPid: Int32?
+}
+
+private nonisolated struct KeeperRequest: Encodable {
+    var keeper: KeeperView
+}
+
+private nonisolated struct KeeperEnsureRequest: Encodable {
+    var asked: Bool
+    var keeper: KeeperView
+}
+
+/// `chief_brain::keeper::EnsureReply`; effects flat, `kind` names the case.
+private nonisolated struct KeeperEnsureReply: Decodable {
+    nonisolated struct Effect: Decodable {
+        var kind: String
+        var pid: Int32?
+    }
+
+    var answer: String
+    var effects: [Effect]
+}
+
+private nonisolated struct KeeperRunningReply: Decodable {
+    var running: Bool
+}
+
+private nonisolated struct KeeperAskRequest: Encodable {
+    var author: String
+    var participants: [ChiefBrainParticipant]?
+    var keeper: KeeperView
+}
+
+private nonisolated struct KeeperAskReply: Decodable {
+    var asks: Bool
+    var ensure: KeeperEnsureReply?
+}
+
+private nonisolated struct KeeperAfterStartRequest: Encodable {
+    var pid: Int32?
+    var hasWatch: Bool
+    var watchStopped: Bool
+    var pidIsHost: Bool
+}
+
+/// `chief_brain::keeper::AfterStart`, flat.
+private nonisolated struct KeeperAfterStart: Decodable {
+    var kind: String
+    var pid: Int32?
 }

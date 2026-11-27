@@ -1458,6 +1458,7 @@ export type HomeInboxResult = {
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
   "machine_metadata"?: boolean;
+  "restore_progress"?: boolean;
   "revisions"?: boolean;
 }
 
@@ -2497,6 +2498,7 @@ export type SendKeyResult = T.EmptyResult;
 export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
   "include"?: (Array<string>) | null;
+  "restore_progress"?: boolean;
 }
 
 /** Protocol v12; authority: frontend. */
@@ -2770,6 +2772,7 @@ export interface SetWorkspaceMetadataRequest extends CmuxRequestBase {
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "icon"?: (string) | null;
+  "keep_awake"?: (boolean) | null;
   "key"?: (string) | null;
   "marked_unread"?: (boolean) | null;
   "mutation_id"?: (string) | null;

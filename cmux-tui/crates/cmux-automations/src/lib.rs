@@ -1,7 +1,7 @@
 //! cmux automations on one machine (docs/automations-platonic-ideal.md).
 //!
 //! An [`Automation`] is a named prompt or command plus one [`Trigger`]. The
-//! [`Store`] keeps it on disk (`~/.config/cmux/automations/<id>/`), every
+//! [`Store`] keeps it on disk (`~/.config/cmux-next/automations/<id>/`), every
 //! write atomic, run history append-only. The runner calls [`tick`] on a
 //! timer: it works out which scheduled times came due since the last tick,
 //! applies the automation's [`CatchUp`] policy to the ones a sleeping Mac
