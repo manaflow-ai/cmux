@@ -465,23 +465,25 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
   }
   writeFileSync(path.join(outDir, "claude-launches.txt"), text);
   // What acpmux said: without a recorded launch these are the only evidence of why.
-  const said: string[] = [];
-  for (const name of ["recorder-new", "recorder-send", "recorder-shutdown"]) {
-    const out = await readGuest(vm, `${PROBE_DIR}/${name}.txt`).catch((error) => `unreadable: ${String(error).slice(0, 120)}`);
-    writeFileSync(path.join(outDir, `${name}.txt`), out);
-    said.push(`${name}: ${out.trim().replace(/\s+/g, " ").slice(-240)}`);
-  }
-  const gatewaySaid: string[] = [];
-  for (const name of ["gateway-new", "gateway-send", "gateway-shutdown"]) {
-    const out = await readGuest(vm, `${PROBE_DIR}/${name}.txt`).catch((error) => `unreadable: ${String(error).slice(0, 120)}`);
-    writeFileSync(path.join(outDir, `${name}.txt`), out);
-    gatewaySaid.push(`${name}: ${out.trim().replace(/\s+/g, " ").slice(-240)}`);
-  }
+  // Each leg's own: the gateway leg's were never kept, so its failure (no session launch recorded, rolls 45890407908
+  // and 45906244147) left no evidence of why.
+  const saidBy = async (leg: string): Promise<string[]> => {
+    const lines: string[] = [];
+    for (const step of ["new", "send", "shutdown"]) {
+      const name = `${leg}-${step}`;
+      const out = await readGuest(vm, `${PROBE_DIR}/${name}.txt`).catch((error) => `unreadable: ${String(error).slice(0, 120)}`);
+      writeFileSync(path.join(outDir, `${name}.txt`), out);
+      lines.push(`${name}: ${out.trim().replace(/\s+/g, " ").slice(-240)}`);
+    }
+    return lines;
+  };
+  const said = await saidBy("recorder");
+  const gatewaySaid = await saidBy("gateway");
   const gatewayText = await readGuest(vm, GATEWAY_LAUNCHES).catch(() => "");
   writeFileSync(path.join(outDir, "claude-launches-gateway.txt"), gatewayText);
   const gateway = parseRecordedLaunch(gatewayText);
   const gatewayIssues = gatewayProblems(gateway.servers);
-  check("acpmux-attaches-cmux-gateway", gatewayIssues.length === 0, `${gatewayIssues.join("; ")}${gatewayIssues.length ? ": " : ""}${gateway.servers.map((s) => `${s.name}=${s.url ?? s.command}`).join("; ") || `no launch with --mcp-config was recorded; ${gatewaySaid.join(" | ")}`}`);
+  check("acpmux-attaches-cmux-gateway", gatewayIssues.length === 0, `${gatewayIssues.join("; ")}${gatewayIssues.length ? ": " : ""}${gateway.servers.map((s) => `${s.name}=${s.url ?? s.command}`).join("; ") || `no launch with --mcp-config was recorded (${gatewayText.split(`${RECORD_END}\n`).filter((b) => b.trim()).length} launches recorded, none of them the chat's); ${gatewaySaid.join(" | ")}`}`);
   const launch = parseRecordedLaunch(text);
   const names = launch.servers.map((s) => `${s.name}=${s.url ?? `${s.command} ${s.args.join(" ")}`}`);
   const cu = attachedComputerUse(launch.servers);
