@@ -137,6 +137,8 @@ class Scenario:
         return {**os.environ, "HOME": str(self.home), "CFFIXED_USER_HOME": str(self.home),
                 "TMPDIR": str(self.scratch / "tmp") + "/", "CMUX_NEXT_CONFIG_FILE": str(self.config),
                 "CMUX_WEB_SLOT_STATE_DIR": str(self.scratch / "web-slot"), "PATH": path, "APP": self.app,
+                # The dev server's in-page clock (webviews/dev-server/hotSwapTiming.ts) writes here: inpage() reads it.
+                "CMUX_WEBVIEWS_DEV_STATE_DIR": str(self.timing_log.parent),
                 # web-overlay.sh checks and writes for this app only; unset, it checks the Mac's installed
                 # NIGHTLY/NEXT, whose web ABI is not the tree's (step 294dc843: ABI 9 vs 7, every film no-op).
                 "CMUX_WEB_OVERLAY_APP": self.app,
@@ -528,6 +530,45 @@ class Scenario:
         print("GRACEFUL_SWAP_LATENCY " + json.dumps(out, separators=(",", ":")), flush=True)
         self.results["latency"][f"{series}-{surface}"] = {k: out["regions"][watch][k] for k in ("n", "missed", "p50_ms", "p95_ms")}
 
+    @property
+    def timing_log(self) -> Path:
+        return self.scratch / "webviews-dev-state" / "hot-swap-timing.ndjson"
+
+    def timing_lines(self) -> int:
+        return len(self.timing_log.read_text(errors="replace").splitlines()) if self.timing_log.exists() else 0
+
+    def inpage(self, series, edit, since):
+        """The same saves on the pages' own clock (save mtime to the next drawn frame, per stage), no film:
+        the reading that resolves the focused pane's 150 ms bar, which a 10-18 fps film cannot."""
+        rel = EDITS[edit][0]
+        rows = []
+        for line in (self.timing_log.read_text(errors="replace").splitlines()[since:] if self.timing_log.exists() else []):
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if str(row.get("file", "")).endswith(rel) and row.get("total") is not None:
+                rows.append(row)
+        pages = {}
+        for row in rows:
+            pages.setdefault(str(row.get("page", "?")), []).append(row)
+        out = {"version": GS.VERSION, "label": f"fleet-{series}-inpage", "file": rel, "clock": "in-page",
+               "pages": {}}
+        for page, got in pages.items():
+            got = got[1:]  # run 0 warms the server's compile of the file, as in series()
+            entry = {"n": len(got)}
+            for stage in ("total", "watch", "server", "socket", "module", "refresh", "frame"):
+                seen = [float(r[stage]) for r in got if isinstance(r.get(stage), (int, float))]
+                entry[stage] = {"p50_ms": GS.percentile(seen, 50), "p95_ms": GS.percentile(seen, 95)}
+            out["pages"][page] = entry
+        folder = self.out / "latency"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{series}-inpage.json").write_text(json.dumps(out, indent=2) + "\n")
+        print("GRACEFUL_SWAP_INPAGE " + json.dumps(out, separators=(",", ":")), flush=True)
+        self.results["latency"][f"{series}-inpage"] = {p: {"n": e["n"], **e["total"]} for p, e in out["pages"].items()}
+        if not rows:
+            log(f"GSW-FLEET {series}: no in-page timing rows in {self.timing_log}")
+
     def series(self, kind, runs, before=None, trigger_for=None, after=None, post=2.5, edit="composer"):
         results = []
         for i in range(runs + 1):  # run 0 warms the dev server's compile of the file and is not counted
@@ -553,7 +594,9 @@ class Scenario:
         self.server()
         wanted = self.opts.series.split(",")
         if "composer" in wanted:
+            since = self.timing_lines()
             runs = self.series("composer", self.opts.runs)
+            self.inpage("composer", "composer", since)
             self.summary("composer", "focused", "focused", ["sidebar", "settings"], runs)
             self.summary("composer", "unfocused", "unfocused", ["sidebar", "settings"], runs)
         if "hidden" in wanted:
@@ -572,7 +615,9 @@ class Scenario:
             self.summary("hidden", "hidden", "unfocused", ["sidebar", "settings", "focused"], runs, sample="settled_ms")
             self.st.focus_pane(self.panes[1])
         if "settings" in wanted:
+            since = self.timing_lines()
             runs = self.series("settings", self.opts.runs, edit="settings")
+            self.inpage("settings", "settings", since)
             self.summary("settings", "unfocused", "settings", ["sidebar", "focused", "unfocused"], runs)
 
     def stop(self):
