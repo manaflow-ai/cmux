@@ -258,5 +258,48 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                 lines = out.read_text().splitlines()
                 self.assertIn(f"ios_placeholder={want}", lines)
 
+    def test_app_store_shelf_pr_runs_only_where_the_diff_reaches_its_inputs(self):
+        # ci-runner-min-per-day-50k (Leo, 2026-11-27: "whatever we need to cut, we cut."): the job started a runner on
+        # every pull request event to find out nothing changed (~11 runner-min per merged PR). The lint's route step
+        # says it; vars.APP_STORE_SHELF_EVERY_HEAD == '1' runs it as before.
+        import os  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())["jobs"]
+        shelf = jobs["app-store-shelf-pr"]
+        self.assertIn("workflow-start-lint", shelf["needs"])
+        self.assertIn("(needs.workflow-start-lint.outputs.app_store_shelf != 'false' || "
+                      "vars.APP_STORE_SHELF_EVERY_HEAD == '1')", shelf["if"])
+        self.assertIn("!cancelled()", shelf["if"])
+        lint = jobs["workflow-start-lint"]
+        self.assertEqual(lint["outputs"]["app_store_shelf"], "${{ steps.touched.outputs.app_store_shelf }}")
+        step = next(s for s in lint["steps"] if s.get("id") == "touched")
+        cases = [
+            ("pull_request", "first-party-apps/a/manifest.json", "true"),
+            ("pull_request", "scripts/ci/app-store-shelf-check.sh", "true"),
+            ("pull_request", ".github/workflows/app-store-shelf.yml", "true"),
+            ("pull_request", "cmux-tui/crates/cmux-app-host/src/lib.rs", "true"),
+            ("pull_request", "cmux-tui/crates/acpmux/src/lib.rs", "false"),
+            ("pull_request", "docs/x.md", "false"),
+            ("push", "docs/x.md", "true"),
+        ]
+        for event, changed, want in cases:
+            with self.subTest(event=event, changed=changed), tempfile.TemporaryDirectory() as tmp:
+                git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+                subprocess.run(["git", "init", "-q", tmp], check=True)
+                Path(tmp, "base.txt").write_text("base\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "base"], check=True)
+                Path(tmp, changed).parent.mkdir(parents=True, exist_ok=True)
+                Path(tmp, changed).write_text("change\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "change"], check=True)
+                out = Path(tmp, "github_output")
+                env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(out), "EVENT_NAME": event}
+                subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=tmp, env=env, check=True,
+                               capture_output=True)
+                self.assertIn(f"app_store_shelf={want}", out.read_text().splitlines())
+
 if __name__ == "__main__":
     unittest.main()
