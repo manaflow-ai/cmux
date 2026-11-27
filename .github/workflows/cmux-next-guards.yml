@@ -1798,7 +1798,10 @@ jobs:
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-test-coverage-tests ')) }}
         run: python3 -I tests/test_swift_test_coverage.py
 
-
+      - name: The Swift Cloud networking count's own tests (swift-cloud-http.py)
+        id: tt-swift-cloud-http-tests
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-cloud-http-tests ')) }}
+        run: python3 -I tests/test_swift_cloud_http.py
 
       # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
       # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
