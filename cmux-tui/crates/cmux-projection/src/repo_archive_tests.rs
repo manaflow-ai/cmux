@@ -258,6 +258,24 @@ fn the_store_is_off_unless_configured() {
     assert_eq!(configured_store(&env, &config).as_deref(), Some("/e"));
 }
 
+#[test]
+fn the_machine_config_carries_the_read_key_after_the_env_and_the_s3_file() {
+    let machine = serde_json::json!({"store": "https://a.example/b", "access_key_id": "vm", "secret_access_key": "vs"});
+    let file = serde_json::json!({"access_key_id": "file", "secret_access_key": " "});
+    let none = |_: &str| None;
+    let id = "CMUX_PROJECTION_S3_ACCESS_KEY_ID";
+    let secret = "CMUX_PROJECTION_S3_SECRET_ACCESS_KEY";
+    let blank = serde_json::Value::Null;
+    assert_eq!(store_setting(id, &none, &blank, &machine).as_deref(), Some("vm"));
+    assert_eq!(store_setting(id, &none, &file, &machine).as_deref(), Some("file"));
+    // A blank value in the S3 file does not hide the machine's.
+    assert_eq!(store_setting(secret, &none, &file, &machine).as_deref(), Some("vs"));
+    let env = |name: &str| (name == "CMUX_PROJECTION_S3_ACCESS_KEY_ID").then(|| "env".to_owned());
+    assert_eq!(store_setting(id, &env, &file, &machine).as_deref(), Some("env"));
+    assert_eq!(store_setting("AWS_REGION", &none, &file, &machine), None);
+    assert_eq!(store_setting(id, &none, &blank, &blank), None);
+}
+
 /// A public bucket over HTTP that answers ranged GETs from `root`, counting them.
 fn serve(root: PathBuf, ranged: Arc<AtomicUsize>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

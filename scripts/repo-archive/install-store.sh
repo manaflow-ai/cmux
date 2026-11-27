@@ -8,6 +8,8 @@
 # 3. Downloads the sealed credentials and unseals them here:
 #      ~/.config/cmux-repo-archive-publish.env  CMUX_REPO_ARCHIVE_STORE plus the publisher's write keys (0600)
 #      ~/.config/cmux-repo-archive-read.env     the store plus a read-only key, for VM images (0600)
+#      ~/.config/cmux-repo-archive-vm.json      the same as a VM's /etc/cmux/repo-archive.json ({"store", "access_key_id",
+#                                               "secret_access_key"}; cmux-projection reads the key from it) (0600)
 # 4. Installs and enables cmux-repo-archive-publish.timer (systemd --user), publishes once, and reads one archive back
 #    with the read-only key (repo-archive-fetch of manaflow-ai/cmux into a temp folder).
 # Nothing secret is printed. Usage: install-store.sh [--no-timer]
@@ -57,7 +59,11 @@ envfile "$work/repo-archive-write.sealed" > "$conf/cmux-repo-archive-publish.env
 mv -f "$conf/cmux-repo-archive-publish.env.new" "$conf/cmux-repo-archive-publish.env"
 envfile "$work/repo-archive-read.sealed" > "$conf/cmux-repo-archive-read.env.new"
 mv -f "$conf/cmux-repo-archive-read.env.new" "$conf/cmux-repo-archive-read.env"
-echo "install-store: wrote $conf/cmux-repo-archive-publish.env and $conf/cmux-repo-archive-read.env (0600)"
+unseal "$work/repo-archive-read.sealed" | python3 -c 'import json,sys; c=json.load(sys.stdin)
+print(json.dumps({"store": c["store"], "access_key_id": c["access_key_id"], "secret_access_key": c["secret_access_key"]}))' \
+  > "$conf/cmux-repo-archive-vm.json.new"
+mv -f "$conf/cmux-repo-archive-vm.json.new" "$conf/cmux-repo-archive-vm.json"
+echo "install-store: wrote $conf/cmux-repo-archive-publish.env, $conf/cmux-repo-archive-read.env and $conf/cmux-repo-archive-vm.json (0600)"
 
 if [ "$timer" = 1 ]; then
   mkdir -p "$conf/systemd/user"
@@ -70,6 +76,10 @@ else
   (set -a; . "$conf/cmux-repo-archive-publish.env"; set +a; bash "$here/publish.sh")
 fi
 
-(set -a; . "$conf/cmux-repo-archive-read.env"; set +a
+# The read-back reads with the VM file's key alone, as a VM does: no key in the environment. /etc/cmux here is the
+# controller's, so the file is named by CMUX_PROJECTION_S3_CONFIG, which takes the same keys.
+(unset CMUX_PROJECTION_S3_ACCESS_KEY_ID CMUX_PROJECTION_S3_SECRET_ACCESS_KEY
+ CMUX_REPO_ARCHIVE_STORE=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["store"])' "$conf/cmux-repo-archive-vm.json") \
+ CMUX_PROJECTION_S3_CONFIG=$conf/cmux-repo-archive-vm.json \
  cmux-projection repo-archive-fetch --url "https://github.com/$repo.git" --at "$work/readback")
 echo "install-store: read back $repo at $(git -C "$work/readback" rev-parse HEAD) on $(git -C "$work/readback" rev-parse --abbrev-ref HEAD)"
