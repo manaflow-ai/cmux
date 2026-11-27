@@ -67,12 +67,15 @@ hub-carrier = ["dep:cmux-remote", "dep:cmux-remote-protocol", "dep:async-trait",
 # binary's allocator records every block and writes `ACPMUX_DHAT_OUT` when the daemon stops
 # (`heap_profile.rs`). Never in a shipped build: it slows every allocation.
 dhat-heap = ["dep:dhat"]
-# Bench only: the system allocator (glibc malloc) in place of mimalloc, for the allocator A/B of
-# scripts/measure/infinite-items-linux.sh alloc_ab=1. Never in a shipped build.
-system-alloc = []
-# Bench only: mimalloc's v2 line in place of the v3 the crate builds by default, for the same A/B
-# (v3 held about 2.5x the live bytes at n=1,000 with the resident cap, job 5056393a).
-mimalloc-v2 = ["mimalloc/v2"]
+# Bench only: mimalloc (the musl packages' allocator) in place of glibc's malloc on a gnu build, for
+# the allocator A/B of scripts/measure/infinite-items-linux.sh alloc_ab=1. Never in a shipped build.
+mimalloc-gnu = []
+# Bench only: mimalloc's v2 line in place of v3, on a gnu build, for the same A/B (v3 held about
+# 2.5x the live bytes at n=1,000 with the resident cap, job 5056393a; v2 was no better, eb7f270b).
+mimalloc-v2 = ["mimalloc/v2", "mimalloc-gnu"]
+# Bench only: musl's own malloc (mallocng) in place of mimalloc on a musl build, for the musl allocator A/B of
+# scripts/measure/alloc-musl-ab.sh. Never in a shipped build (RFD 0156: musl's malloc kept freed pages).
+musl-malloc = []
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.4"
@@ -90,6 +93,8 @@ cmux-tailnet-join = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
 [dependencies]
+# What an upstream error says (529, 503, retry-after), shared with OptChat's Chief.
+cmux-upstream-error = { path = "../cmux-upstream-error" }
 cmux-transport-rewrite.workspace = true
 # Felt-latency metrics (`server/felt.rs`); portable, so every OS builds it.
 cmux-felt.workspace = true
@@ -223,6 +228,7 @@ thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite.workspace = true
 cmux-process.workspace = true
+cmux-tui-util = { workspace = true, features = ["tokio"] }
 cmux-pool-pod.workspace = true
 # Bounded waits (`hub/forward_wait.rs`): every waiting state declares its bound and recovery.
 cmux-bounded = { workspace = true, features = ["tokio"] }
@@ -288,9 +294,11 @@ url = { workspace = true, optional = true }
 # The change-only, path-following inotify watch (`quiet_dirs.rs`) of the harness, settings and
 # login-env watches; `notify` asks for every open. Already in the tree through `notify`, with its features.
 inotify = { version = "0.11", default-features = false }
-# The daemon's allocator on Linux (src/main.rs, acpmux-standalone): musl's malloc, the shipped
+# The daemon's allocator on musl Linux (src/main.rs, acpmux-standalone): musl's malloc, the shipped
 # static build's, never gave freed pages back, and a daemon up 12 h held 2.5 GB with a flat live
-# heap (RFD 0156). mimalloc returns them on its own.
+# heap (RFD 0156). mimalloc returns them on its own. gnu builds keep glibc's malloc (it held 70 MB
+# less than mimalloc v3 at n=1,000, cmux#57621) unless the bench feature `mimalloc-gnu` is on; the
+# dependency stays on every Linux target so that feature builds there.
 mimalloc = { version = "0.1", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
