@@ -141,6 +141,28 @@ impl Hub {
             || session.work_below_since.lock().is_ok_and(|v| *v != 0)
     }
 
+    /// What under `session` keeps its harness up at its idle deadline. `static`: all of
+    /// [`Self::holds_work_below`]. `adaptive-v1`: only what the harness's exit would end, its own
+    /// processes and background subagents. An open sub-session child runs in its own harness and
+    /// outlives its parent's: a parent whose turn ended while only its children work sleeps
+    /// through their work, and whatever reaches it from them (a report, a question, a send) is a
+    /// prompt, which wakes it as any prompt does. Nothing prompts a parent when a child's turn
+    /// ends (`subsession_results.rs`), awake or not, so its agent loses nothing by sleeping.
+    fn idle_holds_work(&self, session: &Session) -> bool {
+        match self.idle_policy() {
+            IdlePolicyKind::Static => self.holds_work_below(session),
+            IdlePolicyKind::AdaptiveV1 => {
+                self.any_process_running(session)
+                    || session
+                        .subagents
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .background_running()
+                        > 0
+            }
+        }
+    }
+
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
         self.eligible(session, false)
     }
@@ -165,7 +187,7 @@ impl Hub {
             && !self.secrets.waiting_in(&session.id)
             && (session.queued() == 0 || sleeps_held)
             && session.pending_permissions().is_empty()
-            && !self.holds_work_below(session)
+            && !self.idle_holds_work(session)
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
