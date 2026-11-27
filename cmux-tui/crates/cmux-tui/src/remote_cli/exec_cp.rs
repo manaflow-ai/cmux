@@ -545,9 +545,12 @@ pub(super) async fn forward_stdin_chunks<'a, S>(
         } else {
             tokio::select! {
                 biased;
-                accepted = async { in_flight.front_mut().expect("checked non-empty").await },
-                    if !in_flight.is_empty() =>
-                {
+                accepted = async {
+                    match in_flight.front_mut() {
+                        Some(oldest) => oldest.await,
+                        None => std::future::pending().await,
+                    }
+                }, if !in_flight.is_empty() => {
                     in_flight.pop_front();
                     if !accepted {
                         return;
