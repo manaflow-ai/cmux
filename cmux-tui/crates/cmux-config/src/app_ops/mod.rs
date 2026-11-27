@@ -28,6 +28,7 @@ pub mod link_rules;
 pub mod looks;
 pub mod notifications;
 pub mod schema;
+pub mod settings_window;
 pub mod shortcut;
 pub mod snapshot;
 pub mod theme;
@@ -55,6 +56,7 @@ const AREAS: &[AreaCall] = &[
     looks::call,
     notifications::call,
     schema::call,
+    settings_window::call,
     shortcut::call,
     snapshot::call,
     theme::call,
