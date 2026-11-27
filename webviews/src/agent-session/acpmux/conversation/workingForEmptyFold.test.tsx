@@ -37,6 +37,27 @@ test("a finished call: the header's fold has work to open", () => {
   expect(row.foldEmpty).toBeUndefined();
 });
 
+test("a finished discovery call alone shows nothing, so the header's fold stays empty", () => {
+  const search = {
+    kind: "tool",
+    text: "ToolSearch",
+    tool: {
+      id: "s1",
+      title: "ToolSearch",
+      kind: "other",
+      status: "completed",
+      provenance: { claudeTool: "ToolSearch" },
+    },
+  };
+  const row = header([work("w1", 1_000, search as ReturnType<typeof call>, call("c1", "in_progress"))]);
+  expect(row.foldEmpty).toBe(true);
+});
+
+test("a hidden thought that is no longer quiet gives the fold work to open", () => {
+  const thought = { kind: "thought", text: "Weighing the options ".repeat(10), startedAt: 1_000, endedAt: 4_000 };
+  expect(header([work("w1", 1_000, thought as unknown as ReturnType<typeof call>)]).foldEmpty).toBeUndefined();
+});
+
 const draw = (row: AcpmuxRow) =>
   new JSDOM(`<main>${renderToStaticMarkup(<WorkingFor row={row} now={() => 5_000} onToggle={() => {}} />)}</main>`)
     .window.document;
