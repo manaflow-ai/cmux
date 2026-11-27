@@ -10,13 +10,10 @@ first can land on a shared, reused VM, where its secret could outlive the job. T
 (cmuxterm-hq runner_pool.py JIT_ONLY_LABELS) are served only by VMs the fleet boots for one queued job and deletes
 after it.
 
-So after the fork branch (a fork can't read vars and keeps the literal 'ubuntu-24.04'), and after any fork-PR clause
-that yields 'ubuntu-24.04', the first operand of the runs-on chain must yield a cmux-gcp-*-jit-x64 label. The jobs
-moved here lead with `vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || `. Setting the switch to 1
-puts them back on the selector after it, as an overflow route. The signing and billing jobs that another rule keeps
-off repository variables (tests/test_ci_runner_pins_movable.py PINNED, tests/test_ci_billing_nightly.py) name the
-label literally instead: `<fork branch> || 'cmux-gcp-secret-jit-x64' }}`. Jobs that already led with their own JIT label (repair,
-PR control, gate, nightly, queue) keep it.
+So after the fork branch (a fork keeps the literal 'ubuntu-24.04'), and after any fork-PR clause that yields
+'ubuntu-24.04', the runs-on chain must yield a cmux-gcp-*-jit-x64 label first. On main no Linux `runs-on` reads a
+variable (#53905), so the jobs moved here name the label literally: `<fork branch> || 'cmux-gcp-secret-jit-x64' }}`.
+Jobs that already led with their own JIT label (repair, PR control, gate, nightly, queue) keep it.
 
 EXCEPTIONS lists the jobs that stay where they are, each with its reason. The test also fails when an exception is no
 longer needed.
@@ -49,6 +46,8 @@ EXCEPTIONS = {
     "inside a JIT VM's boot; tests/test_ci_fork_runner_routing.py pins its exact expression",
     ("ci-queue-janitor.yml", "sweep"): "queue janitor's own CI_QUEUE_JANITOR_ON_FLEET route; defaults to repair JIT",
     ("ci-queue-janitor-watchdog.yml", "watch"): "queue janitor's own CI_QUEUE_JANITOR_ON_FLEET route",
+    ("ci-cloud-overflow-probe.yml", "watch"): "the overflow watch flips routing when the fleet stalls, so it may not "
+    "wait on a fleet VM; main pins its frozen label (tests/test_ci_cloud_overflow_switch.py WATCH_FROZEN)",
     ("ci-main-full-suite.yml", "dispatch"): LEO_OVERFLOW,
     ("cmux-next-ios-kit.yml", "start"): LEO_OVERFLOW,
     ("first-user-journey-ios.yml", "start"): LEO_OVERFLOW,
@@ -118,8 +117,8 @@ class SecretJobsSecretJitTest(unittest.TestCase):
     def test_secret_linux_jobs_lead_with_a_jit_label(self) -> None:
         offenders = [f"{name} {job}: {runs_on}" for name, job, runs_on in secret_linux_jobs()
                      if (name, job) not in EXCEPTIONS and not leads_with_jit(runs_on)]
-        self.assertEqual(offenders, [], "secret-bearing Linux jobs must lead with "
-                         f"`vars.CI_SECRET_SKIP_FLEET != '1' && '{SECRET_JIT_LABEL}' || ` after the fork branch")
+        self.assertEqual(offenders, [], "secret-bearing Linux jobs must name "
+                         f"'{SECRET_JIT_LABEL}' after the fork branch")
 
     def test_exceptions_are_still_needed(self) -> None:
         jobs = {(name, job): runs_on for name, job, runs_on in secret_linux_jobs()}
