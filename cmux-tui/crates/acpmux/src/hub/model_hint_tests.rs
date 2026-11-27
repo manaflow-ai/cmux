@@ -46,6 +46,9 @@ fn a_missing_harness_names_its_next_step() {
         assert!(out.contains(&format!("{agent:?} is not set up here")), "{out}");
         assert!(out.contains(next), "{out}");
     }
+    let grok = hint_text("unknown harness \"grok\"".into(), "grok/x", &[], None);
+    assert!(grok.contains("\"grok\" is not set up here"), "{grok}");
+    assert!(grok.contains("`cmux harness add ID --registry`"), "{grok}");
     assert_eq!(hint_text("bad".into(), "a b", &[], None), "bad");
 }
 
