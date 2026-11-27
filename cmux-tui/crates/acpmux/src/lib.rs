@@ -95,6 +95,10 @@ pub mod complete;
 pub mod computer_use;
 pub mod config;
 pub mod conn_origin;
+/// Control and Screen switched from the owner's app on another machine, over the hub carrier
+/// (`consent_grant_service.rs`, `cli/consent_grant.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod consent_grant_service;
 pub mod context_inventory;
 pub mod cpu_class;
 pub mod customize_run;
@@ -117,6 +121,7 @@ pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
 pub mod fork_risky;
+pub mod fork_spec;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -431,6 +436,7 @@ pub mod subsession_settings;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
+pub mod supervisor;
 pub mod surge_triage;
 pub mod tailnet;
 pub mod tailnet_carrier;
