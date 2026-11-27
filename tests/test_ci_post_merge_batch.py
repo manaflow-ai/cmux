@@ -294,6 +294,28 @@ class RateLimitTest(unittest.TestCase):
         self.assertEqual(pmb.rate_limit_wait(0, None, 30), 30)
         self.assertEqual(pmb.rate_limit_wait(0, 1, 0), 0)
 
+    def test_a_read_answered_5xx_is_tried_again(self) -> None:
+        # A probe's read of its origin run that GitHub answered 5xx used to refuse the probe and end the bisect.
+        got, slept = self.call([(1, "gh: Server Error (HTTP 502)"), (1, "HTTP 503: Service Unavailable"), (0, '{"id": 7}')], 0)
+        self.assertEqual(got, {"id": 7})
+        self.assertEqual(slept, list(pmb.READ_RETRY_WAITS))
+
+    def test_a_read_still_5xx_after_its_retries_fails(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.call([(1, "HTTP 502")] * (len(pmb.READ_RETRY_WAITS) + 1), 0)
+
+    def test_a_write_answered_5xx_is_not_retried_here(self) -> None:
+        replies = [(1, "HTTP 500: Failed to run workflow dispatch")]
+
+        def fake_run(argv, **_):
+            code, text = replies.pop(0)
+            return subprocess.CompletedProcess(argv, code, stdout="", stderr=text)
+
+        slept: list[float] = []
+        with self.assertRaises(RuntimeError):
+            pmb.gh_api("repos/x/y/dispatches", method="POST", fields={}, run=fake_run, sleep=slept.append, tokens=["t"])
+        self.assertEqual(slept, [])
+
     def test_a_spent_token_falls_to_the_next_before_waiting(self) -> None:
         limited = "gh: API rate limit exceeded for installation ID 1. (HTTP 403)"
         replies = [(1, limited), (0, '{"jobs": []}')]
@@ -411,7 +433,11 @@ class WiringTest(unittest.TestCase):
             job = jobs[key]
             self.assertEqual(job["uses"], f"./.github/workflows/{suite.workflow}", key)
             self.assertEqual(job["if"], f"contains(needs.plan.outputs.suites, ' {key} ')", key)
-            self.assertEqual(job["with"], {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
+            # sha and only always; a suite may take more of plan's outputs (gallery-health's base, cmux#57172).
+            self.assertEqual({k: v for k, v in job["with"].items() if k in ("sha", "only")},
+                             {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
+            for k, v in job["with"].items():
+                self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
 
@@ -422,7 +448,9 @@ class WiringTest(unittest.TestCase):
             inputs = on["workflow_call"]["inputs"]
             self.assertTrue({"sha", "only"} <= set(inputs), key)
             for job_id in suite.jobs:
-                gate = str(callee["jobs"][job_id].get("if", ""))
+                # A gateway job's id ends in -fleet while its manifest id does not (cmux#56548).
+                callee_id = job_id if job_id in callee["jobs"] else f"{job_id}-fleet"
+                gate = str(callee["jobs"][callee_id].get("if", ""))
                 self.assertIn(f"inputs.only == '{job_id}'", gate, f"{key}/{job_id}")
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
 

@@ -117,6 +117,12 @@ def hand_off(repo: str, number: int, author: str, api=None) -> str:
 # (--api-wait-seconds). Batch run 44878722147's judge died on it (2026-11-21).
 API_WAIT_BUDGET = {"seconds": 0.0}
 RATE_LIMITED = re.compile(r"rate limit|HTTP 429|secondary rate", re.I)
+# A read GitHub answers with a 5xx (or a dropped connection) is tried again after these waits before the call
+# fails. Before this one such answer to a probe's read of its origin run refused the probe ("origin run ... is
+# unreadable") and ended the bisect: 3 of 20 probe judges on 11-26 23:00-00:15Z (runs 45909196492, 45910256924,
+# 45910283297), each a red that then stayed live with no culprit (cmuxterm-hq goals/base-batch-reverts-culprit.md).
+READ_RETRY_WAITS = (5, 20)
+TRANSIENT_READ = re.compile(r"HTTP 5\d\d|Server Error|connection reset|timed out|timeout|unexpected EOF", re.I)
 
 
 def rate_limit_wait(now: float, reset: float | None, left: float) -> float:
@@ -158,6 +164,13 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=su
         for i, token in enumerate(tokens):
             env = {**os.environ, "GH_TOKEN": token} if token else None
             out = run(argv, input=data, capture_output=True, text=True, env=env)
+            for wait in READ_RETRY_WAITS if method == "GET" else ():
+                text = (out.stderr or out.stdout or "").strip()
+                if not out.returncode or RATE_LIMITED.search(text) or not TRANSIENT_READ.search(text):
+                    break
+                print(f"gh api {method} {path}: {text[-200:]}; retrying in {wait} s", file=sys.stderr)
+                sleep(wait)
+                out = run(argv, input=data, capture_output=True, text=True, env=env)
             if not out.returncode:
                 return json.loads(out.stdout) if out.stdout.strip() else None
             text = (out.stderr or out.stdout).strip()
