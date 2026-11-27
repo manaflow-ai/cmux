@@ -8,7 +8,7 @@ import CmuxVisibleRows
 /// stays above Chromium page windows and moves with the window). It takes
 /// key status for the keyboard while the app is active and closes when it
 /// loses it, like the old app's popover.
-final class NotificationsPanel: ActiveAppKeyPanel {
+final class NotificationsPanel: ActiveAppKeyPanel, FullScreenFollowingChild {
     var onKey: ((NSEvent) -> Bool)?
     var onResignKey: (() -> Void)?
 

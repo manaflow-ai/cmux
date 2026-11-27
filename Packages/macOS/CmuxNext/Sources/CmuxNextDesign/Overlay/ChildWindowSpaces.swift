@@ -10,21 +10,22 @@ import AppKit
 /// enter and exit on that display, about 0.6 s each (bg-policy's ShellWindow 54552 in Chrome's full screen Space, its
 /// overlay panel still there, 2026-11-26).
 ///
-/// A child that declares `.fullScreenAuxiliary` keeps it only while its window is in full screen: from the window's
-/// `willEnterFullScreen` (before AppKit moves it to its new Space) until its `didExitFullScreen`, or a failed enter. A
-/// child that never declared it is left alone: Chromium page windows go with their window into its own full screen Space
-/// as any child does. The main window's `addChildWindow(_:ordered:)` override adopts each child
-/// (``ChildWindowPolicy/admit(_:parent:)``); the app's full screen transition tracker, which observes every window's
-/// transitions once for the app (`LiveResizeWindows`), owns this and tells it each change.
+/// A child panel cmux makes and marks (``FullScreenFollowingChild``) that declares `.fullScreenAuxiliary` keeps it only
+/// while its window is in full screen: from the window's `willEnterFullScreen` (before AppKit moves it to its new Space)
+/// until its `didExitFullScreen`, or a failed enter. Every other child keeps its own collection behavior: a Chromium page
+/// window keeps what Chromium gave it, as it does for Mission Control (`MissionControlPageWindowTests`, cmux#48535), and
+/// so do Chromium's own panels and AppKit's full screen titlebar. The main window's `addChildWindow(_:ordered:)` override
+/// adopts each child (``ChildWindowPolicy/admit(_:parent:)``); the app's full screen transition tracker, which observes
+/// every window's transitions once for the app (`LiveResizeWindows`), owns this and tells it each change.
 @MainActor
 final class ChildWindowSpaces {
-    /// Child windows that declared `.fullScreenAuxiliary` when they came under a main window.
+    /// Marked child panels that declared `.fullScreenAuxiliary` when they came under a main window.
     private let declared = NSHashTable<NSWindow>.weakObjects()
 
-    /// `child` comes under `parent`, before AppKit attaches it: a declared child carries the behavior only while
-    /// `parent` is in full screen (`inFullScreen`: in it, entering it or leaving it).
+    /// `child` comes under `parent`, before AppKit attaches it: a marked child that declared the behavior carries it only
+    /// while `parent` is in full screen (`inFullScreen`: in it, entering it or leaving it). Other children are left alone.
     func adopt(_ child: NSWindow, inFullScreen: Bool) {
-        guard !WindowOverlayHost.isAppKitChrome(child) else { return }
+        guard child is any FullScreenFollowingChild else { return }
         if child.collectionBehavior.contains(.fullScreenAuxiliary) { declared.add(child) }
         if declared.contains(child) { setAuxiliary(child, inFullScreen) }
     }
