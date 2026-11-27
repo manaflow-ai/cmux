@@ -103,7 +103,10 @@ export type HatWait = "ci" | "merge" | "reply";
 
 const WAITS: readonly [HatWait, RegExp][] = [
   ["merge", /\b(?:gh pr merge|land-judge|cmux-gh land|merge[-_ ]queue|land(?:_handoff)?\b.*--match-head-commit)/i],
-  ["ci", /\b(?:gh (?:pr checks|run watch)|ci[-_]wait|run[-_]wait|cmux-gh wait|cmux-ci (?:wait|test)|pr[-_]wait|github-ci-wait|checks? --watch)\b/i],
+  [
+    "ci",
+    /\b(?:gh (?:pr checks|run watch)|ci[-_]wait|run[-_]wait|cmux-gh wait|cmux-ci (?:wait|test)|pr[-_]wait|github-ci-wait|checks? --watch)\b/i,
+  ],
   ["reply", /\b(?:inbox[-_ ](?:read|wait)|team[-_]listen|acpmux wait|wait[-_ ]reply|await(?:s|ing)? (?:a )?reply)\b/i],
 ];
 

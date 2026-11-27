@@ -120,6 +120,34 @@ const burst = chat(
   { isWorking: true },
 );
 
+/** Leo's hat of 2026-11-27 ("as for the hat, let's just restore it and add those strict improvements"):
+ *  many subagents, two that read the same ("tbd-leo: close cards answered elsewhere"), and commands
+ *  that wait on checks and a merge. Open, the lines group agents then commands under their counts,
+ *  the two identical lines read as one ×2, and each wait says what it waits on. */
+const crowd = chat(
+  [
+    user("Fan the lanes out and land what's green", 30),
+    row(SUBAGENTS, 30, {
+      subagents: [
+        agent("tbd-leo: close cards answered elsewhere", 28, "running"),
+        agent("tbd-leo: close cards answered elsewhere", 27, "running"),
+        agent("Review the composer hat restore", 9, "running", { harness: "codex" }),
+        agent("Bisect the flaky fold test", 6, "running"),
+        agent("Write the release notes", 3, "running"),
+      ],
+    }),
+    activity(
+      [
+        command("gh pr checks 60531 --watch", "Wait for the checks", 12),
+        command("tools/land-judge 60531 --match-head-commit 4f2a9c1", "Land the PR", 2),
+        command("cd ~/Projects/app && bun run dev", "Run the dev server", 20),
+      ],
+      20,
+    ),
+  ],
+  { isWorking: true },
+);
+
 const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
 const summary = (ctx: PlayContext) =>
   head(ctx)?.querySelector<HTMLElement>(".acpmux-running-tray__summary[data-summary]");
@@ -197,6 +225,36 @@ export default agentPaneEntry({
       },
       snapshot: oneDone,
       experiments: { "subagent-tray-fold-head": "groups" },
+    },
+    crowd: {
+      note: "Leo's 2026-11-27 hat, folded: the rounded two-group hat at its full height, 5 subagents · 3 tasks in background.",
+      play: show,
+      snapshot: crowd,
+      experiments: { "subagent-tray-fold-head": "groups" },
+    },
+    "crowd-open": {
+      note: "Open: 5 subagents over their lines, then 3 tasks; the two identical lines are one ×2; the checks wait reads Checks, the land Merge; newest on top; Stop shows on the pointed-at line only.",
+      play: async (ctx) => {
+        await show(ctx);
+        await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__group"));
+        const groups = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-running-tray__group")].map(
+          (group) => group.dataset.group,
+        );
+        if (groups.join() !== "agents,commands") throw new Error(`groups drawn: ${groups.join()}`);
+        if (!ctx.document.querySelector('.acpmux-agent-line__count[data-count="2"]')) throw new Error("no ×2 line");
+        await ctx.hover({ selector: ".acpmux-running-tray__list .acpmux-agent-line" });
+      },
+      snapshot: crowd,
+      experiments: { "subagent-tray-fold-head": "groups" },
+    },
+    "crowd-line-before": {
+      note: "Before (cmux#56287): the one plain line with no card, its open header thinner.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => head(ctx));
+      },
+      snapshot: crowd,
+      experiments: { "subagent-tray-fold-head": "line" },
     },
     "mixed-marks": {
       note: "The `group-marks` arm: the two groups as marks and numbers at every width; hover a group for its names.",

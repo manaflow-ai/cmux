@@ -158,10 +158,11 @@ describe("composer hat: finished lines", () => {
     try {
       await view.draw([], [commandItem("ok", "completed", now - 15_000), commandItem("bad", "failed", now - 5_000)]);
       const lines = [...view.host.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
-      expect(lines.map((line) => line.getAttribute("data-status"))).toEqual(["done", "failed"]);
-      // Ran 60 s and 70 s.
-      expect(lines[0]!.textContent).toContain("1m");
-      expect(lines[1]!.textContent).toContain("Failed");
+      // The most recently changed line on top (Leo, 2026-11-27, hat restore): the failure ended last.
+      expect(lines.map((line) => line.getAttribute("data-status"))).toEqual(["failed", "done"]);
+      // Ran 70 s and 60 s.
+      expect(lines[1]!.textContent).toContain("1m");
+      expect(lines[0]!.textContent).toContain("Failed");
       expect(view.host.querySelectorAll("button[aria-label='Stop only this command']").length).toBe(0);
     } finally {
       await view.done();

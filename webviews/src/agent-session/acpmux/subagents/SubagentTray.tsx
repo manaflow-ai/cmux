@@ -81,9 +81,10 @@ import {
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { Button } from "../../../ui/Button";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
-import { type PaneLanguage, usePaneLanguage, useT, type Translate } from "../i18n";
+import { type PaneLanguage, usePaneLanguage, useT, type Translate, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { type BackgroundCommand, sendLabel } from "../session-info/processes";
@@ -100,6 +101,7 @@ import {
 import { retrying, sessionRetry, retryWords, sessionRetryKey, type RetryQuiet } from "./retryState";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { AgentMark } from "../../shared/AgentMark";
+import { Tooltip } from "../../../ui/Tooltip";
 import { AgentLine } from "./AgentLine";
 import { AgentIdentity } from "./AgentIdentity";
 import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
@@ -573,13 +575,16 @@ export const SubagentTray = memo(function SubagentTray({
   // line on top; identical lines folded into one ×N line. The one-line arm keeps its plain list.
   const ordered = useMemo<readonly TrayCard[]>(
     () =>
-      foldHead === "line"
+      // A folded hat builds no list: it reads no line's words until it opens (300 folded agents).
+      foldHead === "line" || !open
         ? attentionFirst(items, finished, waiting)
         : hatCards(items, finished, waiting, (item) => sameLineKey(t, item, waiting)),
-    [items, finished, waiting, t, foldHead],
+    [items, finished, waiting, t, foldHead, open],
   );
   const bothGroups = useMemo(
-    () => items.some((item) => item.kind === "command" || item.kind === "turn") && items.some((item) => item.kind === "agent" || item.kind === "session"),
+    () =>
+      items.some((item) => item.kind === "command" || item.kind === "turn") &&
+      items.some((item) => item.kind === "agent" || item.kind === "session"),
     [items],
   );
   // A lone item's header draws its own mark, as its line does.
@@ -624,9 +629,9 @@ export const SubagentTray = memo(function SubagentTray({
     () => (foldHead === "kinds" && facesArm !== "lead" ? hatFaces(t, items, finished, chatHarness) : NO_FACES),
     [foldHead, facesArm, t, items, finished, chatHarness],
   );
-  // Nothing runs: no hat (Leo, 2026-11-27, hat improvements: "the hat hides when nothing is running").
-  // What just ended shows in the transcript, never on an empty hat.
-  if (items.length === 0) return null;
+  // Nothing runs and nothing just ended: no hat (Leo, 2026-11-27: "the hat hides when nothing is
+  // running"). A finished line stays only its bounded linger (trayLinger.ts), then the hat goes.
+  if (items.length === 0 && finished.length === 0) return null;
   // The `line` arm names no silent turn (trayHeadLine): a hat of only those has no words, so it draws
   // nothing rather than an empty line over the composer (chat-flow-shift-budget's compaction-steer:
   // the compaction's silent turn put a bare hat in at its end and pushed the transcript 75px).
@@ -703,7 +708,8 @@ export const SubagentTray = memo(function SubagentTray({
   const drawn = fold.present ? withLeaving(ordered, leaving) : NO_DRAWN;
   drawnCards.current = drawn;
   let firstFinished = true;
-  const cards = drawn.map(({ key, card: { item, finished: ended }, leaving: going }) => {
+  const cards = drawn.map(({ key, card, leaving: going }) => {
+    const { item, finished: ended } = card;
     const first = ended && !going && firstFinished;
     if (ended && !going) firstFinished = false;
     const hat = card as Partial<HatCard>;
@@ -921,16 +927,12 @@ export const SubagentTray = memo(function SubagentTray({
       {hideAt === "bar" && (
         // The `bar` arm: a slim bar along the hat's top, over the header. A press hides the hat (the rim
         // over it passes a press that never dragged through to it); its eye-slash shows on hover.
-        <button
-          type="button"
-          className="acpmux-hat-hide-bar"
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
-          <Icon name="action.hide" size={10} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button bare type="button" className="acpmux-hat-hide-bar" aria-label={t("tray.tuck")} onClick={onTuck}>
+            {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
+            <Icon name="action.hide" size={10} />
+          </Button>
+        </Tooltip>
       )}
       {headed && (
         <button
@@ -1179,70 +1181,76 @@ export const SubagentTray = memo(function SubagentTray({
       {hidesInHead && (
         // The `hide` arm: the header's own hide button, over its slot, shown while the pointer is on
         // the hat or it has keyboard focus; the top edge keeps only the resize rim.
-        <button
-          type="button"
-          className="acpmux-running-tray__hide"
-          data-with-panel={opensPanel === "button" || undefined}
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="action.hide" size={ROW_ICON} row />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-running-tray__hide"
+            data-with-panel={opensPanel === "button" || undefined}
+            aria-label={t("tray.tuck")}
+            onClick={onTuck}
+          >
+            <Icon name="action.hide" size={ROW_ICON} row />
+          </Button>
+        </Tooltip>
       )}
       {lineHide && (
         // The one line's hide control (hatLine.experiment.ts): an eye-slash flush at the line's end, in
         // muted ink at rest, never over the words; open, it rides the header's end the same way.
-        <button
-          type="button"
-          className="acpmux-hat-hide"
-          data-at="line"
-          data-open={open || undefined}
-          data-with-panel={opensPanel === "button" || undefined}
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="action.hide" size={12} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-hat-hide"
+            data-at="line"
+            data-open={open || undefined}
+            data-with-panel={opensPanel === "button" || undefined}
+            aria-label={t("tray.tuck")}
+            onClick={onTuck}
+          >
+            <Icon name="action.hide" size={12} />
+          </Button>
+        </Tooltip>
       )}
       {(hideAt === "eye" || hideAt === "pill") && (
         // The `eye` arm: a small eye-slash circle in the bar's trailing controls, shown at rest in muted
         // ink (never a hover-only control). The `pill` arm: a glass pill leading the bar, attached to the
         // hat's edge. Each lies over its slot in the header, outside the header's own button.
-        <button
-          type="button"
-          className="acpmux-hat-hide"
-          data-at={hideAt}
-          data-with-panel={opensPanel === "button" || undefined}
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="action.hide" size={hideAt === "eye" ? 12 : ROW_ICON} row={hideAt !== "eye"} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-hat-hide"
+            data-at={hideAt}
+            data-with-panel={opensPanel === "button" || undefined}
+            aria-label={t("tray.tuck")}
+            onClick={onTuck}
+          >
+            <Icon name="action.hide" size={hideAt === "eye" ? 12 : ROW_ICON} row={hideAt !== "eye"} />
+          </Button>
+        </Tooltip>
       )}
       {onTuck && !hidesInHead && !hideAt && !lineHide && (
-        <button
-          type="button"
-          className="acpmux-running-tray__tuck"
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="disclosure.expanded" size={12} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button bare type="button" className="acpmux-running-tray__tuck" aria-label={t("tray.tuck")} onClick={onTuck}>
+            <Icon name="disclosure.expanded" size={12} />
+          </Button>
+        </Tooltip>
       )}
       {headed && opensPanel === "button" && (!lineHead || open) && (
-        <button
-          type="button"
-          className="acpmux-running-tray__open"
-          aria-label={t("backgroundTasks.open")}
-          title={t("backgroundTasks.open")}
-          onClick={onOpenPanel}
-        >
-          <Icon name="panel.right" size={ROW_ICON} row />
-        </button>
+        // The app's tooltip, not the page's title one, which a pane's web view may never show (Leo,
+        // 2026-11-27, hat improvements: "give the side-panel icon a tooltip").
+        <Tooltip label={t("backgroundTasks.open")} side="top">
+          <Button
+            bare
+            type="button"
+            className="acpmux-running-tray__open"
+            aria-label={t("backgroundTasks.open")}
+            onClick={onOpenPanel}
+          >
+            <Icon name="panel.right" size={ROW_ICON} row />
+          </Button>
+        </Tooltip>
       )}
     </section>
   );
@@ -1312,7 +1320,7 @@ export const SubagentTray = memo(function SubagentTray({
               // An agent's mark, not the task sparkle (Leo, 2026-11-27, hat improvements: "subagent rows use
               // an agent icon, not a shield"); one on another harness than the chat's keeps that brand.
               icon={SUBAGENT_ROW_ICON}
-              mark={foreignHarness(item.agent.harness, chatHarness)}
+              mark={item.agent.harness ?? chatHarness}
               tone={agentTone(item.agent.id)}
               plainMark
               doneLook={doneLook}
@@ -1406,7 +1414,7 @@ export const SubagentTray = memo(function SubagentTray({
               via={ownerParent ? subagentTaskLabel(t, ownerParent) : undefined}
               // The whole line on hover, then the command as typed (Leo, 2026-11-27, hat improvements:
               // "show the full text on hover").
-              title={`${item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named}\n${item.command.command}`}
+              title={item.command.command}
               chevron
               icon={read.icon}
               working={runs}
@@ -1975,7 +1983,7 @@ function TrayRow({
   );
 }
 /// What a line waits on, in words the app already says (hatRows.ts `hatWaitOf`).
-const HAT_WAIT_LABEL: Record<HatWait, string> = {
+const HAT_WAIT_LABEL: Record<HatWait, StringKey> = {
   ci: "header.prChecks",
   merge: "header.prMerge",
   reply: "steerQueue.reason.ask",
@@ -1983,11 +1991,6 @@ const HAT_WAIT_LABEL: Record<HatWait, string> = {
 
 /// A subagent line's mark: an agent, as the open chat's sidebar draws one.
 const SUBAGENT_ROW_ICON = "agent.bot";
-
-/// A subagent's harness when it is not the chat's own: its line then draws that brand; the chat's own
-/// subagents draw the agent mark.
-const foreignHarness = (harness: string | undefined, chat: string | undefined): string | undefined =>
-  harness && (!chat || harnessFamily(harness) !== harnessFamily(chat)) ? harness : undefined;
 
 /// A line's words split where the generic part ends, for AgentLine's `nameLead`.
 function splitName(name: string): { name: string; nameLead?: string } {
@@ -1997,11 +2000,11 @@ function splitName(name: string): { name: string; nameLead?: string } {
 
 /// Stop on a ×N line stops each line folded into it.
 const stopSame =
-  (same: readonly TrayItem[], stop: (id: string) => void) =>
-  (id: string): void => {
-    if (same.length < 2) return stop(id);
-    for (const item of same) if (item.kind === "agent") stop(item.agent.id);
-  };
+  (same: readonly TrayItem[], stop: (id: string) => Promise<unknown>) =>
+  (id: string): Promise<unknown> =>
+    same.length < 2
+      ? stop(id)
+      : Promise.all(same.flatMap((item) => (item.kind === "agent" ? [stop(item.agent.id)] : [])));
 
 /// When two lines read the same: their kind, their words, their state, their owner.
 function sameLineKey(t: Translate, item: TrayItem, waiting: ReadonlySet<string>): string {
@@ -2009,7 +2012,8 @@ function sameLineKey(t: Translate, item: TrayItem, waiting: ReadonlySet<string>)
     return `agent:${subagentTaskLabel(t, item.agent)}:${subagentStatus(item.agent, waiting)}:${item.agent.harness ?? ""}`;
   if (item.kind === "command")
     return `command:${item.command.description ?? ""}:${item.command.command}:${item.command.subagent ?? ""}:${commandStatus(item.command)}`;
-  if (item.kind === "session") return `session:${item.session.title}:${item.session.state}:${item.session.harness ?? ""}`;
+  if (item.kind === "session")
+    return `session:${item.session.title}:${item.session.state}:${item.session.harness ?? ""}`;
   return `turn:${item.id}`;
 }
 
