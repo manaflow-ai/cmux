@@ -202,7 +202,7 @@ class WorkflowShape(unittest.TestCase):
                 run = pool["run"]
                 self.assertIn('echo "$mirror" > .git/objects/info/alternates', run)
                 self.assertIn("find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +", run)
-                fetch = next(line for line in run.splitlines() if "git fetch" in line)
+                fetch = next(line for line in run.splitlines() if re.search(r"\bgit\b.* fetch ", line))
                 self.assertNotIn("--filter", fetch)
                 self.assertIn("--depth=2", fetch)
                 self.assertNotIn("$TOKEN", fetch)
