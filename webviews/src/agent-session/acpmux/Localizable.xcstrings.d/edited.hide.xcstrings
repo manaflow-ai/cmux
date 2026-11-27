@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "edited.hideFiles" : {
-      "comment" : "Agent pane",
+    "edited.hide" : {
+      "comment" : "Agent pane: shown in place of an opened edited-files card's line counts while its header is hovered; a click closes the card",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "إخفاء الملفات"
+            "value" : "إخفاء التغييرات"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sakrij datoteke"
+            "value" : "Sakrij promjene"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Skjul filer"
+            "value" : "Skjul ændringer"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dateien ausblenden"
+            "value" : "Änderungen ausblenden"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hide files"
+            "value" : "Hide changes"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ocultar archivos"
+            "value" : "Ocultar cambios"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Masquer les fichiers"
+            "value" : "Masquer les modifications"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nascondi file"
+            "value" : "Nascondi modifiche"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルを隠す"
+            "state" : "needs_review",
+            "value" : "変更を隠す"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "លាក់ឯកសារ"
+            "value" : "លាក់ការផ្លាស់ប្ដូរ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "파일 숨기기"
+            "value" : "변경 사항 숨기기"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Skjul filer"
+            "value" : "Skjul endringer"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ukryj pliki"
+            "value" : "Ukryj zmiany"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ocultar arquivos"
+            "value" : "Ocultar alterações"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Скрыть файлы"
+            "value" : "Скрыть изменения"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ซ่อนไฟล์"
+            "value" : "ซ่อนการเปลี่ยนแปลง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dosyaları gizle"
+            "value" : "Değişiklikleri gizle"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Сховати файли"
+            "value" : "Сховати зміни"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ẩn tệp"
+            "value" : "Ẩn thay đổi"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "隐藏文件"
+            "value" : "隐藏更改"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "隱藏檔案"
+            "value" : "隱藏變更"
           }
         }
       }
