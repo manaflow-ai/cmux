@@ -179,7 +179,7 @@ extension KeyRouter {
     private func pageHasKeys(_ window: NSWindow, controller: WindowController) -> Bool {
         guard case .browserPage = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
               case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return false }
-        if let tab = entry.tab as? CEFTab { return tab.isPageWindow(window) }
+        if let tab = entry.tab as? CEFTab { return tab.pageHasKeyboard(in: window) }
         if let tab = entry.tab as? WebKitTab { return tab.pageHasKeyboard(in: window) }
         return false
     }
