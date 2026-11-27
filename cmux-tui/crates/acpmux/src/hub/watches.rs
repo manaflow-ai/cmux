@@ -24,6 +24,10 @@ pub struct Watch {
     pub sessions: Vec<String>,
     pub until: Vec<String>,
     pub match_text: Option<String>,
+    /// Which text of a turn `match_text` is looked for in (`watch_events::MatchIn`). Older
+    /// files have none: the whole turn, as before.
+    #[serde(default, skip_serializing_if = "watch_events::MatchIn::is_turn")]
+    pub match_in: watch_events::MatchIn,
     pub once: bool,
     pub caller: Option<String>,
     pub active: bool,
@@ -47,7 +51,7 @@ pub struct Watch {
 impl Watch {
     fn status(&self) -> Value {
         let mut v = json!({"id": self.id, "to": self.to, "sessions": self.sessions, "until": self.until,
-            "match": self.match_text, "once": self.once, "active": self.active, "offline": self.offline});
+            "match": self.match_text, "matchIn": self.match_in, "once": self.once, "active": self.active, "offline": self.offline});
         if self.prompt.is_some() {
             v["nextDueMs"] = json!(self.due_ms);
             v["everyMs"] = json!(self.every_ms);
