@@ -35,6 +35,7 @@ fn sample() -> Bound {
         gh_config_dir: "/Users/a/.config/gh".into(),
         xdg_gh_config_dir: "/Users/a/.config/gh".into(),
         folders: vec!["/Users/a/code/lib".into(), "/Users/a/code/app.git".into()],
+        policy_files: Vec::new(),
         api_port: None,
     }
 }
@@ -285,4 +286,59 @@ fn relative_credential_config_paths_are_resolved_from_the_chat_folder() {
 fn profile_does_not_grant_tool_executable_write_roots() {
     assert!(!PROFILE.contains(r#"(subpath (string-append (param "AGENT_HOME") "/.local"))"#));
     assert!(!PROFILE.contains(r#"(subpath (string-append (param "AGENT_HOME") "/.cargo"))"#));
+}
+
+#[test]
+fn api_port_follows_settings_precedence_and_the_effective_child_environment() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    let config = cwd.join("custom");
+    std::fs::create_dir_all(cwd.join(".claude")).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let env = BTreeMap::from([
+        ("CLAUDE_CONFIG_DIR".into(), "custom".into()),
+        ("ANTHROPIC_BASE_URL".into(), "https://env.test:8001".into()),
+    ]);
+    let settings =
+        |port| format!(r#"{{"env":{{"ANTHROPIC_BASE_URL":"https://settings.test:{port}"}}}}"#);
+    assert_eq!(api_endpoint(&[], &cwd, &env).as_deref(), Some("https://env.test:8001"));
+    std::fs::write(config.join("settings.json"), settings(8002)).unwrap();
+    std::fs::write(cwd.join(".claude/settings.json"), settings(8003)).unwrap();
+    std::fs::write(cwd.join(".claude/settings.local.json"), settings(8004)).unwrap();
+    assert_eq!(api_endpoint(&[], &cwd, &env).as_deref(), Some("https://settings.test:8004"));
+    assert_eq!(
+        api_endpoint(&s(&["--setting-sources=user"]), &cwd, &env).as_deref(),
+        Some("https://settings.test:8002")
+    );
+    std::fs::write(cwd.join("override.json"), settings(8005)).unwrap();
+    let flags = s(&["--settings", &settings(8006), "--settings", "override.json"]);
+    assert_eq!(api_endpoint(&flags, &cwd, &env).as_deref(), Some("https://settings.test:8005"));
+    std::fs::write(config.join("remote-settings.json"), settings(8007)).unwrap();
+    assert_eq!(api_endpoint(&flags, &cwd, &env).as_deref(), Some("https://settings.test:8007"));
+    std::fs::write(config.join("remote-settings.json"), "{").unwrap();
+    assert_eq!(api_endpoint(&flags, &cwd, &env), None);
+}
+
+#[test]
+fn sandbox_decision_files_and_their_parents_are_protected() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), "custom".into())]);
+    let files = policy_files(&s(&["--settings", "own.json"]), &cwd, &env);
+    for file in [
+        "custom/settings.json",
+        "custom/remote-settings.json",
+        ".claude/settings.json",
+        ".claude/settings.local.json",
+        "own.json",
+    ] {
+        assert!(files.contains(&cwd.join(file)), "{file}");
+    }
+    let bound = Bound { policy_files: files, ..sample() };
+    let args = bound.sandbox_args();
+    assert!(args[1].contains("(deny file-write* (literal (param \"POLICY_FILE0\")))"));
+    assert!(args[1].contains(
+        "(deny file-write-unlink file-write-create (literal (param \"POLICY_PARENT0\")))"
+    ));
 }

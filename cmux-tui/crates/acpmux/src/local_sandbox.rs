@@ -89,6 +89,8 @@ pub(crate) struct Bound {
     pub(crate) xdg_gh_config_dir: PathBuf,
     /// The chat's other folders (`--add-dir`) and the git folders its folders commit into.
     pub(crate) folders: Vec<PathBuf>,
+    /// Settings that decide confinement on this or a later launch.
+    pub(crate) policy_files: Vec<PathBuf>,
     /// Claude Code's own API port when it is not one the profile already opens.
     pub(crate) api_port: Option<u16>,
 }
@@ -123,6 +125,15 @@ impl Bound {
         let folders: String =
             (0..self.folders.len()).map(|i| format!("  (subpath (param \"DIR{i}\"))\n")).collect();
         profile = profile.replacen(";; @FOLDERS@\n", &folders, 1);
+        for i in 0..self.policy_files.len() {
+            profile.push_str(&format!("(deny file-write* (literal (param \"POLICY_FILE{i}\")))\n"));
+        }
+        // A protected file must not be replaceable by renaming or symlinking a parent.
+        let policy_parents: std::collections::BTreeSet<_> =
+            self.policy_files.iter().flat_map(|path| path.ancestors().skip(1)).collect();
+        for i in 0..policy_parents.len() {
+            profile.push_str(&format!("(deny file-write-unlink file-write-create (literal (param \"POLICY_PARENT{i}\")))\n"));
+        }
         if let Some(port) = self.api_port {
             profile.push_str(&format!("(allow network-outbound (remote ip \"*:{port}\"))\n"));
         }
@@ -146,6 +157,12 @@ impl Bound {
         param("CMUX_AGENT_LEGACY_CONFIG".into(), show(&self.cmux_agent_legacy_config));
         param("GH_CONFIG_DIR".into(), show(&self.gh_config_dir));
         param("XDG_GH_CONFIG_DIR".into(), show(&self.xdg_gh_config_dir));
+        for (i, path) in self.policy_files.iter().enumerate() {
+            param(format!("POLICY_FILE{i}"), show(path));
+        }
+        for (i, path) in policy_parents.iter().enumerate() {
+            param(format!("POLICY_PARENT{i}"), show(path));
+        }
         for (i, dir) in self.folders.iter().enumerate() {
             param(format!("DIR{i}"), show(dir));
         }
@@ -219,6 +236,142 @@ pub(crate) fn git_dirs(folder: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// Paths from the child's effective environment; an explicit config directory replaces HOME.
+fn claude_files(
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> crate::agent_tools::project_mcp::Claude {
+    // Inspect the config home the child actually uses, not both the daemon's and child's homes.
+    let mut config_env = env.clone();
+    let config_home = env
+        .get("CLAUDE_CONFIG_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            env.get("HOME")
+                .filter(|value| !value.is_empty())
+                .map(|home| Path::new(home).join(".claude"))
+        })
+        .or_else(|| dirs::home_dir().map(|home| home.join(".claude")));
+    if let Some(home) = config_home {
+        config_env
+            .insert("CLAUDE_CONFIG_DIR".into(), absolute(cwd, home).to_string_lossy().into_owned());
+    }
+    crate::agent_tools::project_mcp::Claude::of(&config_env, cwd)
+}
+
+fn source_enabled(args: &[String], source: &str) -> bool {
+    let mut setting_sources = None;
+    let mut words = args.iter().take_while(|arg| arg.as_str() != "--");
+    while let Some(word) = words.next() {
+        if word == "--setting-sources" {
+            setting_sources = words.next().cloned();
+        } else if let Some(sources) = word.strip_prefix("--setting-sources=") {
+            setting_sources = Some(sources.to_owned());
+        }
+    }
+    setting_sources
+        .as_deref()
+        .map_or(true, |sources| sources.split(',').any(|candidate| candidate.trim() == source))
+}
+
+/// Settings env overrides process env. Managed providers must agree before granting an
+/// additional network port; malformed or conflicting settings grant no extra access.
+fn api_endpoint(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Option<String> {
+    fn endpoint(value: &Value) -> Result<Option<String>, ()> {
+        let object = value.as_object().ok_or(())?;
+        let Some(env) = object.get("env") else { return Ok(None) };
+        let env = env.as_object().ok_or(())?;
+        env.get("ANTHROPIC_BASE_URL")
+            .map(|value| value.as_str().map(str::to_owned).ok_or(()))
+            .transpose()
+    }
+    let file = |path: &Path| -> Result<Option<String>, ()> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(()),
+        };
+        let value: Value = serde_json::from_slice(&bytes)
+            .or_else(|_| plist::from_bytes(&bytes))
+            .map_err(|_| ())?;
+        endpoint(&value)
+    };
+    let claude = claude_files(cwd, env);
+    let mut managed = None;
+    for path in &claude.managed {
+        if let Some(value) = file(path).ok()? {
+            if managed.as_ref().is_some_and(|prior| prior != &value) {
+                return None;
+            }
+            managed = Some(value);
+        }
+    }
+    if managed.is_some() {
+        return managed;
+    }
+    if let Some(flag) = crate::claude_cloud_auth::flag_settings(args, cwd).ok()?
+        && let Some(value) = endpoint(&Value::Object(flag)).ok()?
+    {
+        return Some(value);
+    }
+    let project = cwd.join(".claude/settings.json");
+    let local = cwd.join(".claude/settings.local.json");
+    for (source, path) in [("local", &local), ("project", &project)] {
+        if source_enabled(args, source)
+            && let Some(value) = file(path).ok()?
+        {
+            return Some(value);
+        }
+    }
+    if source_enabled(args, "user") {
+        for path in claude
+            .settings
+            .iter()
+            .filter(|path| !claude.managed.contains(path) && *path != &project && *path != &local)
+        {
+            if let Some(value) = file(path).ok()? {
+                return Some(value);
+            }
+        }
+    }
+    env.get("ANTHROPIC_BASE_URL").cloned()
+}
+
+/// All decision sources remain immutable, even sources excluded for this launch: a later
+/// launch may enable them. Include both the named path and its resolved target.
+fn policy_files(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Vec<PathBuf> {
+    let mut files = claude_files(cwd, env).settings;
+    let mut words = args.iter().take_while(|arg| arg.as_str() != "--");
+    let mut flag = None;
+    while let Some(word) = words.next() {
+        if word == "--settings" {
+            flag = words.next().map(String::as_str).or(flag);
+        } else if let Some(value) = word.strip_prefix("--settings=") {
+            flag = Some(value);
+        }
+    }
+    if let Some(file) = flag.filter(|value| !value.trim_start().starts_with('{')) {
+        files.push(absolute(cwd, PathBuf::from(file)));
+    }
+    files
+        .into_iter()
+        .flat_map(|path| {
+            // Resolve existing ancestors even if the settings file does not exist yet.
+            let real = path
+                .ancestors()
+                .find_map(|ancestor| {
+                    let base = std::fs::canonicalize(ancestor).ok()?;
+                    Some(base.join(path.strip_prefix(ancestor).ok()?))
+                })
+                .unwrap_or_else(|| path.clone());
+            [path, real]
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 /// Whether Claude Code's own Bash sandbox is on for this launch. Claude applies the highest
 /// precedence setting for this key. Managed settings, the last `--settings` value, project-local
 /// settings, project settings, then user settings are checked in that order. `--setting-sources`
@@ -275,41 +428,9 @@ pub(crate) fn claude_sandbox_on(
         .take_while(|arg| arg.as_str() != "--")
         .any(|arg| arg == "--settings" || arg.starts_with("--settings="));
 
-    let mut setting_sources = None;
-    let mut words = args.iter().take_while(|arg| arg.as_str() != "--");
-    while let Some(word) = words.next() {
-        if word == "--setting-sources" {
-            setting_sources = words.next().cloned();
-        } else if let Some(sources) = word.strip_prefix("--setting-sources=") {
-            setting_sources = Some(sources.to_owned());
-        }
-    }
-    let source_enabled = |source: &str| {
-        setting_sources
-            .as_deref()
-            .map_or(true, |sources| sources.split(',').any(|candidate| candidate.trim() == source))
-    };
+    let source_enabled = |source| source_enabled(args, source);
 
-    // Inspect the config home the child actually uses, not both the daemon's and child's homes.
-    let mut config_env = env.clone();
-    let config_home = env
-        .get("CLAUDE_CONFIG_DIR")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()).map(PathBuf::from)
-        })
-        .or_else(|| {
-            env.get("HOME")
-                .filter(|value| !value.is_empty())
-                .map(|home| Path::new(home).join(".claude"))
-        })
-        .or_else(|| dirs::home_dir().map(|home| home.join(".claude")));
-    if let Some(home) = config_home {
-        config_env
-            .insert("CLAUDE_CONFIG_DIR".into(), absolute(cwd, home).to_string_lossy().into_owned());
-    }
-    let claude = crate::agent_tools::project_mcp::Claude::of(&config_env, cwd);
+    let claude = claude_files(cwd, env);
     // Managed policy cannot be removed by --setting-sources. These paths aggregate independent
     // policy providers; on conflicting values or unreadable policy retain the outer boundary.
     let managed_values: Result<Vec<_>, _> = claude.managed.iter().map(|path| file(path)).collect();
@@ -456,11 +577,7 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
             }
         }
     }
-    let url = env
-        .get("ANTHROPIC_BASE_URL")
-        .cloned()
-        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
-        .or_else(|| crate::hub::remote_sandbox::user_settings_endpoint(&agent_home));
+    let url = api_endpoint(args, &cwd, env);
     let config_dir = Path::new(".config");
     let cmux_legacy_config = home
         .join(config_dir)
@@ -487,6 +604,16 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         .filter(|p| !p.is_empty())
         .map(|p| canonical(&absolute(&cwd, PathBuf::from(p).join("gh"))))
         .unwrap_or_else(|| agent_home.join(".config/gh"));
+    let mut policy_files = policy_files(args, &cwd, env);
+    policy_files.extend([
+        cmux_config.clone(),
+        cmux_config_real.clone(),
+        cmux_legacy_config.clone(),
+        cmux_agent_config.clone(),
+        cmux_agent_legacy_config.clone(),
+    ]);
+    policy_files.sort();
+    policy_files.dedup();
     Some(Bound {
         cwd,
         home,
@@ -501,6 +628,7 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         gh_config_dir,
         xdg_gh_config_dir,
         folders,
+        policy_files,
         api_port: url.as_deref().and_then(extra_api_port),
     })
 }
