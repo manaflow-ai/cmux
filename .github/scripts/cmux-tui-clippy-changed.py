@@ -36,10 +36,13 @@ argument list), so the ratchet's run after it finds every lib and bin unit fresh
 JSON instead of checking them again. Clippy keeps its arguments in each workspace unit's fingerprint, so with two
 argument lists the target kept flipping: in 23 pool clippy-changed steps on 2026-11-27 the ratchet re-checked 155
 of the 160 workspace crates the clippy step had just checked, 267 s median and 5,042 s in all (44% of the step).
+The ratchet run also asks for `--examples` (ratchet_targets): only a run with test, bench or example targets resolves
+features with the dev-dependencies, so a plain `--lib --bins` run built every unit above a dev-only feature again.
 The clippy step neither prints nor annotates the ratchet's lint codes (RATCHET_LINTS: they are the ratchet's to
 judge, and lints never fail this step), so its output and verdict are what they were. The ratchet keeps its own
-`--lib --bins` run because cargo's JSON does not say which messages came from a crate's test build (`target.test`
-says only that a target is tested by default), so a filter of the --all-targets run would count test code. Leo:
+`--lib --bins` run (plus examples, which the ratchet skips by target kind) because cargo's JSON does not say which
+messages came from a crate's test build (`target.test` says only that a target is tested by default), so a filter of
+the --all-targets run would count test code. Leo:
 "cache, fast, the whole nine yards"; "Okay, surely we don't need to do that many Linux builds, do we?".
 
 --compare-base (with --panic-ratchet and a base): when HEAD is over the baseline, it lints
@@ -152,6 +155,17 @@ def lint_args(flags: list[str]) -> list[str]:
     """The clippy run's arguments: its targets, and after `--` the ratchet's flags and the lint cap, in the
     ratchet's order, so the two runs share each unit's fingerprint (see the module docstring)."""
     return ["--all-targets", "--message-format=json", "--", *flags, *CAP_LINTS]
+
+
+def ratchet_targets(has_lib: bool) -> list[str]:
+    """The ratchet run's targets: the production ones (`--lib --bins`; cargo refuses `--lib` when no selected package
+    has a library) and `--examples`, which the ratchet skips. Asking for examples makes cargo resolve features with
+    the dev-dependencies, as the clippy run's `--all-targets` does, so each lib and bin unit is the one the clippy run
+    just checked. Without it the two runs resolved two feature sets (twelve members turn on tokio's `test-util` as a
+    dev-dependency; `capture`, `test-support` and `testing` features of workspace crates the same way), every unit
+    above them got a second hash, and the ratchet checked the changed crates and their dependents again: 212 s mean
+    over 23 clippy-changed steps whose heads have #61039 (2026-11-27 13:00-22:00Z, cargo's own Checking lines)."""
+    return ["--lib", "--bins", "--examples"] if has_lib else ["--bins", "--examples"]
 
 
 def flag_lints(flags: list[str]) -> frozenset[str]:
@@ -694,7 +708,7 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
     ratchet = repo / RATCHET
     flags = subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
                            stdout=subprocess.PIPE, text=True).stdout.split()
-    targets = ["--lib", "--bins"] if has_lib else ["--bins"]
+    targets = ratchet_targets(has_lib)
     command = ["cargo", "clippy", "--locked", *packages, *targets, "--message-format=json", "--", *flags, *CAP_LINTS]
     out.parent.mkdir(parents=True, exist_ok=True)
     # Cargo's stderr is kept beside the JSON so the ratchet can name a stale lockfile as the cause.
@@ -743,7 +757,7 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
         red = still_red(untouched.stdout, packages, libs)
         if red is not None:
             red_packages, red_has_lib = red
-            targets = ["--lib", "--bins"] if red_has_lib else ["--bins"]
+            targets = ratchet_targets(red_has_lib)
             base_command = ["cargo", "clippy", "--locked", *red_packages, *targets, "--message-format=json", "--",
                             *flags, *CAP_LINTS]
             base_scope = ", ".join(red_packages[1::2])

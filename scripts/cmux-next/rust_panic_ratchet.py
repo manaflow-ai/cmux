@@ -197,8 +197,12 @@ def read_clippy(path):
                 continue
             if reason != "compiler-message":
                 continue
-            if "custom-build" in (item.get("target") or {}).get("kind", []):
+            kinds = (item.get("target") or {}).get("kind", [])
+            if "custom-build" in kinds:
                 continue  # build scripts run at build time, never in a daemon
+            if "example" in kinds:
+                # cmux-tui-clippy-changed.py asks for examples only so cargo resolves the clippy run's features
+                continue
             message = item.get("message") or {}
             code = (message.get("code") or {}).get("code") or ""
             if not code.startswith("clippy::"):

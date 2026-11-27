@@ -955,6 +955,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rust_panic_ratchet_base_broken.py"
 
 [[test]]
+path = "tests/test_rust_panic_ratchet_examples.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rust_panic_ratchet_examples.py"
+
+[[test]]
 path = "tests/test_rust_workspaces_pr_diff_gate.py"
 lane = "linux-guard"
 

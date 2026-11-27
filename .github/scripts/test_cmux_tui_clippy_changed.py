@@ -472,7 +472,7 @@ class ClippyChangedTests(unittest.TestCase):
         self.change("cmux-tui/Cargo.lock", lock(serde="1.0.2"))
         result, _ = self.run_ratchet("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "pkg-b", "--lib", "--bins", *PANIC]])
+        self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "pkg-b", "--lib", "--bins", "--examples", *PANIC]])
 
     def test_a_new_member_lints_that_member_not_the_workspace(self) -> None:
         self.change("cmux-tui/Cargo.toml", MANIFEST)
@@ -548,7 +548,7 @@ class ClippyChangedTests(unittest.TestCase):
         result, out = self.run_ratchet("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d",
-                                         "--lib", "--bins", *PANIC]])
+                                         "--lib", "--bins", "--examples", *PANIC]])
         self.assertIn('"build-finished"', out.read_text())
         self.assertEqual(self.ratchet_calls(), [self.judged(out)])
 
@@ -598,13 +598,13 @@ class ClippyChangedTests(unittest.TestCase):
         self.change("cmux-tui/src/main.rs", "fn main() { let _ = 2; }\n")
         result, _ = self.run_ratchet("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "cmux-root", "--bins", *PANIC]])
+        self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "cmux-root", "--bins", "--examples", *PANIC]])
 
     def test_the_panic_ratchet_covers_the_whole_workspace_for_workspace_wide_inputs(self) -> None:
         self.change("cmux-tui/Cargo.lock", lock(version=5))
         result, _ = self.run_ratchet("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", *PANIC]])
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", "--examples", *PANIC]])
         self.assertEqual(len(self.ratchet_calls()), 1)
 
     def test_the_panic_ratchet_runs_for_a_baseline_only_change(self) -> None:
@@ -612,7 +612,7 @@ class ClippyChangedTests(unittest.TestCase):
         self.change("scripts/cmux-next/rust-panic-baseline.json", "{\"changed\": true}\n")
         result, _ = self.run_ratchet("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", *PANIC]])
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", "--examples", *PANIC]])
         self.assertEqual(len(self.ratchet_calls()), 1)
 
     def test_the_panic_ratchet_skips_a_change_with_no_workspace_rust(self) -> None:
@@ -631,7 +631,8 @@ class ClippyChangedTests(unittest.TestCase):
         result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
                                 env_extra={"HEAD_LOG": str(heads)})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", "--examples",
+                *PANIC]
         self.assertEqual(self.calls(), [lint])
         self.assertEqual(heads.read_text().split(), [head])
         self.assertFalse(out.with_name(out.name + ".base").exists())
@@ -647,7 +648,8 @@ class ClippyChangedTests(unittest.TestCase):
         result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
                                 env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1"})
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", "--examples",
+                *PANIC]
         self.assertEqual(self.calls(), [lint, lint])
         self.assertEqual(heads.read_text().split(), [head, self.base])
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), head, "the checkout is back on HEAD")
@@ -667,7 +669,8 @@ class ClippyChangedTests(unittest.TestCase):
         result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
                                 env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1", "RATCHET_UNTOUCHED_RC": "0"})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", "--examples",
+                *PANIC]
         self.assertEqual(self.calls(), [lint])
         self.assertEqual(heads.read_text().split(), [head])
         self.assertFalse(out.with_name(out.name + ".base").exists())
@@ -688,8 +691,9 @@ class ClippyChangedTests(unittest.TestCase):
                                            "RATCHET_UNTOUCHED_OUT": "rust-panic-ratchet: RED\n"
                                            "  pkg-a: clippy::unwrap_used 2 > baseline 1\n      crates/a/src/lib.rs:7:5\n"})
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
-        base_lint = ["clippy", "--locked", "-p", "pkg-a", "--lib", "--bins", *PANIC]
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", "--examples",
+                *PANIC]
+        base_lint = ["clippy", "--locked", "-p", "pkg-a", "--lib", "--bins", "--examples", *PANIC]
         self.assertEqual(self.calls(), [lint, base_lint])
         self.assertEqual(heads.read_text().split(), [head, self.base])
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), head, "the checkout is back on HEAD")
@@ -705,7 +709,8 @@ class ClippyChangedTests(unittest.TestCase):
                                 env_extra={"RATCHET_RC": "1",
                                            "RATCHET_UNTOUCHED_OUT": "  pkg-b: clippy::unwrap_used 2 > baseline 1\n"})
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", "--examples",
+                *PANIC]
         self.assertEqual(self.calls(), [lint, lint])
 
     def test_compare_base_returns_to_head_when_the_base_lint_cannot_start(self) -> None:
@@ -723,7 +728,7 @@ class ClippyChangedTests(unittest.TestCase):
         self.change("cmux-tui/crates/a/src/lib.rs")
         result, out = self.run_ratchet("--compare-base")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", *PANIC]])
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", "--examples", *PANIC]])
         self.assertEqual(self.ratchet_calls(), [self.judged(out)])
 
 
