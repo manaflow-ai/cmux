@@ -11,10 +11,124 @@
             "value" : "Give its server this credential as CMUX_APP_CREDENTIAL."
           }
         },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أعطِ خادمه بيانات الاعتماد هذه باسم CMUX_APP_CREDENTIAL."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dajte njegovom serveru ovu vjerodajnicu kao CMUX_APP_CREDENTIAL."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Giv dens server denne legitimation som CMUX_APP_CREDENTIAL."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gib seinem Server diese Anmeldedaten als CMUX_APP_CREDENTIAL."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dale a su servidor esta credencial como CMUX_APP_CREDENTIAL."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Donnez cet identifiant à son serveur via CMUX_APP_CREDENTIAL."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passa questa credenziale al suo server come CMUX_APP_CREDENTIAL."
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "このサーバーに CMUX_APP_CREDENTIAL として認証情報を渡します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្តល់អត្តសញ្ញាណនេះទៅម៉ាស៊ីនមេរបស់វាជា CMUX_APP_CREDENTIAL។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 자격 증명을 CMUX_APP_CREDENTIAL로 서버에 전달하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gi serveren denne legitimasjonen som CMUX_APP_CREDENTIAL."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przekaż jego serwerowi te dane jako CMUX_APP_CREDENTIAL."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passe esta credencial ao servidor como CMUX_APP_CREDENTIAL."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Передайте его серверу эти учётные данные как CMUX_APP_CREDENTIAL."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ส่งข้อมูลประจำตัวนี้ให้เซิร์ฟเวอร์เป็น CMUX_APP_CREDENTIAL"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu kimlik bilgisini sunucusuna CMUX_APP_CREDENTIAL olarak verin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Передайте його серверу ці облікові дані як CMUX_APP_CREDENTIAL."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đưa thông tin xác thực này cho máy chủ dưới dạng CMUX_APP_CREDENTIAL."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将此凭据作为 CMUX_APP_CREDENTIAL 提供给其服务器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將此憑證作為 CMUX_APP_CREDENTIAL 提供給其伺服器。"
           }
         }
       }
