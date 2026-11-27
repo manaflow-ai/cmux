@@ -110,9 +110,15 @@ class Daemon {
     } else if (message.method === "_acpmux/events" && row && typeof params.afterSeq === "number") {
       // A forward page: the records the chat logged after `afterSeq`, each a short reply.
       const sessionId = row.sessionId;
-      const events = [];
-      for (let seq = params.afterSeq + 1; seq <= row.lastSeq; seq += 1)
-        events.push({ sessionId, seq, at: START + seq, dir: "mux", kind: "turn_result", msg: { status: "completed" } });
+      const after: number = params.afterSeq;
+      const events = Array.from({ length: Math.max(0, row.lastSeq - after) }, (_, index) => ({
+        sessionId,
+        seq: after + 1 + index,
+        at: START + after + 1 + index,
+        dir: "mux",
+        kind: "turn_result",
+        msg: { status: "completed" },
+      }));
       result = { events, hasMore: false, lastSeq: row.lastSeq, pageThrough: row.lastSeq };
       this.reads.push(sessionId);
     } else if (message.method === "_acpmux/events") result = { events: [], hasMore: false, lastSeq: 0 };
@@ -122,9 +128,14 @@ class Daemon {
         ? { jsonrpc: "2.0", id: message.id, error: { code: -32000, message: "busy" } }
         : { jsonrpc: "2.0", id: message.id, result },
     );
-    if (message.method === "_acpmux/events" && row && (params.beforeSeq === Number.MAX_SAFE_INTEGER || "afterSeq" in params)) {
+    const afterSeq = typeof params.afterSeq === "number" ? params.afterSeq : undefined;
+    if (
+      message.method === "_acpmux/events" &&
+      row &&
+      (params.beforeSeq === Number.MAX_SAFE_INTEGER || afterSeq !== undefined)
+    ) {
       this.bytes += reply.length;
-      this.pages.push({ sessionId: row.sessionId, afterSeq: params.afterSeq, bytes: reply.length });
+      this.pages.push({ sessionId: row.sessionId, afterSeq, bytes: reply.length });
     }
     queueMicrotask(() => this.onmessage?.({ data: reply }));
   }
