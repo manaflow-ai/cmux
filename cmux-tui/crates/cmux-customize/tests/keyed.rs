@@ -181,3 +181,29 @@ fn the_customize_schema_lists_actions_and_sidebar_sections() {
         assert!(schema.setting(key).expect(key).agent_settable, "{key}");
     }
 }
+
+#[test]
+fn an_agents_export_withholds_command_text_a_persons_keeps_it() {
+    let home = Home::new();
+    let customize = home.customize();
+    let secret = profile(
+        "secret-pack",
+        json!({
+            "actions.prs": {"title": "PRs", "command": "TOKEN=abc123 gh pr list"},
+            "actions.review": {"type": "agent", "agent": "claude", "args": "-p TOKEN=abc123"},
+        }),
+    );
+    customize.preview_profile(&secret, "cli", 10).unwrap();
+    customize.apply(None, "cli", 11).unwrap();
+
+    let agents = customize.library_export("set", "", false, "mcp").unwrap();
+    let text = serde_json::to_string(&agents).unwrap();
+    assert!(!text.contains("abc123"), "{text}");
+    let settings = &agents.entries[0].profile.settings;
+    assert_eq!(settings["actions.prs"], json!({"title": "PRs"}));
+    assert_eq!(settings["actions.review"], json!({"type": "agent", "agent": "claude"}));
+
+    let persons = customize.library_export("set", "", false, "cli").unwrap();
+    let settings = &persons.entries[0].profile.settings;
+    assert_eq!(settings["actions.prs"]["command"], "TOKEN=abc123 gh pr list");
+}

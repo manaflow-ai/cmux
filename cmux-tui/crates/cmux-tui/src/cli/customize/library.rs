@@ -291,8 +291,12 @@ pub(super) fn execute(
         }
         Request::Remove { name } => changed(customize.library_remove(&name, origin, now_ms)?),
         Request::Export { file, link, only_on, name } => {
-            let collection =
-                customize.library_export(name.as_deref().unwrap_or("my cmux"), "", only_on)?;
+            let collection = customize.library_export(
+                name.as_deref().unwrap_or("my cmux"),
+                "",
+                only_on,
+                origin,
+            )?;
             export(&collection, file.as_deref(), link)?
         }
         Request::Import { source, on } => {

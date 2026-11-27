@@ -146,7 +146,7 @@ fn an_import_whose_views_ask_for_more_names_the_scopes_that_wait() {
         r#""workspace:read": "r", "terminal:write": "w", "actions:run": "run""#,
         10,
     );
-    let collection = shared.library_export("their views", "", false).unwrap();
+    let collection = shared.library_export("their views", "", false, "cli").unwrap();
     let file = theirs.path().join("collection.json");
     std::fs::write(&file, serde_json::to_string(&collection).unwrap()).unwrap();
 
