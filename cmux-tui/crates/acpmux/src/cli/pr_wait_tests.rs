@@ -107,13 +107,13 @@ fn waiters_on_one_pull_request_share_one_poll() {
     std::fs::create_dir_all(&dir).unwrap();
     let waiters: Vec<_> = (0..6)
         .map(|_| {
-            let ctx = Ctx { dir: dir.clone(), gh: gh.clone().into_os_string() };
+            let ctx = Ctx { dir: dir.clone(), gh: gh.clone().into_os_string(), land: None };
             std::thread::spawn(move || {
                 let args = PrWaitArgs {
                     pr: "7".into(),
                     repo: Some("octo/app".into()),
                     sha: Some("abc123".into()),
-                    until: Until::Checks,
+                    until: Some(Until::Checks),
                     timeout: 60,
                 };
                 wait_blocking(&ctx, &args, true).is_ok()
@@ -145,7 +145,7 @@ fn a_rate_limit_holds_the_next_poll_until_its_reset() {
     )
     .unwrap();
     std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let ctx = Ctx { dir: tmp.path().to_owned(), gh: gh.into_os_string() };
+    let ctx = Ctx { dir: tmp.path().to_owned(), gh: gh.into_os_string(), land: None };
     let target = Target { selector: "7".into(), repo: Some("octo/app".into()) };
     let mut shared = Shared::default();
     let deadline = Instant::now() + Duration::from_secs(30);
