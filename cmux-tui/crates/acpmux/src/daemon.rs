@@ -531,7 +531,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             );
             tokio::net::UnixListener::from_std(l)?
         }
-        _ => crate::server::bind_unix(&socket_path()).await?,
+        // A handed listener this start does not serve is closed before it binds: kept open, it
+        // answers the connect that looks for a live daemon at the socket.
+        other => {
+            drop(other);
+            let ours_or_gone = listener_handover::listener_is_ours_or_gone;
+            crate::server::bind_daemon_unix(&socket_path(), ours_or_gone).await?
+        }
     };
     #[cfg(not(unix))]
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;

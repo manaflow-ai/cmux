@@ -48,9 +48,11 @@ public final class AgentPaneModel {
     /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
     /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
     @ObservationIgnored public internal(set) var clientReady = false
-    /// A push that waits for the page's client (``AgentPaneView/attachExternal(_:claimed:)``): the old
-    /// host runs a script at once, so a page still loading would miss it. Runs once, on `pane.clientReady`.
-    @ObservationIgnored var whenClientReady: (@MainActor () -> Void)?
+    /// Tells the page to take the files another app sent (``AgentPaneView/attachExternal(_:claimed:)``).
+    /// Runs on every `pane.clientReady` while files are still held (``AgentPaneDroppedPaths/holdsExternal``),
+    /// not once: a command sent to a page whose connection then restarts (a handshake sets
+    /// `clientReady` false) is lost, and the files waited for the next file sent.
+    @ObservationIgnored var sendHeldExternal: (@MainActor () -> Void)?
     /// The page's finish sound (`pane.finishSound`), with its own gap between sounds.
     @ObservationIgnored let finishSound = AgentPaneFinishSound()
 
@@ -692,10 +694,7 @@ public final class AgentPaneModel {
         case .clientReady(let ready):
             clientReady = ready
             if ready { openWaits.ran(.connected) }
-            if ready, let waiting = whenClientReady {
-                whenClientReady = nil
-                waiting()
-            }
+            if ready, droppedPaths.holdsExternal { sendHeldExternal?() }
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])

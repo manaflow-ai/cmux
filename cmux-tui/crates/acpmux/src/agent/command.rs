@@ -442,6 +442,17 @@ fn build_harness_command(
         if let Some(bin) = crate::cli_caller::own_bin() {
             cmd.env(crate::cli_caller::BIN_ENV, bin);
         }
+        // Opt-in (off unless ACPMUX_HOOK_TOKEN_FILE names a file): a local Claude Code session
+        // gets that file's token as HOOK_DAEMON_TOKEN, so an http hook can send
+        // `${HOOK_DAEMON_TOKEN}` instead of a literal in settings.json. Read at each spawn, so a
+        // rotated token reaches the next session; a profile's own value wins.
+        if !remote_environment
+            && family_name == "claude"
+            && !env.contains_key(HOOK_DAEMON_TOKEN_ENV)
+            && let Some(token) = hook_daemon_token(|k| std::env::var_os(k))
+        {
+            cmd.env(HOOK_DAEMON_TOKEN_ENV, token);
+        }
         // Its own temporary folder (`session_tmp.rs`); a profile's TMPDIR
         // (applied below) still wins. A remote-origin chain keeps its base.
         #[cfg(unix)]
@@ -689,6 +700,23 @@ fn is_sr_launcher(program: &str) -> bool {
 /// `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT`, a reference resolved as the launch
 /// resolves it. The hub labels the questions with it (`hub/tools.rs`) and
 /// `harness_command` pins the agent to it, so the two never disagree.
+pub(crate) const HOOK_DAEMON_TOKEN_ENV: &str = "HOOK_DAEMON_TOKEN";
+/// The setting that turns the token hand-off on: a path to a token file. Unset or empty, nothing
+/// is read and no session gets HOOK_DAEMON_TOKEN.
+pub(crate) const HOOK_TOKEN_FILE_ENV: &str = "ACPMUX_HOOK_TOKEN_FILE";
+
+/// The token in the file `ACPMUX_HOOK_TOKEN_FILE` names. None when the setting is unset, or the
+/// file is missing, unreadable or not 32-128 hex characters, so a stray file never becomes a header.
+pub(crate) fn hook_daemon_token(
+    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<String> {
+    let path = getenv(HOOK_TOKEN_FILE_ENV).filter(|v| !v.is_empty())?;
+    let text = std::fs::read_to_string(std::path::PathBuf::from(path)).ok()?;
+    let token = text.trim();
+    (token.len() >= 32 && token.len() <= 128 && token.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| token.to_owned())
+}
+
 pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::questions::PreviewFormat {
     use crate::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
     let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -972,6 +1000,24 @@ mod tests {
 
     /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
+    #[test]
+    fn the_hook_daemon_token_is_off_unless_its_setting_names_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("token");
+        let tok = "0123456789abcdef".repeat(3);
+        std::fs::write(&file, format!("{tok}\n")).unwrap();
+        let home = dir.path().to_path_buf();
+        let unset = |k: &str| (k == "HOME").then(|| home.clone().into_os_string());
+        assert_eq!(super::hook_daemon_token(unset), None, "off by default, whatever is on disk");
+        let set =
+            |k: &str| (k == super::HOOK_TOKEN_FILE_ENV).then(|| file.clone().into_os_string());
+        assert_eq!(super::hook_daemon_token(set).as_deref(), Some(tok.as_str()));
+        std::fs::write(&file, "not hex at all, not a token\n").unwrap();
+        assert_eq!(super::hook_daemon_token(set), None, "a stray file never becomes a header");
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(super::hook_daemon_token(set), None, "no file, no token");
+    }
+
     #[test]
     fn a_claude_session_is_launched_under_its_acpmux_name() {
         let mut profile: HarnessProfile = serde_json::from_value(serde_json::json!({

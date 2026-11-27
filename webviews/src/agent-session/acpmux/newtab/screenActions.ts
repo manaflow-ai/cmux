@@ -56,6 +56,8 @@ export function newTabScreenActions(deps: {
   return {
     async onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
+      // A newer folder pick made while this chat starts stays the next New Tab's default.
+      const sentAt = Date.now();
       // Held for Computer Use (decided at once): the page keeps the prompt, nothing starts.
       if (deps.holdsSend?.(text, !peer && deps.startsHere?.() !== false)) return Promise.reject(startCancelled());
       const queuedStart = !!harness && !peer && !noProject;
@@ -110,7 +112,7 @@ export function newTabScreenActions(deps: {
               .then(async (started) => {
                 if (!current()) throw startCancelled();
                 if (!started) throw new Error(translate("switch.noSession"));
-                if (!peer && asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
+                if (!peer && asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative, sentAt);
                 // The send names this start's session; a later selected chat cannot take it.
                 if (asks) {
                   let taken = false;
@@ -139,7 +141,7 @@ export function newTabScreenActions(deps: {
           const accepted = opened.then((started) => {
             if (!current()) throw startCancelled();
             if (started) {
-              if (asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
+              if (asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative, sentAt);
               if (!asks) deps.leave();
             } else if (!asks) throw new Error(translate("switch.noSession"));
           });
