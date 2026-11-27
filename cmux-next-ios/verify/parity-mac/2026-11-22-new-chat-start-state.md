@@ -1,0 +1,7 @@
+# New-chat composer names the mode and effort the chat starts with (no "Mode" or bare model placeholder before the first send; Leo, 2026-11-22: "it should be Auto to start. plain and simple. and opus 5.5 should have medium selected at baseline in the new chat area")
+
+- Section: Creation
+- Mac sends: the composer's Mode chip reads acpmux's `_acpmux/start_mode` answer, its model chip the harness row's `start {model, effort}`
+- Phone: New Task's Mode and Effort pills (one agent; several: each agent's submenu)
+- State: works (unit tests; live pending)
+- Notes: One value is both shown and sent: `WorkspaceCreator.settled`, which the pills read and Start sends. Mode: the first of `remote.modes` (the mode a phone-started chat starts in), named by `reported.modes` (else its id, readable); the pill now shows also when it is the only mode. Effort: on the start model, `start.effort` before the model's own default; also when `start.model` is absent (a profile passing its own model): the start effort is then the one level offered, shown and set. A mode, effort or model the agent or model does not offer (a resumed draft, a changed catalog) falls back to that agent's or model's start value, never kept and sent unseen; a model with no effort holds none. "Default" is left only where acpmux names nothing: an effort pill on a model with levels but no default and no start effort, a model pill when the account lists no start model. Tests: `ComposerStartStateTests` (CmuxMobileModelTests), `StartStateFromTheMacTests` (CmuxMobileLiveTests).

@@ -136,6 +136,38 @@ concurrency:
   group: ${{ github.event_name == 'pull_request' && format('test-ios-pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('test-ios-push-{0}', github.ref_name) || format('test-ios-{0}', github.run_id) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  # Full-ci base merge carry (scripts/ci/head_tier.py, full_carry): a full-ci or ready-to-land label on a head that
+  # is only a base merge onto a head whose full run passed carries that run, so detect-ios-changes answers false and
+  # no iOS job starts. Its tier is "none" only then; any lookup error, an overlap with the change's own files, a merge with its
+  # own edits, or no full run at the parent leaves it empty and everything runs. vars.CI_FULL_CI_BASE_MERGE_CARRY ==
+  # '0' turns it off.
+  full-carry:
+    name: full-ci base merge carry
+    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+      statuses: read
+    outputs:
+      tier: ${{ steps.carry.outputs.tier }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/ci
+      - name: Full-ci base merge carry
+        id: carry
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          GH_TOKEN: ${{ github.token }}
+        run: if [ -f scripts/ci/head_tier.py ]; then python3 -I scripts/ci/head_tier.py; fi
+
   runner:
     # Only ios-simulator-build reads this pool, and it runs only when
     # detect-ios-changes says should_run: a pull request with no iOS-owned
@@ -353,13 +385,14 @@ jobs:
           retention-days: 1
 
   detect-ios-changes:
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    needs: full-carry
+    if: ${{ (!cancelled() && ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
-      should_run: ${{ steps.detect.outputs.should_run }}
-      should_lint: ${{ steps.detect.outputs.should_lint }}
-      should_build: ${{ steps.detect.outputs.should_build }}
+      should_run: ${{ needs.full-carry.outputs.tier == 'none' && 'false' || steps.detect.outputs.should_run }}
+      should_lint: ${{ needs.full-carry.outputs.tier == 'none' && 'false' || steps.detect.outputs.should_lint }}
+      should_build: ${{ needs.full-carry.outputs.tier == 'none' && 'false' || steps.detect.outputs.should_build }}
       # `warn`: the conventions lint is advisory, and the suites run whatever it reports.
       style_guards: ${{ env.CMUX_NEXT_STYLE_GUARDS }}
       target_sha: ${{ steps.target.outputs.sha }}

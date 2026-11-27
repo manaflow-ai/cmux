@@ -86,7 +86,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
@@ -200,7 +200,7 @@ jobs:
       split: ${{ steps.size.outputs.split }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
@@ -395,7 +395,7 @@ jobs:
       # a branch cut before a base fix must not keep failing on what base already fixed. A push
       # renders the pushed commit.
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
