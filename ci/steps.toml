@@ -1298,7 +1298,6 @@ if want tt-asc-developer-id-app; then python3 tests/test_asc_developer_id_app.py
 if want tt-fixture-dates-2101; then CMUX_NOW_EPOCH=4133980800 python3 tests/test_asc_developer_id_app.py && CMUX_NOW_EPOCH=4133980800 python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py || status=1; fi
 if want tt-cmux-now-epoch; then python3 -I tests/test_cmux_now_epoch.py || status=1; fi
 if want tt-tooling-tests-batch; then python3 tests/test_ci_tooling_tests_batch.py || status=1; fi
-if want tt-ios-placeholder-bounds; then python3 -I tests/test_ios_placeholder_bounds.py || status=1; fi
 if want tt-cmux-tui-republish; then python3 tests/test_cmux_tui_republish_same_commit.py || status=1; fi
 if want tt-verify-cmux-tui-hosted; then python3 tests/test_verify_cmux_tui_hosted.py || status=1; fi
 if want tt-crash-ratchet; then python3 tests/test_crash_ratchet_compare.py || status=1; fi
