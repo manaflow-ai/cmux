@@ -4869,13 +4869,22 @@ class FastTierCargoRoute(unittest.TestCase):
                         path = entry["path"]
                     self.assertTrue(self.reaches(path))
 
+    def test_full_ci_on_a_tooling_only_change_routes_by_paths(self):
+        # ci-min-per-pr-140: full-ci forces it unless every change is a CI or tooling file (scripts/ci/tooling_only.py).
+        tooling = ("scripts/ci/test_reds.py", "tests/test_test_reds.py", ".github/workflows/nightly.yml", "docs/x.md")
+        self.assertFalse(self.reaches(*tooling, labels=["full-ci"]))
+        self.assertTrue(self.reaches(*tooling, ".github/workflows/cmux-next.yml", labels=["full-ci"]))
+        self.assertTrue(self.reaches(*tooling, "scripts/cmux-next/fast-tier.py", labels=["full-ci"]))
+        self.assertTrue(self.reaches(*tooling, "webviews/src/app.tsx", labels=["full-ci"]))
+        self.assertTrue(self.reaches(labels=["full-ci"]))
+
     def test_a_change_that_reaches_no_entry_skips_it(self):
         self.assertFalse(self.reaches("Packages/macOS/CmuxNext/Sources/CmuxNext/App.swift", "webviews/src/app.tsx",
                                       "docs/ci/x.md", ".github/workflows/ci-web.yml"))
         self.assertFalse(self.reaches())
 
     def test_full_ci_and_an_unreadable_registry_run_it(self):
-        self.assertTrue(self.reaches("docs/x.md", labels=("full-ci",)))
+        self.assertTrue(self.reaches("webviews/src/app.tsx", labels=("full-ci",)))
         with tempfile.TemporaryDirectory() as empty:
             self.assertTrue(self.route.reaches(["docs/x.md"], set(), Path(empty))[0])
 
