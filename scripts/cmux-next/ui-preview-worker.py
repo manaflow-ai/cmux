@@ -109,7 +109,10 @@ SWIFT_SCENES = {
 }
 SHELL_LINKED = {"CmuxNextUiLayerPreview", "CmuxNextSettings", "CmuxNextCompat"}
 WEB_CAP = 4
-SWIFT_SPARSE = ("Packages/", "Prototypes/", "Resources/", "vendor/")
+# The Swift tree is whole but for the iOS app (0.5 of the tree's 1.35 GB, read by no macOS build). An allow-list drifts
+# out from under the builds: the shell's settings plugin came to run scripts/cmux-next/gen-settings-sources.py, and
+# every look failed on a file not checked out.
+SWIFT_SPARSE = ("/*", "!/cmux-next-ios/")
 # The web tree: everything but the large folders no web file imports. A hand list of folders drifted: bun install's
 # postinstall reads release-notes/ and schemas/, protocol:codegen the acpmux IR, gallery entries fixtures under
 # Packages/ and cmux-tui/crates/, the model catalog under web/data/; each missing one failed every web look.
@@ -118,6 +121,17 @@ GALLERY_PORT = 4217
 # Warm galleries (web tree, vite, shooter) kept at once, each on one gallery config; ports GALLERY_PORT and up.
 GALLERIES = 2
 KEEP_H = 36
+# The published census copy (ui-preview/HOST.json on now-census) goes through the broker's state_put, which refuses a
+# file over STATE_MAX (1 MiB, cmuxterm-hq tools/lane-gh-broker/parts/46-calls-state.py). The local receipts file kept
+# 36 h pretty-printed with stages, plans and entries and passed it on 2026-11-26 about 11:20Z (1.4 MB by 23:30Z):
+# every publish after was refused, the refusal went nowhere, and NOW read 3 covered of 2203 pushes from a copy 12 h
+# old. So the published doc carries only what NOW's ui_preview reads (cmuxterm-hq fleet-reconcilers/now_ui_preview.py),
+# only the window it counts, compact, and under PUBLISH_MAX bytes, oldest receipts dropped first.
+PUBLISH_WINDOW_H = 25
+PUBLISH_MAX = 768 << 10
+PUBLISH_FILES = 8  # NOW asks only whether any is a UI path; the count stays as ui_files_n
+PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "posted_at", "error",
+                  "synthetic")
 # Bounds, seconds.
 FETCH_SECONDS = 180
 COLD_BUILD_SECONDS = 45 * 60
@@ -125,6 +139,8 @@ BUILD_SECONDS = 15 * 60
 SHOOT_SECONDS = 180
 INSTALL_SECONDS = 15 * 60
 GALLERY_UP_SECONDS = 180
+# The gallery's ranker of touched entries; a tree without it (a branch off main) has no gallery to shoot.
+GALLERY_RANKER = "webviews/scripts/gallery/touched.ts"
 SEND_SECONDS = 60
 PREFETCH_SECONDS = 300
 # The VM's own mirror of manaflow-ai/cmux (repo-mirrors.timer, about every 15 min): the clone borrows its objects
@@ -533,6 +549,7 @@ class Worker:
         self.send_template = send
         self.publish_template = publish
         self.host = host or socket.gethostname().split(".")[0]
+        self.started_at = dt.datetime.now(dt.timezone.utc)  # before warm: replayed() measures from the takeover
         self.receipts_path = self.state / f"ui-preview-{self.host}.json"
         self.swift_lock = threading.Lock()  # the shell's tree and .build
         self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
@@ -573,6 +590,12 @@ class Worker:
 
     def has_commit(self, sha: str) -> bool:
         return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}^{{commit}}"],
+                              capture_output=True, env=NO_LAZY).returncode == 0
+
+    def has_gallery(self, sha: str) -> bool:
+        """SHA's tree holds the gallery's ranker (GALLERY_RANKER): a branch off main, which has none, has no web look
+        to take (every one failed "Module not found scripts/gallery/touched.ts" and counted as a miss)."""
+        return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}:{GALLERY_RANKER}"],
                               capture_output=True, env=NO_LAZY).returncode == 0
 
     def is_ancestor(self, sha: str, tip: str) -> bool:
@@ -645,6 +668,9 @@ class Worker:
             git(self.clone, "worktree", "prune")
             git(self.clone, "worktree", "add", "--no-checkout", "--detach", str(tree), sha, timeout=300)
             git(tree, "sparse-checkout", "set", "--no-cone", *sparse)
+        elif git(tree, "sparse-checkout", "list").split() != list(sparse):
+            # A resident tree made under an older list: widen it in place, keeping its .build and node_modules.
+            git(tree, "sparse-checkout", "set", "--no-cone", *sparse, timeout=600)
         self.checkout(tree, sha)
 
     def checkout(self, tree: Path, sha: str) -> None:
@@ -968,6 +994,12 @@ class Worker:
             if not self.on_branch_tip_or_landed(head, req.get("branch")):
                 raise LookError(f"{head[:12]} is neither {req.get('branch')}'s tip on {CMUX_REPO} nor on "
                                 f"{BASE_BRANCH}: no look at a commit that is not the repo's own")
+            if planned["web"] and not self.has_gallery(head):
+                planned = {**planned, "web": False, "no_gallery": True}
+                receipt["plan"] = planned
+                if not planned["swift"]:
+                    raise LookError(f"no scene shows these files: {head[:12]} has no {GALLERY_RANKER} "
+                                    f"(a branch off main, not {BASE_BRANCH})")
         pairs: list[tuple[str, str, Path | None, Path | None]] = []  # (kind, scene, before, after)
         errors = []
         if planned["needs_build"]:
@@ -1099,9 +1131,15 @@ class Worker:
         """--publish-receipts once over the file as it is now (the publisher's thread; never a look's)."""
         argv = [a.replace("{file}", str(self.receipts_path)).replace("{host}", self.host)
                 for a in shlex.split(self.publish_template or "")]
-        if argv:
-            with _suppress():
-                subprocess.run(argv, capture_output=True, timeout=SEND_SECONDS)
+        if not argv:
+            return
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=SEND_SECONDS)
+        except (OSError, subprocess.SubprocessError) as err:
+            log(f"publish: {err}")
+            return
+        if done.returncode != 0:  # a refused publish was silent for 12 h (PUBLISH_MAX): say it each time
+            log(f"publish exited {done.returncode}: {tail(done.stderr or done.stdout)}")
 
 
 class Publisher:
@@ -1260,13 +1298,22 @@ def tailnet_address() -> str | None:
 
 FOLLOW_WAIT_S = 20  # the broker's long-poll bound (UI_PREVIEW_WAIT_MAX_S)
 FOLLOW_RETRY_S = 10  # after a failed call
+# A request pushed longer than this before the worker started is the previous lease holder's (replayed): the lease's
+# ttl_s 60 and probe_s 10 (leo-workspace machines/role-leases.json ui-preview-web), role_lease's STOP_S 15 and
+# RESTART_S 5.
+TAKEOVER_S = 90
 
 
 def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None) -> dict:
-    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError."""
+    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError. With a
+    REPO the JSON goes on stdin (`lane-gh call TOOL REPO -`): one argv string holds at most 128 KiB on Linux
+    (MAX_ARG_STRLEN), and the census copy state_put carries runs to PUBLISH_MAX, so in argv every publish of a
+    receipts file past 128 KiB failed with E2BIG and the host's census copy stood still for hours. A tool with no
+    repo (ui_preview_requests) takes its few bytes in argv: lane-gh reads stdin only in the REPO form."""
+    body = json.dumps(args)
+    argv = ["lane-gh", "call", tool, repo, "-"] if repo else ["lane-gh", "call", tool, body]
     try:
-        done = subprocess.run(["lane-gh", "call", tool, *([repo] if repo else []), json.dumps(args)],
-                              capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run(argv, input=body if repo else None, capture_output=True, text=True, timeout=timeout)
     except (subprocess.TimeoutExpired, OSError) as err:
         raise LookError(f"lane-gh call {tool}: {err}") from None
     if done.returncode != 0:
@@ -1315,9 +1362,27 @@ def drain(worker: "Worker", jobs: "queue.Queue", once: bool = False) -> None:
             return
 
 
+def replayed(worker: "Worker", req: dict) -> bool:
+    """Whether REQ was pushed while another worker held the role: more than TAKEOVER_S before this one started.
+
+    The role runs on two hosts under a lease (leo-workspace tools/role_lease.py) and DIR/follow-seq is each host's
+    own, so the host that takes the lease over resumes from the seq it held when it last led and the broker answers
+    every request pushed since: 2026-11-27 the second host took over at 01:18:28 and posted ten pushes the first had
+    already handled, one of them 1,000 s after its push, and NOW keeps the later posted_at of a key, so a replay
+    also turns a covered 25 s post into a 1,000 s one. A request pushed more than TAKEOVER_S before this worker
+    started was its predecessor's to post, which had longer than the whole 60 s goal to do it; within TAKEOVER_S it
+    may have been in flight when the predecessor stopped (the lease's TTL plus its probe, role_lease's stop and
+    restart), so it is taken. A replayed request gets no receipt here: the poster's receipt, or the trigger's
+    posted_at null one, stands."""
+    pushed = parse_ts(req.get("pushed_at"))
+    since = getattr(worker, "started_at", None)
+    return pushed is not None and since is not None and (since - pushed).total_seconds() > TAKEOVER_S
+
+
 def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=lane_gh_call) -> int:
     """One long-poll of the broker's push trigger: queues each request this worker takes and returns the seq to ask
-    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog)."""
+    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog). A request pushed
+    before this worker took the role over is its predecessor's (replayed)."""
     answer = call("ui_preview_requests", {"after": after or 0, "wait": 0 if after is None else FOLLOW_WAIT_S},
                   FOLLOW_WAIT_S + 60)
     newest = answer.get("seq") if isinstance(answer.get("seq"), int) else 0
@@ -1331,6 +1396,10 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
             req = check_request(raw)
         except LookError as err:
             log(f"follow: request {seq} not taken: {err}")
+            continue
+        if replayed(worker, req):
+            log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
+                f"took the role: its predecessor's, not posted again")
             continue
         planned = plan(req["ui_files"])
         if not worker.swift_on and not planned["web"] and not skip_reason(planned):
@@ -1431,11 +1500,59 @@ def command_submit(args) -> int:
     return 0
 
 
+def publish_doc(doc: dict, now: dt.datetime | None = None, limit: int = PUBLISH_MAX) -> str:
+    """DOC (the local receipts file) as the census copy: the receipts pushed in the last PUBLISH_WINDOW_H hours, each
+    with PUBLISH_FIELDS (at most PUBLISH_FILES ui_files) and its scenes' before and after (relative to the row's
+    look_base, when every shot shares one), compact, newest kept and oldest dropped until it is at most
+    LIMIT bytes. Raises ValueError for a doc that is not ui-preview/v1."""
+    if not isinstance(doc, dict) or doc.get("schema") != SCHEMA_RECEIPT or not isinstance(doc.get("receipts"), list):
+        raise ValueError("the receipts file is not a ui-preview/v1 document")
+    cutoff = (now or dt.datetime.now(dt.timezone.utc)) - dt.timedelta(hours=PUBLISH_WINDOW_H)
+    rows = []
+    for r in doc["receipts"]:
+        pushed = parse_ts(r.get("pushed_at")) if isinstance(r, dict) else None
+        if pushed is None or pushed < cutoff:
+            continue
+        row = {k: r[k] for k in PUBLISH_FIELDS if r.get(k) is not None}
+        if isinstance(row.get("error"), str):
+            row["error"] = row["error"][:200]
+        files = row.get("ui_files")
+        if isinstance(files, list) and len(files) > PUBLISH_FILES:  # a whole-tree push named 17 KB of paths
+            row["ui_files"], row["ui_files_n"] = files[:PUBLISH_FILES], len(files)
+        scenes = [{k: s[k] for k in ("scene", "kind", "before", "after") if s.get(k)}
+                  for s in r.get("scenes") or [] if isinstance(s, dict)]
+        # Every shot's URL is the worker's http://HOST:PORT/looks/LOOK/ and a short tail: the base once, as look_base.
+        bases = {m[1] for s in scenes for k in ("before", "after")
+                 if isinstance(s.get(k), str) and (m := re.match(r"^(.*/looks/[0-9a-f]{32}/)(.+)$", s[k]))}
+        if len(bases) == 1:
+            row["look_base"] = base = bases.pop()
+            for s in scenes:
+                for k in ("before", "after"):
+                    if isinstance(s.get(k), str) and s[k].startswith(base):
+                        s[k] = s[k][len(base):]
+        if scenes:
+            row["scenes"] = scenes
+        rows.append((pushed, row))
+    rows.sort(key=lambda pr: pr[0])
+    kept = [row for _, row in rows]
+    head = {"schema": SCHEMA_RECEIPT, "host": doc.get("host"), "at": doc.get("at") or utc_now()}
+
+    def encode(receipts: list) -> str:
+        return json.dumps({**head, "receipts": receipts}, separators=(",", ":")) + "\n"
+
+    text = encode(kept)
+    while len(text.encode()) > limit and kept:
+        over = len(text.encode()) - limit
+        drop = max(1, over * len(kept) // max(1, len(text.encode())))
+        kept = kept[drop:]
+        text = encode(kept)
+    return text
+
+
 def command_publish(args) -> int:
     """FILE as ui-preview/HOST.json on cmuxterm-hq's reconciler-state/now-census (the broker's state_put)."""
     try:
-        text = Path(args.file).read_text()
-        json.loads(text)
+        text = publish_doc(json.loads(Path(args.file).read_text()))
         lane_gh_call("state_put", {"name": "now-census", "files": {f"ui-preview/{args.host}.json": text}},
                      SEND_SECONDS, repo="manaflow-ai/cmuxterm-hq")
     except (OSError, ValueError, LookError) as err:

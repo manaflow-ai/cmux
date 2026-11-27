@@ -128,6 +128,8 @@ cmux-customize.workspace = true
 cmux-customize-recipes.workspace = true
 # `cmux app web-pieces` (cli/app/web_pieces.rs): the signed per-piece switch file of web updates.
 cmux-web-pieces.workspace = true
+# `cmux app web-cas fetch` (cli/app/web_cas.rs): a web update by cas/1 Range GETs (RFD 0166).
+cmux-cas.workspace = true
 cmux-usage-patterns.workspace = true
 # `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.
 cmux-app-manifest.workspace = true
@@ -203,6 +205,8 @@ cmux-device-kind = { path = "../cmux-device-kind" }
 cmux-computer-use = { workspace = true, features = ["desktop", "server"] }
 
 [target.'cfg(unix)'.dependencies]
+# `cmux sign-clones sweep [--dry-run]`: the app's leftover Chromium clones (cli/sign_clones.rs).
+cmux-sign-clone-sweep = { path = "../cmux-sign-clone-sweep" }
 # The UI-loop watchdog's stack sample of the loop thread (ui_watchdog/sampler.rs); the lockfile
 # already has it through other crates.
 backtrace = "0.3"
@@ -245,6 +249,7 @@ plist = "1.10"
 # it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
 cmux-build-identity.workspace = true
 cmux-host-budget.workspace = true
+cmux-proxy.workspace = true
 cmux-remote.workspace = true
 cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true

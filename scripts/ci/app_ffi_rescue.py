@@ -41,6 +41,12 @@ BUILD_JOB = "build xcframework"
 RESCUE_MINUTES = 20.0  # coordinator (claude-sr2-coord), 2026-11-17: "If still unplaced after 20 min, it goes to Blacksmith"
 WATCH_MINUTES = 100.0  # the build's own wait in its concurrency group plus RESCUE_MINUTES, bounded
 POLL_S = 120.0  # at most WATCH_MINUTES * 60 / POLL_S (50) reads of one jobs page per run
+# A watch that cannot read its jobs cannot rescue either: the dispatch and the cancel spend the same GITHUB_TOKEN
+# budget the read was refused on. 2026-11-26 20:00-22:30Z: 17 watches held a Linux runner 236 min, 8 of them 18-42 min
+# with every read a 403 (jobs 140147823858: 21 of 21; 140154316847: 13 of 13) and none dispatched. The watch now sleeps
+# once to a rate-limit reset within RESCUE_MINUTES (time left to rescue), ends at a later one, and ends after
+# BLIND_READS unread pages in a row.
+BLIND_READS = 3
 RESCUE_SWITCHES = ("pr-rescue", "on")
 RESCUE_INPUT = "blacksmith"
 OWNED_INPUT = "owned"
@@ -121,22 +127,54 @@ def _api(method: str, path: str, token: str, body: Mapping[str, Any] | None = No
     return json.loads(raw) if raw else None
 
 
+def refused_until(error: BaseException, now: float) -> float | None:
+    """The reset time of a rate-limit refusal (403 or 429 with x-ratelimit-remaining 0, or a retry-after), else
+    None. Pure."""
+    if not isinstance(error, urllib.error.HTTPError) or error.code not in (403, 429):
+        return None
+    headers = error.headers or {}
+    try:
+        if (headers.get("retry-after") or "").strip():
+            return now + float(headers.get("retry-after"))
+        if (headers.get("x-ratelimit-remaining") or "").strip() == "0":
+            return float(headers.get("x-ratelimit-reset") or now)
+    except ValueError:
+        return None
+    return None
+
+
 def watch(env: Mapping[str, str], api: Callable[..., Any] = _api, clock: Callable[[], float] = time.time,
           sleep: Callable[[float], None] = time.sleep, out: Callable[[str], None] = print) -> str:
     """The watch loop: returns DONE, RESCUE (after dispatching and cancelling) or WAIT (the watch timed out)."""
     repo, run, attempt = env["GITHUB_REPOSITORY"], env["GITHUB_RUN_ID"], env.get("GITHUB_RUN_ATTEMPT") or "1"
     token, ref = env["GH_TOKEN"], env.get("GITHUB_REF_NAME") or "feat-cmux-next"
     switch = (env.get("CI_BLACKSMITH_MACOS") or "").strip()
-    start, queued_since = clock(), None
+    start, queued_since, unread = clock(), None, 0
     while True:
         now = clock()
         try:
             page = api("GET", f"repos/{repo}/actions/runs/{run}/attempts/{attempt}/jobs?per_page=100", token)
             jobs = list((page or {}).get("jobs") or [])
         except (urllib.error.URLError, TimeoutError, ValueError) as error:
+            jobs, reset = None, refused_until(error, now)
+            if reset is not None and reset > now + POLL_S:
+                until = time.strftime('%H:%M:%SZ', time.gmtime(reset))
+                if reset - now <= RESCUE_MINUTES * 60 and reset < start + WATCH_MINUTES * 60:
+                    # A reset this close still leaves time to rescue: one sleep to it, no reads spent meanwhile.
+                    out(f"jobs unread ({type(error).__name__}: {error}), rate-limited until {until}: next read then")
+                    sleep(reset - now + 1)
+                    continue
+                out(f"::warning::jobs unread ({type(error).__name__}: {error}), rate-limited until {until}: the "
+                    f"watch cannot read or dispatch on this token before then, so it ends instead of holding the runner")
+                return WAIT
+            unread += 1
+            if unread >= BLIND_READS:
+                out(f"::warning::jobs unread ({type(error).__name__}: {error}), {unread} reads in a row unread: the "
+                    f"watch cannot read or dispatch on this token, so it ends instead of holding the runner")
+                return WAIT
             out(f"jobs unread ({type(error).__name__}: {error}); next read in {POLL_S:.0f} s")
-            jobs = None
         if jobs is not None:
+            unread = 0
             verdict, queued_since = decide(build_job(jobs), queued_since, now)
             if verdict == DONE:
                 out(f"{BUILD_JOB} has a runner or ended: nothing to rescue")
