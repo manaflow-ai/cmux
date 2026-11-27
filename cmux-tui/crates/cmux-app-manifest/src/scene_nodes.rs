@@ -9,7 +9,7 @@
 //! same values. It depends on `serde_json` only: `cmux-app-host` compiles this same file
 //! (`#[path]`) to run it in the VM's scene callback.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
@@ -135,7 +135,62 @@ fn pill_tone(value: &Value) -> Result<Value, String> {
 /// the batch that created a node tells the later ones which props to check.
 #[derive(Debug, Default)]
 pub struct TypedNodes {
-    types: BTreeMap<(String, String), &'static str>,
+    mounts: BTreeMap<String, BTreeMap<String, TrackedNode>>,
+}
+
+/// Untyped ancestors matter too: the scene ABI removes an entire subtree with one op.
+#[derive(Debug, Default)]
+struct TrackedNode {
+    kind: Option<&'static str>,
+    parent: Option<String>,
+    children: BTreeSet<String>,
+}
+
+fn remove_subtree(nodes: &mut BTreeMap<String, TrackedNode>, id: &str) {
+    let parent = nodes.get(id).and_then(|node| node.parent.clone());
+    if let Some(parent) = parent.and_then(|parent| nodes.get_mut(&parent)) {
+        parent.children.remove(id);
+    }
+    let mut pending = vec![id.to_string()];
+    while let Some(id) = pending.pop() {
+        if let Some(node) = nodes.remove(&id) {
+            pending.extend(node.children);
+        }
+    }
+}
+
+fn replace_children(nodes: &mut BTreeMap<String, TrackedNode>, id: &str, children: &[Value]) {
+    if !nodes.contains_key(id) {
+        return;
+    }
+    // Match the scene store: ignore missing nodes, duplicates, self-links and ancestors.
+    let mut ancestors = BTreeSet::from([id.to_string()]);
+    let mut current = nodes.get(id).and_then(|node| node.parent.as_deref());
+    while let Some(parent) = current {
+        if !ancestors.insert(parent.to_string()) {
+            break;
+        }
+        current = nodes.get(parent).and_then(|node| node.parent.as_deref());
+    }
+    let children: BTreeSet<String> = children
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|child| nodes.contains_key(*child) && !ancestors.contains(*child))
+        .map(str::to_string)
+        .collect();
+    let previous = std::mem::take(&mut nodes.get_mut(id).unwrap().children);
+    for child in previous {
+        if let Some(node) = nodes.get_mut(&child) {
+            node.parent = None;
+        }
+    }
+    for child in &children {
+        let previous = nodes.get_mut(child).unwrap().parent.replace(id.to_string());
+        if let Some(parent) = previous.and_then(|parent| nodes.get_mut(&parent)) {
+            parent.children.remove(child);
+        }
+    }
+    nodes.get_mut(id).unwrap().children = children;
 }
 
 impl TypedNodes {
@@ -144,39 +199,48 @@ impl TypedNodes {
     pub fn sanitize(&mut self, mount: &str, ops: &mut Value) -> Vec<String> {
         let mut refused = Vec::new();
         let Some(list) = ops.as_array_mut() else { return refused };
+        let nodes = self.mounts.entry(mount.to_string()).or_default();
         for op in list {
             let Some(object) = op.as_object_mut() else { continue };
-            let id = object.get("id").and_then(Value::as_str).unwrap_or("?").to_string();
-            let key = (mount.to_string(), id.clone());
+            let Some(id) = object.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())
+            else {
+                continue;
+            };
+            let id = id.to_string();
             match object.get("op").and_then(Value::as_str) {
                 Some("create") => {
                     let kind = object.get("type").and_then(Value::as_str);
-                    match kind.and_then(|k| KIT_NODES.iter().copied().find(|n| *n == k)) {
-                        Some(node) => {
-                            self.types.insert(key.clone(), node);
-                        }
-                        None => {
-                            self.types.remove(&key);
-                        }
+                    nodes.entry(id.clone()).or_insert_with(|| TrackedNode {
+                        kind: kind.and_then(|k| KIT_NODES.iter().copied().find(|n| *n == k)),
+                        ..TrackedNode::default()
+                    });
+                }
+                Some("children") => {
+                    if let Some(children) = object.get("children").and_then(Value::as_array) {
+                        replace_children(nodes, &id, children);
                     }
+                    continue;
                 }
                 Some("remove") => {
-                    self.types.remove(&key);
+                    remove_subtree(nodes, &id);
                     continue;
                 }
                 _ => {}
             }
-            let Some(node) = self.types.get(&key).copied() else { continue };
+            let Some(node) = nodes.get(&id).and_then(|node| node.kind) else { continue };
             if let Some(props) = object.get_mut("props").and_then(Value::as_object_mut) {
                 sanitize_props(node, &id, props, &mut refused);
             }
+        }
+        if nodes.is_empty() {
+            self.mounts.remove(mount);
         }
         refused
     }
 
     /// Forgets a mount's nodes (its unmount).
     pub fn forget(&mut self, mount: &str) {
-        self.types.retain(|(m, _), _| m != mount);
+        self.mounts.remove(mount);
     }
 }
 
@@ -252,7 +316,124 @@ mod tests {
         assert_eq!(ops[1]["props"], json!({"text": null, "shortcut": "⌘T"}));
         assert_eq!(refused.len(), 1);
         nodes.forget("m");
-        assert!(nodes.types.is_empty());
+        assert!(nodes.mounts.is_empty());
+    }
+
+    #[test]
+    fn repeated_dynamic_subtree_removals_release_nodes_and_edges() {
+        let mut nodes = TypedNodes::default();
+        nodes.sanitize("m", &mut json!([{"op": "create", "id": "root", "type": "Group"}]));
+        for generation in 0..256 {
+            let row = format!("row-{generation}");
+            let tooltip = format!("tooltip-{generation}");
+            let pill = format!("pill-{generation}");
+            nodes.sanitize(
+                "m",
+                &mut json!([
+                    {"op": "create", "id": row, "type": "Row"},
+                    {"op": "create", "id": tooltip, "type": "Tooltip"},
+                    {"op": "create", "id": pill, "type": "Pill"},
+                    {"op": "children", "id": tooltip, "children": [pill]},
+                    {"op": "children", "id": row, "children": [tooltip]},
+                    {"op": "children", "id": "root", "children": [row]},
+                    {"op": "remove", "id": row}
+                ]),
+            );
+            let scene = &nodes.mounts["m"];
+            assert_eq!(scene.len(), 1, "generation {generation}");
+            assert!(scene["root"].children.is_empty());
+            let mut update = json!([
+                {"op": "update", "id": pill, "props": {"tone": "invalid"}},
+                {"op": "update", "id": tooltip, "props": {"side": "invalid"}}
+            ]);
+            assert!(nodes.sanitize("m", &mut update).is_empty());
+        }
+        nodes.sanitize("m", &mut json!([{"op": "remove", "id": "root"}]));
+        assert!(nodes.mounts.is_empty());
+    }
+
+    #[test]
+    fn replacing_children_detaches_without_deleting_the_old_children() {
+        let mut nodes = TypedNodes::default();
+        nodes.sanitize(
+            "m",
+            &mut json!([
+                {"op": "create", "id": "row", "type": "Row"},
+                {"op": "create", "id": "old", "type": "Pill"},
+                {"op": "create", "id": "new", "type": "Pill"},
+                {"op": "children", "id": "row", "children": ["old"]},
+                {"op": "children", "id": "row", "children": ["new"]},
+                {"op": "remove", "id": "row"}
+            ]),
+        );
+        assert_eq!(nodes.mounts["m"].len(), 1);
+        assert!(nodes.mounts["m"]["old"].parent.is_none());
+        let mut update = json!([
+            {"op": "update", "id": "old", "props": {"tone": "warning"}},
+            {"op": "update", "id": "new", "props": {"tone": "warning"}}
+        ]);
+        assert!(nodes.sanitize("m", &mut update).is_empty());
+        assert_eq!(update[0]["props"]["tone"], "attention");
+        assert_eq!(update[1]["props"]["tone"], "warning");
+        nodes.sanitize("m", &mut json!([{"op": "remove", "id": "old"}]));
+        assert!(nodes.mounts.is_empty());
+    }
+
+    #[test]
+    fn moving_a_typed_subtree_detaches_it_from_its_previous_parent() {
+        let mut nodes = TypedNodes::default();
+        nodes.sanitize(
+            "m",
+            &mut json!([
+                {"op": "create", "id": "a", "type": "Row"},
+                {"op": "create", "id": "b", "type": "Row"},
+                {"op": "create", "id": "card", "type": "Card"},
+                {"op": "create", "id": "pill", "type": "Pill"},
+                {"op": "children", "id": "card", "children": ["pill"]},
+                {"op": "children", "id": "a", "children": ["card"]},
+                {"op": "children", "id": "b", "children": ["card"]}
+            ]),
+        );
+        assert!(nodes.mounts["m"]["a"].children.is_empty());
+        nodes.sanitize("m", &mut json!([{"op": "remove", "id": "a"}]));
+        let mut update = json!([
+            {"op": "update", "id": "card", "props": {"side": "invalid"}},
+            {"op": "update", "id": "pill", "props": {"tone": "invalid"}}
+        ]);
+        assert_eq!(nodes.sanitize("m", &mut update).len(), 2);
+        nodes.sanitize("m", &mut json!([{"op": "remove", "id": "b"}]));
+        assert!(nodes.mounts.is_empty());
+    }
+
+    #[test]
+    fn subtree_removal_and_forget_are_isolated_to_their_mount() {
+        let mut nodes = TypedNodes::default();
+        for mount in ["a", "b"] {
+            nodes.sanitize(
+                mount,
+                &mut json!([
+                    {"op": "create", "id": "row", "type": "Row"},
+                    {"op": "create", "id": "pill", "type": "Pill"},
+                    {"op": "children", "id": "row", "children": ["pill"]}
+                ]),
+            );
+        }
+        nodes.sanitize("a", &mut json!([{"op": "remove", "id": "row"}]));
+        assert!(!nodes.mounts.contains_key("a"));
+        let mut update = json!([{"op": "update", "id": "pill", "props": {"tone": "invalid"}}]);
+        assert_eq!(nodes.sanitize("b", &mut update).len(), 1);
+        assert_eq!(nodes.mounts["b"].len(), 2);
+        nodes.forget("b");
+        assert!(nodes.mounts.is_empty());
+        nodes.sanitize(
+            "b",
+            &mut json!([
+                {"op": "create", "id": "row", "type": "Row"},
+                {"op": "create", "id": "pill", "type": "Pill"},
+                {"op": "remove", "id": "row"}
+            ]),
+        );
+        assert_eq!(nodes.mounts["b"].len(), 1, "forget must not retain the old edge");
     }
 
     #[test]
