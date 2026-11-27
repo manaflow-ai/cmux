@@ -14,7 +14,8 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           a review verdict on the head: a review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
           commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
-          is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
+          is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red for an unowned takeback or
+          a structured GitHub API quota refusal (the latter is ungraded and retryable).
 
 Size is not a rule: in the audit, the changes that broke things were as often small as large.
 Separately from the tier, a pull request that takes back what another pull request merged in the

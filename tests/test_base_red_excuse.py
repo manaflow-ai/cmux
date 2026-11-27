@@ -8497,6 +8497,14 @@ class RiskEvidenceQuotaMarker(unittest.TestCase):
                                        "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
         self.assertIsNone(self.case(self.MARKER, "Takes back #57000: stale base"))
 
+    def test_two_quota_attempts_and_the_workflow_fallback_warning_are_trusted(self):
+        marker429 = self.MARKER.replace('"status":403', '"status":429')
+        self.assertIsNotNone(self.case(self.MARKER,
+                                       "##[warning]the glaeda-route App's read failed; grading on GITHUB_TOKEN",
+                                       marker429,
+                                       "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
+        self.assertIsNone(self.case(self.MARKER, "##[warning]an unrelated warning"))
+
 
 class RetargetedGitHub(FakeGitHub):
     """cmux#44908 at e19e1487: opened into feat-cmux-next, retargeted to main at 01:05Z. Its 'defaults guard' job 1

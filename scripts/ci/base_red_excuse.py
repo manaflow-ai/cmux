@@ -7630,6 +7630,7 @@ def risk_evidence_quota_only(repo: str, job: dict, log: str, github, run_reads: 
         r"GitHub's API budget refused `[^`]+` with HTTP (?:403|429); the reset boundary is in the machine-readable marker below\.|"
         r"That is not a verdict on this pull request\. The next push, edit or label regrades it, or rerun this job\.|"
         r"Policy: docs/ci/risk-tiers\.md|"
+        r"(?:::|##\[)warning(?:::|\])the glaeda-route App's read failed; grading on GITHUB_TOKEN|"
         r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, GitHub rate limit \(not a verdict on this pull request\)|"
         r"gh api .* exited [1-9]\d* \(GitHub API quota: structured refusal; endpoint [^,]+, HTTP (?:403|429)\)|"
         r"##\[group\]Run .*scripts/ci/risk_tier\.py pr|##\[endgroup\]|"
