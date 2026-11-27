@@ -82,10 +82,11 @@ static HEDGE: LazyLock<Option<Regex>> = LazyLock::new(|| {
 pub(crate) fn claims_done(draft: &str) -> bool {
     let (Some(done), Some(hedge)) = (DONE.as_ref(), HEDGE.as_ref()) else { return false };
     done.find_iter(draft).any(|m| {
-        let before = &draft[..m.start()];
+        let before = draft.get(..m.start()).unwrap_or_default();
         let start = before.char_indices().rev().nth(32).map_or(0, |(i, _)| i);
-        let window = &before[start..];
-        let sentence = window.rfind(['.', '!', '?', '\n']).map_or(window, |i| &window[i + 1..]);
+        let window = before.get(start..).unwrap_or_default();
+        let sentence =
+            window.rfind(['.', '!', '?', '\n']).and_then(|i| window.get(i + 1..)).unwrap_or(window);
         !hedge.is_match(sentence)
     })
 }
