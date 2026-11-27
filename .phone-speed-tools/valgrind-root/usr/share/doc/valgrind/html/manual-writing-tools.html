@@ -1,0 +1,499 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>2. Writing a New Valgrind Tool</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="tech-docs.html" title="Valgrind Technical Documentation">
+<link rel="prev" href="design-impl.html" title="1. The Design and Implementation of Valgrind">
+<link rel="next" href="cl-format.html" title="3. Callgrind Format Specification">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="design-impl.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="tech-docs.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind Technical Documentation</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="cl-format.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="manual-writing-tools"></a>2. Writing a New Valgrind Tool</h1></div></div></div>
+<div class="toc">
+<p><b>Table of Contents</b></p>
+<dl class="toc">
+<dt><span class="sect1"><a href="manual-writing-tools.html#manual-writing-tools.intro">2.1. Introduction</a></span></dt>
+<dt><span class="sect1"><a href="manual-writing-tools.html#manual-writing-tools.writingatool">2.2. Basics</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.howtoolswork">2.2.1. How tools work</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.gettingcode">2.2.2. Getting the code</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.gettingstarted">2.2.3. Getting started</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.writingcode">2.2.4. Writing the code</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.init">2.2.5. Initialisation</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.instr">2.2.6. Instrumentation</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.fini">2.2.7. Finalisation</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.otherinfo">2.2.8. Other Important Information</a></span></dt>
+</dl></dd>
+<dt><span class="sect1"><a href="manual-writing-tools.html#manual-writing-tools.advtopics">2.3. Advanced Topics</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.advice">2.3.1. Debugging Tips</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.suppressions">2.3.2. Suppressions</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.docs">2.3.3. Documentation</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.regtests">2.3.4. Regression Tests</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.profiling">2.3.5. Profiling</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.mkhackery">2.3.6. Other Makefile Hackery</a></span></dt>
+<dt><span class="sect2"><a href="manual-writing-tools.html#manual-writing-tools.ifacever">2.3.7. The Core/tool Interface</a></span></dt>
+</dl></dd>
+<dt><span class="sect1"><a href="manual-writing-tools.html#manual-writing-tools.finalwords">2.4. Final Words</a></span></dt>
+</dl>
+</div>
+<p>So you want to write a Valgrind tool?  Here are some instructions
+that may help.</p>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-writing-tools.intro"></a>2.1. Introduction</h2></div></div></div>
+<p>The key idea behind Valgrind's architecture is the division
+between its <span class="emphasis"><em>core</em></span> and <span class="emphasis"><em>tools</em></span>.</p>
+<p>The core provides the common low-level infrastructure to
+support program instrumentation, including the JIT
+compiler, low-level memory manager, signal handling and a
+thread scheduler.  It also provides certain services that
+are useful to some but not all tools, such as support for error
+recording, and support for replacing heap allocation functions such as
+<code class="function">malloc</code>.</p>
+<p>But the core leaves certain operations undefined, which
+must be filled by tools.  Most notably, tools define how program
+code should be instrumented.  They can also call certain
+functions to indicate to the core that they would like to use
+certain services, or be notified when certain interesting events
+occur.  But the core takes care of all the hard work.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-writing-tools.writingatool"></a>2.2. Basics</h2></div></div></div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.howtoolswork"></a>2.2.1. How tools work</h3></div></div></div>
+<p>Tools must define various functions for instrumenting programs
+that are called by Valgrind's core. They are then linked against
+Valgrind's core to define a complete Valgrind tool which will be used
+when the <code class="option">--tool</code> option is used to select it.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.gettingcode"></a>2.2.2. Getting the code</h3></div></div></div>
+<p>To write your own tool, you'll need the Valgrind source code.  You'll
+need a clone from the git repository for the automake/autoconf
+build instructions to work.  See the information about how to do clone
+from the repository at <a class="ulink" href="http://www.valgrind.org/downloads/repository.html" target="_top">the Valgrind
+website</a>.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.gettingstarted"></a>2.2.3. Getting started</h3></div></div></div>
+<p>Valgrind uses GNU <code class="computeroutput">automake</code> and
+<code class="computeroutput">autoconf</code> for the creation of Makefiles
+and configuration.  But don't worry, these instructions should be enough
+to get you started even if you know nothing about those tools.</p>
+<p>In what follows, all filenames are relative to Valgrind's
+top-level directory <code class="computeroutput">valgrind/</code>.</p>
+<div class="orderedlist"><ol class="orderedlist" type="1">
+<li class="listitem"><p>Choose a name for the tool, and a two-letter abbreviation that can
+  be used as a short prefix.  We'll use
+  <code class="computeroutput">foobar</code> and
+  <code class="computeroutput">fb</code> as an example.</p></li>
+<li class="listitem"><p>Make three new directories <code class="filename">foobar/</code>,
+  <code class="filename">foobar/docs/</code> and
+  <code class="filename">foobar/tests/</code>.
+  </p></li>
+<li class="listitem"><p>Create an empty file <code class="filename">foobar/tests/Makefile.am</code>.
+  </p></li>
+<li class="listitem"><p>Copy <code class="filename">none/Makefile.am</code> into
+  <code class="filename">foobar/</code>.  Edit it by replacing all
+  occurrences of the strings
+  <code class="computeroutput">"none"</code>,
+  <code class="computeroutput">"nl_"</code> and
+  <code class="computeroutput">"nl-"</code> with
+  <code class="computeroutput">"foobar"</code>,
+  <code class="computeroutput">"fb_"</code> and
+  <code class="computeroutput">"fb-"</code> respectively.</p></li>
+<li class="listitem"><p>Copy <code class="filename">none/nl_main.c</code> into
+  <code class="computeroutput">foobar/</code>, renaming it as
+  <code class="filename">fb_main.c</code>.  Edit it by changing the
+  <code class="computeroutput">details</code> lines in
+  <code class="function">nl_pre_clo_init</code> to something appropriate for the
+  tool.  These fields are used in the startup message, except for
+  <code class="computeroutput">bug_reports_to</code> which is used if a
+  tool assertion fails.  Also, replace the string
+  <code class="computeroutput">"nl_"</code> throughout with  
+  <code class="computeroutput">"fb_"</code> again.</p></li>
+<li class="listitem"><p>Edit <code class="filename">Makefile.am</code>, adding the new directory
+   <code class="filename">foobar</code> to the
+   <code class="computeroutput">TOOLS</code> or
+   <code class="computeroutput">EXP_TOOLS</code> variables.</p></li>
+<li class="listitem"><p>Edit <code class="filename">configure.ac</code>, adding
+   <code class="filename">foobar/Makefile</code> and
+   <code class="filename">foobar/tests/Makefile</code> to the
+   <code class="computeroutput">AC_OUTPUT</code> list.</p></li>
+<li class="listitem">
+<p>Run:</p>
+<pre class="programlisting">
+  autogen.sh
+  ./configure --prefix=`pwd`/inst
+  make
+  make install</pre>
+<p>It should automake, configure and compile without errors,
+   putting copies of the tool in
+   <code class="filename">foobar/</code> and
+   <code class="filename">inst/lib/valgrind/</code>.</p>
+</li>
+<li class="listitem">
+<p>You can test it with a command like:</p>
+<pre class="programlisting">
+  inst/bin/valgrind --tool=foobar date</pre>
+<p>(almost any program should work;
+   <code class="computeroutput">date</code> is just an example).
+   The output should be something like this:</p>
+<pre class="programlisting">
+  ==738== foobar-0.0.1, a foobarring tool.
+  ==738== Copyright (C) 2002-2017, and GNU GPL'd, by J. Programmer.
+  ==738== Using Valgrind-3.14.0.GIT and LibVEX; rerun with -h for copyright info
+  ==738== Command: date
+  ==738==
+  Tue Nov 27 12:40:49 EST 2017
+  ==738==</pre>
+<p>The tool does nothing except run the program uninstrumented.</p>
+</li>
+</ol></div>
+<p>These steps don't have to be followed exactly -- you can choose
+different names for your source files, and use a different
+<code class="option">--prefix</code> for
+<code class="computeroutput">./configure</code>.</p>
+<p>Now that we've setup, built and tested the simplest possible tool,
+onto the interesting stuff...</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.writingcode"></a>2.2.4. Writing the code</h3></div></div></div>
+<p>A tool must define at least these four functions:</p>
+<pre class="programlisting">
+  pre_clo_init()
+  post_clo_init()
+  instrument()
+  fini()</pre>
+<p>The names can be different to the above, but these are the usual
+names.  The first one is registered using the macro
+<code class="computeroutput">VG_DETERMINE_INTERFACE_VERSION</code>.
+The last three are registered using the
+<code class="computeroutput">VG_(basic_tool_funcs)</code> function.</p>
+<p>In addition, if a tool wants to use some of the optional services
+provided by the core, it may have to define other functions and tell the
+core about them.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.init"></a>2.2.5. Initialisation</h3></div></div></div>
+<p>Most of the initialisation should be done in
+<code class="function">pre_clo_init</code>.  Only use
+<code class="function">post_clo_init</code> if a tool provides command line
+options and must do some initialisation after option processing takes
+place (<code class="computeroutput">"clo"</code> stands for "command line
+options").</p>
+<p>First of all, various "details" need to be set for a tool, using
+the functions <code class="function">VG_(details_*)</code>.  Some are all
+compulsory, some aren't.  Some are used when constructing the startup
+message, <code class="computeroutput">detail_bug_reports_to</code> is used
+if <code class="computeroutput">VG_(tool_panic)</code> is ever called, or
+a tool assertion fails.  Others have other uses.</p>
+<p>Second, various "needs" can be set for a tool, using the functions
+<code class="function">VG_(needs_*)</code>.  They are mostly booleans, and can
+be left untouched (they default to <code class="varname">False</code>).  They
+determine whether a tool can do various things such as: record, report
+and suppress errors; process command line options; wrap system calls;
+record extra information about heap blocks; etc.</p>
+<p>For example, if a tool wants the core's help in recording and
+reporting errors, it must call
+<code class="function">VG_(needs_tool_errors)</code> and provide definitions of
+eight functions for comparing errors, printing out errors, reading
+suppressions from a suppressions file, etc.  While writing these
+functions requires some work, it's much less than doing error handling
+from scratch because the core is doing most of the work.
+</p>
+<p>Third, the tool can indicate which events in core it wants to be
+notified about, using the functions <code class="function">VG_(track_*)</code>.
+These include things such as heap blocks being allocated, the stack
+pointer changing, a mutex being locked, etc.  If a tool wants to know
+about this, it should provide a pointer to a function, which will be
+called when that event happens.</p>
+<p>For example, if the tool want to be notified when a new heap block
+is allocated, it should call
+<code class="function">VG_(track_new_mem_heap)</code> with an appropriate
+function pointer, and the assigned function will be called each time
+this happens.</p>
+<p>More information about "details", "needs" and "trackable events"
+can be found in
+<code class="filename">include/pub_tool_tooliface.h</code>.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.instr"></a>2.2.6. Instrumentation</h3></div></div></div>
+<p><code class="function">instrument</code> is the interesting one.  It
+allows you to instrument <span class="emphasis"><em>VEX IR</em></span>, which is
+Valgrind's RISC-like intermediate language.  VEX IR is described
+in the comments of the header file
+<code class="filename">VEX/pub/libvex_ir.h</code>.</p>
+<p>The easiest way to instrument VEX IR is to insert calls to C
+functions when interesting things happen.  See the tool "Lackey"
+(<code class="filename">lackey/lk_main.c</code>) for a simple example of this, or
+Cachegrind (<code class="filename">cachegrind/cg_main.c</code>) for a more
+complex example.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.fini"></a>2.2.7. Finalisation</h3></div></div></div>
+<p>This is where you can present the final results, such as a summary
+of the information collected.  Any log files should be written out at
+this point.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.otherinfo"></a>2.2.8. Other Important Information</h3></div></div></div>
+<p>Please note that the core/tool split infrastructure is quite
+complex and not brilliantly documented.  Here are some important points,
+but there are undoubtedly many others that I should note but haven't
+thought of.</p>
+<p>The files <code class="filename">include/pub_tool_*.h</code> contain all the
+types, macros, functions, etc. that a tool should (hopefully) need, and are
+the only <code class="filename">.h</code> files a tool should need to
+<code class="computeroutput">#include</code>.  They have a reasonable amount of
+documentation in it that should hopefully be enough to get you going.</p>
+<p>Note that you can't use anything from the C library (there
+are deep reasons for this, trust us).  Valgrind provides an
+implementation of a reasonable subset of the C library, details of which
+are in <code class="filename">pub_tool_libc*.h</code>.</p>
+<p>When writing a tool, in theory you shouldn't need to look at any of
+the code in Valgrind's core, but in practice it might be useful sometimes to
+help understand something.</p>
+<p>The <code class="filename">include/pub_tool_basics.h</code> and
+<code class="filename">VEX/pub/libvex_basictypes.h</code> files have some basic
+types that are widely used.</p>
+<p>Ultimately, the tools distributed (Memcheck, Cachegrind, Lackey, etc.)
+are probably the best documentation of all, for the moment.</p>
+<p>The <code class="computeroutput">VG_</code> macro is used
+heavily.  This just prepends a longer string in front of names to avoid
+potential namespace clashes.  It is defined in
+<code class="filename">include/pub_tool_basics.h</code>.</p>
+<p>There are some assorted notes about various aspects of the
+implementation in <code class="filename">docs/internals/</code>.  Much of it
+isn't that relevant to tool-writers, however.</p>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-writing-tools.advtopics"></a>2.3. Advanced Topics</h2></div></div></div>
+<p>Once a tool becomes more complicated, there are some extra
+things you may want/need to do.</p>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.advice"></a>2.3.1. Debugging Tips</h3></div></div></div>
+<p>Writing and debugging tools is not trivial.  Here are some
+suggestions for solving common problems.</p>
+<p>If you are getting segmentation faults in C functions used by your
+tool, the usual GDB command:</p>
+<pre class="screen">
+  gdb &lt;prog&gt; core</pre>
+<p>usually gives the location of the segmentation fault.</p>
+<p>If you want to debug C functions used by your tool, there are
+instructions on how to do so in the file
+<code class="filename">README_DEVELOPERS</code>.</p>
+<p>If you are having problems with your VEX IR instrumentation, it's
+likely that GDB won't be able to help at all.  In this case, Valgrind's
+<code class="option">--trace-flags</code> option is invaluable for observing the
+results of instrumentation.</p>
+<p>If you just want to know whether a program point has been reached,
+using the <code class="computeroutput">OINK</code> macro (in
+<code class="filename">include/pub_tool_libcprint.h</code>) can be easier than
+using GDB.</p>
+<p>The other debugging command line options can be useful too (run
+<code class="computeroutput">valgrind --help-debug</code> for the
+list).</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.suppressions"></a>2.3.2. Suppressions</h3></div></div></div>
+<p>If your tool reports errors and you want to suppress some common
+ones, you can add suppressions to the suppression files.  The relevant
+files are <code class="filename">*.supp</code>; the final suppression
+file is aggregated from these files by combining the relevant
+<code class="filename">.supp</code> files depending on the versions of linux, X
+and glibc on a system.</p>
+<p>Suppression types have the form
+<code class="computeroutput">tool_name:suppression_name</code>.  The
+<code class="computeroutput">tool_name</code> here is the name you specify
+for the tool during initialisation with
+<code class="function">VG_(details_name)</code>.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.docs"></a>2.3.3. Documentation</h3></div></div></div>
+<p>If you are feeling conscientious and want to write some
+documentation for your tool, please use XML as the rest of Valgrind does.
+The file <code class="filename">docs/README</code> has more details on getting
+the XML toolchain to work;  this can be difficult, unfortunately.</p>
+<p>To write the documentation, follow these steps (using
+<code class="computeroutput">foobar</code> as the example tool name
+again):</p>
+<div class="orderedlist"><ol class="orderedlist" type="1">
+<li class="listitem"><p>The docs go in
+   <code class="computeroutput">foobar/docs/</code>, which you will
+   have created when you started writing the tool.</p></li>
+<li class="listitem">
+<p>Copy the XML documentation file for the tool Nulgrind from
+    <code class="filename">none/docs/nl-manual.xml</code> to
+    <code class="computeroutput">foobar/docs/</code>, and rename it to
+    <code class="filename">foobar/docs/fb-manual.xml</code>.</p>
+<p><span class="command"><strong>Note</strong></span>: there is a tetex bug
+    involving underscores in filenames, so don't use '_'.</p>
+</li>
+<li class="listitem"><p>Write the documentation. There are some helpful bits and
+    pieces on using XML markup in
+    <code class="filename">docs/xml/xml_help.txt</code>.</p></li>
+<li class="listitem"><p>Include it in the User Manual by adding the relevant entry to
+    <code class="filename">docs/xml/manual.xml</code>.  Copy and edit an
+    existing entry.</p></li>
+<li class="listitem"><p>Include it in the man page by adding the relevant entry to
+    <code class="filename">docs/xml/valgrind-manpage.xml</code>.  Copy and
+    edit an existing entry.</p></li>
+<li class="listitem">
+<p>Validate <code class="filename">foobar/docs/fb-manual.xml</code> using
+    the following command from within <code class="filename">docs/</code>:
+  </p>
+<pre class="screen">
+make valid
+</pre>
+<p>You may get errors that look like this:</p>
+<pre class="screen">
+./xml/index.xml:5: element chapter: validity error : No declaration for
+attribute base of element chapter
+</pre>
+<p>Ignore (only) these -- they're not important.</p>
+<p>Because the XML toolchain is fragile, it is important to ensure
+   that <code class="filename">fb-manual.xml</code> won't break the documentation
+   set build.  Note that just because an XML file happily transforms to
+   html does not necessarily mean the same holds true for pdf/ps.</p>
+</li>
+<li class="listitem">
+<p>You can (re-)generate the HTML docs while you are writing
+    <code class="filename">fb-manual.xml</code> to help you see how it's looking.
+    The generated files end up in
+    <code class="filename">docs/html/</code>.  Use the following
+    command, within <code class="filename">docs/</code>:</p>
+<pre class="screen">
+make html-docs
+</pre>
+</li>
+<li class="listitem">
+<p>When you have finished, try to generate PDF and PostScript output to
+    check all is well, from within <code class="filename">docs/</code>:
+  </p>
+<pre class="screen">
+make print-docs
+</pre>
+<p>Check the output <code class="filename">.pdf</code> and
+    <code class="filename">.ps</code> files in
+    <code class="computeroutput">docs/print/</code>.</p>
+<p>Note that the toolchain is even more fragile for the print docs,
+    so don't feel too bad if you can't get it working.</p>
+</li>
+</ol></div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.regtests"></a>2.3.4. Regression Tests</h3></div></div></div>
+<p>Valgrind has some support for regression tests.  If you want to
+write regression tests for your tool:</p>
+<div class="orderedlist"><ol class="orderedlist" type="1">
+<li class="listitem"><p>The tests go in <code class="computeroutput">foobar/tests/</code>,
+    which you will have created when you started writing the tool.</p></li>
+<li class="listitem"><p>Write <code class="filename">foobar/tests/Makefile.am</code>.  Use
+    <code class="filename">memcheck/tests/Makefile.am</code> as an
+    example.</p></li>
+<li class="listitem"><p>Write the tests, <code class="computeroutput">.vgtest</code> test
+    description files, <code class="computeroutput">.stdout.exp</code> and
+    <code class="computeroutput">.stderr.exp</code> expected output files.
+    (Note that Valgrind's output goes to stderr.)  Some details on
+    writing and running tests are given in the comments at the top of
+    the testing script
+    <code class="computeroutput">tests/vg_regtest</code>.</p></li>
+<li class="listitem"><p>Write a filter for stderr results
+    <code class="computeroutput">foobar/tests/filter_stderr</code>.  It can
+    call the existing filters in
+    <code class="computeroutput">tests/</code>.  See
+    <code class="computeroutput">memcheck/tests/filter_stderr</code> for an
+    example; in particular note the
+    <code class="computeroutput">$dir</code> trick that ensures the filter
+    works correctly from any directory.</p></li>
+</ol></div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.profiling"></a>2.3.5. Profiling</h3></div></div></div>
+<p>Lots of profiling tools have trouble running Valgrind.  For example,
+trying to use gprof is hopeless.</p>
+<p>Probably the best way to profile a tool is with OProfile on Linux.</p>
+<p>You can also use Cachegrind on it.  Read
+<code class="filename">README_DEVELOPERS</code> for details on running Valgrind under
+Valgrind;  it's a bit fragile but can usually be made to work.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.mkhackery"></a>2.3.6. Other Makefile Hackery</h3></div></div></div>
+<p>If you add any directories under
+<code class="computeroutput">foobar/</code>, you will need to add
+an appropriate <code class="filename">Makefile.am</code> to it, and add a
+corresponding entry to the <code class="computeroutput">AC_OUTPUT</code>
+list in <code class="filename">configure.ac</code>.</p>
+<p>If you add any scripts to your tool (see Cachegrind for an
+example) you need to add them to the
+<code class="computeroutput">bin_SCRIPTS</code> variable in
+<code class="filename">foobar/Makefile.am</code> and possible also to the
+<code class="computeroutput">AC_OUTPUT</code> list in
+<code class="filename">configure.ac</code>.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-writing-tools.ifacever"></a>2.3.7. The Core/tool Interface</h3></div></div></div>
+<p>The core/tool interface evolves over time, but it's pretty stable.
+We deliberately do not provide backward compatibility with old interfaces,
+because it is too difficult and too restrictive.  We view this as a good
+thing -- if we had to be backward compatible with earlier versions, many
+improvements now in the system could not have been added.</p>
+<p>Because tools are statically linked with the core, if a tool compiles
+successfully then it should be compatible with the core.  We would not
+deliberately violate this property by, for example, changing the behaviour
+of a core function without changing its prototype.</p>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-writing-tools.finalwords"></a>2.4. Final Words</h2></div></div></div>
+<p>Writing a new Valgrind tool is not easy, but the tools you can write
+with Valgrind are among the most powerful programming tools there are.
+Happy programming!</p>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="design-impl.html">&lt;&lt; 1. The Design and Implementation of Valgrind</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="tech-docs.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="cl-format.html">3. Callgrind Format Specification &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

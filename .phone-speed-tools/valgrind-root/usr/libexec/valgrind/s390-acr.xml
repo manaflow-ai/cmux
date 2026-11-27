@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010-2012 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.s390.acr">
+  <reg name="acr0" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr2" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr3" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr4" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr5" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr6" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr7" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr8" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr9" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr10" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr11" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr12" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr13" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr14" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr15" bitsize="32" type="uint32" group="access"/>
+</feature>

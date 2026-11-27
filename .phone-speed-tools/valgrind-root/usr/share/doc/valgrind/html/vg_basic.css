@@ -1,0 +1,67 @@
+/* default link colours */
+a, a:link, a:visited, a:active { color: #74240f; }
+a:hover { color: #888800; }
+
+body { 
+ color: #202020; 
+ background-color: #ffffff;
+}
+
+body, td {
+ font-size:   90%;
+ line-height: 125%;
+ font-family: Arial, Geneva, Helvetica, sans-serif;
+}
+
+h1, h2, h3, h4 { color: #74240f; }
+h3 { margin-bottom: 0.4em; }
+
+code, tt { color: #761596; }
+code a, code a:link, code a:visited, code a:active, code a:hover {
+  color: #761596;
+  text-decoration: none;
+  border-bottom:   dashed 1px #761596;
+}
+
+pre { color: #3366cc; }
+pre.programlisting {
+ color:      #000000;
+ padding:    0.5em;
+ background: #f2f2f9;
+ border:     1px solid #3366cc;
+}
+pre.screen {
+ color:      #000000;
+ padding:    0.5em;
+ background: #eeeeee;
+ border:     1px solid #626262;
+}
+
+ul { list-style: url("images/li-brown.png"); }
+
+.titlepage hr {
+  height:  1px;
+  border:  0px;
+  background-color: #7f7f7f;
+}
+
+/* header / footer nav tables */
+table.nav {
+ color:      #0f7355;
+ border:     solid 1px #0f7355;
+ background: #edf7f4;
+ background-color: #edf7f4;
+ margin-bottom: 0.5em;
+}
+/* don't have underlined links in chunked nav menus */
+table.nav a { text-decoration: none; }
+table.nav a:hover { text-decoration: underline; }
+table.nav td { font-size: 85%; }
+
+/* yellow box just for massif blockquotes */
+blockquote {
+ padding:     0.5em;
+ background:  #fffbc9; 
+ border:      solid 1px #ffde84; 
+}
+

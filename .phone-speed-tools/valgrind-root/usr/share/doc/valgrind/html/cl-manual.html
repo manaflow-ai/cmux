@@ -1,0 +1,1209 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>6. Callgrind: a call-graph generating cache and branch prediction profiler</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="manual.html" title="Valgrind User Manual">
+<link rel="prev" href="cg-manual.html" title="5. Cachegrind: a high-precision tracing profiler">
+<link rel="next" href="hg-manual.html" title="7. Helgrind: a thread error detector">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="cg-manual.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="manual.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind User Manual</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="hg-manual.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="cl-manual"></a>6. Callgrind: a call-graph generating cache and branch prediction profiler</h1></div></div></div>
+<div class="toc">
+<p><b>Table of Contents</b></p>
+<dl class="toc">
+<dt><span class="sect1"><a href="cl-manual.html#cl-manual.use">6.1. Overview</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.functionality">6.1.1. Functionality</a></span></dt>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.basics">6.1.2. Basic Usage</a></span></dt>
+</dl></dd>
+<dt><span class="sect1"><a href="cl-manual.html#cl-manual.usage">6.2. Advanced Usage</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.dumps">6.2.1. Multiple profiling dumps from one program run</a></span></dt>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.limits">6.2.2. Limiting the range of collected events</a></span></dt>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.busevents">6.2.3. Counting global bus events</a></span></dt>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.cycles">6.2.4. Avoiding cycles</a></span></dt>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.forkingprograms">6.2.5. Forking Programs</a></span></dt>
+</dl></dd>
+<dt><span class="sect1"><a href="cl-manual.html#cl-manual.options">6.3. Callgrind Command-line Options</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.options.creation">6.3.1. Dump creation options</a></span></dt>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.options.activity">6.3.2. Activity options</a></span></dt>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.options.collection">6.3.3. Data collection options</a></span></dt>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.options.separation">6.3.4. Cost entity separation options</a></span></dt>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.options.simulation">6.3.5. Simulation options</a></span></dt>
+<dt><span class="sect2"><a href="cl-manual.html#cl-manual.options.cachesimulation">6.3.6. Cache simulation options</a></span></dt>
+</dl></dd>
+<dt><span class="sect1"><a href="cl-manual.html#cl-manual.monitor-commands">6.4. Callgrind Monitor Commands</a></span></dt>
+<dt><span class="sect1"><a href="cl-manual.html#cl-manual.clientrequests">6.5. Callgrind specific client requests</a></span></dt>
+<dt><span class="sect1"><a href="cl-manual.html#cl-manual.callgrind_annotate-options">6.6. callgrind_annotate Command-line Options</a></span></dt>
+<dt><span class="sect1"><a href="cl-manual.html#cl-manual.callgrind_control-options">6.7. callgrind_control Command-line Options</a></span></dt>
+</dl>
+</div>
+<p>To use this tool, you must specify
+<code class="option">--tool=callgrind</code> on the
+Valgrind command line.</p>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="cl-manual.use"></a>6.1. Overview</h2></div></div></div>
+<p>Callgrind is a profiling tool that records the call history among
+functions in a program's run as a call-graph.
+By default, the collected data consists of
+the number of instructions executed, their relationship
+to source lines, the caller/callee relationship between functions,
+and the numbers of such calls.
+Optionally, cache simulation and/or branch prediction (similar to Cachegrind)
+can produce further information about the runtime behavior of an application.
+</p>
+<p>The profile data is written out to a file at program
+termination. For presentation of the data, and interactive control
+of the profiling, two command line tools are provided:</p>
+<div class="variablelist"><dl class="variablelist">
+<dt><span class="term"><span class="command"><strong>callgrind_annotate</strong></span></span></dt>
+<dd>
+<p>This command reads in the profile data, and prints a
+    sorted lists of functions, optionally with source annotation.</p>
+<p>For graphical visualization of the data, try
+    <a class="ulink" href="https://kcachegrind.github.io/html/Home.html" target="_top">KCachegrind</a>, which is a KDE/Qt based
+    GUI that makes it easy to navigate the large amount of data that
+    Callgrind produces.</p>
+</dd>
+<dt><span class="term"><span class="command"><strong>callgrind_control</strong></span></span></dt>
+<dd><p>This command enables you to interactively observe and control 
+    the status of a program currently running under Callgrind's control,
+    without stopping the program.  You can get statistics information as
+    well as the current stack trace, and you can request zeroing of counters
+    or dumping of profile data.</p></dd>
+</dl></div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.functionality"></a>6.1.1. Functionality</h3></div></div></div>
+<p>Cachegrind collects flat profile data: event counts (data reads,
+cache misses, etc.) are attributed directly to the function they
+occurred in.  This cost attribution mechanism is
+called <span class="emphasis"><em>self</em></span> or <span class="emphasis"><em>exclusive</em></span>
+attribution.</p>
+<p>Callgrind extends this functionality by propagating costs
+across function call boundaries.  If function <code class="function">foo</code> calls
+<code class="function">bar</code>, the costs from <code class="function">bar</code> are added into
+<code class="function">foo</code>'s costs.  When applied to the program as a whole,
+this builds up a picture of so called <span class="emphasis"><em>inclusive</em></span>
+costs, that is, where the cost of each function includes the costs of
+all functions it called, directly or indirectly.</p>
+<p>As an example, the inclusive cost of
+<code class="function">main</code> should be almost 100 percent
+of the total program cost.  Because of costs arising before 
+<code class="function">main</code> is run, such as
+initialization of the run time linker and construction of global C++
+objects, the inclusive cost of <code class="function">main</code>
+is not exactly 100 percent of the total program cost.</p>
+<p>Together with the call graph, this allows you to find the
+specific call chains starting from
+<code class="function">main</code> in which the majority of the
+program's costs occur.  Caller/callee cost attribution is also useful
+for profiling functions called from multiple call sites, and where
+optimization opportunities depend on changing code in the callers, in
+particular by reducing the call count.</p>
+<p>Callgrind's cache simulation is based on that of Cachegrind.
+Read the documentation for <a class="xref" href="cg-manual.html" title="5. Cachegrind: a high-precision tracing profiler">Cachegrind: a cache and branch-prediction profiler</a> first.  The material
+below describes the features supported in addition to Cachegrind's
+features.</p>
+<p>Callgrind's ability to detect function calls and returns depends
+on the instruction set of the platform it is run on.  It works best on
+x86 and amd64, and unfortunately currently does not work so well on
+PowerPC, ARM, Thumb or MIPS code.  This is because there are no explicit
+call or return instructions in these instruction sets, so Callgrind
+has to rely on heuristics to detect calls and returns.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.basics"></a>6.1.2. Basic Usage</h3></div></div></div>
+<p>As with Cachegrind, you probably want to compile with debugging info
+  (the <code class="option">-g</code> option) and with optimization turned on.</p>
+<p>To start a profile run for a program, execute:
+  </p>
+<pre class="screen">valgrind --tool=callgrind [callgrind options] your-program [program options]</pre>
+<p>
+  </p>
+<p>While the simulation is running, you can observe execution with:
+  </p>
+<pre class="screen">callgrind_control -b</pre>
+<p>
+  This will print out the current backtrace. To annotate the backtrace with
+  event counts, run
+  </p>
+<pre class="screen">callgrind_control -e -b</pre>
+<p>
+  </p>
+<p>After program termination, a profile data file named 
+  <code class="computeroutput">callgrind.out.&lt;pid&gt;</code>
+  is generated, where <span class="emphasis"><em>pid</em></span> is the process ID 
+  of the program being profiled.
+  The data file contains information about the calls made in the
+  program among the functions executed, together with 
+  <span class="command"><strong>Instruction Read</strong></span> (Ir) event counts.</p>
+<p>To generate a function-by-function summary from the profile
+  data file, use
+  </p>
+<pre class="screen">callgrind_annotate [options] callgrind.out.&lt;pid&gt;</pre>
+<p>
+  This summary is similar to the output you get from a Cachegrind
+  run with cg_annotate: the list
+  of functions is ordered by exclusive cost of functions, which also
+  are the ones that are shown.
+  Important for the additional features of Callgrind are
+  the following two options:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p><code class="option">--inclusive=yes</code>: Instead of using
+      exclusive cost of functions as sorting order, use and show
+      inclusive cost.</p></li>
+<li class="listitem"><p><code class="option">--tree=both</code>: Interleave into the
+      top level list of functions, information on the callers and the callees
+      of each function. In these lines, which represents executed
+      calls, the cost gives the number of events spent in the call.
+      Indented, above each function, there is the list of callers,
+      and below, the list of callees. The sum of events in calls to
+      a given function (caller lines), as well as the sum of events in
+      calls from the function (callee lines) together with the self
+      cost, gives the total inclusive cost of the function.</p></li>
+</ul></div>
+<p>By default, you will also get annotated source code
+  for all relevant functions for which the source can be found. In
+  addition to source annotation as produced by
+  <code class="computeroutput">cg_annotate</code>, you will see the
+  annotated call sites with call counts. For all other options, 
+  consult the (Cachegrind) documentation for
+  <code class="computeroutput">cg_annotate</code>.
+  </p>
+<p>For better call graph browsing experience, it is highly recommended
+  to use <a class="ulink" href="https://kcachegrind.github.io/html/Home.html" target="_top">KCachegrind</a>.
+  If your code
+  has a significant fraction of its cost in <span class="emphasis"><em>cycles</em></span> (sets
+  of functions calling each other in a recursive manner), you have to
+  use KCachegrind, as <code class="computeroutput">callgrind_annotate</code>
+  currently does not do any cycle detection, which is important to get correct
+  results in this case.</p>
+<p>If you are additionally interested in measuring the 
+  cache behavior of your program, use Callgrind with the option
+  <code class="option"><a class="link" href="cl-manual.html#clopt.cache-sim">--cache-sim=yes</a></code>.
+  For branch prediction simulation, use
+  <code class="option"><a class="link" href="cl-manual.html#clopt.branch-sim">--branch-sim=yes</a></code>.
+  Expect a further slow down approximately by a factor of 2.</p>
+<p>If the program section you want to profile is somewhere in the
+  middle of the run, it is beneficial to 
+  <span class="emphasis"><em>fast forward</em></span> to this section without any 
+  profiling, and then enable profiling.  This is achieved by using
+  the command line option
+  <code class="option"><a class="link" href="cl-manual.html#opt.instr-atstart">--instr-atstart=no</a></code> 
+  and running, in a shell:
+  <code class="computeroutput">callgrind_control -i on</code> just before the 
+  interesting code section is executed. To exactly specify
+  the code position where profiling should start, use the client request
+  <code class="computeroutput"><a class="link" href="cl-manual.html#cr.start-instr">CALLGRIND_START_INSTRUMENTATION</a></code>.</p>
+<p>If you want to be able to see assembly code level annotation, specify
+  <code class="option"><a class="link" href="cl-manual.html#opt.dump-instr">--dump-instr=yes</a></code>.
+  This will produce profile data at instruction granularity.
+  Note that the resulting profile data
+  can only be viewed with KCachegrind. For assembly annotation, it also is
+  interesting to see more details of the control flow inside of functions,
+  i.e. (conditional) jumps. This will be collected by further specifying
+  <code class="option"><a class="link" href="cl-manual.html#opt.collect-jumps">--collect-jumps=yes</a></code>.
+  </p>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="cl-manual.usage"></a>6.2. Advanced Usage</h2></div></div></div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.dumps"></a>6.2.1. Multiple profiling dumps from one program run</h3></div></div></div>
+<p>Sometimes you are not interested in characteristics of a full 
+  program run, but only of a small part of it, for example execution of one
+  algorithm.  If there are multiple algorithms, or one algorithm 
+  running with different input data, it may even be useful to get different
+  profile information for different parts of a single program run.</p>
+<p>Profile data files have names of the form
+</p>
+<pre class="screen">
+callgrind.out.<span class="emphasis"><em>pid</em></span>.<span class="emphasis"><em>part</em></span>-<span class="emphasis"><em>threadID</em></span>
+</pre>
+<p>
+  </p>
+<p>where <span class="emphasis"><em>pid</em></span> is the PID of the running 
+  program, <span class="emphasis"><em>part</em></span> is a number incremented on each
+  dump (".part" is skipped for the dump at program termination), and 
+  <span class="emphasis"><em>threadID</em></span> is a thread identification 
+  ("-threadID" is only used if you request dumps of individual 
+  threads with
+  <code class="option"><a class="link" href="cl-manual.html#opt.separate-threads">--separate-threads=yes</a></code>).
+  </p>
+<p>There are different ways to generate multiple profile dumps 
+  while a program is running under Callgrind's supervision.  Nevertheless,
+  all methods trigger the same action, which is "dump all profile 
+  information since the last dump or program start, and zero cost 
+  counters afterwards".  To allow for zeroing cost counters without
+  dumping, there is a second action "zero all cost counters now". 
+  The different methods are:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p><span class="command"><strong>Dump on program termination.</strong></span>
+      This method is the standard way and doesn't need any special
+      action on your part.</p></li>
+<li class="listitem">
+<p><span class="command"><strong>Spontaneous, interactive dumping.</strong></span> Use
+      </p>
+<pre class="screen">callgrind_control -d [hint [PID/Name]]</pre>
+<p> to 
+      request the dumping of profile information of the supervised
+      application with PID or Name.  <span class="emphasis"><em>hint</em></span> is an
+      arbitrary string you can optionally specify to later be able to
+      distinguish profile dumps.  The control program will not terminate
+      before the dump is completely written.  Note that the application
+      must be actively running for detection of the dump command. So,
+      for a GUI application, resize the window, or for a server, send a
+      request.</p>
+<p>If you are using <a class="ulink" href="https://kcachegrind.github.io/html/Home.html" target="_top">KCachegrind</a>
+      for browsing of profile information, you can use the toolbar
+      button <span class="command"><strong>Force dump</strong></span>. This will request a dump
+      and trigger a reload after the dump is written.</p>
+</li>
+<li class="listitem"><p><span class="command"><strong>Periodic dumping after execution of a specified
+      number of basic blocks</strong></span>. For this, use the command line
+      option <code class="option"><a class="link" href="cl-manual.html#opt.dump-every-bb">--dump-every-bb=count</a></code>.
+      </p></li>
+<li class="listitem">
+<p><span class="command"><strong>Dumping at enter/leave of specified functions.</strong></span>
+      Use the
+      option <code class="option"><a class="link" href="cl-manual.html#opt.dump-before">--dump-before=function</a></code>
+      and <code class="option"><a class="link" href="cl-manual.html#opt.dump-after">--dump-after=function</a></code>.
+      To zero cost counters before entering a function, use
+      <code class="option"><a class="link" href="cl-manual.html#opt.zero-before">--zero-before=function</a></code>.</p>
+<p>You can specify these options multiple times for different
+      functions. Function specifications support wildcards: e.g. use
+      <code class="option"><a class="link" href="cl-manual.html#opt.dump-before">--dump-before='foo*'</a></code> to
+      generate dumps before entering any function starting with 
+      <span class="emphasis"><em>foo</em></span>.</p>
+</li>
+<li class="listitem"><p><span class="command"><strong>Program controlled dumping.</strong></span>
+      Insert
+      <code class="computeroutput"><a class="link" href="cl-manual.html#cr.dump-stats">CALLGRIND_DUMP_STATS</a>;</code>
+      at the position in your code where you want a profile dump to
+      happen. Use
+      <code class="computeroutput"><a class="link" href="cl-manual.html#cr.zero-stats">CALLGRIND_ZERO_STATS</a>;</code> to only 
+      zero profile counters.
+      See <a class="xref" href="cl-manual.html#cl-manual.clientrequests" title="6.5. Callgrind specific client requests">Client request reference</a> for more information on
+      Callgrind specific client requests.</p></li>
+</ul></div>
+<p>If you are running a multi-threaded application and specify the
+  command line option
+  <code class="option"><a class="link" href="cl-manual.html#opt.separate-threads">--separate-threads=yes</a></code>, 
+  every thread will be profiled on its own and will create its own
+  profile dump. Thus, the last two methods will only generate one dump
+  of the currently running thread. With the other methods, you will get
+  multiple dumps (one for each thread) on a dump request.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.limits"></a>6.2.2. Limiting the range of collected events</h3></div></div></div>
+<p>By default, whenever events are happening (such as an
+    instruction execution or cache hit/miss), Callgrind is aggregating
+    them into event counters. However, you may be interested only in
+    what is happening within a given function or starting from a given
+    program phase. To this end, you can disable event aggregation for
+    uninteresting program parts. While attribution of events to
+    functions as well as producing separate output per program phase
+    can be done by other means (see previous section), there are two
+    benefits by disabling aggregation. First, this is very
+    fine-granular (e.g. just for a loop within a function).  Second,
+    disabling event aggregation for complete program phases allows to
+    switch off time-consuming cache simulation and allows Callgrind to
+    progress at much higher speed with an slowdown of around factor 2
+    (identical to <code class="computeroutput">valgrind
+    --tool=none</code>).
+  </p>
+<p>There are two aspects which influence whether Callgrind is
+    aggregating events at some point in time of program execution.
+    First, there is the <span class="emphasis"><em>collection state</em></span>. If this
+    is off, no aggregation will be done.  By changing the collection
+    state, you can control event aggregation at a very fine
+    granularity.  However, there is not much difference in regard to
+    execution speed of Callgrind.  By default, collection is switched
+    on, but can be disabled by different means (see below).  Second,
+    there is the <span class="emphasis"><em>instrumentation mode</em></span> in which
+    Callgrind is running. This mode either can be on or off. If
+    instrumentation is off, no observation of actions in the program
+    will be done and thus, no actions will be forwarded to the
+    simulator which could trigger events. In the end, no events will
+    be aggregated.  The huge benefit is the much higher speed with
+    instrumentation switched off.  However, this only should be used
+    with care and in a coarse fashion: every mode change resets the
+    simulator state (ie. whether a memory block is cached or not) and
+    flushes Valgrinds internal cache of instrumented code blocks,
+    resulting in latency penalty at switching time. Also, cache
+    simulator results directly after switching on instrumentation will
+    be skewed due to identified cache misses which would not happen in
+    reality (if you care about this warm-up effect, you should make
+    sure to temporarly have collection state switched off directly
+    after turning instrumentation mode on). However, switching
+    instrumentation state is very useful to skip larger program phases
+    such as an initialization phase. By default, instrumentation is
+    switched on, but as with the collection state, can be changed by
+    various means.
+  </p>
+<p>Callgrind can start with instrumentation mode switched off by
+    specifying option
+    <code class="option"><a class="link" href="cl-manual.html#opt.instr-atstart">--instr-atstart=no</a></code>.
+    Afterwards, instrumentation can be controlled in two ways: first,
+    interactively with: </p>
+<pre class="screen">callgrind_control -i on</pre>
+<p> (and
+    switching off again by specifying "off" instead of "on").  Second,
+    instrumentation state can be programmatically changed with the
+    macros <code class="computeroutput"><a class="link" href="cl-manual.html#cr.start-instr">CALLGRIND_START_INSTRUMENTATION</a>;</code>
+    and <code class="computeroutput"><a class="link" href="cl-manual.html#cr.stop-instr">CALLGRIND_STOP_INSTRUMENTATION</a>;</code>.
+  </p>
+<p>Similarly, the collection state at program start can be
+    switched off by
+    <code class="option"><a class="link" href="cl-manual.html#opt.instr-atstart">--instr-atstart=no</a></code>.
+    During execution, it can be controlled programmatically with the
+    macro <code class="computeroutput">CALLGRIND_TOGGLE_COLLECT;</code>.
+    Further, you can limit event collection to a specific function by
+    using <code class="option"><a class="link" href="cl-manual.html#opt.toggle-collect">--toggle-collect=function</a></code>.
+    This will toggle the collection state on entering and leaving the
+    specified function.  When this option is in effect, the default
+    collection state at program start is "off".  Only events happening
+    while running inside of the given function will be
+    collected. Recursive calls of the given function do not trigger
+    any action. This option can be given multiple times to specify
+    different functions of interest.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.busevents"></a>6.2.3. Counting global bus events</h3></div></div></div>
+<p>For access to shared data among threads in a multithreaded
+  code, synchronization is required to avoid raced conditions.
+  Synchronization primitives are usually implemented via atomic instructions.
+  However, excessive use of such instructions can lead to performance
+  issues.</p>
+<p>To enable analysis of this problem, Callgrind optionally can count
+  the number of atomic instructions executed. More precisely, for x86/x86_64,
+  these are instructions using a lock prefix. For architectures supporting
+  LL/SC, these are the number of SC instructions executed. For both, the term
+  "global bus events" is used.</p>
+<p>The short name of the event type used for global bus events is "Ge".
+  To count global bus events, use
+  <code class="option"><a class="link" href="cl-manual.html#clopt.collect-bus">--collect-bus=yes</a></code>.
+  </p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.cycles"></a>6.2.4. Avoiding cycles</h3></div></div></div>
+<p>Informally speaking, a cycle is a group of functions which
+  call each other in a recursive way.</p>
+<p>Formally speaking, a cycle is a nonempty set S of functions,
+  such that for every pair of functions F and G in S, it is possible
+  to call from F to G (possibly via intermediate functions) and also
+  from G to F.  Furthermore, S must be maximal -- that is, be the
+  largest set of functions satisfying this property.  For example, if
+  a third function H is called from inside S and calls back into S,
+  then H is also part of the cycle and should be included in S.</p>
+<p>Recursion is quite usual in programs, and therefore, cycles
+  sometimes appear in the call graph output of Callgrind. However,
+  the title of this chapter should raise two questions: What is bad
+  about cycles which makes you want to avoid them? And: How can
+  cycles be avoided without changing program code?</p>
+<p>Cycles are not bad in itself, but tend to make performance
+  analysis of your code harder. This is because inclusive costs
+  for calls inside of a cycle are meaningless. The definition of
+  inclusive cost, i.e. self cost of a function plus inclusive cost
+  of its callees, needs a topological order among functions. For
+  cycles, this does not hold true: callees of a function in a cycle include
+  the function itself. Therefore, KCachegrind does cycle detection
+  and skips visualization of any inclusive cost for calls inside
+  of cycles. Further, all functions in a cycle are collapsed into artificial
+  functions called like <code class="computeroutput">Cycle 1</code>.</p>
+<p>Now, when a program exposes really big cycles (as is
+  true for some GUI code, or in general code using event or callback based
+  programming style), you lose the nice property to let you pinpoint
+  the bottlenecks by following call chains from
+  <code class="function">main</code>, guided via
+  inclusive cost. In addition, KCachegrind loses its ability to show
+  interesting parts of the call graph, as it uses inclusive costs to
+  cut off uninteresting areas.</p>
+<p>Despite the meaningless of inclusive costs in cycles, the big
+  drawback for visualization motivates the possibility to temporarily
+  switch off cycle detection in KCachegrind, which can lead to
+  misguiding visualization. However, often cycles appear because of
+  unlucky superposition of independent call chains in a way that
+  the profile result will see a cycle. Neglecting uninteresting
+  calls with very small measured inclusive cost would break these
+  cycles. In such cases, incorrect handling of cycles by not detecting
+  them still gives meaningful profiling visualization.</p>
+<p>It has to be noted that currently, <span class="command"><strong>callgrind_annotate</strong></span>
+  does not do any cycle detection at all. For program executions with function
+  recursion, it e.g. can print nonsense inclusive costs way above 100%.</p>
+<p>After describing why cycles are bad for profiling, it is worth
+  talking about cycle avoidance. The key insight here is that symbols in
+  the profile data do not have to exactly match the symbols found in the
+  program. Instead, the symbol name could encode additional information
+  from the current execution context such as recursion level of the
+  current function, or even some part of the call chain leading to the
+  function. While encoding of additional information into symbols is
+  quite capable of avoiding cycles, it has to be used carefully to not cause
+  symbol explosion. The latter imposes large memory requirement for Callgrind
+  with possible out-of-memory conditions, and big profile data files.</p>
+<p>A further possibility to avoid cycles in Callgrind's profile data
+  output is to simply leave out given functions in the call graph. Of course, this
+  also skips any call information from and to an ignored function, and thus can
+  break a cycle. Candidates for this typically are dispatcher functions in event
+  driven code. The option to ignore calls to a function is
+  <code class="option"><a class="link" href="cl-manual.html#opt.fn-skip">--fn-skip=function</a></code>.
+  Aside from possibly breaking cycles, this is used in Callgrind to skip
+  trampoline functions in the PLT sections
+  for calls to functions in shared libraries. You can see the difference
+  if you profile with
+  <code class="option"><a class="link" href="cl-manual.html#opt.skip-plt">--skip-plt=no</a></code>.
+  If a call is ignored, its cost events will be propagated to the
+  enclosing function.</p>
+<p>If you have a recursive function, you can distinguish the first
+  10 recursion levels by specifying
+  <code class="option"><a class="link" href="cl-manual.html#opt.separate-recs-num">--separate-recs10=function</a></code>.  
+  Or for all functions with 
+  <code class="option"><a class="link" href="cl-manual.html#opt.separate-recs">--separate-recs=10</a></code>,
+  but this will 
+  give you much bigger profile data files.  In the profile data, you will see
+  the recursion levels of "func" as the different functions with names
+  "func", "func'2", "func'3" and so on.</p>
+<p>If you have call chains "A &gt; B &gt; C" and "A &gt; C &gt; B"
+  in your program, you usually get a "false" cycle "B &lt;&gt; C". Use 
+  <code class="option"><a class="link" href="cl-manual.html#opt.separate-callers-num">--separate-callers2=B</a></code> 
+  <code class="option"><a class="link" href="cl-manual.html#opt.separate-callers-num">--separate-callers2=C</a></code>,
+  and functions "B" and "C" will be treated as different functions 
+  depending on the direct caller. Using the apostrophe for appending 
+  this "context" to the function name, you get "A &gt; B'A &gt; C'B" 
+  and "A &gt; C'A &gt; B'C", and there will be no cycle. Use 
+  <code class="option"><a class="link" href="cl-manual.html#opt.separate-callers">--separate-callers=2</a></code> to get a 2-caller 
+  dependency for all functions.  Note that doing this will increase
+  the size of profile data files.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.forkingprograms"></a>6.2.5. Forking Programs</h3></div></div></div>
+<p>If your program forks, the child will inherit all the profiling
+  data that has been gathered for the parent. To start with empty profile
+  counter values in the child, the client request
+  <code class="computeroutput"><a class="link" href="cl-manual.html#cr.zero-stats">CALLGRIND_ZERO_STATS</a>;</code>
+  can be inserted into code to be executed by the child, directly
+  after
+  <code class="computeroutput">fork</code>.</p>
+<p>However, you will have to make sure that the output file format string
+  (controlled by <code class="option">--callgrind-out-file</code>) does contain
+  <code class="option">%p</code> (which is true by default). Otherwise, the
+  outputs from the parent and child will overwrite each other or will be
+  intermingled, which almost certainly is not what you want.</p>
+<p>You will be able to control the new child independently from
+  the parent via callgrind_control.</p>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="cl-manual.options"></a>6.3. Callgrind Command-line Options</h2></div></div></div>
+<p>
+In the following, options are grouped into classes.
+</p>
+<p>
+Some options allow the specification of a function/symbol name, such as
+<code class="option"><a class="link" href="cl-manual.html#opt.dump-before">--dump-before=function</a></code>, or
+<code class="option"><a class="link" href="cl-manual.html#opt.fn-skip">--fn-skip=function</a></code>.
+All these options can be specified multiple times for different functions.
+In addition, the function specifications actually are patterns by supporting
+the use of wildcards '*' (zero or more arbitrary characters) and '?'
+(exactly one arbitrary character), similar to file name globbing in the
+shell. This feature is important especially for C++, as without wildcard
+usage, the function would have to be specified in full extent, including
+parameter signature. </p>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.options.creation"></a>6.3.1. Dump creation options</h3></div></div></div>
+<p>
+These options influence the name and format of the profile data files.
+</p>
+<div class="variablelist">
+<a name="cl.opts.list.creation"></a><dl class="variablelist">
+<dt>
+<a name="opt.callgrind-out-file"></a><span class="term">
+      <code class="option">--callgrind-out-file=&lt;file&gt; </code>
+    </span>
+</dt>
+<dd><p>Write the profile data to
+            <code class="computeroutput">file</code> rather than to the default
+            output file,
+            <code class="computeroutput">callgrind.out.&lt;pid&gt;</code>.  The
+            <code class="option">%p</code> and <code class="option">%q</code> format specifiers
+            can be used to embed the process ID and/or the contents of an
+            environment variable in the name, as is the case for the core
+            option
+            <code class="option"><a class="link" href="manual-core.html#opt.log-file">--log-file</a></code>.
+            When multiple dumps are made, the file name
+            is modified further; see below.</p></dd>
+<dt>
+<a name="opt.dump-line"></a><span class="term">
+      <code class="option">--dump-line=&lt;no|yes&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd><p>This specifies that event counting should be performed at
+      source line granularity. This allows source annotation for sources
+      which are compiled with debug information
+      (<code class="option">-g</code>).</p></dd>
+<dt>
+<a name="opt.dump-instr"></a><span class="term">
+      <code class="option">--dump-instr=&lt;no|yes&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>This specifies that event counting should be performed at
+      per-instruction granularity.
+      This allows for assembly code
+      annotation.  Currently the results can only be 
+      displayed by KCachegrind.</p></dd>
+<dt>
+<a name="opt.compress-strings"></a><span class="term">
+      <code class="option">--compress-strings=&lt;no|yes&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd><p>This option influences the output format of the profile data.
+      It specifies whether strings (file and function names) should be
+      identified by numbers. This shrinks the file, 
+      but makes it more difficult
+      for humans to read (which is not recommended in any case).</p></dd>
+<dt>
+<a name="opt.compress-pos"></a><span class="term">
+      <code class="option">--compress-pos=&lt;no|yes&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd><p>This option influences the output format of the profile data.
+      It specifies whether numerical positions are always specified as absolute
+      values or are allowed to be relative to previous numbers.
+      This shrinks the file size.</p></dd>
+<dt>
+<a name="opt.combine-dumps"></a><span class="term">
+      <code class="option">--combine-dumps=&lt;no|yes&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>When enabled, when multiple profile data parts are to be
+      generated these parts are appended to the same output file.
+      Not recommended.</p></dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.options.activity"></a>6.3.2. Activity options</h3></div></div></div>
+<p>
+These options specify when actions relating to event counts are to
+be executed. For interactive control use callgrind_control.
+</p>
+<div class="variablelist">
+<a name="cl.opts.list.activity"></a><dl class="variablelist">
+<dt>
+<a name="opt.dump-every-bb"></a><span class="term">
+      <code class="option">--dump-every-bb=&lt;count&gt; [default: 0, never] </code>
+    </span>
+</dt>
+<dd><p>Dump profile data every <code class="option">count</code> basic blocks.
+      Whether a dump is needed is only checked when Valgrind's internal
+      scheduler is run. Therefore, the minimum setting useful is about 100000.
+      The count is a 64-bit value to make long dump periods possible.
+      </p></dd>
+<dt>
+<a name="opt.dump-before"></a><span class="term">
+      <code class="option">--dump-before=&lt;function&gt; </code>
+    </span>
+</dt>
+<dd><p>Dump when entering <code class="option">function</code>.</p></dd>
+<dt>
+<a name="opt.zero-before"></a><span class="term">
+      <code class="option">--zero-before=&lt;function&gt; </code>
+    </span>
+</dt>
+<dd><p>Zero all costs when entering <code class="option">function</code>.</p></dd>
+<dt>
+<a name="opt.dump-after"></a><span class="term">
+      <code class="option">--dump-after=&lt;function&gt; </code>
+    </span>
+</dt>
+<dd><p>Dump when leaving <code class="option">function</code>.</p></dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.options.collection"></a>6.3.3. Data collection options</h3></div></div></div>
+<p>
+These options specify when events are to be aggregated into event counts.
+Also see <a class="xref" href="cl-manual.html#cl-manual.limits" title="6.2.2. Limiting the range of collected events">Limiting range of event collection</a>.</p>
+<div class="variablelist">
+<a name="cl.opts.list.collection"></a><dl class="variablelist">
+<dt>
+<a name="opt.instr-atstart"></a><span class="term">
+      <code class="option">--instr-atstart=&lt;yes|no&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd>
+<p>Specify if you want Callgrind to start simulation and
+      profiling from the beginning of the program.  
+      When set to <code class="computeroutput">no</code>, 
+      Callgrind will not be able
+      to collect any information, including calls, but it will have at
+      most a slowdown of around 4, which is the minimum Valgrind
+      overhead.  Instrumentation can be interactively enabled via
+      <code class="computeroutput">callgrind_control -i on</code>.</p>
+<p>Note that the resulting call graph will most probably not
+      contain <code class="function">main</code>, but will contain all the
+      functions executed after instrumentation was enabled.
+      Instrumentation can also be programmatically enabled/disabled. See the
+      Callgrind include file
+      <code class="computeroutput">callgrind.h</code> for the macro
+      you have to use in your source code.</p>
+<p>For cache
+      simulation, results will be less accurate when switching on
+      instrumentation later in the program run, as the simulator starts
+      with an empty cache at that moment.  Switch on event collection
+      later to cope with this error.</p>
+</dd>
+<dt>
+<a name="opt.collect-atstart"></a><span class="term">
+      <code class="option">--collect-atstart=&lt;yes|no&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd>
+<p>Specify whether event collection is enabled at beginning
+      of the profile run.</p>
+<p>To only look at parts of your program, you have two
+      possibilities:</p>
+<div class="orderedlist"><ol class="orderedlist" type="1">
+<li class="listitem"><p>Zero event counters before entering the program part you
+        want to profile, and dump the event counters to a file after
+        leaving that program part.</p></li>
+<li class="listitem"><p>Switch on/off collection state as needed to only see
+          event counters happening while inside of the program part you
+          want to profile.</p></li>
+</ol></div>
+<p>The second option can be used if the program part you want to
+      profile is called many times. Option 1, i.e. creating a lot of
+      dumps is not practical here.</p>
+<p>Collection state can be
+      toggled at entry and exit of a given function with the
+      option <code class="option"><a class="link" href="cl-manual.html#opt.toggle-collect">--toggle-collect</a></code>.  If you
+      use this option, collection
+      state should be disabled at the beginning.  Note that the
+      specification of <code class="option">--toggle-collect</code>
+      implicitly sets
+      <code class="option">--collect-state=no</code>.</p>
+<p>Collection state can be toggled also by inserting the client request
+      <code class="computeroutput">
+      
+      CALLGRIND_TOGGLE_COLLECT
+      ;</code>
+      at the needed code positions.</p>
+</dd>
+<dt>
+<a name="opt.toggle-collect"></a><span class="term">
+      <code class="option">--toggle-collect=&lt;function&gt; </code>
+    </span>
+</dt>
+<dd><p>Toggle collection on entry/exit of <code class="option">function</code>.</p></dd>
+<dt>
+<a name="opt.collect-jumps"></a><span class="term">
+      <code class="option">--collect-jumps=&lt;no|yes&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>This specifies whether information for (conditional) jumps
+      should be collected.  As above, callgrind_annotate currently is not
+      able to show you the data.  You have to use KCachegrind to get jump
+      arrows in the annotated code.</p></dd>
+<dt>
+<a name="opt.collect-systime"></a><span class="term">
+      <code class="option">--collect-systime=&lt;no|yes|msec|usec|nsec&gt; [default: no] </code>
+    </span>
+</dt>
+<dd>
+<p>This specifies whether information for system call times
+        should be collected.</p>
+<p>The value <code class="computeroutput">no</code> indicates to record
+        no system call information.</p>
+<p>The other values indicate to record the number of system calls
+        done (sysCount event) and the elapsed time (sysTime event) spent
+        in system calls.
+        The <code class="computeroutput">--collect-systime</code> value gives
+        the unit used for sysTime : milli seconds, micro seconds or nano
+        seconds.  With the value <code class="computeroutput">nsec</code>,
+        callgrind also records the cpu time spent during system calls
+        (sysCpuTime).</p>
+<p>The value <code class="computeroutput">yes</code> is a synonym
+        of <code class="computeroutput">msec</code>.
+        The value <code class="computeroutput">nsec</code> is not supported
+        on Darwin.</p>
+</dd>
+<dt>
+<a name="clopt.collect-bus"></a><span class="term">
+      <code class="option">--collect-bus=&lt;no|yes&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>This specifies whether the number of global bus events executed
+      should be collected. The event type "Ge" is used for these events.</p></dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.options.separation"></a>6.3.4. Cost entity separation options</h3></div></div></div>
+<p>
+These options specify how event counts should be attributed to execution
+contexts.
+For example, they specify whether the recursion level or the
+call chain leading to a function should be taken into account, 
+and whether the thread ID should be considered.
+Also see <a class="xref" href="cl-manual.html#cl-manual.cycles" title="6.2.4. Avoiding cycles">Avoiding cycles</a>.</p>
+<div class="variablelist">
+<a name="cmd-options.separation"></a><dl class="variablelist">
+<dt>
+<a name="opt.separate-threads"></a><span class="term">
+      <code class="option">--separate-threads=&lt;no|yes&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>This option specifies whether profile data should be generated
+      separately for every thread. If yes, the file names get "-threadID"
+      appended.</p></dd>
+<dt>
+<a name="opt.separate-callers"></a><span class="term">
+      <code class="option">--separate-callers=&lt;callers&gt; [default: 0] </code>
+    </span>
+</dt>
+<dd><p>Separate contexts by at most &lt;callers&gt; functions in the
+      call chain. See <a class="xref" href="cl-manual.html#cl-manual.cycles" title="6.2.4. Avoiding cycles">Avoiding cycles</a>.</p></dd>
+<dt>
+<a name="opt.separate-callers-num"></a><span class="term">
+      <code class="option">--separate-callers&lt;number&gt;=&lt;function&gt; </code>
+    </span>
+</dt>
+<dd><p>Separate <code class="option">number</code> callers for <code class="option">function</code>.
+      See <a class="xref" href="cl-manual.html#cl-manual.cycles" title="6.2.4. Avoiding cycles">Avoiding cycles</a>.</p></dd>
+<dt>
+<a name="opt.separate-recs"></a><span class="term">
+      <code class="option">--separate-recs=&lt;level&gt; [default: 2] </code>
+    </span>
+</dt>
+<dd><p>Separate function recursions by at most <code class="option">level</code> levels.
+      See <a class="xref" href="cl-manual.html#cl-manual.cycles" title="6.2.4. Avoiding cycles">Avoiding cycles</a>.</p></dd>
+<dt>
+<a name="opt.separate-recs-num"></a><span class="term">
+      <code class="option">--separate-recs&lt;number&gt;=&lt;function&gt; </code>
+    </span>
+</dt>
+<dd><p>Separate <code class="option">number</code> recursions for <code class="option">function</code>.
+      See <a class="xref" href="cl-manual.html#cl-manual.cycles" title="6.2.4. Avoiding cycles">Avoiding cycles</a>.</p></dd>
+<dt>
+<a name="opt.skip-plt"></a><span class="term">
+      <code class="option">--skip-plt=&lt;no|yes&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd><p>Ignore calls to/from PLT sections.</p></dd>
+<dt>
+<a name="opt.skip-direct-rec"></a><span class="term">
+      <code class="option">--skip-direct-rec=&lt;no|yes&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd><p>Ignore direct recursions.</p></dd>
+<dt>
+<a name="opt.fn-skip"></a><span class="term">
+      <code class="option">--fn-skip=&lt;function&gt; </code>
+    </span>
+</dt>
+<dd>
+<p>Ignore calls to/from a given function.  E.g. if you have a
+      call chain A &gt; B &gt; C, and you specify function B to be
+      ignored, you will only see A &gt; C.</p>
+<p>This is very convenient to skip functions handling callback
+      behaviour.  For example, with the signal/slot mechanism in the
+      Qt graphics library, you only want
+      to see the function emitting a signal to call the slots connected
+      to that signal. First, determine the real call chain to see the
+      functions needed to be skipped, then use this option.</p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.options.simulation"></a>6.3.5. Simulation options</h3></div></div></div>
+<div class="variablelist">
+<a name="cl.opts.list.simulation"></a><dl class="variablelist">
+<dt>
+<a name="clopt.cache-sim"></a><span class="term">
+      <code class="option">--cache-sim=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>Specify if you want to do full cache simulation.  By default,
+      only instruction read accesses will be counted ("Ir").
+      With cache simulation, further event counters are enabled:
+      Cache misses on instruction reads ("I1mr"/"ILmr"),
+      data read accesses ("Dr") and related cache misses ("D1mr"/"DLmr"),
+      data write accesses ("Dw") and related cache misses ("D1mw"/"DLmw").
+      For more information, see <a class="xref" href="cg-manual.html" title="5. Cachegrind: a high-precision tracing profiler">Cachegrind: a cache and branch-prediction profiler</a>.
+      </p></dd>
+<dt>
+<a name="clopt.branch-sim"></a><span class="term">
+      <code class="option">--branch-sim=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>Specify if you want to do branch prediction simulation.
+      Further event counters are enabled: Number of executed conditional
+      branches and related predictor misses ("Bc"/"Bcm"), executed indirect
+      jumps and related misses of the jump address predictor ("Bi"/"Bim").
+      </p></dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-manual.options.cachesimulation"></a>6.3.6. Cache simulation options</h3></div></div></div>
+<div class="variablelist">
+<a name="cl.opts.list.cachesimulation"></a><dl class="variablelist">
+<dt>
+<a name="opt.simulate-wb"></a><span class="term">
+      <code class="option">--simulate-wb=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>Specify whether write-back behavior should be simulated, allowing
+      to distinguish LL caches misses with and without write backs.
+      The cache model of Cachegrind/Callgrind does not specify write-through
+      vs. write-back behavior, and this also is not relevant for the number
+      of generated miss counts. However, with explicit write-back simulation
+      it can be decided whether a miss triggers not only the loading of a new
+      cache line, but also if a write back of a dirty cache line had to take
+      place before. The new dirty miss events are ILdmr, DLdmr, and DLdmw,
+      for misses because of instruction read, data read, and data write,
+      respectively. As they produce two memory transactions, they should
+      account for a doubled time estimation in relation to a normal miss.
+      </p></dd>
+<dt>
+<a name="opt.simulate-hwpref"></a><span class="term">
+      <code class="option">--simulate-hwpref=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>Specify whether simulation of a hardware prefetcher should be
+      added which is able to detect stream access in the second level cache
+      by comparing accesses to separate to each page.
+      As the simulation can not decide about any timing issues of prefetching,
+      it is assumed that any hardware prefetch triggered succeeds before a
+      real access is done. Thus, this gives a best-case scenario by covering
+      all possible stream accesses.</p></dd>
+<dt>
+<a name="opt.cacheuse"></a><span class="term">
+      <code class="option">--cacheuse=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>Specify whether cache line use should be collected. For every
+      cache line, from loading to it being evicted, the number of accesses
+      as well as the number of actually used bytes is determined. This
+      behavior is related to the code which triggered loading of the cache
+      line. In contrast to miss counters, which shows the position where
+      the symptoms of bad cache behavior (i.e. latencies) happens, the
+      use counters try to pinpoint at the reason (i.e. the code with the
+      bad access behavior). The new counters are defined in a way such
+      that worse behavior results in higher cost.
+      AcCost1 and AcCost2 are counters showing bad temporal locality
+      for L1 and LL caches, respectively. This is done by summing up
+      reciprocal values of the numbers of accesses of each cache line,
+      multiplied by 1000 (as only integer costs are allowed). E.g. for
+      a given source line with 5 read accesses, a value of 5000 AcCost
+      means that for every access, a new cache line was loaded and directly
+      evicted afterwards without further accesses. Similarly, SpLoss1/2
+      shows bad spatial locality for L1 and LL caches, respectively. It
+      gives the <span class="emphasis"><em>spatial loss</em></span> count of bytes which
+      were loaded into cache but never accessed. It pinpoints at code
+      accessing data in a way such that cache space is wasted. This hints
+      at bad layout of data structures in memory. Assuming a cache line
+      size of 64 bytes and 100 L1 misses for a given source line, the
+      loading of 6400 bytes into L1 was triggered. If SpLoss1 shows a
+      value of 3200 for this line, this means that half of the loaded data was
+      never used, or using a better data layout, only half of the cache
+      space would have been needed.
+      Please note that for cache line use counters, it currently is
+      not possible to provide meaningful inclusive costs. Therefore,
+      inclusive cost of these counters should be ignored.
+      </p></dd>
+<dt>
+<a name="cl.opt.I1"></a><span class="term">
+      <code class="option">--I1=&lt;size&gt;,&lt;associativity&gt;,&lt;line size&gt; </code>
+    </span>
+</dt>
+<dd><p>Specify the size, associativity and line size of the level 1
+      instruction cache.  </p></dd>
+<dt>
+<a name="cl.opt.D1"></a><span class="term">
+      <code class="option">--D1=&lt;size&gt;,&lt;associativity&gt;,&lt;line size&gt; </code>
+    </span>
+</dt>
+<dd><p>Specify the size, associativity and line size of the level 1
+      data cache.</p></dd>
+<dt>
+<a name="cl.opt.LL"></a><span class="term">
+      <code class="option">--LL=&lt;size&gt;,&lt;associativity&gt;,&lt;line size&gt; </code>
+    </span>
+</dt>
+<dd><p>Specify the size, associativity and line size of the last-level
+      cache.</p></dd>
+</dl>
+</div>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="cl-manual.monitor-commands"></a>6.4. Callgrind Monitor Commands</h2></div></div></div>
+<p>The Callgrind tool provides monitor commands handled by the Valgrind
+gdbserver (see <a class="xref" href="manual-core-adv.html#manual-core-adv.gdbserver-commandhandling" title="3.2.5. Monitor command handling by the Valgrind gdbserver">Monitor command handling by the Valgrind gdbserver</a>).
+Valgrind python code provides GDB front end commands giving an easier usage of
+the callgrind monitor commands (see
+<a class="xref" href="manual-core-adv.html#manual-core-adv.gdbserver-gdbmonitorfrontend" title="3.2.6. GDB front end commands for Valgrind gdbserver monitor commands">GDB front end commands for Valgrind gdbserver monitor commands</a>).  To launch a
+callgrind monitor command via its GDB front end command, instead of prefixing
+the command with "monitor", you must use the GDB <code class="varname">callgrind</code>
+command (or the shorter aliases <code class="varname">cg</code>).  Using the callgrind GDB
+front end command provide a more flexible usage, such as auto-completion of the
+command by GDB. In GDB, you can use <code class="varname">help callgrind</code> to get
+help about the callgrind front end monitor commands and you can
+use <code class="varname">apropos callgrind</code> to get all the commands mentionning the
+word "callgrind" in their name or on-line help.
+</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p><code class="varname">dump [&lt;dump_hint&gt;]</code> requests to dump the
+    profile data. </p></li>
+<li class="listitem"><p><code class="varname">zero</code> requests to zero the profile data
+    counters. </p></li>
+<li class="listitem"><p><code class="varname">instrumentation [on|off]</code> requests to set 
+    (if parameter on/off is given) or get the current instrumentation state.
+    </p></li>
+<li class="listitem"><p><code class="varname">status</code> requests to print out some status
+    information.</p></li>
+</ul></div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="cl-manual.clientrequests"></a>6.5. Callgrind specific client requests</h2></div></div></div>
+<p>Callgrind provides the following specific client requests in
+<code class="filename">callgrind.h</code>.  See that file for the exact details of
+their arguments.</p>
+<div class="variablelist">
+<a name="cl.clientrequests.list"></a><dl class="variablelist">
+<dt>
+<a name="cr.dump-stats"></a><span class="term">
+      <code class="computeroutput">CALLGRIND_DUMP_STATS</code>
+    </span>
+</dt>
+<dd><p>Force generation of a profile dump at specified position
+      in code, for the current thread only. Written counters will be reset
+      to zero.</p></dd>
+<dt>
+<a name="cr.dump-stats-at"></a><span class="term">
+      <code class="computeroutput">CALLGRIND_DUMP_STATS_AT(string)</code>
+    </span>
+</dt>
+<dd><p>Same as <code class="computeroutput">CALLGRIND_DUMP_STATS</code>,
+      but allows to specify a string to be able to distinguish profile
+      dumps.</p></dd>
+<dt>
+<a name="cr.zero-stats"></a><span class="term">
+      <code class="computeroutput">CALLGRIND_ZERO_STATS</code>
+    </span>
+</dt>
+<dd><p>Reset the profile counters for the current thread to zero.</p></dd>
+<dt>
+<a name="cr.toggle-collect"></a><span class="term">
+      <code class="computeroutput">CALLGRIND_TOGGLE_COLLECT</code>
+    </span>
+</dt>
+<dd><p>Toggle the collection state. This allows to ignore events
+      with regard to profile counters. See also options
+      <code class="option"><a class="link" href="cl-manual.html#opt.collect-atstart">--collect-atstart</a></code>
+      and
+      <code class="option"><a class="link" href="cl-manual.html#opt.toggle-collect">--toggle-collect</a></code>.</p></dd>
+<dt>
+<a name="cr.start-instr"></a><span class="term">
+      <code class="computeroutput">CALLGRIND_START_INSTRUMENTATION</code>
+    </span>
+</dt>
+<dd><p>Start full Callgrind instrumentation if not already enabled.
+      When cache simulation is done, this will flush the simulated cache
+      and lead to an artificial cache warmup phase afterwards with
+      cache misses which would not have happened in reality.  See also
+      option
+      <code class="option"><a class="link" href="cl-manual.html#opt.instr-atstart">--instr-atstart</a></code>.
+      </p></dd>
+<dt>
+<a name="cr.stop-instr"></a><span class="term">
+      <code class="computeroutput">CALLGRIND_STOP_INSTRUMENTATION</code>
+    </span>
+</dt>
+<dd><p>Stop full Callgrind instrumentation if not already disabled.
+      This flushes Valgrinds translation cache, and does no additional
+      instrumentation afterwards: it effectivly will run at the same
+      speed as Nulgrind, i.e. at minimal slowdown. Use this to
+      speed up the Callgrind run for uninteresting code parts. Use
+      <code class="computeroutput"><a class="link" href="cl-manual.html#cr.start-instr">CALLGRIND_START_INSTRUMENTATION</a></code>
+      to enable instrumentation again.  See also option
+      <code class="option"><a class="link" href="cl-manual.html#opt.instr-atstart">--instr-atstart</a></code>.
+      </p></dd>
+</dl>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="cl-manual.callgrind_annotate-options"></a>6.6. callgrind_annotate Command-line Options</h2></div></div></div>
+<div class="variablelist">
+<a name="callgrind_annotate.opts.list"></a><dl class="variablelist">
+<dt><span class="term"><code class="option">-h --help</code></span></dt>
+<dd><p>Show summary of options.</p></dd>
+<dt><span class="term"><code class="option">--version</code></span></dt>
+<dd><p>Show version of callgrind_annotate.</p></dd>
+<dt><span class="term">
+      <code class="option">--show=A,B,C [default: all]</code>
+    </span></dt>
+<dd><p>Only show figures for events A,B,C.</p></dd>
+<dt><span class="term">
+      <code class="option">--threshold=&lt;0--100&gt; [default: 99%] </code>
+    </span></dt>
+<dd>
+<p>Percentage of counts (of primary sort event) we are 
+        interested in.</p>
+<p>callgrind_annotate stops printing functions when the sum
+        of the cost percentage of the printed functions is bigger or equal
+        to the given threshold percentage.</p>
+</dd>
+<dt><span class="term">
+      <code class="option">--sort=A,B,C</code>
+    </span></dt>
+<dd>
+<p>Sort columns by events A,B,C [event column order].</p>
+<p>Optionally, each event is followed by a : and a threshold,
+        to specify different thresholds depending on the event.</p>
+<p>callgrind_annotate stops printing functions when the sum
+        of the cost percentage of the printed functions for all the events
+        is bigger or equal to the given event threshold percentages.</p>
+<p>When one or more thresholds are given via this option,
+        the value of <code class="option">--threshold</code> is ignored.</p>
+</dd>
+<dt><span class="term">
+      <code class="option">--show-percs=&lt;no|yes&gt; [default: no] </code>
+    </span></dt>
+<dd><p>When enabled, a percentage is printed next to all event counts.
+      This helps gauge the relative importance of each function and line.
+      </p></dd>
+<dt><span class="term">
+      <code class="option">--auto=&lt;yes|no&gt; [default: yes] </code>
+    </span></dt>
+<dd><p>Annotate all source files containing functions that helped 
+      reach the event count threshold.</p></dd>
+<dt><span class="term">
+      <code class="option">--context=N [default: 8] </code>
+    </span></dt>
+<dd><p>Print N lines of context before and after annotated 
+      lines.</p></dd>
+<dt><span class="term">
+      <code class="option">--inclusive=&lt;yes|no&gt; [default: no] </code>
+    </span></dt>
+<dd><p>Add subroutine costs to functions calls.</p></dd>
+<dt><span class="term">
+      <code class="option">--tree=&lt;none|caller|calling|both&gt; [default: none] </code>
+    </span></dt>
+<dd><p>Print for each function their callers, the called functions 
+      or both.</p></dd>
+<dt><span class="term">
+      <code class="option">-I, --include=&lt;dir&gt; </code>
+    </span></dt>
+<dd><p>Add <code class="option">dir</code> to the list of directories to search
+      for source files.</p></dd>
+</dl>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="cl-manual.callgrind_control-options"></a>6.7. callgrind_control Command-line Options</h2></div></div></div>
+<p>By default, callgrind_control acts on all programs run by the
+  current user under Callgrind.  It is possible to limit the actions to
+  specified Callgrind runs by providing a list of pids or program names as
+  argument.  The default action is to give some brief information about the
+  applications being run under Callgrind.</p>
+<div class="variablelist">
+<a name="callgrind_control.opts.list"></a><dl class="variablelist">
+<dt><span class="term"><code class="option">-h --help</code></span></dt>
+<dd><p>Show a short description, usage, and summary of options.</p></dd>
+<dt><span class="term"><code class="option">--version</code></span></dt>
+<dd><p>Show version of callgrind_control.</p></dd>
+<dt><span class="term"><code class="option">-l --long</code></span></dt>
+<dd><p>Show also the working directory, in addition to the brief
+      information given by default.
+      </p></dd>
+<dt><span class="term"><code class="option">-s --stat</code></span></dt>
+<dd><p>Show statistics information about active Callgrind runs.</p></dd>
+<dt><span class="term"><code class="option">-b --back</code></span></dt>
+<dd><p>Show stack/back traces of each thread in active Callgrind runs. For
+      each active function in the stack trace, also the number of invocations
+      since program start (or last dump) is shown. This option can be
+      combined with -e to show inclusive cost of active functions.</p></dd>
+<dt><span class="term"><code class="option">-e [A,B,...] </code> (default: all)</span></dt>
+<dd><p>Show the current per-thread, exclusive cost values of event
+      counters. If no explicit event names are given, figures for all event
+      types which are collected in the given Callgrind run are
+      shown. Otherwise, only figures for event types A, B, ... are shown. If
+      this option is combined with -b, inclusive cost for the functions of
+      each active stack frame is provided, too.
+      </p></dd>
+<dt><span class="term"><code class="option">--dump[=&lt;desc&gt;] </code> (default: no description)</span></dt>
+<dd><p>Request the dumping of profile information. Optionally, a 
+      description can be specified which is written into the dump as part of
+      the information giving the reason which triggered the dump action. This
+      can be used to distinguish multiple dumps.</p></dd>
+<dt><span class="term"><code class="option">-z --zero</code></span></dt>
+<dd><p>Zero all event counters.</p></dd>
+<dt><span class="term"><code class="option">-k --kill</code></span></dt>
+<dd><p>Force a Callgrind run to be terminated.</p></dd>
+<dt><span class="term"><code class="option">--instr=&lt;on|off&gt;</code></span></dt>
+<dd><p>Switch instrumentation mode on or off. If a Callgrind run has
+      instrumentation disabled, no simulation is done and no events are
+      counted. This is useful to skip uninteresting program parts, as there
+      is much less slowdown (same as with the Valgrind tool "none"). See also
+      the Callgrind option <code class="option">--instr-atstart</code>.</p></dd>
+<dt><span class="term"><code class="option">--vgdb-prefix=&lt;prefix&gt;</code></span></dt>
+<dd><p>Specify the vgdb prefix to use by callgrind_control.
+      callgrind_control internally uses vgdb to find and control the active
+      Callgrind runs. If the <code class="option">--vgdb-prefix</code> option was used
+      for launching valgrind, then the same option must be given to
+      callgrind_control.</p></dd>
+</dl>
+</div>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="cg-manual.html">&lt;&lt; 5. Cachegrind: a high-precision tracing profiler</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="manual.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="hg-manual.html">7. Helgrind: a thread error detector &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

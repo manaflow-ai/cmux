@@ -1,0 +1,138 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>7. README_PACKAGERS</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="dist.html" title="Valgrind Distribution Documents">
+<link rel="prev" href="dist.readme-developers.html" title="6. README_DEVELOPERS">
+<link rel="next" href="dist.readme-s390.html" title="8. README.S390">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="dist.readme-developers.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="dist.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind Distribution Documents</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="dist.readme-s390.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="dist.readme-packagers"></a>7. README_PACKAGERS</h1></div></div></div>
+<div class="literallayout"><p><br>
+      <br>
+Greetings, packaging person!  This information is aimed at people<br>
+building binary distributions of Valgrind.<br>
+<br>
+Thanks for taking the time and effort to make a binary distribution of<br>
+Valgrind.  The following notes may save you some trouble.<br>
+<br>
+-- If your toolchain (compiler, linker) support lto, using the configure<br>
+   option --enable-lto=yes will produce a smaller/faster valgrind<br>
+   (up to 10%).<br>
+<br>
+-- Do not ship your Linux distro with a completely stripped<br>
+   /lib/ld.so.  At least leave the debugging symbol names on -- line<br>
+   number info isn't necessary.  If you don't want to leave symbols on<br>
+   ld.so, alternatively you can have your distro install ld.so's<br>
+   debuginfo package by default, or make ld.so.debuginfo be a<br>
+   requirement of your Valgrind RPM/DEB/whatever.<br>
+<br>
+   Reason for this is that Valgrind's Memcheck tool needs to intercept<br>
+   calls to, and provide replacements for, some symbols in ld.so at<br>
+   startup (most importantly strlen).  If it cannot do that, Memcheck<br>
+   shows a large number of false positives due to the highly optimised<br>
+   strlen (etc) routines in ld.so.  This has caused some trouble in<br>
+   the past.  As of version 3.3.0, on some targets (ppc32-linux,<br>
+   ppc64-linux), Memcheck will simply stop at startup (and print an<br>
+   error message) if such symbols are not present, because it is<br>
+   infeasible to continue.<br>
+<br>
+   It's not like this is going to cost you much space.  We only need<br>
+   the symbols for ld.so (a few K at most).  Not the debug info and<br>
+   not any debuginfo or extra symbols for any other libraries.<br>
+<br>
+<br>
+-- (Unfortunate but true) When you configure to build with the<br>
+   --prefix=/foo/bar/xyzzy option, the prefix /foo/bar/xyzzy gets<br>
+   baked into valgrind.  The consequence is that you _must_ install<br>
+   valgrind at the location specified in the prefix.  If you don't,<br>
+   it may appear to work, but will break doing some obscure things,<br>
+   particularly doing fork() and exec().<br>
+<br>
+   So you can't build a relocatable RPM / whatever from Valgrind.<br>
+<br>
+<br>
+-- Don't strip the debug info off lib/valgrind/$platform/vgpreload*.so<br>
+   in the installation tree.  Either Valgrind won't work at all, or it<br>
+   will still work if you do, but will generate less helpful error<br>
+   messages.  Here's an example:<br>
+<br>
+   Mismatched free() / delete / delete []<br>
+      at 0x40043249: free (vg_clientfuncs.c:171)<br>
+      by 0x4102BB4E: QGArray::~QGArray(void) (tools/qgarray.cpp:149)<br>
+      by 0x4C261C41: PptDoc::~PptDoc(void) (include/qmemarray.h:60)<br>
+      by 0x4C261F0E: PptXml::~PptXml(void) (pptxml.cc:44)<br>
+      Address 0x4BB292A8 is 0 bytes inside a block of size 64 alloc'd<br>
+      at 0x4004318C: __builtin_vec_new (vg_clientfuncs.c:152)<br>
+      by 0x4C21BC15: KLaola::readSBStream(int) const (klaola.cc:314)<br>
+      by 0x4C21C155: KLaola::stream(KLaola::OLENode const *) (klaola.cc:416)<br>
+      by 0x4C21788F: OLEFilter::convert(QCString const &amp;) (olefilter.cc:272)<br>
+<br>
+   This tells you that some memory allocated with new[] was freed with<br>
+   free().<br>
+<br>
+   Mismatched free() / delete / delete []<br>
+      at 0x40043249: (inside vgpreload_memcheck.so)<br>
+      by 0x4102BB4E: QGArray::~QGArray(void) (tools/qgarray.cpp:149)<br>
+      by 0x4C261C41: PptDoc::~PptDoc(void) (include/qmemarray.h:60)<br>
+      by 0x4C261F0E: PptXml::~PptXml(void) (pptxml.cc:44)<br>
+      Address 0x4BB292A8 is 0 bytes inside a block of size 64 alloc'd<br>
+      at 0x4004318C: (inside vgpreload_memcheck.so)<br>
+      by 0x4C21BC15: KLaola::readSBStream(int) const (klaola.cc:314)<br>
+      by 0x4C21C155: KLaola::stream(KLaola::OLENode const *) (klaola.cc:416)<br>
+      by 0x4C21788F: OLEFilter::convert(QCString const &amp;) (olefilter.cc:272)<br>
+<br>
+   This isn't so helpful.  Although you can tell there is a mismatch, <br>
+   the names of the allocating and deallocating functions are no longer<br>
+   visible.  The same kind of thing occurs in various other messages <br>
+   from valgrind.<br>
+<br>
+<br>
+-- Don't strip symbols from lib/valgrind/* in the installation tree.<br>
+   Doing so will likely cause problems.  Removing the line number info is<br>
+   probably OK (at least for some of the files in that directory), although<br>
+   that has not been tested by the Valgrind developers.<br>
+<br>
+<br>
+-- Please test the final installation works by running it on something<br>
+   huge.  I suggest checking that it can start and exit successfully<br>
+   both Firefox and OpenOffice.org.  I use these as test programs, and I<br>
+   know they fairly thoroughly exercise Valgrind.  The command lines to use<br>
+   are:<br>
+<br>
+   valgrind -v --trace-children=yes firefox<br>
+<br>
+   valgrind -v --trace-children=yes soffice<br>
+<br>
+<br>
+If you find any more hints/tips for packaging, please report<br>
+it as a bugreport. See http://www.valgrind.org for details.<br>
+<br>
+    </p></div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="dist.readme-developers.html">&lt;&lt; 6. README_DEVELOPERS</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="dist.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="dist.readme-s390.html">8. README.S390 &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

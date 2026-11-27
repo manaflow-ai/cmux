@@ -1,0 +1,84 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>1. The Design and Implementation of Valgrind</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="tech-docs.html" title="Valgrind Technical Documentation">
+<link rel="prev" href="tech-docs.html" title="Valgrind Technical Documentation">
+<link rel="next" href="manual-writing-tools.html" title="2. Writing a New Valgrind Tool">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="tech-docs.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="tech-docs.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind Technical Documentation</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="manual-writing-tools.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="design-impl"></a>1. The Design and Implementation of Valgrind</h1></div></div></div>
+<p>A number of academic publications nicely describe many aspects
+of Valgrind's design and implementation.  Online copies of all of
+them, and others, are available on the <a class="ulink" href="http://www.valgrind.org/docs/pubs.html" target="_top">Valgrind
+publications page</a>.</p>
+<p>The following paper gives a good overview of Valgrind, and explains
+how it differs from other dynamic binary instrumentation frameworks such as
+Pin and DynamoRIO.</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; "><li class="listitem"><p>
+    <span class="command"><strong>Valgrind: A Framework for Heavyweight Dynamic Binary
+    Instrumentation.  Nicholas Nethercote and Julian Seward.  Proceedings
+    of ACM SIGPLAN 2007 Conference on Programming Language Design and
+    Implementation (PLDI 2007), San Diego, California, USA, June
+    2007.</strong></span>
+    </p></li></ul></div>
+<p>The following two papers together give a comprehensive description of
+how most of Memcheck works.  The first paper describes in detail how
+Memcheck's undefined value error detection (a.k.a. V bits) works.  The
+second paper describes in detail how Memcheck's shadow memory is
+implemented, and compares it to other alternative approaches.
+</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; "><li class="listitem">
+<p><span class="command"><strong>Using Valgrind to detect undefined value errors with
+    bit-precision.  Julian Seward and Nicholas Nethercote.  Proceedings
+    of the USENIX'05 Annual Technical Conference, Anaheim, California,
+    USA, April 2005.</strong></span>  
+    </p>
+<p><span class="command"><strong>How to Shadow Every Byte of Memory Used by a Program.
+    Nicholas Nethercote and Julian Seward.  Proceedings of the Third
+    International ACM SIGPLAN/SIGOPS Conference on Virtual Execution
+    Environments (VEE 2007), San Diego, California, USA, June
+    2007.</strong></span>
+    </p>
+</li></ul></div>
+<p>The following paper describes Callgrind.</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; "><li class="listitem"><p><span class="command"><strong>A Tool Suite for Simulation Based Analysis of Memory Access
+    Behavior.  Josef Weidendorfer, Markus Kowarschik and Carsten
+    Trinitis.  Proceedings of the 4th International Conference on
+    Computational Science (ICCS 2004), Krakow, Poland, June 2004.</strong></span>
+    </p></li></ul></div>
+<p>The following dissertation describes Valgrind in some detail
+(many of these details are now out-of-date) as well as Cachegrind,
+Annelid and Redux.  It also covers some underlying theory about
+dynamic binary analysis in general and what all these tools have in
+common.</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; "><li class="listitem"><p><span class="command"><strong>Dynamic Binary Analysis and Instrumentation.  Nicholas
+    Nethercote.</strong></span>  PhD Dissertation, University of Cambridge, November
+    2004.</p></li></ul></div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="tech-docs.html">&lt;&lt; Valgrind Technical Documentation</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="tech-docs.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="manual-writing-tools.html">2. Writing a New Valgrind Tool &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

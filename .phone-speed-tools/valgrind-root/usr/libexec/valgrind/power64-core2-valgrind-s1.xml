@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.power.core2-valgrind-s1">
+  <reg name="pcs1" bitsize="64" type="code_ptr"/>
+  <reg name="msrs1" bitsize="64" type="uint64"/>
+  <reg name="crs1" bitsize="32" type="uint32"/>
+  <reg name="lrs1" bitsize="64" type="code_ptr"/>
+  <reg name="ctrs1" bitsize="64" type="uint64"/>
+  <reg name="xers1" bitsize="32" type="uint32"/>
+</feature>

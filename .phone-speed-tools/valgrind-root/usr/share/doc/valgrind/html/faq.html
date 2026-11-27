@@ -1,0 +1,785 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Valgrind Frequently Asked Questions</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="FAQ.html" title="Valgrind FAQ">
+<link rel="prev" href="FAQ.html" title="Valgrind FAQ">
+<link rel="next" href="tech-docs.html" title="Valgrind Technical Documentation">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="FAQ.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="FAQ.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind FAQ</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="tech-docs.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="article">
+<div class="titlepage">
+<div><div><h1 class="title">
+<a name="faq"></a>Valgrind Frequently Asked Questions</h1></div></div>
+<hr>
+</div>
+<div class="qandaset">
+<dl>
+<dt>1.  <a href="faq.html#faq.background">Background</a>
+</dt>
+<dd>1.1. <a href="faq.html#faq.pronounce">How do you pronounce "Valgrind"?</a>
+</dd>
+<dd>1.2. <a href="faq.html#faq.whence">Where does the name "Valgrind" come from?</a>
+</dd>
+</dl>
+<dl>
+<dt>2.  <a href="faq.html#faq.installing">Compiling, installing and configuring</a>
+</dt>
+<dd>2.1. <a href="faq.html#faq.make_dies">When building Valgrind, 'make' dies partway with
+  an assertion failure, something like this:</a>
+</dd>
+<dd>2.2. <a href="faq.html#faq.glibc_devel">When building Valgrind, 'make' fails with this:</a>
+</dd>
+</dl>
+<dl>
+<dt>3.  <a href="faq.html#faq.abort">Valgrind aborts unexpectedly</a>
+</dt>
+<dd>3.1. <a href="faq.html#faq.exit_errors">Programs run OK on Valgrind, but at exit produce a bunch of
+    errors involving __libc_freeres and then die
+    with a segmentation fault.</a>
+</dd>
+<dd>3.2. <a href="faq.html#faq.bugdeath">My (buggy) program dies like this:</a>
+</dd>
+<dd>3.3. <a href="faq.html#faq.msgdeath">My program dies, printing a message like this along the
+    way:</a>
+</dd>
+<dd>3.4. <a href="faq.html#faq.java">I tried running a Java program (or another program that uses a
+    just-in-time compiler) under Valgrind but something went wrong.
+    Does Valgrind handle such programs?</a>
+</dd>
+</dl>
+<dl>
+<dt>4.  <a href="faq.html#faq.unexpected">Valgrind behaves unexpectedly</a>
+</dt>
+<dd>4.1. <a href="faq.html#faq.reports">My program uses the C++ STL and string classes.  Valgrind
+    reports 'still reachable' memory leaks involving these classes at
+    the exit of the program, but there should be none.</a>
+</dd>
+<dd>4.2. <a href="faq.html#faq.unhelpful">The stack traces given by Memcheck (or another tool) aren't
+    helpful.  How can I improve them?</a>
+</dd>
+<dd>4.3. <a href="faq.html#faq.aliases">The stack traces given by Memcheck (or another tool) seem to
+    have the wrong function name in them.  What's happening?</a>
+</dd>
+<dd>4.4. <a href="faq.html#faq.crashes">My program crashes normally, but doesn't under Valgrind, or vice
+    versa.  What's happening?</a>
+</dd>
+<dd>4.5. <a href="faq.html#faq.hiddenbug"> Memcheck doesn't report any errors and I know my program has
+    errors.</a>
+</dd>
+<dd>4.6. <a href="faq.html#faq.overruns">Why doesn't Memcheck find the array overruns in this
+    program?</a>
+</dd>
+</dl>
+<dl>
+<dt>5.  <a href="faq.html#faq.misc">Miscellaneous</a>
+</dt>
+<dd>5.1. <a href="faq.html#faq.writesupp">I tried writing a suppression but it didn't work.  Can you
+    write my suppression for me?</a>
+</dd>
+<dd>5.2. <a href="faq.html#faq.deflost">With Memcheck's memory leak detector, what's the
+    difference between "definitely lost", "indirectly lost", "possibly
+    lost", "still reachable", and "suppressed"?</a>
+</dd>
+<dd>5.3. <a href="faq.html#faq.undeferrors">Memcheck's uninitialised value errors are hard to track down,
+    because they are often reported some time after they are caused.  Could 
+    Memcheck record a trail of operations to better link the cause to the
+    effect?  Or maybe just eagerly report any copies of uninitialised
+    memory values?</a>
+</dd>
+<dd>5.4. <a href="faq.html#faq.attach">Is it possible to attach Valgrind to a program that is already
+    running?</a>
+</dd>
+</dl>
+<dl>
+<dt>6.  <a href="faq.html#faq.help">How To Get Further Assistance</a>
+</dt>
+<dd>6.1. <a href="faq.html#e-help">Where can I get more help?</a>
+</dd>
+</dl>
+<br><table width="100%" summary="Q and A Div" cellpadding="2" cellspacing="2" border="0">
+<tr class="qandadiv"><td align="left" valign="top" colspan="2">
+<a name="faq.background"></a><h3 class="title">
+<a name="faq.background"></a>1. Background</h3>
+</td></tr>
+<tr class="toc" colspan="2"><td align="left" valign="top" colspan="2">1.1. <a href="faq.html#faq.pronounce">How do you pronounce "Valgrind"?</a><br>1.2. <a href="faq.html#faq.whence">Where does the name "Valgrind" come from?</a><br>
+</td></tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.pronounce"></a><a name="q-pronounce"></a><b>1.1.</b>
+</td>
+<td align="left" valign="top"><b>How do you pronounce "Valgrind"?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-pronounce"></a></td>
+<td align="left" valign="top">
+<p>The "Val" as in the word "value".  The "grind" is pronounced
+  with a short 'i' -- ie. "grinned" (rhymes with "tinned") rather than
+  "grined" (rhymes with "find").</p>
+<p>Don't feel bad: almost
+  everyone gets it wrong at first.</p>
+</td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.whence"></a><a name="q-whence"></a><b>1.2.</b>
+</td>
+<td align="left" valign="top"><b>Where does the name "Valgrind" come from?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-whence"></a></td>
+<td align="left" valign="top">
+<p>From Nordic mythology.  Originally (before release) the project
+  was named Heimdall, after the watchman of the Nordic gods.  He could
+  "see a hundred miles by day or night, hear the grass growing, see the
+  wool growing on a sheep's back", etc.  This would have been a great
+  name, but it was already taken by a security package "Heimdal".</p>
+<p>Keeping with the Nordic theme, Valgrind was chosen.  Valgrind is
+  the name of the main entrance to Valhalla (the Hall of the Chosen
+  Slain in Asgard).  Over this entrance there resides a wolf and over it
+  there is the head of a boar and on it perches a huge eagle, whose eyes
+  can see to the far regions of the nine worlds.  Only those judged
+  worthy by the guardians are allowed to pass through Valgrind.  All
+  others are refused entrance.</p>
+<p>It's not short for "value grinder", although that's not a bad
+  guess.</p>
+</td>
+</tr>
+</table>
+<br><table width="100%" summary="Q and A Div" cellpadding="2" cellspacing="2" border="0">
+<tr class="qandadiv"><td align="left" valign="top" colspan="2">
+<a name="faq.installing"></a><h3 class="title">
+<a name="faq.installing"></a>2. Compiling, installing and configuring</h3>
+</td></tr>
+<tr class="toc" colspan="2"><td align="left" valign="top" colspan="2">2.1. <a href="faq.html#faq.make_dies">When building Valgrind, 'make' dies partway with
+  an assertion failure, something like this:</a><br>2.2. <a href="faq.html#faq.glibc_devel">When building Valgrind, 'make' fails with this:</a><br>
+</td></tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.make_dies"></a><a name="q-make_dies"></a><b>2.1.</b>
+</td>
+<td align="left" valign="top">
+<b>When building Valgrind, 'make' dies partway with
+  an assertion failure, something like this:</b><pre class="screen">
+% make: expand.c:489: allocated_variable_append: 
+        Assertion 'current_variable_set_list-&gt;next != 0' failed.
+</pre>
+</td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-make_dies"></a></td>
+<td align="left" valign="top"><p>It's probably a bug in 'make'.  Some, but not all, instances of
+  version 3.79.1 have this bug, see
+  <a class="ulink" href="http://www.mail-archive.com/bug-make@gnu.org/msg01658.html" target="_top">this</a>.
+  Try upgrading to a more recent version of 'make'.  Alternatively, we have
+  heard that unsetting the CFLAGS environment variable avoids the
+  problem.</p></td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.glibc_devel"></a><a name="q-glibc_devel"></a><b>2.2.</b>
+</td>
+<td align="left" valign="top">
+<b>When building Valgrind, 'make' fails with this:</b><pre class="screen">
+/usr/bin/ld: cannot find -lc
+collect2: ld returned 1 exit status
+</pre>
+</td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-glibc_devel"></a></td>
+<td align="left" valign="top"><p>You need to install the glibc-static-devel package.</p></td>
+</tr>
+</table>
+<br><table width="100%" summary="Q and A Div" cellpadding="2" cellspacing="2" border="0">
+<tr class="qandadiv"><td align="left" valign="top" colspan="2">
+<a name="faq.abort"></a><h3 class="title">
+<a name="faq.abort"></a>3. Valgrind aborts unexpectedly</h3>
+</td></tr>
+<tr class="toc" colspan="2"><td align="left" valign="top" colspan="2">3.1. <a href="faq.html#faq.exit_errors">Programs run OK on Valgrind, but at exit produce a bunch of
+    errors involving __libc_freeres and then die
+    with a segmentation fault.</a><br>3.2. <a href="faq.html#faq.bugdeath">My (buggy) program dies like this:</a><br>3.3. <a href="faq.html#faq.msgdeath">My program dies, printing a message like this along the
+    way:</a><br>3.4. <a href="faq.html#faq.java">I tried running a Java program (or another program that uses a
+    just-in-time compiler) under Valgrind but something went wrong.
+    Does Valgrind handle such programs?</a><br>
+</td></tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.exit_errors"></a><a name="q-exit_errors"></a><b>3.1.</b>
+</td>
+<td align="left" valign="top"><b>Programs run OK on Valgrind, but at exit produce a bunch of
+    errors involving <code class="literal">__libc_freeres</code> and then die
+    with a segmentation fault.</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-exit_errors"></a></td>
+<td align="left" valign="top">
+<p>When the program exits, Valgrind runs the procedure
+    <code class="function">__libc_freeres</code> in glibc.  This is a hook for
+    memory debuggers, so they can ask glibc to free up any memory it has
+    used.  Doing that is needed to ensure that Valgrind doesn't
+    incorrectly report space leaks in glibc.</p>
+<p>The problem is that running <code class="literal">__libc_freeres</code> in
+    older glibc versions causes this crash.</p>
+<p>Workaround for 1.1.X and later versions of Valgrind: use the
+    <code class="option">--run-libc-freeres=no</code> option.  You may then get space
+    leak reports for glibc allocations (please don't report these to
+    the glibc people, since they are not real leaks), but at least the
+    program runs.</p>
+</td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.bugdeath"></a><a name="q-bugdeath"></a><b>3.2.</b>
+</td>
+<td align="left" valign="top">
+<b>My (buggy) program dies like this:</b><pre class="screen">valgrind: m_mallocfree.c:248 (get_bszB_as_is): Assertion 'bszB_lo == bszB_hi' failed.</pre>
+<b>or like this:</b><pre class="screen">valgrind: m_mallocfree.c:442 (mk_inuse_bszB): Assertion 'bszB != 0' failed.</pre>
+<b>or otherwise aborts or crashes in m_mallocfree.c.</b>
+</td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-bugdeath"></a></td>
+<td align="left" valign="top"><p>If Memcheck (the memory checker) shows any invalid reads,
+    invalid writes or invalid frees in your program, the above may
+    happen.  Reason is that your program may trash Valgrind's low-level
+    memory manager, which then dies with the above assertion, or
+    something similar.  The cure is to fix your program so that it
+    doesn't do any illegal memory accesses.  The above failure will
+    hopefully go away after that.</p></td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.msgdeath"></a><a name="q-msgdeath"></a><b>3.3.</b>
+</td>
+<td align="left" valign="top">
+<b>My program dies, printing a message like this along the
+    way:</b><pre class="screen">vex x86-&gt;IR: unhandled instruction bytes: 0x66 0xF 0x2E 0x5</pre>
+</td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-msgdeath"></a></td>
+<td align="left" valign="top">
+<p>One possibility is that your program has a bug and erroneously
+    jumps to a non-code address, in which case you'll get a SIGILL signal.
+    Memcheck may issue a warning just before this happens, but it might not
+    if the jump happens to land in addressable memory.</p>
+<p>Another possibility is that Valgrind does not handle the
+    instruction.  If you are using an older Valgrind, a newer version might
+    handle the instruction.  However, all instruction sets have some
+    obscure, rarely used instructions.  Also, on amd64 there are an almost
+    limitless number of combinations of redundant instruction prefixes, many
+    of them undocumented but accepted by CPUs.  So Valgrind will still have
+    decoding failures from time to time.  If this happens, please file a bug
+    report.</p>
+</td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.java"></a><a name="q-java"></a><b>3.4.</b>
+</td>
+<td align="left" valign="top"><b>I tried running a Java program (or another program that uses a
+    just-in-time compiler) under Valgrind but something went wrong.
+    Does Valgrind handle such programs?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-java"></a></td>
+<td align="left" valign="top">
+<p>Valgrind can handle dynamically generated code, so long as
+    none of the generated code is later overwritten by other generated
+    code.  If this happens, though, things will go wrong as Valgrind
+    will continue running its translations of the old code (this is true
+    on x86 and amd64, on PowerPC there are explicit cache flush
+    instructions which Valgrind detects and honours).
+    You should try running with
+    <code class="option">--smc-check=all</code> in this case.  Valgrind will run
+    much more slowly, but should detect the use of the out-of-date
+    code.</p>
+<p>Alternatively, if you have the source code to the JIT compiler
+    you can insert calls to the
+    <code class="computeroutput">VALGRIND_DISCARD_TRANSLATIONS</code>
+    client request to mark out-of-date code, saving you from using
+    <code class="option">--smc-check=all</code>.</p>
+<p>Apart from this, in theory Valgrind can run any Java program
+    just fine, even those that use JNI and are partially implemented in
+    other languages like C and C++.  In practice, Java implementations
+    tend to do nasty things that most programs do not, and Valgrind
+    sometimes falls over these corner cases.</p>
+<p>If your Java programs do not run under Valgrind, even with
+    <code class="option">--smc-check=all</code>, please file a bug report and
+    hopefully we'll be able to fix the problem.</p>
+</td>
+</tr>
+</table>
+<br><table width="100%" summary="Q and A Div" cellpadding="2" cellspacing="2" border="0">
+<tr class="qandadiv"><td align="left" valign="top" colspan="2">
+<a name="faq.unexpected"></a><h3 class="title">
+<a name="faq.unexpected"></a>4. Valgrind behaves unexpectedly</h3>
+</td></tr>
+<tr class="toc" colspan="2"><td align="left" valign="top" colspan="2">4.1. <a href="faq.html#faq.reports">My program uses the C++ STL and string classes.  Valgrind
+    reports 'still reachable' memory leaks involving these classes at
+    the exit of the program, but there should be none.</a><br>4.2. <a href="faq.html#faq.unhelpful">The stack traces given by Memcheck (or another tool) aren't
+    helpful.  How can I improve them?</a><br>4.3. <a href="faq.html#faq.aliases">The stack traces given by Memcheck (or another tool) seem to
+    have the wrong function name in them.  What's happening?</a><br>4.4. <a href="faq.html#faq.crashes">My program crashes normally, but doesn't under Valgrind, or vice
+    versa.  What's happening?</a><br>4.5. <a href="faq.html#faq.hiddenbug"> Memcheck doesn't report any errors and I know my program has
+    errors.</a><br>4.6. <a href="faq.html#faq.overruns">Why doesn't Memcheck find the array overruns in this
+    program?</a><br>
+</td></tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.reports"></a><a name="q-reports"></a><b>4.1.</b>
+</td>
+<td align="left" valign="top"><b>My program uses the C++ STL and string classes.  Valgrind
+    reports 'still reachable' memory leaks involving these classes at
+    the exit of the program, but there should be none.</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-reports"></a></td>
+<td align="left" valign="top">
+<p>First of all: relax, it's probably not a bug, but a feature.
+    Many implementations of the C++ standard libraries use their own
+    memory pool allocators.  Memory for quite a number of destructed
+    objects is not immediately freed and given back to the OS, but kept
+    in the pool(s) for later re-use.  The fact that the pools are not
+    freed at the exit of the program cause Valgrind to report this
+    memory as still reachable.  The behaviour not to free pools at the
+    exit could be called a bug of the library though.</p>
+<p>Using GCC, you can force the STL to use malloc and to free
+    memory as soon as possible by globally disabling memory caching.
+    Beware!  Doing so will probably slow down your program, sometimes
+    drastically.</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p>With GCC 2.91, 2.95, 3.0 and 3.1, compile all source using
+        the STL with <code class="literal">-D__USE_MALLOC</code>. Beware!  This was
+        removed from GCC starting with version 3.3.</p></li>
+<li class="listitem"><p>With GCC 3.2.2 and later, you should export the
+        environment variable <code class="literal">GLIBCPP_FORCE_NEW</code> before
+        running your program.</p></li>
+<li class="listitem"><p>With GCC 3.4 and later, that variable has changed name to
+        <code class="literal">GLIBCXX_FORCE_NEW</code>.</p></li>
+</ul></div>
+<p>There are other ways to disable memory pooling: using the
+    <code class="literal">malloc_alloc</code> template with your objects (not
+    portable, but should work for GCC) or even writing your own memory
+    allocators. But all this goes beyond the scope of this FAQ.  Start
+    by reading 
+    <a class="ulink" href="http://gcc.gnu.org/onlinedocs/libstdc++/faq/index.html#4_4_leak" target="_top">
+         http://gcc.gnu.org/onlinedocs/libstdc++/faq/index.html#4_4_leak</a>
+    if you absolutely want to do that. But beware: 
+    allocators belong to the more messy parts of the STL and
+    people went to great lengths to make the STL portable across
+    platforms. Chances are good that your solution will work on your
+    platform, but not on others.</p>
+</td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.unhelpful"></a><a name="q-unhelpful"></a><b>4.2.</b>
+</td>
+<td align="left" valign="top"><b>The stack traces given by Memcheck (or another tool) aren't
+    helpful.  How can I improve them?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-unhelpful"></a></td>
+<td align="left" valign="top">
+<p>If they're not long enough, use <code class="option">--num-callers</code>
+    to make them longer.</p>
+<p>If they're not detailed enough, make sure you are compiling
+    with <code class="option">-g</code> to add debug information.  And don't strip
+    symbol tables (programs should be unstripped unless you run 'strip'
+    on them; some libraries ship stripped).</p>
+<p>Also, for leak reports involving shared objects, if the shared object
+    is unloaded before the program terminates, Valgrind will discard the debug
+    information and the error message will be full of <code class="literal">???</code>
+    entries.  If you use the option <code class="option">--keep-debuginfo=yes</code>, then
+    Valgrind will keep the debug information in order to show the stack traces,
+    at the price of increased memory.  An alternate workaround is to avoid
+    calling <code class="function">dlclose</code> on these shared objects.</p>
+<p>Also, <code class="option">-fomit-frame-pointer</code> and
+    <code class="option">-fstack-check</code> can make stack traces worse.</p>
+<p>Some example sub-traces:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p>With debug information and unstripped (best):</p>
+<pre class="programlisting">
+Invalid write of size 1
+   at 0x80483BF: really (malloc1.c:20)
+   by 0x8048370: main (malloc1.c:9)
+</pre>
+</li>
+<li class="listitem">
+<p>With no debug information, unstripped:</p>
+<pre class="programlisting">
+Invalid write of size 1
+   at 0x80483BF: really (in /auto/homes/njn25/grind/head5/a.out)
+   by 0x8048370: main (in /auto/homes/njn25/grind/head5/a.out)
+</pre>
+</li>
+<li class="listitem">
+<p>With no debug information, stripped:</p>
+<pre class="programlisting">
+Invalid write of size 1
+   at 0x80483BF: (within /auto/homes/njn25/grind/head5/a.out)
+   by 0x8048370: (within /auto/homes/njn25/grind/head5/a.out)
+   by 0x42015703: __libc_start_main (in /lib/tls/libc-2.3.2.so)
+   by 0x80482CC: (within /auto/homes/njn25/grind/head5/a.out)
+</pre>
+</li>
+<li class="listitem">
+<p>With debug information and -fomit-frame-pointer:</p>
+<pre class="programlisting">
+Invalid write of size 1
+   at 0x80483C4: really (malloc1.c:20)
+   by 0x42015703: __libc_start_main (in /lib/tls/libc-2.3.2.so)
+   by 0x80482CC: ??? (start.S:81)
+</pre>
+</li>
+<li class="listitem">
+<p>A leak error message involving an unloaded shared object:</p>
+<pre class="programlisting">
+84 bytes in 1 blocks are possibly lost in loss record 488 of 713
+   at 0x1B9036DA: operator new(unsigned) (vg_replace_malloc.c:132)
+   by 0x1DB63EEB: ???
+   by 0x1DB4B800: ???
+   by 0x1D65E007: ???
+   by 0x8049EE6: main (main.cpp:24)
+</pre>
+</li>
+</ul></div>
+</td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.aliases"></a><a name="q-aliases"></a><b>4.3.</b>
+</td>
+<td align="left" valign="top"><b>The stack traces given by Memcheck (or another tool) seem to
+    have the wrong function name in them.  What's happening?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-aliases"></a></td>
+<td align="left" valign="top"><p>Occasionally Valgrind stack traces get the wrong function
+    names.  This is caused by glibc using aliases to effectively give
+    one function two names.  Most of the time Valgrind chooses a
+    suitable name, but very occasionally it gets it wrong.  Examples we know
+    of are printing <code class="function">bcmp</code> instead of
+    <code class="function">memcmp</code>, <code class="function">index</code> instead of
+    <code class="function">strchr</code>, and <code class="function">rindex</code> instead of
+    <code class="function">strrchr</code>.</p></td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.crashes"></a><a name="q-crashes"></a><b>4.4.</b>
+</td>
+<td align="left" valign="top"><b>My program crashes normally, but doesn't under Valgrind, or vice
+    versa.  What's happening?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-crashes"></a></td>
+<td align="left" valign="top">
+<p>When a program runs under Valgrind, its environment is slightly
+    different to when it runs natively.  For example, the memory layout is
+    different, and the way that threads are scheduled is different.</p>
+<p>Most of the time this doesn't make any difference, but it can,
+    particularly if your program is buggy.  For example, if your program
+    crashes because it erroneously accesses memory that is unaddressable,
+    it's possible that this memory will not be unaddressable when run under
+    Valgrind.  Alternatively, if your program has data races, these may not
+    manifest under Valgrind.</p>
+<p>There isn't anything you can do to change this, it's just the
+    nature of the way Valgrind works that it cannot exactly replicate a
+    native execution environment.  In the case where your program crashes
+    due to a memory error when run natively but not when run under Valgrind,
+    in most cases Memcheck should identify the bad memory operation.</p>
+</td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.hiddenbug"></a><a name="q-hiddenbug"></a><b>4.5.</b>
+</td>
+<td align="left" valign="top"><b> Memcheck doesn't report any errors and I know my program has
+    errors.</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-hiddenbug"></a></td>
+<td align="left" valign="top">
+<p>There are two possible causes of this.</p>
+<p>First, by default, Valgrind only traces the top-level process.
+    So if your program spawns children, they won't be traced by Valgrind
+    by default.  Also, if your program is started by a shell script,
+    Perl script, or something similar, Valgrind will trace the shell, or
+    the Perl interpreter, or equivalent.</p>
+<p>To trace child processes, use the
+    <code class="option">--trace-children=yes</code> option.</p>
+<p>If you are tracing large trees of processes, it can be less
+    disruptive to have the output sent over the network.  Give Valgrind
+    the option <code class="option">--log-socket=127.0.0.1:12345</code> (if you want
+    logging output sent to port <code class="literal">12345</code> on
+    <code class="literal">localhost</code>).  You can use the valgrind-listener
+    program to listen on that port:</p>
+<pre class="programlisting">
+valgrind-listener 12345
+</pre>
+<p>Obviously you have to start the listener process first.  See
+    the manual for more details.</p>
+<p>Second, if your program is statically linked, most Valgrind
+    tools will only work well if they are able to replace certain
+    functions, such as <code class="function">malloc</code>, with their own
+    versions.  By default, statically linked <code class="function">malloc
+    functions</code> are not replaced. A key indicator of this is
+    if Memcheck says:
+</p>
+<pre class="programlisting">
+All heap blocks were freed -- no leaks are possible
+</pre>
+<p>
+    when you know your program calls <code class="function">malloc</code>.  The
+    workaround is to use the option 
+    <code class="option">--soname-synonyms=somalloc=NONE</code>
+    or to avoid statically linking your program.</p>
+<p>There will also be no replacement if you use an alternative 
+    <code class="function">malloc library</code> such as tcmalloc, jemalloc,
+    ...  In such a case, the
+    option <code class="option">--soname-synonyms=somalloc=zzzz</code> (where
+    zzzz is the soname of the alternative malloc library) will allow
+    Valgrind to replace the functions.</p>
+</td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.overruns"></a><a name="q-overruns"></a><b>4.6.</b>
+</td>
+<td align="left" valign="top">
+<b>Why doesn't Memcheck find the array overruns in this
+    program?</b><pre class="programlisting">
+int static[5];
+
+int main(void)
+{
+  int stack[5];
+
+  static[5] = 0;
+  stack [5] = 0;
+          
+  return 0;
+}
+</pre>
+</td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-overruns"></a></td>
+<td align="left" valign="top"><p>Unfortunately, Memcheck doesn't do bounds checking on global
+    or stack arrays.  We'd like to, but it's just not possible to do in
+    a reasonable way that fits with how Memcheck works.  Sorry.</p></td>
+</tr>
+</table>
+<br><table width="100%" summary="Q and A Div" cellpadding="2" cellspacing="2" border="0">
+<tr class="qandadiv"><td align="left" valign="top" colspan="2">
+<a name="faq.misc"></a><h3 class="title">
+<a name="faq.misc"></a>5. Miscellaneous</h3>
+</td></tr>
+<tr class="toc" colspan="2"><td align="left" valign="top" colspan="2">5.1. <a href="faq.html#faq.writesupp">I tried writing a suppression but it didn't work.  Can you
+    write my suppression for me?</a><br>5.2. <a href="faq.html#faq.deflost">With Memcheck's memory leak detector, what's the
+    difference between "definitely lost", "indirectly lost", "possibly
+    lost", "still reachable", and "suppressed"?</a><br>5.3. <a href="faq.html#faq.undeferrors">Memcheck's uninitialised value errors are hard to track down,
+    because they are often reported some time after they are caused.  Could 
+    Memcheck record a trail of operations to better link the cause to the
+    effect?  Or maybe just eagerly report any copies of uninitialised
+    memory values?</a><br>5.4. <a href="faq.html#faq.attach">Is it possible to attach Valgrind to a program that is already
+    running?</a><br>
+</td></tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.writesupp"></a><a name="q-writesupp"></a><b>5.1.</b>
+</td>
+<td align="left" valign="top"><b>I tried writing a suppression but it didn't work.  Can you
+    write my suppression for me?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-writesupp"></a></td>
+<td align="left" valign="top">
+<p>Yes!  Use the <code class="option">--gen-suppressions=yes</code> feature
+    to spit out suppressions automatically for you.  You can then edit
+    them if you like, eg.  combining similar automatically generated
+    suppressions using wildcards like <code class="literal">'*'</code>.</p>
+<p>If you really want to write suppressions by hand, read the
+    manual carefully.  Note particularly that C++ function names must be
+    mangled (that is, not demangled).</p>
+</td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.deflost"></a><a name="q-deflost"></a><b>5.2.</b>
+</td>
+<td align="left" valign="top"><b>With Memcheck's memory leak detector, what's the
+    difference between "definitely lost", "indirectly lost", "possibly
+    lost", "still reachable", and "suppressed"?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-deflost"></a></td>
+<td align="left" valign="top">
+<p>The details are in the Memcheck section of the user manual.</p>
+<p>In short:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p>"definitely lost" means your program is leaking memory --
+        fix those leaks!</p></li>
+<li class="listitem"><p>"indirectly lost" means your program is leaking memory in
+        a pointer-based structure.  (E.g. if the root node of a binary tree
+        is "definitely lost", all the children will be "indirectly lost".) 
+        If you fix the "definitely lost" leaks, the "indirectly lost" leaks
+        should go away.
+        </p></li>
+<li class="listitem"><p>"possibly lost" means your program is leaking
+        memory, unless you're doing unusual things with pointers that could
+        cause them to point into the middle of an allocated block;  see the
+        user manual for some possible causes.  Use
+        <code class="option">--show-possibly-lost=no</code> if you don't want to see
+        these reports.</p></li>
+<li class="listitem"><p>"still reachable" means your program is probably ok -- it
+        didn't free some memory it could have.  This is quite common and
+        often reasonable.  Don't use
+        <code class="option">--show-reachable=yes</code> if you don't want to see
+        these reports.</p></li>
+<li class="listitem"><p>"suppressed" means that a leak error has been suppressed.
+        There are some suppressions in the default suppression files.
+        You can ignore suppressed errors.</p></li>
+</ul></div>
+</td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.undeferrors"></a><a name="q-undeferrors"></a><b>5.3.</b>
+</td>
+<td align="left" valign="top"><b>Memcheck's uninitialised value errors are hard to track down,
+    because they are often reported some time after they are caused.  Could 
+    Memcheck record a trail of operations to better link the cause to the
+    effect?  Or maybe just eagerly report any copies of uninitialised
+    memory values?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-undeferrors"></a></td>
+<td align="left" valign="top">
+<p>Prior to version 3.4.0, the answer was "we don't know how to do it
+    without huge performance penalties".  As of 3.4.0, try using the
+    <code class="option">--track-origins=yes</code> option.  It will run slower than
+    usual, but will give you extra information about the origin of
+    uninitialised values.</p>
+<p>Or if you want to do it the old fashioned way, you can use the
+    client request
+    <code class="computeroutput">VALGRIND_CHECK_VALUE_IS_DEFINED</code> to help
+    track these errors down -- work backwards from the point where the
+    uninitialised error occurs, checking suspect values until you find the
+    cause.  This requires editing, compiling and re-running your program
+    multiple times, which is a pain, but still easier than debugging the
+    problem without Memcheck's help.</p>
+<p>As for eager reporting of copies of uninitialised memory values,
+    this has been suggested multiple times.  Unfortunately, almost all
+    programs legitimately copy uninitialised memory values around (because
+    compilers pad structs to preserve alignment) and eager checking leads to
+    hundreds of false positives.  Therefore Memcheck does not support eager
+    checking at this time.</p>
+</td>
+</tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="faq.attach"></a><a name="q-attach"></a><b>5.4.</b>
+</td>
+<td align="left" valign="top"><b>Is it possible to attach Valgrind to a program that is already
+    running?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-attach"></a></td>
+<td align="left" valign="top">
+<p>No.  The environment that Valgrind provides for running programs
+    is significantly different to that for normal programs, e.g. due to
+    different layout of memory.  Therefore Valgrind has to have full control
+    from the very start.</p>
+<p>It is possible to achieve something like this by running your
+    program without any instrumentation (which involves a slow-down of about
+    5x, less than that of most tools), and then adding instrumentation once
+    you get to a point of interest.  Support for this must be provided by
+    the tool, however, and Callgrind is the only tool that currently has
+    such support.  See the instructions on the
+    <code class="computeroutput">callgrind_control</code> program for details.
+    </p>
+</td>
+</tr>
+</table>
+<br><table width="100%" summary="Q and A Div" cellpadding="2" cellspacing="2" border="0">
+<tr class="qandadiv"><td align="left" valign="top" colspan="2">
+<a name="faq.help"></a><h3 class="title">
+<a name="faq.help"></a>6. How To Get Further Assistance</h3>
+</td></tr>
+<tr class="toc" colspan="2"><td align="left" valign="top" colspan="2">6.1. <a href="faq.html#e-help">Where can I get more help?</a><br>
+</td></tr>
+<tr><td colspan="2"> </td></tr>
+<tr class="question">
+<td align="left" valign="top">
+<a name="e-help"></a><a name="q-help"></a><b>6.1.</b>
+</td>
+<td align="left" valign="top"><b>Where can I get more help?</b></td>
+</tr>
+<tr class="answer">
+<td align="left" valign="top"><a name="a-help"></a></td>
+<td align="left" valign="top">
+<p>Read the appropriate section(s) of the 
+  <a class="ulink" href="http://www.valgrind.org/docs/manual/index.html" target="_top">Valgrind Documentation</a>.</p>
+<p><a class="ulink" href="http://search.gmane.org" target="_top">Search</a> the 
+  <a class="ulink" href="http://news.gmane.org/gmane.comp.debugging.valgrind" target="_top">valgrind-users</a> mailing list archives, using the group name 
+  <code class="computeroutput">gmane.comp.debugging.valgrind</code>.</p>
+<p>If you think an answer in this FAQ is incomplete or inaccurate, please
+  e-mail <a class="ulink" href="mailto:valgrind@valgrind.org" target="_top">valgrind@valgrind.org</a>.</p>
+<p>If you have tried all of these things and are still
+  stuck, you can try mailing the
+  <a class="ulink" href="http://www.valgrind.org/support/mailing_lists.html" target="_top">valgrind-users mailing list</a>. 
+  Note that an email has a better change of being answered usefully if it is
+  clearly written.  Also remember that, despite the fact that most of the
+  community are very helpful and responsive to emailed questions, you are
+  probably requesting help from unpaid volunteers, so you have no guarantee
+  of receiving an answer.</p>
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="FAQ.html">&lt;&lt; Valgrind FAQ</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="FAQ.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="tech-docs.html">Valgrind Technical Documentation &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

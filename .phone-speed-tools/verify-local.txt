@@ -1,0 +1,3 @@
+usage: verify-local.py [--all | --affected [BASE] | --only CHECK] [options]
+verify-local.py: error: Cannot select changed inputs against 'refs/remotes/origin/feat-cmux-next'; check the Git checkout and local base ref
+Local integration-branch reference: refs/remotes/origin/feat-cmux-next (no fetch)

@@ -1,0 +1,94 @@
+
+Julian Seward was the original founder, designer and author of
+Valgrind, created the dynamic translation frameworks, wrote Memcheck,
+the 3.X versions of Helgrind, SGCheck, DHAT, and did lots of other
+things.
+
+Nicholas Nethercote did the core/tool generalisation, wrote
+Cachegrind and Massif, and tons of other stuff.
+
+Tom Hughes did a vast number of bug fixes, helped out with support for
+more recent Linux/glibc versions, set up the present build system, and has
+helped out with test and build machines.
+
+Jeremy Fitzhardinge wrote Helgrind (in the 2.X line) and totally
+overhauled low-level syscall/signal and address space layout stuff,
+among many other things.
+
+Josef Weidendorfer wrote and maintains Callgrind and the associated
+KCachegrind GUI.
+
+Paul Mackerras did a lot of the initial per-architecture factoring
+that forms the basis of the 3.0 line and was also seen in 2.4.0.
+He also did UCode-based dynamic translation support for PowerPC, and
+created a set of ppc-linux derivatives of the 2.X release line.
+
+Greg Parker wrote the Mac OS X port.
+
+Dirk Mueller contributed the malloc/free mismatch checking
+and other bits and pieces, and acts as our KDE liaison.
+
+Robert Walsh added file descriptor leakage checking, new library
+interception machinery, support for client allocation pools, and minor
+other tweakage.
+
+Bart Van Assche wrote and maintains DRD.
+
+Cerion Armour-Brown worked on PowerPC instruction set support in the
+Vex dynamic-translation framework.  Maynard Johnson improved the
+Power6 support.
+
+Kirill Batuzov and Dmitry Zhurikhin did the NEON instruction set
+support for ARM.  Donna Robinson did the v6 media instruction support.
+
+Donna Robinson created and maintains the very excellent
+http://www.valgrind.org.
+
+Vince Weaver wrote and maintains BBV.
+
+Frederic Gobry helped with autoconf and automake.
+
+Daniel Berlin modified readelf's dwarf2 source line reader, written by Nick
+Clifton, for use in Valgrind.
+
+Michael Matz and Simon Hausmann modified the GNU binutils demangler(s) for
+use in Valgrind.
+
+David Woodhouse has helped out with test and build machines over the course
+of many releases.
+
+Florian Krohm and Christian Borntraeger wrote the initial S390X/Linux
+port.  Andreas Arnez is the current maintainer and developer of it.
+Florian improved and ruggedised the regression test system during 2011.
+
+Philippe Waroquiers wrote and maintains the embedded GDB server.  He
+also made a bunch of performance and memory-reduction fixes across
+diverse parts of the system.
+
+Carl Love and Maynard Johnson contributed IBM Power6 and Power7
+support, and generally deal with ppc{32,64}-linux issues.
+
+Petar Jovanovic and Dejan Jevtic wrote and maintain the mips32-linux
+port.
+
+Dragos Tatulea modified the arm-android port so it also works on
+x86-android.
+
+Jakub Jelinek helped out extensively with the AVX and AVX2 support.
+
+Mark Wielaard fixed a bunch of bugs and acts as our Fedora/RHEL
+liaison.
+
+Assad Hashmi contributed support for AArch64 v8.1 and later.
+
+Maran Pakkirisamy implemented support for decimal floating point on
+s390.
+
+Rhys Kidd updated and maintains the macOS port.
+
+Many, many people sent bug reports, patches, and helpful feedback.
+
+Development of Valgrind was supported in part by the Tri-Lab Partners
+(Lawrence Livermore National Laboratory, Los Alamos National
+Laboratory, and Sandia National Laboratories) of the U.S. Department
+of Energy's Advanced Simulation & Computing (ASC) Program.

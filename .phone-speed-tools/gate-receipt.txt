@@ -1,0 +1,48 @@
+   Compiling rustversion v1.0.23
+   Compiling object v0.39.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling memchr v2.8.3
+   Compiling shlex v2.0.1
+   Compiling pkg-config v0.3.34
+   Compiling cc v1.11.0
+   Compiling crabgrind v0.6.0
+   Compiling cmux-phone-speed v0.1.0 (/mnt/lane-data/checkouts/cmux/lane--phone-speed-icount/scripts/bench/phone-speed)
+    Finished `test` profile [unoptimized] target(s) in 1m 44s
+     Running unittests src/main.rs (scripts/bench/phone-speed/target/debug/deps/cmux_phone_speed-fdd779cac26dd6db)
+
+running 2 tests
+test tests::doubled_work_fails_budget ... ok
+test tests::missing_collection_is_failure ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+   Compiling rustversion v1.0.23
+   Compiling object v0.39.1
+   Compiling memchr v2.8.3
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling pkg-config v0.3.34
+   Compiling cc v1.11.0
+   Compiling crabgrind v0.6.0
+   Compiling cmux-phone-speed v0.1.0 (/mnt/lane-data/checkouts/cmux/lane--phone-speed-icount/scripts/bench/phone-speed)
+    Finished `release` profile [optimized + debuginfo] target(s) in 1m 16s
+     Running `scripts/bench/phone-speed/target/release/cmux-phone-speed check`
+echo-100: 10 terminal bytes
+echo-100	7369231 Ir / 10 operations
+echo-10000: 10 terminal bytes
+echo-10000	7842873 Ir / 10 operations
+stream-100: 740 terminal bytes
+stream-100	7863191 Ir / 10 operations
+stream-10000: 740 terminal bytes
+stream-10000	8473158 Ir / 10 operations
+rotate-100: 70320 terminal bytes
+rotate-100	46123065 Ir / 10 operations
+rotate-10000: 70320 terminal bytes
+rotate-10000	46688615 Ir / 10 operations
+PASS: deterministic terminal work budgets; physical-device calibration pending
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.397s
+
+OK
+wall=239.507 user=79.596 sys=21.757

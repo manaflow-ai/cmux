@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.i386.sse.valgrind.s1">
+  <vector id="v4f_s" type="uint32" count="4"/>
+  <vector id="v2d_s" type="uint64" count="2"/>
+  <vector id="v16i8" type="int8" count="16"/>
+  <vector id="v8i16" type="int16" count="8"/>
+  <vector id="v4i32" type="int32" count="4"/>
+  <vector id="v2i64" type="int64" count="2"/>
+  <union id="vec128_s">
+    <field name="v4_float" type="v4f_s"/>
+    <field name="v2_double" type="v2d_s"/>
+    <field name="v16_int8" type="v16i8"/>
+    <field name="v8_int16" type="v8i16"/>
+    <field name="v4_int32" type="v4i32"/>
+    <field name="v2_int64" type="v2i64"/>
+    <field name="uint128" type="uint128"/>
+  </union>
+  <flags id="i386_mxcsr" size="4">
+    <field name="IE" start="0" end="0"/>
+    <field name="DE" start="1" end="1"/>
+    <field name="ZE" start="2" end="2"/>
+    <field name="OE" start="3" end="3"/>
+    <field name="UE" start="4" end="4"/>
+    <field name="PE" start="5" end="5"/>
+    <field name="DAZ" start="6" end="6"/>
+    <field name="IM" start="7" end="7"/>
+    <field name="DM" start="8" end="8"/>
+    <field name="ZM" start="9" end="9"/>
+    <field name="OM" start="10" end="10"/>
+    <field name="UM" start="11" end="11"/>
+    <field name="PM" start="12" end="12"/>
+    <field name="FZ" start="15" end="15"/>
+  </flags>
+
+  <reg name="xmm0s1" bitsize="128" type="vec128_s"/>
+  <reg name="xmm1s1" bitsize="128" type="vec128_s"/>
+  <reg name="xmm2s1" bitsize="128" type="vec128_s"/>
+  <reg name="xmm3s1" bitsize="128" type="vec128_s"/>
+  <reg name="xmm4s1" bitsize="128" type="vec128_s"/>
+  <reg name="xmm5s1" bitsize="128" type="vec128_s"/>
+  <reg name="xmm6s1" bitsize="128" type="vec128_s"/>
+  <reg name="xmm7s1" bitsize="128" type="vec128_s"/>
+
+  <reg name="mxcsrs1" bitsize="32" type="i386_mxcsr" group="vector"/>
+</feature>

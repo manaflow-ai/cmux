@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010-2012 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.s390.acr-valgrind-s1">
+  <reg name="acr0s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr1s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr2s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr3s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr4s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr5s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr6s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr7s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr8s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr9s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr10s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr11s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr12s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr13s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr14s1" bitsize="32" type="uint32" group="access"/>
+  <reg name="acr15s1" bitsize="32" type="uint32" group="access"/>
+</feature>

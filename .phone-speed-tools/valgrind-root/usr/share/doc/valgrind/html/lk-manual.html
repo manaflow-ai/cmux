@@ -1,0 +1,131 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>11. Lackey: an example tool</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="manual.html" title="Valgrind User Manual">
+<link rel="prev" href="dh-manual.html" title="10. DHAT: a dynamic heap analysis tool">
+<link rel="next" href="nl-manual.html" title="12. Nulgrind: the minimal Valgrind tool">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="dh-manual.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="manual.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind User Manual</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="nl-manual.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="lk-manual"></a>11. Lackey: an example tool</h1></div></div></div>
+<div class="toc">
+<p><b>Table of Contents</b></p>
+<dl class="toc">
+<dt><span class="sect1"><a href="lk-manual.html#lk-manual.overview">11.1. Overview</a></span></dt>
+<dt><span class="sect1"><a href="lk-manual.html#lk-manual.options">11.2. Lackey Command-line Options</a></span></dt>
+</dl>
+</div>
+<p>To use this tool, you must specify
+<code class="option">--tool=lackey</code> on the Valgrind
+command line.</p>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="lk-manual.overview"></a>11.1. Overview</h2></div></div></div>
+<p>Lackey is a simple Valgrind tool that does various kinds of basic
+program measurement.  It adds quite a lot of simple instrumentation to the
+program's code.  It is primarily intended to be of use as an example tool,
+and consequently emphasises clarity of implementation over
+performance.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="lk-manual.options"></a>11.2. Lackey Command-line Options</h2></div></div></div>
+<p>Lackey-specific command-line options are:</p>
+<div class="variablelist">
+<a name="lk.opts.list"></a><dl class="variablelist">
+<dt>
+<a name="opt.basic-counts"></a><span class="term">
+      <code class="option">--basic-counts=&lt;no|yes&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd>
+<p>When enabled, Lackey prints the following statistics and
+      information about the execution of the client program:</p>
+<div class="orderedlist"><ol class="orderedlist" type="1">
+<li class="listitem"><p>The number of calls to the function specified by the
+        <code class="option">--fnname</code> option (the default is
+        <code class="computeroutput">main</code>).
+        If the program has had its symbols stripped, the count will always
+        be zero.</p></li>
+<li class="listitem"><p>The number of conditional branches encountered and the
+        number and proportion of those taken.</p></li>
+<li class="listitem"><p>The number of superblocks entered and completed by the
+        program.  Note that due to optimisations done by the JIT, this
+        is not at all an accurate value.</p></li>
+<li class="listitem"><p>The number of guest (x86, amd64, ppc, etc.) instructions and IR
+        statements executed.  IR is Valgrind's RISC-like intermediate
+        representation via which all instrumentation is done.
+        </p></li>
+<li class="listitem"><p>Ratios between some of these counts.</p></li>
+<li class="listitem"><p>The exit code of the client program.</p></li>
+</ol></div>
+</dd>
+<dt>
+<a name="opt.detailed-counts"></a><span class="term">
+      <code class="option">--detailed-counts=&lt;no|yes&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>When enabled, Lackey prints a table containing counts of loads,
+      stores and ALU operations, differentiated by their IR types.
+      The IR types are identified by their IR name ("I1", "I8", ... "I128",
+      "F32", "F64", and "V128").</p></dd>
+<dt>
+<a name="opt.trace-mem"></a><span class="term">
+      <code class="option">--trace-mem=&lt;no|yes&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>When enabled, Lackey prints the size and address of almost every
+      memory access made by the program.  See the comments at the top of
+      the file <code class="computeroutput">lackey/lk_main.c</code> for details
+      about the output format, how it works, and inaccuracies in the address
+      trace.  Note that this option produces immense amounts of output.</p></dd>
+<dt>
+<a name="opt.trace-superblocks"></a><span class="term">
+      <code class="option">--trace-superblocks=&lt;no|yes&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>When enabled, 
+      Lackey prints out the address of every superblock 
+      (a single entry, multiple exit, linear chunk of code) executed by the
+      program.  This is primarily of interest to Valgrind developers.  See
+      the comments at the top of the file
+      <code class="computeroutput">lackey/lk_main.c</code> for details about
+      the output format.  Note that this option produces large amounts of
+      output.</p></dd>
+<dt>
+<a name="opt.fnname"></a><span class="term">
+      <code class="option">--fnname=&lt;name&gt; [default: main] </code>
+    </span>
+</dt>
+<dd><p>Changes the function for which calls are counted when
+      <code class="option">--basic-counts=yes</code> is specified.</p></dd>
+</dl>
+</div>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="dh-manual.html">&lt;&lt; 10. DHAT: a dynamic heap analysis tool</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="manual.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="nl-manual.html">12. Nulgrind: the minimal Valgrind tool &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

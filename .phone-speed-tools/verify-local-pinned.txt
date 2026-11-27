@@ -1,0 +1,2 @@
+usage: verify-local.py [--all | --affected [BASE] | --only CHECK] [options]
+verify-local.py: error: Cannot select changed inputs against 'ce9313d70c8eaf4c4756e550754f05e1676bb6be'; check the Git checkout and local base ref

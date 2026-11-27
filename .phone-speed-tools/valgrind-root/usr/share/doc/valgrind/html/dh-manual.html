@@ -1,0 +1,675 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>10. DHAT: a dynamic heap analysis tool</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="manual.html" title="Valgrind User Manual">
+<link rel="prev" href="ms-manual.html" title="9. Massif: a heap profiler">
+<link rel="next" href="lk-manual.html" title="11. Lackey: an example tool">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="ms-manual.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="manual.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind User Manual</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="lk-manual.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="dh-manual"></a>10. DHAT: a dynamic heap analysis tool</h1></div></div></div>
+<div class="toc">
+<p><b>Table of Contents</b></p>
+<dl class="toc">
+<dt><span class="sect1"><a href="dh-manual.html#dh-manual.overview">10.1. Overview</a></span></dt>
+<dt><span class="sect1"><a href="dh-manual.html#dh-manual.profile">10.2. Using DHAT</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="dh-manual.html#dh-manual.running-DHAT">10.2.1. Running DHAT</a></span></dt>
+<dt><span class="sect2"><a href="dh-manual.html#dh-manual.outputfile">10.2.2. Output File</a></span></dt>
+</dl></dd>
+<dt><span class="sect1"><a href="dh-manual.html#dh-manual.viewer">10.3. DHAT's Viewer</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="dh-manual.html#dh-output-header">10.3.1. The Output Header</a></span></dt>
+<dt><span class="sect2"><a href="dh-manual.html#dh-ap-tree">10.3.2. The PP Tree</a></span></dt>
+<dt><span class="sect2"><a href="dh-manual.html#dh-output-footer">10.3.3. The Output Footer</a></span></dt>
+<dt><span class="sect2"><a href="dh-manual.html#dh-sort-metrics">10.3.4. Sort Metrics</a></span></dt>
+</dl></dd>
+<dt><span class="sect1"><a href="dh-manual.html#dh-manual.realloc">10.4. Treatment of realloc</a></span></dt>
+<dt><span class="sect1"><a href="dh-manual.html#dh-manual.copy-profiling">10.5. Copy profiling</a></span></dt>
+<dt><span class="sect1"><a href="dh-manual.html#dh-manual.ad-hoc-profiling">10.6. Ad hoc profiling</a></span></dt>
+<dt><span class="sect1"><a href="dh-manual.html#dh-manual.options">10.7. DHAT Command-line Options</a></span></dt>
+</dl>
+</div>
+<p>To use this tool, you must specify
+<code class="option">--tool=dhat</code> on the Valgrind command line.</p>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="dh-manual.overview"></a>10.1. Overview</h2></div></div></div>
+<p>DHAT is primarily a tool for examining how programs use their heap
+allocations.</p>
+<p>It tracks the allocated blocks, and inspects every memory access
+to find which block, if any, it is to. It presents, on a program point
+basis, information about these blocks such as sizes, lifetimes, numbers of
+reads and writes, and read and write patterns.</p>
+<p>Using this information it is possible to identify program points with
+the following characteristics:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p>potential process-lifetime leaks: blocks allocated
+   by the point just accumulate, and are freed only at the end of the
+   run.</p></li>
+<li class="listitem"><p>excessive turnover: points which chew through a lot
+  of heap, even if it is not held onto for very long</p></li>
+<li class="listitem"><p>excessively transient: points which allocate very
+ short lived blocks</p></li>
+<li class="listitem"><p>useless or underused allocations: blocks which are
+  allocated but not completely filled in, or are filled in but not
+  subsequently read.</p></li>
+<li class="listitem"><p>blocks with inefficient layout -- areas never
+  accessed, or with hot fields scattered throughout the
+  block.</p></li>
+</ul></div>
+<p>As with the Massif heap profiler, DHAT measures program progress
+by counting instructions, and so presents all age/time related figures
+as instruction counts. This sounds a little odd at first, but it
+makes runs repeatable in a way which is not possible if CPU time is
+used.</p>
+<p>DHAT also has support for copy profiling and ad hoc profiling. These are
+described below.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="dh-manual.profile"></a>10.2. Using DHAT</h2></div></div></div>
+<p>First off, as for normal Valgrind use, you probably want to compile with
+debugging info (the <code class="option">-g</code> option). But by contrast with normal
+Valgrind use, you probably do want to turn optimisation on, since you should
+profile your program as it will be normally run.</p>
+<p>Second, you need to run your program under DHAT to gather the profiling
+information. You might need to reduce the <code class="option">--num-callers</code> value
+to get reasonably-sized output files, especially if you are profiling a large
+program; some trial and error might be needed to find a good value.</p>
+<p>Finally, you need to use DHAT's viewer (in a web browser) to get a
+detailed presentation of that information.</p>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="dh-manual.running-DHAT"></a>10.2.1. Running DHAT</h3></div></div></div>
+<p>To run DHAT on a program <code class="filename">prog</code>, run:</p>
+<pre class="screen">
+valgrind --tool=dhat prog
+</pre>
+<p>The program will execute (slowly). Upon completion, summary statistics
+that look like this will be printed:</p>
+<pre class="programlisting">
+==11514== Total:     823,849,731 bytes in 3,929,133 blocks
+==11514== At t-gmax: 133,485,082 bytes in 436,521 blocks
+==11514== At t-end:  258,002 bytes in 2,129 blocks
+==11514== Reads:     2,807,182,810 bytes
+==11514== Writes:    1,149,617,086 bytes
+</pre>
+<p>The first line shows how many heap blocks and bytes were allocated over
+the entire execution.</p>
+<p>The second line shows how many heap blocks and bytes were alive at
+<code class="computeroutput">t-gmax</code>, i.e. the time when the heap size
+reached its global maximum (as measured in bytes).</p>
+<p>The third line shows how many heap blocks and bytes were alive at
+<code class="computeroutput">t-end</code>, i.e. the end of execution. In other
+words, how many blocks and bytes were not explicitly freed. </p>
+<p>The fourth and fifth lines show how many bytes within heap blocks were
+read and written during the entire execution. </p>
+<p>These lines are moderately interesting at best. More useful information
+can be seen with DHAT's viewer.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="dh-manual.outputfile"></a>10.2.2. Output File</h3></div></div></div>
+<p>As well as printing summary information, DHAT also writes more detailed
+profiling information to a file. By default this file is named
+<code class="filename">dhat.out.&lt;pid&gt;</code> (where
+<code class="filename">&lt;pid&gt;</code> is the program's process ID), but its name can
+be changed with the <code class="option">--dhat-out-file</code> option. This file is JSON,
+and intended to be viewed by DHAT's viewer, which is described in the next
+section.</p>
+<p>The default <code class="computeroutput">.&lt;pid&gt;</code> suffix on the
+output file name serves two purposes. Firstly, it means you don't have to
+rename old log files that you don't want to overwrite. Secondly, and more
+importantly, it allows correct profiling with the
+<code class="option">--trace-children=yes</code> option of programs that spawn child
+processes.</p>
+<p>The output file can be big, many megabytes for large applications
+built with full debugging information.</p>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="dh-manual.viewer"></a>10.3. DHAT's Viewer</h2></div></div></div>
+<p>DHAT's viewer can be run in a web browser by loading the file
+<code class="computeroutput">dh_view.html</code>. Use the "Load" button to choose
+a DHAT output file to view.</p>
+<p>If loading takes a long time, it might be worth re-running DHAT with a
+smaller <code class="option">--num-callers</code> value to reduce the stack depths,
+because this can significantly reduce the size of DHAT's output files.</p>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="dh-output-header"></a>10.3.1. The Output Header</h3></div></div></div>
+<p>The first part of the output shows the mode, program command and process
+ID. For example:</p>
+<pre class="programlisting">
+Invocation {
+  Mode:    heap
+  Command: /home/njn/moz/rust0/build/x86_64-unknown-linux-gnu/stage2/bin/rustc --crate-name tuple_stress src/main.rs
+  PID:     18816
+}
+</pre>
+<p>The second part of the output shows the
+<code class="computeroutput">t-gmax</code> and
+<code class="computeroutput">t-end</code> values again. For example:</p>
+<pre class="programlisting">
+Times {
+  t-gmax: 8,138,210,673 instrs (86.92% of program duration)
+  t-end:  9,362,544,994 instrs
+}
+</pre>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="dh-ap-tree"></a>10.3.2. The PP Tree</h3></div></div></div>
+<p>The third part of the output is the largest and most interesting part,
+showing the program point (PP) tree.</p>
+<div class="sect3">
+<div class="titlepage"><div><div><h4 class="title">
+<a name="dh-structure"></a>10.3.2.1. Structure</h4></div></div></div>
+<p>The following image shows a screenshot of part of a PP
+tree. The font is very small because this screenshot is intended to
+demonstrate the high-level structure of the tree rather than the
+details within the text. (It is also slightly out-of-date, and doesn't quite
+match the current output produced by DHAT's viewer.)</p>
+<div><img src="images/dh-tree.png"></div>
+<p>Like any tree, it has a root node, leaf nodes, and non-leaf nodes. The
+structure of the tree is shown by the lines connecting nodes. Child nodes are
+beneath their parent and indented one level.</p>
+<p>The sub-trees beneath a non-leaf node can be collapsed or expanded by
+clicking on the node. It is useful to collapse sub-trees that you aren't
+interested in.</p>
+<p>Colours are meaningful, and are intended to ease tree navigation, but the
+information they represent is also present within the text. (This means that
+colour-blind users are not denied any information.)</p>
+<p>Each leaf node is coloured green. Each non-leaf node is coloured blue
+and has a down arrow (<code class="computeroutput">▼</code>) next to it when
+its sub-tree is expanded. Each non-leaf node is coloured yellow and has a
+left arrow (<code class="computeroutput">▶</code>) next to it when its sub-tree
+is collapsed.</p>
+<p>The shade of green, blue or yellow used for a node indicate its
+significance. Darker shades represent greater significance (in terms of bytes
+or blocks).</p>
+<p>Note that the entire output is text, even the arrows and lines connecting
+nodes. This means you can copy and paste any part of the output easily into an
+email, bug report, etc.</p>
+</div>
+<div class="sect3">
+<div class="titlepage"><div><div><h4 class="title">
+<a name="dh-root-node"></a>10.3.2.2. The Root Node</h4></div></div></div>
+<p>The root node looks like this:</p>
+<pre class="programlisting">
+PP 1/1 (25 children) {
+  Total:     1,355,253,987 bytes (100%, 67,454.81/Minstr) in 5,943,417 blocks (100%, 295.82/Minstr), avg size 228.03 bytes, avg lifetime 3,134,692,250.67 instrs (15.6% of program duration)
+  At t-gmax: 423,930,307 bytes (100%) in 1,575,682 blocks (100%), avg size 269.05 bytes
+  At t-end:  258,002 bytes (100%) in 2,129 blocks (100%), avg size 121.18 bytes
+  Reads:     5,478,606,988 bytes (100%, 272,685.7/Minstr), 4.04/byte
+  Writes:    2,040,294,800 bytes (100%, 101,551.22/Minstr), 1.51/byte
+  Allocated at {
+    #0: [root]
+  }
+}
+</pre>
+<p>The root node covers the entire execution. The information is a superset
+of the information shown when DHAT ran, adding details such as allocation
+rates, average block sizes, block lifetimes, and read and write ratios. The
+next example will explain these in more detail.</p>
+</div>
+<div class="sect3">
+<div class="titlepage"><div><div><h4 class="title">
+<a name="dh-interior-nodes"></a>10.3.2.3. Interior Nodes</h4></div></div></div>
+<p>PP nodes further down the tree show information about a subset of
+allocations. For example:</p>
+<pre class="programlisting">
+PP 1.1/25 (2 children) {
+  Total:     54,533,440 bytes (4.02%, 2,714.28/Minstr) in 458,839 blocks (7.72%, 22.84/Minstr), avg size 118.85 bytes, avg lifetime 1,127,259,403.64 instrs (5.61% of program duration)
+  At t-gmax: 0 bytes (0%) in 0 blocks (0%), avg size 0 bytes
+  At t-end:  0 bytes (0%) in 0 blocks (0%), avg size 0 bytes
+  Reads:     15,993,012 bytes (0.29%, 796.02/Minstr), 0.29/byte
+  Writes:    20,974,752 bytes (1.03%, 1,043.97/Minstr), 0.38/byte
+  Allocated at {
+    #1: 0x95CACC9: alloc (alloc.rs:72)
+    #2: 0x95CACC9: alloc (alloc.rs:148)
+    #3: 0x95CACC9: reserve_internal&lt;syntax::tokenstream::TokenStream,alloc::alloc::Global&gt; (raw_vec.rs:669)
+    #4: 0x95CACC9: reserve&lt;syntax::tokenstream::TokenStream,alloc::alloc::Global&gt; (raw_vec.rs:492)
+    #5: 0x95CACC9: reserve&lt;syntax::tokenstream::TokenStream&gt; (vec.rs:460)
+    #6: 0x95CACC9: push&lt;syntax::tokenstream::TokenStream&gt; (vec.rs:989)
+    #7: 0x95CACC9: parse_token_trees_until_close_delim (tokentrees.rs:27)
+    #8: 0x95CACC9: syntax::parse::lexer::tokentrees::&lt;impl syntax::parse::lexer::StringReader&lt;'a&gt;&gt;::parse_token_tree (tokentrees.rs:81)
+  }
+}
+</pre>
+<p>The first line indicates the node's position in the tree. The
+<code class="computeroutput">1.1</code> is a unique identifier for the node and
+also says that it is the first child node <code class="computeroutput">1</code>
+(which is the root). The <code class="computeroutput">/25</code> says that it is
+one of 25 children, i.e. it has 24 siblings. The <code class="computeroutput">(2
+children)</code> says that this node node has two children of its
+own.</p>
+<p>Allocations are aggregated by their allocation stack trace. The
+<code class="computeroutput">Allocated at</code> section shows the allocation
+stack trace that is shared by all the blocks covered by this node.</p>
+<p>The <code class="computeroutput">Total</code> line shows that this node
+accounts for 4.02% of all bytes allocated during execution, and 7.72% of all
+blocks. These percentages are useful for comparing the significance of
+different nodes within a single profile; a PP that accounts for 10% of bytes
+allocated is likely to be more interesting than one that accounts for
+2%.</p>
+<p>The <code class="computeroutput">Total</code> line also shows allocation
+rates, measured in bytes and blocks per million instructions. These rates are
+useful for comparing the significance of nodes across profiles made with
+different workloads.</p>
+<p>Finally, the <code class="computeroutput">Total</code> line shows the
+average size and lifetimes of these blocks.</p>
+<p>The <code class="computeroutput">At t-gmax</code> line says shows that no
+blocks from this PP were alive when the global heap peak occurred. In other
+words, these blocks do not contribute at all to the global heap peak.</p>
+<p>The <code class="computeroutput">At t-end</code> line shows that no blocks
+were from this PP were alive at shutdown. In other words, all those blocks were
+explicitly freed before termination.</p>
+<p>The <code class="computeroutput">Reads</code> and
+<code class="computeroutput">Writes</code> lines show how many bytes were read 
+within this PP's blocks, the fraction this represents of all heap reads, and
+the read rate. Finally, it shows the read ratio, which is the number of reads
+per byte. In this case the number is 0.29, which is quite low -- if no byte was
+read twice, then only 29% of the allocated bytes, which means that at least 71%
+of the bytes were never read! This suggests that the blocks are being
+underutilized and might be worth optimizing.</p>
+<p>The <code class="computeroutput">Writes</code> lines is similar to the
+<code class="computeroutput">Reads</code> line. In this case, at most 38% of the
+bytes are ever written, and at least 62% of the bytes were never written.
+</p>
+<p>The <code class="computeroutput">Reads</code> and
+<code class="computeroutput">Writes</code> measurements suggest that the blocks
+are being under-utilised and might be worth optimizing. Having said that, this
+kind of under-utilisation is common in data structures that grow, such as
+vectors and hash tables, and isn't always fixable. </p>
+</div>
+<div class="sect3">
+<div class="titlepage"><div><div><h4 class="title">
+<a name="dh-leaf-nodes"></a>10.3.2.4. Leaf Nodes</h4></div></div></div>
+<p>This is a leaf node:</p>
+<pre class="programlisting">
+PP 1.1.1.1/2 {
+  Total:     31,460,928 bytes (2.32%, 1,565.9/Minstr) in 262,171 blocks (4.41%, 13.05/Minstr), avg size 120 bytes, avg lifetime 986,406,885.05 instrs (4.91% of program duration)
+  Max:       16,779,136 bytes in 65,543 blocks, avg size 256 bytes
+  At t-gmax: 0 bytes (0%) in 0 blocks (0%), avg size 0 bytes
+  At t-end:  0 bytes (0%) in 0 blocks (0%), avg size 0 bytes
+  Reads:     5,964,704 bytes (0.11%, 296.88/Minstr), 0.19/byte
+  Writes:    10,487,200 bytes (0.51%, 521.98/Minstr), 0.33/byte
+  Allocated at {
+    ^1: 0x95CACC9: alloc (alloc.rs:72)
+    ^2: 0x95CACC9: alloc (alloc.rs:148)
+    ^3: 0x95CACC9: reserve_internal&lt;syntax::tokenstream::TokenStream,alloc::alloc::Global&gt; (raw_vec.rs:669)
+    ^4: 0x95CACC9: reserve&lt;syntax::tokenstream::TokenStream,alloc::alloc::Global&gt; (raw_vec.rs:492)
+    ^5: 0x95CACC9: reserve&lt;syntax::tokenstream::TokenStream&gt; (vec.rs:460)
+    ^6: 0x95CACC9: push&lt;syntax::tokenstream::TokenStream&gt; (vec.rs:989)
+    ^7: 0x95CACC9: parse_token_trees_until_close_delim (tokentrees.rs:27)
+    ^8: 0x95CACC9: syntax::parse::lexer::tokentrees::&lt;impl syntax::parse::lexer::StringReader&lt;'a&gt;&gt;::parse_token_tree (tokentrees.rs:81)
+    ^9: 0x95CAC39: parse_token_trees_until_close_delim (tokentrees.rs:26)
+    ^10: 0x95CAC39: syntax::parse::lexer::tokentrees::&lt;impl syntax::parse::lexer::StringReader&lt;'a&gt;&gt;::parse_token_tree (tokentrees.rs:81)
+    #11: 0x95CAC39: parse_token_trees_until_close_delim (tokentrees.rs:26)
+    #12: 0x95CAC39: syntax::parse::lexer::tokentrees::&lt;impl syntax::parse::lexer::StringReader&lt;'a&gt;&gt;::parse_token_tree (tokentrees.rs:81)
+  }
+}
+</pre>
+<p>The <code class="computeroutput">1.1.1.1/2</code> indicates that this node
+is a great-grandchild of the root; is the first grandchild of the node in the
+previous example; and has no children.</p>
+<p>Leaf nodes contain an additional <code class="computeroutput">Max</code>
+line, indicating the peak memory use for the blocks covered by this PP. (This
+peak may have occurred at a time other than
+<code class="computeroutput">t-gmax</code>.) In this case, 31,460,298 bytes were
+allocated from this PP, but the maximum size alive at once was 16,779,136
+bytes.</p>
+<p>Stack frames that begin with a <code class="computeroutput">^</code> rather
+than a <code class="computeroutput">#</code> are copied from ancestor nodes.
+(In this example, the first 8 frames are identical to those from the node in
+the previous example.) These frames could be found by tracing back through
+ancestor nodes, but that can be annoying, which is why they are duplicated.
+This also means that each node makes complete sense on its own.</p>
+</div>
+<div class="sect3">
+<div class="titlepage"><div><div><h4 class="title">
+<a name="dh-access-counts"></a>10.3.2.5. Access Counts</h4></div></div></div>
+<p>If all blocks covered by a PP node have the same size, an additional
+<code class="computeroutput">Accesses</code> field will be present. It indicates
+how the reads and writes within these blocks were distributed. For
+example:</p>
+<pre class="programlisting">
+Total:     8,388,672 bytes (0.62%, 417.53/Minstr) in 262,146 blocks (4.41%, 13.05/Minstr), avg size 32 bytes, avg lifetime 16,726,078,401.51 instrs (83.25% of program duration)
+At t-gmax: 8,388,672 bytes (1.98%) in 262,146 blocks (16.64%), avg size 32 bytes
+At t-end:  0 bytes (0%) in 0 blocks (0%), avg size 0 bytes
+Reads:     9,109,682 bytes (0.17%, 453.41/Minstr), 1.09/byte
+Writes:    7,340,088 bytes (0.36%, 365.34/Minstr), 0.88/byte
+Accesses: {
+  [  0]  65547 7 8 4 65529 〃 〃 〃 16 〃 〃 〃 12 〃 〃 〃 〃 〃 〃 〃 〃 〃 〃 〃 65542 〃 〃 〃 - - - - 
+}
+</pre>
+<p>Every block covered by this PP was 32 bytes. Within all of those blocks,
+byte 0 was accessed (read or written) 65,547 times, byte 1 was accessed 7
+times, byte 2 was accessed 8 times, and so on.</p>
+<p>The ditto symbol (<code class="computeroutput">〃</code>) means "same access
+count as the previous byte".</p>
+<p>A dash (<code class="computeroutput">-</code>) means "zero". (It is used
+instead of <code class="computeroutput">0</code> because it makes unaccessed
+regions more easily identifiable.)</p>
+<p>The infinity symbol (<code class="computeroutput">∞</code>, not present in
+this example) means "exceeded the maximum tracked count".</p>
+<p>Block layout can often be inferred from counts. For example, these blocks
+probably have four separate byte-sized fields, followed by a four-byte field,
+and so on.</p>
+<p>The size of the blocks that measure and display access counts is limited
+to 1024 bytes. This is done to limit the performance overhead and also to keep
+the size of the generated output reasonable. However, it is possible to override
+this limit using client requests. The use-case for this is to first run DHAT
+normally, and then identify any large blocks that you would like to further
+investigate with access count histograms. The client request is declared in
+<code class="filename">dhat/dhat.h</code> and is called <code class="computeroutput">DHAT_HISTOGRAM_MEMORY</code>.
+The macro should be placed immediately after the call to the allocator,
+and use the pointer returned by the allocator.</p>
+<pre class="programlisting">
+// LargeStruct bigger than 1024 bytes
+struct LargeStruct* ls = malloc(sizeof(struct LargeStruct));
+DHAT_HISTOGRAM_MEMORY(ls);
+</pre>
+<p>The memory that can be profiled in this way with user requests
+has a further upper limit of 25kbytes.  Be aware that the access counts
+will all be set to zero. This means that the access counts will not
+include any reads or writes performed during initialisation. An example where this
+will happen are uses of C++ <code class="computeroutput">new</code> with user-defined constructors.</p>
+<p>Access counts can be useful for identifying data alignment holes or other
+layout inefficiencies.</p>
+</div>
+<div class="sect3">
+<div class="titlepage"><div><div><h4 class="title">
+<a name="aggregate-nodes"></a>10.3.2.6. Aggregate Nodes</h4></div></div></div>
+<p>The PP tree is very large and many nodes represent tiny numbers of blocks
+and bytes. Therefore, DHAT's viewer aggregates insignificant nodes like
+this:</p>
+<pre class="programlisting">
+PP 1.14.2/2 {
+  Total:     5,175 blocks (0.09%, 0.26/Minstr)
+  Allocated at {
+    [5 insignificant]
+  }
+}
+</pre>
+<p>Much of the detail is stripped away, leaving only basic measurements,
+along with an indication of how many nodes were aggregated together (5 in this
+case).</p>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="dh-output-footer"></a>10.3.3. The Output Footer</h3></div></div></div>
+<p>Below the PP tree is a line like this:</p>
+<pre class="programlisting">
+PP significance threshold: total &gt;= 59,434.17 blocks (1%)
+</pre>
+<p>It shows the function used to determine if a PP node is significant. All
+nodes that don't satisfy this function are aggregated. It is occasionally
+useful if you don't understand why a PP node has been aggregated. The exact
+threshold depends on the sort metric (see below).</p>
+<p>Finally, the bottom of the page shows a legend that explains some of the
+terms, abbreviations and symbols used in the output.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="dh-sort-metrics"></a>10.3.4. Sort Metrics</h3></div></div></div>
+<p>The order in which sub-trees are sorted can be changed via the "Sort
+metric" drop-down menu at the top of DHAT's viewer. Different sort metrics can
+be useful for finding different things. Some sort metrics also incorporate some
+filtering, so that only nodes meeting a particular criteria are shown.</p>
+<div class="variablelist"><dl class="variablelist">
+<dt><span class="term">Total (bytes)</span></dt>
+<dd><p>The total number of bytes allocated during the execution.
+    Highly useful for evaluating heap churn, though not quite as useful as
+    "Total (blocks)".
+    </p></dd>
+<dt><span class="term">Total (blocks)</span></dt>
+<dd><p>The total number of blocks allocated during the execution.
+    Highly useful for evaluating heap churn; reducing the number of calls to
+    the allocator can significantly speed up a program. This is the default
+    sort metric.
+    </p></dd>
+<dt><span class="term">Total (blocks), tiny</span></dt>
+<dd><p>Like "Total (blocks)", but shows only very small blocks.
+    Moderately useful, because such blocks are often easy to avoid allocating.
+    </p></dd>
+<dt><span class="term">Total (blocks), short-lived</span></dt>
+<dd><p>Like "Total (blocks)", but shows only very short-lived
+    blocks. Moderately useful, because such blocks are often easy to avoid
+    allocating.
+    </p></dd>
+<dt><span class="term">Total (bytes), zero reads or zero writes</span></dt>
+<dd><p>Like "Total (bytes)", but shows only blocks that are 
+    never read or never written to (or both). Highly useful, because such
+    blocks indicate poor use of memory and are often easy to avoid allocating.
+    For example, sometimes a block is allocated and written to but then only
+    read if a condition C is true; in that case, it may be possible to delay
+    creating the block until condition C is true. Alternatively, sometimes
+    blocks are created and never used; such blocks are trivial to remove.
+    </p></dd>
+<dt><span class="term">Total (blocks), zero reads or zero writes</span></dt>
+<dd><p>Like "Total (bytes), zero reads or zero writes" but for
+    blocks. Highly useful.
+    </p></dd>
+<dt><span class="term">Total (bytes), low-access</span></dt>
+<dd><p>Like "Total (bytes)", but shows only blocks that have low
+    numbers of reads or low numbers of writes (or both). Moderately useful,
+    because such blocks indicate poor use of memory.
+    </p></dd>
+<dt><span class="term">Total (blocks), low-access</span></dt>
+<dd><p>Like "Total (bytes), low-access", but for blocks.
+    </p></dd>
+<dt><span class="term">At t-gmax (bytes)</span></dt>
+<dd><p>This shows the breakdown of memory at the point of peak
+    heap memory usage. Highly useful for reducing peak memory usage.
+    </p></dd>
+<dt><span class="term">At t-end (bytes)</span></dt>
+<dd><p>This shows the breakdown of memory at program termination.
+    Highly useful for identifying process-lifetime leaks.
+    </p></dd>
+<dt><span class="term">Reads (bytes)</span></dt>
+<dd><p>The number of bytes read within heap blocks. Occasionally
+    useful.
+    </p></dd>
+<dt><span class="term">Reads (bytes), high-access</span></dt>
+<dd><p>Like "Reads (bytes)", but only shows blocks with high read
+    ratios. Occasionally useful for identifying hot areas of memory.
+    </p></dd>
+<dt><span class="term">Writes (bytes)</span></dt>
+<dd><p>Like "Reads (bytes)", but for writes. Occasionally useful.
+    </p></dd>
+<dt><span class="term">Writes (bytes), high-access</span></dt>
+<dd><p>Like "Reads (bytes), high-access", but for writes.
+    Occasionally useful.
+    </p></dd>
+</dl></div>
+<p>The values within a node that represent the chosen sort metric are shown
+in bold, so they stand out.</p>
+<p>Here is part of a PP node found with "Total (blocks), tiny", showing
+blocks with an average size of only 8.67 bytes:</p>
+<pre class="programlisting">
+Total:     3,407,848 bytes (0.25%, 169.62/Minstr) in 393,214 blocks (6.62%, 19.57/Minstr), avg size 8.67 bytes, avg lifetime 1,167,795,629.1 instrs (5.81% of program duration)
+</pre>
+<p>Here is part of a PP node found with "Total (blocks), short-lived",
+showing blocks with an average lifetime of only 181.75 instructions:</p>
+<pre class="programlisting">
+Total:     23,068,584 bytes (1.7%, 1,148.19/Minstr) in 262,143 blocks (4.41%, 13.05/Minstr), avg size 88 bytes, avg lifetime 181.75 instrs (0% of program duration)
+</pre>
+<p>Here is an example of a PP identified with "Total (blocks), zero reads
+or zero writes", showing blocks that are allocated but never touched:</p>
+<pre class="programlisting">
+Total:     7,339,920 bytes (0.54%, 365.33/Minstr) in 262,140 blocks (4.41%, 13.05/Minstr), avg size 28 bytes, avg lifetime 1,141,103,997.69 instrs (5.68% of program duration)
+Max:       3,669,960 bytes in 131,070 blocks, avg size 28 bytes
+At t-gmax: 3,336,400 bytes (0.79%) in 119,157 blocks (7.56%), avg size 28 bytes
+At t-end:  0 bytes (0%) in 0 blocks (0%), avg size 0 bytes
+Reads:     0 bytes (0%, 0/Minstr), 0/byte
+Writes:    0 bytes (0%, 0/Minstr), 0/byte
+</pre>
+<p>All the blocks identified by these PPs are good candidates for
+optimization.</p>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="dh-manual.realloc"></a>10.4. Treatment of realloc</h2></div></div></div>
+<p><code class="computeroutput">realloc</code> is a tricky function and there
+are several different ways that DHAT could handle it.</p>
+<p>Imagine a <code class="computeroutput">malloc(100)</code> call followed by
+a <code class="computeroutput">realloc(200)</code> call. This combination is
+considered to add two to the total block count, and 300 bytes to the total
+bytes count. (An alternative would be to only add one to the total block
+count, and 200 bytes to the total bytes count, as if a single
+<code class="computeroutput">malloc(200)</code> call had occurred. While this
+would be defensible from a semantic point of view, it is silly from an
+operational point of view, because making two calls to allocator functions is
+more expensive than one call, and DHAT is a profiler that aims to help with
+runtime costs.)</p>
+<p>Furthermore, the implicit copying of the 100 bytes is added to the reads
+and writes counts. Without this, the read and write counts would be
+under-measured and misleading.</p>
+<p>However, DHAT only increases the current heap size by 100 bytes for this
+combination, and does not change the current block count. (As opposed to
+increasing the current heap size by 200 bytes and then decreasing it by 100
+bytes.) As a result, it can only increase the global heap peak (if indeed,
+this results in a new peak) by 100 bytes.</p>
+<p>Finally, the program point assigned to the block allocated by the
+<code class="computeroutput">malloc(100)</code> call is retained once the block
+is reallocated. Which means that all 300 bytes are attributed to that
+program point, and no separate program point is created for the
+<code class="computeroutput">realloc(200)</code> call. This may be surprising,
+but it has one large benefit.</p>
+<p>Imagine some code that starts with an empty buffer, and then gradually
+adds data to that buffer from numerous different points in the code,
+reallocating the buffer each time it gets full. (E.g. code generation in a
+compiler might work this way.) With the described approach, the first heap
+block and all subsequent heap blocks are attributed to the same program point.
+While this is something of a lie -- the first program point isn't actually
+responsible for the other allocations -- it is arguably better than having the
+program points spread around in a distribution that unpredictably depends on
+whenever the reallocations were triggered.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="dh-manual.copy-profiling"></a>10.5. Copy profiling</h2></div></div></div>
+<p>If DHAT is invoked with <code class="option">--mode=copy</code>, instead of
+profiling heap operations (allocations and deallocations), it profiles copy
+operations, such as <code class="computeroutput">memcpy</code>,
+<code class="computeroutput">memmove</code>,
+<code class="computeroutput">strcpy</code>, and
+<code class="computeroutput">bcopy</code>. This is sometimes useful.</p>
+<p>Here is an example PP node from this mode:</p>
+<pre class="programlisting">
+PP 1.1.2/5 (4 children) {
+  Total:     1,210,925 bytes (10.03%, 4,358.66/Minstr) in 112,717 blocks (35.2%, 405.72/Minstr), avg size 10.74 bytes
+  Copied at {
+    ^1: 0x4842524: memmove (vg_replace_strmem.c:1289)
+    #2: 0x1F0A0D: copy_nonoverlapping&lt;u8&gt; (intrinsics.rs:1858)
+    #3: 0x1F0A0D: copy_from_slice&lt;u8&gt; (mod.rs:2524)
+    #4: 0x1F0A0D: spec_extend&lt;u8&gt; (vec.rs:2227)
+    #5: 0x1F0A0D: extend_from_slice&lt;u8&gt; (vec.rs:1619)
+    #6: 0x1F0A0D: push_str (string.rs:821)
+    #7: 0x1F0A0D: write_str (string.rs:2418)
+    #8: 0x1F0A0D: &lt;&amp;mut W as core::fmt::Write&gt;::write_str (mod.rs:195)
+  }
+}
+</pre>
+<p>It is very similar to the PP nodes for heap profiling, but with less
+information, because copy profiling doesn't involve any tracking of memory
+regions with lifetimes.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="dh-manual.ad-hoc-profiling"></a>10.6. Ad hoc profiling</h2></div></div></div>
+<p>If DHAT is invoked with <code class="option">--mode=ad-hoc</code>, instead of
+profiling heap operations (allocations and deallocations), it profiles calls to
+the <code class="computeroutput">DHAT_AD_HOC_EVENT</code> client request, which is
+declared in <code class="filename">dhat/dhat.h</code>.</p>
+<p>Here is an example PP node from this mode:</p>
+<pre class="programlisting">
+PP 1.1.1.1/2 {
+  Total:     30 units (17.65%, 115.97/Minstr) in 1 events (14.29%, 3.87/Minstr), avg size 30 units
+  Occurred at {
+    ^1: 0x109407: g (ad-hoc.c:4)
+    ^2: 0x109425: f (ad-hoc.c:8)
+    #3: 0x109497: main (ad-hoc.c:14)
+  }
+}
+</pre>
+<p>This kind of profiling is useful when you know a code path is hot but you
+want to know more about it.</p>
+<p>For example, you might want to know which callsites of a hot function
+account for most of the calls. You could put a
+<code class="computeroutput">DHAT_AD_HOC_EVENT(1);</code> call at the start of
+that function.</p>
+<p>Alternatively, you might want to know the typical length of a vector in a
+hot location. You could put a
+<code class="computeroutput">DHAT_AD_HOC_EVENT(len);</code> call at the
+appropriate location, when <code class="computeroutput">len</code> is the length
+of the vector.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="dh-manual.options"></a>10.7. DHAT Command-line Options</h2></div></div></div>
+<p>DHAT-specific command-line options are:</p>
+<div class="variablelist">
+<a name="dh.opts.list"></a><dl class="variablelist">
+<dt>
+<a name="opt.dhat-out-file"></a><span class="term">
+      <code class="option">--dhat-out-file=&lt;file&gt; </code>
+    </span>
+</dt>
+<dd><p>Write the profile data to 
+            <code class="computeroutput">file</code> rather than to the default
+            output file,
+            <code class="filename">dhat.out.&lt;pid&gt;</code>. The
+            <code class="option">%p</code> and <code class="option">%q</code> format specifiers
+            can be used to embed the process ID and/or the contents of an
+            environment variable in the name, as is the case for the core
+            option <code class="option"><a class="link" href="manual-core.html#opt.log-file">--log-file</a></code>.
+      </p></dd>
+<dt>
+<a name="opt.mode"></a><span class="term">
+      <code class="option">--mode=&lt;heap|copy|ad-hoc&gt; [default: heap] </code>
+    </span>
+</dt>
+<dd><p>The profiling mode: heap profiling, copy profiling, or ad hoc
+            profiling.
+      </p></dd>
+</dl>
+</div>
+<p>Note that stacks by default have 12 frames. This may be more than
+necessary, in which case the <code class="option">--num-callers</code> flag can be used to
+reduce the number, which may make DHAT run slightly faster.
+</p>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="ms-manual.html">&lt;&lt; 9. Massif: a heap profiler</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="manual.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="lk-manual.html">11. Lackey: an example tool &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

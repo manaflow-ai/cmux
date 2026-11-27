@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!-- AMD64 with avx - Includes Linux-only special "register".  -->
+
+<!DOCTYPE target SYSTEM "gdb-target.dtd">
+<target>
+  <architecture>i386:x86-64</architecture>
+  <osabi>GNU/Linux</osabi>
+  <xi:include href="64bit-core.xml"/>
+  <xi:include href="64bit-sse.xml"/>
+  <xi:include href="64bit-linux.xml"/>
+  <xi:include href="64bit-avx.xml"/>
+</target>
