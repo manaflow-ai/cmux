@@ -35,21 +35,21 @@ done
 [[ "$delay_ms" =~ ^[0-9]{1,4}$ ]] || { echo "braid-dial-loss.sh: delay_ms is 0-9999" >&2; exit 2; }
 
 if [[ $(id -u) == 0 ]]; then sudo=(); else sudo=(sudo -n); fi
-"${sudo[@]}" true 2>/dev/null || { echo "braid-dial-loss.sh: needs root or passwordless sudo (netns, tc); run it on a Linux CI runner" >&2; exit 2; }
+${sudo[@]+"${sudo[@]}"} true 2>/dev/null || { echo "braid-dial-loss.sh: needs root or passwordless sudo (netns, tc); run it on a Linux CI runner" >&2; exit 2; }
 for tool in ip tc python3 cargo; do command -v "$tool" >/dev/null || { echo "braid-dial-loss.sh: $tool not found" >&2; exit 2; }; done
 
 # netem preflight before any build: a kernel without sch_netem (the Blacksmith image) stops here, in seconds
 # (handbook netem-route-without-host-module: from HQ, cmux-ci test --setup netem; or any Linux host with the module).
-"${sudo[@]}" modprobe sch_netem 2>/dev/null || true
+${sudo[@]+"${sudo[@]}"} modprobe sch_netem 2>/dev/null || true
 pf="bdlpf$$"
 pf_ok=1
-if "${sudo[@]}" ip link add "$pf" type dummy 2>/dev/null \
-  && "${sudo[@]}" tc qdisc add dev "$pf" root netem delay 1ms loss 1% 2>/dev/null; then pf_ok=0; fi
-"${sudo[@]}" ip link del "$pf" 2>/dev/null || true
+if ${sudo[@]+"${sudo[@]}"} ip link add "$pf" type dummy 2>/dev/null \
+  && ${sudo[@]+"${sudo[@]}"} tc qdisc add dev "$pf" root netem delay 1ms loss 1% 2>/dev/null; then pf_ok=0; fi
+${sudo[@]+"${sudo[@]}"} ip link del "$pf" 2>/dev/null || true
 [[ $pf_ok == 0 ]] || { echo "braid-dial-loss.sh: no netem on kernel $(uname -r); next: run on a host with sch_netem (HQ: cmux-ci test --setup netem)" >&2; exit 2; }
 repo=$(git rev-parse --show-toplevel)
 mkdir -p "$out"; out=$(cd "$out" && pwd); rows="$out/rows.jsonl"; : >"$rows"
-command -v clang >/dev/null || { "${sudo[@]}" apt-get update -qq && "${sudo[@]}" apt-get install -y -qq clang libclang-dev pkg-config; }
+command -v clang >/dev/null || { ${sudo[@]+"${sudo[@]}"} apt-get update -qq && ${sudo[@]+"${sudo[@]}"} apt-get install -y -qq clang libclang-dev pkg-config; }
 
 # build TREE TARGET_DIR: the bench binary's path on stdout; the tree's ghostty-next pin is fetched (ghostty-vt-sys
 # is in the cmux-remote graph). Any failure stops the run: a build that fails must not read as 40 failed dials.
@@ -71,9 +71,8 @@ bin=$(build "$repo" "$repo/cmux-tui/target") || { echo "braid-dial-loss.sh: benc
 arms=(after); bins=("$bin"); shas=("$(git -C "$repo" rev-parse HEAD)")
 work=$(mktemp -d)
 if [[ -n "$before_ref" ]]; then
-  fetch_depth=()
-  [[ "$(git -C "$repo" rev-parse --is-shallow-repository)" == true ]] && fetch_depth=(--depth=1)
-  git -C "$repo" cat-file -e "$before_ref^{commit}" 2>/dev/null || git -C "$repo" fetch -q "${fetch_depth[@]}" origin "$before_ref"
+  source "$repo/scripts/measure/fetch-commit.sh"
+  measure_fetch_commit "$repo" "$before_ref" || exit 1
   git -C "$repo" worktree add -q --detach "$work/before" "$before_ref"
   bin=$(build "$work/before" "$repo/cmux-tui/target-before") || { echo "braid-dial-loss.sh: bench build failed at $before_ref" >&2; exit 1; }
   arms+=(before); bins+=("$bin"); shas+=("$(git -C "$work/before" rev-parse HEAD)")
@@ -83,23 +82,23 @@ for i in "${!bins[@]}"; do cp "${bins[$i]}" "$work/bench-${arms[$i]}"; bins[$i]=
 
 id=$$; c="bdl-$id-c"; s="bdl-$id-s"; vc="bdl${id}c"; vs="bdl${id}s"
 cleanup() {
-  [[ -n "${srv:-}" ]] && "${sudo[@]}" kill "$srv" 2>/dev/null || true
-  "${sudo[@]}" ip netns del "$c" 2>/dev/null || true; "${sudo[@]}" ip netns del "$s" 2>/dev/null || true
-  "${sudo[@]}" rm -f "/etc/netns/$c/hosts"; "${sudo[@]}" rmdir "/etc/netns/$c" 2>/dev/null || true
+  [[ -n "${srv:-}" ]] && ${sudo[@]+"${sudo[@]}"} kill "$srv" 2>/dev/null || true
+  ${sudo[@]+"${sudo[@]}"} ip netns del "$c" 2>/dev/null || true; ${sudo[@]+"${sudo[@]}"} ip netns del "$s" 2>/dev/null || true
+  ${sudo[@]+"${sudo[@]}"} rm -f "/etc/netns/$c/hosts"; ${sudo[@]+"${sudo[@]}"} rmdir "/etc/netns/$c" 2>/dev/null || true
   [[ -d "$work/before" ]] && git -C "$repo" worktree remove --force "$work/before" 2>/dev/null || true
   rm -rf "$work"
 }
 trap cleanup EXIT
-"${sudo[@]}" ip netns add "$c"; "${sudo[@]}" ip netns add "$s"
-"${sudo[@]}" ip link add "$vc" type veth peer name "$vs"
-"${sudo[@]}" ip link set "$vc" netns "$c"; "${sudo[@]}" ip link set "$vs" netns "$s"
-for ns in "$c" "$s"; do "${sudo[@]}" ip -n "$ns" link set lo up; done
-"${sudo[@]}" ip -n "$c" addr add 10.78.0.1/24 dev "$vc"; "${sudo[@]}" ip -n "$c" addr add fd78::1/64 dev "$vc" nodad
-"${sudo[@]}" ip -n "$s" addr add 10.78.0.2/24 dev "$vs"; "${sudo[@]}" ip -n "$s" addr add fd78::2/64 dev "$vs" nodad
-"${sudo[@]}" ip -n "$c" link set "$vc" up; "${sudo[@]}" ip -n "$s" link set "$vs" up
-"${sudo[@]}" mkdir -p "/etc/netns/$c"
-printf 'fd78::2 braid-peer\n10.78.0.2 braid-peer\n' | "${sudo[@]}" tee "/etc/netns/$c/hosts" >/dev/null
-"${sudo[@]}" ip netns exec "$s" python3 -c '
+${sudo[@]+"${sudo[@]}"} ip netns add "$c"; ${sudo[@]+"${sudo[@]}"} ip netns add "$s"
+${sudo[@]+"${sudo[@]}"} ip link add "$vc" type veth peer name "$vs"
+${sudo[@]+"${sudo[@]}"} ip link set "$vc" netns "$c"; ${sudo[@]+"${sudo[@]}"} ip link set "$vs" netns "$s"
+for ns in "$c" "$s"; do ${sudo[@]+"${sudo[@]}"} ip -n "$ns" link set lo up; done
+${sudo[@]+"${sudo[@]}"} ip -n "$c" addr add 10.78.0.1/24 dev "$vc"; ${sudo[@]+"${sudo[@]}"} ip -n "$c" addr add fd78::1/64 dev "$vc" nodad
+${sudo[@]+"${sudo[@]}"} ip -n "$s" addr add 10.78.0.2/24 dev "$vs"; ${sudo[@]+"${sudo[@]}"} ip -n "$s" addr add fd78::2/64 dev "$vs" nodad
+${sudo[@]+"${sudo[@]}"} ip -n "$c" link set "$vc" up; ${sudo[@]+"${sudo[@]}"} ip -n "$s" link set "$vs" up
+${sudo[@]+"${sudo[@]}"} mkdir -p "/etc/netns/$c"
+printf 'fd78::2 braid-peer\n10.78.0.2 braid-peer\n' | ${sudo[@]+"${sudo[@]}"} tee "/etc/netns/$c/hosts" >/dev/null
+${sudo[@]+"${sudo[@]}"} ip netns exec "$s" python3 -c '
 import socket
 s=socket.socket(socket.AF_INET6); s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("::",7443)); s.listen(512)
@@ -109,12 +108,12 @@ srv=$!
 sleep 0.3
 
 shape() { # PCT: netem delay and loss on both ends (replace, so levels change in place).
-  "${sudo[@]}" ip netns exec "$c" tc qdisc replace dev "$vc" root netem delay "${delay_ms}ms" loss "$1%"
-  "${sudo[@]}" ip netns exec "$s" tc qdisc replace dev "$vs" root netem delay "${delay_ms}ms" loss "$1%"
+  ${sudo[@]+"${sudo[@]}"} ip netns exec "$c" tc qdisc replace dev "$vc" root netem delay "${delay_ms}ms" loss "$1%"
+  ${sudo[@]+"${sudo[@]}"} ip netns exec "$s" tc qdisc replace dev "$vs" root netem delay "${delay_ms}ms" loss "$1%"
 }
 
 for i in "${!arms[@]}"; do # an unshaped smoke dial per arm: a rig that cannot dial at all stops here, not as rows
-  smoke=$("${sudo[@]}" ip netns exec "$c" "${bins[$i]}" braid-peer 7443 1 2>&1 || true) # whole output (grep -q + pipefail = SIGPIPE)
+  smoke=$(${sudo[@]+"${sudo[@]}"} ip netns exec "$c" "${bins[$i]}" braid-peer 7443 1 2>&1 || true) # whole output (grep -q + pipefail = SIGPIPE)
   [[ "$smoke" =~ (^|$'\n')'dial 0: '[0-9] ]] \
     || { echo "braid-dial-loss.sh: ${arms[$i]} arm cannot dial braid-peer unshaped:" >&2; echo "$smoke" >&2; exit 1; }
 done
@@ -125,7 +124,7 @@ for pct in "${levels[@]}"; do
   for i in "${!arms[@]}"; do : >"$work/${arms[$i]}-$pct.txt"; done
   for _ in $(seq "$n"); do
     for i in "${!arms[@]}"; do # interleaved: each round dials every arm once
-      line=$("${sudo[@]}" ip netns exec "$c" "${bins[$i]}" braid-peer 7443 1 2>/dev/null | grep -m1 '^dial 0:' || true)
+      line=$(${sudo[@]+"${sudo[@]}"} ip netns exec "$c" "${bins[$i]}" braid-peer 7443 1 2>/dev/null | grep -m1 '^dial 0:' || true)
       echo "${line:-dial 0: failed}" >>"$work/${arms[$i]}-$pct.txt"
     done
   done

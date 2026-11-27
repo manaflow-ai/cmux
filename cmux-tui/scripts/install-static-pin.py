@@ -93,9 +93,10 @@ def script_at(commit):
     """install-static.sh's bytes at `commit`, fetching the commit when this clone lacks it (CI clones
     are shallow). None when it cannot be read."""
     if git("cat-file", "-e", f"{commit}^{{commit}}", check=False).returncode != 0:
-        shallow = git("rev-parse", "--is-shallow-repository", check=False).stdout.strip() == "true"
-        depth = ("--depth=1",) if shallow else ()
-        git("fetch", "--no-tags", *depth, "origin", commit, check=False)
+        # --depth only in a clone that is already shallow: in a full clone it writes .git/shallow
+        # for every worktree sharing it (tests/test_ci_no_shallow_dev_fetch.py).
+        shallow = git("rev-parse", "--is-shallow-repository", check=False).stdout.strip() == b"true"
+        git("fetch", "--no-tags", *(["--depth=1"] if shallow else []), "origin", commit, check=False)
     shown = git("show", f"{commit}:{SCRIPT}", check=False)
     return shown.stdout if shown.returncode == 0 else None
 
