@@ -121,6 +121,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     // The fleet's output directory, not a credential.
     "FAST_CHECKS_OUT",
     "ACPMUX_DURESS_BIG_RECORDS",
+    // The bigchat leg's parts left out, to find which one slows the daemon (`bigchat_off`).
+    "ACPMUX_DURESS_BIGCHAT_OFF",
     // How `systemd-run --user` reaches the user's manager, for the bigchat leg's memory ceiling.
     "XDG_RUNTIME_DIR",
     "DBUS_SESSION_BUS_ADDRESS",
@@ -184,6 +186,13 @@ const SLOW_READERS: usize = 100;
 const UNSETTLED: usize = 300;
 /// The memory ceiling of the `bigchat` leg's daemon (`systemd-run --user -p MemoryHigh=`).
 const MEMORY_HIGH: &str = "768M";
+
+/// Whether the bigchat leg runs without `part` (`ACPMUX_DURESS_BIGCHAT_OFF`, a comma list of
+/// `fork`, `resend`, `watch+team`, `outbox`, `gauges`, `readers`, `memoryhigh`, `cpu`): the
+/// leg with one part off at a time says which part slows the daemon.
+fn bigchat_off(part: &str) -> bool {
+    std::env::var("ACPMUX_DURESS_BIGCHAT_OFF").is_ok_and(|v| v.split(',').any(|p| p.trim() == part))
+}
 
 fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default)
@@ -818,6 +827,18 @@ impl Daemon {
         // The daemon logs to its stdout (`log_sink.rs`): both go to a file in the scratch folder,
         // off the home, so a full home (the disk leg) still leaves its log readable.
         let stdout = stderr.try_clone().unwrap();
+        // A `dhat-heap` build's heap by allocation site (`heap_profile.rs`), written when the
+        // daemon stops, into `ACPMUX_DURESS_DHAT_DIR` (one file per daemon started).
+        if let Some(dir) = std::env::var_os("ACPMUX_DURESS_DHAT_DIR") {
+            static N: AtomicU64 = AtomicU64::new(0);
+            let _ = std::fs::create_dir_all(&dir);
+            let file = PathBuf::from(dir).join(format!(
+                "dhat-{}-{}.json",
+                std::process::id(),
+                N.fetch_add(1, Ordering::SeqCst)
+            ));
+            cmd.env(acpmux::heap_profile::OUT_ENV, file);
+        }
         cmd.args(["daemon", "run", "--log", "info,acpmux::hub::desktop_bridge=debug"])
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
@@ -900,7 +921,9 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         // SAFETY: the pid is this bench's own child, not yet reaped.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        if self.child.wait_timeout(Duration::from_secs(20)).ok().flatten().is_none() {
+        // A heap profile is written on the way out, which takes longer than a plain stop.
+        let stop = if std::env::var_os("ACPMUX_DURESS_DHAT_DIR").is_some() { 600 } else { 20 };
+        if self.child.wait_timeout(Duration::from_secs(stop)).ok().flatten().is_none() {
             let _ = self.child.kill();
             let _ = self.child.wait_timeout(Duration::from_secs(5));
         }
@@ -1481,7 +1504,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     let host150_high = host150::host150_memory_high();
-    let memory_high = if stress.bigchat || stress.host150 {
+    let memory_high = if (stress.bigchat && !bigchat_off("memoryhigh")) || stress.host150 {
         let high = if stress.host150 { host150_high.as_str() } else { MEMORY_HIGH };
         match memory_ceiling_works() {
             Ok(()) => {
@@ -1634,7 +1657,12 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let watchdog = Watchdog::arm(k.cap + host150::extra_cap(name));
     let mut stressors: Vec<Stressor> = vec![];
     let mut stress_json = std::mem::take(&mut stress_json_early);
-    if stress.cpu {
+    if stress.bigchat
+        && let Ok(off) = std::env::var("ACPMUX_DURESS_BIGCHAT_OFF")
+    {
+        stress_json.insert("bigchatOff".into(), json!(off));
+    }
+    if stress.cpu && !(stress.bigchat && bigchat_off("cpu")) {
         let count = k.cpu_x * cores();
         match Stressor::spawn("cpu", &cpu_script(count), k.cap) {
             Ok(s) => stressors.push(s),
@@ -1796,7 +1824,11 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let mut readers: Vec<Rpc> = vec![];
     let mut drivers = vec![];
     if stress.bigchat {
-        let (held, failed) = slow_readers(&daemon.socket, &big);
+        let (held, failed) = if bigchat_off("readers") {
+            (vec![], BTreeMap::new())
+        } else {
+            slow_readers(&daemon.socket, &big)
+        };
         stress_json.insert("slowReaders".into(), json!({"attached": held.len(), "failed": failed}));
         readers = held;
         // The first peer (`peers` names it `peer00`) held down.
@@ -2053,6 +2085,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         if stress.disk && home_log.exists() { log_findings(&home_log) } else { vec![] };
     drop(rpc);
     drop(daemon);
+    let heap = heap_sites();
     for p in &proxies {
         p.cut(false);
     }
@@ -2126,7 +2159,72 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let _ = external.kill();
     let _ = external.wait();
     drop(scratch_dir);
+    if let Some(h) = heap {
+        row["heap"] = h;
+    }
     LegOut { row, removal_errors }
+}
+
+/// The newest dhat profile in `ACPMUX_DURESS_DHAT_DIR` (a `dhat-heap` build), by site: the
+/// bytes each held at the heap's peak, grouped by its first three frames in acpmux's own source.
+fn heap_sites() -> Option<Value> {
+    let dir = std::env::var_os("ACPMUX_DURESS_DHAT_DIR")?;
+    let newest = std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("dhat-"))
+        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())?
+        .path();
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(&newest).ok()?).ok()?;
+    let ftbl: Vec<&str> =
+        doc["ftbl"].as_array()?.iter().map(|f| f.as_str().unwrap_or("")).collect();
+    let mut sites: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
+    let mut peak = 0u64;
+    for pp in doc["pps"].as_array()? {
+        let frames: Vec<&str> = pp["fs"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|i| ftbl.get(i.as_u64()? as usize).copied()).collect())
+            .unwrap_or_default();
+        let own: Vec<String> = frames
+            .iter()
+            .filter(|f| {
+                f.contains("acpmux/src/")
+                    && !f.contains("src/main.rs")
+                    && !f.contains("heap_profile")
+            })
+            .take(3)
+            .map(|f| {
+                let f = f.split_once(": ").map_or(*f, |(_, r)| r);
+                let (name, file) = f.rsplit_once(" (").unwrap_or((f, ""));
+                let name = name.split("::h").next().unwrap_or(name);
+                let name: Vec<&str> =
+                    name.split('<').next().unwrap_or(name).rsplit("::").take(2).collect();
+                let file = file.trim_end_matches(')').rsplit("acpmux/src/").next().unwrap_or(file);
+                format!("{} ({file})", name.into_iter().rev().collect::<Vec<_>>().join("::"))
+            })
+            .collect();
+        let key = if own.is_empty() { "[outside acpmux]".to_owned() } else { own.join(" < ") };
+        let gb = pp["gb"].as_u64().unwrap_or(0);
+        let e = sites.entry(key).or_default();
+        e.0 += gb;
+        e.1 += pp["eb"].as_u64().unwrap_or(0);
+        e.2 += pp["gbk"].as_u64().unwrap_or(0);
+        peak += gb;
+    }
+    let mut rows: Vec<_> = sites.into_iter().collect();
+    rows.sort_by_key(|(_, (gb, _, _))| std::cmp::Reverse(*gb));
+    for (site, (gb, eb, blocks)) in rows.iter().take(40) {
+        eprintln!(
+            "DURESS-HEAP peak {:>8} KiB end {:>8} KiB blocks {blocks:>8} {site}",
+            gb >> 10,
+            eb >> 10
+        );
+    }
+    Some(json!({
+        "profile": newest.display().to_string(),
+        "peakBytes": peak,
+        "byPeak": rows.iter().take(40).map(|(s, (gb, eb, n))| json!({"site": s, "peakBytes": gb, "endBytes": eb, "peakBlocks": n})).collect::<Vec<_>>(),
+    }))
 }
 
 /// The binary under test, copied once into a folder this run owns. On a shared runner another
@@ -2239,6 +2337,9 @@ fn bigchat_drivers(
     let mut threads = vec![];
     let spawn = |name: &str, f: Box<dyn FnOnce() -> Value + Send>| {
         let name = name.to_owned();
+        if bigchat_off(&name) {
+            return std::thread::spawn(move || (name, json!("off")));
+        }
         std::thread::spawn(move || (name, f()))
     };
     let (sock, b, c) = (socket.to_owned(), big.to_vec(), cwd.display().to_string());
@@ -2335,8 +2436,21 @@ fn bigchat_drivers(
         Box::new(move || {
             let (mut rpc, mut s) = (None, Samples::default());
             let (mut last, mut max_ms, mut max_dropped) = (Value::Null, 0f64, 0u64);
+            // What every connection's outbound queue held together, at its most, and the
+            // status's queues row then (`server/queue_gauge.rs`).
+            let (mut held_max, mut conns_max, mut queues_at_max) = (0u64, 0u64, Value::Null);
             while Instant::now() < until {
                 if let Some(v) = timed_call(&mut rpc, &sock, &mut s, "_acpmux/status", json!({})) {
+                    let queues = &v["gauges"]["queues"];
+                    let held = queues["heldBytes"].as_u64().unwrap_or(0);
+                    conns_max = conns_max.max(queues["connections"].as_u64().unwrap_or(0));
+                    if held >= held_max {
+                        held_max = held;
+                        queues_at_max = queues.clone();
+                        if let Some(rows) = queues_at_max.get_mut("largest") {
+                            *rows = json!(rows.as_array().map_or(0, Vec::len));
+                        }
+                    }
                     let fanout = v["gauges"]["recordWrites"]["fanout"].clone();
                     max_ms = max_ms.max(fanout["maxMs"].as_f64().unwrap_or(0.0));
                     max_dropped = max_dropped.max(fanout["dropped"].as_u64().unwrap_or(0));
@@ -2347,7 +2461,8 @@ fn bigchat_drivers(
                 std::thread::sleep(Duration::from_secs(2));
             }
             json!({"status": s.json(), "fanoutLast": last, "fanoutMaxMs": max_ms,
-                   "fanoutDroppedMax": max_dropped})
+                   "fanoutDroppedMax": max_dropped, "queuesHeldMaxBytes": held_max,
+                   "queuesConnectionsMax": conns_max, "queuesAtMax": queues_at_max})
         }),
     ));
     threads
