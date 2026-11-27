@@ -18,32 +18,9 @@ struct CloudBuildSpaceTests {
         tagged ? CMUXBuildSpaceState(devBuild: true, devTag: "My_Tag 2") : .nightly
     }
 
-    nonisolated final class Recorder: URLProtocol {
-        nonisolated(unsafe) static var requests: [URLRequest] = []
-
-        override class func canInit(with _: URLRequest) -> Bool { true }
-        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-        override func startLoading() {
-            guard let url = request.url,
-                  let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
-                                                 headerFields: ["Content-Type": "application/json"]) else { return }
-            Self.requests.append(request)
-            let body = #"{"domains":[]}"#
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data(body.utf8))
-            client?.urlProtocolDidFinishLoading(self)
-        }
-
-        override func stopLoading() {}
-    }
-
-    static func workerClient(_ buildSpace: CMUXBuildSpaceState) -> CloudAPIClient {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [Recorder.self]
-        return CloudAPIClient.workerMachines(baseURL: Self.base, accessToken: { "session" }, teamID: { "team_1" },
-                                             session: URLSession(configuration: configuration),
-                                             installToken: { "install" }, buildSpace: buildSpace)
+    static func workerClient(_ buildSpace: CMUXBuildSpaceState) -> CloudDaemon {
+        CloudDaemon.workerMachines(baseURL: Self.base, accessToken: { "session" }, teamID: { "team_1" },
+                                   installToken: { "install" }, buildSpace: buildSpace)
     }
 
     @Test("The space is dev:<slug> of the build's tag")
@@ -89,27 +66,31 @@ struct CloudBuildSpaceTests {
 
     // MARK: - Clients
 
-    @Test("CloudAPIClient sends the header on a Worker request with a build space, none without", arguments: [true, false])
+    @Test("A CloudDaemon with a build space or none runs its Worker call through cmux-tui (which sends the space)",
+          arguments: [true, false])
     func workerClient(tagged: Bool) async throws {
-        Recorder.requests = []
-        _ = try await Self.workerClient(Self.state(tagged)).listDomains()
-        let request = try #require(Recorder.requests.first)
-        #expect(request.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer session")
+        var daemon = Self.workerClient(Self.state(tagged))
+        let seen = Seen()
+        daemon.daemonCall = { input, _ in
+            seen.input = (try JSONSerialization.jsonObject(with: input) as? [String: Any]) ?? [:]
+            return Data(#"{"ok":true,"body":[]}"#.utf8)
+        }
+        _ = try await daemon.listDomains()
+        #expect(seen.input["call"] as? String == "vm.domains")
+        #expect(seen.input["credential"] as? String == "session")
     }
 
-    @Test("CloudAPIClient of a misconfigured dev build refuses before anything is sent")
+    nonisolated final class Seen: @unchecked Sendable { var input: [String: Any] = [:] }
+
+    @Test("CloudDaemon of a misconfigured dev build refuses before the child starts")
     func workerClientRefuses() async {
-        Recorder.requests = []
-        await #expect(throws: CMUXBuildSpaceError.self) { try await Self.workerClient(Self.misconfigured).listDomains() }
-        // A daemon call refuses too, before the child starts (cmux-tui sends the space itself).
         var daemon = Self.workerClient(Self.misconfigured)
-        daemon.daemon.daemonCall = { _, _ in
+        daemon.daemonCall = { _, _ in
             Issue.record("a misconfigured build started a daemon call")
             return Data()
         }
+        await #expect(throws: CMUXBuildSpaceError.self) { try await daemon.listDomains() }
         await #expect(throws: CMUXBuildSpaceError.self) { try await daemon.listNetworks() }
-        #expect(Recorder.requests.isEmpty)
     }
 
     @Test("CloudOwnerAPIClient adds the header to its session's requests with a build space, none without", arguments: [true, false])
