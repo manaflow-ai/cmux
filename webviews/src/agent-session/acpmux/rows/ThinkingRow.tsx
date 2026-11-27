@@ -19,8 +19,6 @@ export const ThinkingRow = memo(
     // (CloudAgentStartLine), as the Mac's start view did, unless the quiet look's `thinking` arm is on.
     const cloudAgent = useContext(CloudAgentStartContext);
     const waiting = useContext(WaitingOnContext);
-    if (row.queued !== undefined && cloudAgent && !waiting && experimentArm(cloudStartQuietLook) !== "thinking")
-      return <CloudAgentStartLine agent={cloudAgent} since={row.at} below={row.below} />;
     // A look's thinking glyph plays the document's trigger for what the agent does now; the transcript's
     // live line tells Jump to latest too (thinkingGlyphModel.ts).
     const trigger = glyphTrigger({
@@ -33,6 +31,8 @@ export const ThinkingRow = memo(
     useEffect(() => {
       if (live) setLiveGlyphTrigger(trigger);
     }, [live, trigger]);
+    if (row.queued !== undefined && cloudAgent && !waiting && experimentArm(cloudStartQuietLook) !== "thinking")
+      return <CloudAgentStartLine agent={cloudAgent} since={row.at} below={row.below} />;
     return (
       <Thinking
         starting={row.queued !== undefined}
@@ -64,6 +64,7 @@ export const ThinkingRow = memo(
         below={row.below}
         command={row.doingCommand}
         retry={row.retry}
+        retryAt={row.retryAt}
         pulse={row.id === LIVE_THINKING ? (pulse ?? undefined) : undefined}
         glyphTrigger={trigger}
       />
@@ -100,5 +101,6 @@ export const ThinkingRow = memo(
     a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
     a.row.doingCommand === b.row.doingCommand &&
-    a.row.retry === b.row.retry,
+    a.row.retry === b.row.retry &&
+    a.row.retryAt === b.row.retryAt,
 );
