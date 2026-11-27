@@ -2,7 +2,7 @@
 //! needs, picked once when it starts, never per turn (a switch mid-chat throws away its cache).
 //!
 //! Claude Code's `Agent` tool (`Task` in older builds) takes an optional `model`; without one the
-//! subagent runs the lead's model. On fs-agent-lane-33, from 2026-11-20 to 2026-11-27
+//! subagent runs the lead's model. On one lane VM, from 2026-11-20 to 2026-11-27
 //! (`scripts/measure/subagent-model-mix.py`), 120 of 148 subagent runs were on Opus; past the 82
 //! forks (which always run the lead's model), 17 `Agent` calls left `model` out, 1 of them an
 //! `Explore` search. A read-only search on the lead's top model buys nothing a cheaper one
