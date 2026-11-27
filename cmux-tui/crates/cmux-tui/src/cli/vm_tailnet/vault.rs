@@ -203,6 +203,26 @@ pub(super) fn let_go(vault: &dyn NodeVault, vm: &str) -> Result<(), String> {
     }
 }
 
+/// After `vm` resumed from a memory snapshot with `tailscaled` still running the node `name`: the
+/// VM the lease names now when that is another VM and the vault's node is this one (so the resumed
+/// VM runs a second copy of it). `None` when the lease is free, names `vm`, or the vault keeps
+/// another node or none.
+pub(super) fn moved_away(
+    vault: &dyn NodeVault,
+    vm: &str,
+    name: &str,
+) -> Result<Option<String>, String> {
+    let Some(holder) = vault.lease()?.holder.filter(|holder| holder != vm) else {
+        return Ok(None);
+    };
+    Ok(vault.get()?.filter(|kept| label(&kept.name) == label(name)).map(|_| holder))
+}
+
+/// Stops the node on a VM that no longer holds it, without signing it out (the holder runs it).
+pub(super) fn stand_down(guest: &mut dyn Guest) -> Result<(), String> {
+    exec_ok(guest, &handoff::stand_down_command(), "cmux-tailnet-stood-down")
+}
+
 /// The vault names the node by its hostname label (`leo-cmux` of `leo-cmux.tail1.ts.net`): the
 /// tailnet's suffix is not the node's and the vault takes only a label.
 pub(super) fn label(name: &str) -> &str {
