@@ -42,7 +42,7 @@ const CHALLENGE_TTL_MS = 2 * 60_000
 /** networkIdentity's answer: public key, kind, live grant expiry and op classes, and the install authority version. */
 export interface NetworkIdentityView { key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> }
 
-export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "auth.forbidden" | "validation.invalid" | "owner.unreachable"; message: string }
+export type RedeemResult = ({ ok: true; readonly bound_machine?: string } & InstallClaims) | { ok: false; code: "auth.forbidden" | "validation.invalid" | "owner.unreachable"; message: string }
 
 /**
  * UserDO: the user's installs, devices, grants and revocation (identity spec
@@ -781,7 +781,7 @@ export class UserDO extends OwnerDO<UserState> {
     // non-CLI credentials cannot acquire MCP authority by supplying a scope in the request.
     const scopes = this.env.PLATFORM_AGENT_GATEWAY === "on" && ["development", "test"].includes(this.env.ENVIRONMENT) && agent === undefined
       ? mcpScopesForGrant(current.kind, held.op_classes) : []
-    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(scopes.length ? { scope: scopes.join(" ") } : {}), ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
+    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(scopes.length ? { scope: scopes.join(" ") } : {}), ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const, ...(current.bound_machine ? { bound_machine: current.bound_machine } : {}) } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
   }
 }
 
