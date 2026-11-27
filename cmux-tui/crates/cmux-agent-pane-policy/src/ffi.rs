@@ -193,6 +193,7 @@ impl Pane {
 pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
     let text = |key: &str| request.get(key).and_then(Value::as_str);
     match op {
+        "new_tab_projects" => Ok(crate::new_tab_projects::snapshot(request)),
         "policy" => Ok(policy_json()),
         "refusal_frame" => {
             let refusal = text("code").and_then(Refusal::from_code).ok_or(ERR_INVALID)?;

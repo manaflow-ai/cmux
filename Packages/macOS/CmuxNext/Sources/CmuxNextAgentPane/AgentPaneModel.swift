@@ -593,6 +593,13 @@ public final class AgentPaneModel {
         guard var page = newTab else { return nil }
         if page.draft == nil { page.draft = newChatLeftoverDraft?() }
         page.start = startFolders.local(of: self)
+        if page.projectRows == nil {
+            let local = page.startsRemote != true
+            page.projectRows = AgentPaneProjectSnapshot.rows(
+                projects: local ? AgentPaneProjectSnapshot.cachedProjects + page.projects : page.projects,
+                repos: local ? AgentPaneProjectSnapshot.cachedRepos : [:], warm: page.warm, cwd: page.cwd)
+            newTab?.projectRows = page.projectRows
+        }
         return page
     }
 
@@ -840,7 +847,18 @@ public final class AgentPaneModel {
             guard let onListProjects else { return Self.unsupported("project.list") }
             // Each folder's repository, so the pickers fold worktrees under their repository.
             let projects = await onListProjects(query)
-            return AgentPaneReply.success(["projects": projects, "repos": await AgentPaneProjectRepoReader.replies(for: projects)])
+            let repos = await AgentPaneProjectRepoReader.replies(for: projects)
+            let page = newTabForPage
+            if query == nil {
+                AgentPaneProjectSnapshot.cachedProjects = projects
+                AgentPaneProjectSnapshot.cachedRepos = repos
+            }
+            var reply: [String: Any] = ["projects": projects, "repos": repos]
+            if query == nil, let page {
+                reply["projectRows"] = AgentPaneProjectSnapshot.rows(projects: projects, repos: repos,
+                    warm: page.warm, cwd: page.cwd, seed: page.projectRows)
+            }
+            return AgentPaneReply.success(reply)
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .resumeChat(let ref): return AgentPaneReply.success(["status": await resumeChat(ref).rawValue])
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }

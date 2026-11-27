@@ -53,6 +53,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var omnibar: AgentPaneOmnibar
     /// Recent local project folders from agent history, classic sessions and git roots.
     public var projects: [String]
+    /// Rust's cached project rows for this opening, including repository identity.
+    public var projectRows: String?
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
     /// The template (`tabs.newTabTemplate`: "minimal", "classic" or "terminal"); the settings
@@ -120,6 +122,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         // Keep the host DTO lossless. The web page owns presentation limits and
         // validation after the Codable handshake crosses the bridge.
         self.projects = projects
+        self.projectRows = nil
         self.layout = layout
         self.template = template
         self.lastAgent = lastAgent

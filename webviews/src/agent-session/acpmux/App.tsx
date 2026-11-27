@@ -100,6 +100,7 @@ import {
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
 import { askAppCloudPick, cloudPickChoices, rememberStartedProject } from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
+import { parseProjectRows, type NativeProjectRow } from "./newtab/projectRows";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { ApprovedPlanBand } from "./ApprovedPlanBand";
 import { approvedPlanPlace } from "./approvedPlan.experiment";
@@ -9388,7 +9389,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const loadNewTabProjects = useCallback(
     () =>
-      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean }>("project.list").then((result) => {
+      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean; projectRows?: string }>("project.list").then((result) => {
         // Each folder's repository (projectRepos.ts): the pickers fold worktrees under it.
         const repos = parseProjectRepos(result?.repos);
         const projects = (result?.projects ?? []).map((cwd): Project => {
@@ -9396,7 +9397,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           return { cwd, label: projectName(cwd) ?? cwd, ...(repo ? { repo } : {}) };
         });
         // `machine`: the host listed the chat's other machine's folders, not this Mac's.
-        return { projects, machine: result?.machine === true };
+        return { projects, machine: result?.machine === true, projectRows: parseProjectRows(result?.projectRows) };
       }),
     [],
   );
@@ -9405,7 +9406,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// reads it, from its first render, while its own is pending or if it fails (Codex review of
   /// #24274).
   /// `projects` undefined: not answered yet.
-  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[]; machine?: boolean }>({
+  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[]; machine?: boolean; projectRows?: NativeProjectRow[] }>({
     page: 0,
   });
   const projectsAnswered = loadedProjects.page === newTabGeneration && loadedProjects.projects !== undefined;
@@ -9604,7 +9605,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // built again from the chat list, which changes on every event of any chat that runs, and the
   // composer takes it as a prop (`projectChoices`), so a new copy of it drew the composer again four
   // times a second with another chat working (test/agent-pane-scroll-tick-composer-hat-still.test.ts).
-  const newTabProjects = useSameValue(newTabProjectList);
+  const newTabProjects = useSameValue(
+    (projectsAnswered ? loadedProjects.projectRows : undefined) ?? newTab?.projectRows ?? newTabProjectList,
+  );
   // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from
   // their chats (each with its machine's name), Add project and Do not work in a project.
   const heroPicker = useMemo<EmptyStateProjects | undefined>(() => {
