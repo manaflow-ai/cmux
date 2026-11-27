@@ -23,6 +23,8 @@ bindgen = ["uniffi/cli"]
 
 [dependencies]
 cmux-local-url.workspace = true
+# cmux link grammar (src/cmux_link.rs) parses URLs.
+url.workspace = true
 async-trait = "0.1"
 cmux-auto-session.workspace = true
 # Wake on intent (src/cloud_wake.rs): the Mac's `wake_hint` rules.
@@ -45,6 +47,8 @@ cmux-rd-screen.workspace = true
 cmux-tab-snapshots.workspace = true
 cmux-terminal-prediction.workspace = true
 cmux-terminal-projection.workspace = true
+# The cmux vault on the phone (src/vault.rs).
+cmux-vault-e2e.workspace = true
 # The VNC client's rules for CmuxVNC (src/vnc.rs: `vnc_json`).
 cmux-vnc.workspace = true
 cmux-window-rules.workspace = true
@@ -63,8 +67,10 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+unicode-normalization = "0.1"
 uniffi = "=0.31.1"
 uuid.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }

@@ -230,7 +230,7 @@ pub(crate) async fn owner_return_loop(weak: std::sync::Weak<Hub>, mover: &dyn Mo
     let mut ticks: u32 = 0;
     loop {
         every.tick().await;
-        let enrolled = ticks % ENROLL_EVERY != 0 || {
+        let enrolled = !ticks.is_multiple_of(ENROLL_EVERY) || {
             tokio::task::spawn_blocking(|| crate::autocloud_enroll::Enrollment::read().enabled)
                 .await
                 .unwrap_or(true)

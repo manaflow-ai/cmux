@@ -96,25 +96,24 @@ impl Hub {
                         // `queue_order` (`restart_resume.rs`); a later reorder still holds.
                         if super::auto_resume::Cut::queued(
                             e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str),
-                        ) {
-                            if let Some(id) = e.msg.get("promptId") {
-                                order.prioritize_restart(id);
-                            }
+                        ) && let Some(id) = e.msg.get("promptId")
+                        {
+                            order.prioritize_restart(id);
                         }
                         // An accepted prompt a restart put back (`unstarted_prompt.rs`) stays at
                         // the head across a second restart before it ran.
-                        if e.msg.get("restored").and_then(Value::as_str) == Some("unstarted") {
-                            if let Some(id) = e.msg.get("promptId") {
-                                order.prioritize_restart(id);
-                            }
+                        if e.msg.get("restored").and_then(Value::as_str) == Some("unstarted")
+                            && let Some(id) = e.msg.get("promptId")
+                        {
+                            order.prioritize_restart(id);
                         }
                         // An inbox digest holds the queue's order with it in it, as its
                         // `queue_order` record does.
-                        if super::digest::inbox_digest::is_digest_record(&e.msg) {
-                            if let Some(ids) = e.msg.get("order").and_then(Value::as_array) {
-                                order.set(ids.iter());
-                                unstarted.lead(&mut order);
-                            }
+                        if super::digest::inbox_digest::is_digest_record(&e.msg)
+                            && let Some(ids) = e.msg.get("order").and_then(Value::as_array)
+                        {
+                            order.set(ids.iter());
+                            unstarted.lead(&mut order);
                         }
                         // Put back after a failed turn (`requeue_joined`): this copy replaces
                         // the one the turn took (an inbox digest's message is still waiting).

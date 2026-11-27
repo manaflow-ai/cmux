@@ -33,6 +33,7 @@ set -euo pipefail
 repo="$1"
 echo "${TOKEN-unset}" >> "$FAKE_TOKENS"
 [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 ]] && echo again >> "$FAKE_AGAIN"
+if [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 && -n "${FAKE_SLOW:-}" ]]; then sleep "$FAKE_SLOW"; fi
 if [[ -n "${FAKE_DAEMON_FIX:-}" ]]; then
   if [[ "${FAKE_OTHER_REPAIR:-}" == yes ]]; then
     mkdir -p "$repo/cmux-tui/bindings/rust/src/generated"
@@ -149,6 +150,31 @@ run FAKE_MOVE=always CMUX_BASE_AUTOFIX_ROUNDS=3 > "$tmp/out" 2>&1 \
 [[ "$(wc -l < "$tmp/again" | tr -d ' ')" == 2 ]] || fail "the repair was made again $(wc -l < "$tmp/again" | tr -d ' ') times, not 2 (3 rounds)"
 [[ "$(remote_show "$graph")" == "graph old" ]] || fail "a graph made for an older manifest landed: $(remote_show "$graph")"
 grep -q "::warning.*next run" "$tmp/out" || fail "the run does not say the next run repairs it: $(cat "$tmp/out")"
+
+# 4b. Too little of the job's time is left for a round on the moved tip: no round starts, the graph
+#     made for an older manifest stays off the branch, and the run passes with a warning (the move
+#     started a run that repairs it). Before, the round ran into the job's 65-minute cancel and the
+#     run went red (45994733335, 2026-11-27).
+setup
+first_repair
+lane_commit "lane edits the manifest" "$manifest" "manifest v2"
+run CMUX_BASE_AUTOFIX_AGAIN_DEADLINE="$(( $(date +%s) + 60 ))" > "$tmp/out" 2>&1 \
+  || fail "a round with no time left failed the run: $(cat "$tmp/out")"
+[[ ! -s "$tmp/again" ]] || fail "a round started with too little time left"
+[[ "$(remote_show "$graph")" == "graph old" ]] || fail "a graph made for an older manifest landed: $(remote_show "$graph")"
+grep -q "::warning.*time left" "$tmp/out" || fail "the run does not say it left the round to the next run: $(cat "$tmp/out")"
+
+# 4c. The round's repair is still running at the deadline: it is stopped, nothing lands for the
+#     tip, and the run passes with a warning.
+setup
+first_repair
+lane_commit "lane edits the manifest" "$manifest" "manifest v2"
+started="$(date +%s)"
+run FAKE_SLOW=60 CMUX_BASE_AUTOFIX_AGAIN_MIN_S=1 CMUX_BASE_AUTOFIX_AGAIN_DEADLINE="$(( started + 3 ))" > "$tmp/out" 2>&1 \
+  || fail "a round cut off at the deadline failed the run: $(cat "$tmp/out")"
+(( $(date +%s) - started < 40 )) || fail "the round ran past its deadline"
+[[ "$(remote_show "$graph")" == "graph old" ]] || fail "a cut-off round landed a graph: $(remote_show "$graph")"
+grep -q "::warning.*still running at this job's deadline" "$tmp/out" || fail "the run does not say the round was cut off: $(cat "$tmp/out")"
 
 # 5. Someone else already put the tip's own graph on the branch: the push holds this run's copy
 #    (a newer commit wrote it), the repair on the tip changes nothing, and the run passes.
