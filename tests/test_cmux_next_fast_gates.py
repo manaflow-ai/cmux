@@ -107,7 +107,6 @@ def step_named(steps: list[dict], fragment: str) -> dict:
 class PhonePairRequiredGate(unittest.TestCase):
     def verdict(self, **overrides):
         step = step_named(job(workflow(), "post")["steps"], "Post the cmux-next/fast-gates status")
-        script = step["run"].split("          # A rate-limit refusal")[0]
         # YAML has stripped indentation. Execute the workflow's actual decision block, without its API write.
         script = step["run"].split("# A rate-limit refusal")[0]
         with tempfile.TemporaryDirectory() as tmp:
