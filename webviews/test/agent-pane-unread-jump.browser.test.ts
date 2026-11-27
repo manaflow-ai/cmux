@@ -93,9 +93,12 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 900, height: 560 } });
     await installPaintedFrames(page);
-    // Jump up is off by default (jumpUp.experiment.ts, #42247): these test the control turned up.
+    // Enable both Jump up and its look: the default single look deliberately suppresses Up.
     await page.addInitScript(() => {
-      (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "jump-up": "on" };
+      (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+        "jump-up": "on",
+        "jump-pair-look": "frosted",
+      };
     });
     await page.goto(`http://127.0.0.1:${port}/test/browser/unread-jump.html`);
     await page.waitForFunction(() => "__showRows" in window);
