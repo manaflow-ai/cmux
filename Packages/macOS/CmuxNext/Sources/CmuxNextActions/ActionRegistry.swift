@@ -316,6 +316,16 @@ public final class ActionRegistry {
     /// ``bindUnavailable(_:reason:)`` placeholder is no duplicate; anything else bound twice is.
     public private(set) var duplicateBindings: [ActionID] = []
     private var placeholders: Set<ActionID> = []
+    /// Inside ``bindingFallbacks(_:_:)``: each bind is a fallback a later bind replaces, as a placeholder.
+    @ObservationIgnored private var bindsFallbacks = false
+
+    /// Runs `binds`; when `fallback`, each binding it makes is one a later bind replaces with no duplicate (the
+    /// catalog request rows at launch, before the binders the App runs after its first frame).
+    public func bindingFallbacks(_ fallback: Bool, _ binds: () -> Void) {
+        bindsFallbacks = fallback
+        defer { bindsFallbacks = false }
+        binds()
+    }
 
     /// Ids a handler tried to bind that the catalog does not have, in bind order: a typo, or an
     /// action the Rust source has that the pinned app FFI release does not carry yet (a Swift
@@ -346,7 +356,7 @@ public final class ActionRegistry {
     func noteBinding(_ id: ActionID, placeholder: Bool) {
         let canonical = canonicalID(for: id)
         if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }
-        if placeholder { placeholders.insert(canonical) } else { placeholders.remove(canonical) }
+        if placeholder || bindsFallbacks { placeholders.insert(canonical) } else { placeholders.remove(canonical) }
     }
 
     /// Registers `action`, replacing any action with the same ID. Legacy IDs

@@ -163,7 +163,43 @@ mod preview;
 #[path = "processes_preview_tests.rs"]
 mod process_preview_tests;
 
+/// A session's process table through one record of its log, as an adoption checkpoint keeps it
+/// (`hosts/checkpoint.rs`): a restart folds only the records after it into the table, never the
+/// copies of every segment of the log. Leo, 2026-11-19: "we need to be able to have infinite
+/// chats, infinitely long chats"; a 4 GB chat's restart spent 712 of its 900 ms adopting its
+/// host here (cmux#51494).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SavedProcesses {
+    /// The last record folded.
+    pub(super) through: u64,
+    /// The processes in the order they started, each with whether its state is logged.
+    rows: Vec<(Process, bool)>,
+}
+
 impl ProcessTable {
+    /// The table `saved` holds, as a read of its log through `saved.through` gives it.
+    fn restored(saved: SavedProcesses) -> Self {
+        let mut table = ProcessTable { loaded: true, through: saved.through, ..Self::default() };
+        for (process, logged) in saved.rows {
+            let at = table.insert(process);
+            if let Some(row) = table.processes.get_mut(at) {
+                row.logged = logged;
+            }
+        }
+        table
+    }
+
+    /// The table as a checkpoint keeps it, moved out: a long chat's is its every process, which
+    /// a copy held twice at a restart's peak (cmux#51494).
+    fn into_saved(self) -> SavedProcesses {
+        let rows = self.processes.into_iter().map(|p| {
+            let logged = p.logged;
+            (p, logged)
+        });
+        SavedProcesses { through: self.through, rows: rows.collect() }
+    }
+
     /// All appends go here, including records replayed from a logged process update.
     fn insert(&mut self, process: Process) -> usize {
         let at = self.processes.len();
@@ -852,10 +888,28 @@ fn task_params(params: Option<&mut Value>) -> Value {
 
 impl Hub {
     /// The session's table, read from its log's copies the first time.
+    ///
+    /// The log is read with the table's lock let go: `running_processes_read` and
+    /// `running_heavy_read` take that lock for every chat on each `daemon status` and row list
+    /// (`host_load.rs`, `idle.rs`) and promise never to wait on a log scan. On the coordinator Mac,
+    /// 2026-11-27 02:43Z to 03:20Z: a first read here waited in the store's fork view behind a cold
+    /// archive commit, which waited behind a whole-log pack at background priority; it held this
+    /// lock all the while, 15 of 32 tokio workers parked on it, and every acpmux delivery on the
+    /// host timed out (`tools/acpmux_delivery_probe.py`, 10 missed probes). Two first reads may
+    /// race: the first table put in wins and the other is dropped, and a record logged after a
+    /// read is folded by its `note_process` (its seq is past the table's `through`).
     fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
+        let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        if table.loaded {
+            return table;
+        }
+        drop(table);
+        let mut read = self.read_processes(session);
         let mut table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         if !table.loaded {
-            *table = self.read_processes(session);
+            // The preview watches started meanwhile stay the only ones (`rebuild_processes`).
+            read.watching = std::mem::take(&mut table.watching);
+            *table = read;
         }
         table
     }
@@ -865,28 +919,48 @@ impl Hub {
     /// exited, or a new one, outlived none of the processes before it (a
     /// power loss logs no end).
     fn read_processes(&self, session: &Session) -> ProcessTable {
-        let mut table = ProcessTable { loaded: true, ..ProcessTable::default() };
+        self.read_processes_from(session, None)
+    }
+
+    /// `read_processes`, from the table `saved` holds (its log's records through
+    /// `saved.through`) when there is one: only the records after it are read.
+    fn read_processes_from(
+        &self,
+        session: &Session,
+        saved: Option<SavedProcesses>,
+    ) -> ProcessTable {
+        let mut table = match saved {
+            Some(saved) => ProcessTable::restored(saved),
+            None => ProcessTable { loaded: true, ..ProcessTable::default() },
+        };
+        let after = table.through;
         // The log's last whole record, read from its end: a head alone could be a line a crash
         // cut short, which a whole-record read skips. Read first, so a record logged meanwhile
         // that the scan below does not fold is never counted as folded.
         let _ = self.store.scan_back(&session.id, 0, u64::MAX, &|_, _| false, &mut |e| {
-            table.through = e.seq;
+            table.through = table.through.max(e.seq);
             false
         });
-        // The kinds folded here only, from the log's copies of them (`store/kind_index.rs`): the
-        // idle sweep and a chat's first process read come here, and a long chat's log is a
-        // million records. Read back, newest first, then folded in order: a segment with no
-        // copy yet gets one made by its lines' heads, never parsed whole (`scan_kinds` makes one
-        // by parsing every line, which an adoption of many hosted chats paid for each:
-        // `hosts_tests.rs` `adoption_reads_parse_only_the_records_they_fold`).
-        // Each record is cut to what the fold reads as it is read: a record kept whole holds
-        // its command and every other field, so a long chat's restart held every process record
-        // it ever logged, parsed (63 MB of a 1 GB chat's, `god_daemon` `chat_size_sweep`).
+        self.fold_processes(session, &mut table, after, u64::MAX);
+        table
+    }
+
+    /// Folds `session`'s records after `after` and before `before` into `table`. The kinds folded
+    /// here only, from the log's copies of them (`store/kind_index.rs`): the idle sweep and a
+    /// chat's first process read come here, and a long chat's log is a million records. Read
+    /// back, newest first, to `after`, then folded in order: a segment with no copy yet gets one
+    /// made by its lines' heads, never parsed whole (`scan_kinds` makes one by parsing every
+    /// line, which an adoption of many hosted chats paid for each: `hosts_tests.rs`
+    /// `adoption_reads_parse_only_the_records_they_fold`). Each record is cut to what the fold
+    /// reads as it is read: a record kept whole holds its command and every other field, so a
+    /// long chat's restart held every process record it ever logged, parsed (63 MB of a 1 GB
+    /// chat's, `god_daemon` `chat_size_sweep`).
+    fn fold_processes(&self, session: &Session, table: &mut ProcessTable, after: u64, before: u64) {
         let mut folded = Vec::new();
         let _ = self.store.scan_back_indexed(
             &session.id,
-            0,
-            u64::MAX,
+            after,
+            before,
             &|dir, kind| !folds_process(dir, kind),
             &mut |e| {
                 if let Some(f) = Folded::of(e) {
@@ -911,13 +985,31 @@ impl Hub {
                 }
             }
         }
-        table
     }
 
-    /// Reads the session's processes from its log again: a daemon that
-    /// adopted a running host lists them again (`hosts.rs`).
-    pub(super) fn rebuild_processes(&self, session: &Session) {
-        let mut table = self.read_processes(session);
+    /// `session`'s processes through record `through` (whole: no append is under way before
+    /// it), from `saved` when it holds an earlier record: what an adoption checkpoint keeps.
+    pub(super) fn processes_through(
+        &self,
+        session: &Session,
+        saved: Option<SavedProcesses>,
+        through: u64,
+    ) -> SavedProcesses {
+        let mut table = match saved.filter(|s| s.through <= through) {
+            Some(saved) => ProcessTable::restored(saved),
+            None => ProcessTable { loaded: true, ..ProcessTable::default() },
+        };
+        let after = table.through;
+        self.fold_processes(session, &mut table, after, through.saturating_add(1));
+        table.through = through;
+        table.into_saved()
+    }
+
+    /// Reads the session's processes from its log again: a daemon that adopted a running host
+    /// lists them again (`hosts.rs`). From the table `saved` holds (an adoption checkpoint's),
+    /// only the records after it are read.
+    pub(super) fn rebuild_processes_from(&self, session: &Session, saved: Option<SavedProcesses>) {
+        let mut table = self.read_processes_from(session, saved);
         let mut slot = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         // The preview watches still run: they stay the only ones.
         table.watching = std::mem::take(&mut slot.watching);
@@ -947,7 +1039,7 @@ impl Hub {
                     p.output_file = Some(file.to_owned());
                     p.logged = false;
                 }
-                i.filter(|&i| !table.processes[i].logged)
+                i.filter(|&i| table.processes.get(i).is_some_and(|p| !p.logged))
             };
             i.map(|i| table.log(i))
         };
@@ -1276,36 +1368,5 @@ fn unknown_process(id: &str) -> RpcError {
 }
 
 #[cfg(test)]
-mod process_list_snapshot_tests {
-    use super::*;
-
-    #[test]
-    fn a_process_list_reads_output_metadata_after_releasing_its_table() {
-        let process: Process = serde_json::from_value(json!({
-            "id": "chat/task", "sessionId": "chat", "toolCallId": "call",
-            "taskId": "task", "harness": "claude", "command": "cargo test",
-            "cwd": "/tmp", "startedAt": 100, "endedAt": 200,
-            "state": "exited", "origin": "background", "outputFile": "/tmp/task-output"
-        }))
-        .unwrap();
-        let table = std::sync::Mutex::new(ProcessTable {
-            loaded: true,
-            processes: vec![process],
-            ..ProcessTable::default()
-        });
-        // Every caller first takes its snapshot, then drops the guard before
-        // collecting live file sizes and serializing the reply.
-        let snapshot = table.lock().unwrap().snapshot();
-        let rows = process_values(snapshot, |path| {
-            assert_eq!(path, "/tmp/task-output");
-            assert!(table.try_lock().is_ok(), "filesystem metadata read under process-table lock");
-            42
-        });
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0]["id"], "chat/task");
-        assert_eq!(rows[0]["state"], "exited");
-        assert_eq!(rows[0]["outputBytes"], 42);
-        // The saved table remains unchanged: a later list re-reads the file size.
-        assert_eq!(table.lock().unwrap().processes[0].output_bytes, None);
-    }
-}
+#[path = "processes_process_list_snapshot_tests.rs"]
+mod process_list_snapshot_tests;

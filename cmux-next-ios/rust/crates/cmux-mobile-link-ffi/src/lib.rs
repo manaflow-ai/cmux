@@ -3,6 +3,7 @@
 //! Every async function runs on one shared Tokio runtime owned by this
 //! library, so Swift may await them from any executor.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -16,6 +17,7 @@ use cmux_mobile_link::{
 };
 use tokio::runtime::Runtime;
 
+mod attachment_upload;
 mod auto_chats;
 mod browser;
 #[doc(hidden)]
@@ -24,6 +26,7 @@ mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
 mod cloud_wake;
+mod cmux_link;
 mod composer_outbox;
 mod feed_list_edit;
 mod follow_camera;
@@ -32,6 +35,7 @@ mod last_place;
 mod link_progress;
 mod link_side;
 pub mod local_link;
+mod mac_reachability;
 mod mac_screen;
 mod mailbox_client;
 mod pair_requests;
@@ -47,10 +51,19 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod vault;
 mod vnc;
 mod window_layout;
+mod workspace_arrangement;
+mod workspace_creation;
 mod workspace_groups;
+mod workspace_moves;
+mod workspace_row_actions;
 
+pub use attachment_upload::{
+    AttachmentUploads, ImagePlan, Timings, UploadObserver, UploadProgress, UploadSpec, UploadStage,
+    VideoPlan, image_plan, video_plan,
+};
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
 };
@@ -68,6 +81,7 @@ pub use cloud_wake::{
     CloudWakeAnswer, CloudWakeHint, CloudWakeIdle, CloudWakeOutcome, cloud_wake_hint, cloud_wake_idle,
     cloud_wake_input, cloud_wake_resumed, cloud_wake_version,
 };
+pub use cmux_link::{CmuxLinkTarget, ParsedCmuxLink, cmux_link_parse};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
@@ -75,6 +89,12 @@ pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
 pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
+pub use mac_reachability::{
+    MacLinkFailureKind, MacLinkState, MacReachabilityInput, MacReachabilityKind, MacRecoveryActionKind,
+    MacRecoveryAttemptState, MacRecoveryObservation, MacRecoveryResult, MacRecoveryStep,
+    mac_reachability_action, mac_reachability_late_quiet, mac_reachability_resolve, mac_reachability_span,
+    mac_recovery_advanced, mac_recovery_combined, mac_recovery_timed_out,
+};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use pane_filter::{
     PaneFilter, PaneFilterResult, PaneKind, PaneScope, pane_filter_apply, pane_filter_decode,
@@ -97,9 +117,23 @@ pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPredicti
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
 pub use vnc::{VncJsonError, vnc_json};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
+pub use workspace_arrangement::{
+    ArrangementInput, ArrangementPin, ArrangementPlace, ArrangementWorkspace, WorkspaceAnchor,
+    WorkspaceCloseKind, WorkspaceCloseRow, WorkspaceContainerRow, WorkspaceEdgeSide, WorkspaceSortBy,
+    WorkspaceSortRow, workspace_arrangement_apply, workspace_close_question, workspace_close_targets,
+    workspace_containers, workspace_edge_anchor, workspace_sorted,
+};
 pub use workspace_groups::{
     GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,
     PhoneSidebarRow, PhoneWorkspaceGroup, WorkspaceGroupSlot, pending_group_edit_step, workspace_group_slots,
+};
+pub use workspace_moves::{
+    WorkspaceSortStep, neighbor_move_reordered, neighbor_move_targets, personal_index_moving,
+    personal_index_placing, workspace_sort_steps,
+};
+pub use workspace_row_actions::{
+    WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
+    workspace_row_placements,
 };
 
 uniffi::setup_scaffolding!();
@@ -181,6 +215,9 @@ impl From<cmux_mobile_link::LinkPath> for LinkPath {
             cmux_mobile_link::LinkPath::Direct => Self::Direct,
             cmux_mobile_link::LinkPath::Turn => Self::Turn,
             cmux_mobile_link::LinkPath::TurnTls => Self::TurnTls,
+            // Hop is an internal relay path. Keep the FFI enum ABI stable
+            // until the generated Swift bindings can add a dedicated case.
+            cmux_mobile_link::LinkPath::Hop => Self::Turn,
             cmux_mobile_link::LinkPath::HttpsRelay => Self::HttpsRelay,
             cmux_mobile_link::LinkPath::NoPath => Self::NoPath,
         }
@@ -471,15 +508,11 @@ impl LinkHandle {
         }
         let hub = (daemon && self.viewport.requests_sync()).then(|| self.viewport.clone());
         let link = self.link.clone();
-        let channel = on_runtime(async move { link.open_on(&service, args, lane).await }).await?;
-        let id = channel.id();
-        let (sender, receiver) = channel.split();
-        Ok(Arc::new(ChannelHandle {
-            id,
-            sender: Arc::new(sender),
-            receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, hub))),
-            closed: Arc::new(Mutex::new(None)),
-        }))
+        Ok(on_runtime(async move {
+            let channel = link.open_on(&service, args, lane).await?;
+            Ok::<_, cmux_mobile_link::LinkError>(ChannelHandle::from_channel(&service, channel, hub))
+        })
+        .await?)
     }
 }
 
@@ -783,13 +816,234 @@ impl LinkHandle {
     }
 }
 
+/// Before this write owns a framed channel, only writers ahead of it can enqueue bytes.
+enum PrecedingWrites {
+    Waiting { sender: Arc<ChannelSender>, start: u64 },
+    Finished(u64),
+}
+
+impl PrecedingWrites {
+    fn bytes(&self) -> u64 {
+        match self {
+            Self::Waiting { sender, start } => sender.sent_bytes().saturating_sub(*start),
+            Self::Finished(bytes) => *bytes,
+        }
+    }
+}
+
+/// Progress and cancellation for one outgoing message. While waiting to write, its progress
+/// includes the serialized writes ahead of it.
+#[derive(uniffi::Object)]
+pub struct ChannelWriteWatch {
+    accepted: AtomicU64,
+    last_observed: AtomicU64,
+    preceding: Mutex<PrecedingWrites>,
+    cancelled: tokio::sync::watch::Sender<bool>,
+}
+
+#[uniffi::export]
+impl ChannelWriteWatch {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            accepted: AtomicU64::new(0),
+            last_observed: AtomicU64::new(0),
+            preceding: Mutex::new(PrecedingWrites::Finished(0)),
+            cancelled: tokio::sync::watch::channel(false).0,
+        })
+    }
+
+    /// Whether this write or one ahead of it queued bytes since the previous observation.
+    pub fn take_progress(&self) -> bool {
+        let preceding = self.preceding.lock().unwrap_or_else(PoisonError::into_inner).bytes();
+        let progress = self.accepted.load(Ordering::Relaxed).saturating_add(preceding);
+        self.last_observed.fetch_max(progress, Ordering::Relaxed) < progress
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.send_replace(true);
+    }
+}
+
+#[cfg(test)]
+mod channel_write_tests {
+    use super::*;
+    use cmux_mobile_link::{Link, Role};
+
+    async fn open(link: &Link, service: &str) -> Arc<ChannelHandle> {
+        let channel = link.open(service, serde_json::json!({})).await.unwrap();
+        ChannelHandle::from_channel(service, channel, None)
+    }
+
+    #[tokio::test]
+    async fn a_concurrent_rpc_follows_every_chunk_of_the_observed_prompt() {
+        for service in ["acpmux", "cloud-acpmux"] {
+            tokio::time::timeout(Duration::from_secs(15), async {
+                let (local, peer) = tokio::io::duplex(4096);
+                let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
+                let handle = open(&phone, service).await;
+                let prompt = serde_json::to_vec(&serde_json::json!({"prompt": "a".repeat(2 << 20)})).unwrap();
+                let other = serde_json::to_vec(&serde_json::json!({"other": "b".repeat(1 << 20)})).unwrap();
+                let watch = ChannelWriteWatch::new();
+                let first = tokio::spawn({
+                    let (handle, data, watch) = (handle.clone(), prompt.clone(), watch.clone());
+                    async move { handle.send_observed(data, watch).await }
+                });
+                while !watch.take_progress() {
+                    tokio::task::yield_now().await;
+                }
+                let second = tokio::spawn({
+                    let (handle, data) = (handle.clone(), other.clone());
+                    async move { handle.send(data).await }
+                });
+                let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
+                let mut incoming = mac.accept().await.unwrap().channel;
+                let mut received = Vec::new();
+                while received.len() < prompt.len() + other.len() {
+                    match incoming.recv().await {
+                        Some(ChannelEvent::Data(bytes)) => received.extend_from_slice(&bytes),
+                        value => panic!("incomplete RPC messages: {value:?}"),
+                    }
+                }
+                first.await.unwrap().unwrap();
+                second.await.unwrap().unwrap();
+                assert_eq!(&received[..prompt.len()], prompt);
+                assert_eq!(&received[prompt.len()..], other);
+                assert_eq!(watch.accepted.load(Ordering::Relaxed), prompt.len() as u64);
+            })
+            .await
+            .expect("the two full messages arrive and the writes return");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_queued_watch_sees_preceding_bytes_before_it_can_send_any_of_its_own() {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            let (local, peer) = tokio::io::duplex(4096);
+            let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
+            let handle = open(&phone, "acpmux").await;
+            let first = ChannelWriteWatch::new();
+            let writing = tokio::spawn({
+                let (handle, watch) = (handle.clone(), first.clone());
+                async move { handle.send_observed(vec![b'x'; 8 << 20], watch).await }
+            });
+            while !first.take_progress() {
+                tokio::task::yield_now().await;
+            }
+            let second = ChannelWriteWatch::new();
+            let queued = tokio::spawn({
+                let (handle, watch) = (handle.clone(), second.clone());
+                async move { handle.send_observed(b"next".to_vec(), watch).await }
+            });
+            while !matches!(*second.preceding.lock().unwrap(), PrecedingWrites::Waiting { .. }) {
+                tokio::task::yield_now().await;
+            }
+            let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
+            let mut incoming = mac.accept().await.unwrap().channel;
+            let mut total = 0;
+            while !second.take_progress() {
+                match incoming.recv().await {
+                    Some(ChannelEvent::Data(bytes)) => total += bytes.len(),
+                    value => panic!("writer ended before the waiting prompt made progress: {value:?}"),
+                }
+            }
+            assert!(total < 8 << 20);
+            assert_eq!(second.accepted.load(Ordering::Relaxed), 0);
+            second.cancel();
+            assert!(queued.await.unwrap().is_err());
+            first.cancel();
+            assert!(writing.await.unwrap().is_err());
+        })
+        .await
+        .expect("the waiting write sees progress before admission");
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_partial_rpc_retires_only_its_channel_before_the_next_write() {
+        for service in ["acpmux", "cloud-acpmux"] {
+            tokio::time::timeout(Duration::from_secs(15), async {
+            let (local, peer) = tokio::io::duplex(4096);
+            let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
+            let handle = open(&phone, service).await;
+            let watch = ChannelWriteWatch::new();
+            let writing = tokio::spawn({
+                let handle = handle.clone();
+                let watch = watch.clone();
+                async move { handle.send_observed(vec![b'x'; 4 << 20], watch).await }
+            });
+            while !watch.take_progress() {
+                tokio::task::yield_now().await;
+            }
+            let queued = ChannelWriteWatch::new();
+            let abandoned = tokio::spawn({
+                let (handle, queued) = (handle.clone(), queued.clone());
+                async move { handle.send_observed(b"abandoned".to_vec(), queued).await }
+            });
+            queued.cancel();
+            assert!(abandoned.await.unwrap().is_err());
+            assert_eq!(queued.accepted.load(Ordering::Relaxed), 0, "waiting accepted no bytes");
+            let next = tokio::spawn({
+                let handle = handle.clone();
+                async move { handle.send(b"next".to_vec()).await }
+            });
+            watch.cancel();
+            assert!(writing.await.unwrap().is_err());
+            assert!(next.await.unwrap().is_err(), "another RPC cannot append to the partial one");
+            assert!(matches!(handle.recv().await, ChannelMessage::Closed { code, .. } if code == "partial_message"));
+
+            let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
+            let mut partial = mac.accept().await.unwrap().channel;
+            while let Some(event) = partial.recv().await {
+                match event {
+                    ChannelEvent::Data(bytes) => assert!(bytes.iter().all(|byte| *byte == b'x')),
+                    ChannelEvent::Closed(_) => break,
+                }
+            }
+
+            // Reopen on the very same link. Cancellation before any bytes keeps it usable.
+            let reopened = open(&phone, service).await;
+            let cancelled = ChannelWriteWatch::new();
+            cancelled.cancel();
+            assert!(reopened.send_observed(b"skip".to_vec(), cancelled).await.is_err());
+            reopened.send(b"next".to_vec()).await.unwrap();
+            let mut intact = mac.accept().await.unwrap().channel;
+            assert!(matches!(intact.recv().await, Some(ChannelEvent::Data(bytes)) if &bytes[..] == b"next"));
+        })
+        .await
+        .expect("write cancellation and recovery must complete");
+        }
+    }
+}
+
 /// One multiplexed channel.
 #[derive(uniffi::Object)]
 pub struct ChannelHandle {
     id: u32,
+    message_lock: Option<Arc<tokio::sync::Mutex<()>>>,
     sender: Arc<ChannelSender>,
     receiver: Arc<tokio::sync::Mutex<ViewportReceiver>>,
     closed: Arc<Mutex<Option<(String, String)>>>,
+}
+
+impl ChannelHandle {
+    fn from_channel(
+        service: &str,
+        channel: cmux_mobile_link::Channel,
+        hub: Option<PhoneViewport>,
+    ) -> Arc<Self> {
+        let id = channel.id();
+        let (sender, receiver) = channel.split();
+        // Both local and cloud ACP assemble one JSON message at a time from untagged data frames.
+        let message_lock =
+            matches!(service, "acpmux" | "cloud-acpmux").then(|| Arc::new(tokio::sync::Mutex::new(())));
+        Arc::new(Self {
+            id,
+            message_lock,
+            sender: Arc::new(sender),
+            receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, hub))),
+            closed: Arc::new(Mutex::new(None)),
+        })
+    }
 }
 
 #[uniffi::export]
@@ -807,7 +1061,61 @@ impl ChannelHandle {
 
     pub async fn send(&self, data: Vec<u8>) -> Result<(), CmuxMobileError> {
         let sender = Arc::clone(&self.sender);
-        on_runtime(async move { sender.send(data.into()).await }).await?;
+        let lock = self.message_lock.clone();
+        on_runtime(async move {
+            let _write = match &lock {
+                Some(lock) => Some(lock.lock().await),
+                None => None,
+            };
+            sender.send(data.into()).await
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// As send, with chunk progress and cancellation scoped to this write.
+    pub async fn send_observed(
+        &self,
+        data: Vec<u8>,
+        watch: Arc<ChannelWriteWatch>,
+    ) -> Result<(), CmuxMobileError> {
+        let sender = Arc::clone(&self.sender);
+        let lock = self.message_lock.clone();
+        let closed = Arc::clone(&self.closed);
+        on_runtime(async move {
+            let mut cancelled = watch.cancelled.subscribe();
+            let _write = match &lock {
+                Some(lock) => {
+                    *watch.preceding.lock().unwrap_or_else(PoisonError::into_inner) =
+                        PrecedingWrites::Waiting { sender: sender.clone(), start: sender.sent_bytes() };
+                    let guard = tokio::select! {
+                        biased;
+                        _ = cancelled.wait_for(|cancelled| *cancelled) => None,
+                        guard = lock.lock() => Some(guard),
+                    };
+                    {
+                        let mut preceding = watch.preceding.lock().unwrap_or_else(PoisonError::into_inner);
+                        *preceding = PrecedingWrites::Finished(preceding.bytes());
+                    }
+                    Some(guard.ok_or(cmux_mobile_link::LinkError::ChannelClosed)?)
+                }
+                None => None,
+            };
+            tokio::select! {
+                biased;
+                _ = cancelled.wait_for(|cancelled| *cancelled) => {}
+                outcome = sender.send_observed(data.into(), &watch.accepted) => return outcome,
+            }
+            // hostd has a prefix of this JSON message. Close this channel before the next
+            // writer can append to it; the hub opens a fresh channel on this link.
+            if lock.is_some() && watch.accepted.load(Ordering::Relaxed) != 0 {
+                *closed.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(("partial_message".into(), "write was cancelled".into()));
+                sender.close("partial_message", "write was cancelled").await;
+            }
+            Err(cmux_mobile_link::LinkError::ChannelClosed)
+        })
+        .await?;
         Ok(())
     }
 
@@ -1613,6 +1921,16 @@ pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
 }
 
+/// Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
+/// file at `path` (an Application Support file of this build's own), so a dial after a relaunch
+/// with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they
+/// are kept for this process only. Returns how many hosts the file remembered.
+#[uniffi::export]
+pub fn set_route_literals_path(path: String) -> u32 {
+    let loaded = cmux_mobile_link::route_literals::RouteLiterals::shared().set_file(path);
+    u32::try_from(loaded).unwrap_or(u32::MAX)
+}
+
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
 /// (`DaemonTerminalSession`). The next `link_stat` carries it (PROTOCOL.md "Link stats").
 #[uniffi::export]
@@ -1947,6 +2265,42 @@ pub async fn reset_warm_state() {
     cmux_mobile_link::dial::wireguard::dormant::forget_all();
 }
 
+/// What [`wait_for_network_return`] ended on (`cmux_mobile_link::net_return::Return`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct NetworkReturn {
+    /// A probe got through after one that did not: the network is back; redial now.
+    pub back: bool,
+    /// The first probe got through: the network was not down (stop watching).
+    pub never_down: bool,
+    /// With `back`: from the first failed probe to the one that got through.
+    pub down_millis: u64,
+    pub probes: u32,
+}
+
+/// Probes the cmux service at `base_url` once a second (a TCP connect, each
+/// bounded under a second) until one gets through or `max_wait_millis`
+/// passes: the network-back signal when iOS reports no path change. The app
+/// runs it only while a link is down and the app is in front.
+#[uniffi::export]
+pub async fn wait_for_network_return(base_url: String, max_wait_millis: u64) -> NetworkReturn {
+    use cmux_mobile_link::net_return::{Return, wait_for_service};
+    let got =
+        on_runtime(async move { wait_for_service(&base_url, Duration::from_millis(max_wait_millis)).await })
+            .await;
+    match got {
+        Return::Back { down_for, probes } => NetworkReturn {
+            back: true,
+            never_down: false,
+            down_millis: u64::try_from(down_for.as_millis()).unwrap_or(u64::MAX),
+            probes,
+        },
+        Return::NeverDown => NetworkReturn { back: false, never_down: true, down_millis: 0, probes: 1 },
+        Return::StillDown { probes } => {
+            NetworkReturn { back: false, never_down: false, down_millis: 0, probes }
+        }
+    }
+}
+
 /// The dial's options for `request` (the service's ICE servers; none for a hub dial).
 fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline: &Timeline) -> DialOptions {
     DialOptions {
@@ -2116,6 +2470,15 @@ async fn dial_service(
             // that forgot it): redial on a fresh one, once.
             timeline.mark("signaling_stale");
             pool.evict(&socket).await;
+            let mut options = options;
+            if request.transport == Transport::WireGuard
+                && !options.block_udp
+                && options.ice_servers.iter().any(|server| server.hop_config().is_some())
+            {
+                let api = ApiClient::with_http(&key.base_url, &request.token, pool.http.clone())
+                    .with_build_space(key.build_space.clone());
+                api.renew_hop_tickets(&mut options.ice_servers, ICE_BUDGET).await;
+            }
             redial_after(pool, &key, request, &options, timeline).await
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
