@@ -205,6 +205,7 @@ import { noteUnreadNews, noteUnreadCount } from "./conversation/unreadState";
 import { readThroughOf, subscribeReadThrough } from "./conversation/readThroughState";
 import { sinceNews, sinceCount, type HeldSpan, SinceTurnHold } from "./conversation/sinceNews";
 import {
+  countsUnseen,
   emptyUnseenScan,
   firstUnseen,
   lineOver,
@@ -830,7 +831,6 @@ function TranscriptView({
   sinceKey,
   promptAuthor,
   readThrough,
-  onSeenThrough,
   onJumpToSince,
   showMinimap = true,
   endReserve: cardReserve = 0,
@@ -871,8 +871,9 @@ function TranscriptView({
   /// Filled with the ids of the rows in the reader's view now, or null while it follows the latest
   /// message (a turn's end keeps those rows open, conversation/turnEndHold.ts).
   inViewNow?: React.MutableRefObject<(() => readonly string[] | null) | undefined>;
-  /// The rows truly on screen, with no overscan, whenever the visible layout range changes.
-  onSeenRows?: (rows: readonly AcpmuxRow[]) => void;
+  /// Counted rows truly on screen, unless unread rows above block them. An empty report revokes
+  /// the focus-return candidate; beforeSeq caps streamed events at the next unread row below.
+  onSeenRows?: (rows: readonly AcpmuxRow[], beforeSeq?: number) => void;
   /// Set by the pane when the rows it hands over next close a turn's Worked for that was held open
   /// while the reader was scrolled up (App.tsx `heldWorked`), the reader now back at the latest row.
   /// That close folds in the turn's end motion (conversation/turnEndFold.ts). Only read here: the
@@ -992,9 +993,6 @@ function TranscriptView({
   /// by an agent or another person are unseen, and the jump control points up to the first of them
   /// while it lies above the view. Undefined: not known yet, nothing is unseen.
   readThrough?: number;
-  /// The newest row seq in view, when nothing unseen lies above the view (jumpControl.ts
-  /// `seenThrough`): the client counts it seen while the reader attends (direct.ts `noteVisibleThrough`).
-  onSeenThrough?: (seq: number | undefined) => void;
   onJumpToSince?: () => void;
   /// The focused chat's palette action can hide this pane's rail without changing the configured
   /// minimap experiment or any other pane's layout.
@@ -4431,12 +4429,6 @@ function TranscriptView({
   );
   // The run of mounted rows the reader sees.
   const view = visibleLayoutRange(layout, shownTop, height);
-  // Overscan rows are mounted for smooth scrolling but have not been seen by the reader.
-  const onScreen = visibleLayoutRange(layout, shownTop, height, 0);
-  useLayoutEffect(() => {
-    if (!onSeenRows || sessionId === undefined || onScreen.last <= onScreen.first) return;
-    onSeenRows(rows.slice(onScreen.first, onScreen.last));
-  }, [onSeenRows, rows, sessionId, onScreen.first, onScreen.last]);
   const range = ahead.find((each) => each.first <= view.first && view.first < each.last) ?? view;
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
@@ -7568,20 +7560,26 @@ function TranscriptView({
   }, [sinceKey, sinceRow, sinceHasNews, sinceMessages]);
   const jumpUp = jumpButton && jumpUpOn;
   // The cursor as the client last moved it (conversation/readThroughState.ts), never behind the
-  // snapshot's: it moves without a pane render. No cursor from the pane: nothing is unseen.
+  // snapshot's: it moves without a pane render, including the cursor established on first open.
   const readThroughNow = useCallback(() => readThroughOf(sessionId), [sessionId]);
   const movedThrough = useSyncExternalStore(subscribeReadThrough, readThroughNow, readThroughNow);
   const through =
-    readThrough === undefined || movedThrough === undefined ? readThrough : Math.max(readThrough, movedThrough);
-  const unseenIndex = jumpButton ? firstUnseen(rows, through, unseenScan, promptAuthor, sessionId ?? "") : -1;
+    readThrough === undefined
+      ? movedThrough
+      : movedThrough === undefined
+        ? readThrough
+        : Math.max(readThrough, movedThrough);
+  const unseenIndex =
+    jumpButton || onSeenRows ? firstUnseen(rows, through, unseenScan, promptAuthor, sessionId ?? "") : -1;
   // The reader went to the latest message (`caughtUp`), read once per render.
   const caught = caughtUp.current;
   // The rows the reader sees, in layout px: rows draw THREAD_TOP under their layout tops, and the
   // floating tab row and the dock cover the view's edges.
   const viewTop = shownTop - THREAD_TOP;
-  const seenView = jumpButton
-    ? visibleRows(layout.geometry, viewTop, viewTop + height - topInset - dockSpace)
-    : { first: 0, last: -1 };
+  const seenView =
+    jumpButton || onSeenRows
+      ? visibleRows(layout.geometry, viewTop, viewTop + height - topInset - dockSpace)
+      : { first: 0, last: -1 };
   // One control, three states (jumpControl.ts): up while an unseen row lies above the view, Jump to
   // latest while away from the latest message, else hidden. The single look draws Jump to latest alone.
   const [pairLook] = useState(() => experimentArm(jumpPairLook));
@@ -7608,17 +7606,21 @@ function TranscriptView({
   const upTurns = drawnControl.kind === "up" && upBadge === "count" ? unseenTurns(rows, unseenIndex) : 0;
   // What is in view is seen once the reader attends (the client decides that): reported when it
   // changes, never past an unseen row above the view unless the reader went to the latest (`caughtUp`).
-  const seenCandidate =
-    jumpButton && through !== undefined
-      ? seenThrough(rows, seenView, caught ? -1 : unseenIndex, promptAuthor)
-      : undefined;
-  const seenReport = useRef(onSeenThrough);
+  const seenCandidate = seenThrough(rows, seenView, caught ? -1 : unseenIndex, promptAuthor);
+  const seenBefore = !caught && unseenIndex > seenView.last ? rows[unseenIndex]?.seq : undefined;
+  // One reporting path owns both the write and the viewport kept for focus return. An empty
+  // report clears the previous viewport when unread rows above prevent advancing the cursor.
+  // Keep the rows themselves: the client knows the newest event of a streamed row whose id
+  // and first seq stay unchanged, and first-open chats still need to establish their cursor.
   useLayoutEffect(() => {
-    seenReport.current = onSeenThrough;
-  });
-  useEffect(() => {
-    seenReport.current?.(seenCandidate);
-  }, [seenCandidate]);
+    if (!onSeenRows || sessionId === undefined) return;
+    onSeenRows(
+      seenCandidate === undefined
+        ? []
+        : rows.slice(seenView.first, seenView.last + 1).filter((row) => countsUnseen(row, promptAuthor)),
+      seenBefore,
+    );
+  }, [onSeenRows, rows, sessionId, seenView.first, seenView.last, seenCandidate, seenBefore, promptAuthor]);
   // Everything this render drew from the scroll offset, as one key, worked out as the render above
   // works it out (`ahead`, `view`, `range`, `warmAt`, `warm`, `history`, `behind`, the soft edges):
   // a scroll frame whose offset gives the same key commits nothing (`scrollUnchanged`). O(log rows):

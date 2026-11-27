@@ -6,7 +6,7 @@
 //
 // Seen is one cursor per chat per person, `readThrough`, a log seq acpmux keeps (hub/seen.rs
 // `read_through`). Only the page's `_acpmux/seen` moves it, forward, with the newest row that was in
-// view while the reader attended the chat (direct.ts `noteVisibleThrough`). Unseen rows are the rows
+// view while the reader attended the chat (direct.ts `markSeenRows`). Unseen rows are the rows
 // after it by an agent or another person; the reader's own prompts and notice, status and mux rows
 // never are. So:
 // - `up`: an unseen row lies wholly above the view: the disc points up, a press lands that row near

@@ -2193,20 +2193,13 @@ export class AcpmuxDirectClient {
     return cursor && cursor.sessionId === this.selectedSessionId ? cursor.seq : undefined;
   }
 
-  /// The newest row the transcript's rule counts seen (jumpControl.ts `seenThrough`): the same write
-  /// as `markSeenRows`, from the row seq the transcript computed (it never skips an unseen row above).
-  noteVisibleThrough(seq: number | undefined): void {
-    const sessionId = this.selectedSessionId;
-    if (sessionId && seq !== undefined) this.markSeenThrough(sessionId, seq);
-  }
-
   /// The cursor the transcript's jump control reads: the daemon's, or what this page already sent
   /// ahead of it, so Jump up moves the moment rows are seen, not when acpmux answers.
   private publishCursor(sessionId: string): void {
     const kept = this.cursor?.sessionId === sessionId ? this.cursor.seq : null;
     const sent = this.sentSeen?.sessionId === sessionId ? this.sentSeen.seq : null;
     const seq = Math.max(kept ?? -1, sent ?? -1);
-    if (seq >= 0) publishReadThrough(sessionId, seq);
+    publishReadThrough(sessionId, seq >= 0 ? seq : undefined);
   }
   private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
@@ -5368,19 +5361,25 @@ export class AcpmuxDirectClient {
   /// Record the rows that were truly on screen. This is called after a viewport layout changes,
   /// rather than on every scroll frame. The client derives each row's newest event and gates writes
   /// on the page and attention state here.
-  markSeenRows(sessionId: string, rows: readonly { id: string; seq?: number }[]): void {
+  markSeenRows(
+    sessionId: string,
+    rows: readonly { id: string; seq?: number; messageRun?: { through?: number } }[],
+    beforeSeq?: number,
+  ): void {
     let seq = -1;
     for (const row of rows) {
-      const through = Math.max(typeof row.seq === "number" ? row.seq : -1, this.rows.seqOf(row.id) ?? -1);
+      const through = Math.max(row.messageRun?.through ?? row.seq ?? -1, this.rows.seqOf(row.id) ?? -1);
       if (through > seq) seq = through;
     }
+    if (beforeSeq !== undefined) seq = Math.min(seq, beforeSeq - 1);
+    // This is the current permitted viewport, not a high-water mark of every viewport while
+    // idle. In particular an unread gap must revoke an older candidate before focus returns.
+    this.onScreen = seq >= 0 ? { sessionId, seq } : undefined;
     if (seq >= 0) this.markSeenThrough(sessionId, seq);
   }
 
   markSeenThrough(sessionId: string, seq: number): void {
     if (!Number.isFinite(seq) || seq < 0) return;
-    const kept = this.onScreen;
-    if (kept?.sessionId !== sessionId || kept.seq < seq) this.onScreen = { sessionId, seq };
     if (!pageShown() || !readerHere()) return;
     const cursor = this.cursor;
     if (cursor?.sessionId === sessionId && cursor.seq !== null && cursor.seq >= seq) return;
@@ -5398,7 +5397,10 @@ export class AcpmuxDirectClient {
         !readerHere() ||
         this.selectedSessionId !== sessionId
       ) {
-        if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+        if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) {
+          this.sentSeen = undefined;
+          this.publishCursor(sessionId);
+        }
         return;
       }
       await this.typed("_acpmux/seen", { sessionId, seq }).then(
@@ -5408,9 +5410,14 @@ export class AcpmuxDirectClient {
           if (this.selectedSessionId !== sessionId) return;
           if (now?.sessionId !== sessionId || now.seq === null || now.seq < through)
             this.cursor = { sessionId, seq: through };
+          if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+          this.publishCursor(sessionId);
         },
         () => {
-          if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+          if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) {
+            this.sentSeen = undefined;
+            this.publishCursor(sessionId);
+          }
         },
       );
     });

@@ -4,11 +4,11 @@
 // whole pane for each move re-rendered the pane, its header and Session Info
 // (agent-pane-tool-tick-pane-renders.test.ts), so only the transcript hears it here.
 
-let cursor: { sessionId: string; seq: number } | undefined;
+let cursor: { sessionId: string; seq: number | undefined } | undefined;
 const listeners = new Set<() => void>();
 
 /// The cursor moved (or another chat's took its place).
-export function publishReadThrough(sessionId: string, seq: number): void {
+export function publishReadThrough(sessionId: string, seq: number | undefined): void {
   if (cursor?.sessionId === sessionId && cursor.seq === seq) return;
   cursor = { sessionId, seq };
   for (const listener of listeners) listener();
