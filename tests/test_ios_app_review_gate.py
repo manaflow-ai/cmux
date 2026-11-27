@@ -1369,6 +1369,28 @@ class GateWorkflowTests(unittest.TestCase):
                              "Packages/Shared/CmuxTheme/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
                     self.assertTrue(github_paths_match(patterns, path), path)
 
+    def test_fleet_products_require_the_reviewers_exact_xcode_build(self) -> None:
+        import yaml  # noqa: PLC0415
+
+        jobs = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())["jobs"]
+        self.assertIn("xcode_build", jobs["gate-products-fleet"]["outputs"])
+        steps = jobs["reviewer-path"]["steps"]
+        check = next(step for step in steps if step.get("id") == "product-toolchain")
+        self.assertEqual(check["env"]["PRODUCT_XCODE_BUILD"], "${{ needs.gate-products-fleet.outputs.xcode_build }}")
+        xcodebuild = self.root / "xcodebuild"
+        xcodebuild.write_text("#!/bin/sh\n[ \"$*\" = -version ] || exit 1\nprintf 'Xcode 27.2\\nBuild version 18C100\\n'\n")
+        xcodebuild.chmod(0o755)
+        github_env = self.root / "github-env"
+        for producer, expected in (("18C100", []), ("18C99", ["BUILD_HERE=true"]), ("", ["BUILD_HERE=true"])):
+            with self.subTest(producer=producer):
+                github_env.write_text("")
+                env = dict(os.environ, PATH=f"{self.root}:{os.environ['PATH']}", GITHUB_ENV=str(github_env),
+                           PRODUCT_XCODE_BUILD=producer, BUILD_HERE="false")
+                result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", check["run"]], env=env,
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(github_env.read_text().splitlines(), expected)
+
     def test_a_refused_package_fetch_never_ends_a_device_leg(self) -> None:
         # Run 45746201444 lost both device legs to `swift-crypto.git: ... returned error: 403`
         # inside build-for-testing, though the kept DerivedData slot held every clone.

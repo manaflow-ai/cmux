@@ -571,6 +571,7 @@ jobs:
     timeout-minutes: 45  # the client waits up to 600 s queued plus 1800 s running
     outputs:
       use: ${{ steps.done.outputs.use }}
+      xcode_build: ${{ steps.build.outputs.xcode_build }}
     steps:
       - name: Checkout the app's gate files
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -616,7 +617,15 @@ jobs:
             echo "::warning title=gate products::the build fleet gave no products for $SHA (exit $status); every leg builds on its Mac"
             exit 0
           fi
-          ls -la "$out"
+          # XCTest loads private frameworks from the simulator host's Xcode.
+          runner_plist=Products/Debug-iphonesimulator/CmuxMobileAppUITests-Runner.app/Info.plist
+          if ! xcode_build=$(tar -xzOf "$out/ios-sim-build.tar.gz" "$runner_plist" |
+            python3 -c 'import plistlib, sys; print(plistlib.loads(sys.stdin.buffer.read())["DTXcodeBuild"])') ||
+            ! [[ "$xcode_build" =~ ^[0-9A-Za-z]+$ ]]; then
+            echo "::warning title=gate products::Cannot identify the test runner's Xcode build; every leg builds on its Mac"
+            exit 0
+          fi
+          echo "xcode_build=$xcode_build" >> "$GITHUB_OUTPUT"
           echo "out=$out" >> "$GITHUB_OUTPUT"
       - name: Upload the products
         id: upload
@@ -660,7 +669,7 @@ jobs:
     timeout-minutes: 120
     env:
       LANE: ${{ needs.plan.outputs.lane }}
-      # 'false' when gate-products built this commit's products: the leg takes them and builds nothing.
+      # A leg can reuse these products if its selected Xcode matches the producer.
       BUILD_HERE: ${{ needs.gate-products-fleet.outputs.use != 'true' }}
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.plan.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
@@ -692,6 +701,17 @@ jobs:
             .github/scripts
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+      - name: Check the test runner's Xcode build
+        id: product-toolchain
+        if: env.BUILD_HERE != 'true'
+        env:
+          PRODUCT_XCODE_BUILD: ${{ needs.gate-products-fleet.outputs.xcode_build }}
+        run: |
+          consumer=$(xcodebuild -version | awk '/^Build version / {print $3}')
+          if [[ -z "$PRODUCT_XCODE_BUILD" || "$PRODUCT_XCODE_BUILD" != "$consumer" ]]; then
+            echo "::notice title=gate products::Fleet Xcode build ${PRODUCT_XCODE_BUILD:-unknown}, simulator Xcode build ${consumer:-unknown}; building on this Mac"
+            echo "BUILD_HERE=true" >> "$GITHUB_ENV"
+          fi
       - name: The source is the NEXT app
         run: |
           set -euo pipefail
