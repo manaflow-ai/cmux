@@ -12,10 +12,12 @@ import {
   SNAPSHOT_LIVE_GLOBAL,
   SNAPSHOT_MISS_GLOBAL,
   SNAPSHOT_SHOWN_GLOBAL,
-  TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE,
   type SnapshotLive,
+  TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE,
 } from "./shared";
 import { watchLaunchSettle } from "../launchSettle";
+import { loadHighlightedCode, loadHighlightedLines } from "../conversation/codeBlockModel";
+import { isHighlighted } from "../shikiLanguages";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { skeletonField } from "./skeleton";
 import { focusRoute } from "../../../ui/focusRoute";
@@ -281,7 +283,7 @@ export function swapChatSnapshot(doc: Document = document): void {
     const root = doc.getElementById("root");
     const waited = performance.now() - start;
     const matched = !host.shadowRoot || !root || liveMatchesCopy(host.shadowRoot, root);
-    if (!matched && waited < SWAP_MATCH_MS) {
+    if ((!matched && waited < SWAP_MATCH_MS) || (waited < HIGHLIGHT_HOLD_MS && pendingHighlightOnScreen(doc))) {
       view.requestAnimationFrame(step);
       return;
     }
@@ -314,6 +316,50 @@ export function swapChatSnapshot(doc: Document = document): void {
     };
   };
   view.requestAnimationFrame(step);
+}
+
+/// How long the copy may wait over the live page for its code cards' highlighting (swapChatSnapshot).
+/// The page test's busy launch (chunk and worker each 1 s late) lands inside it; a worker that never
+/// answers is the watchdog's (highlightWatchdog.ts) and its card draws plain once the copy has gone.
+export const HIGHLIGHT_HOLD_MS = 1_200;
+
+/// Whether a code card on screen in the live page still draws plain lines while its highlighted card
+/// loads or paints (`data-highlight-pending`, CodeBlock.tsx and HighlightedCode.tsx).
+export function pendingHighlightOnScreen(doc: Document = document): boolean {
+  const root = doc.getElementById("root");
+  if (!root) return false;
+  const pending = root.querySelectorAll<HTMLElement>("[data-highlight-pending]");
+  if (pending.length === 0) return false;
+  const view = doc.defaultView;
+  const height = view?.innerHeight ?? 0;
+  const width = view?.innerWidth ?? 0;
+  for (const card of Array.from(pending)) {
+    const box = card.getBoundingClientRect();
+    if (box.height > 0 && box.bottom > 0 && box.top < height && box.right > 0 && box.left < width) return true;
+  }
+  return false;
+}
+
+/// Starts loading the highlighted code the drawn copy shows: fenced cards (not one drawn plain) and a
+/// read file's lines.
+function preloadCopyCode(doc: Document = document): void {
+  const copy = doc.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot;
+  if (!copy) return;
+  const card = copy.querySelector<HTMLElement>(".cv-codeblock:not(.cv-codeblock--plain)");
+  const cards = !!card;
+  const lines = !!copy.querySelector(".cv-filepeek__lines diffs-container");
+  if (cards) void loadHighlightedCode().catch(() => undefined);
+  if (lines) void loadHighlightedLines().catch(() => undefined);
+  // Pierre's workers start now too, beside the chunk, rather than once the first card mounts: their
+  // setup is most of a card's wait for its colors (usePierreCode.ts asks for the same pool), and
+  // they start with the first card's grammar, as that card would have started them.
+  if (cards || lines)
+    void import("../conversation/highlightPool")
+      .then((pool) => {
+        const lang = card?.dataset.lang ?? "text";
+        pool.paneHighlightPool("word-alt", isHighlighted(lang) ? lang : "text");
+      })
+      .catch(() => undefined);
 }
 
 /// How long the live page may take to draw the chat before the copy goes anyway, so a page that
@@ -385,6 +431,8 @@ export function reportChatSnapshot(
   const shows = () => {
     // `copy`: the inert saved copy, not the page's own paint, which reports again (AgentPaneRequest `painted`).
     void report("pane.painted", { drewKeptTail: true, copy: true }).catch(() => undefined);
+    // Warm the highlighted cards while the saved copy still covers the live page.
+    preloadCopyCode();
     // The copy is the page's first paint: what moves from here is the launch's settle (launchSettle.ts).
     watchLaunchSettle(report, SNAPSHOT_HOST_TAG);
     // A click or key while the copy shows ends the copy and does nothing else: the live page under

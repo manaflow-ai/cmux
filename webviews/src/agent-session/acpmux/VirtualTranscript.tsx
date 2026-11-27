@@ -2410,12 +2410,13 @@ function TranscriptView({
   const olderDragPending = useRef(false);
   const [scrollbarRange, setScrollbarRange] = useState<{ session: string; height: number } | undefined>(undefined);
   const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
-  useLayoutEffect(() => {
-    if (olderDragPending.current) {
-      olderDragPending.current = false;
-      setScrollbarRange(undefined);
-    }
-  }, [sessionKey]);
+  const resetScrollbarRange = useCommittedEvent(() => {
+    olderDragPending.current = false;
+    // Only a range held asks a render: a same-value one was a sync render of the whole transcript in
+    // every chat switch (`followingAsked` above).
+    if (scrollbarRange !== undefined) setScrollbarRange(undefined);
+  });
+  useLayoutEffect(() => resetScrollbarRange(), [sessionKey, resetScrollbarRange]);
   /// How far the reader has scrolled up among the rows while room was owed (olderReserve.ts `rose`),
   /// in total, and the offset the last scroll event read: each rise pays some of what is owed.
   /// offset the last scroll event read.
@@ -6788,9 +6789,12 @@ function TranscriptView({
     return () => window.removeEventListener("keydown", onKey);
   }, [jumpBackHeld]);
   // Another chat: its own places (its idle stretch loads with it, above), nothing held from this one.
-  useLayoutEffect(() => {
-    if (jumpBack.current) dropJumpBack();
-  }, [sessionId, dropJumpBack]);
+  const resetJumpBack = useCommittedEvent(() => {
+    jumpBack.current = undefined;
+    // Only a held way back asks a render (`followingAsked` above).
+    if (jumpBackHeld) setJumpBackHeld(false);
+  });
+  useLayoutEffect(() => resetJumpBack(), [sessionId, resetJumpBack]);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
