@@ -96,6 +96,13 @@ def has_upload_probe():
     return os.path.exists(os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/UploadProbe.swift"))
 
 
+def run_attachment_leg(paired, attach, connect_runs, leg):
+    """Run an optional attachment leg and return its result for the final verdict."""
+    if paired and attach and not connect_runs:
+        return bool(leg())
+    return True
+
+
 def sparse_file(path, size):
     """`size` bytes that take no disk, with marked 4 KiB pages at the start, middle and end so a
     lost, shifted or zeroed chunk changes the hash."""
@@ -692,8 +699,14 @@ def main():
                                             size=a.upload_bytes, random_bytes=a.upload_random, wait=a.upload_wait,
                                             relay_only=a.upload_relay_only, block_udp=a.upload_block_udp)
                 note(f"- upload: {line}")
-            if paired and attach:
-                attach_ok = attach_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, a.work, note)
+            # Connect-timeline runs measure only connection recovery. Keep the expensive 8 GiB
+            # attachment leg out of those runs; ordinary pair-e2e runs still exercise it.
+            attach_ok = run_attachment_leg(
+                paired,
+                attach,
+                connect_runs,
+                lambda: attach_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, a.work, note),
+            )
             if drops and paired and not connect_runs:
                 try:
                     reconnect_ok = reconnect_after_drop(app, drops, simctl, a.udid, a.out, status, phone_log,

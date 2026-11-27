@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileLinkFFI
+import CmuxMobileTransport
 import Foundation
 import Testing
 @testable import CmuxMobileTerminal
@@ -20,8 +21,26 @@ import Testing
         func resize(columns: Int, rows: Int) {}
         func stop() {}
         var submitted: [String] = []
+        var refuseSubmission = false
+        var expireOnEnd = false
+        var submissions: [UUID: @MainActor () -> Void] = [:]
+        func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID {
+            let id = UUID()
+            submissions[id] = onExpire
+            return id
+        }
+        func endAttachmentSubmission(_ id: UUID) -> Bool {
+            if expireOnEnd { expireSubmissions() }
+            return submissions.removeValue(forKey: id) != nil
+        }
+        func expireSubmissions() {
+            let callbacks = Array(submissions.values)
+            submissions.removeAll()
+            callbacks.forEach { $0() }
+        }
         func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void,
                                 maybeSent: @escaping @MainActor () -> Void) -> Bool {
+            if refuseSubmission { notSent(); return true }
             submitted.append(text)
             return true
         }
@@ -33,6 +52,13 @@ import Testing
         var started: [String] = []
         var waited: [String] = []
         var cancelled: [String] = []
+        var forgotten: [String] = []
+        var uploadDestination: AttachmentDestination?
+        func forget(_ uploadID: String) {
+            forgotten.append(uploadID)
+            states.removeValue(forKey: uploadID)
+            results.removeValue(forKey: uploadID)
+        }
         var states: [String: UploadStage] = [:]
         /// Each finished upload's result: a `wait` that starts after it ends gets it at once,
         /// as the engine's does (its result is a watch channel, attachment_upload.rs).
@@ -60,7 +86,7 @@ import Testing
 
         func progress(_ uploadID: String) -> UploadProgress? {
             states[uploadID].map {
-                UploadProgress(uploadId: uploadID, stage: $0, ackedBytes: 0, sentBytes: 0, totalBytes: 10,
+                UploadProgress(uploadId: uploadID, stage: $0, ackedBytes: 0, confirmedBytes: 0, sentBytes: 0, totalBytes: 10,
                                attempt: 1, macPath: nil, errorCode: nil, errorMessage: nil)
             }
         }
@@ -83,6 +109,129 @@ import Testing
 
     static func settle() async {
         for _ in 0..<5 { await Task.yield() }
+    }
+
+    @Test func expiredSubmissionKeepsTransferAndDraftForAnExplicitRetry() async {
+        let session = QuietSession()
+        let model = Self.model(session: session)
+        let sender = FakeSender()
+        model.attachmentSender = sender
+        model.addAttachment(Self.video())
+        model.composerText = "original"
+        model.send()
+        #expect(await Self.waitFor { sender.waited == ["u1"] })
+        model.ingest(.connection(.offline(mac: "Mac")))
+        model.composerText = "edited while offline"
+        session.expireSubmissions()
+        #expect(!model.isUploading)
+        #expect(sender.cancelled.isEmpty)
+        #expect(model.attachments.first?.uploadID == "u1")
+        sender.finish("u1", .success("/mac/video"))
+        await Self.settle()
+        #expect(session.submitted.isEmpty)
+        #expect(model.composerText == "edited while offline")
+        #expect(model.composerNotice != nil)
+        model.ingest(.connection(.attached))
+        model.send()
+        #expect(await Self.waitFor { !model.isUploading })
+        #expect(session.submitted == ["/mac/video edited while offline"])
+        #expect(sender.started == ["u1"])
+        #expect(sender.forgotten == ["u1"])
+    }
+
+    @Test func finishingRechecksExpiryBeforeSubmittingAfterSuspension() async {
+        let session = QuietSession()
+        let model = Self.model(session: session)
+        let sender = FakeSender()
+        model.attachmentSender = sender
+        model.addAttachment(Self.video())
+        model.composerText = "keep"
+        model.send()
+        #expect(await Self.waitFor { sender.waited == ["u1"] })
+        session.expireOnEnd = true
+        sender.finish("u1", .success("/mac/video"))
+        #expect(await Self.waitFor { !model.isUploading })
+        #expect(session.submitted.isEmpty)
+        #expect(model.composerText == "keep")
+        #expect(model.attachments.count == 1)
+    }
+
+    @Test func sendUsesTappedTextAndPreservesLaterEdits() async {
+        let session = QuietSession()
+        let model = Self.model(session: session)
+        let sender = FakeSender()
+        model.attachmentSender = sender
+        model.addAttachment(Self.video())
+        model.composerText = "tapped"
+        model.send()
+        model.composerText = "next draft"
+        sender.finish("u1", .success("/mac/video"))
+        #expect(await Self.waitFor { !model.isUploading })
+        #expect(session.submitted == ["/mac/video tapped"])
+        #expect(model.composerText == "next draft")
+        #expect(sender.forgotten == ["u1"])
+    }
+
+    @Test func synchronousRefusalPreservesDraftAndCompletedAttachment() async {
+        for edited in [false, true] {
+            let session = QuietSession()
+            session.refuseSubmission = true
+            let model = Self.model(session: session)
+            let sender = FakeSender()
+            model.attachmentSender = sender
+            model.addAttachment(Self.video())
+            model.composerText = "tapped"
+            model.send()
+            if edited { model.composerText = "next draft" }
+            sender.finish("u1", .success("/mac/video"))
+            #expect(await Self.waitFor { !model.isUploading })
+            #expect(session.submitted.isEmpty)
+            #expect(model.composerText == (edited ? "next draft" : "tapped"))
+            #expect(model.attachments.first?.uploadID == "u1")
+            #expect(sender.forgotten.isEmpty)
+            #expect(model.composerNotice != nil)
+            session.refuseSubmission = false
+            model.send()
+            #expect(await Self.waitFor { !model.isUploading })
+            #expect(sender.started == ["u1"])
+            #expect(sender.forgotten == ["u1"])
+        }
+    }
+
+    @Test func changedDirectoryRestagesEvenACompletedUpload() async {
+        let session = QuietSession()
+        let model = Self.model(session: session)
+        let sender = FakeSender()
+        sender.uploadDestination = AttachmentDestination(macID: "mac", cwd: "/old")
+        model.attachmentSender = sender
+        model.addAttachment(Self.video())
+        sender.finish("u1", .success("/old/video"))
+        sender.uploadDestination = AttachmentDestination(macID: "mac", cwd: "/new")
+        model.composerText = "look"
+        model.send()
+        #expect(sender.started == ["u1", "u2"])
+        #expect(sender.forgotten == ["u1"])
+        sender.finish("u2", .success("/new/video"))
+        #expect(await Self.waitFor { !model.isUploading })
+        #expect(session.submitted == ["/new/video look"])
+        #expect(sender.forgotten == ["u1", "u2"])
+    }
+
+    @Test func directoryChangeDuringSendKeepsDraftInsteadOfSubmittingOldPaths() async {
+        let session = QuietSession()
+        let model = Self.model(session: session)
+        let sender = FakeSender()
+        sender.uploadDestination = AttachmentDestination(macID: "mac", cwd: "/old")
+        model.attachmentSender = sender
+        model.addAttachment(Self.video())
+        model.composerText = "keep"
+        model.send()
+        sender.uploadDestination = AttachmentDestination(macID: "mac", cwd: "/new")
+        sender.finish("u1", .success("/old/video"))
+        #expect(await Self.waitFor { !model.isUploading })
+        #expect(session.submitted.isEmpty)
+        #expect(model.composerText == "keep")
+        #expect(model.attachments.count == 1)
     }
 
     @Test func stalledPhotoLoadCancelsItsProgressAfterTheInactivityDeadline() async {
@@ -171,6 +320,7 @@ import Testing
         model.cancelSend()
         #expect(!model.isUploading)
         #expect(sender.cancelled == ["u2", "u3"])
+        #expect(sender.forgotten == ["u2", "u3"])
         #expect(model.attachments.map(\.uploadID) == ["u1", nil, nil])
         #expect(model.composerText == "see")
         #expect(session.submitted.isEmpty)

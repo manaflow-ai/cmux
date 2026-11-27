@@ -210,8 +210,10 @@ public final class AcpmuxHub {
     public init() {
         // An upload's acked bytes are bytes heard from the Mac: a prompt the outbox holds keeps
         // going while an attachment is still moving (a hub gone leaves a no-op behind).
-        UploadActivity.listen(self) { [weak self] in
-            for source in self?.liveSources ?? [] { source.linkProgressed() }
+        UploadActivity.listen(self) { [weak self] macID in
+            for source in self?.liveSources ?? [] where source.summary.macID == macID {
+                source.linkProgressed()
+            }
         }
     }
 

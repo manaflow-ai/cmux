@@ -23,7 +23,7 @@ public final class DemoSlowAttachmentSender: TerminalAttachmentSending {
     public func start(_ attachment: ComposerAttachment) -> String? {
         let id = UUID().uuidString
         let total = UInt64(max(1, attachment.byteCount ?? 1))
-        states[id] = UploadProgress(uploadId: id, stage: .uploading, ackedBytes: 0, sentBytes: 0, totalBytes: total,
+        states[id] = UploadProgress(uploadId: id, stage: .uploading, ackedBytes: 0, confirmedBytes: 0, sentBytes: 0, totalBytes: total,
                                     attempt: 1, macPath: nil, errorCode: nil, errorMessage: nil)
         let steps = max(1, Int(duration * 10))
         tickers[id] = Task { [weak self] in

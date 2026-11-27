@@ -19,6 +19,14 @@ public protocol TerminalAttachmentSending: AnyObject, Sendable {
     func wait(_ uploadID: String) async throws -> String
     /// Its newest progress (observable: a view reading it redraws on each ack).
     func progress(_ uploadID: String) -> UploadProgress?
+    /// Releases a finished or removed upload's retained state.
+    func forget(_ uploadID: String)
+    var uploadDestination: AttachmentDestination? { get }
+}
+
+public extension TerminalAttachmentSending {
+    func forget(_ uploadID: String) {}
+    var uploadDestination: AttachmentDestination? { nil }
 }
 
 /// The live sender: the Rust engine (`AttachmentUploadClient`) for the bytes,
@@ -65,7 +73,7 @@ public final class EngineAttachmentSender: TerminalAttachmentSending {
     }
 
     /// An image: reserved at once (stage `compressing`), then Rust's `imagePlan` decides
-    /// between the original and a JPEG of at most 2048 px, which ImageIO makes off the main
+    /// between the original and an image of at most 2048 px, which ImageIO makes off the main
     /// actor. Any failure sends the original under its own name.
     private func startImage(_ source: ImageCompressor.Source, name: String, to destination: AttachmentDestination) -> String {
         let id = client.reserve(name: name, to: destination)
@@ -78,7 +86,7 @@ public final class EngineAttachmentSender: TerminalAttachmentSending {
             self.exports[id] = nil
             self.client.compressProgress(id, fraction: 1)
             if let output {
-                self.client.fileReady(id, url: output, name: ImageCompressor.jpegName(name), ownsFile: true)
+                self.client.fileReady(id, url: output, name: ImageCompressor.encodedName(name, extension: output.pathExtension), ownsFile: true)
             } else {
                 switch source {
                 case .data(let data): self.client.fileReady(id, data: data, name: name)
@@ -87,6 +95,13 @@ public final class EngineAttachmentSender: TerminalAttachmentSending {
             }
         }
         return id
+    }
+
+    public var uploadDestination: AttachmentDestination? { destination() }
+
+    public func forget(_ uploadID: String) {
+        exports.removeValue(forKey: uploadID)?.cancel()
+        client.forget(uploadID)
     }
 
     public func cancel(_ uploadID: String) {
@@ -103,11 +118,12 @@ public final class EngineAttachmentSender: TerminalAttachmentSending {
     }
 }
 
-/// Runs the downscale Rust's `imagePlan` asks for (JPEG, long side at most
+/// Runs the downscale Rust's `imagePlan` asks for (long side at most
 /// 2048) with ImageIO: `CGImageSourceCreateThumbnailAtIndex` decodes straight to
 /// the target size (it never holds a 12 MP bitmap), applying the EXIF
-/// orientation, and `CGImageDestination` writes the JPEG without the
-/// original's metadata. Nil: send the original.
+/// orientation, and `CGImageDestination` writes JPEG or alpha-preserving PNG without
+/// the original's metadata. Multi-frame formats keep their original bytes.
+/// Nil: send the original.
 enum ImageCompressor {
     enum Source: Sendable {
         case data(Data)
@@ -133,8 +149,12 @@ enum ImageCompressor {
 
     /// `IMG_0001.HEIC` -> `IMG_0001.jpg`.
     static func jpegName(_ name: String) -> String {
+        encodedName(name, extension: "jpg")
+    }
+
+    static func encodedName(_ name: String, extension ext: String) -> String {
         let stem = (name as NSString).deletingPathExtension
-        return (stem.isEmpty ? "image" : stem) + ".jpg"
+        return (stem.isEmpty ? "image" : stem) + "." + ext
     }
 
     nonisolated static func encode(_ source: Source) -> URL? {
@@ -156,6 +176,11 @@ enum ImageCompressor {
         outputRoot: URL = FileManager.default.temporaryDirectory.appendingPathComponent("attachment-encode", isDirectory: true)
     ) -> URL? {
         guard !Task.isCancelled, bytes > 0, let image, let plan = plan(for: image, bytes: bytes), plan.reencode else { return nil }
+        // Preserve all animation frames and document pages. Like AttachmentImageEncoder,
+        // HEIF bursts use their primary image rather than representing an animation.
+        let typeName = CGImageSourceGetType(image) as String?
+        let isHEIF = typeName == UTType.heic.identifier || typeName == UTType.heif.identifier
+        guard CGImageSourceGetCount(image) == 1 || isHEIF else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -163,15 +188,24 @@ enum ImageCompressor {
             kCGImageSourceThumbnailMaxPixelSize: Int(plan.maxLongSide),
         ]
         guard let scaled = CGImageSourceCreateThumbnailAtIndex(image, 0, options as CFDictionary), !Task.isCancelled else { return nil }
+        let hasAlpha: Bool
+        switch scaled.alphaInfo {
+        case .first, .last, .premultipliedFirst, .premultipliedLast, .alphaOnly:
+            hasAlpha = true
+        default:
+            hasAlpha = false
+        }
+        let outputType = hasAlpha ? UTType.png : UTType.jpeg
         let folder = outputRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let output = folder.appendingPathComponent("image.jpg")
+        let output = folder.appendingPathComponent(hasAlpha ? "image.png" : "image.jpg")
         guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil else { return nil }
         var keepOutput = false
         defer {
             if !keepOutput { try? FileManager.default.removeItem(at: folder) }
         }
-        guard let destination = CGImageDestinationCreateWithURL(output as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, scaled, [kCGImageDestinationLossyCompressionQuality: plan.quality] as CFDictionary)
+        guard let destination = CGImageDestinationCreateWithURL(output as CFURL, outputType.identifier as CFString, 1, nil) else { return nil }
+        let properties: [CFString: Any] = hasAlpha ? [:] : [kCGImageDestinationLossyCompressionQuality: plan.quality]
+        CGImageDestinationAddImage(destination, scaled, properties as CFDictionary)
         guard !Task.isCancelled, CGImageDestinationFinalize(destination), !Task.isCancelled,
               AttachmentEncoding.isSmaller(output, than: bytes) else { return nil }
         keepOutput = true

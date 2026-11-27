@@ -96,6 +96,8 @@ pub struct UploadProgress {
     pub stage: UploadStage,
     /// Bytes the Mac confirmed (with an older hostd: bytes sent).
     pub acked_bytes: u64,
+    /// Bytes explicitly confirmed by a Mac reply; excludes encoder progress and legacy sends.
+    pub confirmed_bytes: u64,
     /// Bytes written to channels over all attempts.
     pub sent_bytes: u64,
     pub total_bytes: u64,
@@ -277,6 +279,7 @@ impl Upload {
                 Ok(path) => {
                     st.progress.mac_path = Some(path.clone());
                     st.progress.acked_bytes = st.progress.total_bytes;
+                    st.progress.confirmed_bytes = st.progress.total_bytes;
                 }
                 Err((code, message)) => {
                     st.progress.error_code = Some(code.clone());
@@ -311,6 +314,8 @@ impl Upload {
         self.edit(false, |st| {
             if confirmed {
                 st.acked = st.acked.max(bytes);
+                st.progress.confirmed_bytes =
+                    st.progress.confirmed_bytes.max(bytes.min(st.progress.total_bytes));
             }
             if bytes > st.progress.acked_bytes {
                 st.progress.acked_bytes = bytes.min(st.progress.total_bytes);
@@ -329,8 +334,10 @@ struct Core {
 }
 
 impl Core {
-    fn link_channel(&self, mac_id: &str) -> watch::Sender<Option<Arc<LinkHandle>>> {
-        lock(&self.links).entry(mac_id.to_string()).or_insert_with(|| watch::channel(None).0).clone()
+    fn subscribe_link(&self, mac_id: &str) -> watch::Receiver<Option<Arc<LinkHandle>>> {
+        // Subscribe while holding the map lock: set_link(None) must see this receiver before
+        // deciding whether an idle sender can be removed.
+        lock(&self.links).entry(mac_id.to_string()).or_insert_with(|| watch::channel(None).0).subscribe()
     }
 }
 
@@ -365,7 +372,7 @@ impl AttachmentUploads {
     /// Mac resume, and one running on a replaced link restarts on the new one.
     pub fn set_link(&self, mac_id: String, link: Option<Arc<LinkHandle>>) {
         if link.is_some() {
-            self.core.link_channel(&mac_id).send_replace(link);
+            lock(&self.core.links).entry(mac_id).or_insert_with(|| watch::channel(None).0).send_replace(link);
             return;
         }
         // No link: an entry nothing waits on goes (one-shot keys never pile up).
@@ -386,6 +393,7 @@ impl AttachmentUploads {
             upload_id: id.clone(),
             stage: UploadStage::Compressing,
             acked_bytes: 0,
+            confirmed_bytes: 0,
             sent_bytes: 0,
             total_bytes: 1000,
             attempt: 0,
@@ -559,7 +567,7 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
         _ => return upload.fail("unreadable", &format!("Couldn't read {} on this iPhone.", upload.name())),
     }
     let timings = upload.timings.clone();
-    let mut links = core.link_channel(&upload.mac_id).subscribe();
+    let mut links = core.subscribe_link(&upload.mac_id);
     let mut backoff = timings.backoff_start;
     loop {
         // A link the keepalive declared dead is no link: wait for the app's next one with the
@@ -577,7 +585,9 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
                 upload.stage(UploadStage::WaitingForMac);
                 let live =
                     |link: &Option<Arc<LinkHandle>>| link.as_ref().is_some_and(|link| !link.is_closed());
-                let Ok(link) = links.wait_for(live).await.map(|l| l.clone()) else { return };
+                let Ok(link) = links.wait_for(live).await.map(|l| l.clone()) else {
+                    return upload.fail("link_unavailable", "The attachment link watcher closed.");
+                };
                 let Some(link) = link else { continue };
                 lock(&upload.state).last_advance = Instant::now();
                 link
@@ -591,7 +601,9 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
                 tokio::select! {
                     outcome = &mut attempting => break outcome,
                     changed = links.changed() => {
-                        if changed.is_err() { return }
+                        if changed.is_err() {
+                            return upload.fail("link_unavailable", "The attachment link watcher closed.");
+                        }
                         let now = links.borrow().clone();
                         if !now.as_ref().is_some_and(|now| Arc::ptr_eq(now, &link)) {
                             break Outcome::RetryNow;
@@ -628,7 +640,11 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
         upload.stage(UploadStage::WaitingForMac);
         tokio::select! {
             () = tokio::time::sleep(backoff) => {}
-            _ = links.changed() => {}
+            changed = links.changed() => {
+                if changed.is_err() {
+                    return upload.fail("link_unavailable", "The attachment link watcher closed.");
+                }
+            }
         }
         backoff = (backoff * 2).min(timings.backoff_max);
     }
@@ -920,5 +936,92 @@ async fn continue_waiting(
             }
             _ => return Outcome::Retry,
         }
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    struct Observer;
+    impl UploadObserver for Observer {
+        fn on_progress(&self, _progress: UploadProgress) {}
+    }
+
+    fn queue() -> Arc<AttachmentUploads> {
+        AttachmentUploads::new(Arc::new(Observer))
+    }
+
+    fn reserve(queue: &AttachmentUploads) -> String {
+        queue.reserve(UploadSpec {
+            upload_id: None,
+            mac_id: "mac-a".into(),
+            name: "attachment".into(),
+            cwd: None,
+        })
+    }
+
+    #[test]
+    fn disconnect_keeps_a_subscribed_link_channel_alive() {
+        let queue = queue();
+        let receiver = queue.core.subscribe_link("mac-a");
+        queue.set_link("mac-a".into(), None);
+        assert!(receiver.has_changed().is_ok(), "disconnect must not orphan a waiting upload");
+        assert_eq!(lock(&queue.core.links)["mac-a"].receiver_count(), 1);
+        drop(receiver);
+        queue.set_link("mac-a".into(), None);
+        assert!(!lock(&queue.core.links).contains_key("mac-a"));
+    }
+
+    #[tokio::test]
+    async fn closed_link_watcher_resolves_the_upload_waiter() {
+        let queue = queue();
+        let id = reserve(&queue);
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), b"attachment").unwrap();
+        let core = Arc::clone(&queue.core);
+        let upload = queue.get(&id).unwrap();
+        let path = file.path().to_path_buf();
+        let task = tokio::spawn(run(core, upload, path));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let subscribed =
+                    lock(&queue.core.links).get("mac-a").is_some_and(|sender| sender.receiver_count() > 0);
+                if subscribed {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("upload subscribed to its link");
+        lock(&queue.core.links).clear();
+        let error = tokio::time::timeout(Duration::from_secs(5), queue.wait(id))
+            .await
+            .expect("closed watcher resolves wait")
+            .unwrap_err();
+        assert!(matches!(error, CmuxMobileError::Refused { code, .. } if code == "link_unavailable"));
+        task.await.unwrap();
+    }
+
+    #[test]
+    fn confirmed_progress_excludes_encoding_and_legacy_sends() {
+        let queue = queue();
+        let id = reserve(&queue);
+        queue.compress_progress(id.clone(), 0.8);
+        assert_eq!(queue.progress(id.clone()).unwrap().confirmed_bytes, 0);
+        let upload = queue.get(&id).unwrap();
+        upload.edit(true, |state| {
+            state.progress.stage = UploadStage::Uploading;
+            state.progress.acked_bytes = 0;
+        });
+        upload.advance(900, false);
+        assert_eq!(queue.progress(id.clone()).unwrap().confirmed_bytes, 0);
+        upload.advance(700, true);
+        assert_eq!(queue.progress(id.clone()).unwrap().confirmed_bytes, 700);
+        upload.advance(600, true);
+        assert_eq!(queue.progress(id.clone()).unwrap().confirmed_bytes, 700);
+        upload.finish(Ok("/attachment".into()), UploadStage::Done);
+        assert_eq!(queue.progress(id).unwrap().confirmed_bytes, 1000);
     }
 }

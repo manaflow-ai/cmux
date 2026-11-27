@@ -15785,6 +15785,10 @@ public struct UploadProgress: Equatable, Hashable {
      */
     public var ackedBytes: UInt64
     /**
+     * Bytes explicitly confirmed by a Mac reply; excludes encoder progress and legacy sends.
+     */
+    public var confirmedBytes: UInt64
+    /**
      * Bytes written to channels over all attempts.
      */
     public var sentBytes: UInt64
@@ -15801,11 +15805,15 @@ public struct UploadProgress: Equatable, Hashable {
          * Bytes the Mac confirmed (with an older hostd: bytes sent).
          */ackedBytes: UInt64, 
         /**
+         * Bytes explicitly confirmed by a Mac reply; excludes encoder progress and legacy sends.
+         */confirmedBytes: UInt64, 
+        /**
          * Bytes written to channels over all attempts.
          */sentBytes: UInt64, totalBytes: UInt64, attempt: UInt32, macPath: String?, errorCode: String?, errorMessage: String?) {
         self.uploadId = uploadId
         self.stage = stage
         self.ackedBytes = ackedBytes
+        self.confirmedBytes = confirmedBytes
         self.sentBytes = sentBytes
         self.totalBytes = totalBytes
         self.attempt = attempt
@@ -15833,6 +15841,7 @@ public struct FfiConverterTypeUploadProgress: FfiConverterRustBuffer {
                 uploadId: FfiConverterString.read(from: &buf), 
                 stage: FfiConverterTypeUploadStage.read(from: &buf), 
                 ackedBytes: FfiConverterUInt64.read(from: &buf), 
+                confirmedBytes: FfiConverterUInt64.read(from: &buf), 
                 sentBytes: FfiConverterUInt64.read(from: &buf), 
                 totalBytes: FfiConverterUInt64.read(from: &buf), 
                 attempt: FfiConverterUInt32.read(from: &buf), 
@@ -15846,6 +15855,7 @@ public struct FfiConverterTypeUploadProgress: FfiConverterRustBuffer {
         FfiConverterString.write(value.uploadId, into: &buf)
         FfiConverterTypeUploadStage.write(value.stage, into: &buf)
         FfiConverterUInt64.write(value.ackedBytes, into: &buf)
+        FfiConverterUInt64.write(value.confirmedBytes, into: &buf)
         FfiConverterUInt64.write(value.sentBytes, into: &buf)
         FfiConverterUInt64.write(value.totalBytes, into: &buf)
         FfiConverterUInt32.write(value.attempt, into: &buf)

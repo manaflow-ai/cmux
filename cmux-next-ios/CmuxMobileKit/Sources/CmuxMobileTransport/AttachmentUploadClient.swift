@@ -1,5 +1,8 @@
 #if canImport(CmuxMobileLinkFFI)
 import CmuxMobileLinkFFI
+#if canImport(Darwin)
+import Darwin
+#endif
 import Foundation
 import Observation
 
@@ -31,6 +34,7 @@ public final class AttachmentUploadClient {
     public private(set) var progress: [String: UploadProgress] = [:]
 
     @ObservationIgnored private var engine: AttachmentUploads!
+    @ObservationIgnored private var destinations: [String: AttachmentDestination] = [:]
     /// Security scopes held open while the engine reads a Files pick; closed when the upload ends.
     @ObservationIgnored private var scopes: [String: ScopedFile.Access] = [:]
     /// Files this client wrote (pasted bytes, compressed videos): removed when their upload ends.
@@ -64,6 +68,7 @@ public final class AttachmentUploadClient {
     /// A reserved upload's bytes, held in memory: written to the outbox folder, then sent as
     /// `name` on the Mac.
     public func fileReady(_ id: String, data: Data, name: String) {
+        guard acceptsFile(id) else { return }
         do {
             let url = try Self.outboxFile(id: id, name: name)
             try data.write(to: url, options: .atomic)
@@ -77,6 +82,7 @@ public final class AttachmentUploadClient {
     /// shown as `compressing` until ``fileReady(_:url:ownsFile:)``.
     public func reserve(name: String, to destination: AttachmentDestination) -> String {
         let id = engine.reserve(spec: UploadSpec(uploadId: nil, macId: destination.macID, name: name, cwd: destination.cwd))
+        destinations[id] = destination
         if let now = engine.progress(uploadId: id) { progress[id] = now }
         return id
     }
@@ -88,6 +94,12 @@ public final class AttachmentUploadClient {
     /// The reserved upload's file is ready; `name` (when given) replaces the reserved name on
     /// the Mac (a re-encode made another kind of file).
     public func fileReady(_ id: String, url: URL, name: String? = nil, ownsFile: Bool = false) {
+        // An export can finish after Stop/forget, before its queued progress callback arrives.
+        // Consult Rust's state before taking a new security scope or retaining the export.
+        guard acceptsFile(id) else {
+            if ownsFile { Self.removeOwnedFile(url) }
+            return
+        }
         if ownsFile {
             ownedFiles[id] = url
         } else {
@@ -100,10 +112,23 @@ public final class AttachmentUploadClient {
         }
     }
 
+    private func acceptsFile(_ id: String) -> Bool {
+        destinations[id] != nil && engine.progress(uploadId: id)?.isFinished == false
+    }
+
     /// Stops the upload at any stage, at once: nothing waits on the network.
     public func cancel(_ id: String) {
         engine.cancel(uploadId: id)
         release(id)
+    }
+
+    /// Releases a completed upload. Late observer tasks cannot recreate a forgotten entry.
+    public func forget(_ id: String) {
+        guard engine.progress(uploadId: id)?.isFinished == true else { return }
+        destinations[id] = nil
+        progress[id] = nil
+        release(id)
+        engine.forget(uploadId: id)
     }
 
     /// The file's absolute path on the Mac once it is there whole; throws the
@@ -130,14 +155,11 @@ public final class AttachmentUploadClient {
         case .data(let data): start(data, name: name, to: destination)
         case .file(let url): start(url, name: name, to: destination)
         }
-        defer {
-            engine.forget(uploadId: id)
-            progress[id] = nil
-        }
+        defer { forget(id) }
         return try await withTaskCancellationHandler {
             try await wait(id)
         } onCancel: {
-            Task { @MainActor in AttachmentUploadClient.shared.cancel(id) }
+            Task { @MainActor [weak self] in self?.cancel(id) }
         }
     }
 
@@ -149,9 +171,17 @@ public final class AttachmentUploadClient {
         }
     }
 
-    fileprivate func apply(_ update: UploadProgress) {
-        if update.ackedBytes > (progress[update.uploadId]?.ackedBytes ?? 0) { UploadActivity.advanced() }
-        progress[update.uploadId] = update
+    func apply(_ update: UploadProgress) {
+        guard let destination = destinations[update.uploadId],
+              progress[update.uploadId]?.isFinished != true else { return }
+        if update.confirmedBytes > (progress[update.uploadId]?.confirmedBytes ?? 0) {
+            UploadActivity.advanced(macID: destination.macID)
+        }
+        // Main-actor tasks from different observer threads can arrive out of order. Keep the
+        // confirmed high-water mark so an old callback cannot make a replay look like new bytes.
+        var newest = update
+        newest.confirmedBytes = max(update.confirmedBytes, progress[update.uploadId]?.confirmedBytes ?? 0)
+        progress[update.uploadId] = newest
         switch update.stage {
         case .done, .failed, .cancelled: release(update.uploadId)
         case .compressing, .waitingForMac, .uploading, .finishing: break
@@ -161,8 +191,20 @@ public final class AttachmentUploadClient {
     private func release(_ id: String) {
         scopes.removeValue(forKey: id)?.close()
         if let file = ownedFiles.removeValue(forKey: id) {
-            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+            Self.removeOwnedFile(file)
         }
+    }
+
+    private static func removeOwnedFile(_ file: URL) {
+        try? FileManager.default.removeItem(at: file)
+        // Only the file was handed to us. rmdir removes an empty export folder without ever
+        // recursively deleting another file that happens to be in the same parent.
+        #if canImport(Darwin)
+        _ = file.deletingLastPathComponent().withUnsafeFileSystemRepresentation { path in
+            guard let path else { return Int32(-1) }
+            return Darwin.rmdir(path)
+        }
+        #endif
     }
 
     /// `Caches/attachment-outbox/<id>/<name>`: one folder per upload, so names never collide.

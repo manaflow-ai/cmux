@@ -245,6 +245,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_owner_live.py"
 
 [[test]]
+path = "tests/test_cmux_next_pair_e2e_guards.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_pair_e2e_guards.py"
+
+[[test]]
 path = "tests/test_cmux_next_perf_budgets.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks scripts/cmux-next/perf-budgets.py's table and gate; run python3 tests/test_cmux_next_perf_budgets.py yourself after changing it (under 1 s, no build)."
