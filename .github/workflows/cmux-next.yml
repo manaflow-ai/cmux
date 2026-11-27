@@ -3364,7 +3364,7 @@ jobs:
       # Why: 2026-11-26-fast-tier-cargo-reuse.md
       CMUX_GHOSTTY_VT_ZIG_CPU: baseline
       # Why: note-559
-      FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_FAST_TIER_PR_SCOPE) != '0' && '1' || '' }}
+      FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && (vars.CI_FAST_TIER_PR_SCOPE || '1') != '0' && '1' || '' }}
     steps:
       # Why: 2026-11-26-fast-tier-freestyle-link.md
       - name: Note when the checkout starts (Freestyle link check)
@@ -3453,7 +3453,7 @@ jobs:
       # Why: 2026-11-26-fast-tier-cargo-bot-read.md
       - name: Mint a read token
         id: reuse-token
-        if: ${{ (format('{0}', vars.CI_REBUILD_MIRROR) != '0' || vars.CI_NEXT_JOB_REUSE == '1') && inputs.no_reuse != true && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_FAST_TIER_CARGO_BOT_READ != '0' }}
+        if: ${{ (format('{0}', vars.CI_REBUILD_MIRROR) != '0' || vars.CI_NEXT_JOB_REUSE == '1') && inputs.no_reuse != true && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next' && (vars.CI_FAST_TIER_CARGO_BOT_READ || '1') != '0' }}
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0

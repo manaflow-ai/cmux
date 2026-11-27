@@ -103,6 +103,10 @@ path = "tests/test_ci_cargo_affected.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cargo_delta_matched_entry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cdn_user_agent.py"
 lane = "linux-guard"
 
@@ -528,6 +532,10 @@ path = "tests/test_ci_media_module_cache_stamp.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_merge_live_base_jobs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_merge_main.py"
 lane = "linux-guard"
 
@@ -770,8 +778,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_private_names_fetch_wait.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_private_names_fetch_wait.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_process_tree_reaping.py"
@@ -1192,6 +1199,10 @@ path = "tests/test_ci_ui_proof_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_unix_only_on_windows.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_upload_artifact_retention.py"
 lane = "linux-guard"
 
@@ -1309,8 +1320,4 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_unix_only_on_windows.py"
 lane = "linux-guard"
