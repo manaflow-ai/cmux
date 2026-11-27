@@ -82,6 +82,21 @@ final class OpenLog: @unchecked Sendable {
 /// A native browser tab's `localhost:<port>` reaches the Mac's loopback through
 /// this iPhone's own listener: the request goes over the link, the reply comes back.
 @MainActor @Suite(.serialized) struct LocalhostForwarderTests {
+    @Test(arguments: [0, 1, 2])
+    func anOpenerWithoutForwardingRefusesEverySpelling(form: Int) async {
+        let opener: any BrowserStreamOpening = FakeOpener()
+        do {
+            switch form {
+            case 0: _ = try await opener.openLocalhost(port: 8080)
+            case 1: _ = try await opener.openLocalhost(port: 8080, host: nil)
+            default: _ = try await opener.openLocalhost(port: 8080, host: "dev.internal")
+            }
+            Issue.record("an unsupported opener must refuse forwarding")
+        } catch {
+            #expect((error as? LinkError)?.code == "unknown_service")
+        }
+    }
+
     @Test func privateProxyKeepsItsCachedEndpointAcrossResume() async throws {
         let forwarder = LocalhostForwarder(openHost: { _, _, _ in FakeLoopbackChannel(body: "private") })
         defer { forwarder.retain(proxies: []) }

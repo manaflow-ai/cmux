@@ -131,6 +131,6 @@ extension BrowserStreamOpening {
     }
 
     public func openLocalhost(port: UInt16) async throws -> any LinkChannel {
-        try await openLocalhost(port: port, host: nil)
+        throw LinkError(code: "unknown_service", message: "This Mac does not forward localhost")
     }
 }
