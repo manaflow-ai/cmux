@@ -30,6 +30,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: cmux_cloud_config::capture_auth::Request = read(request)?;
             json!(cmux_cloud_config::capture_auth::next(&request))
         }
+        // The shared session store's next state and effects (Team-signed production builds).
+        b"cloud_auth_shared_session_next" => {
+            let request: cmux_cloud_config::shared_session_store::Request = read(request)?;
+            json!(cmux_cloud_config::shared_session_store::next(&request))
+        }
         // The build's Cloud from the runtime selection, with its token store's names.
         b"cloud_config_from_selection" => {
             let inputs: config::Inputs = read(request)?;

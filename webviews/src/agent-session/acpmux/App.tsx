@@ -2554,6 +2554,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ),
   );
   // The chat's rows before turns fold their work and before its silent turns go to the hat.
+  // The rows draw a kept tail's open turn as running until acpmux says whether it runs (direct.ts
+  // `tailMidTurn`): the attach that says it does then moves no row. Only the rows: the composer, Stop
+  // and the clock read `isWorking`.
+  const rowsWorking = snapshot.isWorking || snapshot.tailMidTurn === true;
   const allSourceRows = useMemo(() => {
     const groups = snapshot.permissionGroups;
     const groupedIds = new Set(groups?.groups.flatMap((group) => group.items.map((item) => item.permissionId)));
@@ -2570,8 +2574,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : snapshot.rows;
     // Each step's consecutive thoughts as one, and none that says nothing (conversation/thoughts.ts);
     // one "While you were away" card, the newest (conversation/oneRecap.ts).
-    return withoutQuietThoughts(oneRecap(rows), snapshot.isWorking);
-  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
+    return withoutQuietThoughts(oneRecap(rows), rowsWorking);
+  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, rowsWorking]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
   const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
@@ -2708,8 +2712,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // why were these 0 text output from you (is that a personal setting on my end)"). The Quick
   // Composer has no hat, so it keeps them.
   const silentSplit = useMemo(
-    () => (quick ? { rows: allSourceRows, silent: NO_SILENT } : splitSilentTurns(allSourceRows, snapshot.isWorking)),
-    [quick, allSourceRows, snapshot.isWorking],
+    () => (quick ? { rows: allSourceRows, silent: NO_SILENT } : splitSilentTurns(allSourceRows, rowsWorking)),
+    [quick, allSourceRows, rowsWorking],
   );
   // The chat's rows before turns fold their work, which Find searches (a closed fold included).
   const sourceRows = silentSplit.rows;
@@ -2741,7 +2745,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         heldWorked,
         heldWorkedClosing,
         snapshot: {
-          isWorking: snapshot.isWorking,
+          isWorking: rowsWorking,
           canLoadNewer: snapshot.canLoadNewer,
           clockOffsetMs: snapshot.clockOffsetMs,
           turnStartedAtMs: snapshot.turnStartedAtMs,
@@ -2762,7 +2766,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sourceRows,
       started,
       folds,
-      snapshot.isWorking,
+      rowsWorking,
       snapshot.canLoadNewer,
       snapshot.clockOffsetMs,
       snapshot.turnStartedAtMs,
