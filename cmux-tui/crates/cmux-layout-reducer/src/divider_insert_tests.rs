@@ -173,18 +173,20 @@ fn the_optimistic_operation_answers_the_plan_and_a_split_around() {
         respond(&request),
         serde_json::json!({"target": 2, "around": 20, "dir": "right", "split": 10, "ratio": DIVIDER_RATIO})
     );
+    // The split it names, as the app sends it: the found split `around` and the facts.
     let split: Request = serde_json::from_value(serde_json::json!({
-        "op": "split",
-        "screen": {"layout": {"type": "split", "split": 10, "dir": "right", "ratio": 0.5,
-                   "a": {"type": "split", "split": 20, "dir": "down", "ratio": 0.5,
-                         "a": {"type": "leaf", "pane": 1}, "b": {"type": "leaf", "pane": 2}},
-                   "b": {"type": "leaf", "pane": 3}}, "panes": [1, 2, 3]},
-        "target": 2, "dir": "right", "ratio": 0.5, "leaf": 9, "split_id": "s", "around": 20
+        "op": "split", "target": 2, "dir": "right", "ratio": 0.5, "leaf": 9, "split_id": "s",
+        "around": 20,
+        "facts": {"leaf_placed": false, "columns": 0, "panes": 3, "target_index": 1},
+        "spots": [{"node": {"type": "split", "split": 20, "last_pane": 2}}]
     }))
     .expect("split");
-    let answer = respond(&split);
-    assert_eq!(answer["pane_at"], 2);
-    assert_eq!(answer["layout"]["a"]["split_id"], "s");
-    assert_eq!(answer["layout"]["a"]["a"]["split"], 20);
-    assert_eq!(answer["layout"]["a"]["b"]["pane"], 9);
+    assert_eq!(
+        respond(&split),
+        serde_json::json!({
+            "spots": [{"spot": 0, "node": {"type": "split", "split_id": "s", "dir": "right",
+                "ratio": 0.5, "a": {"type": "held"}, "b": {"type": "leaf", "pane": 9}}}],
+            "pane_at": 2
+        })
+    );
 }

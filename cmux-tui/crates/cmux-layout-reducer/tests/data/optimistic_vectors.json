@@ -2,26 +2,63 @@
  {
   "name": "a split of a lone pane puts the provisional pane after it under the split's public id",
   "swift": "InstantCreateIntentTests.splitShowsTheProvisionalPane; ProvisionalSplit.apply",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 3
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "right",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 3
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     3
-    ]
+   "target": 3,
+   "facts": {
+    "columns": 0,
+    "leaf_placed": false,
+    "panes": 1,
+    "target_index": 0
    },
-   "target": 3
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true
+    }
+   ]
   },
   "response": {
+   "pane_at": 1,
+   "spots": [
+    {
+     "node": {
+      "a": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "right",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
    "layout": {
     "type": "split",
     "split_id": "split_0123456789abcdef0123456789abcdef",
@@ -43,65 +80,152 @@
  {
   "name": "the target's column tree and row tree take the split too; the daemon's split keeps its handle",
   "swift": "ProvisionalSplit.apply (columns and rows reached)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "split": 7,
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "rows": [
+      {
+       "id": 1,
+       "height": 1000,
+       "layout": {
+        "type": "leaf",
+        "pane": 3
+       }
+      }
+     ]
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 5
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "down",
    "ratio": 0.3,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "split": 7,
-     "dir": "right",
-     "ratio": 0.5,
-     "a": {
-      "type": "leaf",
-      "pane": 3
-     },
-     "b": {
-      "type": "leaf",
-      "pane": 5
+   "target": 3,
+   "facts": {
+    "columns": 2,
+    "leaf_placed": false,
+    "panes": 2,
+    "target_index": 0
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
      }
     },
-    "columns": [
-     {
-      "id": 1,
-      "width": 0.5,
-      "layout": {
-       "type": "leaf",
-       "pane": 3
-      },
-      "rows": [
-       {
-        "id": 1,
-        "height": 1000,
-        "layout": {
-         "type": "leaf",
-         "pane": 3
-        }
-       }
-      ]
+    {
+     "column": 0,
+     "node": {
+      "pane": 3,
+      "type": "leaf"
      },
-     {
-      "id": 2,
-      "width": 0.5,
-      "layout": {
-       "type": "leaf",
-       "pane": 5
-      },
-      "rows": []
-     }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     5
-    ]
-   },
-   "target": 3
+     "root": true
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true,
+     "row": 0
+    }
+   ]
   },
   "response": {
+   "pane_at": 1,
+   "spots": [
+    {
+     "node": {
+      "a": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.3,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 0
+    },
+    {
+     "node": {
+      "a": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.3,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 1
+    },
+    {
+     "node": {
+      "a": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.3,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 2
+    }
+   ]
+  },
+  "view": {
    "layout": {
     "type": "split",
     "split": 7,
@@ -181,34 +305,70 @@
  {
   "name": "a node this client does not know stays as it is",
   "swift": "LayoutNode.unknown; ProvisionalSplit.split",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "unknown"
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 3
+    }
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "right",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "dir": "right",
-     "ratio": 0.5,
-     "a": {
-      "type": "unknown"
-     },
-     "b": {
-      "type": "leaf",
-      "pane": 3
-     }
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     3
-    ]
+   "target": 3,
+   "facts": {
+    "columns": 0,
+    "leaf_placed": false,
+    "panes": 1,
+    "target_index": 0
    },
-   "target": 3
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     }
+    }
+   ]
   },
   "response": {
+   "pane_at": 1,
+   "spots": [
+    {
+     "node": {
+      "a": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "right",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
    "layout": {
     "type": "split",
     "dir": "right",
@@ -238,121 +398,222 @@
  {
   "name": "a target in a stack is refused (split turns a stack into its own layout)",
   "swift": "ProvisionalSplit.split (stack)",
+  "screen": {
+   "layout": {
+    "type": "stack",
+    "panes": [
+     3,
+     5
+    ],
+    "expanded": 3
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "right",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "stack",
-     "panes": [
-      3,
-      5
-     ],
-     "expanded": 3
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     5
-    ]
+   "target": 3,
+   "facts": {
+    "columns": 0,
+    "leaf_placed": false,
+    "panes": 2,
+    "target_index": 0
    },
-   "target": 3
+   "spots": [
+    {
+     "node": null
+    }
+   ]
   },
-  "response": null
+  "response": null,
+  "view": null
  },
  {
   "name": "a column tree the split cannot reach leaves the intent unapplied",
   "swift": "ProvisionalSplit.apply (reached = false)",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 3
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 1.0,
+     "layout": {
+      "type": "stack",
+      "panes": [
+       3
+      ],
+      "expanded": 3
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "right",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 3
-    },
-    "columns": [
-     {
-      "id": 1,
-      "width": 1.0,
-      "layout": {
-       "type": "stack",
-       "panes": [
-        3
-       ],
-       "expanded": 3
-      },
-      "rows": []
-     }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3
-    ]
+   "target": 3,
+   "facts": {
+    "columns": 1,
+    "leaf_placed": false,
+    "panes": 1,
+    "target_index": 0
    },
-   "target": 3
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true
+    },
+    {
+     "column": 0,
+     "node": null
+    }
+   ]
   },
-  "response": null
+  "response": null,
+  "view": null
  },
  {
   "name": "a target not on the screen is refused",
   "swift": "ProvisionalSplit.split (nil)",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 3
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "right",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 3
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     3
-    ]
+   "target": 4,
+   "facts": {
+    "columns": 0,
+    "leaf_placed": false,
+    "panes": 1,
+    "target_index": null
    },
-   "target": 4
+   "spots": [
+    {
+     "node": null
+    }
+   ]
   },
-  "response": null
+  "response": null,
+  "view": null
  },
  {
   "name": "New Column on a split-tree screen: the tree at full width and the new column after it",
   "swift": "InstantCreateIntentTests.newColumnShowsItsColumnInTheIntentsTurn",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 3
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "right",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 3
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     3
-    ]
-   },
    "target": 3,
    "column": {
     "handle": 4611686018427387905,
-    "width": 0.5,
-    "left": false
-   }
+    "left": false,
+    "width": 0.5
+   },
+   "facts": {
+    "column": null,
+    "columns": 0,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 1,
+    "span": [
+     0,
+     0
+    ],
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true
+    }
+   ]
   },
   "response": {
+   "columns": [
+    {
+     "at": 0,
+     "edit": "insert",
+     "id": 6917529027641081857,
+     "layout": {
+      "type": "screen"
+     },
+     "width": 1.0
+    },
+    {
+     "at": 1,
+     "edit": "insert",
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "width": 0.5
+    }
+   ],
+   "layout": {
+    "a": {
+     "type": "screen"
+    },
+    "b": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   },
+   "pane_at": 1
+  },
+  "view": {
    "layout": {
     "type": "split",
     "dir": "right",
@@ -392,60 +653,115 @@
  {
   "name": "New Column goes right after the pane's column; the others keep their place and width",
   "swift": "InstantCreateIntentTests.newColumnGoesAfterThePanesColumn",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "rows": []
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 5
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "right",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "dir": "right",
-     "ratio": 0.5,
-     "a": {
-      "type": "leaf",
-      "pane": 3
-     },
-     "b": {
-      "type": "leaf",
-      "pane": 5
-     }
-    },
-    "columns": [
-     {
-      "id": 1,
-      "width": 0.5,
-      "layout": {
-       "type": "leaf",
-       "pane": 3
-      },
-      "rows": []
-     },
-     {
-      "id": 2,
-      "width": 0.5,
-      "layout": {
-       "type": "leaf",
-       "pane": 5
-      },
-      "rows": []
-     }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     5
-    ]
-   },
    "target": 3,
    "column": {
     "handle": 4611686018427387905,
-    "width": 0.4,
-    "left": false
-   }
+    "left": false,
+    "width": 0.4
+   },
+   "facts": {
+    "column": 0,
+    "columns": 2,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 2,
+    "span": [
+     0,
+     0
+    ],
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true
+    }
+   ]
   },
   "response": {
+   "columns": [
+    {
+     "at": 1,
+     "edit": "insert",
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "width": 0.4
+    }
+   ],
+   "layout": {
+    "a": {
+     "type": "screen"
+    },
+    "b": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   },
+   "pane_at": 1
+  },
+  "view": {
    "layout": {
     "type": "split",
     "dir": "right",
@@ -503,60 +819,115 @@
  {
   "name": "New Column Left goes right before the pane's column",
   "swift": "NewColumnLeftTests.theOptimisticColumnShowsBeforeThePanesColumn",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "rows": []
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 5
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "right",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "dir": "right",
-     "ratio": 0.5,
-     "a": {
-      "type": "leaf",
-      "pane": 3
-     },
-     "b": {
-      "type": "leaf",
-      "pane": 5
-     }
-    },
-    "columns": [
-     {
-      "id": 1,
-      "width": 0.5,
-      "layout": {
-       "type": "leaf",
-       "pane": 3
-      },
-      "rows": []
-     },
-     {
-      "id": 2,
-      "width": 0.5,
-      "layout": {
-       "type": "leaf",
-       "pane": 5
-      },
-      "rows": []
-     }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     5
-    ]
-   },
    "target": 5,
    "column": {
     "handle": 4611686018427387905,
-    "width": 0.6666666666666666,
-    "left": true
-   }
+    "left": true,
+    "width": 0.6666666666666666
+   },
+   "facts": {
+    "column": 1,
+    "columns": 2,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 2,
+    "span": [
+     1,
+     1
+    ],
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 5,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 1,
+     "node": {
+      "pane": 5,
+      "type": "leaf"
+     },
+     "root": true
+    }
+   ]
   },
   "response": {
+   "columns": [
+    {
+     "at": 1,
+     "edit": "insert",
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "width": 0.6666666666666666
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "b": {
+     "type": "screen"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   },
+   "pane_at": 1
+  },
+  "view": {
    "layout": {
     "type": "split",
     "dir": "right",
@@ -614,59 +985,160 @@
  {
   "name": "New Column on a zoomed split-tree screen has no tree column to open beside",
   "swift": "ProvisionalSplit.applyColumn (zoomed)",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 3
+   },
+   "columns": [],
+   "zoomed_pane": 3,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "right",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 3
-    },
-    "columns": [],
-    "zoomed_pane": 3,
-    "panes": [
-     3
-    ]
-   },
    "target": 3,
    "column": {
     "handle": 4611686018427387905,
-    "width": 0.5,
-    "left": false
-   }
+    "left": false,
+    "width": 0.5
+   },
+   "facts": {
+    "column": null,
+    "columns": 0,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 1,
+    "span": [
+     0,
+     0
+    ],
+    "zoomed": true
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true
+    }
+   ]
   },
-  "response": null
+  "response": null,
+  "view": null
  },
  {
   "name": "New Row on a split-tree screen: one column, the tree as its first row at 1000 and the new row below",
   "swift": "InstantCreateIntentTests.newRowShowsItsRowInTheIntentsTurn",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 3
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "down",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 3
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     3
-    ]
-   },
    "target": 3,
    "row": {
     "handle": 4611686018427387905,
     "height": 400
-   }
+   },
+   "facts": {
+    "column": null,
+    "columns": 0,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 1,
+    "row": null,
+    "rows": 0,
+    "target_index": 0,
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true
+    }
+   ]
   },
   "response": {
+   "columns": [
+    {
+     "at": 0,
+     "edit": "insert",
+     "id": 8070450532247928833,
+     "layout": {
+      "a": {
+       "type": "screen"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "type": "split"
+     },
+     "rows": [
+      {
+       "height": 1000,
+       "id": 6917529027641081857,
+       "layout": {
+        "type": "screen"
+       }
+      },
+      {
+       "height": 400,
+       "id": 4611686018427387905,
+       "layout": {
+        "pane": 4611686018427387905,
+        "type": "leaf"
+       }
+      }
+     ],
+     "width": 1.0
+    }
+   ],
+   "pane_at": 1,
+   "spots": [
+    {
+     "node": {
+      "a": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
    "layout": {
     "type": "split",
     "split_id": "split_0123456789abcdef0123456789abcdef",
@@ -724,76 +1196,173 @@
  {
   "name": "New Row goes right below the pane's row; the column's tree is the compat chain of its rows",
   "swift": "InstantCreateIntentTests.newRowGoesBelowThePanesRow",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "down",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 1.0,
+     "layout": {
+      "type": "split",
+      "dir": "down",
+      "ratio": 0.5,
+      "a": {
+       "type": "leaf",
+       "pane": 3
+      },
+      "b": {
+       "type": "leaf",
+       "pane": 5
+      }
+     },
+     "rows": [
+      {
+       "id": 1,
+       "height": 500,
+       "layout": {
+        "type": "leaf",
+        "pane": 3
+       }
+      },
+      {
+       "id": 2,
+       "height": 500,
+       "layout": {
+        "type": "leaf",
+        "pane": 5
+       }
+      }
+     ]
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "down",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "dir": "down",
-     "ratio": 0.5,
-     "a": {
-      "type": "leaf",
-      "pane": 3
-     },
-     "b": {
-      "type": "leaf",
-      "pane": 5
-     }
-    },
-    "columns": [
-     {
-      "id": 1,
-      "width": 1.0,
-      "layout": {
-       "type": "split",
-       "dir": "down",
-       "ratio": 0.5,
-       "a": {
-        "type": "leaf",
-        "pane": 3
-       },
-       "b": {
-        "type": "leaf",
-        "pane": 5
-       }
-      },
-      "rows": [
-       {
-        "id": 1,
-        "height": 500,
-        "layout": {
-         "type": "leaf",
-         "pane": 3
-        }
-       },
-       {
-        "id": 2,
-        "height": 500,
-        "layout": {
-         "type": "leaf",
-         "pane": 5
-        }
-       }
-      ]
-     }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     5
-    ]
-   },
    "target": 3,
    "row": {
     "handle": 4611686018427387905,
     "height": 300
-   }
+   },
+   "facts": {
+    "column": 0,
+    "columns": 1,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 2,
+    "row": 0,
+    "rows": 2,
+    "target_index": 0,
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true,
+     "row": 0
+    }
+   ]
   },
   "response": {
+   "columns": [
+    {
+     "at": 0,
+     "edit": "change",
+     "layout": {
+      "a": {
+       "a": {
+        "row": 0,
+        "type": "row"
+       },
+       "b": {
+        "pane": 4611686018427387905,
+        "type": "leaf"
+       },
+       "dir": "down",
+       "ratio": 0.5,
+       "type": "split"
+      },
+      "b": {
+       "row": 1,
+       "type": "row"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "type": "split"
+     },
+     "rows": [
+      {
+       "at": 1,
+       "edit": "insert",
+       "height": 300,
+       "id": 4611686018427387905,
+       "layout": {
+        "pane": 4611686018427387905,
+        "type": "leaf"
+       }
+      }
+     ]
+    }
+   ],
+   "pane_at": 1,
+   "spots": [
+    {
+     "node": {
+      "a": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
    "layout": {
     "type": "split",
     "dir": "down",
@@ -877,43 +1446,121 @@
  {
   "name": "New Row on a screen whose tree lacks the target wraps the tree",
   "swift": "ProvisionalSplit.applyRow (screen tree fallback)",
+  "screen": {
+   "layout": {
+    "type": "stack",
+    "panes": [
+     3
+    ],
+    "expanded": 3
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 1.0,
+     "layout": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "down",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "stack",
-     "panes": [
-      3
-     ],
-     "expanded": 3
-    },
-    "columns": [
-     {
-      "id": 1,
-      "width": 1.0,
-      "layout": {
-       "type": "leaf",
-       "pane": 3
-      },
-      "rows": []
-     }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3
-    ]
-   },
    "target": 3,
    "row": {
     "handle": 4611686018427387905,
     "height": 300
-   }
+   },
+   "facts": {
+    "column": 0,
+    "columns": 1,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 1,
+    "row": null,
+    "rows": 0,
+    "target_index": 0,
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": null
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true
+    }
+   ]
   },
   "response": {
+   "columns": [
+    {
+     "at": 0,
+     "edit": "change",
+     "layout": {
+      "a": {
+       "type": "column"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "type": "split"
+     },
+     "rows": [
+      {
+       "at": 0,
+       "edit": "insert",
+       "height": 1000,
+       "id": 6917529027641081857,
+       "layout": {
+        "type": "column"
+       }
+      },
+      {
+       "at": 1,
+       "edit": "insert",
+       "height": 300,
+       "id": 4611686018427387905,
+       "layout": {
+        "pane": 4611686018427387905,
+        "type": "leaf"
+       }
+      }
+     ]
+    }
+   ],
+   "layout": {
+    "a": {
+     "type": "screen"
+    },
+    "b": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "dir": "down",
+    "ratio": 0.5,
+    "type": "split"
+   },
+   "pane_at": 1
+  },
+  "view": {
    "layout": {
     "type": "split",
     "dir": "down",
@@ -973,62 +1620,131 @@
  {
   "name": "New Row on a zoomed screen is refused",
   "swift": "ProvisionalSplit.applyRow (zoomed)",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 3
+   },
+   "columns": [],
+   "zoomed_pane": 3,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "split",
    "dir": "down",
    "ratio": 0.5,
    "leaf": 4611686018427387905,
    "split_id": "split_0123456789abcdef0123456789abcdef",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 3
-    },
-    "columns": [],
-    "zoomed_pane": 3,
-    "panes": [
-     3
-    ]
-   },
    "target": 3,
    "row": {
     "handle": 4611686018427387905,
     "height": 300
-   }
+   },
+   "facts": {
+    "column": null,
+    "columns": 0,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 1,
+    "row": null,
+    "rows": 0,
+    "target_index": 0,
+    "zoomed": true
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true
+    }
+   ]
   },
-  "response": null
+  "response": null,
+  "view": null
  },
  {
   "name": "a lone chat docks into a leading column; its pane's tree becomes the full-width column",
   "swift": "ProvisionalDockTests.theDockAndTheFreshTabShowInTheInputsTurnAndARefusalTakesThemOut",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 3
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "dock",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 3
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     3
-    ]
-   },
    "leaf": 4611686018427387905,
    "column": {
     "handle": 4611686018427387905,
-    "width": 0.5,
-    "left": true
+    "left": true,
+    "width": 0.5
    },
    "dock": {
+    "allow_tabs": false,
     "edge": "left",
     "mode": "docked",
-    "role": "agent_chat",
     "pinned": false,
-    "allow_tabs": false
+    "role": "agent_chat"
+   },
+   "facts": {
+    "columns": 0,
+    "dock_edges": [],
+    "leaf_placed": false,
+    "zoomed": false
    }
   },
   "response": {
+   "columns": [
+    {
+     "at": 0,
+     "edit": "insert",
+     "id": 6917529027641081857,
+     "layout": {
+      "type": "screen"
+     },
+     "width": 1.0
+    },
+    {
+     "at": 0,
+     "dock": {
+      "allow_tabs": false,
+      "edge": "left",
+      "mode": "docked",
+      "pinned": false,
+      "role": "agent_chat"
+     },
+     "edit": "insert",
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "width": 0.5
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "b": {
+     "type": "screen"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   }
+  },
+  "view": {
    "layout": {
     "type": "split",
     "dir": "right",
@@ -1074,35 +1790,83 @@
  {
   "name": "the daemon's pane under the minted id is placed before its layout does",
   "swift": "ProvisionalDockTests.theDaemonsPaneTakesTheDockOverInPlace",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 3
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    9,
+    3
+   ]
+  },
   "request": {
    "op": "dock",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 3
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     9,
-     3
-    ]
-   },
    "leaf": 9,
    "column": {
     "handle": 4611686018427387905,
-    "width": 0.5,
-    "left": true
+    "left": true,
+    "width": 0.5
    },
    "dock": {
+    "allow_tabs": false,
     "edge": "left",
     "mode": "docked",
-    "role": "agent_chat",
     "pinned": false,
-    "allow_tabs": false
+    "role": "agent_chat"
+   },
+   "facts": {
+    "columns": 0,
+    "dock_edges": [],
+    "leaf_placed": false,
+    "zoomed": false
    }
   },
   "response": {
+   "columns": [
+    {
+     "at": 0,
+     "edit": "insert",
+     "id": 6917529027641081857,
+     "layout": {
+      "type": "screen"
+     },
+     "width": 1.0
+    },
+    {
+     "at": 0,
+     "dock": {
+      "allow_tabs": false,
+      "edge": "left",
+      "mode": "docked",
+      "pinned": false,
+      "role": "agent_chat"
+     },
+     "edit": "insert",
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 9,
+      "type": "leaf"
+     },
+     "width": 0.5
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 9,
+     "type": "leaf"
+    },
+    "b": {
+     "type": "screen"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   }
+  },
+  "view": {
    "layout": {
     "type": "split",
     "dir": "right",
@@ -1148,138 +1912,188 @@
  {
   "name": "a screen with a dock on that edge waits for the daemon's layout",
   "swift": "ProvisionalDock.apply (edge taken)",
-  "request": {
-   "op": "dock",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "dir": "right",
-     "ratio": 0.5,
-     "a": {
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.3,
+     "layout": {
       "type": "leaf",
       "pane": 3
      },
-     "b": {
+     "dock": {
+      "edge": "left",
+      "mode": "docked",
+      "role": "agent_chat",
+      "pinned": false,
+      "allow_tabs": false
+     },
+     "rows": []
+    },
+    {
+     "id": 2,
+     "width": 1.0,
+     "layout": {
       "type": "leaf",
       "pane": 5
-     }
-    },
-    "columns": [
-     {
-      "id": 1,
-      "width": 0.3,
-      "layout": {
-       "type": "leaf",
-       "pane": 3
-      },
-      "dock": {
-       "edge": "left",
-       "mode": "docked",
-       "role": "agent_chat",
-       "pinned": false,
-       "allow_tabs": false
-      },
-      "rows": []
      },
-     {
-      "id": 2,
-      "width": 1.0,
-      "layout": {
-       "type": "leaf",
-       "pane": 5
-      },
-      "rows": []
-     }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     5
-    ]
-   },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
+  "request": {
+   "op": "dock",
    "leaf": 4611686018427387905,
    "column": {
     "handle": 4611686018427387905,
-    "width": 0.5,
-    "left": true
+    "left": true,
+    "width": 0.5
    },
    "dock": {
+    "allow_tabs": false,
     "edge": "left",
     "mode": "docked",
-    "role": "agent_chat",
     "pinned": false,
-    "allow_tabs": false
+    "role": "agent_chat"
+   },
+   "facts": {
+    "columns": 2,
+    "dock_edges": [
+     "left"
+    ],
+    "leaf_placed": false,
+    "zoomed": false
    }
   },
-  "response": null
+  "response": null,
+  "view": null
  },
  {
   "name": "a dock on another edge does not block",
   "swift": "ProvisionalDock.apply (other edge)",
-  "request": {
-   "op": "dock",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "dir": "right",
-     "ratio": 0.5,
-     "a": {
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.3,
+     "layout": {
       "type": "leaf",
       "pane": 3
      },
-     "b": {
+     "dock": {
+      "edge": "right",
+      "mode": "docked",
+      "role": "agent_chat",
+      "pinned": false,
+      "allow_tabs": false
+     },
+     "rows": []
+    },
+    {
+     "id": 2,
+     "width": 1.0,
+     "layout": {
       "type": "leaf",
       "pane": 5
-     }
-    },
-    "columns": [
-     {
-      "id": 1,
-      "width": 0.3,
-      "layout": {
-       "type": "leaf",
-       "pane": 3
-      },
-      "dock": {
-       "edge": "right",
-       "mode": "docked",
-       "role": "agent_chat",
-       "pinned": false,
-       "allow_tabs": false
-      },
-      "rows": []
      },
-     {
-      "id": 2,
-      "width": 1.0,
-      "layout": {
-       "type": "leaf",
-       "pane": 5
-      },
-      "rows": []
-     }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     5
-    ]
-   },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
+  "request": {
+   "op": "dock",
    "leaf": 4611686018427387905,
    "column": {
     "handle": 4611686018427387905,
-    "width": 0.5,
-    "left": true
+    "left": true,
+    "width": 0.5
    },
    "dock": {
+    "allow_tabs": false,
     "edge": "left",
     "mode": "docked",
-    "role": "agent_chat",
     "pinned": false,
-    "allow_tabs": false
+    "role": "agent_chat"
+   },
+   "facts": {
+    "columns": 2,
+    "dock_edges": [
+     "right"
+    ],
+    "leaf_placed": false,
+    "zoomed": false
    }
   },
   "response": {
+   "columns": [
+    {
+     "at": 0,
+     "dock": {
+      "allow_tabs": false,
+      "edge": "left",
+      "mode": "docked",
+      "pinned": false,
+      "role": "agent_chat"
+     },
+     "edit": "insert",
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "width": 0.5
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "b": {
+     "type": "screen"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   }
+  },
+  "view": {
    "layout": {
     "type": "split",
     "dir": "right",
@@ -1350,65 +2164,88 @@
  {
   "name": "a zoomed screen waits for the daemon's layout",
   "swift": "ProvisionalDock.apply (zoomed)",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 3
+   },
+   "columns": [],
+   "zoomed_pane": 3,
+   "panes": [
+    3
+   ]
+  },
   "request": {
    "op": "dock",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 3
-    },
-    "columns": [],
-    "zoomed_pane": 3,
-    "panes": [
-     3
-    ]
-   },
    "leaf": 4611686018427387905,
    "column": {
     "handle": 4611686018427387905,
-    "width": 0.5,
-    "left": true
+    "left": true,
+    "width": 0.5
    },
    "dock": {
+    "allow_tabs": false,
     "edge": "left",
     "mode": "docked",
-    "role": "agent_chat",
     "pinned": false,
-    "allow_tabs": false
+    "role": "agent_chat"
+   },
+   "facts": {
+    "columns": 0,
+    "dock_edges": [],
+    "leaf_placed": false,
+    "zoomed": true
    }
   },
-  "response": null
+  "response": null,
+  "view": null
  },
  {
   "name": "a hidden pane's sibling takes the split's place",
   "swift": "StandInPaneCloseTests; CancelledCreation.hidePane",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "split": 4,
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 9
+    }
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    9
+   ]
+  },
   "request": {
    "op": "remove_pane",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "split": 4,
-     "dir": "right",
-     "ratio": 0.5,
-     "a": {
-      "type": "leaf",
-      "pane": 3
-     },
-     "b": {
-      "type": "leaf",
-      "pane": 9
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "pane": 9,
+      "type": "leaf"
      }
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     9
-    ]
-   },
-   "pane": 9
+    }
+   ]
   },
   "response": {
+   "spots": [
+    {
+     "node": null,
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
    "layout": {
     "type": "leaf",
     "pane": 3
@@ -1419,71 +2256,111 @@
  {
   "name": "a pane that is the whole tree stays shown until its close",
   "swift": "CancelledCreation.hidePane (unsplit nil)",
+  "screen": {
+   "layout": {
+    "type": "leaf",
+    "pane": 9
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    9
+   ]
+  },
   "request": {
    "op": "remove_pane",
-   "screen": {
-    "layout": {
-     "type": "leaf",
-     "pane": 9
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     9
-    ]
-   },
-   "pane": 9
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "pane": 9,
+      "type": "leaf"
+     },
+     "root": true
+    }
+   ]
   },
-  "response": null
+  "response": null,
+  "view": null
  },
  {
   "name": "a column that is only the hidden pane goes with it",
   "swift": "CancelledCreation.hidePane (New Column's column)",
-  "request": {
-   "op": "remove_pane",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "dir": "right",
-     "ratio": 0.5,
-     "a": {
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 9
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 1.0,
+     "layout": {
       "type": "leaf",
       "pane": 3
      },
-     "b": {
+     "rows": []
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
       "type": "leaf",
       "pane": 9
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    9
+   ]
+  },
+  "request": {
+   "op": "remove_pane",
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "pane": 9,
+      "type": "leaf"
      }
     },
-    "columns": [
-     {
-      "id": 1,
-      "width": 1.0,
-      "layout": {
-       "type": "leaf",
-       "pane": 3
-      },
-      "rows": []
+    {
+     "column": 1,
+     "node": {
+      "pane": 9,
+      "type": "leaf"
      },
-     {
-      "id": 2,
-      "width": 0.5,
-      "layout": {
-       "type": "leaf",
-       "pane": 9
-      },
-      "rows": []
-     }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     9
-    ]
-   },
-   "pane": 9
+     "root": true
+    }
+   ]
   },
   "response": {
+   "columns": [
+    {
+     "at": 1,
+     "edit": "remove"
+    }
+   ],
+   "spots": [
+    {
+     "node": null,
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
    "layout": {
     "type": "leaf",
     "pane": 3
@@ -1504,68 +2381,116 @@
  {
   "name": "a row that is only the hidden pane goes with it",
   "swift": "CancelledCreation.hidePane (New Row's row)",
-  "request": {
-   "op": "remove_pane",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "dir": "down",
-     "ratio": 0.5,
-     "a": {
-      "type": "leaf",
-      "pane": 3
-     },
-     "b": {
-      "type": "leaf",
-      "pane": 9
-     }
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "down",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
     },
-    "columns": [
-     {
-      "id": 1,
-      "width": 1.0,
-      "layout": {
-       "type": "split",
-       "dir": "down",
-       "ratio": 0.5,
-       "a": {
+    "b": {
+     "type": "leaf",
+     "pane": 9
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 1.0,
+     "layout": {
+      "type": "split",
+      "dir": "down",
+      "ratio": 0.5,
+      "a": {
+       "type": "leaf",
+       "pane": 3
+      },
+      "b": {
+       "type": "leaf",
+       "pane": 9
+      }
+     },
+     "rows": [
+      {
+       "id": 1,
+       "height": 500,
+       "layout": {
         "type": "leaf",
         "pane": 3
-       },
-       "b": {
+       }
+      },
+      {
+       "id": 2,
+       "height": 500,
+       "layout": {
         "type": "leaf",
         "pane": 9
        }
-      },
-      "rows": [
-       {
-        "id": 1,
-        "height": 500,
-        "layout": {
-         "type": "leaf",
-         "pane": 3
-        }
-       },
-       {
-        "id": 2,
-        "height": 500,
-        "layout": {
-         "type": "leaf",
-         "pane": 9
-        }
-       }
-      ]
+      }
+     ]
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    9
+   ]
+  },
+  "request": {
+   "op": "remove_pane",
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "pane": 9,
+      "type": "leaf"
      }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     9
-    ]
-   },
-   "pane": 9
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 9,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 9,
+      "type": "leaf"
+     },
+     "root": true,
+     "row": 1
+    }
+   ]
   },
   "response": {
+   "columns": [
+    {
+     "at": 0,
+     "edit": "change",
+     "rows": [
+      {
+       "at": 1,
+       "edit": "remove"
+      }
+     ]
+    }
+   ],
+   "spots": [
+    {
+     "node": null,
+     "spot": 0
+    },
+    {
+     "node": null,
+     "spot": 1
+    }
+   ]
+  },
+  "view": {
    "layout": {
     "type": "leaf",
     "pane": 3
@@ -1595,27 +2520,54 @@
  {
   "name": "a stack loses the pane and expands its first other pane",
   "swift": "CancelledCreation.removing (stack)",
-  "request": {
-   "op": "remove_pane",
-   "screen": {
-    "layout": {
-     "type": "stack",
-     "panes": [
-      9,
-      3
-     ],
-     "expanded": 9
-    },
-    "columns": [],
-    "zoomed_pane": null,
+  "screen": {
+   "layout": {
+    "type": "stack",
     "panes": [
      9,
      3
-    ]
+    ],
+    "expanded": 9
    },
-   "pane": 9
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    9,
+    3
+   ]
+  },
+  "request": {
+   "op": "remove_pane",
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "expanded": 9,
+      "panes": [
+       9,
+       3
+      ],
+      "type": "stack"
+     },
+     "root": true
+    }
+   ]
   },
   "response": {
+   "spots": [
+    {
+     "node": {
+      "expanded": 3,
+      "panes": [
+       3
+      ],
+      "type": "stack"
+     },
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
    "layout": {
     "type": "stack",
     "panes": [
@@ -1629,42 +2581,58 @@
  {
   "name": "a split whose first side is only the pane keeps its second side as it is",
   "swift": "CancelledCreation.removing (a gone: b as it is)",
-  "request": {
-   "op": "remove_pane",
-   "screen": {
-    "layout": {
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 9
+    },
+    "b": {
      "type": "split",
-     "dir": "right",
+     "dir": "down",
      "ratio": 0.5,
      "a": {
       "type": "leaf",
-      "pane": 9
+      "pane": 3
      },
      "b": {
-      "type": "split",
-      "dir": "down",
-      "ratio": 0.5,
-      "a": {
-       "type": "leaf",
-       "pane": 3
-      },
-      "b": {
-       "type": "leaf",
-       "pane": 5
-      }
+      "type": "leaf",
+      "pane": 5
      }
-    },
-    "columns": [],
-    "zoomed_pane": null,
-    "panes": [
-     9,
-     3,
-     5
-    ]
+    }
    },
-   "pane": 9
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    9,
+    3,
+    5
+   ]
+  },
+  "request": {
+   "op": "remove_pane",
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "pane": 9,
+      "type": "leaf"
+     }
+    }
+   ]
   },
   "response": {
+   "spots": [
+    {
+     "node": null,
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
    "layout": {
     "type": "split",
     "dir": "down",
@@ -1684,71 +2652,344 @@
  {
   "name": "a column tree that cannot lose the pane keeps it shown",
   "swift": "CancelledCreation.hidePane (reached = false)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "down",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 9
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 1.0,
+     "layout": {
+      "type": "split",
+      "dir": "down",
+      "ratio": 0.5,
+      "a": {
+       "type": "leaf",
+       "pane": 3
+      },
+      "b": {
+       "type": "leaf",
+       "pane": 9
+      }
+     },
+     "rows": [
+      {
+       "id": 1,
+       "height": 500,
+       "layout": {
+        "type": "stack",
+        "panes": [
+         9
+        ],
+        "expanded": 9
+       }
+      },
+      {
+       "id": 2,
+       "height": 500,
+       "layout": {
+        "type": "leaf",
+        "pane": 3
+       }
+      }
+     ]
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    9
+   ]
+  },
   "request": {
    "op": "remove_pane",
-   "screen": {
-    "layout": {
-     "type": "split",
-     "dir": "down",
-     "ratio": 0.5,
-     "a": {
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "pane": 9,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 9,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "expanded": 9,
+      "panes": [
+       9
+      ],
+      "type": "stack"
+     },
+     "root": true,
+     "row": 0
+    }
+   ]
+  },
+  "response": null,
+  "view": null
+ },
+ {
+  "name": "a split whose pane the screen's tree already places shows nothing (the daemon's layout placed it)",
+  "swift": "ProvisionalSplit.apply (daemonPlaces: never applied once the daemon has placed the pane)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "split": 4,
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 9
+    }
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    9
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "right",
+   "ratio": 0.5,
+   "leaf": 9,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 3,
+   "facts": {
+    "columns": 0,
+    "leaf_placed": true,
+    "panes": 2,
+    "target_index": 0
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     }
+    }
+   ]
+  },
+  "response": null,
+  "view": null
+ },
+ {
+  "name": "a New Column whose pane the screen's tree already places shows nothing",
+  "swift": "ProvisionalSplit.apply (daemonPlaces)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 9
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 1.0,
+     "layout": {
       "type": "leaf",
       "pane": 3
      },
-     "b": {
+     "rows": []
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
       "type": "leaf",
       "pane": 9
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    9
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "right",
+   "ratio": 0.5,
+   "leaf": 9,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 3,
+   "column": {
+    "handle": 4611686018427387905,
+    "left": false,
+    "width": 0.5
+   },
+   "facts": {
+    "column": 0,
+    "columns": 2,
+    "in_screen": true,
+    "leaf_placed": true,
+    "panes": 2,
+    "span": [
+     0,
+     0
+    ],
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
      }
     },
-    "columns": [
-     {
-      "id": 1,
-      "width": 1.0,
-      "layout": {
-       "type": "split",
-       "dir": "down",
-       "ratio": 0.5,
-       "a": {
-        "type": "leaf",
-        "pane": 3
-       },
-       "b": {
-        "type": "leaf",
-        "pane": 9
-       }
-      },
-      "rows": [
-       {
-        "id": 1,
-        "height": 500,
-        "layout": {
-         "type": "stack",
-         "panes": [
-          9
-         ],
-         "expanded": 9
-        }
-       },
-       {
-        "id": 2,
-        "height": 500,
-        "layout": {
-         "type": "leaf",
-         "pane": 3
-        }
-       }
-      ]
-     }
-    ],
-    "zoomed_pane": null,
-    "panes": [
-     3,
-     9
-    ]
-   },
-   "pane": 9
+    {
+     "column": 0,
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true
+    }
+   ]
   },
-  "response": null
+  "response": null,
+  "view": null
+ },
+ {
+  "name": "a New Row whose stand-in the screen's tree already shows is not shown twice",
+  "swift": "ProvisionalSplit.apply (the provisional pane already in the records)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "split_id": "split_0123456789abcdef0123456789abcdef",
+    "dir": "down",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 4611686018427387905
+    }
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    4611686018427387905
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "down",
+   "ratio": 0.5,
+   "leaf": 4611686018427387905,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 3,
+   "row": {
+    "handle": 4611686018427387905,
+    "height": 300
+   },
+   "facts": {
+    "column": null,
+    "columns": 0,
+    "in_screen": true,
+    "leaf_placed": true,
+    "panes": 2,
+    "row": null,
+    "rows": 0,
+    "target_index": 0,
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     }
+    }
+   ]
+  },
+  "response": null,
+  "view": null
+ },
+ {
+  "name": "a dock whose pane the screen's tree already places shows nothing",
+  "swift": "ProvisionalDock.apply (daemonPlaces)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 9
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 3
+    }
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    9,
+    3
+   ]
+  },
+  "request": {
+   "op": "dock",
+   "leaf": 9,
+   "column": {
+    "handle": 4611686018427387905,
+    "left": true,
+    "width": 0.5
+   },
+   "dock": {
+    "allow_tabs": false,
+    "edge": "left",
+    "mode": "docked",
+    "pinned": false,
+    "role": "agent_chat"
+   },
+   "facts": {
+    "columns": 0,
+    "dock_edges": [],
+    "leaf_placed": true,
+    "zoomed": false
+   }
+  },
+  "response": null,
+  "view": null
  },
  {
   "name": "a move to where the tab is changes nothing",
@@ -2296,6 +3537,2213 @@
   "response": {
    "final": 4,
    "current": 4
+  }
+ },
+ {
+  "name": "Split Left shows the new pane as the split's first side and lists it before its target",
+  "swift": "ProvisionalSplit.apply and split(_:_:...before:) (split-before-v1, #38602)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "split": 7,
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 2
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 3
+    }
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    2,
+    3
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "right",
+   "ratio": 0.5,
+   "leaf": 4611686018427387905,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 3,
+   "before": true,
+   "facts": {
+    "columns": 0,
+    "leaf_placed": false,
+    "panes": 2,
+    "target_index": 1
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     }
+    }
+   ]
+  },
+  "response": {
+   "pane_at": 1,
+   "spots": [
+    {
+     "node": {
+      "a": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "dir": "right",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
+   "layout": {
+    "type": "split",
+    "split": 7,
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 2
+    },
+    "b": {
+     "type": "split",
+     "split_id": "split_0123456789abcdef0123456789abcdef",
+     "dir": "right",
+     "ratio": 0.5,
+     "a": {
+      "type": "leaf",
+      "pane": 4611686018427387905
+     },
+     "b": {
+      "type": "leaf",
+      "pane": 3
+     }
+    }
+   },
+   "columns": [],
+   "pane_at": 1
+  }
+ },
+ {
+  "name": "Split Up: the target's column tree and row tree take the split with the new pane first",
+  "swift": "ProvisionalSplit.apply (columns and rows reached, before)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "split": 7,
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "rows": [
+      {
+       "id": 1,
+       "height": 1000,
+       "layout": {
+        "type": "leaf",
+        "pane": 3
+       }
+      }
+     ]
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 5
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "down",
+   "ratio": 0.5,
+   "leaf": 4611686018427387905,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 3,
+   "before": true,
+   "facts": {
+    "columns": 2,
+    "leaf_placed": false,
+    "panes": 2,
+    "target_index": 0
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "root": true,
+     "row": 0
+    }
+   ]
+  },
+  "response": {
+   "pane_at": 0,
+   "spots": [
+    {
+     "node": {
+      "a": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 0
+    },
+    {
+     "node": {
+      "a": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 1
+    },
+    {
+     "node": {
+      "a": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 2
+    }
+   ]
+  },
+  "view": {
+   "layout": {
+    "type": "split",
+    "split": 7,
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "split",
+     "split_id": "split_0123456789abcdef0123456789abcdef",
+     "dir": "down",
+     "ratio": 0.5,
+     "a": {
+      "type": "leaf",
+      "pane": 4611686018427387905
+     },
+     "b": {
+      "type": "leaf",
+      "pane": 3
+     }
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.5,
+     "layout": {
+      "type": "split",
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "dir": "down",
+      "ratio": 0.5,
+      "a": {
+       "type": "leaf",
+       "pane": 4611686018427387905
+      },
+      "b": {
+       "type": "leaf",
+       "pane": 3
+      }
+     },
+     "rows": [
+      {
+       "id": 1,
+       "height": 1000,
+       "layout": {
+        "type": "split",
+        "split_id": "split_0123456789abcdef0123456789abcdef",
+        "dir": "down",
+        "ratio": 0.5,
+        "a": {
+         "type": "leaf",
+         "pane": 4611686018427387905
+        },
+        "b": {
+         "type": "leaf",
+         "pane": 3
+        }
+       }
+      }
+     ]
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 5
+     },
+     "rows": []
+    }
+   ],
+   "pane_at": 0
+  }
+ },
+ {
+  "name": "Insert New around a split the screen's compat tree does not name: the column's tree wraps it, the compat tree stays",
+  "swift": "ProvisionalSplit.apply (around, #37733: the compat tree beside the columns may not name it)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 1
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 2
+    }
+   },
+   "columns": [
+    {
+     "id": 100,
+     "width": 1.0,
+     "layout": {
+      "type": "split",
+      "split": 7,
+      "dir": "right",
+      "ratio": 0.5,
+      "a": {
+       "type": "leaf",
+       "pane": 1
+      },
+      "b": {
+       "type": "leaf",
+       "pane": 2
+      }
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    1,
+    2
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "right",
+   "ratio": 0.5,
+   "leaf": 4611686018427387905,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 2,
+   "around": 7,
+   "facts": {
+    "columns": 1,
+    "leaf_placed": false,
+    "panes": 2,
+    "target_index": 1
+   },
+   "spots": [
+    {
+     "node": null
+    },
+    {
+     "column": 0,
+     "node": {
+      "last_pane": 2,
+      "split": 7,
+      "type": "split"
+     },
+     "root": true
+    }
+   ]
+  },
+  "response": {
+   "pane_at": 2,
+   "spots": [
+    {
+     "node": {
+      "a": {
+       "type": "held"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "right",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 1
+    }
+   ]
+  },
+  "view": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 1
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 2
+    }
+   },
+   "columns": [
+    {
+     "id": 100,
+     "width": 1.0,
+     "layout": {
+      "type": "split",
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "dir": "right",
+      "ratio": 0.5,
+      "a": {
+       "type": "split",
+       "split": 7,
+       "dir": "right",
+       "ratio": 0.5,
+       "a": {
+        "type": "leaf",
+        "pane": 1
+       },
+       "b": {
+        "type": "leaf",
+        "pane": 2
+       }
+      },
+      "b": {
+       "type": "leaf",
+       "pane": 4611686018427387905
+      }
+     },
+     "rows": []
+    }
+   ],
+   "pane_at": 2
+  }
+ },
+ {
+  "name": "Insert New around a split no tree holds shows nothing",
+  "swift": "ProvisionalSplit.apply (around, no columns: the screen's tree must take it)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "split": 8,
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 1
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 2
+    }
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    1,
+    2
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "right",
+   "ratio": 0.5,
+   "leaf": 4611686018427387905,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 2,
+   "around": 7,
+   "facts": {
+    "columns": 0,
+    "leaf_placed": false,
+    "panes": 2,
+    "target_index": 1
+   },
+   "spots": [
+    {
+     "node": null
+    }
+   ]
+  },
+  "response": null,
+  "view": null
+ },
+ {
+  "name": "Insert New around a split that the target's column tree does not hold shows nothing",
+  "swift": "ProvisionalSplit.apply (around: every column tree that holds the target must take it)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "split": 7,
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 1
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 2
+    }
+   },
+   "columns": [
+    {
+     "id": 100,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 1
+     },
+     "rows": []
+    },
+    {
+     "id": 101,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 2
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    1,
+    2
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "right",
+   "ratio": 0.5,
+   "leaf": 4611686018427387905,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 2,
+   "around": 7,
+   "facts": {
+    "columns": 2,
+    "leaf_placed": false,
+    "panes": 2,
+    "target_index": 1
+   },
+   "spots": [
+    {
+     "node": {
+      "last_pane": 2,
+      "split": 7,
+      "type": "split"
+     },
+     "root": true
+    },
+    {
+     "column": 1,
+     "node": null
+    }
+   ]
+  },
+  "response": null,
+  "view": null
+ },
+ {
+  "name": "a stack at the root loses the pane and expands its first other pane",
+  "swift": "CancelledCreation.removing (stack at the root)",
+  "screen": {
+   "layout": {
+    "type": "stack",
+    "panes": [
+     3,
+     9
+    ],
+    "expanded": 9
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    9
+   ]
+  },
+  "request": {
+   "op": "remove_pane",
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "expanded": 9,
+      "panes": [
+       3,
+       9
+      ],
+      "type": "stack"
+     },
+     "root": true
+    }
+   ]
+  },
+  "response": {
+   "spots": [
+    {
+     "node": {
+      "expanded": 3,
+      "panes": [
+       3
+      ],
+      "type": "stack"
+     },
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
+   "columns": [],
+   "layout": {
+    "expanded": 3,
+    "panes": [
+     3
+    ],
+    "type": "stack"
+   }
+  }
+ },
+ {
+  "name": "a stack at the root that is only the pane stays shown until its close",
+  "swift": "CancelledCreation.hidePane (unsplit nil, stack)",
+  "screen": {
+   "layout": {
+    "type": "stack",
+    "panes": [
+     9
+    ],
+    "expanded": 9
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    9
+   ]
+  },
+  "request": {
+   "op": "remove_pane",
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "expanded": 9,
+      "panes": [
+       9
+      ],
+      "type": "stack"
+     },
+     "root": true
+    }
+   ]
+  },
+  "response": null,
+  "view": null
+ },
+ {
+  "name": "a row that is a stack loses the pane; the column's tree and the screen's tree lose it too",
+  "swift": "CancelledCreation.hidePane (rows reached, stack)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "down",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "stack",
+     "panes": [
+      9,
+      4
+     ],
+     "expanded": 4
+    },
+    "split": 7
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 1.0,
+     "layout": {
+      "type": "split",
+      "dir": "down",
+      "ratio": 0.5,
+      "a": {
+       "type": "leaf",
+       "pane": 3
+      },
+      "b": {
+       "type": "stack",
+       "panes": [
+        9,
+        4
+       ],
+       "expanded": 4
+      },
+      "split": 7
+     },
+     "rows": [
+      {
+       "id": 1,
+       "height": 500,
+       "layout": {
+        "type": "leaf",
+        "pane": 3
+       }
+      },
+      {
+       "id": 2,
+       "height": 500,
+       "layout": {
+        "type": "stack",
+        "panes": [
+         9,
+         4
+        ],
+        "expanded": 4
+       }
+      }
+     ]
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    9,
+    4
+   ]
+  },
+  "request": {
+   "op": "remove_pane",
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "expanded": 4,
+      "panes": [
+       9,
+       4
+      ],
+      "type": "stack"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "expanded": 4,
+      "panes": [
+       9,
+       4
+      ],
+      "type": "stack"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "expanded": 4,
+      "panes": [
+       9,
+       4
+      ],
+      "type": "stack"
+     },
+     "root": true,
+     "row": 1
+    }
+   ]
+  },
+  "response": {
+   "spots": [
+    {
+     "node": {
+      "expanded": 4,
+      "panes": [
+       4
+      ],
+      "type": "stack"
+     },
+     "spot": 0
+    },
+    {
+     "node": {
+      "expanded": 4,
+      "panes": [
+       4
+      ],
+      "type": "stack"
+     },
+     "spot": 1
+    },
+    {
+     "node": {
+      "expanded": 4,
+      "panes": [
+       4
+      ],
+      "type": "stack"
+     },
+     "spot": 2
+    }
+   ]
+  },
+  "view": {
+   "columns": [
+    {
+     "id": 1,
+     "layout": {
+      "a": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "b": {
+       "expanded": 4,
+       "panes": [
+        4
+       ],
+       "type": "stack"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "split": 7,
+      "type": "split"
+     },
+     "rows": [
+      {
+       "height": 500,
+       "id": 1,
+       "layout": {
+        "pane": 3,
+        "type": "leaf"
+       }
+      },
+      {
+       "height": 500,
+       "id": 2,
+       "layout": {
+        "expanded": 4,
+        "panes": [
+         4
+        ],
+        "type": "stack"
+       }
+      }
+     ],
+     "width": 1.0
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 3,
+     "type": "leaf"
+    },
+    "b": {
+     "expanded": 4,
+     "panes": [
+      4
+     ],
+     "type": "stack"
+    },
+    "dir": "down",
+    "ratio": 0.5,
+    "split": 7,
+    "type": "split"
+   }
+  }
+ },
+ {
+  "name": "a hidden pane's row goes and its column's tree loses it, in the second column",
+  "swift": "CancelledCreation.hidePane (New Row's row, second column)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "split",
+     "dir": "down",
+     "ratio": 0.5,
+     "a": {
+      "type": "leaf",
+      "pane": 5
+     },
+     "b": {
+      "type": "leaf",
+      "pane": 9
+     }
+    },
+    "split": 7
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "rows": []
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
+      "type": "split",
+      "dir": "down",
+      "ratio": 0.5,
+      "a": {
+       "type": "leaf",
+       "pane": 5
+      },
+      "b": {
+       "type": "leaf",
+       "pane": 9
+      }
+     },
+     "rows": [
+      {
+       "id": 1,
+       "height": 500,
+       "layout": {
+        "type": "leaf",
+        "pane": 5
+       }
+      },
+      {
+       "id": 2,
+       "height": 500,
+       "layout": {
+        "type": "leaf",
+        "pane": 9
+       }
+      }
+     ]
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5,
+    9
+   ]
+  },
+  "request": {
+   "op": "remove_pane",
+   "pane": 9,
+   "spots": [
+    {
+     "node": {
+      "pane": 9,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 1,
+     "node": {
+      "pane": 9,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 1,
+     "node": {
+      "pane": 9,
+      "type": "leaf"
+     },
+     "root": true,
+     "row": 1
+    }
+   ]
+  },
+  "response": {
+   "columns": [
+    {
+     "at": 1,
+     "edit": "change",
+     "rows": [
+      {
+       "at": 1,
+       "edit": "remove"
+      }
+     ]
+    }
+   ],
+   "spots": [
+    {
+     "node": null,
+     "spot": 0
+    },
+    {
+     "node": null,
+     "spot": 1
+    }
+   ]
+  },
+  "view": {
+   "columns": [
+    {
+     "id": 1,
+     "layout": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "rows": [],
+     "width": 0.5
+    },
+    {
+     "id": 2,
+     "layout": {
+      "pane": 5,
+      "type": "leaf"
+     },
+     "rows": [
+      {
+       "height": 500,
+       "id": 1,
+       "layout": {
+        "pane": 5,
+        "type": "leaf"
+       }
+      }
+     ],
+     "width": 0.5
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 3,
+     "type": "leaf"
+    },
+    "b": {
+     "pane": 5,
+     "type": "leaf"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "split": 7,
+    "type": "split"
+   }
+  }
+ },
+ {
+  "name": "a dock beside columns without a dock leads them",
+  "swift": "ProvisionalDock.apply (columns, none docked)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "rows": []
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 5
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
+  "request": {
+   "op": "dock",
+   "leaf": 4611686018427387905,
+   "column": {
+    "handle": 4611686018427387905,
+    "left": true,
+    "width": 0.5
+   },
+   "dock": {
+    "allow_tabs": false,
+    "edge": "left",
+    "mode": "docked",
+    "pinned": false,
+    "role": "agent_chat"
+   },
+   "facts": {
+    "columns": 2,
+    "dock_edges": [],
+    "leaf_placed": false,
+    "zoomed": false
+   }
+  },
+  "response": {
+   "columns": [
+    {
+     "at": 0,
+     "dock": {
+      "allow_tabs": false,
+      "edge": "left",
+      "mode": "docked",
+      "pinned": false,
+      "role": "agent_chat"
+     },
+     "edit": "insert",
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "width": 0.5
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "b": {
+     "type": "screen"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   }
+  },
+  "view": {
+   "columns": [
+    {
+     "dock": {
+      "allow_tabs": false,
+      "edge": "left",
+      "mode": "docked",
+      "pinned": false,
+      "role": "agent_chat"
+     },
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "rows": [],
+     "width": 0.5
+    },
+    {
+     "id": 1,
+     "layout": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "rows": [],
+     "width": 0.5
+    },
+    {
+     "id": 2,
+     "layout": {
+      "pane": 5,
+      "type": "leaf"
+     },
+     "rows": [],
+     "width": 0.5
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "b": {
+     "a": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "b": {
+      "pane": 5,
+      "type": "leaf"
+     },
+     "dir": "right",
+     "ratio": 0.5,
+     "type": "split"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   }
+  }
+ },
+ {
+  "name": "a dock without an edge waits while a column has no dock edge",
+  "swift": "ProvisionalDock.apply (edge nil: a column without a dock takes it)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "rows": []
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 5
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
+  "request": {
+   "op": "dock",
+   "leaf": 4611686018427387905,
+   "column": {
+    "handle": 4611686018427387905,
+    "left": true,
+    "width": 0.5
+   },
+   "dock": {
+    "allow_tabs": false,
+    "mode": "docked",
+    "pinned": false,
+    "role": "agent_chat"
+   },
+   "facts": {
+    "columns": 2,
+    "dock_edges": [],
+    "leaf_placed": false,
+    "zoomed": false
+   }
+  },
+  "response": null,
+  "view": null
+ },
+ {
+  "name": "a dock without an edge shows on a split-tree screen",
+  "swift": "ProvisionalDock.apply (edge nil, no columns)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 5
+    }
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5
+   ]
+  },
+  "request": {
+   "op": "dock",
+   "leaf": 4611686018427387905,
+   "column": {
+    "handle": 4611686018427387905,
+    "left": true,
+    "width": 0.5
+   },
+   "dock": {
+    "allow_tabs": false,
+    "mode": "docked",
+    "pinned": false,
+    "role": "agent_chat"
+   },
+   "facts": {
+    "columns": 0,
+    "dock_edges": [],
+    "leaf_placed": false,
+    "zoomed": false
+   }
+  },
+  "response": {
+   "columns": [
+    {
+     "at": 0,
+     "edit": "insert",
+     "id": 6917529027641081857,
+     "layout": {
+      "type": "screen"
+     },
+     "width": 1.0
+    },
+    {
+     "at": 0,
+     "dock": {
+      "allow_tabs": false,
+      "mode": "docked",
+      "pinned": false,
+      "role": "agent_chat"
+     },
+     "edit": "insert",
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "width": 0.5
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "b": {
+     "type": "screen"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   }
+  },
+  "view": {
+   "columns": [
+    {
+     "dock": {
+      "allow_tabs": false,
+      "mode": "docked",
+      "pinned": false,
+      "role": "agent_chat"
+     },
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "rows": [],
+     "width": 0.5
+    },
+    {
+     "id": 6917529027641081857,
+     "layout": {
+      "a": {
+       "pane": 3,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 5,
+       "type": "leaf"
+      },
+      "dir": "right",
+      "ratio": 0.5,
+      "type": "split"
+     },
+     "rows": [],
+     "width": 1.0
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "b": {
+     "a": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "b": {
+      "pane": 5,
+      "type": "leaf"
+     },
+     "dir": "right",
+     "ratio": 0.5,
+     "type": "split"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   }
+  }
+ },
+ {
+  "name": "New Row below a middle row: the new row goes after it and the chain takes it in its place",
+  "swift": "InstantCreateIntentTests.newRowGoesBelowThePanesRow (middle row)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "down",
+    "ratio": 0.5,
+    "a": {
+     "type": "split",
+     "dir": "down",
+     "ratio": 0.5,
+     "a": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "b": {
+      "type": "leaf",
+      "pane": 5
+     }
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 6
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 1.0,
+     "layout": {
+      "type": "split",
+      "dir": "down",
+      "ratio": 0.5,
+      "a": {
+       "type": "split",
+       "dir": "down",
+       "ratio": 0.5,
+       "a": {
+        "type": "leaf",
+        "pane": 3
+       },
+       "b": {
+        "type": "leaf",
+        "pane": 5
+       }
+      },
+      "b": {
+       "type": "leaf",
+       "pane": 6
+      }
+     },
+     "rows": [
+      {
+       "id": 1,
+       "height": 400,
+       "layout": {
+        "type": "leaf",
+        "pane": 3
+       }
+      },
+      {
+       "id": 2,
+       "height": 300,
+       "layout": {
+        "type": "leaf",
+        "pane": 5
+       }
+      },
+      {
+       "id": 3,
+       "height": 300,
+       "layout": {
+        "type": "leaf",
+        "pane": 6
+       }
+      }
+     ]
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5,
+    6
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "down",
+   "ratio": 0.5,
+   "leaf": 4611686018427387905,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 5,
+   "row": {
+    "handle": 4611686018427387905,
+    "height": 300
+   },
+   "facts": {
+    "column": 0,
+    "columns": 1,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 3,
+    "row": 1,
+    "rows": 3,
+    "target_index": 1,
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 5,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 5,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 0,
+     "node": {
+      "pane": 5,
+      "type": "leaf"
+     },
+     "root": true,
+     "row": 1
+    }
+   ]
+  },
+  "response": {
+   "columns": [
+    {
+     "at": 0,
+     "edit": "change",
+     "layout": {
+      "a": {
+       "a": {
+        "a": {
+         "row": 0,
+         "type": "row"
+        },
+        "b": {
+         "row": 1,
+         "type": "row"
+        },
+        "dir": "down",
+        "ratio": 0.5,
+        "type": "split"
+       },
+       "b": {
+        "pane": 4611686018427387905,
+        "type": "leaf"
+       },
+       "dir": "down",
+       "ratio": 0.5,
+       "type": "split"
+      },
+      "b": {
+       "row": 2,
+       "type": "row"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "type": "split"
+     },
+     "rows": [
+      {
+       "at": 2,
+       "edit": "insert",
+       "height": 300,
+       "id": 4611686018427387905,
+       "layout": {
+        "pane": 4611686018427387905,
+        "type": "leaf"
+       }
+      }
+     ]
+    }
+   ],
+   "pane_at": 2,
+   "spots": [
+    {
+     "node": {
+      "a": {
+       "pane": 5,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
+   "columns": [
+    {
+     "id": 1,
+     "layout": {
+      "a": {
+       "a": {
+        "a": {
+         "pane": 3,
+         "type": "leaf"
+        },
+        "b": {
+         "pane": 5,
+         "type": "leaf"
+        },
+        "dir": "down",
+        "ratio": 0.5,
+        "type": "split"
+       },
+       "b": {
+        "pane": 4611686018427387905,
+        "type": "leaf"
+       },
+       "dir": "down",
+       "ratio": 0.5,
+       "type": "split"
+      },
+      "b": {
+       "pane": 6,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "type": "split"
+     },
+     "rows": [
+      {
+       "height": 400,
+       "id": 1,
+       "layout": {
+        "pane": 3,
+        "type": "leaf"
+       }
+      },
+      {
+       "height": 300,
+       "id": 2,
+       "layout": {
+        "pane": 5,
+        "type": "leaf"
+       }
+      },
+      {
+       "height": 300,
+       "id": 4611686018427387905,
+       "layout": {
+        "pane": 4611686018427387905,
+        "type": "leaf"
+       }
+      },
+      {
+       "height": 300,
+       "id": 3,
+       "layout": {
+        "pane": 6,
+        "type": "leaf"
+       }
+      }
+     ],
+     "width": 1.0
+    }
+   ],
+   "layout": {
+    "a": {
+     "a": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "b": {
+      "a": {
+       "pane": 5,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "dir": "down",
+     "ratio": 0.5,
+     "type": "split"
+    },
+    "b": {
+     "pane": 6,
+     "type": "leaf"
+    },
+    "dir": "down",
+    "ratio": 0.5,
+    "type": "split"
+   },
+   "pane_at": 2
+  }
+ },
+ {
+  "name": "New Row with around set splits the target's leaf, not the split around it",
+  "swift": "ProvisionalSplit.applyRow (around is not read)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "split",
+     "dir": "down",
+     "ratio": 0.5,
+     "a": {
+      "type": "leaf",
+      "pane": 1
+     },
+     "b": {
+      "type": "leaf",
+      "pane": 2
+     },
+     "split": 20
+    },
+    "b": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "split": 10
+   },
+   "columns": [],
+   "zoomed_pane": null,
+   "panes": [
+    1,
+    2,
+    3
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "right",
+   "ratio": 0.5,
+   "leaf": 4611686018427387905,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 2,
+   "around": 20,
+   "row": {
+    "handle": 4611686018427387905,
+    "height": 300
+   },
+   "facts": {
+    "column": null,
+    "columns": 0,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 3,
+    "row": null,
+    "rows": 0,
+    "target_index": 1,
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 2,
+      "type": "leaf"
+     }
+    }
+   ]
+  },
+  "response": {
+   "columns": [
+    {
+     "at": 0,
+     "edit": "insert",
+     "id": 8070450532247928833,
+     "layout": {
+      "a": {
+       "type": "screen"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "type": "split"
+     },
+     "rows": [
+      {
+       "height": 1000,
+       "id": 6917529027641081857,
+       "layout": {
+        "type": "screen"
+       }
+      },
+      {
+       "height": 300,
+       "id": 4611686018427387905,
+       "layout": {
+        "pane": 4611686018427387905,
+        "type": "leaf"
+       }
+      }
+     ],
+     "width": 1.0
+    }
+   ],
+   "pane_at": 2,
+   "spots": [
+    {
+     "node": {
+      "a": {
+       "pane": 2,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "spot": 0
+    }
+   ]
+  },
+  "view": {
+   "columns": [
+    {
+     "id": 8070450532247928833,
+     "layout": {
+      "a": {
+       "a": {
+        "a": {
+         "pane": 1,
+         "type": "leaf"
+        },
+        "b": {
+         "pane": 2,
+         "type": "leaf"
+        },
+        "dir": "down",
+        "ratio": 0.5,
+        "split": 20,
+        "type": "split"
+       },
+       "b": {
+        "pane": 3,
+        "type": "leaf"
+       },
+       "dir": "right",
+       "ratio": 0.5,
+       "split": 10,
+       "type": "split"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "type": "split"
+     },
+     "rows": [
+      {
+       "height": 1000,
+       "id": 6917529027641081857,
+       "layout": {
+        "a": {
+         "a": {
+          "pane": 1,
+          "type": "leaf"
+         },
+         "b": {
+          "pane": 2,
+          "type": "leaf"
+         },
+         "dir": "down",
+         "ratio": 0.5,
+         "split": 20,
+         "type": "split"
+        },
+        "b": {
+         "pane": 3,
+         "type": "leaf"
+        },
+        "dir": "right",
+        "ratio": 0.5,
+        "split": 10,
+        "type": "split"
+       }
+      },
+      {
+       "height": 300,
+       "id": 4611686018427387905,
+       "layout": {
+        "pane": 4611686018427387905,
+        "type": "leaf"
+       }
+      }
+     ],
+     "width": 1.0
+    }
+   ],
+   "layout": {
+    "a": {
+     "a": {
+      "pane": 1,
+      "type": "leaf"
+     },
+     "b": {
+      "a": {
+       "pane": 2,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 4611686018427387905,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "split_id": "split_0123456789abcdef0123456789abcdef",
+      "type": "split"
+     },
+     "dir": "down",
+     "ratio": 0.5,
+     "split": 20,
+     "type": "split"
+    },
+    "b": {
+     "pane": 3,
+     "type": "leaf"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "split": 10,
+    "type": "split"
+   },
+   "pane_at": 2
+  }
+ },
+ {
+  "name": "New Column Left in the second column goes before it, at its first pane",
+  "swift": "NewColumnLeftTests (second column)",
+  "screen": {
+   "layout": {
+    "type": "split",
+    "dir": "right",
+    "ratio": 0.5,
+    "a": {
+     "type": "leaf",
+     "pane": 3
+    },
+    "b": {
+     "type": "split",
+     "dir": "down",
+     "ratio": 0.5,
+     "a": {
+      "type": "leaf",
+      "pane": 5
+     },
+     "b": {
+      "type": "leaf",
+      "pane": 6
+     }
+    }
+   },
+   "columns": [
+    {
+     "id": 1,
+     "width": 0.5,
+     "layout": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "rows": []
+    },
+    {
+     "id": 2,
+     "width": 0.5,
+     "layout": {
+      "type": "split",
+      "dir": "down",
+      "ratio": 0.5,
+      "a": {
+       "type": "leaf",
+       "pane": 5
+      },
+      "b": {
+       "type": "leaf",
+       "pane": 6
+      }
+     },
+     "rows": []
+    }
+   ],
+   "zoomed_pane": null,
+   "panes": [
+    3,
+    5,
+    6
+   ]
+  },
+  "request": {
+   "op": "split",
+   "dir": "right",
+   "ratio": 0.5,
+   "leaf": 4611686018427387905,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "target": 6,
+   "column": {
+    "handle": 4611686018427387905,
+    "left": true,
+    "width": 0.5
+   },
+   "facts": {
+    "column": 1,
+    "columns": 2,
+    "in_screen": true,
+    "leaf_placed": false,
+    "panes": 3,
+    "span": [
+     1,
+     2
+    ],
+    "zoomed": false
+   },
+   "spots": [
+    {
+     "node": {
+      "pane": 6,
+      "type": "leaf"
+     }
+    },
+    {
+     "column": 1,
+     "node": {
+      "pane": 6,
+      "type": "leaf"
+     }
+    }
+   ]
+  },
+  "response": {
+   "columns": [
+    {
+     "at": 1,
+     "edit": "insert",
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "width": 0.5
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "b": {
+     "type": "screen"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   },
+   "pane_at": 1
+  },
+  "view": {
+   "columns": [
+    {
+     "id": 1,
+     "layout": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "rows": [],
+     "width": 0.5
+    },
+    {
+     "id": 4611686018427387905,
+     "layout": {
+      "pane": 4611686018427387905,
+      "type": "leaf"
+     },
+     "rows": [],
+     "width": 0.5
+    },
+    {
+     "id": 2,
+     "layout": {
+      "a": {
+       "pane": 5,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 6,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "type": "split"
+     },
+     "rows": [],
+     "width": 0.5
+    }
+   ],
+   "layout": {
+    "a": {
+     "pane": 4611686018427387905,
+     "type": "leaf"
+    },
+    "b": {
+     "a": {
+      "pane": 3,
+      "type": "leaf"
+     },
+     "b": {
+      "a": {
+       "pane": 5,
+       "type": "leaf"
+      },
+      "b": {
+       "pane": 6,
+       "type": "leaf"
+      },
+      "dir": "down",
+      "ratio": 0.5,
+      "type": "split"
+     },
+     "dir": "right",
+     "ratio": 0.5,
+     "type": "split"
+    },
+    "dir": "right",
+    "ratio": 0.5,
+    "type": "split"
+   },
+   "pane_at": 1
   }
  }
 ]
