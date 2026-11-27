@@ -2,11 +2,13 @@
 //!
 //! A process that restarts itself in place (the cmux-tui client after a hang
 //! it could not recover from) must not hand the new image a descriptor the
-//! old one held, for the same reason [`crate::Command`] passes only 0-2: every
-//! descriptor past stdio is marked close-on-exec before the `execve`.
+//! old one held, for the same reason [`crate::Command`] passes only 0-2. A
+//! daemon that hands its own lock and listeners to its next image must name
+//! them explicitly with [`exec_replace_inheriting`].
 
 use std::ffi::{CString, OsStr, OsString};
 use std::io;
+use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
@@ -16,6 +18,31 @@ use std::path::Path;
 /// the error; the process then runs on unchanged, apart from descriptors past
 /// stdio now being close-on-exec.
 pub fn exec_replace<A, E, K, V>(program: &Path, args: A, env: E) -> io::Error
+where
+    A: IntoIterator,
+    A::Item: AsRef<OsStr>,
+    E: IntoIterator<Item = (K, V)>,
+    K: AsRef<OsStr>,
+    V: AsRef<OsStr>,
+{
+    exec_replace_inheriting(program, args, env, &[])
+}
+
+/// [`exec_replace`], preserving `inherit` at their existing descriptor numbers.
+/// Every descriptor above stderr that is not listed is closed by exec. The
+/// caller must quiesce code that opens or changes descriptors before calling;
+/// the borrowed descriptors remain owned by the caller until exec succeeds.
+///
+/// Returns only on failure. The listed descriptors' original close-on-exec
+/// flags are restored before returning; other descriptors remain close-on-exec.
+/// The new image should call [`set_cloexec`] immediately after adopting these
+/// descriptors, before starting children.
+pub fn exec_replace_inheriting<A, E, K, V>(
+    program: &Path,
+    args: A,
+    env: E,
+    inherit: &[BorrowedFd<'_>],
+) -> io::Error
 where
     A: IntoIterator,
     A::Item: AsRef<OsStr>,
@@ -57,19 +84,93 @@ where
         .map(|pair| pair.as_ptr())
         .chain(std::iter::once(std::ptr::null()))
         .collect();
-    // SAFETY: getdtablesize and fcntl on descriptor numbers only; execve with
-    // NUL-terminated arrays of valid C strings that outlive the call.
-    unsafe {
-        let limit = libc::getdtablesize().clamp(3, 65_536);
-        for fd in 3..limit {
-            let flags = libc::fcntl(fd, libc::F_GETFD);
-            if flags >= 0 && flags & libc::FD_CLOEXEC == 0 {
-                libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+    let original = match inherit
+        .iter()
+        .map(|fd| flags(fd.as_raw_fd()).map(|flags| (fd.as_raw_fd(), flags)))
+        .collect::<io::Result<Vec<_>>>()
+    {
+        Ok(original) => original,
+        Err(error) => return error,
+    };
+    let attempt = || -> io::Error {
+        if let Err(error) = mark_other_descriptors() {
+            return error;
+        }
+        for &(fd, flags) in &original {
+            if let Err(error) = set_flags(fd, flags & !libc::FD_CLOEXEC) {
+                return error;
             }
         }
-        libc::execve(path.as_ptr(), argv.as_ptr(), envp.as_ptr());
+        // SAFETY: NUL-terminated arrays of valid C strings that outlive the call.
+        unsafe { libc::execve(path.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
+        io::Error::last_os_error()
+    };
+    let error = attempt();
+    // No listed descriptor is closed, and no original flag bit is lost on failure.
+    for (fd, flags) in original {
+        let _ = set_flags(fd, flags);
     }
-    io::Error::last_os_error()
+    error
+}
+
+/// Prevent adopted descriptors from reaching any subsequently executed child.
+/// Call before spawning children after [`exec_replace_inheriting`].
+pub fn set_cloexec(fds: &[BorrowedFd<'_>]) -> io::Result<()> {
+    for fd in fds {
+        let fd = fd.as_raw_fd();
+        set_flags(fd, flags(fd)? | libc::FD_CLOEXEC)?;
+    }
+    Ok(())
+}
+
+fn flags(fd: RawFd) -> io::Result<libc::c_int> {
+    // SAFETY: F_GETFD only reads the descriptor flags.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    if flags < 0 { Err(io::Error::last_os_error()) } else { Ok(flags) }
+}
+
+fn set_flags(fd: RawFd, flags: libc::c_int) -> io::Result<()> {
+    // SAFETY: F_SETFD changes flags on this descriptor without dereferencing memory.
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, flags) } < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn mark_other_descriptors() -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        // Linux 5.11+: one operation covers all descriptors, including those above a
+        // subsequently lowered soft limit. CLOSE_RANGE_CLOEXEC leaves them open if exec fails.
+        const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
+        // SAFETY: close_range operates on descriptor numbers only.
+        if unsafe {
+            libc::syscall(libc::SYS_close_range, 3_u32, libc::c_uint::MAX, CLOSE_RANGE_CLOEXEC)
+        } == 0
+        {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if !matches!(error.raw_os_error(), Some(libc::ENOSYS | libc::EINVAL | libc::EPERM)) {
+            return Err(error);
+        }
+    }
+    // Platforms without close_range: the descriptor table's limit, without truncating at
+    // 65536 (a live high-numbered listener must not cause an unrelated descriptor to leak).
+    // SAFETY: getdtablesize reads this process's descriptor table limit.
+    let limit = unsafe { libc::getdtablesize() }.max(3);
+    for fd in 3..limit {
+        match flags(fd) {
+            Ok(flags) if flags & libc::FD_CLOEXEC == 0 => {
+                set_flags(fd, flags | libc::FD_CLOEXEC)?;
+            }
+            Ok(_) => {}
+            Err(error) if error.raw_os_error() == Some(libc::EBADF) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

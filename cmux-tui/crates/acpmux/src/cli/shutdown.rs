@@ -181,6 +181,9 @@ async fn run_on(
     let mut params = if keep_agents { json!({}) } else { json!({"endAgents": true}) };
     if restart {
         params.set("restart", json!(true));
+        if keep_agents {
+            params.set("execUpdate", json!(true));
+        }
     }
     params.set("reason", json!(cli_reason(restart, end_agents)));
     // A refusal (a shutdown already under way hands its agents off) or a
@@ -195,6 +198,21 @@ async fn run_on(
         return Err(anyhow!("{e}"));
     }
     drop(client);
+    if let Ok(answer) = &answer
+        && let Some(receipt) = ExecReceipt::accepted(answer)?
+    {
+        wait_exec_receipt(&receipt).await?;
+        if !quiet {
+            if json_out {
+                print_json(
+                    &json!({"execUpdated": true, "pid": receipt.pid, "updateId": receipt.id, "execImage": receipt.image}),
+                );
+            } else {
+                println!("ACPMUX_EXEC_UPDATED");
+            }
+        }
+        return Ok(());
+    }
     // The daemon holds its lock until it exits, so a `daemon start` right
     // after this cannot lose the lock to the stopping one.
     if !crate::daemon::wait_for_exit().await {
@@ -246,4 +264,111 @@ async fn run_on(
         println!("{line}");
     }
     Ok(())
+}
+
+/// An accepted exec is complete only when the new image serves this receipt at the same PID.
+/// It keeps the lock, so the ordinary shutdown's lock-release wait cannot observe it.
+struct ExecReceipt {
+    id: String,
+    pid: u64,
+    image: Value,
+}
+
+impl ExecReceipt {
+    fn accepted(answer: &Value) -> Result<Option<Self>> {
+        if answer.get("execUpdate").and_then(Value::as_bool) != Some(true) {
+            return Ok(None); // An older daemon completed the ordinary shutdown protocol.
+        }
+        let id = answer.get("updateId").and_then(Value::as_str).filter(|s| !s.is_empty());
+        let pid = answer.get("pid").and_then(Value::as_u64).filter(|p| *p > 0);
+        let image = answer
+            .get("execImage")
+            .filter(|image| image.as_object().is_some_and(|v| !v.is_empty()));
+        match (id, pid, image) {
+            (Some(id), Some(pid), Some(image)) => {
+                Ok(Some(Self { id: id.to_owned(), pid, image: image.clone() }))
+            }
+            _ => Err(anyhow!(
+                "daemon accepted exec update without an identity receipt; no supervisor restart was requested"
+            )),
+        }
+    }
+
+    fn matches(&self, status: &Value) -> bool {
+        status.get("lastExecUpdate").and_then(Value::as_str) == Some(self.id.as_str())
+            && status.get("pid").and_then(Value::as_u64) == Some(self.pid)
+            && status.get("ready").and_then(Value::as_bool) == Some(true)
+            && status.get("execImage") == Some(&self.image)
+    }
+}
+
+async fn wait_exec_receipt(receipt: &ExecReceipt) -> Result<()> {
+    // timeout: an accepted exec that never serves its receipt is unconfirmed, never permission
+    // to restart the supervisor and interrupt whichever image is currently running.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(90);
+    let mut delay = Duration::from_millis(50);
+    let mut attempts = 0;
+    let wait = async {
+        loop {
+            attempts += 1;
+            let read = async {
+                let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
+                client.request(method::MUX_STATUS, json!({})).await
+            };
+            if let Ok(Ok(status)) = tokio::time::timeout(Duration::from_secs(5), read).await
+                && receipt.matches(&status)
+            {
+                return;
+            }
+            // There is no event subscription across exec; bounded backoff only until the exact
+            // receipt is served. Never autostart a daemon while the owner keeps its lock.
+            tracing::debug!(attempts, update_id = %receipt.id, "waiting for exec update receipt");
+            tokio::time::sleep(delay).await;
+            delay = (delay * 2).min(Duration::from_secs(1));
+        }
+    };
+    tokio::time::timeout_at(deadline, wait).await.map_err(|_| {
+        anyhow!("daemon exec update {} at pid {} was not confirmed within 90 seconds; no supervisor restart was requested", receipt.id, receipt.pid)
+    })
+}
+
+#[cfg(test)]
+mod exec_receipt_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_ready_exec_image_at_the_accepted_pid_completes_an_update() {
+        let receipt = ExecReceipt::accepted(
+            &json!({"execUpdate":true,"updateId":"update-a","pid":42,"execImage":{"inode":123}}),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(receipt.matches(
+            &json!({"lastExecUpdate":"update-a","pid":42,"ready":true,"execImage":{"inode":123}})
+        ));
+        for status in [
+            json!({"lastExecUpdate":"update-b","pid":42,"ready":true,"execImage":{"inode":123}}),
+            json!({"lastExecUpdate":"update-a","pid":43,"ready":true,"execImage":{"inode":123}}),
+            json!({"lastExecUpdate":"update-a","pid":42,"ready":false,"execImage":{"inode":123}}),
+            json!({"lastExecUpdate":"update-a","pid":42,"ready":true,"execImage":{"inode":124}}),
+            json!({"lastExecUpdate":"update-a","pid":42,"ready":true}),
+            json!({"pid":42,"ready":true}),
+        ] {
+            assert!(!receipt.matches(&status), "{status}");
+        }
+        assert!(ExecReceipt::accepted(&json!({"stopping":true})).unwrap().is_none());
+        for answer in [
+            json!({"execUpdate":true}),
+            json!({"execUpdate":true,"updateId":"","pid":42,"execImage":{"inode":123}}),
+            json!({"execUpdate":true,"updateId":"a","pid":0,"execImage":{"inode":123}}),
+            json!({"execUpdate":true,"updateId":"a","pid":42}),
+            json!({"execUpdate":true,"updateId":"a","pid":42,"execImage":{}}),
+            json!({"execUpdate":true,"updateId":"a","pid":42,"execImage":"image-a"}),
+        ] {
+            assert!(
+                ExecReceipt::accepted(&answer).is_err(),
+                "malformed exec never falls back to restart: {answer}"
+            );
+        }
+    }
 }

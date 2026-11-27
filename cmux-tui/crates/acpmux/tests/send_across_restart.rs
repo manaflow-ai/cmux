@@ -337,6 +337,259 @@ fn streaming_send_and_active_wait_return_one_reply_across_restart() {
     assert_eq!(occurrences, 1, "reconnect delivered the prompt twice: {}", text(&tail));
 }
 
+/// A real exec crosses into a distinct installed executable inode without replacing the
+/// process or socket. The original prompt connection must finish; reconnect cannot hide a cut.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn an_exec_update_drains_the_waiting_send_and_keeps_its_pid_and_socket() {
+    exercise_exec_update(true);
+}
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn an_incompatible_exec_image_leaves_the_old_daemon_and_sender_working() {
+    exercise_exec_update(false);
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn exercise_exec_update(compatible: bool) {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::net::UnixStream;
+
+    fn request(stream: &mut UnixStream, method: &str, params: serde_json::Value) {
+        writeln!(stream, "{}", json!({"jsonrpc":"2.0", "id":1, "method":method, "params":params}))
+            .unwrap();
+    }
+    fn answer(stream: UnixStream) -> serde_json::Value {
+        for line in BufReader::new(stream).lines() {
+            let value: serde_json::Value = serde_json::from_str(&line.unwrap()).unwrap();
+            if value["id"] == 1 {
+                return value;
+            }
+        }
+        panic!("daemon closed the original connection before answering");
+    }
+    fn status(socket: &Path) -> Option<serde_json::Value> {
+        let mut stream = UnixStream::connect(socket).ok()?;
+        stream.set_read_timeout(Some(Duration::from_secs(10))).ok()?;
+        writeln!(
+            stream,
+            "{}",
+            json!({"jsonrpc":"2.0", "id":1, "method":"_acpmux/status", "params":{}})
+        )
+        .ok()?;
+        for line in BufReader::new(stream).lines() {
+            let value: serde_json::Value = serde_json::from_str(&line.ok()?).ok()?;
+            if value["id"] == 1 {
+                return value.get("result").cloned();
+            }
+        }
+        None
+    }
+
+    let dir = scratch(if compatible { "exec-drain" } else { "exec-refused" });
+    let _shutdown = Shutdown(&dir);
+    let socket = fixture_socket(&dir);
+    // Copy the old image once; the replacement hard link is the tested binary's different
+    // inode. Both have the same protocol/build so this tests exec, not version comparison.
+    let installed = dir.join("acpmux");
+    let replacement = dir.join("acpmux-next");
+    fs::copy(daemon_env::bin(), &installed).unwrap();
+    if compatible {
+        fs::hard_link(daemon_env::bin(), &replacement)
+            .or_else(|_| fs::copy(daemon_env::bin(), &replacement).map(|_| ()))
+            .unwrap();
+    } else {
+        fs::write(&replacement, "#!/bin/sh\ncase \"$1\" in --version) echo 'acpmux incompatible-fixture'; exit 0;; __exec-update-protocol) echo incompatible >&2; exit 69;; *) exit 70;; esac\n").unwrap();
+        fs::set_permissions(&replacement, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(
+            daemon_env::command_at(&replacement, &dir, daemon_env::Agents::Deny, &[])
+                .arg("--version")
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
+    assert_ne!(fs::metadata(&installed).unwrap().ino(), fs::metadata(&replacement).unwrap().ino());
+    let mut child = daemon_env::command_at(&installed, &dir, daemon_env::Agents::StandIn, &[])
+        .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .current_dir(dir.join("p"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let ready =
+        BufReader::new(child.stdout.take().unwrap()).lines().map_while(Result::ok).any(|line| {
+            serde_json::from_str::<serde_json::Value>(&line).is_ok_and(|v| v["ready"] == true)
+        });
+    let mut daemon = CustomDaemon(child);
+    assert!(ready, "old image did not become ready");
+    let before_socket = fs::metadata(&socket).unwrap();
+    let before = status(&socket).expect("old image status");
+    assert_eq!(before["pid"], daemon.0.id());
+    assert!(before.get("lastExecUpdate").is_none());
+    let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake"]);
+    assert!(made.status.success(), "new: {}", text(&made));
+    let sessions: serde_json::Value =
+        serde_json::from_slice(&cli(&dir, &["--json", "ls"]).stdout).unwrap();
+    let session = sessions["sessions"][0]["sessionId"].clone();
+
+    let gate = dir.join("gate");
+    let gate_c = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: this test owns the new FIFO path.
+    assert_eq!(unsafe { libc::mkfifo(gate_c.as_ptr(), 0o600) }, 0);
+    let gate_writer = fs::OpenOptions::new().read(true).write(true).open(&gate).unwrap();
+    let mut sender = UnixStream::connect(&socket).unwrap();
+    sender.set_read_timeout(Some(Duration::from_secs(40))).unwrap();
+    request(
+        &mut sender,
+        "session/prompt",
+        json!({"sessionId":session,
+        "prompt":[{"type":"text","text":format!("gate: {}", gate.display())}]}),
+    );
+    let (prefix_tx, prefix_rx) = std::sync::mpsc::channel();
+    let (sent_tx, sent_rx) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut reply = String::new();
+        let mut prefix_tx = Some(prefix_tx);
+        for line in BufReader::new(sender).lines() {
+            let value: serde_json::Value = serde_json::from_str(&line.unwrap()).unwrap();
+            if let Some(text) =
+                value.pointer("/params/update/content/text").and_then(serde_json::Value::as_str)
+            {
+                reply.push_str(text);
+                if reply.contains("before-gate")
+                    && let Some(tx) = prefix_tx.take()
+                {
+                    tx.send(()).unwrap();
+                }
+            }
+            if value["id"] == 1 {
+                assert!(value.get("error").is_none(), "prompt failed: {value}");
+                sent_tx.send((value["result"].clone(), reply)).unwrap();
+                return;
+            }
+        }
+        panic!("exec dropped the waiting sender's original connection");
+    });
+    prefix_rx.recv_timeout(Duration::from_secs(15)).expect("prompt never reached its gate");
+    let mut update = UnixStream::connect(&socket).unwrap();
+    request(&mut update, "_acpmux/shutdown", json!({"restart":true,"execUpdate":true}));
+    update.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+    let mut byte = [0];
+    let pending =
+        update.read(&mut byte).expect_err("exec update answered before the active send finished");
+    assert!(
+        matches!(pending.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut),
+        "{pending}"
+    );
+    assert!(daemon.0.try_wait().unwrap().is_none());
+    assert_eq!(fs::metadata(&socket).unwrap().ino(), before_socket.ino());
+    assert!(sent_rx.try_recv().is_err(), "gated send finished before release");
+
+    // The drain owns admission before the installed path changes; the executable watcher
+    // cannot win a competing handoff while this accepted update waits for the send.
+    fs::rename(&replacement, &installed).unwrap();
+    drop(gate_writer);
+    let (result, reply) =
+        sent_rx.recv_timeout(Duration::from_secs(30)).expect("original sender lost its response");
+    reader.join().unwrap();
+    assert_eq!(result["stopReason"], "end_turn");
+    assert_eq!(reply, "before-gateafter-gate");
+    update.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+    let response = answer(update);
+    if !compatible {
+        assert_eq!(response["error"]["data"]["reason"], "update.deferred", "{response}");
+        assert!(
+            response["error"]["message"].as_str().unwrap_or("").contains("exec preflight"),
+            "wrong refusal: {response}"
+        );
+        // Exercise the CLI's refusal path too: it must return the failure without stopping
+        // the surviving daemon or waiting for its lock to disappear.
+        let rejected = cli(&dir, &["daemon", "shutdown", "--keep-agents", "--restart"]);
+        assert!(!rejected.status.success(), "incompatible image accepted: {}", text(&rejected));
+        assert!(text(&rejected).contains("daemon update deferred"), "{}", text(&rejected));
+        let after = status(&socket).expect("old daemon stopped after refused exec");
+        assert_eq!(after["pid"], before["pid"]);
+        assert!(after.get("lastExecUpdate").is_none());
+        assert!(daemon.0.try_wait().unwrap().is_none(), "refusal caused a supervisor restart");
+        let unchanged_socket = fs::metadata(&socket).unwrap();
+        assert_eq!(
+            (unchanged_socket.dev(), unchanged_socket.ino()),
+            (before_socket.dev(), before_socket.ino())
+        );
+        let next = cli(
+            &dir,
+            &[
+                "send",
+                "--timeout",
+                "20",
+                "--prompt-id",
+                "after-refusal",
+                "lane",
+                "after the refusal",
+            ],
+        );
+        assert!(next.status.success(), "send after refusal: {}", text(&next));
+        assert!(
+            String::from_utf8_lossy(&next.stdout).contains("echo: after the refusal"),
+            "{}",
+            text(&next)
+        );
+        return;
+    }
+    assert!(response.get("error").is_none(), "exec failed: {response}");
+    let receipt = &response["result"];
+    assert_eq!(receipt["execUpdate"], true);
+    assert_eq!(receipt["pid"], before["pid"]);
+    assert!(receipt["updateId"].as_str().is_some_and(|id| !id.is_empty()));
+    assert!(receipt["execImage"].as_object().is_some_and(|image| !image.is_empty()));
+
+    let until = Instant::now() + Duration::from_secs(60);
+    let mut backoff = Duration::from_millis(20);
+    let after = loop {
+        let current = status(&socket).unwrap_or(serde_json::Value::Null);
+        if current["lastExecUpdate"] == receipt["updateId"] && current["ready"] == true {
+            break current;
+        }
+        assert!(Instant::now() < until, "replacement never served its ready receipt: {current}");
+        // No readiness subscription crosses exec; bounded backoff reads only this receipt.
+        std::thread::sleep(backoff);
+        backoff = (backoff * 2).min(Duration::from_millis(500));
+    };
+    assert_eq!(after["pid"], before["pid"]);
+    assert_eq!(after["execImage"], receipt["execImage"]);
+    assert!(
+        daemon.0.try_wait().unwrap().is_none(),
+        "exec replaced the process instead of its image"
+    );
+    let after_socket = fs::metadata(&socket).unwrap();
+    assert_eq!(
+        (after_socket.dev(), after_socket.ino()),
+        (before_socket.dev(), before_socket.ino())
+    );
+    #[cfg(target_os = "linux")]
+    assert_eq!(
+        fs::metadata(format!("/proc/{}/exe", daemon.0.id())).unwrap().ino(),
+        fs::metadata(&installed).unwrap().ino(),
+        "the process still maps the old image"
+    );
+    let next = cli(
+        &dir,
+        &["send", "--timeout", "20", "--prompt-id", "after-exec", "lane", "after the exec"],
+    );
+    assert!(next.status.success(), "replacement send: {}", text(&next));
+    assert!(
+        String::from_utf8_lossy(&next.stdout).contains("echo: after the exec"),
+        "{}",
+        text(&next)
+    );
+}
+
 #[test]
 fn cli_daemon_restart_refuses_unsaved_token_before_stopping() {
     let dir = scratch("cli-restart-custom");

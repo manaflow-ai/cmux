@@ -59,6 +59,8 @@ use connect::*;
 pub use connect::{
     connect, connect_stream, connect_without_caller, mark_explicit_start, saved_start_refusal,
 };
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) mod exec_update;
 mod handover;
 mod home_watch;
 #[cfg(unix)]
@@ -254,6 +256,8 @@ pub(crate) fn shutdown_budget(ends_agents: bool) -> Duration {
 /// may use the end of that lifetime while retaining this daemon's exclusive home lock.
 pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<()> {
     stop_watchdog::reset();
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let mut exec_inherited = exec_update::inherit()?;
     // The start of every startup phase in `daemon status` is timed from (`gauges.rs`).
     let gauges = crate::gauges::global();
     // Memory stall as PSI from reclaim counters, warm by the time `machine load` asks (RFD 0182 B1).
@@ -343,9 +347,24 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // limit while the holder lives, so a test that dies during it ends this daemon too.
     let mut test_owner = std::pin::pin!(owner_exit::test_owner_exit());
     #[cfg(unix)]
-    handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
+    {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let exec_handoff = exec_inherited.is_some();
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        let exec_handoff = false;
+        if !exec_handoff {
+            handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
+        }
+    }
     // None: another daemon answers for this home and its ready line went out; nothing to do.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let mut exec_listeners = None;
     let lock_wait = async {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        if let Some(inherited) = exec_inherited.take() {
+            exec_listeners = Some(inherited.listeners);
+            return Ok(Some(inherited.lock));
+        }
         match acquire_daemon_lock(&lock, opts.take_over, opts.ready_fd.is_none()).await {
             Ok(lock) => Ok(Some(lock)),
             Err(e) => {
@@ -461,7 +480,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // The update watch's baseline (F9, `daemon/exe_swap.rs`), taken now: an update that lands
     // between ready and the later startup is then a change it sees, never its baseline.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    let exe_watch = exe_swap::watch(std::env::args().skip(1).collect());
+    let exe_watch = exe_swap::watch();
     // Deterministic startup replacement seam for the daemon lifecycle test. The held-home
     // identity fence rejects writes even before the asynchronous watcher receives its event.
     #[cfg(debug_assertions)]
@@ -480,6 +499,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // (`daemon/listener_handover.rs`): the same sockets, whose queues never closed.
     #[cfg(unix)]
     let mut handed = listener_handover::take_received();
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if let Some(inherited) = exec_listeners {
+        handed = inherited;
+    }
     // A restart through the service manager: the listeners a keeper held across it
     // (`daemon/listener_keeper.rs`), and the egress proxy serves its own at once.
     #[cfg(unix)]
@@ -1487,7 +1510,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // serves; the connections it has are answered (`shutdown_drain`) and closed as a restart
     // (WebSocket 1012: redial now).
     #[cfg(unix)]
-    if listener_handover::handed_to_live() {
+    if listener_handover::handed_to_live() || exec_pending() {
         unix_accept.abort();
         hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
         crate::vault::egress::stop_accepting();
@@ -1520,7 +1543,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Every bound below is a timer on this runtime. With `start` in `acpmux.v2` a thread ends the
     // process 800 ms in when the stop is held all the same (`daemon/stop_watchdog.rs`); with the
     // setting empty there is none. `run`'s return disarms it.
-    let hard_exit = v2.as_ref().is_some_and(|v2| v2.allows_surfaces(&["start"]));
+    let hard_exit = !exec_pending() && v2.as_ref().is_some_and(|v2| v2.allows_surfaces(&["start"]));
     let _hard_exit = stop_watchdog::arm(&hub, shutdown_deadline.into_std(), hard_exit);
     let shutdown_left = || shutdown_deadline.saturating_duration_since(tokio::time::Instant::now());
     // Session/transport cleanup cannot consume the writers' entire chance to drain.
@@ -1654,7 +1677,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             let _ = cleanup_finished.await;
             // A timeout must not unlock the home while a blocking store fence still writes.
             // This task keeps both the lock and hub until persistence ends or the CLI exits.
-            drop(_lock_file);
+            _lock_file
         })
     };
     // After the agents: their model streams go through the router.
@@ -1695,12 +1718,15 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // what it had yet to write (recent transcript, metadata, ledger and audit lines). So the
     // writers finish first, past the deadline too, with the home still locked (Codex review of
     // #42296). They hold no network or agent: on a healthy disk they end inside the deadline.
-    if tokio::time::timeout_at(shutdown_deadline, &mut persistence).await.is_err() {
-        tracing::warn!(
-            "persistence still draining at the shutdown deadline; waiting for it with the home locked"
-        );
-        let _ = persistence.await;
-    }
+    let persisted_lock = match tokio::time::timeout_at(shutdown_deadline, &mut persistence).await {
+        Ok(result) => result,
+        Err(_) => {
+            tracing::warn!(
+                "persistence still draining at the shutdown deadline; waiting for it with the home locked"
+            );
+            persistence.await
+        }
+    }?;
     // Where the handover's dark time went (the successor binds once the lock goes, right here).
     let took = shutdown_started.elapsed();
     let phases = format!(
@@ -1716,7 +1742,24 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tracing::info!("{phases}");
     }
     tracing::info!("stopped");
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if exec_update::pending() {
+        crate::config::refuse_lost_home(&home())?;
+        return exec_update::replace(&persisted_lock);
+    }
+    drop(persisted_lock);
     Ok(())
+}
+
+fn exec_pending() -> bool {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        exec_update::pending()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        false
+    }
 }
 
 // Covers every fallible startup step after bind, including token/config validation. Normal

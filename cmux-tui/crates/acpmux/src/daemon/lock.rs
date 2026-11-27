@@ -13,6 +13,40 @@ use std::time::Duration;
 pub(super) struct DaemonLock(std::fs::File);
 
 #[cfg(unix)]
+impl DaemonLock {
+    pub(super) fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        use std::os::fd::AsFd;
+        self.0.as_fd()
+    }
+
+    /// Adopt the exact locked inode carried through an exec of this same PID.
+    pub(super) fn inherit(fd: i32, path: &Path) -> Result<Self> {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        use std::os::unix::fs::MetadataExt;
+        // SAFETY: exec_update validates unique descriptors above stdio and transfers ownership.
+        let file = unsafe { std::fs::File::from_raw_fd(fd) };
+        let expected = std::fs::File::open(path)?;
+        let (actual, expected_meta) = (file.metadata()?, expected.metadata()?);
+        anyhow::ensure!(
+            actual.is_file()
+                && actual.dev() == expected_meta.dev()
+                && actual.ino() == expected_meta.ino(),
+            "inherited lock does not match daemon.lock"
+        );
+        anyhow::ensure!(
+            holder_pid(&file) == Some(std::process::id()) && lock_is_held(&expected),
+            "inherited daemon lock has no matching live holder"
+        );
+        // The inherited open description already owns this lock; a separate description fails.
+        anyhow::ensure!(
+            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
+            "inherited descriptor does not own the daemon lock"
+        );
+        Ok(Self(file))
+    }
+}
+
+#[cfg(unix)]
 impl Drop for DaemonLock {
     fn drop(&mut self) {
         use std::os::unix::io::AsRawFd;
@@ -340,6 +374,81 @@ pub(super) fn fork_a_child_for_tests() {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use std::os::fd::{AsRawFd, IntoRawFd};
+
+    fn inheritance_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-lock-inherit-{tag}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn inherited_lock_keeps_same_pid_and_exclusive_ownership_with_a_duplicate() {
+        let dir = inheritance_dir("held");
+        let path = dir.join("daemon.lock");
+        // Exec does not run the old guard's Drop. Transfer that same descriptor to a new
+        // guard without unlocking it, while a second descriptor shares its open description.
+        let old = std::mem::ManuallyDrop::new(acquire_lock(&path).unwrap());
+        let duplicate = old.0.try_clone().unwrap();
+        let probe = std::fs::File::open(&path).unwrap();
+        assert!(lock_is_held(&probe));
+        let inherited = DaemonLock::inherit(old.as_fd().as_raw_fd(), &path).unwrap();
+        assert_eq!(holder_pid(&inherited.0), Some(std::process::id()));
+        assert!(lock_is_held(&probe), "adoption released the shared open description's lock");
+        assert!(acquire_lock(&path).is_err(), "another daemon entered during adoption");
+        drop(duplicate);
+        assert!(lock_is_held(&probe), "adopted guard did not retain lock ownership");
+        drop(inherited);
+        assert!(!lock_is_held(&probe), "dropping the new guard did not release the lock");
+        drop(probe);
+        drop(acquire_lock(&path).expect("a later daemon can acquire the released lock"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn inherited_lock_rejects_a_different_inode_without_unlocking_the_real_lock() {
+        let dir = inheritance_dir("inode");
+        let path = dir.join("daemon.lock");
+        let held = acquire_lock(&path).unwrap();
+        let wrong = std::fs::File::create(dir.join("other.lock")).unwrap();
+        let error = DaemonLock::inherit(wrong.into_raw_fd(), &path).err().expect("wrong inode");
+        assert!(error.to_string().contains("does not match daemon.lock"), "{error}");
+        assert!(acquire_lock(&path).is_err(), "rejecting the wrong inode released the lock");
+        drop(held);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn inherited_lock_rejects_an_unlocked_file_even_with_this_live_pid() {
+        let dir = inheritance_dir("unlocked");
+        let path = dir.join("daemon.lock");
+        let file = crate::config::private_state_rw(&path).unwrap();
+        record_pid(&file);
+        let error = DaemonLock::inherit(file.into_raw_fd(), &path).err().expect("unlocked file");
+        assert!(error.to_string().contains("no matching live holder"), "{error}");
+        drop(acquire_lock(&path).expect("the rejected candidate must leave no lock behind"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn inherited_lock_rejects_an_independent_descriptor_for_the_locked_inode() {
+        let dir = inheritance_dir("description");
+        let path = dir.join("daemon.lock");
+        let held = acquire_lock(&path).unwrap();
+        let independent = std::fs::File::open(&path).unwrap();
+        let error = DaemonLock::inherit(independent.into_raw_fd(), &path)
+            .err()
+            .expect("matching inode and PID do not establish open-description ownership");
+        assert!(error.to_string().contains("does not own the daemon lock"), "{error}");
+        assert!(acquire_lock(&path).is_err(), "rejected adoption released the real owner's lock");
+        drop(held);
+        drop(acquire_lock(&path).expect("the true owner releases its lock normally"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn daemon_lock_refuses_a_symlink() {

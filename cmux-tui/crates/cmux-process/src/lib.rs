@@ -62,7 +62,7 @@ mod stdio;
 pub use child::{Child, DROP_GRACE};
 pub use command::Command;
 #[cfg(unix)]
-pub use exec::exec_replace;
+pub use exec::{exec_replace, exec_replace_inheriting, set_cloexec};
 pub use group::{ChildGroup, GRACE, GroupTether, OwnedChild};
 pub use std::process::{ExitStatus, Output};
 pub use stdio::Stdio;

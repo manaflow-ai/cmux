@@ -97,6 +97,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if args.first().is_some_and(|a| a == crate::daemon::exec_update::CHECK_ARG) {
+        return crate::daemon::exec_update::check_main();
+    }
     // A listener keeper across a service-manager restart (`daemon/listener_keeper.rs`).
     #[cfg(unix)]
     if args.first().is_some_and(|a| a == crate::daemon::listener_keeper::HOLD_ARG) {

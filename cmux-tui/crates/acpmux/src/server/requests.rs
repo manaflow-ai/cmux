@@ -2943,7 +2943,12 @@ async fn dispatch_request_with_identity(
         method::MUX_STATUS if params.get(crate::rpc::LIST_COUNTS) == Some(&Value::Bool(true)) => {
             Ok(hub.list_counts())
         }
-        method::MUX_STATUS => Ok(hub.status().await),
+        method::MUX_STATUS => {
+            let mut status = hub.status().await;
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            crate::daemon::exec_update::add_receipt(&mut status);
+            Ok(status)
+        }
         // A dhat-heap build's profile, written now (`heap_profile.rs`); the local socket only.
         method::MUX_HEAP_PROFILE => {
             if conn.origin != Origin::Local {
@@ -4533,6 +4538,23 @@ async fn dispatch_request_with_identity(
             } else {
                 None
             };
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            let exec_update = if params.get("execUpdate").and_then(Value::as_bool) == Some(true)
+                && params.get("restart").and_then(Value::as_bool) == Some(true)
+                && params.get("endAgents").and_then(Value::as_bool) != Some(true)
+            {
+                Some(crate::daemon::exec_update::prepare(hub).await.map_err(|error| {
+                    RpcError::new(
+                        -32000,
+                        format!("daemon update deferred: exec preflight: {error:#}"),
+                    )
+                    .with_data(json!({"reason": "update.deferred", "retryable": true}))
+                })?)
+            } else {
+                None
+            };
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+            let exec_update: Option<Value> = None;
             // Name who stopped it and why: the log's "a client asked it to" alone cannot tell an
             // app's update from another build's or a script's stop. `reason` is the client's own
             // word for its trigger (`shutdown_reason`); the daily count of the app's stops reads it.
@@ -4628,6 +4650,10 @@ async fn dispatch_request_with_identity(
                 "endAgents": end_agents,
                 "keptSessions": kept,
                 "listenersHanded": handed,
+                "execUpdate": exec_update.is_some(),
+                "updateId": exec_update.as_ref().and_then(|v| v.get("updateId")),
+                "execImage": exec_update.as_ref().and_then(|v| v.get("execImage")),
+                "pid": std::process::id(),
             }))
         }
         method::MUX_HANDOFF_PREPARE => {
