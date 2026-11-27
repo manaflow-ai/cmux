@@ -109,8 +109,9 @@ fn state_dir() -> PathBuf {
 
 fn append(state: &Path, line: &Value) -> std::io::Result<()> {
     use std::io::Write;
-    std::fs::create_dir_all(state)?;
-    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(state.join(RUNS))?;
+    crate::home_fs::create_dir_all(state, 0o700)?;
+    let mut file =
+        crate::home_fs::OpenOptions::new().create(true).append(true).open(state.join(RUNS))?;
     // One write per line, so concurrent runs of other services never interleave.
     file.write_all(format!("{line}\n").as_bytes())
 }
