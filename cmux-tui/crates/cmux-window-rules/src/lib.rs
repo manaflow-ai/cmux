@@ -65,6 +65,9 @@
 //!   last tab closed: it closes; its terminal was lost: it gets a new one).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`onboarding_first_run`]: the first run's project scan ranking and
+//!   folder rules, the Set Up card's launch route and Chief form, the
+//!   Opacity slider's step and the classic migration's next step.
 //! - [`onboarding`]: the onboarding tool window's footer (the primary
 //!   button, Skip, Back) and Import from Browser's selection rules.
 
@@ -92,6 +95,7 @@ pub mod notification_policy;
 pub mod notification_rings;
 pub mod notifications;
 pub mod onboarding;
+pub mod onboarding_first_run;
 pub mod remote;
 pub mod restore;
 pub mod right_column;
