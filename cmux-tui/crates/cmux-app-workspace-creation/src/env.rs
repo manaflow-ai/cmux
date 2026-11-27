@@ -18,13 +18,11 @@ pub fn uuid_form(raw: &str) -> String {
         return raw.to_owned();
     }
     let mut out = String::with_capacity(36);
-    let mut start = 0;
-    for (index, width) in [8, 4, 4, 4, 12].into_iter().enumerate() {
-        if index > 0 {
+    for (index, c) in hex.chars().enumerate() {
+        if matches!(index, 8 | 12 | 16 | 20) {
             out.push('-');
         }
-        out.push_str(&hex[start..start + width]);
-        start += width;
+        out.push(c);
     }
     out
 }
