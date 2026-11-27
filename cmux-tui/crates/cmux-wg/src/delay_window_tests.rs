@@ -359,3 +359,24 @@ fn ones_sum(bytes: &[u8]) -> u16 {
     }
     sum as u16
 }
+
+#[test]
+fn the_fresh_data_the_window_holds_counts_as_held_for_its_stream() {
+    if !enabled() {
+        return;
+    }
+    let now = Instant::now();
+    let mut pacer = crate::pacing::Pacer::default();
+    let local: std::net::SocketAddr = "10.0.0.1:1000".parse().unwrap();
+    let remote: std::net::SocketAddr = "10.0.0.2:2000".parse().unwrap();
+    assert_eq!(pacer.held(local, remote), 0, "nothing emitted");
+    for index in 0..48 {
+        pacer.push(tcp(1000, 2000, index * SEGMENT, Some(1), SEGMENT as usize), now);
+    }
+    pacer.received(&tcp(2000, 1000, 1, Some(0), 0), now);
+    while let Ok(Some(_)) = pacer.pop(now) {}
+    // smoltcp counts all 48 segments in flight; a frame written after them
+    // waits for the ones still here.
+    assert_eq!(pacer.held(local, remote), (48 * SEGMENT) as usize - INITIAL_WINDOW as usize);
+    assert_eq!(pacer.held(remote, local), 0, "the other direction holds nothing");
+}

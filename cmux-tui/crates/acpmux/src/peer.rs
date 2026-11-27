@@ -44,6 +44,8 @@ pub(crate) mod health;
 pub(crate) mod overlay;
 #[path = "peer_tailnet.rs"]
 mod tailnet_path;
+#[path = "peer_wg_learn.rs"]
+pub(crate) mod wg_learn;
 
 #[path = "peer_demand.rs"]
 mod demand;
@@ -338,7 +340,7 @@ pub struct Peer {
     /// Test transport belongs to this instance, even when another peer has the same name.
     #[cfg(test)]
     ssh_mux_override: std::sync::OnceLock<wanted::SshMux>,
-    wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
+    wireguard: StdMutex<Option<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>>,
     /// The daemon's hub carrier and the hub `daemonId` this peer's config names (its WireGuard
     /// key), if any (`peer_hub.rs`).
     #[cfg(feature = "hub-carrier")]
@@ -348,6 +350,10 @@ pub struct Peer {
     /// The peer's config names its own route (`wireguard` or `linkHost`): no overlay path is
     /// found or recalled for it (`peer_overlay.rs`).
     explicit_route: AtomicBool,
+    /// The daemon's WireGuard transport, for a plain `ssh://` peer that may get a route found
+    /// for it at runtime (`peer_wg_learn.rs`), and whether a find is running.
+    wg_learner: std::sync::OnceLock<Arc<crate::wireguard::Transport>>,
+    wg_learning: AtomicBool,
     /// The opt-in tailnet path (`peer_tailnet.rs`).
     tailnet: StdMutex<tailnet_path::State>,
     /// The cmux link's socket when known ahead of its registration (tests); else read per dial.
