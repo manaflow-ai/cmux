@@ -1,3 +1,4 @@
+// Probe (do not merge): runs CmuxMobileLiveTests on feat-cmux-next as is, for manaflow-ai/cmux#58565.
 import CmuxMobileAgentChat
 import CmuxMobileTransport
 import Foundation
