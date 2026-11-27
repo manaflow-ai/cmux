@@ -536,6 +536,51 @@ class GuardTest(unittest.TestCase):
 
         self.assertIn("normal landing", pmb.hand_off("o/r", 12, "", api=refused))
 
+    def _conflict_api(self, tip_conclusion: str, comments=()):
+        calls = []
+        job = "web / Web tests 1/2"
+
+        def api(path, **kw):
+            calls.append((path, kw))
+            if "/workflows/" in path:
+                return {"workflow_runs": [
+                    {"id": 90, "display_title": "batch next", "status": "completed", "head_sha": "b" * 40, "created_at": "2"},
+                    {"id": 50, "display_title": "batch next", "status": "completed", "head_sha": "a" * 40, "created_at": "1"},
+                ]}
+            if path.startswith("repos/o/r/actions/runs/90/jobs"):
+                return {"jobs": [{"name": job, "status": "completed", "conclusion": tip_conclusion}]}
+            if path.endswith("/comments?per_page=100"):
+                return list(comments)
+            if kw.get("method") == "POST":
+                return {"html_url": "https://x/c/1"}
+            return {}
+
+        args = Namespace(repo="o/r", branch="feat-cmux-next", origin="60", job=job, manifest=str(pmb.MANIFEST), good="c" * 40,
+                         server_url="https://github.com", run_id="70", dry_run=False)
+        return api, calls, args
+
+    def test_a_conflicted_revert_already_fixed_forward_stops_quietly(self) -> None:
+        # Goal base-batch-reverts-culprit: b672c956's revert conflicted because #59537 had fixed it forward.
+        api, calls, args = self._conflict_api("success")
+        line = pmb.revert_conflict(args, "d" * 40, "123", [], api=api)
+        self.assertIn("fixed forward, nothing to revert", line)
+        self.assertFalse([c for c in calls if c[1].get("method") == "POST"])
+
+    def test_a_conflicted_revert_still_red_tells_the_culprits_pr_once(self) -> None:
+        api, calls, args = self._conflict_api("failure")
+        culprit = pmb.git("rev-parse", "HEAD~1").strip()
+        line = pmb.revert_conflict(args, culprit, "123", ["scripts/ci/post_merge_batch.py"], api=api)
+        posts = [c for c in calls if c[1].get("method") == "POST"]
+        self.assertEqual([p[0] for p in posts], ["repos/o/r/issues/123/comments"])
+        body = posts[0][1]["fields"]["body"]
+        self.assertIn(pmb.CONFLICT_MARK.format(culprit=culprit, job=args.job), body)
+        self.assertIn("`web / Web tests 1/2`", body)
+        self.assertIn("told #123's owner", line)
+        mark = pmb.CONFLICT_MARK.format(culprit=culprit, job=args.job)
+        api, calls, args = self._conflict_api("failure", comments=[{"body": mark}])
+        self.assertIn("already told", pmb.revert_conflict(args, culprit, "123", [], api=api))
+        self.assertFalse([c for c in calls if c[1].get("method") == "POST"])
+
 
 class PushTest(unittest.TestCase):
     """GitHub's workflow-scope check timing out is retried; any other refusal is not."""

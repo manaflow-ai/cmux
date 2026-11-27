@@ -979,6 +979,59 @@ def merged_by_teammate(repo: str, pr: str, api=None) -> str:
 
 
 SWAPOUT_MARK = "<!-- post-merge piece swap-out {culprit} {job} -->"
+CONFLICT_MARK = "<!-- post-merge revert conflict {culprit} {job} -->"
+
+
+def newer_verdict(repo: str, branch: str, origin: str, job: str, suites: dict, api=None) -> tuple[str, dict] | None:
+    """The job's conclusion on the newest finished batch run of branch after the origin run, and that run;
+    None when no newer batch run has finished the job."""
+    runs = list_runs(repo, branch, api=api)
+    newer = [r for r in runs if is_batch(r) and r.get("status") == "completed" and (r.get("id") or 0) > int(origin or 0)]
+    for run in newer[:3]:
+        got = suite_verdicts(run_jobs(repo, run["id"], api=api), suites).get(job)
+        if got and got[1] in ("success", "failure"):
+            return got[1], run
+    return None
+
+
+def revert_conflict(args: argparse.Namespace, culprit: str, pr: str, conflicted: list[str], api=None) -> str:
+    """A culprit whose revert conflicts with the tip. Green again on a newer batch run: fixed forward, nothing to
+    revert. Else the culprit's pull request gets one comment naming the job, the run and the later commits that
+    touched the same files, so the base-break owner fixes it forward. Returns the run summary line."""
+    api = api or gh_api
+    try:
+        seen = newer_verdict(args.repo, args.branch, args.origin, args.job, load_manifest(Path(args.manifest)), api=api)
+    except RuntimeError as err:
+        print(f"newer verdict of {args.job}: {err}", file=sys.stderr)
+        seen = None
+    if seen and seen[0] == "success":
+        return (f"Reverting `{culprit[:11]}` conflicts with the tip, and `{args.job}` is green again on `{seen[1]['head_sha'][:11]}` "
+                f"(run {seen[1]['id']}): fixed forward, nothing to revert.")
+    later = git("log", "--format=%h %s", f"{culprit}..HEAD", "--", *conflicted).splitlines()[:5] if conflicted else []
+    head = f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}" + (f" in {', '.join(f'`{f}`' for f in conflicted[:5])}" if conflicted else "")
+    if not pr or args.dry_run:
+        return f"{head}; left to its owner{' (dry run: no comment)' if pr else ''}."
+    origin = f"{args.server_url}/{args.repo}/actions/runs/{args.origin}" if args.origin else "(unknown)"
+    this = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
+    mark = CONFLICT_MARK.format(culprit=culprit, job=args.job)
+    body = "\n\n".join([
+        mark,
+        f"Post-merge `{args.job}` went red on {args.branch} at this PR's merge (`{culprit[:12]}`): green at `{args.good[:12]}`, "
+        f"the bisect ({this}, from {origin}) names this PR as its first red commit.",
+        "Its revert conflicts with the tip, so no revert pull request opened. Later commits on the same files:\n\n"
+        + ("\n".join(f"- {line}" for line in later) or "- (none found)"),
+        "The base-break rule: fix it forward, or revert it by hand with the conflicts resolved. "
+        "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert).",
+    ])
+    try:
+        comments = api(f"repos/{args.repo}/issues/{pr}/comments?per_page=100") or []
+        if any(mark in (c.get("body") or "") for c in comments):
+            return f"{head}; #{pr} was already told."
+        made = api(f"repos/{args.repo}/issues/{pr}/comments", method="POST", fields={"body": body})
+    except RuntimeError as err:
+        print(f"conflict comment on #{pr}: {err}", file=sys.stderr)
+        return f"{head}; left to its owner (the comment on #{pr} failed: {str(err)[-160:]})."
+    return f"{head}; told #{pr}'s owner: {(made or {}).get('html_url', '')}."
 
 
 def swapouts_opened(repo: str, api=None) -> list[datetime]:
@@ -1122,8 +1175,9 @@ def cmd_revert(args: argparse.Namespace) -> int:
     mainline = ["-m", "1"] if len(parents) > 1 else []
     result = subprocess.run(["git", "revert", "--no-edit", *mainline, culprit], cwd=ROOT, capture_output=True, text=True)
     if result.returncode:
+        conflicted = git("diff", "--name-only", "--diff-filter=U").split()
         subprocess.run(["git", "revert", "--abort"], cwd=ROOT)
-        summary(args.summary, f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}; left to its owner.")
+        summary(args.summary, revert_conflict(args, culprit, pr, conflicted))
         return 0
     if not args.dry_run:
         publish(args, branch, git("rev-parse", "HEAD^").strip(), f"+HEAD:refs/heads/{branch}", changed_files(f"{culprit}^", culprit),
