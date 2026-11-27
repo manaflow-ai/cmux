@@ -1837,6 +1837,27 @@ def type_error(code: str, message: str, where: str) -> str:
             "     :       ^\n     `----\n\n")
 
 
+class PrTier(unittest.TestCase):
+    def test_the_pr_tier_leaves_the_slow_gates_to_the_push_tier(self):
+        module = load(SCRIPT)
+        args = (Path("/r"), "b" * 40, "m" * 40, Path("/base"), True, True, True)
+        full = {name: argv for name, argv in module.gates(*args, tier="full")}
+        pr = {name: argv for name, argv in module.gates(*args, tier="pr")}
+        self.assertTrue(all(full.values()))
+        self.assertEqual(sorted(n for n, argv in pr.items() if argv is None), sorted(module.PR_TIER_DEFERRED))
+        self.assertIsNotNone(pr["prepush gate"])
+        self.assertIsNotNone(pr["crash ratchet"])
+        for name in module.PR_TIER_DEFERRED:
+            self.assertIn(name, module.SKIPPED)
+
+    def test_the_workflow_runs_the_pr_tier_unless_full_ci_or_the_variable_says_full(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("CI_FAST_GATES_PR_TIER", text)
+        self.assertIn("full-ci", text)
+        self.assertIn('--tier "$TIER"', text)
+        self.assertEqual(text.count("--tier"), 3)
+
+
 class GateBudget(unittest.TestCase):
     def test_a_gate_past_the_budget_is_stopped_with_its_children(self):
         module = load(SCRIPT)
