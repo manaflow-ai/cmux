@@ -24,7 +24,6 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping*"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarBridge*"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeService*"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugScaleFixture.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefFaces*"
       - "cmux-tui/crates/cmux-home-rules/**"
       - "scripts/cmux-next/scale-fixture-bench.py"
@@ -69,7 +68,7 @@ jobs:
     # Same-repo pull requests only: a fork's head never reaches a fleet Mac.
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions: {}
     steps:
       # No checkout: the gateway runner takes only thin cmux-ci clients. The Mac checks the sha out itself.
@@ -86,13 +85,20 @@ jobs:
           [[ "$WORKSPACES" =~ ^[0-9]+$ ]] || { echo "::error title=Scale fixture::workspaces must be a whole number"; exit 1; }
           out="$RUNNER_TEMP/scale-fixture"
           mkdir -p "$out"
-          "$client" run --class exclusive --measurement --label measure --display \
-            --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 4800 \
+          # --priority pr ranks it with agent tag builds; a step still queued after 30 min is cancelled
+          # and the check passes with a warning (the exclusive class's p90 queue wait ran to hours).
+          "$client" run --class exclusive --measurement --label measure --display --priority pr \
+            --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 4800 --queue-timeout 1800 \
             --key "scale-fixture-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --artifact artifacts/split-spring/report.json \
             --arg=--suite=scale-fixture --arg="--workspaces=$WORKSPACES" 2>&1 | tee "$out/run.log"
+          rc="${PIPESTATUS[0]}"
           step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/run.log" | head -1)"
           [[ -n "$step" ]] || warn "no fleet step started (no free GUI Mac or controller error)"
+          if [[ "$rc" == 75 ]]; then
+            "$client" cancel "$step" --reason "scale fixture gate: queued past 30 min, check passed open" || true
+            warn "fleet step $step was still queued after 30 min (no free GUI Mac); cancelled"
+          fi
           "$client" artifact "$step" "$out/report.json" || "$client" artifact --failed "$step" "$out/report.json" || true
           [[ -s "$out/report.json" ]] || warn "fleet step $step returned no report (build or infra failure)"
           python3 - "$out/report.json" <<'PY'
