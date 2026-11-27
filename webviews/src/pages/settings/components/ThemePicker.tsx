@@ -239,6 +239,10 @@ export function ThemePicker({
           inputClassName="field theme-search"
           listClassName="theme-list"
           itemClassName="theme-option"
+          // Past a menu's worth of themes only the rows in view mount. A group's heading sits in its
+          // first row's top margin and moves as stars and the search change: that row's size is
+          // keyed by its heading, and every row's by its theme, so one that moves keeps its own.
+          virtualRows={{ estimate: 28, sizeKey: (row) => headings.get(row) ?? "" }}
           renderItem={(row) => {
             const name = rowTheme(row);
             const heading = headings.get(row);

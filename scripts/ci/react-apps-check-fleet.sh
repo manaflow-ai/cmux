@@ -34,7 +34,7 @@ fi
 printf '{}\n' > "$out/manifest.json"
 export CI_WEBVIEWS_PR_BASE="${CI_PR_BASE_REF:-}" CMUX_WEB_TEST_DURATIONS="$out/manifest.json"
 if ! picked="$(CMUX_WEB_TEST_JOBS=8 CMUX_WEB_TEST_DEV_JOBS=4 CMUX_WEB_TEST_SHARD_HEAD_START=1:120 \
-  scripts/ci/timeout.sh 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count 8 \
+  bash scripts/ci/timeout.sh 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count 8 \
   --direct-out "$out/direct.json" --summary "$out/pick.md" --class-out "$out/class")"; then
   echo "::error title=react-apps-check::the shard pick failed here, so this head ran no react-apps-check; re-run the job, or add the full-ci label"
   exit 1

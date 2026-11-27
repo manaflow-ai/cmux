@@ -14,6 +14,8 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# macOS has no `timeout`; every scripts/ci script bounds a command through timeout.sh (CiScriptsCallPortableTimeout).
+ci_timeout="$repo_root/scripts/ci/timeout.sh"
 root="${WINE_SMOKE_DIR:-${RUNNER_TEMP:-$HOME/.cache}/cmux-wine-smoke}"
 export WINEPREFIX="$root/prefix" WINEDEBUG="${WINEDEBUG:--all}" WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-mscoree,mshtml=}"
 # The Windows runner's Python (actions/setup-python 3.12.10); the embeddable zip is the same build.
@@ -45,13 +47,13 @@ setup() {
     echo site >> "$pydir"/python3*._pth
     touch "$pydir/.ok"
   fi
-  [[ -f "$WINEPREFIX/system.reg" ]] || "$repo_root/scripts/ci/timeout.sh" 300 wineboot -i >/dev/null 2>&1
+  [[ -f "$WINEPREFIX/system.reg" ]] || bash "$ci_timeout" 300 wineboot -i >/dev/null 2>&1
   wine --version >&2
 }
 
 # Wine's console layer refuses a regular file as a Windows process's stdout ("init_sys_streams:
 # Invalid handle" from CPython), so every run reads its output through a pipe.
-wrun() { "$repo_root/scripts/ci/timeout.sh" --kill-after=10 "$step_timeout" wine "$@" </dev/null 2>&1 | cat; return "${PIPESTATUS[0]}"; }
+wrun() { bash "$ci_timeout" --kill-after=10 "$step_timeout" wine "$@" </dev/null 2>&1 | cat; return "${PIPESTATUS[0]}"; }
 wpy() { wrun "$pydir/python.exe" "$@"; }
 
 failed=0
@@ -91,7 +93,7 @@ core_tests() { # the Windows runner's long-path unit tests that Wine can run; ea
 
 relay_serves() { # exe: serve on loopback under Wine; Linux curl reads /healthz and upgrades /v1/relay
   local port=$((20000 + RANDOM % 20000)) pid body code
-  "$repo_root/scripts/ci/timeout.sh" --kill-after=5 60 wine "$1" serve --allow-open --bind "127.0.0.1:$port" </dev/null >"$root/relay.log" 2>&1 &
+  bash "$ci_timeout" --kill-after=5 60 wine "$1" serve --allow-open --bind "127.0.0.1:$port" </dev/null >"$root/relay.log" 2>&1 &
   pid=$!
   for _ in $(seq 1 80); do body="$(curl -fsS --max-time 2 "http://127.0.0.1:$port/healthz" 2>/dev/null)" && break; sleep 0.25; done
   code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 -H 'Upgrade: websocket' -H 'Connection: Upgrade' \
