@@ -379,8 +379,10 @@ def compact_stop():
     """A compaction that ignores interrupt until its late result."""
     import time
     send({"type": "system", "subtype": "status", "status": "compacting", "session_id": SESSION})
-    deadline = time.monotonic() + 0.8
-    while time.monotonic() < deadline:
+    hold = os.environ.get("FAKE_CLAUDE_COMPACT_HOLD")
+    deadline = time.monotonic() + (30 if hold else 0.8)
+    deferred = []
+    while time.monotonic() < deadline and (not hold or os.path.exists(hold)):
         try:
             got = LINES.get(timeout=0.02)
         except queue.Empty:
@@ -390,6 +392,9 @@ def compact_stop():
         try:
             control = json.loads(got)
         except ValueError:
+            continue
+        if (control.get("request") or {}).get("subtype") != "interrupt":
+            deferred.append(got)
             continue
         if control.get("type") == "control_request":
             # Claude acknowledges the interrupt but remains in compaction.
@@ -403,6 +408,9 @@ def compact_stop():
           "message": {"role": "user", "content": "Summary: compacted late."}})
     send({"type": "result", "subtype": "success", "result": "", "num_turns": 0,
           "duration_api_ms": 0, "local_command": True, "usage": {"input_tokens": 0, "output_tokens": 0}})
+
+    for got in deferred:
+        LINES.put(got)
 
 
 def long_step(prompt):
@@ -1370,7 +1378,10 @@ while True:
                   "content": '{"success":true,"resumedAgentId":"%s"}' % AGENT_503}]}})
             fails = os.environ.get("FAKE_CLAUDE_RESUME_FAILS") or ""
             if fails:
-                agent_failure("toolu_send", "agent-503" if fails == "1" else fails)
+                agent_failure(
+                    "toolu_send",
+                    os.environ.get("FAKE_CLAUDE_RESUME_ERROR", "agent-503") if fails == "1" else fails,
+                )
             if os.environ.get("FAKE_CLAUDE_RESUME_COMPLETES") == "1":
                 send({"type": "system", "subtype": "task_notification", "task_id": AGENT_503,
                       "tool_use_id": "toolu_send", "status": "completed", "output_file": "",

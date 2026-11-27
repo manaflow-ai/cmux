@@ -231,6 +231,9 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
     let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &root.join("store")).unwrap());
     let mut c = connect(&hub).await;
     assert_eq!(c.request(FORK_OP, params).await.unwrap()["sessionId"], a["sessionId"]);
+    let reopened = hub.resolve(fid).unwrap().meta();
+    assert_eq!(reopened.title, child.title);
+    assert_eq!(reopened.title_source, child.title_source);
     refusal(&mut c, FORK_OP, boundary(&id, "second", "lost-reply"), "fork.request_conflict").await;
     assert_eq!(hub.sessions().len(), 2);
     hub.shutdown_all().await;

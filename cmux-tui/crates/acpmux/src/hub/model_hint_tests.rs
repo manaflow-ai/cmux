@@ -37,10 +37,14 @@ fn a_missing_harness_names_its_next_step() {
     assert!(codex.contains("`cmux harness install codex`"), "{codex}");
     let gemini = hint_text("unknown harness \"gemini\"".into(), "gemini", &[], None);
     assert!(gemini.contains("`cmux harness add gemini --example gemini`"), "{gemini}");
-    // Cursor (#56066) and Antigravity (#56037) ship example profiles, so their hint names it.
-    for agent in ["cursor", "antigravity"] {
-        let out = hint_text(format!("unknown harness {agent:?}"), agent, &[], None);
-        assert!(out.contains(&format!("`cmux harness add {agent} --example {agent}`")), "{out}");
+    for (agent, next) in [
+        ("grok", "`cmux harness add ID --registry`"),
+        ("cursor", "`cmux harness add cursor --example cursor`"),
+        ("antigravity", "`cmux harness add antigravity --example antigravity`"),
+    ] {
+        let out = hint_text(format!("unknown harness {agent:?}"), &format!("{agent}/x"), &[], None);
+        assert!(out.contains(&format!("{agent:?} is not set up here")), "{out}");
+        assert!(out.contains(next), "{out}");
     }
     let grok = hint_text("unknown harness \"grok\"".into(), "grok/x", &[], None);
     assert!(grok.contains("\"grok\" is not set up here"), "{grok}");
