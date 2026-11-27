@@ -36,9 +36,11 @@ use crate::rpc::RpcError;
 /// How long a prompt waits for admission, and how long it may hold it.
 pub(crate) const ADMISSION_BOUND: Duration = Duration::from_secs(3);
 /// How long after it came a prompt someone waits on goes without an answer before it is queued.
+// timeout: past it the prompt is queued and answered, not dropped.
 pub(crate) const ANSWER_BOUND: Duration = Duration::from_secs(5);
 /// How long a prompt someone waits on waits in `queue_slot` for a turn lock held with no turn
 /// shown (or a restore) before it joins the queue, which answers it (#55502's bound).
+// timeout: past it the prompt joins the queue, which answers it (#55502).
 pub(crate) const TURN_LOCK_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug)]
@@ -208,6 +210,7 @@ pub(super) struct Deferral {
 }
 
 /// How a prompt with no answer by its due time ends.
+#[allow(clippy::large_enum_variant)] // one per unanswered prompt, matched at once; boxing buys nothing
 pub(super) enum Unanswered {
     /// Queued durably; its run from the queue answers it.
     Defer(Deferral),

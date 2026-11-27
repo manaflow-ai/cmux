@@ -311,6 +311,19 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    // Control and Screen switched from the owner's app on another machine, by a grant a key
+    // pinned here signed (`cli/consent_grant.rs`).
+    Capability {
+        id: "consent-grant-v1",
+        wire: &[
+            method::MUX_CONSENT_REMOTE_STATUS,
+            method::MUX_CONSENT_REMOTE_SET,
+            method::MUX_CONSENT_GRANTOR_TRUST,
+            method::MUX_CONSENT_ACCOUNT_SET,
+            method::MUX_CONSENT_TRUST_REFRESH,
+            method::MUX_CONSENT_SCREEN_AUTO,
+        ],
+    },
     // Signing in enrolls this machine on the hub; signing out leaves only that join
     // (`server/machine_enroll.rs`). A literal id, which the app's reference check reads.
     Capability {
@@ -388,6 +401,8 @@ pub const CAPABILITIES: &[Capability] = &[
         wire: &[
             method::MUX_TYPING,
             method::MUX_PRESENCE,
+            method::MUX_LIVE,
+            method::MUX_LIVE_LIST,
             method::MUX_ROOMS,
             method::MUX_ROOM,
             method::MUX_FOLLOW,
@@ -659,6 +674,18 @@ pub const CAPABILITIES: &[Capability] = &[
     // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
     // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
     Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
+    // A delete that asks for it (`grace: true` on `_acpmux/kill` with `purge`, or on
+    // `session/delete`) keeps the chat 7 days, restorable (`hub/soft_delete.rs`). Older daemons
+    // ignore `grace` and delete at once.
+    Capability {
+        id: crate::hub::soft_delete::FEATURE,
+        wire: &[
+            method::MUX_KILL,
+            method::SESSION_DELETE,
+            method::MUX_UNDELETE,
+            method::MUX_DELETED,
+        ],
+    },
 ];
 
 /// The capabilities of this build, including the local stream listener.
