@@ -39,7 +39,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # GitHub's hosted macos-26 image has Xcode 26.6, not the pool pin (27.2); the floor is 26.
       - name: Select Xcode
+        env:
+          CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
