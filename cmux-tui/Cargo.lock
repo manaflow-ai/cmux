@@ -2616,6 +2616,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-nat-probe"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-netwatch"
 version = "0.1.0"
 dependencies = [
@@ -3546,6 +3555,7 @@ dependencies = [
  "cmux-tui-test-modules",
  "cmux-unix-socket",
  "cmux-usage-patterns",
+ "cmux-vault-e2e",
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
@@ -3894,6 +3904,21 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-vault-e2e"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "chacha20poly1305",
+ "getrandom 0.3.4",
+ "hpke",
+ "rand_core 0.9.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
