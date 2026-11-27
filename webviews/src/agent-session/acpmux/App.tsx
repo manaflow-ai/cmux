@@ -1787,7 +1787,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const forkSeq = latestForkSeq(snapshot.rows) ?? newestSettledForkSeq(snapshot.settled);
   /// Whether `/fork` forks now: Fork Conversation's rule (`forkRefusal`), so a working chat forks
   /// as it is now and an idle one through its latest finished turn.
-  const slashForkable = forkRefusal(snapshot) === undefined && (snapshot.isWorking || forkSeq !== undefined);
+  // `forkSeq`, not forkRefusal's rows alone: the settled view's turn end stands in (cmuxterm-hq#9655).
+  const slashForkable = forkRefusal(snapshot) !== "unavailable" && (snapshot.isWorking || forkSeq !== undefined);
   const forkAny = forksAnyTurn(snapshot);
   const tryAnotherApproachInFlight = useRef<Promise<void> | undefined>(undefined);
   // One machine rewind at a time: a second while one runs is refused, so its button says so.

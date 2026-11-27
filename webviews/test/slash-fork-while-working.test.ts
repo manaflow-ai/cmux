@@ -47,11 +47,9 @@ function run(snapshot: Partial<AcpmuxSnapshot>, forkSeq: number | undefined) {
 }
 
 test("/fork on a working chat forks it as it is now, without waiting for the turn", () => {
-  const started = performance.now();
   expect(run({ isWorking: true }, 7)).toBe(true);
+  // Dispatched synchronously, in the same task as Return: nothing waits on the running turn.
   expect(calls).toEqual([{ method: "chat.forkTo", params: {} }]);
-  // Dispatched in the same task as Return: nothing waits on the running turn.
-  expect(performance.now() - started).toBeLessThan(50);
 });
 
 test("/fork on an idle chat forks through its latest finished turn", () => {
