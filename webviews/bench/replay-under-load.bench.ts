@@ -347,10 +347,21 @@ async function run(): Promise<Reading> {
     const wallBefore = performance.now();
     await page.waitForTimeout(SECONDS * 1000);
     const taskAfter = await taskSeconds(cdp);
+    if (process.env.ROWS_COUNT)
+      console.error(
+        "ROWS_COUNT",
+        JSON.stringify(
+          await page.evaluate(() => {
+            const r = (globalThis as any).__rows;
+            return r && { calls: r.calls, sameSource: r.sameSource, sameFolds: r.sameFolds };
+          }),
+        ),
+      );
     const wallMs = performance.now() - wallBefore;
     if (PROFILE || TRACE) {
       const profile = ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile;
       if (PROFILE) printProfile(profile, "replay", wallMs);
+      if (process.env.PROFILE_OUT) fs.writeFileSync(process.env.PROFILE_OUT, JSON.stringify(profile));
       if (TRACE) {
         // The trace's bytes go to the file as they came (no parse and re-stringify: a minute's trace is hundreds of
         // MB), after the profile, so replay-attribution.py reads the profile first and streams the trace's events.

@@ -189,6 +189,17 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     heldFolds,
     chatShellRuns,
   } = deps;
+  {
+    const g = globalThis as unknown as {
+      __rows?: { calls: number; sameSource: number; last?: unknown; lastFolds?: unknown; sameFolds: number };
+    };
+    const c = (g.__rows ??= { calls: 0, sameSource: 0, sameFolds: 0 });
+    c.calls += 1;
+    if (c.last === sourceRows) c.sameSource += 1;
+    if (c.lastFolds === folds) c.sameFolds += 1;
+    c.last = sourceRows;
+    c.lastFolds = folds;
+  }
   if (chatPresentation === "messages") return detailRows(childRows ?? sourceRows, "messages");
   if (childRows) {
     return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
