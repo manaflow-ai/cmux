@@ -407,7 +407,9 @@ async fn an_unprompted_chat_reads_zero_tokens_not_null() {
     let home = tempfile::tempdir().unwrap();
     // An empty Claude Code home: no chat's transcript is there.
     let mut cfg = Config::default();
-    let mut profile = cfg.harnesses.get("claude").cloned().unwrap_or_default();
+    let mut profile = cfg.harnesses.get("claude").cloned().unwrap_or_else(|| {
+        serde_json::from_value(json!({ "argv": ["claude-agent-acp"] })).unwrap()
+    });
     profile.env.insert("CLAUDE_CONFIG_DIR".into(), home.path().display().to_string());
     cfg.harnesses.insert("claude".into(), profile);
     let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
