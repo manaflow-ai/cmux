@@ -13,11 +13,8 @@ type Acks = Rc<RefCell<Vec<oneshot::Sender<bool>>>>;
 fn fake_send(
     sent: Sent,
     acks: Acks,
-) -> impl FnMut(
-    u64,
-    Vec<u8>,
-    bool,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<StdinAck<'static>>>>> {
+) -> impl FnMut(u64, Vec<u8>, bool) -> std::pin::Pin<Box<dyn Future<Output = Option<StdinAck<'static>>>>>
+{
     move |write_id, data, eof| {
         sent.borrow_mut().push((write_id, data, eof));
         let (ack, acked) = oneshot::channel();
