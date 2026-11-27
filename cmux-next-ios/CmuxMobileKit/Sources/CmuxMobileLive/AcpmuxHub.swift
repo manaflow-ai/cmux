@@ -771,6 +771,8 @@ public final class AcpmuxHub {
         toldSinceWatch.insert(session.id)
         let seq = Int(params["seq"]?.numberValue ?? 0)
         if changed {
+            // A title generated after the chat opened names it in the open chat too.
+            if let name = session.chatName { emitLocal(.update(.sessionInfo(title: name)), sessionID: session.id) }
             onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
             // The open chat's footer facts (RFD 0130), from the row acpmux decided them on.
             let facts = AgentFooterFacts(composerStatus: value["composerStatus"])
@@ -3140,6 +3142,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let detail = result["session"], let session = AcpmuxSession(detail) {
             summary.status = session.summaryStatus
             if let name = session.shownName { summary.name = name }
+            // The chat's real name (never its prompt) for the header and the composer.
+            if let name = session.chatName { emit(.update(.sessionInfo(title: name))) }
         }
         // The replay boundary is the attach reply: its page (and the session state it
         // carries) is history, applied as one change, so the chat opens on the whole

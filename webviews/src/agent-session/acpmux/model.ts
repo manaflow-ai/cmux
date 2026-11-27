@@ -720,6 +720,9 @@ export type AcpmuxRow = {
   folded?: boolean;
   /// A Worked-for row's actual open state, including a provisional key from paged history.
   foldOpen?: boolean;
+  /// A running turn's header whose fold holds nothing to open yet (turns.ts `liveFoldHidesWork`): its
+  /// first call still runs on the live line, or no step came. It draws no chevron until work lands.
+  foldEmpty?: boolean;
   /// A turn's header ("Worked for", turns.ts `turnHeaderId`) is one row from the turn's start to its
   /// end: `running` while the turn runs ("Working for 32s", its clock ticking from `at`, or held at
   /// `durationMs` once the answer came), unset once it ended.
