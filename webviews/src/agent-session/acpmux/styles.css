@@ -624,8 +624,9 @@
    their sizes, so a card growing past the dock's cap shrank the composer too, eating the quiet row's room and sliding the
    card down 6 px under a tile pasted into it (test/composer-attach-no-jump.test.ts, the narrow pane). */
 .acpmux-main[data-new-chat]>.acpmux-dock>.acpmux-home-area{flex:0 1000 auto;min-height:0;max-height:50%}
-/* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first. */
-.acpmux-main[data-new-chat]:has(>.acpmux-dock>.acpmux-home-area:not(:empty))>.acpmux-stage{min-height:128px}
+/* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first.
+   `data-home-lists` (HomeLists.gallery.tsx, homeListsShown) marks lists drawn, not a pane-level `:has()` (paneAncestorHas.test.ts). */
+.acpmux-main[data-new-chat][data-home-lists]>.acpmux-stage{min-height:128px}
 /* No lists to show: no wrapper either, so the hero centers exactly as without this feature. */
 .acpmux-home-area:empty{display:none}
 .acpmux-home-area{overflow:auto;padding:0 max(16px,calc((100% - 760px)/2)) 12px;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
