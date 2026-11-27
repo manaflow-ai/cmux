@@ -25,8 +25,11 @@ A file that reaches no web bundle (a gallery is an input too: webviews/ is a who
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import json
 import os
 import re
+import resource
 import subprocess
 import sys
 import time
@@ -150,7 +153,9 @@ def cmd_merge_live_base(root: Path, base_ref: str, pr: str) -> int:
         return 0
     head_sha = head.stdout.strip()
     old_base = git_run(root, "rev-parse", "HEAD^1").stdout.strip()
-    git_run(root, "fetch", "--no-tags", "--depth=1", "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}")
+    # Only a shallow checkout fetches shallow: a full clone must not turn shallow.
+    shallow = git_run(root, "rev-parse", "--is-shallow-repository", check=False).stdout.strip() == "true"
+    git_run(root, "fetch", "--no-tags", *(["--depth=1"] if shallow else []), "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}")
     tip = git_run(root, "rev-parse", f"refs/remotes/origin/{base_ref}").stdout.strip()
     if tip == old_base:
         print(f"merge-live-base: the merge commit's base {tip[:12]} is the live tip", file=sys.stderr)
@@ -158,7 +163,7 @@ def cmd_merge_live_base(root: Path, base_ref: str, pr: str) -> int:
     git_run(root, "checkout", "-q", "--detach", tip)
     merged = None
     for depth in DEPTHS:
-        git_run(root, "fetch", "--no-tags", f"--depth={depth}", "origin", tip, f"+refs/pull/{pr}/head:refs/remotes/pull/{pr}/head")
+        git_run(root, "fetch", "--no-tags", *([f"--depth={depth}"] if shallow else []), "origin", tip, f"+refs/pull/{pr}/head:refs/remotes/pull/{pr}/head")
         merged = git_run(root, "-c", "user.name=cmux-ci", "-c", "user.email=ci@cmux.invalid", "merge", "--no-ff",
                          "--no-edit", "-m", f"Merge {head_sha} into {tip}", head_sha, check=False)
         if merged.returncode == 0 or "unrelated histories" not in (merged.stderr + merged.stdout):
@@ -172,7 +177,11 @@ def cmd_merge_live_base(root: Path, base_ref: str, pr: str) -> int:
 
 
 def cmd_web_build(root: Path, out: str) -> int:
+    source = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                            capture_output=True, text=True)
+    source_sha = source.stdout.strip() if source.returncode == 0 else None
     started = time.monotonic()
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     proc = subprocess.Popen(["bash", str(root / BUILD_SCRIPT), "--out-root", out], cwd=root,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
     log = []
@@ -181,6 +190,17 @@ def cmd_web_build(root: Path, out: str) -> int:
         log.append(line)
     code = proc.wait()
     took = time.monotonic() - started
+    after = resource.getrusage(resource.RUSAGE_CHILDREN)
+    print("CMUX_WEB_BUILD " + json.dumps({
+        "run_id": os.environ.get("GITHUB_RUN_ID"),
+        "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+        "source_sha": source_sha,
+        "event_sha": os.environ.get("GITHUB_SHA"),
+        "source_key": os.environ.get("CMUX_WEB_SOURCE_KEY"),
+        "job": os.environ.get("GITHUB_JOB"),
+        "builds": 1, "exit_code": code, "wall_seconds": round(took, 3),
+        "cpu_seconds": round(after.ru_utime + after.ru_stime - usage.ru_utime - usage.ru_stime, 3),
+    }, sort_keys=True))
     if code == 0:
         print(f"compile preflight: the web bundles built in {took:.0f} s")
         return 0
@@ -192,6 +212,27 @@ def cmd_web_build(root: Path, out: str) -> int:
     return code or 1
 
 
+def artifact_manifest(directory: Path, key: str) -> dict:
+    """Bind the source/toolchain key to every transported output, not a runner-local stamp."""
+    return {"source_key": key, "files": {
+        path.relative_to(directory).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(directory.rglob("*"))
+        if path.is_file() and path.name != "cmux-web-artifact.json"
+    }}
+
+
+def cmd_artifact(mode: str, directory: Path, key: str) -> int:
+    manifest = directory / "cmux-web-artifact.json"
+    current = artifact_manifest(directory, key)
+    if not current["files"]:
+        raise ValueError("web artifact has no outputs")
+    if mode == "write":
+        manifest.write_text(json.dumps(current, sort_keys=True) + "\n")
+    elif json.loads(manifest.read_text()) != current:
+        raise ValueError("web artifact source key or output digest mismatch")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 5 and argv[1] == "web-touched":
         return cmd_web_touched(Path(argv[2]).resolve(), argv[3], argv[4])
@@ -201,6 +242,8 @@ def main(argv: list[str]) -> int:
         return cmd_merge_live_base(Path(argv[2]).resolve(), argv[3], argv[4])
     if len(argv) == 4 and argv[1] == "web-build":
         return cmd_web_build(Path(argv[2]).resolve(), argv[3])
+    if len(argv) == 5 and argv[1] == "web-artifact" and argv[2] in {"write", "verify"}:
+        return cmd_artifact(argv[2], Path(argv[3]).resolve(), argv[4])
     print(__doc__.strip(), file=sys.stderr)
     return 2
 
