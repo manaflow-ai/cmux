@@ -4024,11 +4024,13 @@ dependencies = [
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
+ "cmux-cas",
  "cmux-file-lock",
  "cmux-git",
  "libc",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
