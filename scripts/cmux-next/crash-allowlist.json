@@ -573,13 +573,6 @@
    "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
   },
   {
-   "path": "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/CheckedAccess.swift",
-   "class": "swift.index_subscript",
-   "count": 2,
-   "reason": "The checked accessors themselves: subscript(checked:) and modify(checked:) read or write self[index] only after startIndex <= index < endIndex on the line above.",
-   "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
-  },
-  {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/CheckedAccess.swift",
    "class": "swift.index_subscript",
    "count": 2,

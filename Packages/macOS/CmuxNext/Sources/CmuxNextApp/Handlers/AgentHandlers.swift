@@ -83,6 +83,7 @@ enum AgentHandlers {
                              }
                              return context.services.pages.storeKey(of: id) ?? id
                          }, open: { record, invocation, byPerson in
+                             if let parked = context.parkedPane(invocation) { return context.services.macScreenTabs.open(try record(), parkedIn: parked, byPerson: byPerson) }
                              let pane: PaneController?
                              if let target = context.explicitTarget(invocation, kinds: [.tab]), LocalPageTab.page(of: target.id) != nil {
                                  pane = context.paneController(invocation)
@@ -110,6 +111,9 @@ enum AgentHandlers {
                 context.services.quickComposer.toggle()
             })
         }
+        // Capture Screenshot to Chat: its key, the palette, and the same key from any app while
+        // `app.captureScreenshotGlobalHotKey` is on, into the chat route from other apps.
+        context.services.externalOpen.captureToChat.bind(into: registry)
         // A chat tab's Move to Floating Chat (cx-b9qi): the same panel holds its session.
         context.services.agentTabs.moveToFloatingChat = { [weak services = context.services] in services?.quickComposer.moveToFloatingChat(session: $0) ?? false }
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the

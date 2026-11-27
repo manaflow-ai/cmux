@@ -100,7 +100,39 @@ type Props = {
   loadingLook?: NoteLoadingLook;
   /** The card's glass with no words: what the sidebar drew while the card's page loaded, before. */
   blankGlass?: boolean;
+  /** The popover's "What's in this build" held open. */
+  pullRequestsOpen?: boolean;
 };
+
+/** A three-nightly span's pull requests as the host sends them (BuildPullRequests): by area, Other
+ *  last, the internal ones counted. */
+const spanPullRequests: NonNullable<UpdateHighlights["pullRequests"]> = {
+  groups: [
+    {
+      area: "Mac app",
+      items: [
+        { pr: 57474, title: "Model picker: every listed model runs", author: "lawrencecchen", build: "3845050428001" },
+        { pr: 57441, title: "Sidebar rows keep their order on restart", author: "austinywang", build: "3845050428001" },
+        { pr: 57390, title: "Undo a tab close from a toast", author: "lawrencecchen", build: "3844120157501" },
+      ],
+    },
+    {
+      area: "iOS",
+      items: [
+        { pr: 57319, title: "Plain scroll on the phone's terminal", author: "austinywang", build: "3844120157501" },
+      ],
+    },
+    {
+      area: null,
+      items: [{ pr: 57212, title: "Faster changelog page open", author: "leo", build: "3843002998801" }],
+    },
+  ].map((group) => ({
+    ...group,
+    items: group.items.map((item) => ({ ...item, url: `https://github.com/manaflow-ai/cmux/pull/${item.pr}` })),
+  })),
+  internalCount: 4,
+};
+const withPullRequests: UpdateHighlights = { ...base, pullRequests: spanPullRequests };
 
 /** Leo's card of 2026-11-09: "Updated to Nightly", then "Fixed: lock horizontal scroll". */
 const leoFirstPaint: UpdateHighlights = {
@@ -478,6 +510,7 @@ function UpdateSurfacesGallery({
   notesLoading,
   loadingLook,
   blankGlass = false,
+  pullRequestsOpen = false,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -581,6 +614,7 @@ function UpdateSurfacesGallery({
             actions={{ openChangelog: noop }}
             briefLayout={briefLayout}
             layout={layout}
+            pullRequestsOpen={pullRequestsOpen}
           />
         </div>
       )}
@@ -1011,6 +1045,26 @@ export default componentEntry<Props>({
         surface: "popover",
         data: { ...base, source: "none", items: [], moreCount: 0 },
         briefLayout: "title-row",
+      },
+    },
+    "popover-prs-closed": {
+      note: "Leo 2026-11-26: \"hm do we display which prs go into which nightly maybe that'd be useful per thing?\" Shipped: one closed line, What's in this build · N, under the changes; nothing else changes.",
+      props: { surface: "popover", data: withPullRequests },
+    },
+    "popover-prs-open": {
+      note: "Opened: the PRs merged after the installed build through the staged one, by area (Other last), each its linked title and #number, then its author; CI and tooling PRs counted under them.",
+      props: { surface: "popover", data: withPullRequests, pullRequestsOpen: true, maxHeight: 520 },
+    },
+    "popover-prs-open-dark": {
+      note: "Opened, in a dark theme.",
+      props: { surface: "popover", data: withPullRequests, pullRequestsOpen: true, theme: "dark", maxHeight: 520 },
+    },
+    "popover-prs-brief": {
+      note: "A build with no highlights: the PR list sits under See release notes.",
+      props: {
+        surface: "popover",
+        data: { ...withPullRequests, source: "none", items: [], moreCount: 0 },
+        pullRequestsOpen: true,
       },
     },
     "popover-empty-same-version": {

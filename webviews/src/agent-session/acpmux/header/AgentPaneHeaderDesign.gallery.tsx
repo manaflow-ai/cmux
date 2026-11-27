@@ -5,6 +5,7 @@
 // menus beside a browser pane before changing that default.
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
+import { KeyHint } from "../../../ui/KeyHint";
 import { Icon } from "../icons/Icon";
 
 type MenuRow = readonly [icon: string, label: string, submenu?: boolean];
@@ -60,7 +61,7 @@ function MenuSurface({ kind }: { kind: "title" | "pane" | "developer" }) {
             </span>
           )}
           {kind === "pane" && label === "Developer" && <MenuSurface kind="developer" />}
-          {index === 1 && kind === "title" && <span className="agent-pane-design-shortcut">⌘R</span>}
+          {index === 1 && kind === "title" && <KeyHint keys="⌘R" className="agent-pane-design-shortcut" />}
         </div>
       ))}
     </div>

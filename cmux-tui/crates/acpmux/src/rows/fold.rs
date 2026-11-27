@@ -156,6 +156,7 @@ const NOTICE_KINDS: &[&str] = &[
     "forked",
     "fork_start_failed",
     "host_notice",
+    "moved",
     // A model name read as its catalog id, or a turn retried under it (`hub/model_alias.rs`).
     "model_rewrite",
     "model_reroute",

@@ -16,13 +16,21 @@ export type ShareDemoProps = {
   open?: boolean;
   /** Show the copied-link toast. */
   toast?: "public" | "invite";
+  /** The chat's title (default: a short one). */
+  chat?: string;
+  /** The host refuses every read with this code (the error line on open). */
+  fail?: string;
   /** A look the gallery compares with the shipped sheet (Share.gallery.css); none is the shipped one. */
   look?: "two-primaries" | "popover" | "outline" | "row-hover" | "row-filled" | "row-bleed";
+  /** The daemon does not answer the dialog's read: it reads again on its own and says Still reading. */
+  unread?: boolean;
 };
 
-function fixtureHost(shares: ChatShare[]): ShareCall {
+function fixtureHost(shares: ChatShare[], fail?: string, unread = false): ShareCall {
   let next = shares.map((share) => ({ ...share }));
   return async (op, params = {}) => {
+    if (fail) throw Object.assign(new Error(fail), { code: fail });
+    if (op === "state" && unread) throw new Error("share: 503 Service Unavailable");
     if (op === "state") return { shares: next };
     if (op === "link") {
       const made: ChatShare = { ...LINK, shareId: `demo-${next.length}`, createdAt: Date.now() };
@@ -47,8 +55,17 @@ const LINK: ChatShare = {
   invitees: [],
 };
 
-export function ShareDemo({ viewing, shares, open = false, toast, look }: ShareDemoProps) {
-  const [call] = useState(() => fixtureHost(shares));
+export function ShareDemo({
+  viewing,
+  shares,
+  open = false,
+  toast,
+  fail,
+  unread,
+  look,
+  chat = "Add retries to the uploader",
+}: ShareDemoProps) {
+  const [call] = useState(() => fixtureHost(shares, fail, unread));
   const [shown, setShown] = useState(open);
   // The dialog portals out of this tree, so the look is on the root.
   useEffect(() => {
@@ -75,12 +92,14 @@ export function ShareDemo({ viewing, shares, open = false, toast, look }: ShareD
   return (
     <div className="acpmux-root" style={{ padding: 16, minHeight: 520 }}>
       <header className="acpmux-header">
-        <strong style={{ flex: 1 }}>Add retries to the uploader</strong>
+        <strong style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {chat}
+        </strong>
         <div className="acpmux-handoff-header-tools">
           <PresenceStack viewing={viewing} />
           <ShareDialogHost
             sessionId="demo"
-            chat="Add retries to the uploader"
+            chat={chat}
             open={shown}
             onOpenChange={setShown}
             call={call}

@@ -3,9 +3,6 @@
 // owner's echo confirms it, so nothing jumps back; changes made elsewhere (the CLI, an agent) arrive
 // as owner events and never move the selection or the scroll (the origin rule).
 import {
-  createContext,
-  memo,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -13,6 +10,9 @@ import {
   useSyncExternalStore,
   type CSSProperties,
   type DragEvent,
+  createContext,
+  memo,
+  useContext,
   type ReactNode,
 } from "react";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
@@ -29,22 +29,22 @@ import {
   assigneeChoices,
   firstInboxTask,
   inboxGroups,
-  intentTask,
   isCurrentChoice,
   sessionFor,
-  sessionsByTask,
   shortName,
   stableId,
   statusGroups,
   type AssigneeChoice,
   type InboxGroupId,
-  type Intent,
   type IntentKind,
   type Mirror,
+  intentTask,
+  sessionsByTask,
+  type Intent,
 } from "./model";
 import { AssigneeBadge, AttentionDot, LabelChips, LabelDots, PriorityMark, Progress, StatusMark, ansi } from "./Glyphs";
 import type { TasksStore, TasksSnapshot } from "./store";
-import type { Label, Layout, Principal, Session, Status, Task } from "./types";
+import type { Label, Layout, Session, Status, Task, Principal } from "./types";
 
 /** The command that starts the local owner (shown when none answers). */
 export const SERVE_COMMAND = "cmux task serve";
@@ -136,7 +136,7 @@ function OwnerNotRunning({ strings, copy }: { strings: Strings; copy?: (text: st
 }
 
 /** Return sends `create`; the field clears once the owner has the task, so a create whose outcome
- * is unknown (the link broke, the call timed out) keeps its text, with Retry (the same key) and
+ * is unknown (the link broke, the call timed out) keeps its text, with Retry (the same key; retry-prompt-ok: a write) and
  * Discard. Escape clears it (and gives up an unsent create). It takes focus only on a click or a
  * user-run New Task (`request` changes). */
 function NewTaskField({ store, strings, request }: { store: TasksStore; strings: Strings; request: number }) {
@@ -195,7 +195,8 @@ function NewTaskField({ store, strings, request }: { store: TasksStore; strings:
   );
 }
 
-/** "Not sent" with Retry and Discard: a change whose outcome is unknown, never resent on its own. */
+/** "Not sent" with Retry and Discard: a change whose outcome is unknown, never resent on its own.
+ * retry-prompt-ok: a resend writes the person's change (it may already have landed), so it is theirs. */
 function UnsentActions({
   strings,
   onRetry,
@@ -208,6 +209,7 @@ function UnsentActions({
   return (
     <span className="tasks-unsent">
       <span className="tasks-unsent-label">{strings.t("change.unsent")}</span>
+      {/* retry-prompt-ok: resends the person's task change */}
       <button type="button" className="tasks-link-button" onClick={onRetry}>
         {strings.t("change.retry")}
       </button>
@@ -259,6 +261,7 @@ export function UnsentStrip({ store, state, strings }: LayoutProps) {
               {key ? <span className="tasks-key">{key}</span> : null}
               <span className="tasks-unsent-action">{action}</span>
               <span className="tasks-spacer" />
+              {/* retry-prompt-ok: resends the person's task change */}
               <button type="button" className="tasks-link-button" onClick={() => store.retry(intent.key)}>
                 {strings.t("change.retry")}
               </button>
@@ -296,6 +299,22 @@ function labelsOf(labels: ReadonlyMap<string, Label>, task: Task): Label[] {
     const label = labels.get(id);
     return label ? [label] : [];
   });
+}
+
+const NO_LABELS: readonly Label[] = Object.freeze([]);
+const rowLabels = new WeakMap<Task, readonly Label[]>();
+
+/** A row's labels: the same array while the task and each of its label objects hold. A label event
+ * replaces the label map but keeps the objects of the labels it did not change, so a row (a memo
+ * boundary) redraws only when a label it wears changes, not on every label event. Costs the row's
+ * own few labels; the cache is keyed by the task object and lets go of it with the task. */
+function labelsFor(labels: ReadonlyMap<string, Label>, task: Task): readonly Label[] {
+  const next = labelsOf(labels, task);
+  if (!next.length) return NO_LABELS;
+  const kept = rowLabels.get(task);
+  if (kept && kept.length === next.length && kept.every((label, index) => label === next[index])) return kept;
+  rowLabels.set(task, next);
+  return next;
 }
 
 /** The workflow's few statuses, not the tasks. */
@@ -379,7 +398,6 @@ function useAssigneeEntries(mirror: Mirror, tasks: readonly Task[], strings: Str
 interface RowShared {
   store: TasksStore;
   strings: Strings;
-  labels: ReadonlyMap<string, Label>;
 }
 
 /** What every task's right-click menu lists: all statuses and assignees. It reaches the menus
@@ -431,12 +449,14 @@ function useRows({ store, state, strings }: LayoutProps): {
   const menu = useMemo(() => ({ store, statuses, entries, me }), [store, statuses, entries, me]);
   // A status event keeps the objects of the statuses it did not change: a row's own one holds.
   const statusById = useMemo(() => new Map(statuses.map((status) => [status.id, status])), [statuses]);
-  const shared: RowShared = { store, strings, labels: state.mirror.labels };
+  const shared: RowShared = { store, strings };
   return { shared, marks, menu, statusById };
 }
 
 interface TaskRowProps extends RowShared {
   task: Task;
+  /** The task's labels (`labelsFor`). */
+  labels: readonly Label[];
   /** The task's status, when the row shows it. */
   status?: Status;
   selected: boolean;
@@ -478,7 +498,7 @@ const TaskRow = memo(function TaskRow({
           <span className="tasks-title">{task.title}</span>
           <AttentionDot attention={task.attention} strings={strings} />
           <span className="tasks-spacer" />
-          <LabelDots labels={labelsOf(labels, task)} />
+          <LabelDots labels={labels} />
           <AssigneeBadge assignee={task.assignee} delegate={task.delegate} strings={strings} />
         </button>
       </TaskMenu>
@@ -538,6 +558,7 @@ function ListLayout({ store, state, strings }: LayoutProps) {
               key={row.task.id}
               {...shared}
               task={row.task}
+              labels={labelsFor(state.mirror.labels, row.task)}
               selected={state.selection === row.task.id}
               pending={marks.pending.has(row.task.id)}
               unsent={marks.unsent.get(row.task.id)}
@@ -619,6 +640,7 @@ function InboxLayout({ store, state, strings }: LayoutProps) {
                 key={row.task.id}
                 {...shared}
                 task={row.task}
+                labels={labelsFor(state.mirror.labels, row.task)}
                 selected={state.selection === row.task.id}
                 pending={marks.pending.has(row.task.id)}
                 unsent={marks.unsent.get(row.task.id)}
@@ -819,6 +841,7 @@ function BoardLayout({ store, state, strings }: LayoutProps) {
                     key={task.id}
                     {...shared}
                     task={task}
+                    labels={labelsFor(state.mirror.labels, task)}
                     session={sessions.get(task.id)}
                     selected={state.selection === task.id}
                     pending={marks.pending.has(task.id)}
@@ -839,6 +862,8 @@ function BoardLayout({ store, state, strings }: LayoutProps) {
 
 interface BoardCardProps extends RowShared {
   task: Task;
+  /** The task's labels (`labelsFor`). */
+  labels: readonly Label[];
   session: Session | undefined;
   selected: boolean;
   pending: boolean;
@@ -895,7 +920,7 @@ const BoardCard = memo(function BoardCard({
           ) : null}
           <span className="tasks-card-foot">
             <PriorityMark priority={task.priority} />
-            <LabelChips labels={labelsOf(labels, task)} />
+            <LabelChips labels={labels} />
           </span>
         </button>
       </TaskMenu>

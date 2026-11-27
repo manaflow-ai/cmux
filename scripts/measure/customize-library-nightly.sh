@@ -166,7 +166,7 @@ else step off fail "exit $code, web-dev.json back to base: $same; $(tail -c 1500
 status_json >"$out/status-after-off.json"
 
 failed=0
-printf '%s\n' "${results[@]}" >"$out/steps.jsonl"
+printf '%s\n' ${results[@]+"${results[@]}"} >"$out/steps.jsonl"
 grep -q '"outcome": "fail"' "$out/steps.jsonl" && failed=1
 echo "CLW_RESULT $(python3 -c 'import json,sys; print(json.dumps({"dmg": sys.argv[1], "pr": sys.argv[2], "abi": sys.argv[3], "steps": [json.loads(l) for l in open(sys.argv[4])]}))' "$dmg" "${pr:-}" "${abi:-}" "$out/steps.jsonl")"
 tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . 2>/dev/null || true

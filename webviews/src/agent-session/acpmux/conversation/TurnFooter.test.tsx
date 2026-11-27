@@ -40,7 +40,7 @@ test("a turn under a second says no Worked for", () => {
   }
 });
 
-test("a 5 s turn draws no Worked for and no time in its footer row, never in front of the buttons", () => {
+test("a 5 s turn draws no Worked for in its footer row and its age only after the buttons", () => {
   // Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
   // should always just be there left aligned". Lawrence, 2026-11-11 standup: "when I hover, the time
   // shows up on the right, which I don't think is good".
@@ -53,26 +53,27 @@ test("a 5 s turn draws no Worked for and no time in its footer row, never in fro
   const markup = renderToStaticMarkup(<TurnFooter row={row} />);
   expect(markup).not.toContain("cv-turn-summary");
   expect(markup).toMatch(/<span class="cv-message-footer-row cv-turn-footer-row"><span class="cv-turn-action-group">/);
-  // No time at the row's end, so no tooltip with Worked for and the token rows.
-  expect(markup).not.toContain("cv-turn-time");
+  // Its age at the row's end, shown on hover (Leo, 2026-11-22, over Lawrence's 2026-11-11 no-time footer: "you hover and you get the timing"), with no tooltip of Worked for and the token rows.
+  expect(markup.indexOf("cv-turn-time")).toBeGreaterThan(markup.indexOf("cv-turn-action-group"));
   expect(markup).not.toContain("data-tooltip-detail");
   expect(markup).not.toContain("Worked for");
 });
 
 // Leo, 2026-11-02, on "Worked for" drawn in front of Copy: "this should not be placed in front of
 // the copy/whatever buttons. those buttons should always just be there left aligned". The time and
-// its Worked for tooltip are gone (Lawrence and Lucas, 2026-11-11 standup: no time on hover).
-test("the buttons lead the footer row, with no time or Worked for after them", () => {
+// its Worked for tooltip went (Lawrence and Lucas, 2026-11-11 standup); the age came back after the
+// buttons, shown on hover (Leo, 2026-11-22, over Lawrence's 2026-11-11 no-time footer: "you hover and you get the timing").
+test("the buttons lead the footer row, then its age, with no Worked for", () => {
   const markup = renderToStaticMarkup(<TurnFooter row={footer({ durationMs: 5_000, text: "Done." })} />);
   const group = markup.indexOf("cv-turn-action-group");
   expect(group).toBeGreaterThan(-1);
   expect(markup.indexOf("Copy")).toBeGreaterThan(group);
-  expect(markup).not.toContain("cv-turn-time");
+  expect(markup.indexOf("cv-turn-time")).toBeGreaterThan(markup.indexOf("Copy"));
   expect(markup).not.toContain("Worked for");
 });
 
 test("a turn stopped within a second still says it stopped", () => {
-  expect(footerLabel(t, footer({ durationMs: 400, status: "cancelled" }))).toBe("You stopped after 0s");
+  expect(footerLabel(t, footer({ durationMs: 400, status: "cancelled" }))).toBe("You stopped after <1s");
 });
 
 test("a turn whose work folds under Worked for says nothing in its footer", () => {

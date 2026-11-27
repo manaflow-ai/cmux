@@ -10,10 +10,13 @@ usage() {
 Usage:
   ./scripts/verify-cmux-tui-hosted.sh --filter <rust-test-name>
   ./scripts/verify-cmux-tui-hosted.sh --filter chatmux_relay
+  ./scripts/verify-cmux-tui-hosted.sh --filter windows
   ./scripts/verify-cmux-tui-hosted.sh --full
   ./scripts/verify-cmux-tui-hosted.sh [--cancel-on-timeout] --filter <name> | --full
 
 --filter runs matching Rust tests on hosted Linux and macOS.
+The reserved `windows` filter runs the Windows Rust tests alone, on the Windows
+runner, with no macOS or Linux test job (a Windows change before it merges).
 The reserved `chatmux_relay` filter runs the complete `chatmux-relay` package;
 Cargo test names do not include their package name, so a plain test-name filter
 cannot select that crate.

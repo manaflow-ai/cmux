@@ -212,6 +212,11 @@ export const PAGES = {
       },
       // Settings > Integrations > Connections: the shared connect card and All connections.
       { file: "webviews/src/pages/shared/connect/Localizable.xcstrings" },
+      {
+        // Settings > Accounts' GitHub CLI fallback, for hosts that predate the localized state fields.
+        file: `${sources}/CmuxNextAccounts/Resources/GitHubConnection.xcstrings`,
+        keys: (all) => all.filter((key) => ["github.cliSignIn", "github.cliSignInDetail"].includes(key)),
+      },
     ],
   },
   history: {
@@ -356,17 +361,6 @@ export const PAGES = {
       },
     ],
   },
-  // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
-  // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
-  machines: {
-    out: "webviews/src/pages/machines/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("machines.") || key.startsWith("addMachine.step.")),
-      },
-    ],
-  },
   // The Artifacts page (cmux-page://cmux.artifacts/); its table lives next to it.
   artifacts: {
     out: "webviews/src/pages/artifacts/generated/strings.json",
@@ -415,11 +409,6 @@ export const PAGES = {
   "chief-views": {
     out: "webviews/src/pages/chief-views/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/chief-views/Localizable.xcstrings" }],
-  },
-  // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
-  coderouter: {
-    out: "webviews/src/pages/coderouter/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
   },
   // The channels Home (cmux-page://cmux.home-channels/) has no Swift page; its table lives next to it.
   "home-channels": {

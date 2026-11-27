@@ -1,6 +1,6 @@
 // A failed subagent's line is quiet, on one fixed column grid (design/chat-transcript.md, Leo,
 // 2026-11-03: "this ui is pretty awkward looking"): mark | title | short reason | Retry | time, the
-// title in plain text, no chip; its reason right after the title in red, and a red dot on the mark (cmux#54927).
+// title in plain text, no chip; its reason right after the title in red, and the failure's glyph badged on the mark (cmux#54927).
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -122,7 +122,7 @@ test("failed lines take the quiet grid: plain title, reason in red, Retry and ti
 // cmux#54927: the reason split the line's room evenly with the title and floated alone at its
 // middle, and the mark's red never showed on the agent's own glyph. The reason now follows its
 // title in red, and the mark carries a red dot.
-test("the grid's columns are fixed, Retry takes none; the reason follows its title in red, the mark a red dot", () => {
+test("the grid's columns are fixed, Retry takes none; the reason follows its title in red, the mark a failure badge", () => {
   // Words | time | chevron: no track is kept for a Retry or ⋯ that shows only under the pointer, and
   // a refusal's note joins the time's trail only while it shows.
   expect(css).toMatch(
@@ -136,9 +136,9 @@ test("the grid's columns are fixed, Retry takes none; the reason follows its tit
   // No even split: the reason starts right after the title.
   expect(css).not.toMatch(/\.cv-subagent-failed__text \{[^}]*grid-template-columns/);
   expect(css).toMatch(/\.cv-subagent-failed__reason \{[^}]*color: var\(--agent-status-failure\)/);
-  expect(css).toMatch(
-    /> \.cv-subagent-done\[data-state="failed"\] \.cv-tool__icon::after \{[^}]*background: var\(--agent-status-failure\)/,
-  );
+  // The failure is its own glyph badged on the mark, never a bare red dot (Leo, 2026-11-25: "dot on left weird").
+  expect(css).not.toMatch(/\.cv-tool__icon::after/);
+  expect(css).toMatch(/\.cv-subagent-done__failed-mark \{[^}]*color: var\(--agent-status-failure\)/);
   expect(css).toMatch(
     /:is\(\[data-look="grid"\], \[data-look="quiet"\]\) > \.cv-subagent-done\[data-state="failed"\] \{\s*color: var\(--cv-activity-text\)/,
   );

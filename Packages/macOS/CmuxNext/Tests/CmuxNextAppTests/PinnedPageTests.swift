@@ -289,6 +289,8 @@ struct PinnedPageTests {
         // Registered before restore can suspend or fail, including before the test body starts.
         defer {
             for controller in services.windows.controllers { controller.window?.close() }
+            // A tool window a test (or the launch) showed: no test leaves it open (WindowLeakCheck).
+            services.onboarding.controller?.window?.close()
             for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
             let panels = NSApp.windows.filter { services.palette.owns($0) }
             services.palette.hide()

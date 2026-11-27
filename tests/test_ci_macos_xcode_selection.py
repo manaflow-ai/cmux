@@ -398,6 +398,14 @@ def check_detects_regressions() -> list[str]:
             ) + "  swift-check:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n",
             ["before scripts/select-ci-xcode.sh runs"],
         ),
+        "a comment naming swift is not the toolchain": (
+            base.replace(
+                "      - name: Select Xcode\n",
+                "      - name: Checkout\n        uses: actions/checkout@v6\n        with:\n"
+                "          # Why: 2026-11-24-swift-test-1.md\n          fetch-depth: 2\n      - name: Select Xcode\n",
+            ),
+            [],
+        ),
         "selector through a step alias": (
             base.replace("      - name: Select Xcode\n", "      - &select-xcode\n        name: Select Xcode\n")
             + "  twin:\n    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}\n    steps:\n"

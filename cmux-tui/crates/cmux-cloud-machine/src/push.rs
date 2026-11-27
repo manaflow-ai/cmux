@@ -1,7 +1,7 @@
 //! The pushed state of the Cloud machines the app shows (Leo, 2026-11-05: "yes" to a
 //! per-machine state object so the app stops polling): one WebSocket per machine,
 //! `GET /v1/cloud/machines/{id}/state` on the platform Worker (cmux-platform `MachineState`,
-//! protocol `cmux.machine-state/1`). The app's `CloudMachineStatePush` holds the sockets; what a
+//! protocol `cmux.machine-state/1`). The daemon holds the sockets (server/machine_state_push.rs); what a
 //! frame means, which machines get a socket and how long a closed one waits are here.
 
 use serde::Serialize;

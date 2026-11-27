@@ -202,6 +202,11 @@ test("the route itself answers the provider's redirect: the 302 for an app's con
   expect(handoff.status).toBe(302)
   expect(handoff.headers.get("Location")!.startsWith("cmux-nightly://integration/complete?state=")).toBe(true)
   expect(rendered).toBe(0)
+  // cmux NEXT (cmux-next://) is handed back the same way, never left on the console's sign-in page.
+  const nextApp = (await get({ request: new Request(`${base}?state=${token({ ret: "cmux-next://integration/complete" })}&code=abc&installation_id=7&setup_action=install`), next })) as Response
+  expect(nextApp.status).toBe(302)
+  expect(nextApp.headers.get("Location")!.startsWith("cmux-next://integration/complete?state=")).toBe(true)
+  expect(rendered).toBe(0)
   expect(await get({ request: new Request(`${base}?state=${token({ team: "team_0123456789abcdef0123" })}&code=abc`), next })).toBe(page)
   expect(rendered).toBe(1)
 })

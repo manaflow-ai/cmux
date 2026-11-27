@@ -203,6 +203,11 @@ pub(crate) fn dispatch(
     if operation == "git.files.list" {
         // A folder in no repository still lists, from the disk: git only adds to a file tree.
         return match Repository::open(&directory) {
+            // The home folder's repository holds every folder of the home
+            // folder: its listing would walk all of them (`cmux_git::home`).
+            Ok(repository) if !repository.lists_untracked() => {
+                list::list_folder(&directory, &request.fields)
+            }
             Ok(repository) => list::list(&repository, &directory, &request.fields),
             Err(OpenError::NotARepository) => list::list_folder(&directory, &request.fields),
             Err(error) => Err(open_failed(operation, &directory, error)),
