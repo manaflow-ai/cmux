@@ -4134,12 +4134,6 @@
       "title" : "Developer Tools for cmux Pages",
       "type" : "boolean"
     },
-    "developerTools.overloadNotice" : {
-      "default" : false,
-      "description" : "Shows a banner above the composer when this Mac's load or swap is too high.",
-      "title" : "Overload Warning in Chats",
-      "type" : "boolean"
-    },
     "deviceHub.url" : {
       "default" : "",
       "description" : "The device hub for Mac Screen sharing. Empty uses the built-in one.",

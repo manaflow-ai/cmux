@@ -43,7 +43,6 @@ const READS = new Set([
   "git.diff",
   "git.checkpoint.diff",
   "_acpmux/status",
-  "_acpmux/host_overload",
   "_acpmux/info",
   "_acpmux/stats",
   "_acpmux/sessions",
