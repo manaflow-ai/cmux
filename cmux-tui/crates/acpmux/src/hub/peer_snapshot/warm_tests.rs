@@ -32,7 +32,7 @@ fn a_round_reads_the_peers_open_chats_that_changed_last() {
         row("newer", 6, 2_000),
     ];
     let (asks, planned, later) =
-        plan(PEER, false, &rows, &Covers::default(), &HashMap::new(), (NOW_MS, now));
+        plan(PEER, false, false, &rows, &Covers::default(), &HashMap::new(), (NOW_MS, now));
     // At most WARM_PER_PEER (2 in tests), newest change first; never a closed, stale, empty or
     // day-old one.
     assert_eq!(muxes(&asks), ["newest", "newer"]);
@@ -59,18 +59,19 @@ fn a_kept_peers_every_chat_is_read_a_capped_round_at_a_time() {
     let now = Instant::now();
     let rows: Vec<Value> = (0..5).map(|i| row(&format!("c{i}"), 3, 1_000 * i)).collect();
     let (asks, planned, later) =
-        plan(PEER, true, &rows, &Covers::default(), &HashMap::new(), (NOW_MS, now));
+        plan(PEER, true, false, &rows, &Covers::default(), &HashMap::new(), (NOW_MS, now));
     assert_eq!(muxes(&asks), ["c0", "c1"], "WARM_PER_PEER (2 in tests) reads, newest change first");
     assert_eq!(planned.len(), 5, "every open chat is planned");
     assert_eq!(later, Some(now + WARM_SETTLE), "the rest are read in the next round");
 
     let covers =
         Covers::kept(["c0", "c1"].iter().map(|m| ((*m).to_owned(), (Some(42), 3))).collect());
-    let (asks, ..) = plan(PEER, true, &rows, &covers, &HashMap::new(), (NOW_MS, now));
+    let (asks, ..) = plan(PEER, true, false, &rows, &covers, &HashMap::new(), (NOW_MS, now));
     assert_eq!(muxes(&asks), ["c2", "c3"], "a covered chat takes no read of the cap");
 
     // A peer kept only because a client here opened a peer chat: its newest chats alone.
-    let (asks, planned, later) = plan(PEER, false, &rows, &covers, &HashMap::new(), (NOW_MS, now));
+    let (asks, planned, later) =
+        plan(PEER, false, false, &rows, &covers, &HashMap::new(), (NOW_MS, now));
     assert!(asks.is_empty());
     assert_eq!(planned.len(), 2);
     assert_eq!(later, None);
@@ -82,7 +83,7 @@ fn a_copy_is_read_past_what_it_covers_or_replaced_when_too_far_behind_or_of_anot
     let rows = [row("a", 500, 0), row("b", 900, 1)];
     let caught_up = Covers::kept(HashMap::from([("a".to_owned(), (Some(42), 500))]));
     let (asks, planned, _) =
-        plan(PEER, false, &rows[..1], &caught_up, &HashMap::new(), (NOW_MS, now));
+        plan(PEER, false, false, &rows[..1], &caught_up, &HashMap::new(), (NOW_MS, now));
     assert!(asks.is_empty(), "a copy that covers the row's last seq is not read again");
     assert!(planned.contains("a"));
 
@@ -90,7 +91,7 @@ fn a_copy_is_read_past_what_it_covers_or_replaced_when_too_far_behind_or_of_anot
         ("a".to_owned(), (Some(42), 450)),
         ("b".to_owned(), (Some(42), 100)),
     ]));
-    let (asks, ..) = plan(PEER, false, &rows, &covers, &HashMap::new(), (NOW_MS, now));
+    let (asks, ..) = plan(PEER, false, false, &rows, &covers, &HashMap::new(), (NOW_MS, now));
     assert_eq!(muxes(&asks), ["a", "b"]);
     assert_eq!(asks[0].params["afterSeq"], json!(450), "within a page: only what is new");
     assert!(asks[0].params.get("beforeSeq").is_none());
@@ -99,12 +100,13 @@ fn a_copy_is_read_past_what_it_covers_or_replaced_when_too_far_behind_or_of_anot
     // Review of #28626 at 112a7bf: a copy past the row (a peer back on an older disk with the same
     // session) is read again from the newest page, which replaces it.
     let ahead = Covers::kept(HashMap::from([("a".to_owned(), (Some(42), 520))]));
-    let (asks, ..) = plan(PEER, false, &rows[..1], &ahead, &HashMap::new(), (NOW_MS, now));
+    let (asks, ..) = plan(PEER, false, false, &rows[..1], &ahead, &HashMap::new(), (NOW_MS, now));
     assert_eq!(asks[0].params["beforeSeq"], json!(NEWEST));
     assert!(asks[0].params.get("afterSeq").is_none());
 
     let recreated = Covers::kept(HashMap::from([("a".to_owned(), (Some(41), 499))]));
-    let (asks, ..) = plan(PEER, false, &rows[..1], &recreated, &HashMap::new(), (NOW_MS, now));
+    let (asks, ..) =
+        plan(PEER, false, false, &rows[..1], &recreated, &HashMap::new(), (NOW_MS, now));
     assert_eq!(asks[0].params["beforeSeq"], json!(NEWEST), "a copy of the session before");
 }
 
@@ -114,17 +116,18 @@ fn a_chat_read_within_the_interval_waits_for_its_end_and_is_then_read() {
     let rows = [row("a", 5, 0), row("b", 5, 1)];
     let read_at = HashMap::from([((PEER.to_owned(), "a".to_owned()), (42, now))]);
     let (asks, planned, later) =
-        plan(PEER, false, &rows, &Covers::default(), &read_at, (NOW_MS, now));
+        plan(PEER, false, false, &rows, &Covers::default(), &read_at, (NOW_MS, now));
     assert_eq!(muxes(&asks), ["b"]);
     assert!(planned.contains("a"), "still planned, so its read time is kept");
     assert_eq!(later, Some(now + WARM_EVERY));
     let (asks, _, later) =
-        plan(PEER, false, &rows, &Covers::default(), &read_at, (NOW_MS, now + WARM_EVERY));
+        plan(PEER, false, false, &rows, &Covers::default(), &read_at, (NOW_MS, now + WARM_EVERY));
     assert_eq!(muxes(&asks), ["a", "b"]);
     assert_eq!(later, None);
     // Review of #28626 at 112a7bf: a read of the session before a recreation holds none back.
     let recreated = HashMap::from([((PEER.to_owned(), "a".to_owned()), (41, now))]);
-    let (asks, _, later) = plan(PEER, false, &rows, &Covers::default(), &recreated, (NOW_MS, now));
+    let (asks, _, later) =
+        plan(PEER, false, false, &rows, &Covers::default(), &recreated, (NOW_MS, now));
     assert_eq!((muxes(&asks), later), (vec!["a", "b"], None));
 }
 
@@ -138,23 +141,31 @@ fn a_chat_a_bound_evicted_is_not_read_ahead_and_a_kept_one_waits_the_longer_inte
         kept: HashMap::from([("b".to_owned(), (Some(42), 890))]),
         evicted: HashMap::from([("a".to_owned(), 42)]),
     };
-    let (asks, planned, _) = plan(PEER, false, &rows, &covers, &HashMap::new(), (NOW_MS, now));
+    let (asks, planned, _) =
+        plan(PEER, false, false, &rows, &covers, &HashMap::new(), (NOW_MS, now));
     assert_eq!(muxes(&asks), ["b"], "the evicted chat is not read, though it moved");
     assert!(planned.contains("b"));
     // A session recreated since its eviction is read as any other.
     let recreated = Covers { evicted: HashMap::from([("a".to_owned(), 41)]), ..Covers::default() };
-    let (asks, ..) = plan(PEER, false, &rows[..1], &recreated, &HashMap::new(), (NOW_MS, now));
+    let (asks, ..) =
+        plan(PEER, false, false, &rows[..1], &recreated, &HashMap::new(), (NOW_MS, now));
     assert_eq!(muxes(&asks), ["a"]);
 
     // A kept copy is brought up to date at most each WARM_AGAIN: each read rewrites its file.
     let read_at = HashMap::from([((PEER.to_owned(), "b".to_owned()), (42, now))]);
     let kept = Covers::kept(covers.kept.clone());
     let (asks, _, later) =
-        plan(PEER, false, &rows[1..], &kept, &read_at, (NOW_MS, now + WARM_EVERY));
+        plan(PEER, false, false, &rows[1..], &kept, &read_at, (NOW_MS, now + WARM_EVERY));
     assert!(asks.is_empty(), "read within WARM_AGAIN");
     assert_eq!(later, Some(now + WARM_AGAIN));
-    let (asks, ..) = plan(PEER, false, &rows[1..], &kept, &read_at, (NOW_MS, now + WARM_AGAIN));
+    let (asks, ..) =
+        plan(PEER, false, false, &rows[1..], &kept, &read_at, (NOW_MS, now + WARM_AGAIN));
     assert_eq!(muxes(&asks), ["b"]);
+    // A VM's kept copy each WARM_EVERY: it is all a move has once the VM dies (fleet-recovery
+    // bench, N=100: a chat read once early held none of its later turns, 90%).
+    let (asks, ..) =
+        plan(PEER, true, true, &rows[1..], &kept, &read_at, (NOW_MS, now + WARM_EVERY));
+    assert_eq!(muxes(&asks), ["b"], "a VM's copy is not left WARM_AGAIN behind");
 }
 
 /// cosmic-gray 11-25, the try of #55956: a fleet whose working chats do not fit the store's

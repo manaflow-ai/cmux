@@ -185,9 +185,16 @@ pub(super) struct Ask {
 /// to read brings the next round after [`WARM_SETTLE`]. Before, its 24 newest-changed chats were
 /// the only ones planned, so of 100 chats on a host that died, 17 had no copy and 3 a partial one,
 /// and moved without their transcript (`scripts/measure/fleet-recovery-bench.py --n 100`, 76%).
+///
+/// `vm` is a dedicated agent VM's peer (`vmBoundary`): a copy it holds is brought up to date each
+/// [`WARM_EVERY`], not [`WARM_AGAIN`], because that copy is all a move has once the VM dies. At
+/// [`WARM_AGAIN`], a chat read once early held none of the turns after it for five minutes, so
+/// 10 of 100 chats moved from a dead VM without their last turns (the same bench, with every
+/// copy present: 90%). Only a chat that changed is read, so an idle VM still costs no rewrites.
 pub(super) fn plan(
     peer: &str,
     keeps: bool,
+    vm: bool,
     rows: &[Value],
     covers: &Covers,
     read_at: &HashMap<Key, (u64, Instant)>,
@@ -237,8 +244,8 @@ pub(super) fn plan(
             continue;
         }
         // A copy it holds is brought up to date at most each [`WARM_AGAIN`]: each read rewrites
-        // the copy's file whole.
-        let every = if through.is_some() { WARM_AGAIN } else { WARM_EVERY };
+        // the copy's file whole. A VM's copies each [`WARM_EVERY`]: they are its recovery.
+        let every = if through.is_some() && !vm { WARM_AGAIN } else { WARM_EVERY };
         if let Some((read, at)) = read_at.get(&(peer.to_owned(), mux.to_owned()))
             && *read == generation
             && after(*at, every) > now
@@ -401,8 +408,15 @@ impl Hub {
             .filter(|(k, _)| k.0 == name)
             .map(|(k, v)| (k.clone(), *v))
             .collect();
-        let (asks, planned, later) =
-            plan(name, keeps_copies(peer), &rows, &covers, &read_at, (now_ms(), Instant::now()));
+        let (asks, planned, later) = plan(
+            name,
+            keeps_copies(peer),
+            peer.vm_boundary(),
+            &rows,
+            &covers,
+            &read_at,
+            (now_ms(), Instant::now()),
+        );
         warm.state().read_at.retain(|k, _| k.0 != name || planned.contains(&k.1));
         let mut later = later;
         // Read again after the interval: a chat refused or not read to its end.
