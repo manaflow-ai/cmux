@@ -95,8 +95,13 @@ profile() {
       -- sleep $((WINDOW + 30)) >"$OUT/offcpu.record.log" 2>&1 &
     off=$!
   fi
+  # The CPU profile runs as root too where `sudo -n` works: as the runner user, under the runner's
+  # perf_event_paranoid, it wrote a perf.data with a header and no samples (cmux#61473 h00 run,
+  # job 4232a6b8: perf.self.txt held only the kallsyms warning), while the root off-CPU record beside it caught 308k.
+  local AS=""
+  sudo -n true 2>/dev/null && AS="sudo -n"
   # perf exits non-zero when the controller ends first: what it wrote is the profile either way.
-  "$PERF" record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1
+  $AS "$PERF" record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1
   if [ -n "$off" ]; then
     wait "$off"
     sudo -n "$PERF" script -i "$OUT/offcpu.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/offcpu.stacks.gz"
@@ -104,12 +109,15 @@ profile() {
     echo "FANIN perf: off-CPU $(grep -o '([0-9]* samples)' "$OUT/offcpu.record.log")"
   fi
   [ -s "$OUT/perf.data" ] || { echo "FANIN perf: record failed: $(tail -3 "$OUT/perf.record.log")"; return; }
-  echo "FANIN perf: $(grep -o '([0-9]* samples)' "$OUT/perf.record.log")"
-  "$PERF" report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
-  "$PERF" report -i "$OUT/perf.data" --stdio --children --sort sym -g none --percent-limit 2 >"$OUT/perf.children.txt" 2>/dev/null
+  local samples
+  samples=$(grep -o '([0-9]* samples)' "$OUT/perf.record.log" | tr -dc 0-9)
+  [ "${samples:-0}" -gt 0 ] || { echo "FANIN perf: record wrote no samples: $(tail -3 "$OUT/perf.record.log")"; $AS rm -f "$OUT/perf.data"; return; }
+  echo "FANIN perf: ($samples samples)"
+  $AS "$PERF" report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
+  $AS "$PERF" report -i "$OUT/perf.data" --stdio --children --sort sym -g none --percent-limit 2 >"$OUT/perf.children.txt" 2>/dev/null
   # Every sample's stack, for any caller/callee split afterwards (perf.data itself is too big to keep).
-  "$PERF" script -i "$OUT/perf.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/perf.stacks.gz"
-  rm -f "$OUT/perf.data"
+  $AS "$PERF" script -i "$OUT/perf.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/perf.stacks.gz"
+  $AS rm -f "$OUT/perf.data"
   echo "FANIN perf: top self:"; grep -E '^ +[0-9]' "$OUT/perf.self.txt" | head -25
 }
 [ "$PROFILE" = perf ] && { profile & PROF=$!; }
