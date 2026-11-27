@@ -1768,14 +1768,15 @@ jobs:
   # added to build-windows would lengthen the Windows leg, which ends every
   # tree publication. Optional (continue-on-error): a failure leaves only this
   # artifact out, never the Windows daemon; the package job does not need it.
+  # Built on Linux like cross-build-windows (scripts/ci/windows-gnu-cross-build.sh: the
+  # same reviewed MinGW runtime, clang and lld), and its --version check runs under Wine
+  # (scripts/ci/wine-smoke.sh acpmux), so it takes no Windows runner.
   build-windows-acpmux:
-    name: build acpmux x86_64-pc-windows-gnu
+    name: build acpmux x86_64-pc-windows-gnu (Linux)
     if: inputs.include_windows && inputs.windows_acpmux
     continue-on-error: true
-    runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-windows-2025' || fromJSON(vars.RUNNER_POOLS).windows) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 60
-    env:
-      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
     permissions:
       contents: read
     steps:
@@ -1804,38 +1805,31 @@ jobs:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
 
+      - name: Install clang, lld, llvm and 7-Zip
+        run: bash scripts/ci/apt-ensure.sh clang libclang-dev lld llvm pkg-config p7zip-full
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Install Rust target
-        shell: bash
-        run: |
-          rustup target add x86_64-pc-windows-gnu
-          printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+        run: rustup target add x86_64-pc-windows-gnu
 
-      - name: Verify LLVM GNU linker
-        shell: bash
-        run: ld.lld --version
+      - name: Cache the reviewed MinGW-Builds sysroot
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
+          key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
 
-      # The same reviewed MinGW toolchain as cmux-tui.exe (build-windows).
-      - name: Verify the reviewed Windows runtime toolchain
-        shell: bash
-        run: python cmux-tui/dist/scripts/package_notices.py check-windows-toolchain
+      # The script checks the sysroot (check-windows-sysroot) and the binary (check-windows-binary).
+      - name: Build acpmux (Windows GNU, on Linux)
+        run: bash scripts/ci/windows-gnu-cross-build.sh build-acpmux dist
 
-      - name: Build acpmux (Windows GNU)
-        working-directory: cmux-tui
-        shell: bash
-        run: cargo build -p acpmux --bin acpmux --release --locked --target x86_64-pc-windows-gnu
-
-      - name: Verify acpmux starts
-        shell: bash
-        run: cmux-tui/target/x86_64-pc-windows-gnu/release/acpmux.exe --version
+      - name: Verify acpmux starts (Wine)
+        run: bash scripts/ci/wine-smoke.sh acpmux dist dist
 
       - name: Stage binary
-        shell: bash
         run: |
-          mkdir -p dist
-          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/acpmux.exe" "dist/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe"
+          mv dist/acpmux-x86_64-pc-windows-gnu.exe dist/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe
           ls -la dist
 
       - name: Upload binary artifact
