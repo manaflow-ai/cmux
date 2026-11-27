@@ -70,6 +70,11 @@ there, the Rust gate compiles it in, the Swift gate's list is checked equal to i
 table below is generated from it (`python3 scripts/privacy_hosts_from_gate.py`). CI fails when the table and the
 allowlist differ, so this page cannot drift from what the gate lets through.
 
+The gate keeps an audit trail: every connection it sees, allowed or refused, is recorded once per host, caller and
+verdict for the life of the process. Set `CMUX_EGRESS_AUDIT=/path/file.jsonl` and each new record is appended there as
+one JSON line (`ts`, `host`, `site`, `verdict` = listed, named, session, local or unlisted, `mode`, `refused`). The file
+stays on your machine; nothing in it is sent anywhere.
+
 Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
 (Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet, and that list may only shrink. The web
 pages' Content Security Policy comes next.
@@ -140,7 +145,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
 | `cmux-device-hub-dev.debussy.workers.dev` | connects | the device hub in development builds |
 | `cmux-device-hub.debussy.workers.dev` | connects | the device hub: pairing and screen sharing between your devices (production) |
-| `cmux-lawrences-mac-mini.tail137216.ts.net` | connects | a team machine's model router, only on a cmux team member's tailnet; nobody else can reach it |
 | `cmux-mobile-api-dev.debussy.workers.dev` | connects | the iPhone pairing API in development builds |
 | `cmux-platform-development.debussy.workers.dev` | connects | cmux Cloud platform API in development builds |
 | `cmux-platform-production.debussy.workers.dev` | connects | cmux Cloud services on our hosting provider (production): platform API |
@@ -167,8 +171,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
-| `index.crates.io` | connects | crates.io's package index, fetched by a Cloud machine's crates cache for cargo on that machine when its copy is older than a minute |
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
+| `index.crates.io` | connects | crates.io's package index, from a Cloud machine's crates cache, only for an index file no peer has fresh; it sends the file's name and its ETag, no code |
 | `lh3.googleusercontent.com` | connects | images in agent replies |
 | `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
 | `mail.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
@@ -176,6 +180,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `models.dev` | connects | the public model list the daemon's live model catalog reads (new models in the model picker) |
 | `monitoring.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): reads the pool instances' CPU use; never run by the app |
 | `o4507547940749312.ingest.us.sentry.io` | connects | crash and error reports, scrubbed (below), only when telemetry is on |
+| `objects.githubusercontent.com` | connects | the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here) |
 | `openaccess-api.clevelandart.org` | connects | museum art for backgrounds, when you search for art |
 | `openaccess-cdn.clevelandart.org` | connects | museum art for backgrounds, when you search for art |
 | `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode |
@@ -185,11 +190,12 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `pypi.org` | connects | checks for a newer cmux CLI when installed with pip |
 | `raw.githubusercontent.com` | connects | release media reels and raw files linked in agent replies |
 | `registry.npmjs.org` | connects | checks for a newer cmux CLI when installed with npm; npm packages agents install |
+| `release-assets.githubusercontent.com` | connects | the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here) |
 | `share-dev.cmux.dev` | connects | shared workspace links in development builds |
 | `share-staging.cmux.dev` | connects | shared workspace links on staging, only when chosen |
 | `share.cmux.dev` | connects | shared workspace links (production) |
 | `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
-| `static.crates.io` | connects | crate downloads, fetched once by a Cloud machine's crates cache for cargo on that machine, then served from its copy |
+| `static.crates.io` | connects | crates.io's package downloads, from a Cloud machine's crates cache, only for a `.crate` neither the machine nor a peer has; it sends the package name and version |
 | `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic |
 | `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic |
 | `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine |
