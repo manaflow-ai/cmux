@@ -316,9 +316,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // starts the work waiting for that frame.
         openedURLs.start { [weak self] in self?.routeReadyURL($0) }
         // Work the launch window does not draw: one step per main turn after the first frame (Chromium's crash-loop border and
-        // the glass look too). Cloud and Home at once (the front may be Home's Chief); the rest after the front chat drew.
+        // the glass look too). Cloud then Home in one turn (the front may be Home's Chief; apart, Home waited ~180 ms behind Chromium's start); the rest after the front chat drew.
         let stop: @MainActor () -> Bool = { [weak services] in services?.windows.isTerminating ?? true }, mark: @MainActor @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
-        firstFrame.afterOpen(stop: stop, mark: mark, ["cloud": { [weak self, weak services] in self?.cloudContext = services?.startCloud() }, "home": { [weak services] in services?.home.start() }])
+        firstFrame.afterOpen(stop: stop, [{ [weak self, weak services] in for (name, step) in [("cloud", { self?.cloudContext = services?.startCloud() }), ("home", { services?.home.start() })] as [(String, @MainActor () -> Void)] { mark("after_open.\(name)_start"); step(); mark("after_open.\(name)_done") } }])
         // The menu bar is built after the first frame (next-launch-instant); its readers are nil-safe (TerminalKeyEquivalent, DebugKey).
         firstFrame.afterOpen(stop: stop, mark: mark, ["menu": { [weak services] in if let services { NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(registry: services.registry,
             settings: { [weak services] in services?.settings }, openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) })) } }])
