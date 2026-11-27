@@ -23,7 +23,7 @@
 
 use std::ffi::OsString;
 use std::io::{self, BufRead as _};
-use std::os::fd::{AsRawFd, FromRawFd as _, OwnedFd, RawFd};
+use std::os::fd::{AsFd as _, AsRawFd, FromRawFd as _, OwnedFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -79,7 +79,6 @@ fn kind_name(kind: &[u8; 4]) -> &'static str {
 }
 
 fn start_keeper(home: &Path, held: &[(&'static [u8; 4], OwnedFd)]) -> io::Result<()> {
-    use std::os::unix::process::CommandExt as _;
     let exe = keeper_exe()?;
     let mut args: Vec<OsString> = vec![HOLD_ARG.into(), home.as_os_str().to_owned()];
     for (kind, fd) in held {
@@ -88,44 +87,37 @@ fn start_keeper(home: &Path, held: &[(&'static [u8; 4], OwnedFd)]) -> io::Result
     let prefix = scope_prefix();
     let mut cmd = match prefix.as_deref().and_then(<[_]>::split_first) {
         Some((program, rest)) => {
-            let mut cmd = std::process::Command::new(program);
+            let mut cmd = cmux_process::Command::new(program);
             cmd.args(rest).arg(&exe);
             cmd
         }
-        None => std::process::Command::new(&exe),
+        None => cmux_process::Command::new(&exe),
     };
     cmd.args(&args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
-    let fds: Vec<RawFd> = held.iter().map(|(_, fd)| fd.as_raw_fd()).collect();
-    // SAFETY: between fork and exec only async-signal-safe calls (setsid, fcntl) on descriptors
-    // this process owns. The copies stay close-on-exec here, so no other child inherits them.
-    unsafe {
-        cmd.pre_exec(move || {
-            libc::setsid();
-            for &fd in &fds {
-                if libc::fcntl(fd, libc::F_SETFD, 0) != 0 {
-                    return Err(io::Error::last_os_error());
-                }
-            }
-            Ok(())
-        });
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
+        .new_session();
+    // Each held descriptor reaches the keeper at the number its argument names.
+    for (_, fd) in held {
+        cmd.inherit_fd(fd.as_fd(), fd.as_raw_fd())?;
     }
     let mut child = cmd.spawn()?;
-    let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no keeper stdout"))?;
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut line = String::new();
-        let _ = io::BufReader::new(stdout).read_line(&mut line);
-        let _ = tx.send(line);
-    });
     // The keeper (or `systemd-run`, which execs it) is reaped by whoever outlives this daemon.
-    drop(child);
-    match rx.recv_timeout(READY_WITHIN) {
-        Ok(line) if line.trim() == READY => Ok(()),
-        Ok(line) => Err(io::Error::other(format!("the keeper said {:?}", line.trim()))),
-        Err(_) => Err(io::Error::other("the keeper did not hold in time")),
+    child.detach("the keeper holds the listeners across this daemon's stop");
+    let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no keeper stdout"))?;
+    let mut pfd = libc::pollfd { fd: stdout.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    let ms = i32::try_from(READY_WITHIN.as_millis()).unwrap_or(i32::MAX);
+    // SAFETY: one valid pollfd on a descriptor `stdout` keeps open for the call.
+    let ready = unsafe { libc::poll(&mut pfd, 1, ms) };
+    if ready <= 0 {
+        return Err(io::Error::other("the keeper did not hold in time"));
+    }
+    let mut line = String::new();
+    let _ = io::BufReader::new(stdout).read_line(&mut line);
+    match line.trim() {
+        READY => Ok(()),
+        said => Err(io::Error::other(format!("the keeper said {said:?}"))),
     }
 }
 
@@ -276,7 +268,6 @@ fn serve(listener: &UnixListener, held: &[(&'static [u8; 4], OwnedFd)], within: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::fd::AsFd as _;
 
     /// Connects to `port` every few ms while `gap` runs: how many were refused, of how many.
     fn connect_through(port: u16, gap: impl FnOnce()) -> (usize, usize, Vec<std::net::TcpStream>) {
