@@ -21,6 +21,7 @@ extension SessionConsentResponder {
                                accountEmail: auth.user?.primaryEmail)
             },
             consent: { ask in
+                // main-actor-ok: one consent ask's message, a few lines, on a sign-in request.
                 await dialog(ask.title, ask.message.split(separator: "\n").map(String.init), ask.allow, ask.deny)
             },
             mint: { call in await mintSession(call, auth: auth) })
