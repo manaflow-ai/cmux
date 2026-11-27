@@ -22,6 +22,8 @@ export interface PlatformCloud {
   mintLinkToken(entity: string, principal: Principal, params: unknown, request: string): Promise<CloudReply>
   /** A VM install's own-machine ops (cloud.vm.*). */
   vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<CloudReply>
+  /** The approved run's answer for the person who approved it, waited for at most `waitMs` (integration.approval.approve). */
+  approvalRun(entity: string, principal: Principal, request: string, waitMs: number): Promise<ReadResult>
   /** A command on one of the team's machines for an automation run or a Chief hand. */
   automationExec(entity: string, user: string | null, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply>
   /** Operator: clear a machine whose provider VM is gone (cloud-admin.ts). */

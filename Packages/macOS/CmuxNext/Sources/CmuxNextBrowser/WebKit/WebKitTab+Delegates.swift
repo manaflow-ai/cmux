@@ -152,7 +152,8 @@ extension WebKitTab: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
-        let failure = BrowserLoadError(error)
+        var failure = BrowserLoadError(error)
+        failure.sentForm = restored.showsFormSubmission
         // The committed document stopped loading: it keeps the page area, so
         // WebKit draws its background again (`pageDidCommit`). A cancellation
         // is a newer navigation taking this one's place, and that one's commit
@@ -166,8 +167,10 @@ extension WebKitTab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         restored.navigationCommitted(url: nil)  // a saved entry that failed to load is no longer loading
+        var failure = BrowserLoadError(error)
+        // Only this navigation's own POST: a retry loads the failed address, not the document still shown.
+        failure.sentForm = formResubmission.pendingPost
         formResubmissionFailed()
-        let failure = BrowserLoadError(error)
         // Nothing is going to commit, so whatever is on screen keeps the page
         // area; without this a document that committed but never finished
         // keeps no background for good (`WebKitTab+LoadingBackground`). A

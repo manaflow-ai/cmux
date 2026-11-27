@@ -552,6 +552,7 @@ export function PermissionCard({
         // In plain words, with the pane's reason when it words one; acpmux's text goes to the log.
         const known = knownRefusalText(failure);
         if (!known) console.warn("agent pane: the plan was not built", failure);
+        // retry-prompt-ok: building the plan again is an answer to the agent (a paid model turn).
         refuse(sent, known ? t("permission.plan.buildRefused", { error: known }) : t("permission.plan.buildFailed"));
       },
     );

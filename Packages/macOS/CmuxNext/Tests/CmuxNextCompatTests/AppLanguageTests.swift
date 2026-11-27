@@ -24,8 +24,10 @@ struct AppLanguageTests {
         }
         deinit { try? FileManager.default.removeItem(at: root) }
 
-        /// A bundle with these `.lproj` string tables (`Localizable`).
-        func bundle(_ tables: [String: [String: String]], name: String = "Strings.bundle", in folder: URL? = nil) throws -> Bundle {
+        /// Write a bundle with these `.lproj` string tables (`Localizable`) and return its URL.
+        /// Keeping creation separate lets tests instantiate a subclass before Foundation caches a
+        /// plain `Bundle` for the same path.
+        func bundleURL(_ tables: [String: [String: String]], name: String = "Strings.bundle", in folder: URL? = nil) throws -> URL {
             let url = (folder ?? root).appending(path: name, directoryHint: .isDirectory)
             for (language, strings) in tables {
                 let lproj = url.appending(path: "\(language).lproj", directoryHint: .isDirectory)
@@ -33,6 +35,12 @@ struct AppLanguageTests {
                 let body = strings.map { "\"\($0.key)\" = \"\($0.value)\";" }.joined(separator: "\n")
                 try Data(body.utf8).write(to: lproj.appending(path: "Localizable.strings"))
             }
+            return url
+        }
+
+        /// A bundle with these `.lproj` string tables (`Localizable`).
+        func bundle(_ tables: [String: [String: String]], name: String = "Strings.bundle", in folder: URL? = nil) throws -> Bundle {
+            let url = try bundleURL(tables, name: name, in: folder)
             return try #require(Bundle(url: url))
         }
 
@@ -50,6 +58,40 @@ struct AppLanguageTests {
 
     nonisolated private final class Flag: Sendable {
         let value = Mutex(false)
+    }
+
+    nonisolated private final class StartFlag: Sendable {
+        let value = Mutex(0)
+    }
+
+    /// Count the expensive Foundation boundary, not the cache's implementation. In particular,
+    /// equal returned bundle identities alone cannot detect repeatedly resolving the same path.
+    nonisolated private final class ResolutionCountingBundle: Bundle, @unchecked Sendable {
+        let reads = Mutex<[String: Int]>([:])
+
+        private func record(_ operation: String) {
+            reads.withLock { $0[operation, default: 0] += 1 }
+        }
+
+        override var bundleURL: URL {
+            record("bundleURL")
+            return super.bundleURL
+        }
+
+        override var bundlePath: String {
+            record("bundlePath")
+            return super.bundlePath
+        }
+
+        override var localizations: [String] {
+            record("localizations")
+            return super.localizations
+        }
+
+        override func path(forResource name: String?, ofType ext: String?) -> String? {
+            record("resourcePath")
+            return super.path(forResource: name, ofType: ext)
+        }
     }
 
     private static let english = ["greeting": "Hello", "only.english": "Only English"]
@@ -170,6 +212,100 @@ struct AppLanguageTests {
         language.set(nil)
         Bundle.deactivateLanguagePack()
         #expect(bundle.inAppLanguage === bundle)
+    }
+
+    /// Every native string read resolves its bundle on the main thread (hq#22770: 2-4 s hangs in
+    /// `languagePackCopy`): the answer is cached, and a pack that becomes active or goes away is
+    /// read at once after the language hears of it.
+    @Test func theResolvedBundleIsCachedAndFollowsAPackChange() throws {
+        let scratch = try Scratch()
+        let name = "Cached-\(UUID().uuidString).bundle"
+        let bundle = try scratch.bundle(["en": Self.english], name: name)
+        let packRoot = scratch.root.appending(path: "pack", directoryHint: .isDirectory)
+        let packCopy = try scratch.bundle(["ja": ["greeting": "こんにちは"]], name: name, in: packRoot)
+        defer { Bundle.deactivateLanguagePack() }
+        let language = AppLanguage()
+        language.adopt(bundle)
+        #expect(bundle.languagePackCopy == nil)
+        #expect(bundle.inAppLanguage === bundle)
+        #expect(bundle.inAppLanguage === bundle.inAppLanguage)
+
+        Bundle.activateLanguagePack(root: packRoot)
+        language.languagePackChanged()
+        #expect(bundle.languagePackCopy?.bundleURL.standardizedFileURL == packCopy.bundleURL.standardizedFileURL)
+        #expect(bundle.inAppLanguage === bundle.languagePackCopy)
+        Bundle.deactivateLanguagePack()
+        language.languagePackChanged()
+        #expect(bundle.languagePackCopy == nil)
+        #expect(bundle.inAppLanguage === bundle)
+    }
+
+    /// f91b413573: a native view can resolve many strings in one redraw. Once warm, both System
+    /// and an explicit language must do zero path/localization work at 1x, 4x and 10x volume.
+    @Test(arguments: [1, 4, 10]) func warmLookupsDoNotResolveBundlePaths(scale: Int) throws {
+        let scratch = try Scratch()
+        let fixture = try scratch.bundleURL(Self.tables)
+        let bundle = try #require(ResolutionCountingBundle(path: fixture.path))
+        let language = AppLanguage()
+        language.adopt(bundle)
+        for code in [nil, "ja", "de", nil] as [String?] {
+            language.set(code)
+            let answer = bundle.inAppLanguage
+            let cold = bundle.reads.withLock { reads in
+                let result = reads
+                reads = [:]
+                return result
+            }
+            // Prove the spy sees real resolution, including invalidation on a language change.
+            #expect(cold["bundlePath", default: 0] + cold["bundleURL", default: 0] > 0)
+            if code != nil {
+                #expect(cold["localizations", default: 0] > 0)
+                #expect(cold["resourcePath", default: 0] > 0)
+            }
+            var matched = 0
+            for _ in 0 ..< 1_000 * scale {
+                if bundle.inAppLanguage === answer { matched += 1 }
+            }
+            #expect(matched == 1_000 * scale)
+            #expect(bundle.reads.withLock { $0 }.isEmpty)
+        }
+    }
+
+    /// Executable duress measurement: real (uninstrumented) bundle reads on the main actor
+    /// alongside four concurrent readers. Timing is reported, not a scheduler-dependent gate.
+    @MainActor @Test(arguments: [1, 4, 10]) func warmLookupsUnderConcurrentReaders(scale: Int) async throws {
+        let scratch = try Scratch()
+        let bundle = try scratch.bundle(Self.tables)
+        let language = AppLanguage()
+        language.adopt(bundle)
+        language.set("ja")
+        let answer = bundle.inAppLanguage
+        let count = 10_000 * scale
+        let started = StartFlag()
+        await withTaskGroup(of: Int.self) { group in
+            for _ in 0 ..< 4 {
+                group.addTask {
+                    started.value.withLock { $0 += 1 }
+                    var matched = 0
+                    for _ in 0 ..< count {
+                        if bundle.inAppLanguage === answer { matched += 1 }
+                    }
+                    return matched
+                }
+            }
+            // Do not start the main-actor clock until every reader has entered its loop.
+            while started.value.withLock({ $0 }) < 4 { await Task.yield() }
+            let clock = ContinuousClock()
+            let start = clock.now
+            var matched = 0
+            for _ in 0 ..< count {
+                if bundle.inAppLanguage === answer { matched += 1 }
+            }
+            let elapsed = start.duration(to: clock.now)
+            #expect(matched == count)
+            for await backgroundMatched in group { #expect(backgroundMatched == count) }
+            print("LANGUAGE_LOOKUP_DURESS scale=\(scale) main_reads=\(count) background_readers=4 background_reads=\(count * 4) main_elapsed=\(elapsed)")
+        }
     }
 }
 #endif

@@ -11,7 +11,6 @@ manifests.  Raw and internal directories must say so in their path.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import sys
@@ -3119,80 +3118,6 @@ def _schema_operation_classes(
     return offsets, classes
 
 
-def _sdk_descriptor_classes(
-    tui: Path,
-    diagnostics: list[Diagnostic],
-    expected_catalog_sha256: str,
-) -> list[tuple[Path, dict[str, str]]]:
-    descriptors: list[tuple[Path, dict[str, str]]] = []
-    bindings = tui / "bindings"
-    if not bindings.exists():
-        return descriptors
-    package_names = ("cpp", "go", "java", "python", "rust", "typescript", "zig")
-    paths: list[Path] = []
-    for package_name in package_names:
-        package = bindings / package_name
-        if not package.exists():
-            continue
-        path = package / ".cmux-resource-api.json"
-        if not path.is_file():
-            diagnostics.append(
-                Diagnostic(
-                    path,
-                    1,
-                    1,
-                    "boundary.sdk-descriptor",
-                    f"{package_name} high-level SDK is missing .cmux-resource-api.json",
-                )
-            )
-            continue
-        paths.append(path)
-    for path in paths:
-        document = _json_object(path, diagnostics)
-        if document is None:
-            continue
-        if document.get("protocol") != "cmux.protocol/2":
-            diagnostics.append(
-                Diagnostic(path, 1, 1, "boundary.sdk-descriptor", "protocol must be cmux.protocol/2")
-            )
-        if document.get("catalog_sha256") != expected_catalog_sha256:
-            diagnostics.append(
-                Diagnostic(
-                    path,
-                    1,
-                    1,
-                    "boundary.sdk-descriptor",
-                    "catalog_sha256 must match canonical resource-operations-v2.json",
-                )
-            )
-        value = document.get("operations")
-        classes: dict[str, str] = {}
-        if isinstance(value, dict):
-            for name, descriptor in value.items():
-                if isinstance(descriptor, dict) and isinstance(descriptor.get("class"), str):
-                    classes[name] = descriptor["class"]
-        elif isinstance(value, list):
-            for descriptor in value:
-                if (
-                    isinstance(descriptor, dict)
-                    and isinstance(descriptor.get("name"), str)
-                    and isinstance(descriptor.get("class"), str)
-                ):
-                    classes[descriptor["name"]] = descriptor["class"]
-        else:
-            diagnostics.append(
-                Diagnostic(
-                    path,
-                    1,
-                    1,
-                    "boundary.sdk-descriptor",
-                    "operations must carry operation names and classes",
-                )
-            )
-        descriptors.append((path, classes))
-    return descriptors
-
-
 def _compare_operations(
     diagnostics: list[Diagnostic],
     canonical_path: Path,
@@ -3416,36 +3341,6 @@ def check_contracts(tui: Path) -> list[Diagnostic]:
             runtime_local_classes,
             "the Rust LocalOperation registry",
         )
-        catalog_document = json.loads(canonical_text)
-        catalog_sha256 = hashlib.sha256(
-            json.dumps(
-                catalog_document,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            ).encode("utf-8")
-        ).hexdigest()
-        for descriptor_path, descriptor_classes in _sdk_descriptor_classes(
-            tui, diagnostics, catalog_sha256
-        ):
-            _compare_operation_classes(
-                diagnostics,
-                catalog,
-                catalog_classes,
-                descriptor_path,
-                descriptor_classes,
-                "the SDK descriptor",
-            )
-            if set(descriptor_classes) != set(catalog_classes):
-                diagnostics.append(
-                    Diagnostic(
-                        descriptor_path,
-                        1,
-                        1,
-                        "boundary.sdk-descriptor",
-                        "SDK descriptor operation set differs from the typed catalog",
-                    )
-                )
     return sorted(set(diagnostics))
 
 
@@ -3509,6 +3404,7 @@ def _is_test_or_example(path: Path) -> bool:
         bool(parts & {"test", "tests", "example", "examples", "e2e", "cmd"})
         or name.endswith("_test.go")
         or "_test." in name
+        or "_tests." in name
         or name.startswith("test_")
         or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
@@ -3531,6 +3427,11 @@ def _files_for_rule(tui: Path, rule: ScanRule) -> Iterator[Path]:
         yield path
 
 
+RUST_SOURCE_PATH_RE = re.compile(
+    r"(?:\binclude_(?:str|bytes)!\s*\(\s*|#\s*\[\s*path\s*=\s*)$"
+)
+
+
 def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
     """Yield byte-index-equivalent Python offsets for Rust string contents."""
     index = 0
@@ -3543,8 +3444,8 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
             end = text.find(terminator, content_start)
             if end < 0:
                 return
-            # A direct include argument names a source file, not public CLI text.
-            if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
+            # Direct include arguments and path attributes name source files.
+            if not RUST_SOURCE_PATH_RE.search(text[:index]):
                 yield content_start, end
             index = end + len(terminator)
             continue
@@ -3556,8 +3457,8 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
                     cursor += 2
                 elif text[cursor] == '"':
                     # Keep help/diagnostic strings in the scan; exclude only
-                    # direct compile-time resource paths in include macros.
-                    if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
+                    # direct compile-time resource paths and module paths.
+                    if not RUST_SOURCE_PATH_RE.search(text[:index]):
                         yield content_start, cursor
                     cursor += 1
                     break

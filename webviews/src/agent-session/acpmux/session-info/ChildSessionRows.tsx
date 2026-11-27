@@ -6,6 +6,7 @@
 // its live state in words. Waiting on the person first, then running, failed and idle
 // (`orderedSessions`). A row opens that chat.
 import { useT } from "../i18n";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { Spinner } from "../conversation/icons";
 import { SenderIcon } from "../subagents/SenderIcon";
 import { agentTone } from "../subagents/agentTones";
@@ -24,13 +25,15 @@ export function ChildSessionRows({
   onOpen?: (sessionId: string) => void;
 }) {
   const t = useT();
+  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   return (
     <>
       <WindowedRows
         items={orderedSessions(sessions)}
         render={(child) => {
           const status = sessionStatus(child);
-          const label = sessionStateText(t, child);
+          const label = sessionStateText(t, child, connectionQuiet);
           return (
             <li key={child.sessionId}>
               <button

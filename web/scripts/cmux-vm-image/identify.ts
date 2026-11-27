@@ -5,7 +5,7 @@
  * compares an image with the tip's capability list without a VM. The smoke reads it again on a
  * fresh clone. `cmux host cloud daemon-info` is not enough: it keeps only the Cloud role's subset.
  */
-import { DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_USER } from "../../services/vms/workUser";
 
 /** Sent as the work user (the daemon's owner); prints one `IDENTIFY_JSON {...}` line. */
 const PROBE = `

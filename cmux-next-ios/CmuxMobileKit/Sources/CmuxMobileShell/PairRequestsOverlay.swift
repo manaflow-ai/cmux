@@ -36,7 +36,7 @@ struct PairRequestsOverlay: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
-        .animation(.snappy, value: requests.cards.map(\.id))
+        .animation(.snappy.unlessReduceMotion, value: requests.cards.map(\.id))
     }
 }
 #endif

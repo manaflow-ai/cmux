@@ -33,6 +33,9 @@ pub struct Manifest {
     /// Build output dropped with the folder (relative paths).
     pub dropped: Vec<String>,
     pub reason: String,
+    /// The linked checkout was moved intact under parked/<id>/checkout.
+    #[serde(default)]
+    pub parked: bool,
     /// Bytes the disk gained.
     pub freed: u64,
     /// Set once the worktree is back.
@@ -206,6 +209,7 @@ pub(crate) mod care_tests {
             submodules: vec![],
             dropped: vec![],
             reason: "test".into(),
+            parked: false,
             freed: 0,
             restored_ms: None,
         };
@@ -239,7 +243,8 @@ mod tests {
         // A live session registered with the linked cwd still holds the worktree git lists by
         // its real path, so a cleanup pass keeps it.
         std::fs::create_dir_all(&recorded).unwrap();
-        let session = [crate::procs::Process { pid: u32::MAX, cwd: cwd.join("src") }];
+        let session =
+            [crate::procs::Process { pid: u32::MAX, cwd: cwd.join("src"), session_id: None }];
         assert!(crate::procs::inside(&session, &recorded).is_some());
         assert!(crate::procs::inside(&session, &real.join("app/other")).is_none());
         let _ = std::fs::remove_dir_all(&dir);

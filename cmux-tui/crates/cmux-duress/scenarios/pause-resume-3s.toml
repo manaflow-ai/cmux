@@ -1,0 +1,44 @@
+name = "pause-resume-3s"
+summary = "background the app for 3 s mid-stream on a 40 ms RTT link: caught up within the reconnect budget"
+sources = [
+  "ReconnectChainTimingTests.swift: a resume budget of at most 3 serial round trips (line 572), 80 ms RTT means 240 ms",
+  "resume-after-1s.toml covers a 1 s background; this is the longer one",
+  "first headless run (seed 1) measured resume_catch_up_ms 250.454: 3 round trips (240 ms) plus about 10 ms of catch-up. Bound 300 = 3 round trips plus 60 ms slack; tighten after more seeds",
+]
+spec = "heavy,stream_seconds=12,chat_records=0"
+headless = true
+
+[link]
+name = "resume-rtt80-3s"
+version = 1
+down_kbit = 20000
+up_kbit = 5000
+rtt_ms = 80
+jitter_ms = 0
+source = "ReconnectChainTimingTests.swift oneWayLatency 40 ms"
+
+[[event]]
+kind = "pause"
+at_ms = 5000
+ms = 3000
+
+[[check]]
+metric = "resume_catch_up_ms"
+max = 300
+
+[[check]]
+metric = "resume_catch_up_frames"
+max = 24
+
+[[check]]
+metric = "unfinished_marks"
+max = 0
+
+[[check]]
+metric = "frame_ms"
+stat = "p95"
+max = 16.7
+
+[sim]
+only = ["CmuxMobileLiveTests/ReconnectChainTimingTests"]
+covers = "the app's reconnect chain (socket resume, attach, replay) against its 3-round-trip budget; headless covers the backlog's catch-up in frames"
