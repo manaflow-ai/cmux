@@ -129,7 +129,9 @@
         // Then each platform's own lifelines (cmux-platform PrivateEgress.ts privateLifelines): its CLOUD_API_ORIGIN and its
         // CLOUD_CARRIER_RELAY_HOST, development's and staging's (this Worker serves both). A machine keeps cmux through
         // these when its public internet is off (made without it, or network access `none`, cmux#13742).
-        "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux-staging.vercel.app\",\"https://cmux-platform-development.debussy.workers.dev\",\"https://cmux-platform-staging.debussy.workers.dev\",\"https://cmux-api-development.debussy.workers.dev\",\"https://cmux-remote-relay-development.debussy.workers.dev\",\"https://cloud-api-staging.cmux.dev\",\"https://cmux-remote-relay-staging.debussy.workers.dev\",\"https://cmux-inference-edge-staging.debussy.workers.dev\"]",
+        // Last, the platform edge host (cmux-platform PlatformEdge.ts PLATFORM_EDGE_HOSTS): development's edge rule names it as
+        // both the name the machine dials and the destination, a custom domain of cmux-platform-development.
+        "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux-staging.vercel.app\",\"https://cmux-platform-development.debussy.workers.dev\",\"https://cmux-platform-staging.debussy.workers.dev\",\"https://cmux-api-development.debussy.workers.dev\",\"https://cmux-remote-relay-development.debussy.workers.dev\",\"https://cloud-api-staging.cmux.dev\",\"https://cmux-remote-relay-staging.debussy.workers.dev\",\"https://cmux-inference-edge-staging.debussy.workers.dev\",\"https://platform-edge-dev.cmux.dev\"]",
         // Mesh experiment (cx-0op): on for internal manaflow dogfood teams only (coordinator, 2026-10-07),
         // ids checked against the staging Stack project: "cmux-agent-dev@manaflow.ai's Team" and
         // "Lawrence Chen's Team". No customer team. Production stays off.
@@ -203,7 +205,9 @@
         // itself for a team in inference gateway mode (cmux-platform InferenceGateway.ts; its gateway token is that Worker's
         // own, CLOUD_MACHINE_TOKEN_JWK). Without it, a gateway-mode team's create is refused by the network check.
         // Then cmux-platform-production's lifelines, as staging's: its CLOUD_API_ORIGIN and CLOUD_CARRIER_RELAY_HOST.
-        "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux.com\",\"https://cmux-platform-production.debussy.workers.dev\",\"https://cloud-api.cmux.dev\",\"https://cmux-remote-relay-production.debussy.workers.dev\"]",
+        // Last, cmux-platform-production's edge host (PlatformEdge.ts PLATFORM_EDGE_HOSTS, cmux-platform#2370), a custom domain
+        // of that Worker: without it every create for a CLOUD_PLATFORM_EDGE_TEAMS team is refused (400, 2026-11-27 10:29Z).
+        "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux.com\",\"https://cmux-platform-production.debussy.workers.dev\",\"https://cloud-api.cmux.dev\",\"https://cmux-remote-relay-production.debussy.workers.dev\",\"https://platform-edge.cmux.dev\"]",
         // A request made with these service keys (CMUX_VM_SERVICE_KEYS ids, never key material) is entitled for the team it
         // acts for: cmux-platform has already decided that team's plan (the company grant for @cmux.com members), so a
         // member's personal team needs no entry in MANAFLOW_TEAM_TENANT_IDS. The key's teams, scopes and labels still apply.
