@@ -1225,7 +1225,7 @@ impl Peer {
                         Frame::Close(_) => break Err("peer closed the connection".to_owned()),
                         Frame::Pong(payload) => {
                             if let Some(at) = pinged.iter().position(|(stamp, _)| *stamp == *payload) {
-                                let sent = pinged.drain(..=at).last().map(|(_, sent)| sent);
+                                let sent = pinged.drain(..=at).next_back().map(|(_, sent)| sent);
                                 if let Some(sent) = sent {
                                     self.with_quality(|q| q.pong(sent.elapsed()));
                                 }

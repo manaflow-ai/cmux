@@ -205,7 +205,7 @@ impl Hub {
                 (r.stalled(now), r.failures, std::cmp::Reverse(i), row)
             })
             .collect();
-        rows.sort_by(|a, b| (a.0, a.1, a.2).cmp(&(b.0, b.1, b.2)));
+        rows.sort_by_key(|r| (r.0, r.1, r.2));
         rows.into_iter().map(|r| r.3).collect()
     }
 

@@ -94,10 +94,10 @@ pub(crate) fn read(folder: &Path) -> Vec<Value> {
         let Some(id) = chip.get("id").and_then(Value::as_str).map(str::to_owned) else { continue };
         let Some(fields) = saved.held.get(&id) else { continue };
         for field in fields.iter().filter(|f| CONTENTS.contains(&f.as_str())) {
-            if let Ok(contents) = std::fs::read_to_string(folder.join(file_name(&id, field))) {
-                if let Some(object) = chip.as_object_mut() {
-                    object.insert(field.to_owned(), Value::String(contents));
-                }
+            if let Ok(contents) = std::fs::read_to_string(folder.join(file_name(&id, field)))
+                && let Some(object) = chip.as_object_mut()
+            {
+                object.insert(field.to_owned(), Value::String(contents));
             }
         }
     }
@@ -209,10 +209,9 @@ impl Hub {
                         for field in CONTENTS {
                             if chip.get(field).is_none()
                                 && let Some(v) = old.get(field)
+                                && let Some(object) = chip.as_object_mut()
                             {
-                                if let Some(object) = chip.as_object_mut() {
-                                    object.insert(field.to_owned(), v.clone());
-                                }
+                                object.insert(field.to_owned(), v.clone());
                             }
                         }
                     }

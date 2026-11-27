@@ -589,7 +589,7 @@ mod hub_move_tests {
         assert!(Guard::hub_move(&[], false).await.is_err());
         // A VM host with no webRoots: the home folder, as the person's own (owner) chat.
         let g = Guard::hub_move(&[], true).await.unwrap();
-        assert_eq!(g.roots, [home.clone()]);
+        assert_eq!(g.roots, std::slice::from_ref(&home));
         assert!(g.owner && g.control == Control::Peer);
         assert_eq!(g.folder(&home.to_string_lossy()).await, Some(home.clone()));
         // Outside home stays refused, even with home as a root.

@@ -652,10 +652,10 @@ pub fn fold_role_holders(registry: &mut Value) {
         for host in list.iter().filter_map(Value::as_str) {
             let Some(m) = machines.get_mut(host).and_then(Value::as_object_mut) else { continue };
             let entry = m.entry("roles").or_insert_with(|| json!([]));
-            if let Some(arr) = entry.as_array_mut() {
-                if !arr.iter().any(|r| r.as_str() == Some(role)) {
-                    arr.push(json!(role));
-                }
+            if let Some(arr) = entry.as_array_mut()
+                && !arr.iter().any(|r| r.as_str() == Some(role))
+            {
+                arr.push(json!(role));
             }
         }
     }

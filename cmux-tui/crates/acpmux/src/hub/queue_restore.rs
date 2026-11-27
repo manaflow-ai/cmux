@@ -76,15 +76,15 @@ impl Hub {
                 let turn_id = e.msg.get("turnId");
                 // Queued or run again under another turn id (a daemon that had not restored it
                 // took its id as new): that copy is the prompt's, so this one does not run too.
-                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started") {
-                    if let Some(id) = e.msg.get("promptId") {
-                        waiting.remove_other_turns(id, turn_id);
-                    }
+                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
+                    && let Some(id) = e.msg.get("promptId")
+                {
+                    waiting.remove_other_turns(id, turn_id);
                 }
-                if matches!(e.kind.as_str(), "queued" | "user_message") {
-                    if let Some(id) = e.msg.get("promptId").and_then(Value::as_str) {
-                        recorded.insert(id.to_owned());
-                    }
+                if matches!(e.kind.as_str(), "queued" | "user_message")
+                    && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
+                {
+                    recorded.insert(id.to_owned());
                 }
                 match e.kind.as_str() {
                     "git" if e.dir == "mux" => {
@@ -223,10 +223,10 @@ impl Hub {
                     },
                     "queue_order" => {
                         // Sent now (`put_next`): no longer held.
-                        if e.msg.get("next") == Some(&Value::Bool(true)) {
-                            if let Some(id) = e.msg.get("promptId").and_then(Value::as_str) {
-                                held.remove(id);
-                            }
+                        if e.msg.get("next") == Some(&Value::Bool(true))
+                            && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
+                        {
+                            held.remove(id);
                         }
                         let ids = e.msg.get("order").and_then(Value::as_array);
                         order.set(ids.into_iter().flatten());

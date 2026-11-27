@@ -136,7 +136,7 @@ mod tests {
         let held: Vec<_> = (0..CALLER_RUNNING).map(|_| b.take("loop", 0).unwrap()).collect();
         let e = b.take("loop", 0).err().unwrap();
         assert_eq!(reason(&e), ("github.budget".into(), "running".into()));
-        assert!(CALLER_RUNNING < crate::github_broker::OWNER_SLOTS);
+        const { assert!(CALLER_RUNNING < crate::github_broker::OWNER_SLOTS) };
         let _other = b.take("pusher", 0).unwrap();
         drop(held);
         b.take("loop", 1).unwrap();

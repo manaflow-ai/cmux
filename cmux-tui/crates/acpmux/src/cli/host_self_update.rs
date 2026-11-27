@@ -447,6 +447,8 @@ impl Paths {
 }
 
 /// What [`prepare`] found, before anything on the host changed.
+// One value per update pass, moved once: its size costs nothing worth a box.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum Prepared {
     /// Automatic updates are off ([`Paths::off`]).
     Off,
