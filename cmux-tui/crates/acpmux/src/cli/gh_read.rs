@@ -1,8 +1,7 @@
 //! `acpmux gh-read PATH`: one GitHub read of a `repos/OWNER/REPO/...` path through the daemon's
 //! one poller per machine (`_acpmux/github/read`, `pr_poller::Poller::get`), so N agents reading
 //! one run, issue or file within `--fresh` cost one GitHub call, and a re-read is a conditional
-//! request a 304 answers for free. It replaces the shared read cache of the fleet's `gh_quota.py`
-//! shim (leo-workspace `tools/gh_quota.py`, group 3).
+//! request a 304 answers for free.
 //!
 //! Prints the body as JSON; `--json` prints `{data, poller}` (where it came from, its age, the
 //! budget). A stale answer (the budget spent, or GitHub failing) prints with its note on stderr.

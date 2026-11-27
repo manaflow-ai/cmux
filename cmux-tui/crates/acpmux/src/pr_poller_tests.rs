@@ -365,8 +365,8 @@ const RUN: &str = "repos/O/R/actions/runs/1";
 
 #[tokio::test(start_paused = true)]
 async fn n_readers_of_one_path_cost_one_read() {
-    // Before: every agent's `gh api repos/...` was its own call (gh_quota.py's per-host Python
-    // cache aside). After: one GET however many read it within `fresh`.
+    // Before: every agent's `gh api repos/...` was its own call. After: one GET however many
+    // read it within `fresh`.
     for n in [1_u64, 5, 20, 50] {
         let poller = Arc::new(Poller::new(Reads::default(), Config::default()));
         let mut joins = Vec::new();

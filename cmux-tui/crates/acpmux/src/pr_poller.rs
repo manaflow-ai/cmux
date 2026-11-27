@@ -32,8 +32,6 @@
 //! **Any repository read, too** (`get`, `_acpmux/github/read`, `acpmux gh-read`): one GET of a
 //! `repos/OWNER/REPO/...` path (a run, its jobs, an issue, a file's contents) gets the same
 //! entry, lock, ETag, budget and stale-while-spent answer a pull request gets, keyed by its path.
-//! Before, the fleet's `gh_quota.py` shim kept that cache in Python per host; this is the
-//! product's, so the shim's cache can go (leo-workspace `tools/gh_quota.py`, group 3).
 
 use std::collections::HashMap;
 use std::future::Future;
