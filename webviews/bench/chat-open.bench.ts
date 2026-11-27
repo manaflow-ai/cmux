@@ -721,7 +721,28 @@ try {
       },
       REMOTE_TAIL,
       { timeout: 120_000, polling: 100 },
-    );
+    ).catch(async (error: unknown) => {
+      // A timeout alone says nothing (`log: []`); name which condition never held.
+      const seen = await page
+        .evaluate((latestText) => {
+          const w = window as unknown as { __open?: Record<string, unknown>; __remoteTail?: Record<string, unknown> };
+          const scroll = document.querySelector<HTMLElement>(".acpmux-scroll");
+          const body = document.body.textContent ?? "";
+          return {
+            now: Math.round(performance.now()),
+            open: w.__open,
+            remote: w.__remoteTail,
+            latestInBody: body.includes(latestText),
+            rows: document.querySelectorAll("[data-row-id]").length,
+            scroll: scroll ? { top: scroll.scrollTop, height: scroll.scrollHeight } : null,
+            bodyTail: body.slice(-300),
+          };
+        }, LATEST)
+        .catch((e: unknown) => ({ evaluateFailed: String(e) }));
+      throw new Error(`chat-open: the newest message never settled; page state: ${JSON.stringify(seen)}`, {
+        cause: error,
+      });
+    });
     const got = await page.evaluate(() => {
       const state = (
         window as unknown as {
