@@ -99,6 +99,8 @@ describe("coderouter alert checks", () => {
     await run();
     expect(sent.map((alert) => alert.key)).toEqual(["coderouter-no-usable-account", "coderouter-auth-rejected"]);
     expect(sent[0]!.body).toContain("across 2 affected team(s)");
+    expect(sent[0]!.body).toContain("Stages: account_selection: 6, provider_config: 4");
+    expect(sent[0]!.body).toContain("Providers: codex: 6, claude: 4");
     expect(sent[0]!.body).not.toContain("team-a");
     expect(sent[0]!.body).not.toContain("team-b");
     expect(sent[1]!.body).toContain("30 unauthorized requests");
