@@ -1613,6 +1613,16 @@ pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
 }
 
+/// Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
+/// file at `path` (an Application Support file of this build's own), so a dial after a relaunch
+/// with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they
+/// are kept for this process only. Returns how many hosts the file remembered.
+#[uniffi::export]
+pub fn set_route_literals_path(path: String) -> u32 {
+    let loaded = cmux_mobile_link::route_literals::RouteLiterals::shared().set_file(path);
+    u32::try_from(loaded).unwrap_or(u32::MAX)
+}
+
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
 /// (`DaemonTerminalSession`). The next `link_stat` carries it (PROTOCOL.md "Link stats").
 #[uniffi::export]
