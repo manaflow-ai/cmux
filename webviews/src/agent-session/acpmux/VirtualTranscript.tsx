@@ -6,7 +6,6 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
-  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -14,8 +13,10 @@ import React, {
   useState,
   useSyncExternalStore,
   useInsertionEffect,
+  useImperativeHandle,
 } from "react";
 import { flushSync } from "react-dom";
+import { pageScrollQuiet } from "./scrollQuiet";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
 import { setEffectKeyframes } from "./conversation/keyframeKinds";
@@ -29,7 +30,6 @@ import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import { shelfLine } from "./conversation/shelvedRows";
 import {
   layoutConversation,
-  layoutGeometry,
   type PlacedLayout,
   type ConversationLayout,
   type RowHeights,
@@ -51,6 +51,7 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
+  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -84,8 +85,8 @@ import {
   type FollowChase,
   ARRIVAL_EASE,
   arrivalStepMs,
-  popRiseMs,
   sendMotionMs,
+  popRiseMs,
   sendRiseMs,
 } from "./conversation/followChase";
 import { shareFrameBudget, type FrameBudget, rowsMoved } from "./conversation/frameBudget";
@@ -164,9 +165,9 @@ import {
   playTurnEnd,
   settleTurnEnd,
   TURN_END_ATTR,
+  turnEndRecap,
   type TurnEndCapture,
   type TurnEndFold,
-  turnEndRecap,
 } from "./conversation/turnEndFold";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import {
@@ -178,7 +179,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn, NEXT_STEP } from "./conversation/turns";
+import { LIVE_THINKING, NEXT_STEP, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -186,7 +187,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { sendPopEnabled, useChatDisplay, useSendScrollsToTop } from "./chatDisplay";
+import { useChatDisplay, sendPopEnabled, useSendScrollsToTop } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
@@ -210,7 +211,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { jumpPairLook, jumpUpBadge } from "./jumpPair.experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { motionToken, warmMotionTokens } from "../../ui/motion/motionTokens";
-import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
+import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -257,8 +258,8 @@ import {
   ARRIVAL_PASS_MS,
   arrivedAtTail,
   TokenRows,
-  broughtSentPrompt,
   noReplyCame,
+  broughtSentPrompt,
   newestPromptIndex,
   promptLanded,
 } from "./transcript/arrivals";
@@ -7501,6 +7502,8 @@ function TranscriptView({
   // A wheel up with the view already at the loaded rows' top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    // Every agent page holds other chats' changes until this scroll rests (scrollQuiet.ts).
+    pageScrollQuiet()?.scrolled();
     // Its default moves the offset before the frame paints (in a frame callback, as a synthetic wheel's
     // is applied): the frame guard reads it this frame.
     armFrameGuard();

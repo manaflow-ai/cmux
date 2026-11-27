@@ -8438,6 +8438,62 @@ class UnplacedGitHubQuotaRedIsInfra(unittest.TestCase):
         self.assertIsNone(excuse.unplaced_quota_only(None))
 
 
+class RiskEvidenceQuotaJobRed(unittest.TestCase):
+    NAME = "risk evidence"
+    STEP = "Grade the pull request"
+    EXIT = "##[error]Process completed with exit code 1."
+
+    def marker(self, **updates):
+        data = dict(endpoint="repos/o/r/pulls/7/files", status=403, reset=2000000000, graded=False)
+        data.update(updates)
+        return "risk-evidence.rate-limited " + json.dumps(data)
+
+    def judge(self, lines, name=NAME, step=STEP, base_red=False):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        github.logs[1] = log(name, step, *lines, self.EXIT)
+        if not base_red:
+            github.jobs[2] = dict(github.jobs[2], conclusion="success",
+                                  steps=[dict(s, conclusion="success") for s in github.jobs[2]["steps"]])
+        with self.assertRaises(excuse.Refused) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        return caught.exception
+
+    def test_marker_refuses_with_retry_boundary_even_when_base_is_red(self):
+        for base_red in (False, True):
+            error = self.judge([self.marker()], base_red=base_red)
+            self.assertIsInstance(error, excuse.JobRateLimited)
+            self.assertIn("rerun after 2033-05-18 03:33:20Z", str(error))
+            self.assertIn("HTTP 403", str(error))
+
+    def test_wrong_job_or_step_never_gets_marker_verdict(self):
+        for name, step in (("other job", self.STEP), (self.NAME, "Hold only an unowned takeback")):
+            self.assertNotIsInstance(self.judge([self.marker()], name, step), excuse.JobRateLimited)
+
+    def test_marker_is_not_stderr_regex_and_must_be_a_single_ungraded_refusal(self):
+        variants = (["gh: API rate limit exceeded"], [self.marker(graded=True)],
+                    [self.marker(status=500)], [self.marker(reset=True)], [self.marker(reset="tomorrow")],
+                    [self.marker(endpoint="")], ["risk-evidence.rate-limited {bad json}"],
+                    [self.marker(), self.marker()],
+                    [self.marker(), "##[error]takeback found"],
+                    [self.marker(), "✘ Test realFailure() failed after 0.1 seconds."],
+                    ["echo '" + self.marker() + "'"])
+        for lines in variants:
+            with self.subTest(lines=lines):
+                self.assertNotIsInstance(self.judge(lines), excuse.JobRateLimited)
+
+    def test_actual_producer_stdout_is_consumed(self):
+        import risk_tier
+        import argparse
+        error = risk_tier.RateLimited(1, ["gh", "api", "repos/o/r/pulls/7/files"],
+                                     endpoint="repos/o/r/pulls/7/files", status=429, reset=2000000000)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = risk_tier.ungraded(argparse.Namespace(summary=None, github_output=None), error)
+        self.assertNotEqual(code, 0)
+        self.assertIsInstance(self.judge(output.getvalue().splitlines()), excuse.JobRateLimited)
+
+
 class GitHubQuotaJobRed(unittest.TestCase):
     """The published-tree hand-off's own quota refusal is a retryable job state, not a PR red."""
 
@@ -13423,7 +13479,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 # a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
 # itself. A function with a FailedView parameter that is not here fails the scan too.
 VIEW_COMPARATORS = frozenset({
-    "asks_only_rerun", "github_quota_only", "warn_only_steps", "without_warn_only",
+    "asks_only_rerun", "github_quota_only", "risk_evidence_quota", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "guard_group_truncated", "quarantined_only",
     "journey",
@@ -17220,6 +17276,8 @@ SCANNERS = {
     "base_red_excuse.asks_only_rerun": lambda f: (excuse.asks_only_rerun(f.view), excuse.asks_only_rerun(f.base_view)),
     "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
                                                    excuse.github_quota_only(f.base_view)),
+    "base_red_excuse.risk_evidence_quota": lambda f: (excuse.risk_evidence_quota(f.view),
+                                                     excuse.risk_evidence_quota(f.base_view)),
     "base_red_excuse.tree_handoff_quota_only": lambda f: excuse.tree_handoff_quota_only(f.job, f.log),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
     "test_reds.spliced_pass": lambda f: TR.spliced_pass("t1", f.log),
