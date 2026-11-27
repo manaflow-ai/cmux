@@ -144,6 +144,9 @@
          location = "group:CmuxMobileTunnel">
       </FileRef>
       <FileRef
+         location = "group:CmuxPushRegistration">
+      </FileRef>
+      <FileRef
          location = "group:CmuxTabsKit">
       </FileRef>
    </Group>
