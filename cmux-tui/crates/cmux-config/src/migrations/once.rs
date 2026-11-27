@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::fsio::write_atomic;
-use crate::schema::{replaced_by_row, retired_entries};
+use crate::schema::{replaced_value, retired_entries};
 use crate::store::{Edit, EditKind, Target};
 use crate::value::value_at;
 
@@ -102,7 +102,9 @@ fn edits_for(file: &Value, entry: &crate::schema::Retired) -> Vec<Edit> {
         // Only the fully nested source is active in the owner's file. Preserve a
         // literal dotted rename: moving it could turn an ignored option on.
         let old_path = super::path(&entry.key);
-        let Some(old) = value_at(file, &old_path) else { return edits };
+        if value_at(file, &old_path).is_none() {
+            return edits;
+        }
         let new_path = super::path(new);
         if value_at(file, &new_path).is_none() {
             // A conflicting dotted destination is inactive too. Keep both spellings
@@ -110,7 +112,9 @@ fn edits_for(file: &Value, entry: &crate::schema::Retired) -> Vec<Edit> {
             if file.as_object().and_then(|root| super::find(root, &new_path)).is_some() {
                 return edits;
             }
-            if let Some(value) = replaced_by_row(&new_path).and_then(|row| row.read(old)) {
+            // The row's value read through every old key it replaced, first listed winning, so
+            // each old key's rename writes the same value (`updates.automatic` replaced three).
+            if let Some(value) = replaced_value(&new_path, file) {
                 // JSONC set would replace a non-object ancestor. Leave the old setting
                 // and the conflicting user value intact.
                 if (1..new_path.len())

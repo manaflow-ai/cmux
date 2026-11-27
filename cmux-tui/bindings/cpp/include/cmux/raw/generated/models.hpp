@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315";
+inline constexpr std::string_view kProtocolIrSha256 = "5861f2b9f2e7381ab6fd7e5e9a27b601d363b888de3eb18c7732395b395edb3b";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -101,6 +101,7 @@ struct HostSizePolicy;
 struct HostSizePolicyRequest;
 struct Id;
 struct IdMapping;
+struct IdentifyRestore;
 struct IdentifyResult;
 struct IdsResult;
 struct JsonValue;
@@ -174,6 +175,7 @@ struct ServerStatsCommandRow;
 struct ServerStatsCommands;
 struct ServerStatsConnections;
 struct ServerStatsDisk;
+struct ServerStatsDiskCheckpoints;
 struct ServerStatsDiskFile;
 struct ServerStatsDiskJournal;
 struct ServerStatsDiskJournalKind;
@@ -647,6 +649,7 @@ struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
 struct AgentSessionShareChangedEvent;
+struct AppsCloudMachineEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -769,6 +772,7 @@ enum class CopyRequestMode;
 enum class IdsRequestKind;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
+enum class AppsCloudMachineEventKind;
 enum class BrowserStateEventStatus;
 enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
@@ -1003,6 +1007,24 @@ struct ApplyLayoutResult {
     std::vector<AppliedPane> panes{};
     Id screen{};
     friend bool operator==(const ApplyLayoutResult&, const ApplyLayoutResult&) = default;
+};
+
+enum class AppsCloudMachineEventKind {
+    record,
+    live,
+    lost,
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct AppsCloudMachineEvent {
+    AppsCloudMachineEventKind kind{};
+    std::string machine{};
+    std::optional<JsonValue> record{};
+    friend bool operator==(const AppsCloudMachineEvent&, const AppsCloudMachineEvent&) = default;
 };
 
 enum class AttachSurfaceRequestMode {
@@ -1356,11 +1378,6 @@ struct ChiefInspectRequest {
     std::string path{};
     std::optional<std::map<std::string, std::string, std::less<>>> query{};
     friend bool operator==(const ChiefInspectRequest&, const ChiefInspectRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct ChiefInspectResult {
@@ -3561,8 +3578,18 @@ struct IdMapping {
 
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
+    std::optional<bool> restore_progress{};
     std::optional<bool> revisions{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
+};
+
+struct IdentifyRestore {
+    std::optional<std::uint64_t> done{};
+    std::uint64_t elapsed_ms{};
+    std::uint64_t last_advance_ms{};
+    std::string phase{};
+    std::optional<std::uint64_t> total{};
+    friend bool operator==(const IdentifyRestore&, const IdentifyRestore&) = default;
 };
 
 struct MachinePlatform {
@@ -3596,6 +3623,7 @@ struct IdentifyResult {
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    std::optional<IdentifyRestore> restore{};
     Field<std::string> screen_device_id{};
     std::string session{};
     std::optional<std::string> session_id{};
@@ -5370,6 +5398,15 @@ struct ServerStatsConnections {
     friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
 };
 
+struct ServerStatsDiskCheckpoints {
+    std::uint64_t budget_bytes{};
+    std::uint64_t bytes{};
+    std::uint64_t checkpoints{};
+    std::uint64_t largest_bytes{};
+    bool over_budget{};
+    friend bool operator==(const ServerStatsDiskCheckpoints&, const ServerStatsDiskCheckpoints&) = default;
+};
+
 struct ServerStatsDiskFile {
     std::uint64_t bytes{};
     std::uint64_t files{};
@@ -5425,6 +5462,7 @@ struct ServerStatsDiskSegments {
 };
 
 struct ServerStatsDisk {
+    Field<ServerStatsDiskCheckpoints> checkpoints{};
     std::optional<std::string> error{};
     std::vector<ServerStatsDiskFile> files{};
     bool files_truncated{};
@@ -5568,6 +5606,7 @@ struct ServerStatsRegistryLock {
 
 struct ServerStatsRequest {
     Field<std::vector<std::string>> include{};
+    std::optional<bool> restore_progress{};
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
 };
 
@@ -5893,6 +5932,7 @@ struct SetWorkspaceMetadataRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> icon{};
+    Field<bool> keep_awake{};
     Field<std::string> key{};
     Field<bool> marked_unread{};
     Field<std::string> mutation_id{};
@@ -7361,6 +7401,12 @@ struct Codec<IdMapping> {
 };
 
 template <>
+struct Codec<IdentifyRestore> {
+    static Result<Json> encode(const IdentifyRestore& value);
+    static Result<IdentifyRestore> decode(const Json& value);
+};
+
+template <>
 struct Codec<IdentifyResult> {
     static Result<Json> encode(const IdentifyResult& value);
     static Result<IdentifyResult> decode(const Json& value);
@@ -7796,6 +7842,12 @@ template <>
 struct Codec<ServerStatsDisk> {
     static Result<Json> encode(const ServerStatsDisk& value);
     static Result<ServerStatsDisk> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDiskCheckpoints> {
+    static Result<Json> encode(const ServerStatsDiskCheckpoints& value);
+    static Result<ServerStatsDiskCheckpoints> decode(const Json& value);
 };
 
 template <>
@@ -10637,6 +10689,12 @@ struct Codec<AgentSessionShareChangedEvent> {
 };
 
 template <>
+struct Codec<AppsCloudMachineEvent> {
+    static Result<Json> encode(const AppsCloudMachineEvent& value);
+    static Result<AppsCloudMachineEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<BellEvent> {
     static Result<Json> encode(const BellEvent& value);
     static Result<BellEvent> decode(const Json& value);
@@ -11366,6 +11424,12 @@ template <>
 struct Codec<ZoomPaneRequestMode> {
     static Result<Json> encode(const ZoomPaneRequestMode& value);
     static Result<ZoomPaneRequestMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppsCloudMachineEventKind> {
+    static Result<Json> encode(const AppsCloudMachineEventKind& value);
+    static Result<AppsCloudMachineEventKind> decode(const Json& value);
 };
 
 template <>
