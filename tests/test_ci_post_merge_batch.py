@@ -755,3 +755,29 @@ class DispatchProbeRetryTests(unittest.TestCase):
         with self.assertRaises(RuntimeError), unittest.mock.patch("sys.stderr"):
             pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
         self.assertEqual(calls.count("POST"), 3)
+
+
+class JudgeOriginUnreadableTest(unittest.TestCase):
+    def judge(self, tries: int):
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="f" * 40, suite="web", job="web / Web tests (2/4)", only="web-tests", probe_sha="f" * 40,
+                         good="a" * 40, bad="b" * 40, origin="60", tries=str(tries), pieces="", dry_run=False,
+                         summary=None, github_output=None)
+        sent: list = []
+
+        def gh_api(path, *a, **k):
+            raise RuntimeError(f"gh api {path}: API rate limit exceeded (HTTP 403)")
+
+        with mock.patch.object(pmb, "run_jobs", return_value=[]), mock.patch.object(pmb, "gh_api", gh_api), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)), \
+                mock.patch.object(pmb, "first_parent_range", return_value=[]):
+            return pmb.cmd_judge(args), sent
+
+    def test_an_unreadable_origin_runs_the_same_probe_again(self) -> None:
+        code, sent = self.judge(0)
+        self.assertEqual(code, 0)
+        self.assertEqual([(p.sha, p.good, p.bad, p.origin, p.tries) for p in sent], [("f" * 40, "a" * 40, "b" * 40, "60", 1)])
+
+    def test_an_origin_unreadable_past_the_retries_is_refused(self) -> None:
+        code, sent = self.judge(pmb.MAX_PROBE_RETRIES)
+        self.assertEqual((code, sent), (1, []))

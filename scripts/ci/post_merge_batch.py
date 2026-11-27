@@ -904,16 +904,28 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return 0
 
     probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0), args.pieces or "")
+    found: list[tuple[str, str, str]] = []
     try:
         origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
-    except RuntimeError:
-        origin = None
-    found: list[tuple[str, str, str]] = []
-    if origin and is_batch(origin):
-        before = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < origin["id"]]
-        origin_verdicts = jobs_of(origin["id"])[0]
-        found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
-        found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
+        if origin and is_batch(origin):
+            before = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < origin["id"]]
+            origin_verdicts = jobs_of(origin["id"])[0]
+            found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
+            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
+    except RuntimeError as err:
+        # GitHub would not answer (a rate limit spent past the wait budget, a lasting 5xx). That says nothing
+        # about the probe's inputs, yet refusing here ended the bisect, and the next batch began the same one
+        # again from its first probe (probe run 45910283297, 11-26 23:34Z: "origin run 45901639171 is
+        # unreadable" after the full 600 s budget; its web-tests chain was re-probed commit for commit an hour
+        # later). Run the same probe again instead: its judge checks the inputs once GitHub answers.
+        if probe.tries < MAX_PROBE_RETRIES:
+            again = Probe(**{**probe.__dict__, "tries": probe.tries + 1})
+            summary(args.summary, f"The origin run could not be read ({str(err)[-200:]}); running the probe at `{probe.sha[:11]}` again.")
+            if not args.dry_run:
+                dispatch_probe(args.repo, args.branch, again)
+            write_outputs(args.github_output, out)
+            return 0
+        origin, found = None, []
     state = None
     if probe.pieces:
         try:
