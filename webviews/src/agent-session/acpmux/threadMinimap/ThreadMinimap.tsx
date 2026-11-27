@@ -452,31 +452,47 @@ function ThreadMinimapView({
   const lastEntries = useRef<{ turns: readonly MinimapTurn[]; ticks: readonly MinimapTickRow[] } | undefined>(
     undefined,
   );
-  // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
-  // the rail's jumps, hover, keys and bookmarks all read the folded lists. The full-height map keeps
-  // a mark per prompt (`loadedTurns`). A rail showing anything but every prompt draws each entry it
-  // keeps as its own tick (model.ts `railEntries`), and falls back to every prompt when it would keep
-  // none, so the rail and its menu stay. The indexed prompts (`read.earlier`) come before the held
-  // ones as rows of the rail's own (railRows.ts). The index names no sender and no reply, so they are
-  // the person's prompts: `keepsIndexed` says which choices keep them.
+  // The rail ticks only the person's prompts: another agent's message, a notice, a task's result or
+  // harness bookkeeping gets none (model.ts `railEntries`, `others`; Leo, 2026-11-27: "honestly
+  // non-user messages shouldnt appear in the scroll rail anymore"), and the indexed prompts
+  // (`read.earlier`, before the held ones as rows of the rail's own, railRows.ts) drop the ones acpmux
+  // marks `others` (`PromptHeads.persons`). Only the `received` choice ticks them. Every prompt
+  // (`prompts`) keeps the pending ticks the count names. Any other choice draws each entry it keeps as
+  // its own tick and falls back to the person's prompts when it would keep none, so the rail and its
+  // menu stay; the index names no reply, so `keepsIndexed` says which choices keep it. The full-height
+  // map keeps a mark per prompt (`loadedTurns`), a run of other chats' messages folded into one
+  // (model.ts `foldIncoming`).
   const named = useMemo(() => {
     const indexed = read.earlier ?? PromptHeads.EMPTY;
     const newer = read.later ?? PromptHeads.EMPTY;
+    const own = (kept: { turns: readonly MinimapTurn[]; ticks: readonly MinimapTickRow[] }, filtered: boolean) => ({
+      turns: sameEntries(lastEntries.current?.turns, kept.turns),
+      ticks: sameEntries(lastEntries.current?.ticks, kept.ticks),
+      filtered,
+    });
     // The full-height map draws every loaded turn and finds its jump in these lists: it never filters.
-    const kept = show === "prompts" || full ? undefined : railEntries(read.turns, read.ticks, 0, show);
-    const keptIndexed = keepsIndexed(show) ? indexed : PromptHeads.EMPTY;
-    const keptNewer = keepsIndexed(show) ? newer : PromptHeads.EMPTY;
-    if (kept && (kept.ticks.length || keptIndexed.length || keptNewer.length)) {
-      const turns = sameEntries(lastEntries.current?.turns, kept.turns);
-      const ticks = sameEntries(lastEntries.current?.ticks, kept.ticks);
-      return { turns, ticks, earlier: keptIndexed, later: keptNewer, filtered: true };
+    if (full) {
+      const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, 0) : read;
+      return { turns: folded.turns, ticks: folded.ticks, earlier: indexed, later: newer, filtered: false, gaps: false };
     }
-    const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, 0) : read;
-    return { turns: folded.turns, ticks: folded.ticks, earlier: indexed, later: newer, filtered: false };
+    const persons = { earlier: PromptHeads.persons(indexed), later: PromptHeads.persons(newer) };
+    // Every prompt the person typed: it left out others' (`gaps`) when its lists are not the read's.
+    const prompts = () => {
+      const kept = railEntries(read.turns, read.ticks, 0, "prompts");
+      const gaps = kept.ticks !== read.ticks || persons.earlier !== indexed || persons.later !== newer;
+      return { ...own(kept, false), ...persons, gaps };
+    };
+    if (show === "prompts") return prompts();
+    const kept = railEntries(read.turns, read.ticks, 0, show);
+    const keptIndexed = keepsIndexed(show) ? persons.earlier : PromptHeads.EMPTY;
+    const keptNewer = keepsIndexed(show) ? persons.later : PromptHeads.EMPTY;
+    if (kept.ticks.length || keptIndexed.length || keptNewer.length)
+      return { ...own(kept, true), earlier: keptIndexed, later: keptNewer, gaps: true };
+    return prompts();
   }, [show, full, incomingLook.fold, read]);
   useLayoutEffect(() => {
-    lastEntries.current = named.filtered ? named : undefined;
-  }, [named]);
+    lastEntries.current = full ? undefined : named;
+  }, [named, full]);
   // Prompts known only by count have no sender yet: a filtered rail draws none of them.
   const pendingCount = named.filtered ? 0 : (read.pendingCount ?? 0);
   const loadedStart = pendingCount + named.earlier.length;
@@ -778,7 +794,7 @@ function ThreadMinimapView({
     shown,
     hovered,
     loadedStart,
-    filtered: named.filtered,
+    filtered: named.filtered || named.gaps,
   });
   useLayoutEffect(() => {
     live.current = {
@@ -794,7 +810,7 @@ function ThreadMinimapView({
       shown,
       hovered,
       loadedStart,
-      filtered: named.filtered,
+      filtered: named.filtered || named.gaps,
     };
   });
 

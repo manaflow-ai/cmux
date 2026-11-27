@@ -17378,6 +17378,8 @@ export class AcpmuxDirectClient {
                 at: event.at,
                 text: String(event.msg?.text ?? "").slice(0, 240),
                 ...(promptId ? { promptId } : {}),
+                // acpmux marks a prompt the person did not type (hub/paging.rs `prompt_index_msg`).
+                ...(event.msg?.others === true ? { others: true as const } : {}),
               });
             }
             if (page.length > 0) pages.push(page);

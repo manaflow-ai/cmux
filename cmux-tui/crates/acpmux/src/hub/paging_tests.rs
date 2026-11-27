@@ -711,6 +711,25 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     assert_eq!(older.last().unwrap().seq, all[9].seq);
 }
 
+/// The prompt index marks a prompt the person did not type `others` (a notice, another agent's
+/// message, a line Claude Code queued by itself), so the scroll rail ticks only the person's.
+/// Leo, 2026-11-27: "honestly non-user messages shouldnt appear in the scroll rail anymore."
+#[test]
+fn the_prompt_index_marks_prompts_the_person_did_not_type() {
+    let person = json!({"text": "fix the rail", "_meta": {"origin": {"actor": "person", "verified": true}}});
+    let notice = json!({
+        "text": "[notice from glaeda-land · WARN] glaeda land: https://github.com/x",
+        "_meta": {"provenance": {"kind": "notice", "to": "c"}},
+    });
+    let agent = json!({"text": "done", "_meta": {"provenance": {"kind": "agent_message", "from": "a", "to": "c"}}});
+    let queued = json!({"text": "<task-notification>\n<task-id>t</task-id>"});
+    assert!(prompt_index_msg(&person).get("others").is_none());
+    assert!(prompt_index_msg(&json!({"text": "typed"})).get("others").is_none());
+    for other in [notice, agent, queued] {
+        assert_eq!(prompt_index_msg(&other)["others"], true, "{other}");
+    }
+}
+
 /// The prompt index goes in bounded pages, newest first and oldest first within each, so its
 /// cost is a page's however long the chat (goal infinite-chats: one reply of a 1 GB chat's 4,577
 /// prompts took 113 ms against 0.2 ms at 1 MB). Walking `hasMore` from each page's first prompt,

@@ -16,6 +16,7 @@ import {
   type AcpmuxActivity,
   type AcpmuxFileDiff,
   type AcpmuxRow,
+  sentByPerson,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
@@ -4161,11 +4162,6 @@ function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
 /// plan"): its turn compacts first. ``isCacheCompaction``'s timer sends the same text.
 export const compactPrompt = (row: AcpmuxRow) =>
   row.kind === "user" && !row.incoming && !row.received && /^\/compact(?:\s|$)/.test((row.text ?? "").trimStart());
-
-/// The person's own prompt (typed here or on another of their devices), not another agent's
-/// message, a task's result or harness bookkeeping.
-const sentByPerson = (row: AcpmuxRow) =>
-  row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
 
 /// The person's own prompt that holds its turn's "Working for" from the send (`sentHeader`, `livesUnderHeader`,
 /// `holdsHeader`). Not a /compact: its turn compacts first and its header goes under a steer sent while it

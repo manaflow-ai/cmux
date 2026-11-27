@@ -801,7 +801,9 @@ impl Hub {
 pub const PROMPT_INDEX_TEXT_CHARS: usize = 240;
 
 /// A prompt's record as the prompt index carries it: its id, whether it was a steer or went on
-/// with a turn, and the start of its text. Nothing else (images, pastes, `_meta`).
+/// with a turn, the start of its text, and `others` when the person did not type it
+/// (`prompt_provenance::persons_prompt_record`): the scroll rail ticks only the person's prompts.
+/// Nothing else (images, pastes, `_meta`).
 pub fn prompt_index_msg(msg: &Value) -> Value {
     let mut out = serde_json::Map::new();
     for key in ["promptId", "steer", "turnId", "continues"] {
@@ -812,6 +814,9 @@ pub fn prompt_index_msg(msg: &Value) -> Value {
     if let Some(text) = msg.get("text").and_then(Value::as_str) {
         let cut: String = text.chars().take(PROMPT_INDEX_TEXT_CHARS).collect();
         out.insert("text".to_owned(), Value::String(cut));
+    }
+    if !crate::prompt_provenance::persons_prompt_record(msg) {
+        out.insert("others".to_owned(), Value::Bool(true));
     }
     Value::Object(out)
 }

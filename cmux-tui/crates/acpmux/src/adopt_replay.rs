@@ -397,6 +397,13 @@ const ECHOES: [&str; 4] = ["<command-", "<local-command-", "<bash-", "[Request i
 const HARNESS_QUEUED: [&str; 3] =
     ["<task-notification>", "<agent-message", "<cross-session-message"];
 
+/// Whether a prompt's text is a line Claude Code queued by itself ([`HARNESS_QUEUED`]): a finished
+/// background task or subagent, another session's message.
+pub(crate) fn harness_queued(text: &str) -> bool {
+    let start = text.trim_start();
+    HARNESS_QUEUED.iter().any(|prefix| start.starts_with(prefix))
+}
+
 /// What a person types for a slash command or a shell line: it runs as command echoes, never as
 /// a prompt line.
 const COMMANDS: [&str; 2] = ["/", "!"];

@@ -1,7 +1,8 @@
-import type { AcpmuxRow } from "./model";
+import { sentByPerson, type AcpmuxRow } from "./model";
 
 /// One prompt as the index names it.
-export type PromptHead = { seq: number; at: number; text: string; promptId?: string };
+/// `others`: the person did not type it (acpmux's `others`, hub/paging.rs `prompt_index_msg`).
+export type PromptHead = { seq: number; at: number; text: string; promptId?: string; others?: true };
 
 /// A chat's prompt index (`_acpmux/events` `promptIndex`): each prompt older than the held rows, by seq, oldest first,
 /// with its time, the start of its text and its promptId. It is held as columns, never as an object a prompt: a
@@ -23,6 +24,8 @@ export type PromptHeads = {
   /// empty string), so every prompt's key is its own (railRows.ts `indexedTurn`; model.ts `ticksOf` did the same).
   readonly promptIds?: string;
   readonly promptIdStarts?: Uint32Array;
+  /// 1 for each prompt the person did not type (`PromptHead.others`), when any is.
+  readonly others?: Uint8Array;
 };
 
 function joined(values: readonly string[]): { text: string; starts: Uint32Array } {
@@ -52,6 +55,7 @@ function of(heads: readonly PromptHead[]): PromptHeads {
     return id;
   });
   const promptIds = seen.size ? joined(ids) : undefined;
+  const others = heads.some((head) => head.others) ? Uint8Array.from(heads, (head) => (head.others ? 1 : 0)) : undefined;
   return {
     length: heads.length,
     seqs,
@@ -59,8 +63,14 @@ function of(heads: readonly PromptHead[]): PromptHeads {
     texts: texts.text,
     textStarts: texts.starts,
     ...(promptIds ? { promptIds: promptIds.text, promptIdStarts: promptIds.starts } : {}),
+    ...(others ? { others } : {}),
   };
 }
+
+const isOthers = (heads: PromptHeads, index: number): boolean => heads.others?.[index] === 1;
+
+/// `persons` of each view it was asked for: a view's columns never change.
+const personsOf = new WeakMap<PromptHeads, PromptHeads>();
 
 function countBefore(heads: PromptHeads, seq: number): number {
   let low = 0;
@@ -92,6 +102,7 @@ export const PromptHeads = {
         at: row.at,
         text: row.text ?? "",
         ...(row.promptId ? { promptId: row.promptId } : {}),
+        ...(sentByPerson(row) ? {} : { others: true as const }),
       })),
     );
   },
@@ -99,6 +110,21 @@ export const PromptHeads = {
   id: (heads: PromptHeads, index: number): string => `user-${heads.seqs[index]!}`,
   text,
   promptId,
+  /// Whether the person did not type the prompt at `index`.
+  others: isOthers,
+  /// Only the prompts the person typed: what the scroll rail ticks (Leo, 2026-11-27: "honestly non-user messages
+  /// shouldnt appear in the scroll rail anymore"). `heads` itself when it holds no one else's.
+  persons(heads: PromptHeads): PromptHeads {
+    if (!heads.others || !heads.others.subarray(0, heads.length).includes(1)) return heads;
+    const cached = personsOf.get(heads);
+    if (cached) return cached;
+    const kept: PromptHead[] = [];
+    for (let index = 0; index < heads.length; index += 1)
+      if (!isOthers(heads, index)) kept.push(PromptHeads.head(heads, index));
+    const persons = of(kept);
+    personsOf.set(heads, persons);
+    return persons;
+  },
   /// The prompt as a row (direct.ts `indexedPromptPlaceholders`).
   row(heads: PromptHeads, index: number): AcpmuxRow {
     const id = promptId(heads, index);
@@ -109,6 +135,7 @@ export const PromptHeads = {
       kind: "user",
       text: text(heads, index),
       ...(id ? { promptId: id } : {}),
+      ...(isOthers(heads, index) ? { untyped: true } : {}),
     };
   },
   /// The prompt at `index` as one head.
@@ -119,6 +146,7 @@ export const PromptHeads = {
       at: heads.ats[index]!,
       text: text(heads, index),
       ...(id ? { promptId: id } : {}),
+      ...(isOthers(heads, index) ? { others: true as const } : {}),
     };
   },
   /// `heads`' prompts with seq in [from, before) and `extra`'s there, one a seq (`heads`' wins), oldest first: a
