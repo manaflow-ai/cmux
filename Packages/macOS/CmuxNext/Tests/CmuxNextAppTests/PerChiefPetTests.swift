@@ -158,12 +158,12 @@ import Testing
         let picks = h.picks()
         picks.remember("moon", for: Self.scout)
         let picture: (String) -> URL? = { ChiefPetSettingsRows.avatarURL(of: picks.mascot(of: $0, in: h.settings.snapshot)) }
-        let faces = HomeService.chiefFaces(chiefs: [Self.main, Self.scout, "agent_new02"], own: [:], picture: picture)
+        let faces = HomeChiefAvatars.faces(chiefs: [Self.main, Self.scout, "agent_new02"], own: [:], picture: picture)
         #expect(faces[Self.main] == ChiefPetMascot.fox.avatarURL.map(HomeChiefAvatar.picture))
         #expect(faces[Self.scout] == ChiefPetMascot.moon.avatarURL.map(HomeChiefAvatar.picture))
         #expect(faces["agent_new02"] == ChiefPetMascot.orb.avatarURL.map(HomeChiefAvatar.picture))
         #expect(faces[Self.main] != faces[Self.scout])
-        let own = HomeService.chiefFaces(chiefs: [Self.main, Self.scout], own: [Self.scout: .text("SC")], picture: picture)
+        let own = HomeChiefAvatars.faces(chiefs: [Self.main, Self.scout], own: [Self.scout: .text("SC")], picture: picture)
         #expect(own[Self.scout] == .text("SC"))
         #expect(own[Self.main] == faces[Self.main])
     }
@@ -179,7 +179,7 @@ import Testing
         let picture: (String) -> URL? = {
             ChiefPetSettingsRows.chosenPicture(of: $0, picks: picks, uploads: nil, in: h.settings.snapshot, file: h.settings.fileRoot)
         }
-        let faces = HomeService.chiefFaces(chiefs: [Self.main, Self.scout, "agent_new02"], own: [:], picture: picture)
+        let faces = HomeChiefAvatars.faces(chiefs: [Self.main, Self.scout, "agent_new02"], own: [:], picture: picture)
         #expect(faces[Self.main] == ChiefPetMascot.fox.avatarURL.map(HomeChiefAvatar.picture))
         #expect(faces[Self.scout] == ChiefPetMascot.moon.avatarURL.map(HomeChiefAvatar.picture))
         #expect(faces["agent_new02"] == nil, "no pick: its monogram, not the default Chief's fox")
