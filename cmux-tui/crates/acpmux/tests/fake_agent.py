@@ -385,8 +385,13 @@ def is_attribution(block):
 
 # The hidden guidance blocks (`context_inventory::override_block`), and only those: the
 # forum's rules, a side question's chat and a message's attachments are cmux-*-context
-# blocks too, and the agent must read them, so their tests read them in the echo.
-GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>")
+# blocks too, and the agent must read them, so their tests read them in the echo. The "where
+# you are" card (`agent_card.rs`) is hidden first-turn context the same way.
+# The hidden cmux blocks' sources, shared with the product: `context_inventory::RULE_SOURCES`, whose
+# test fails when this file drifts from it. Each goes out as `<SOURCE-context>`.
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
+    GUIDANCE_SOURCES = frozenset(json.load(_f))
+GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
 
 
 def guidance_text(text):
@@ -403,7 +408,7 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
+    if source in GUIDANCE_SOURCES:
         return True
     return guidance_text(block.get("text", ""))
 
@@ -796,6 +801,23 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "carrier-sweep: TOTAL CUT GATE" (tests/carrier_faults.rs carrier_drop_sweep): streams "ev-1 "
+    # to "ev-CUT ", waits until the file GATE exists (the test cuts the carrier at that frame
+    # boundary, then makes it), streams the rest to "ev-TOTAL " while the carrier is down, then
+    # end_turn. No ask: the only thing under test is the stream across the cut.
+    if text.startswith("carrier-sweep:"):
+        total, cut, gate = text[len("carrier-sweep:"):].split("<", 1)[0].split()
+        total, cut = int(total), int(cut)
+        chunk = lambda n: update(sid, {"sessionUpdate": "agent_message_chunk",
+                                       "content": {"type": "text", "text": f"ev-{n} "}})
+        for n in range(1, cut + 1):
+            chunk(n)
+        while not os.path.exists(gate):
+            time.sleep(0.005)
+        for n in range(cut + 1, total + 1):
+            chunk(n)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if os.environ.get("FAKE_UPSTREAM_URL"):
         return upstream_turn(rid, sid, text)
     cap_file = os.environ.get("FAKE_CAPACITY_FILE")
@@ -838,6 +860,14 @@ def handle_prompt(rid, params):
         return run_hostname(rid, sid)
     if text == "gh-pr-create":
         return run_gh_pr_create(rid, sid)
+    if text == "remote-repository-refused":
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "remote-git",
+                     "status": "failed", "content": [{"type": "content", "content": {
+                         "type": "text", "text": "cannot create .git/index.lock: Permission denied"}}]})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+            "type": "text", "text": "BLOCKED: cannot create .git/index.lock"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "stuck-loop":
         return run_stuck_loop(rid, sid)
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
@@ -901,6 +931,16 @@ def handle_prompt(rid, params):
     if sid in rate_failures and rate_failures[sid][0] > 0:
         rate_failures[sid][0] -= 1
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": rate_failures[sid][1]}})
+        return
+    # "interim-then-final: A | B" says A, calls a tool, then ends the turn saying B: a turn whose
+    # interim text and final reply differ (durable_watch_lifecycle: a match on the final reply).
+    if text.startswith("interim-then-final: "):
+        interim, final = text[len("interim-then-final: "):].split(" | ", 1)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": interim}})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "interim-1", "title": "Read file",
+                     "kind": "read", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": final}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "fail: X" fails the prompt with X and no output; "work-then-fail: X" calls a tool and says
     # something first (cmux#48917: only a conversation whose agent did work stays unstored-awake).
@@ -1649,6 +1689,12 @@ def handle_prompt(rid, params):
     # "mcp" replies with the mcpServers of the last session/new, load or fork.
     if text == "mcp":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "picked-model" replies with the model this process's session runs (FAKE_PICKER's set_model or
+    # model option), "default" when none was set: what the agent itself runs, not acpmux's meta.
+    if text == "picked-model":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": PICKER_MODELS.get(sid, "default")}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "dirs" replies with the additionalDirectories of the last session/new, load or fork.
@@ -2487,7 +2533,7 @@ def main():
                 if os.environ.get("FAKE_PICKER_MODES") == "1":
                     result["modes"] = {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]}
                 elif os.environ.get("FAKE_PICKER_MODES") == "claude":
-                    result["modes"] = {"currentModeId": "default", "availableModes": [
+                    result["modes"] = {"currentModeId": os.environ.get("FAKE_PICKER_INITIAL_MODE", "default"), "availableModes": [
                         {"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"},
                         {"id": "plan", "name": "Plan Mode"}, {"id": "bypassPermissions", "name": "Bypass Permissions"}]}
                 # FAKE_MODELS=<id,id>: the models this account offers (ACP `models`), as Codex reports them.
@@ -2802,7 +2848,7 @@ def main():
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
             # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
-            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1" or params.get("modeId") in os.environ.get("FAKE_REFUSE_MODES", "").split(","):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})

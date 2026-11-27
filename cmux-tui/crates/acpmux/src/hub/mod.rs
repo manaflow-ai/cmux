@@ -95,6 +95,7 @@ pub(crate) mod dead_letters;
 pub(crate) mod desktop_bridge;
 mod digest;
 pub(crate) mod dispatch;
+pub(crate) mod draft_attachments;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
 mod acp_version;
@@ -114,6 +115,7 @@ mod fork;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+mod fork_model;
 mod fork_replay;
 mod fork_request;
 #[cfg(test)]
@@ -134,12 +136,13 @@ mod git_watch;
 // RFD 0158 §1: the cache-read alarm (`cache_alarm.rs`).
 mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
-mod cpu_pressure;
+pub(crate) mod cpu_pressure;
 pub(crate) mod github_owner;
 mod goal_tools;
+mod goal_watch;
 mod handoff;
 mod harness_key;
-mod harness_magic;
+pub(crate) mod harness_magic;
 mod harness_sandbox;
 mod harness_view;
 mod harness_watch;
@@ -176,8 +179,11 @@ pub mod journal_restore;
 mod journal_restore_tests;
 pub(crate) mod key_route;
 mod key_store;
+pub(crate) mod session_lifecycle;
 // A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
 mod lane_death_watch;
+// A closed session's exit record goes to its parent (`exit_notify.rs`).
+mod exit_notify;
 // The per-lane fan-out cap (`lane_fanout.rs`).
 pub(crate) mod lane_fanout;
 mod lane_report_reads;
@@ -470,6 +476,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 pub(crate) mod turn_cap;
+mod turn_checkpoint;
 pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;
@@ -480,6 +487,7 @@ mod turn_usage;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
+mod unattended_ask;
 pub(crate) mod unattended_presets;
 mod unread_steer;
 // What one small update costs at 100, 1,000 and 3,000 sessions (manual, `--ignored`).
@@ -489,6 +497,7 @@ mod update_cost_bench;
 mod update_repeats;
 mod usage_answer;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
+mod sidecars;
 mod usage_share;
 mod usage_view;
 pub(crate) mod usage_warnings;
@@ -502,9 +511,10 @@ pub mod vm_boundary;
 pub mod vm_host;
 #[cfg(test)]
 mod wait_reason_tests;
+mod wake_place;
 mod warm;
 mod watch;
-mod watch_events;
+pub(crate) mod watch_events;
 pub(crate) mod watches;
 mod web_control;
 mod web_token;
@@ -559,6 +569,7 @@ pub(crate) use pool::SESSION_NEW_BUDGET;
 pub use prompt_coach::CoachRewriter;
 pub use retention::RetentionRequest;
 pub(crate) use route_switch::is_chief;
+pub use session_lifecycle::LifecycleRequest;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 pub use tool_start::{ToolStart, tool_start};
 pub use transcript_offload::TranscriptOffloadRequest;
@@ -1360,6 +1371,8 @@ pub struct Hub {
     pub(super) clone_boot: std::sync::OnceLock<String>,
     /// A chat closed: wakes the log retention worker (`retention.rs`).
     pub(super) retention_wake: Arc<Notify>,
+    /// A chat closed: the lifecycle worker's pass after its grace (`session_lifecycle.rs`).
+    pub(super) lifecycle_wake: Arc<Notify>,
     /// Chats whose log the store brought back from its cold archive, whose preview is not dropped
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
@@ -1917,6 +1930,7 @@ impl Hub {
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
+            lifecycle_wake: Arc::new(Notify::new()),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
             cold_sealed: Default::default(),
@@ -2680,6 +2694,8 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
+            prompt_heard: AtomicU64::new(0),
+            goal_watch: StdMutex::new(Default::default()),
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
@@ -3327,9 +3343,10 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
-        // What its harness spent, read after a turn (`usage_view.rs`), is bookkeeping: it never
-        // keeps the chat's agent awake.
-        if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
+        // Bookkeeping never keeps the chat's agent awake (`idle.rs`): what its harness spent,
+        // read after a turn (`usage_view.rs`), a restarted daemon taking its host back, and a
+        // read mark (`seen.rs`), which a look writes whoever looked.
+        if !idle::bookkeeping(&record.dir, &record.kind, &record.msg) {
             self.touch(session);
         }
         // A stub goes in without the record's recovery mark (`restore_writer.rs`).
@@ -3838,6 +3855,7 @@ impl Hub {
             self.refresh_parent_asks_below(session);
             if status == SessionStatus::Closed {
                 self.retention_wake();
+                self.lifecycle_wake();
             }
         }
         true
