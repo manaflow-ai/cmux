@@ -107,7 +107,9 @@ import {
   startedProjectChoices,
 } from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
-import { TaskGoalStrip } from "./TaskGoalStrip";
+import { ScheduleStrip, TaskGoalStrip } from "./TaskGoalStrip";
+import { parseLoop, type ScheduleRequest } from "./loopSchedule";
+import type { SlashCommand } from "./slashCommands";
 import { ApprovedPlanBand } from "./ApprovedPlanBand";
 import { approvedPlanPlace } from "./approvedPlan.experiment";
 import { CustomizeBar, customizeBarShows } from "./customizeBar/CustomizeBar";
@@ -648,7 +650,9 @@ import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged }
 import { handoffStrings } from "./handoff/strings";
 import { useExtensionCommands, withExtensionCommands, withToolCommands } from "./composer/extensionCommands";
 import {
+  CMUX_PASS_THROUGH,
   CmuxCommandRefused,
+  cmuxCommandRefusal,
   continueTargets,
   mergedCommands,
   type CmuxCommand,
@@ -854,6 +858,14 @@ const NO_HAT_QUESTIONS: readonly HatQuestion[] = [];
 
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
+
+/// The shown chat's scheduled prompt (cmux's /loop, acpmux `prompt_schedule.rs`).
+const setSchedule = (request: ScheduleRequest) => callNative<unknown>("chat.schedule.set", request);
+const pauseSchedule = (paused: boolean) => callNative<unknown>("chat.schedule.pause", { paused });
+const clearSchedule = () => callNative<unknown>("chat.schedule.clear");
+/// Whether the harness lists a /loop of its own (Claude Code's), which keeps the command.
+const harnessListsLoop = (commands: readonly SlashCommand[] | undefined) =>
+  commands?.some((own) => own.source !== "cmux" && own.name.toLowerCase() === "loop") === true;
 
 export const currentRegistry = (): NativeRegistry => ({
   ...defaultRegistry,
@@ -7656,6 +7668,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (continueAvailable) enabledCmuxActions.add("continue");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
+    // cmux's /loop, unless the harness lists its own (Claude Code's stays in the menu as it was).
+    if (snapshot.sessionId && !quick && !harnessListsLoop(snapshot.commands)) enabledCmuxActions.add("loop");
     const withCommands = {
       ...snapshot,
       ...(listShown !== snapshot.sessions && { sessions: listShown }),
@@ -8336,6 +8350,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     targets: fresh ? [] : handoffTargets,
     cwd: snapshot.summary?.cwd,
     newTab: fresh,
+    harnessLoop: !fresh && harnessListsLoop(snapshot.commands),
     inCloud: snapshot.summary?.hostKind === "cloud",
     cloudStart: !quick,
     // Before a chat starts there is no `hostKind`: the picked run mode says where it will run.
@@ -8394,8 +8409,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     fresh?: boolean,
     attachments?: ComposerAttachment[],
     gesture?: SendGesture,
-  ): CmuxCommandResult =>
-    runCmuxCommand(
+  ): CmuxCommandResult => {
+    if (command.action === "loop") {
+      const refusal = cmuxCommandRefusal(command, typedArgs, commandState(fresh === true));
+      if (refusal) return t(refusal);
+      // A harness with a /loop of its own (Claude Code) takes it as typed, as before.
+      // New Tab has no chat to schedule in yet: the prompt starts one and goes as typed.
+      if (fresh || harnessListsLoop(snapshot.commands)) return CMUX_PASS_THROUGH;
+      const loop = parseLoop(typedArgs);
+      if (!loop) return t("composer.cmuxLoopUsage");
+      if (loop.kind === "set") return setSchedule(loop.request);
+      if (loop.kind === "stop") return clearSchedule();
+      return pauseSchedule(loop.kind === "pause");
+    }
+    return runCmuxCommand(
       {
         btwNotes,
         chooseProject,
@@ -8428,6 +8455,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       attachments,
       gesture,
     );
+  };
   // The header's tools and "..." menu run app actions on this chat's tab.
   // A quick action names its mode; the App toggles the split it opened (header/quickActions.ts).
   const runHeaderAction = (id: string, cwd?: string, mode?: QuickActionMode) => {
@@ -10710,7 +10738,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The chat's goal, a row of the composer hat (TaskGoalStrip.tsx; goalHat.experiment.ts places it
   // at the hat's top, the default, or its foot over the composer). Its actions are Codex's own
   // `/goal` subcommands; an edit sends `/goal <text>`, which sets the new objective in its place.
-  const goalNode =
+  // cmux's own scheduled prompt (`/loop` on any harness, acpmux `prompt_schedule.rs`) rides with it.
+  const scheduleNode =
+    !showNewTab && composerSnapshot.summary?.schedule ? (
+      <ScheduleStrip
+        key={`schedule:${composerSnapshot.summary.schedule.id}`}
+        schedule={composerSnapshot.summary.schedule}
+        pause={(paused) => pauseSchedule(paused)}
+        cancel={() => clearSchedule()}
+      />
+    ) : null;
+  const taskGoalNode =
     !showNewTab && composerSnapshot.summary?.goal ? (
       <TaskGoalStrip
         // Its own key: HatQuestions, its sibling in the stack, is keyed by the chat's id.
@@ -10725,6 +10763,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         }
       />
     ) : null;
+  const goalNode =
+    scheduleNode && taskGoalNode ? (
+      <>
+        {scheduleNode}
+        {taskGoalNode}
+      </>
+    ) : (
+      (scheduleNode ?? taskGoalNode)
+    );
   const goalAtFoot = goalNode !== null && goalHatPlaceArm === "foot";
   // The plan the person approved stays in sight while the agent builds it (ApprovedPlanBand.tsx), a
   // row of the hat under the goal. Leo: "plan pane that stays during the build".

@@ -195,6 +195,7 @@ mod processes;
 mod project_new;
 mod prompt_cancel;
 mod prompt_coach;
+mod prompt_schedule;
 pub(crate) mod queue_gauge;
 mod races;
 #[cfg(all(test, target_os = "linux"))]

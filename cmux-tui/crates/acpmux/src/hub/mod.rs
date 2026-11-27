@@ -290,6 +290,9 @@ mod permission_groups;
 pub(crate) mod permission_modes;
 mod permissions;
 pub mod person;
+mod prompt_schedule;
+#[cfg(test)]
+mod prompt_schedule_tests;
 /// Four session states, never unknown (`hub/session_state.rs`).
 pub(crate) mod session_state;
 mod wait_edges;
@@ -1444,6 +1447,8 @@ pub struct Hub {
     /// Paces the host's background capacity continuations (`auto_resume/capacity_gate.rs`).
     pub(super) capacity_gate: auto_resume::CapacityGate,
     pub(super) idle_reaper: AtomicBool,
+    /// The chats' scheduled prompts' timer (`prompt_schedule.rs`).
+    pub(super) prompt_schedules: prompt_schedule::Scheduler,
     /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
     pub(super) resume_watch: Arc<resume::ResumeState>,
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
@@ -1970,6 +1975,7 @@ impl Hub {
             idle_wake: Arc::new(Notify::new()),
             capacity_gate: auto_resume::CapacityGate::default(),
             idle_reaper: AtomicBool::new(false),
+            prompt_schedules: prompt_schedule::Scheduler::default(),
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
             person_prompts: tokio::sync::watch::channel(0).0,

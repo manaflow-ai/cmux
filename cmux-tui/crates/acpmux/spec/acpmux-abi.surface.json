@@ -22467,6 +22467,30 @@
         "nullable": true
       }
     },
+    "request:_acpmux/schedule/clear": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/schedule/get": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/schedule/pause": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/schedule/set": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/schema": {
       "/*untyped*": {
         "ty": "json",
@@ -37048,6 +37072,30 @@
       }
     },
     "response:_acpmux/run_elsewhere/start": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/schedule/clear": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/schedule/get": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/schedule/pause": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/schedule/set": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

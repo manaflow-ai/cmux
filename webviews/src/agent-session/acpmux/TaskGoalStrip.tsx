@@ -1,10 +1,12 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
+import { usePageNow } from "../../ui/pageClock";
 import { Tooltip } from "../../ui/Tooltip";
 import { Clock as ClockText } from "../../ui/Typography";
 import type { TaskGoal } from "./goal";
+import type { ChatSchedule } from "./loopSchedule";
 import { usePaneLanguage, useT } from "./i18n";
-import { Close, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
+import { Clock, Close, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
 import { HatChevron } from "./subagents/HatChevron";
 import { formatDuration } from "./conversation/turns";
 import { goalHatPlace } from "./goalHat.experiment";
@@ -12,7 +14,7 @@ import { cssTimeMs } from "./conversation/fold";
 import { useNow } from "./subagents/subagentGroupModel";
 import { motionAllowed } from "./subagents/trayMotionModel";
 import "./TaskGoalStrip.css";
-import { goalUpdatedText } from "./taskGoalStripModel";
+import { goalUpdatedText, loopNextText } from "./taskGoalStripModel";
 /** The harness's goal stays visible between turns and after reopening the chat. */
 export function TaskGoalStrip({
   goal,
@@ -407,5 +409,86 @@ function GoalTime({ goal, live }: { goal: TaskGoal; live: boolean }) {
     <time ref={node} className="acpmux-goal-time">
       <ClockText text={text} />
     </time>
+  );
+}
+
+/** cmux's own scheduled prompt (`/loop` on any harness, acpmux `prompt_schedule.rs`), as one quiet
+ *  chip over the composer like a Claude Code loop's: what triggers it ("Every 5m", "When the agent
+ *  goes idle", "At 14:30"), when it runs next, how many runs are left, and Pause/Resume and Cancel.
+ *  Unlike Claude Code's own loop, cmux runs this one, so its buttons act at once. The prompt reads
+ *  in the chip's tooltip. */
+export function ScheduleStrip({
+  schedule,
+  pause,
+  cancel,
+  now = Date.now,
+}: {
+  schedule: ChatSchedule;
+  pause(paused: boolean): Promise<unknown>;
+  cancel(): Promise<unknown>;
+  /** The clock the countdown reads (tests pass a fixed one). */
+  now?: () => number;
+}) {
+  const t = useT();
+  const lang = usePaneLanguage();
+  const [pending, setPending] = useState(false);
+  const at = schedule.paused ? undefined : schedule.nextRunAt;
+  const current = now();
+  // The page's shared second clock, only while the next run is ahead (as LoopStrip's).
+  const time = usePageNow(at !== undefined && current < at, now);
+  const next = at === undefined ? undefined : loopNextText(Math.max(time, current), at, lang);
+  const trigger =
+    schedule.trigger.kind === "every"
+      ? t("schedule.every", { interval: formatDuration(schedule.trigger.minutes * 60_000) })
+      : schedule.trigger.kind === "idle"
+        ? t("schedule.idle")
+        : t("schedule.at", {
+            time: new Date(schedule.trigger.at).toLocaleTimeString(lang, { hour: "numeric", minute: "2-digit" }),
+          });
+  const parts = [trigger];
+  if (schedule.paused) parts.push(t("goal.paused"));
+  else if (next) parts.push(t("schedule.next", { when: next }));
+  if (schedule.maxRuns !== undefined && schedule.trigger.kind !== "at")
+    parts.push(t("schedule.runs", { runs: String(schedule.runs), max: String(schedule.maxRuns) }));
+  const run = (work: () => Promise<unknown>) => {
+    setPending(true);
+    void work()
+      .catch(() => undefined)
+      .finally(() => setPending(false));
+  };
+  return (
+    <section
+      className="acpmux-goal"
+      data-state={schedule.paused ? "paused" : "active"}
+      data-kind="schedule"
+      aria-label={t("schedule.label")}
+    >
+      <span className="acpmux-goal-copy" title={schedule.prompt}>
+        <span className="acpmux-goal-mark" aria-hidden="true">
+          <Clock size={14} />
+        </span>
+        <span className="acpmux-goal-state">{parts.join(" · ")}</span>
+      </span>
+      <button
+        type="button"
+        className="acpmux-goal-action"
+        disabled={pending}
+        aria-label={schedule.paused ? t("composer.queueResume") : t("replay.pause")}
+        title={schedule.paused ? t("composer.queueResume") : t("replay.pause")}
+        onClick={() => run(() => pause(!schedule.paused))}
+      >
+        {schedule.paused ? <PlayTriangle size={16} style={{ color: "inherit" }} /> : <PauseCircle size={16} />}
+      </button>
+      <button
+        type="button"
+        className="acpmux-goal-action"
+        disabled={pending}
+        aria-label={t("schedule.cancel")}
+        title={t("schedule.cancel")}
+        onClick={() => run(cancel)}
+      >
+        <span aria-hidden="true">×</span>
+      </button>
+    </section>
   );
 }

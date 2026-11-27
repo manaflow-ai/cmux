@@ -73,6 +73,7 @@ import { changeHidden } from "../drawnRows";
 import { callOnly, liveCallLine, setLiveLine } from "../liveCallLine";
 import { liveSummary, usageOnly } from "../liveSummary";
 import { pageLanes } from "../schedule/lanes";
+import type { ScheduleRequest } from "../loopSchedule";
 import type { ComposerHandle, ComposerWake } from "../Composer";
 import { composerReadback, takeExternalInto } from "../composer/externalAttach";
 import type { FolderContinuation } from "../folderContinuation";
@@ -1942,6 +1943,9 @@ export function paneSnapshotEffect({
         "chat.typing": async ({ text, sessionId }) =>
           client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
         "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
+        "chat.schedule.set": (request) => client.setSchedule(request as ScheduleRequest),
+        "chat.schedule.pause": ({ paused }) => client.pauseSchedule(paused === true),
+        "chat.schedule.clear": () => client.clearSchedule(),
         "chat.queue.approve": ({ promptId, revision }) =>
           client.answerHeld(String(promptId), true, typeof revision === "number" ? revision : 0),
         "chat.queue.decline": ({ promptId }) => client.answerHeld(String(promptId), false),

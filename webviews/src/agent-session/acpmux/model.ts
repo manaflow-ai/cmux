@@ -111,6 +111,7 @@ import { subsessionCall } from "./conversation/subsessionCalls";
 import { agentMessage } from "./conversation/agentMessages";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
+import type { ChatSchedule } from "./loopSchedule";
 import { MessagePlacement } from "./conversation/messagePlacement";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 import {
@@ -1460,6 +1461,8 @@ export type AcpmuxSnapshot = {
     icon?: HarnessIconSpec;
     /** Codex's persisted thread goal, when the harness reported one. */
     goal?: TaskGoal;
+    /** cmux's own scheduled prompt for this chat (acpmux `prompt_schedule.rs`). */
+    schedule?: ChatSchedule;
     /// The plan the person approved, kept while the agent builds it (acpmux `approvedPlan`,
     /// approvedPlan.ts). Unset until a plan approval is answered with an allow.
     approvedPlan?: ApprovedPlan;

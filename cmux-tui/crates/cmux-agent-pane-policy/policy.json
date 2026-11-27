@@ -70,7 +70,8 @@
     "_acpmux/cold_archive",
     "_acpmux/prompt_coach",
     "_acpmux/customize_run",
-    "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript"
+    "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript",
+    "_acpmux/schedule/set", "_acpmux/schedule/pause", "_acpmux/schedule/clear"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -90,7 +91,8 @@
     "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
     "_acpmux/cold_archive", "_acpmux/prompt_coach",
     "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript",
-    "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel"
+    "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel",
+    "_acpmux/schedule/set", "_acpmux/schedule/pause", "_acpmux/schedule/clear"
   ],
   "optionally_session_scoped": [
     "acp.trust.get", "acp.trust.set", "_acpmux/session/auth",
@@ -128,6 +130,8 @@
     "_acpmux/agent_pair_resume": "always",
     "_acpmux/race/start": "always",
     "_acpmux/agent_hold": "always",
+    "_acpmux/schedule/set": "always",
+    "_acpmux/schedule/pause": "always",
     "_acpmux/app_reply": "always",
     "_acpmux/queue_approve": "always",
     "_acpmux/review_verdict": "always",
@@ -206,6 +210,9 @@
     "_acpmux/trace/spans": {"params": ["process", "pid", "spans"], "acpmux": []},
     "_acpmux/trace/status": {"params": [], "acpmux": []},
     "_acpmux/move_targets": {"params": ["source", "sourceKind"], "acpmux": []},
+    "_acpmux/schedule/set": {"params": ["sessionId", "prompt", "everyMinutes", "at", "idle", "maxRuns", "until"], "acpmux": []},
+    "_acpmux/schedule/pause": {"params": ["sessionId", "paused"], "acpmux": []},
+    "_acpmux/schedule/clear": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/place_chat": {"params": ["where", "targets", "parent", "key"], "acpmux": []},
     "_acpmux/draft_get": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/draft_set": {"params": ["sessionId", "text"], "acpmux": []},
@@ -416,6 +423,7 @@
       "_acpmux/agent_pair_resume": ["Resume runs turns: the held messages go to both chats of the pair."],
       "_acpmux/race/start": ["Racing starts additional agent turns; the launch button supplies a fresh click."],
       "_acpmux/agent_hold": ["Hand back delivers held messages, which runs turns."],
+      "_acpmux/schedule/set": ["A schedule sends its prompt later, as the person's, so it starts, and resumes, only on their Enter or click (`pause` carries both, as `paused`); Cancel stops it: no gesture."],
       "_acpmux/queue_approve": ["Approve sends a guest's held prompt to the agent; Decline drops it: no gesture."],
       "_acpmux/review_verdict": ["A verdict on a pull request may send its chat a prompt (Request changes)."],
       "_acpmux/agent_login/start": ["A Cloud sign-in changes the machine's provider identity, so it starts only on the person's click (Sign in), and a key is saved only on theirs (Save). Finish completes only a login such a click started (acpmux keeps the login by its id); its Continue keeps its gesture for the failed prompt's resend. Cancel stops work: none."],

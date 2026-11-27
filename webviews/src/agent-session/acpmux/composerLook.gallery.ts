@@ -1,11 +1,12 @@
 // l10n-allow-file: gallery fixtures (sample chats and prompts), not shipped UI.
 // Chat composers keep Claude and Codex looks. New Tab always uses Claude.
-import { minutesAgo } from "../../gallery/clock";
+import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { activity, assistant, chat, CWD, manySessions, noChat, tool, user } from "../../gallery/fixtures/acpmux";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { type ComposerLook, setPreviewComposerLook } from "./composerLook";
+import type { ChatSchedule } from "./loopSchedule";
 
 /// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
 /// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
@@ -61,6 +62,13 @@ const goalChat = (status: "running" | "stalled" | "paused" | "done", provider: "
       },
     },
   };
+};
+
+/// cmux's own scheduled prompt (`/loop` on any harness, acpmux `prompt_schedule.rs`): a chip over
+/// the composer with its trigger, next run, runs left, and Pause/Resume and Cancel.
+const scheduleChat = (schedule: ChatSchedule) => {
+  const snapshot = startedChat();
+  return { ...snapshot, summary: { ...snapshot.summary!, harness: "codex", schedule } };
 };
 
 const speedNewTab = () => {
@@ -356,6 +364,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/composerLook.ts",
     "agent-session/acpmux/composerFooterShared.css",
     "agent-session/acpmux/TaskGoalStrip.tsx#TaskGoalStrip",
+    "agent-session/acpmux/TaskGoalStrip.tsx#ScheduleStrip",
   ],
   variants: {
     "goal-active": {
@@ -390,6 +399,46 @@ export default agentPaneEntry({
         await look(ctx, "claude");
         await ctx.click({ selector: ".acpmux-goal-toggle" });
       },
+    },
+    "schedule-every": {
+      note: "cmux's own /loop on a harness without one (/loop 5m x3 check CI): every five minutes, next run, runs made of the limit, Pause and Cancel.",
+      composerLook: "codex",
+      snapshot: scheduleChat({
+        id: "sch-1",
+        prompt: "check CI and fix what broke",
+        trigger: { kind: "every", minutes: 5 },
+        maxRuns: 3,
+        runs: 1,
+        nextRunAt: GALLERY_NOW + 4 * 60_000,
+        paused: false,
+      }),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "schedule-idle": {
+      note: "/loop idle keep going: sends after each turn the agent ends, with its default stop of ten runs.",
+      composerLook: "codex",
+      snapshot: scheduleChat({
+        id: "sch-2",
+        prompt: "keep going until the tests pass",
+        trigger: { kind: "idle" },
+        maxRuns: 10,
+        runs: 4,
+        paused: false,
+      }),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "schedule-paused": {
+      note: "A paused schedule: it says so and offers Resume.",
+      composerLook: "codex",
+      snapshot: scheduleChat({
+        id: "sch-3",
+        prompt: "write the standup notes",
+        trigger: { kind: "every", minutes: 60 },
+        runs: 2,
+        nextRunAt: GALLERY_NOW + 30 * 60_000,
+        paused: true,
+      }),
+      play: (ctx) => look(ctx, "codex"),
     },
     "newtab-speed": {
       note: "Fast and Ultrafast are available before the first prompt, from the model's advertised tiers.",
