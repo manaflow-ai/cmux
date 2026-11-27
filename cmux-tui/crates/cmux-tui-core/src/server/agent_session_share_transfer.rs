@@ -10,22 +10,24 @@ use serde_json::Value;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-const PENDING_FILE: &str = "agent-session-shares-incoming.json";
+pub(super) const PENDING_FILE: &str = "agent-session-shares-incoming.json";
+pub(super) const OUTGOING_FILE: &str = "agent-session-shares-outgoing.json";
 type Receives = BTreeMap<String, Vec<LinkShare>>;
 
 #[derive(Default)]
 pub(super) struct Pending(Mutex<Option<Receives>>);
 
 impl Pending {
-    fn change<T>(
+    pub(super) fn change<T>(
         &self,
         directory: Option<&Path>,
+        file: &str,
         apply: impl FnOnce(&mut Receives) -> Result<(T, bool), &'static str>,
     ) -> Result<T, &'static str> {
         let mut slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if slot.is_none() {
             let mut initial = Receives::new();
-            if let Some(path) = directory.map(|dir| dir.join(PENDING_FILE)) {
+            if let Some(path) = directory.map(|dir| dir.join(file)) {
                 match path.symlink_metadata() {
                     Ok(_) => {
                         initial = read_trusted(&path)
@@ -46,7 +48,7 @@ impl Pending {
                 return Err("share.limit");
             }
             if let Some(directory) = directory {
-                save(directory, PENDING_FILE, &updated).map_err(|_| "share.unsaved")?;
+                save(directory, file, &updated).map_err(|_| "share.unsaved")?;
             }
             *current = updated;
         }
@@ -96,7 +98,7 @@ pub(crate) fn stage_transferred_chat_shares(
     {
         return Err("share.bad_request");
     }
-    shares.pending_transfers.change(directory.as_deref(), |receives| {
+    shares.pending_transfers.change(directory.as_deref(), PENDING_FILE, |receives| {
         if let Some(staged) = receives.get(receive) {
             return if staged == &incoming { Ok(((), false)) } else { Err("share.exists") };
         }
@@ -122,7 +124,7 @@ pub(crate) fn finish_transferred_chat_shares(
 ) -> Result<(), &'static str> {
     let shares = &mux.control_clients.agent_sessions.link_shares;
     let directory = mux.session_state_directory();
-    let ids = shares.pending_transfers.change(directory.as_deref(), |receives| {
+    let ids = shares.pending_transfers.change(directory.as_deref(), PENDING_FILE, |receives| {
         let Some(incoming) = receives.remove(receive) else {
             return Ok((Vec::new(), false));
         };
@@ -142,4 +144,63 @@ pub(crate) fn finish_transferred_chat_shares(
         room::host(mux, &share_id);
     }
     Ok(())
+}
+
+/// Freeze before exporting under the same lock used by every share mutation. Keeping the
+/// snapshot on disk makes a lost begin answer or daemon restart safe to retry.
+pub(crate) fn freeze_transferred_chat_shares(
+    mux: &Mux,
+    session: &str,
+    supported: bool,
+) -> Result<Option<Value>, &'static str> {
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let directory = mux.session_state_directory();
+    let mut slot = shares.shares.lock().unwrap_or_else(|e| e.into_inner());
+    let all = slot.get_or_insert_with(|| shares.load(directory.as_deref()));
+    shares.outgoing_transfers.change(directory.as_deref(), OUTGOING_FILE, |outgoing| {
+        let snapshot = match outgoing.get(session) {
+            Some(snapshot) => snapshot.clone(),
+            None => {
+                if all
+                    .iter()
+                    .any(|s| s.session == session && s.state == super::ShareState::Provisioning)
+                {
+                    return Err("share.provisioning");
+                }
+                all.iter()
+                    .filter(|s| {
+                        s.session == session && s.expires_at > shares.now() && s.live().is_ok()
+                    })
+                    .cloned()
+                    .collect()
+            }
+        };
+        if !supported && !snapshot.is_empty() {
+            return Err("share.unsupported");
+        }
+        let payload = if snapshot.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_value(&snapshot).map_err(|_| "share.unsaved")?)
+        };
+        let changed = !outgoing.contains_key(session);
+        if changed {
+            if outgoing.len() >= MAX_SHARES {
+                return Err("share.limit");
+            }
+            outgoing.insert(session.to_owned(), snapshot);
+        }
+        Ok((payload, changed))
+    })
+}
+
+/// Only a confirmed abort releases the reservation. An uncertain begin/abort keeps it so a
+/// retry cannot acknowledge edits that the receiving snapshot would silently discard.
+pub(crate) fn abort_transferred_chat_shares(mux: &Mux, session: &str) -> Result<(), &'static str> {
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let directory = mux.session_state_directory();
+    let _slot = shares.shares.lock().unwrap_or_else(|e| e.into_inner());
+    shares.outgoing_transfers.change(directory.as_deref(), OUTGOING_FILE, |outgoing| {
+        Ok(((), outgoing.remove(session).is_some()))
+    })
 }
