@@ -178,6 +178,7 @@ pub(crate) fn pending() -> bool {
 
 /// Called only while the update drain owns admission. Readiness failure leaves it serving.
 pub(crate) async fn prepare(hub: &crate::hub::Hub) -> Result<serde_json::Value> {
+    require_unkeyed(hub)?;
     let program = super::exe_swap::installed_path().context("no installed daemon path")?;
     let executable = std::fs::File::open(&program)?;
     let before = Image::of(&executable, String::new())?;
@@ -219,6 +220,8 @@ pub(crate) async fn prepare(hub: &crate::hub::Hub) -> Result<serde_json::Value> 
         Ok(image)
     })
     .await??;
+    // Enrollment can complete while the candidate answers its preflight.
+    require_unkeyed(hub)?;
     ensure!(
         Image::of(&executable, image.build.clone())? == image,
         "checked executable changed during preflight"
@@ -254,6 +257,14 @@ pub(crate) async fn prepare(hub: &crate::hub::Hub) -> Result<serde_json::Value> 
     });
     super::listener_handover::mark_kept();
     Ok(receipt)
+}
+
+fn require_unkeyed(hub: &crate::hub::Hub) -> Result<()> {
+    ensure!(
+        !hub.person.has_key(),
+        "person-key daemon requires the existing keyed handoff; exec update deferred before shutdown"
+    );
+    Ok(())
 }
 
 fn exec_args(args: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -319,6 +330,23 @@ pub(super) fn replace(lock: &super::lock::DaemonLock) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn keyed_daemon_defers_before_exec_preflight_or_shutdown() {
+        use crate::config::{Config, StoreMode};
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = crate::hub::Hub::new(config, store);
+        let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        hub.person.install_spawn_key(key).unwrap();
+        let error = super::prepare(&hub).await.unwrap_err();
+        assert!(error.to_string().contains("person-key daemon"), "{error:#}");
+        assert!(hub.person.has_key());
+        assert!(!hub.shutting_down());
+        assert!(!super::pending());
+    }
+
     #[test]
     fn exec_drops_consumed_start_descriptors_and_takeover() {
         let args = [
