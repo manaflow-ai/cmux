@@ -13,20 +13,22 @@ import Testing
 struct SidebarPinnedTileStatusInPlaceTests {
     static let space = "space0"
     static let pinnedID = "sec_pinned"
+    /// A custom section of the band above the list: the pinned section always draws rows (`SectionFlow.mode`).
+    static let chipsID = "sec_chips"
     static let home = LayoutItem(id: LayoutItemID("itm_home"), ref: SidebarLayoutDocument.homeRef)
     static let pin = LayoutItem(id: LayoutItemID("itm_pin"), ref: .workspace("local:ticker"))
     static let other = LayoutItem(id: LayoutItemID("itm_other"), ref: .workspace("local:other"))
     static let top = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, arrangement: .list, items: [home])
 
-    static func pinned(_ items: [LayoutItem], _ arrangement: SectionArrangement = .list) -> LayoutSection {
-        LayoutSection(id: LayoutSectionID(pinnedID), region: .top, look: .builtIn, arrangement: arrangement, room: space, items: items)
+    static func pinned(_ items: [LayoutItem], _ arrangement: SectionArrangement = .list, id: String = pinnedID) -> LayoutSection {
+        LayoutSection(id: LayoutSectionID(id), region: .top, look: .builtIn, arrangement: arrangement, room: space, items: items)
     }
 
-    static func sections() -> [SidebarSection] {
+    static func sections(_ section: LayoutSection) -> [SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         return [
             SidebarSection(kind: .custom(SidebarCustomSection(id: top.id.rawValue)), nodes: []),
-            SidebarSection(kind: .custom(SidebarCustomSection(id: pinnedID)), nodes: []),
+            SidebarSection(kind: .custom(SidebarCustomSection(id: section.id.rawValue)), nodes: []),
             SidebarSection(kind: .machine(machine), nodes: (0..<40).map { .workspace(SidebarWorkspace(id: WorkspaceID("ws-\($0)"), title: "Workspace \($0)")) }),
         ]
     }
@@ -45,7 +47,7 @@ struct SidebarPinnedTileStatusInPlaceTests {
     /// A sidebar that has drawn and laid out its Home and pinned blocks and its rows; `window` puts it in one.
     static func sidebar(pinned section: LayoutSection = pinned([pin]), window: Bool = false) -> (SidebarModel, SidebarView) {
         _ = NSApplication.shared
-        let model = SidebarModel(sections: sections(), activeWorkspaceID: nil)
+        let model = SidebarModel(sections: sections(section), activeWorkspaceID: nil)
         model.profiles = [SidebarProfile(id: ProfileKey(space), name: space)]
         model.activeProfileID = ProfileKey(space)
         model.layout = SidebarLayoutDocument(sections: [top, section])
@@ -71,8 +73,8 @@ struct SidebarPinnedTileStatusInPlaceTests {
         sidebar.list.blockRegions.lazy.compactMap { $0.itemView(pin.id) }.first
     }
 
-    static func blockRow(_ sidebar: SidebarView) -> SidebarBlockRowView? {
-        sidebar.list.rowViews[.block(pinnedID)] as? SidebarBlockRowView
+    static func blockRow(_ sidebar: SidebarView, id: String = pinnedID) -> SidebarBlockRowView? {
+        sidebar.list.rowViews[.block(id)] as? SidebarBlockRowView
     }
 
     /// Shows a change of the model as the app does: the observation, then the layout pass.
@@ -117,7 +119,7 @@ struct SidebarPinnedTileStatusInPlaceTests {
 
     /// The kind the pinned block's own layout gave the pinned item (a labeled chip or an icon tile), if it placed it.
     static func pinKind(_ sidebar: SidebarView) -> SidebarRegionRow.Kind? {
-        blockRow(sidebar)?.region.layoutResult.rows.first { row in
+        blockRow(sidebar, id: chipsID)?.region.layoutResult.rows.first { row in
             switch row.kind {
             case let .chip(id, _), let .tile(id, _): id == pin.id
             default: false
@@ -129,10 +131,10 @@ struct SidebarPinnedTileStatusInPlaceTests {
     /// (`SectionFlow`'s inline placement never wraps a label): that draws in place, the block placing its own items
     /// again, and a title that fits brings the chips back. The list's rows keep their frames throughout.
     @Test func aTitleTooLongForTheLineTurnsTheChipsIntoTilesInPlace() throws {
-        let (model, sidebar) = Self.sidebar(pinned: Self.pinned([Self.other, Self.pin], .inline))
-        let section = LayoutSectionID(Self.pinnedID)
+        let (model, sidebar) = Self.sidebar(pinned: Self.pinned([Self.other, Self.pin], .inline, id: Self.chipsID))
+        let section = LayoutSectionID(Self.chipsID)
         try #require(Self.pinKind(sidebar) == .chip(Self.pin.id, section: section), "fixture: the short title draws no chip")
-        let blockFrame = Self.blockRow(sidebar)?.frame
+        let blockFrame = Self.blockRow(sidebar, id: Self.chipsID)?.frame
         let rowFrame = sidebar.list.rowViews[.workspace(WorkspaceID("ws-0"))]?.frame
         for (title, kind) in [(String(repeating: "W", count: 64), SidebarRegionRow.Kind.tile(Self.pin.id, section: section)),
                               ("Ticker", .chip(Self.pin.id, section: section))] {
@@ -144,9 +146,9 @@ struct SidebarPinnedTileStatusInPlaceTests {
             #expect(counts["block_patches"] == 1, "a \(title.count)-letter title drew the blocks in place \(counts["block_patches"] ?? 0) times")
             #expect(Self.pinKind(sidebar) == kind, "a \(title.count)-letter title placed the pinned item as \(String(describing: Self.pinKind(sidebar)))")
             #expect(Self.pinView(sidebar)?.info.title == title, "the pinned item does not show its new title")
-            #expect(Self.blockRow(sidebar)?.frame == blockFrame)
+            #expect(Self.blockRow(sidebar, id: Self.chipsID)?.frame == blockFrame)
             #expect(sidebar.list.rowViews[.workspace(WorkspaceID("ws-0"))]?.frame == rowFrame)
-            if let row = Self.blockRow(sidebar) { #expect(row.region.frame.height == row.frame.height, "the block spills out of its row") }
+            if let row = Self.blockRow(sidebar, id: Self.chipsID) { #expect(row.region.frame.height == row.frame.height, "the block spills out of its row") }
         }
     }
 
