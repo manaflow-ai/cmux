@@ -361,6 +361,7 @@ pub(crate) mod session_auth;
 pub(crate) mod session_budget_watch;
 pub(crate) mod session_hold;
 pub(crate) mod session_pages;
+mod session_usage;
 mod settings_watch;
 pub(crate) mod settled_view;
 #[cfg(test)]
@@ -462,7 +463,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 pub(crate) mod turn_cap;
-mod turn_cost;
+pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
