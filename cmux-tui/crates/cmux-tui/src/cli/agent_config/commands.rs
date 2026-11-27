@@ -1,7 +1,7 @@
 //! `cmux agent-config commands add|list|remove`: custom slash commands (saved prompts) made from
 //! cmux, written where each agent reads them (cmux-agent-customize `commands`): Claude Code's
 //! `~/.claude/commands/NAME.md`, Codex's `~/.codex/prompts/NAME.md`, or cmux's own
-//! `~/.config/cmux/commands/NAME.md`, which the daemon's `apps.composer.list` answers so the
+//! `~/.config/cmux-next/commands/NAME.md`, which the daemon's `apps.composer.list` answers so the
 //! composer's `/` menu lists it in every chat. Settings > Skills > New Command runs `add --json`.
 //! No verb needs the app or the daemon.
 
