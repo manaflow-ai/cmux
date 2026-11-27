@@ -120,7 +120,7 @@ export default agentPaneEntry({
       play: openWhere,
     },
     "where-signed-out-late": {
-      note: "Where opened before the app's Cloud answer, which then says signed out: the Cloud row's words fade to Sign in for Cloud in place; the menu keeps its height.",
+      note: "Where opened before the app's Cloud answer, which then says signed out: a new chat's Cloud row stays Cloud (Send signs in), and the menu keeps its rows and height.",
       ready: newTab(),
       snapshot: noChat([], { listedSessions: true }),
       native: signedOut,
