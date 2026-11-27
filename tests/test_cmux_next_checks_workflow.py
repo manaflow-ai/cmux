@@ -1059,7 +1059,8 @@ class PathRoutingStructure(unittest.TestCase):
         # A reused pass (JobsReuseAPassOnTheSameInputs) skips both.
         # 2026-10-26: or this run's Linux web-bundles artifact, which the minis can
         # read when they cannot read Blacksmith's cache.
-        self.assertEqual(build["if"], "${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success') && {REUSE_GUARD} }}".replace("{REUSE_GUARD}", REUSE_GUARD))
+        miss = "steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success'"
+        self.assertEqual(build["if"], "${{ (github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped') && " + miss + " && " + REUSE_GUARD + " }}")
         install = next(step for step in steps if step.get("name") == "Install the restored web bundles")
         self.assertEqual(install["if"], "${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success') && {REUSE_GUARD} }}".replace("{REUSE_GUARD}", REUSE_GUARD))
 
@@ -1072,7 +1073,7 @@ class PathRoutingStructure(unittest.TestCase):
                 build = next(step for step in steps if step.get("name") == "Build the web bundles")
                 # swift-test also skips it on a reused pass (JobsReuseAPassOnTheSameInputs).
                 miss = "steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success'"
-                self.assertIn(build["if"], (miss, "${{ (" + miss + ") && " + REUSE_GUARD + " }}"))
+                self.assertEqual(build["if"], "${{ (github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped') && " + miss + " && " + REUSE_GUARD + " }}")
 
     def test_mac_jobs_install_the_run_s_linux_web_bundles(self):
         """2026-10-26: the minis cannot read Blacksmith's cache, so they rebuilt the
@@ -1139,6 +1140,14 @@ class PathRoutingStructure(unittest.TestCase):
                 needs = jobs[job_id]["needs"]
                 self.assertIn("web-bundles", needs)
                 self.assertIn("needs.web-bundles.result == 'skipped'", jobs[job_id]["if"])
+
+    def test_scheme_compile_rejects_a_failed_web_bundle_producer(self):
+        jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
+        scheme = jobs["cmux-scheme-compile"]
+        self.assertIn("web-bundles", scheme["needs"])
+        self.assertIn("needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped'", scheme["if"])
+        self.assertIn("github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped'",
+                      next(step for step in scheme["steps"] if step.get("name") == "Build the web bundles")["if"])
 
     def test_web_bundles_job_only_produces_the_bundles(self):
         """swift test, daemon tests and generated files run only when web-bundles succeeds. Its
@@ -3853,6 +3862,8 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
             "needs.app-compile-fleet.outputs.verdict": fleet,
             # The cheap gate (note-cheap-gate): Linux cargo is not red.
             "needs.fast-tier-cargo.result": "success",
+            # The shared web producer completed before the scheme consumer.
+            "needs.web-bundles.result": "success",
             "needs.release-compile-fast.result": "skipped",
             "needs.release-compile-fast.outputs.verdict": "",
             # The cheap gate is not red: a pull request's heavy jobs start (#58899).

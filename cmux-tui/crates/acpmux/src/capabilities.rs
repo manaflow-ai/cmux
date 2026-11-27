@@ -401,6 +401,8 @@ pub const CAPABILITIES: &[Capability] = &[
         wire: &[
             method::MUX_TYPING,
             method::MUX_PRESENCE,
+            method::MUX_LIVE,
+            method::MUX_LIVE_LIST,
             method::MUX_ROOMS,
             method::MUX_ROOM,
             method::MUX_FOLLOW,
