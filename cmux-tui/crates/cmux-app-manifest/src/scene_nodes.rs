@@ -201,19 +201,23 @@ fn replace_children(nodes: &mut BTreeMap<String, TrackedNode>, id: &str, childre
             pending.extend(node.children.iter().map(|child| (child.as_str(), depth + 1)));
         }
     }
-    let previous = std::mem::take(&mut nodes.get_mut(id).unwrap().children);
+    let Some(node) = nodes.get_mut(id) else { return };
+    let previous = std::mem::take(&mut node.children);
     for child in previous {
         if let Some(node) = nodes.get_mut(&child) {
             node.parent = None;
         }
     }
     for child in &children {
-        let previous = nodes.get_mut(child).unwrap().parent.replace(id.to_string());
+        let Some(node) = nodes.get_mut(child) else { continue };
+        let previous = node.parent.replace(id.to_string());
         if let Some(parent) = previous.and_then(|parent| nodes.get_mut(&parent)) {
             parent.children.remove(child);
         }
     }
-    nodes.get_mut(id).unwrap().children = children;
+    if let Some(node) = nodes.get_mut(id) {
+        node.children = children;
+    }
 }
 
 impl TypedNodes {
