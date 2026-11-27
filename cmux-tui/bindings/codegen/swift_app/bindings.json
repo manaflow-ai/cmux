@@ -2364,6 +2364,103 @@
       }
     },
     "Conversations": {
+      "requests": {
+        "conversation-agent-token": {
+          "name": "ConversationAgentTokenRequest",
+          "doc": [
+            "`conversation-agent-token`: mints the credential of agent `participant`."
+          ],
+          "response": "ConversationAgentToken"
+        },
+        "conversation-bind": {
+          "name": "ConversationBindRequest",
+          "doc": [
+            "`conversation-bind`: binds the connection to agent `participant`."
+          ],
+          "order": [
+            "participant",
+            "token"
+          ],
+          "response": "ConversationAgentToken"
+        },
+        "conversation-create": {
+          "name": "CreateConversationRequest",
+          "doc": [
+            "`conversation-create`: idempotent by `idempotencyKey`."
+          ],
+          "order": [
+            "idempotency_key",
+            "actor",
+            "title",
+            "participants"
+          ],
+          "fields": {
+            "actor": {
+              "doc": [
+                "Omitted: the owner stamps the connection's principal."
+              ]
+            },
+            "participants": {
+              "type": "[ConversationParticipant]",
+              "optional": false
+            }
+          },
+          "response": "ConversationCreated"
+        },
+        "conversation-link-resolve": {
+          "name": "ConversationLinkResolveRequest",
+          "doc": [
+            "`conversation-link-resolve` (conversation-tree-v1): a permalink's conversation, message, the",
+            "message's top thread root and the path from that root down to it."
+          ],
+          "response": "ConversationLinkTarget"
+        },
+        "conversation-list": {
+          "name": "ListConversationsRequest",
+          "doc": [
+            "`conversation-list`: every conversation, newest `updated_at` first."
+          ],
+          "response": "ConversationList"
+        },
+        "conversation-live": {
+          "name": "ConversationLiveRequest",
+          "doc": [
+            "`conversation-live {conversation}` (`chief-live-v1`): the local owner's",
+            "`run.live` snapshot of a conversation, the text so far and the activity of",
+            "every running run. Home asks when it opens a conversation and after a gap."
+          ],
+          "response": "ChiefLiveFrame"
+        },
+        "conversation-search": {
+          "name": "ConversationSearchRequest",
+          "doc": [
+            "`conversation-search` (`conversation-search-v1`): Home-only search over the",
+            "text of the caller's conversations, newest first (the shared read model)."
+          ],
+          "response": "hand-written",
+          "order": [
+            "query",
+            "limit"
+          ],
+          "fields": {
+            "limit": {
+              "type": "Int"
+            }
+          }
+        },
+        "conversation-typing": {
+          "name": "ConversationTypingRequest",
+          "doc": [
+            "`conversation-typing`: ephemeral, never stored."
+          ],
+          "order": [
+            "conversation",
+            "actor",
+            "on"
+          ],
+          "response": "EmptyResponse"
+        }
+      },
       "objects": {
         "ConversationList": {
           "result": "conversation-list",
