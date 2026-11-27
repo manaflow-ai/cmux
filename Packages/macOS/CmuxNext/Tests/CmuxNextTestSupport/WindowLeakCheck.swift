@@ -16,7 +16,9 @@ import ObjectiveC
 /// (Tests/Support/CmuxNextTestExitTrace/CmuxNextTestWindowCensus.c), so a suite running in
 /// parallel with others closes only its own. A window its test closed is not a leak, even when
 /// something still holds it; a window that was never closed is, whether or not it is on screen.
-public struct WindowLeakCheck: SuiteTrait, TestScoping {
+/// Nonisolated: `@Suite(...)` builds its traits outside any actor, and this target is main-actor by
+/// default, so a main-actor trait fails every suite that names it (tip Swift suite, Xcode 27.2).
+nonisolated public struct WindowLeakCheck: SuiteTrait, TestScoping {
     public var isRecursive: Bool { false }
 
     @concurrent public nonisolated func provideScope(
@@ -65,7 +67,7 @@ extension NSWindow {
 
 extension Trait where Self == WindowLeakCheck {
     /// Closes, names and fails on the windows a suite's tests left open (``WindowLeakCheck``).
-    public static var closesItsWindows: Self { WindowLeakCheck() }
+    nonisolated public static var closesItsWindows: Self { WindowLeakCheck() }
 }
 
 /// What the window census knows about a window (CmuxNextTestWindowCensus.c). Main-actor: the
