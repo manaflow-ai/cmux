@@ -41,26 +41,19 @@ pub fn frame(bounds: &str, pixels_per_point: f64) -> Frame {
         .filter(|part| !part.is_empty())
         .filter_map(|part| part.parse().ok())
         .collect();
-    if numbers.len() != 4 {
+    let [left, top, right, bottom] = numbers.as_slice() else {
         return ZERO;
-    }
+    };
     let s = pixels_per_point;
-    Frame {
-        x: numbers[0] / s,
-        y: numbers[1] / s,
-        width: (numbers[2] - numbers[0]) / s,
-        height: (numbers[3] - numbers[1]) / s,
-    }
+    Frame { x: left / s, y: top / s, width: (right - left) / s, height: (bottom - top) / s }
 }
 
 fn decode_entities(text: &str) -> Result<String, Unreadable> {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(amp) = rest.find('&') {
-        out.push_str(&rest[..amp]);
-        let after = &rest[amp + 1..];
-        let semi = after.find(';').ok_or(Unreadable)?;
-        let name = &after[..semi];
+    while let Some((before, after)) = rest.split_once('&') {
+        out.push_str(before);
+        let (name, tail) = after.split_once(';').ok_or(Unreadable)?;
         let ch = match name {
             "amp" => '&',
             "lt" => '<',
@@ -81,7 +74,7 @@ fn decode_entities(text: &str) -> Result<String, Unreadable> {
             }
         };
         out.push(ch);
-        rest = &after[semi + 1..];
+        rest = tail;
     }
     out.push_str(rest);
     Ok(out)
@@ -95,23 +88,21 @@ fn attributes(mut body: &str) -> Result<Vec<(String, String)>, Unreadable> {
         if body.is_empty() {
             return Ok(out);
         }
-        let eq = body.find('=').ok_or(Unreadable)?;
-        let name = body[..eq].trim();
+        let (name, value) = body.split_once('=').ok_or(Unreadable)?;
+        let name = name.trim();
         if name.is_empty() || name.contains(char::is_whitespace) {
             return Err(Unreadable);
         }
-        let value = body[eq + 1..].trim_start();
-        let quote =
-            value.chars().next().filter(|ch| *ch == '"' || *ch == '\'').ok_or(Unreadable)?;
-        let end = value[1..].find(quote).ok_or(Unreadable)?;
-        let raw = &value[1..1 + end];
+        let mut chars = value.trim_start().chars();
+        let quote = chars.next().filter(|ch| *ch == '"' || *ch == '\'').ok_or(Unreadable)?;
+        let (raw, tail) = chars.as_str().split_once(quote).ok_or(Unreadable)?;
         if raw.contains('<') {
             return Err(Unreadable);
         }
         // XML normalizes literal whitespace characters in attribute values to spaces.
         let normalized = raw.replace(['\n', '\r', '\t'], " ");
         out.push((name.to_owned(), decode_entities(&normalized)?));
-        body = &value[1 + end + 1..];
+        body = tail;
     }
 }
 
@@ -123,7 +114,7 @@ fn attribute<'a>(attributes: &'a [(String, String)], name: &str) -> Option<&'a s
 pub fn parse(output: &str, pixels_per_point: f64) -> Result<Element, Unreadable> {
     // The dump ends with a status line after the XML ("UI hierchary dumped to: /dev/tty").
     let text = match output.rfind("</hierarchy>") {
-        Some(end) => &output[..end + "</hierarchy>".len()],
+        Some(end) => output.get(..end + "</hierarchy>".len()).unwrap_or(output),
         None => output,
     };
     let scale = pixels_per_point.max(0.01);
@@ -131,24 +122,20 @@ pub fn parse(output: &str, pixels_per_point: f64) -> Result<Element, Unreadable>
     let mut root: Option<Element> = None;
     let mut open: Vec<String> = Vec::new();
     let mut rest = text;
-    while let Some(lt) = rest.find('<') {
-        if !rest[..lt].trim().is_empty() && open.is_empty() {
+    while let Some((before, tag)) = rest.split_once('<') {
+        if !before.trim().is_empty() && open.is_empty() {
             return Err(Unreadable);
         }
-        let tag = &rest[lt..];
-        if let Some(body) = tag.strip_prefix("<?") {
-            let end = body.find("?>").ok_or(Unreadable)?;
-            rest = &body[end + 2..];
+        if let Some(body) = tag.strip_prefix('?') {
+            rest = body.split_once("?>").ok_or(Unreadable)?.1;
             continue;
         }
-        if let Some(body) = tag.strip_prefix("<!--") {
-            let end = body.find("-->").ok_or(Unreadable)?;
-            rest = &body[end + 3..];
+        if let Some(body) = tag.strip_prefix("!--") {
+            rest = body.split_once("-->").ok_or(Unreadable)?.1;
             continue;
         }
-        let gt = tag.find('>').ok_or(Unreadable)?;
-        let inner = &tag[1..gt];
-        rest = &tag[gt + 1..];
+        let (inner, after) = tag.split_once('>').ok_or(Unreadable)?;
+        rest = after;
         if let Some(name) = inner.strip_prefix('/') {
             let name = name.trim();
             if open.pop().as_deref() != Some(name) {
@@ -164,12 +151,11 @@ pub fn parse(output: &str, pixels_per_point: f64) -> Result<Element, Unreadable>
             Some(inner) => (inner, true),
             None => (inner, false),
         };
-        let name_end = inner.find(char::is_whitespace).unwrap_or(inner.len());
-        let name = &inner[..name_end];
+        let (name, attribute_text) = inner.split_once(char::is_whitespace).unwrap_or((inner, ""));
         if name.is_empty() || (open.is_empty() && root.is_some()) {
             return Err(Unreadable);
         }
-        let attributes = attributes(&inner[name_end..])?;
+        let attributes = attributes(attribute_text)?;
         match name {
             "hierarchy" => {
                 stack.push(Element::new("Screen".into(), String::new(), String::new(), ZERO));
