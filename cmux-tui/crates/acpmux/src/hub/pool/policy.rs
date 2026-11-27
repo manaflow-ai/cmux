@@ -50,6 +50,15 @@ pub struct PoolKey {
     /// starts (`suggestions_at_start`); `None` for a harness that reads none. A change since
     /// leaves the key unmatched, so the entry is discarded, never served under the old switch.
     pub prompt_suggestions: Option<bool>,
+    /// The agent tool servers a session of this shape gets now (`agent_tools::current`, scoped to
+    /// its spawn env), by name: a pooled agent was given its servers as it started, so a change
+    /// since (the cmux tools setting, `agents.cmuxMcp`; `mcp.enabled`; Computer Use
+    /// off) leaves its key unmatched and the entry is discarded, never served with the old servers.
+    pub tool_servers: String,
+    /// The settings file a session of this shape is told to read (`user_settings::resolved_path`,
+    /// which its `cmux` server's env names, `agent_tools::cmux_server`): a pooled agent's server
+    /// was given the file of its start, so another file since leaves its key unmatched.
+    pub settings_file: PathBuf,
     /// The model a Claude Code agent was started on (its `--model`, `started_on`); `None` for
     /// its own default or a harness whose model is in `args` or set after start. A chat that
     /// asked for another model never takes it: Claude Code cannot switch a new session's model
@@ -60,6 +69,33 @@ pub struct PoolKey {
 }
 
 impl PoolKey {
+    /// The fields of `self` another key differs in, by name (never a value: `auth` and
+    /// `account` are fingerprints, and none is logged). A discard logs them, so a spare that
+    /// keeps missing says why.
+    pub fn differing(&self, other: &PoolKey) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        let mut check = |name: &'static str, same: bool| {
+            if !same {
+                out.push(name);
+            }
+        };
+        check("origin", self.origin == other.origin);
+        check("cwd", self.cwd == other.cwd);
+        check("harness", self.harness == other.harness);
+        check("preset", self.preset == other.preset);
+        check("args", self.args == other.args);
+        check("systemPromptSha256", self.system_prompt_sha256 == other.system_prompt_sha256);
+        check("auth", self.auth == other.auth);
+        check("account", self.account == other.account);
+        check("machine", self.machine == other.machine);
+        check("promptSuggestions", self.prompt_suggestions == other.prompt_suggestions);
+        check("toolServers", self.tool_servers == other.tool_servers);
+        check("settingsFile", self.settings_file == other.settings_file);
+        check("model", self.model == other.model);
+        check("effort", self.effort == other.effort);
+        out
+    }
+
     /// Entries in one slot compete: a new key for a slot replaces the old one.
     fn same_slot(&self, other: &PoolKey) -> bool {
         self.origin == other.origin
@@ -79,6 +115,10 @@ pub enum Role {
     /// The shape of this harness's newest session: one per harness across
     /// folders (`pool.spare`), kept for `pool.spareIdleMinutes`.
     Spare,
+    /// The folder a Cloud machine's next home chat will take (`reserved.rs`):
+    /// kept like a spare, but one per folder and never refilled; once a chat
+    /// takes it, a fresh folder is reserved in its place.
+    Reserved,
 }
 
 enum Slot<T> {
@@ -92,6 +132,7 @@ struct Entry<T> {
     last_used: bool,
     hinted: bool,
     spare: bool,
+    reserved: bool,
     /// When the newest hint for this key came (the per-harness cap keeps the newest).
     hinted_at: Duration,
     slot: Slot<T>,
@@ -105,7 +146,7 @@ struct Entry<T> {
 
 impl<T> Entry<T> {
     fn wanted(&self) -> bool {
-        self.last_used || self.hinted || self.spare
+        self.last_used || self.hinted || self.spare || self.reserved
     }
 
     fn settle(&self) {
@@ -121,8 +162,9 @@ pub enum Take<T> {
     Warming(watch::Receiver<u64>),
     /// Nothing for this key (or a remote-origin key).
     Miss,
-    /// The slot held a session under another key: end it, start cold.
-    Discard(Option<T>),
+    /// The slot held a session under another key: end it, start cold. With the fields the
+    /// keys differed in (`PoolKey::differing`).
+    Discard(Option<T>, Vec<&'static str>),
 }
 
 /// What `want` asks the caller to do.
@@ -156,6 +198,7 @@ pub struct EntryView {
     pub last_used: bool,
     pub hinted: bool,
     pub spare: bool,
+    pub reserved: bool,
     pub state: &'static str,
     pub deadline: Duration,
 }
@@ -196,6 +239,17 @@ impl<T> Pool<T> {
         if key.origin == Origin::Remote {
             return Wanted::default();
         }
+        // A spare never takes a reserved home chat's slot (`reserved.rs`): the reserved entry is
+        // this harness's warm agent in that folder already, on the key a home chat with no pick
+        // asks for. A personal spare moved into the reserved folder on another model replaced it,
+        // so the first home chat started cold (prod journey 45975681836, 11-27: warm-home answered
+        // "another key holds its slot (ready), differing in model"). The spare starts nothing; a
+        // chat that asks for its model starts cold as it would with no spare at all.
+        if role == Role::Spare
+            && self.entries.iter().any(|e| e.reserved && e.key != key && e.key.same_slot(&key))
+        {
+            return Wanted::default();
+        }
         let mut evicted = Vec::new();
         // A new key for an occupied slot: the old entry is discarded.
         let mut i = 0;
@@ -219,7 +273,7 @@ impl<T> Pool<T> {
                         e.hinted_at = now;
                     }
                 }
-                Role::Spare => {}
+                Role::Spare | Role::Reserved => {}
             }
         }
         // One spare per harness, whatever the folder: the newest session's shape.
@@ -244,7 +298,7 @@ impl<T> Pool<T> {
         let start = match self.entries.iter_mut().find(|e| e.key == key) {
             Some(e) => {
                 // A spare waits its own (longer) time, whichever role wanted it now.
-                e.deadline = now + if e.spare { spare_idle } else { idle };
+                e.deadline = now + if e.spare || e.reserved { spare_idle } else { idle };
                 if matches!(e.slot, Slot::Empty) {
                     let generation = self.next_generation;
                     self.next_generation += 1;
@@ -261,10 +315,16 @@ impl<T> Pool<T> {
                     last_used: role == Role::LastUsed,
                     hinted: role == Role::Hinted,
                     spare: role == Role::Spare,
+                    reserved: role == Role::Reserved,
                     hinted_at: now,
                     key,
                     slot: Slot::Warming(generation),
-                    deadline: now + if role == Role::Spare { spare_idle } else { idle },
+                    deadline: now
+                        + if matches!(role, Role::Spare | Role::Reserved) {
+                            spare_idle
+                        } else {
+                            idle
+                        },
                     ready_at: now,
                     settled: watch::channel(0).0,
                 });
@@ -315,6 +375,17 @@ impl<T> Pool<T> {
         (released, self.drop_unwanted())
     }
 
+    /// A chat took `key`'s session: when that entry was the reserved one, it is reserved no more
+    /// (its folder is the chat's now) and goes once nothing else wants it. Returns whether it was
+    /// reserved, and what the pool no longer wants.
+    pub fn end_reserved(&mut self, key: &PoolKey) -> (bool, Vec<T>) {
+        let Some(e) = self.entries.iter_mut().find(|e| &e.key == key && e.reserved) else {
+            return (false, Vec::new());
+        };
+        e.reserved = false;
+        (true, self.drop_unwanted())
+    }
+
     fn drop_unwanted(&mut self) -> Vec<T> {
         let mut out = Vec::new();
         let mut i = 0;
@@ -359,7 +430,15 @@ impl<T> Pool<T> {
 
     /// Take the ready session for `key`. A session in the same slot under
     /// another key is removed and handed back for ending.
+    #[cfg(test)]
     pub fn take(&mut self, key: &PoolKey) -> Take<T> {
+        self.take_or_keep(key, true)
+    }
+
+    /// [`take`](Self::take); with `discard_other` false, a session in the same
+    /// slot under another key stays (a miss): a credentialed start never ends
+    /// the uncredentialed spare of its folder, which it could never take.
+    pub fn take_or_keep(&mut self, key: &PoolKey, discard_other: bool) -> Take<T> {
         if key.origin == Origin::Remote {
             return Take::Miss;
         }
@@ -373,13 +452,19 @@ impl<T> Pool<T> {
                 Slot::Ready(t) => Take::Ready(t),
             };
         }
-        if let Some(i) = self.entries.iter().position(|e| e.key.same_slot(key)) {
+        if let Some(i) = self.entries.iter().position(|e| e.key.same_slot(key))
+            && discard_other
+        {
             let e = self.entries.remove(i);
             e.settle();
-            return Take::Discard(match e.slot {
-                Slot::Ready(t) => Some(t),
-                _ => None,
-            });
+            let fields = e.key.differing(key);
+            return Take::Discard(
+                match e.slot {
+                    Slot::Ready(t) => Some(t),
+                    _ => None,
+                },
+                fields,
+            );
         }
         Take::Miss
     }
@@ -517,6 +602,7 @@ impl<T> Pool<T> {
                 last_used: e.last_used,
                 hinted: e.hinted,
                 spare: e.spare,
+                reserved: e.reserved,
                 state: match e.slot {
                     Slot::Empty => "empty",
                     Slot::Warming(_) => "warming",

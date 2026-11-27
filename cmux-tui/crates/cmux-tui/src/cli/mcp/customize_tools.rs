@@ -197,9 +197,50 @@ const TOOLS: &[CustomizeTool] = &[
         mutation: false,
     },
     CustomizeTool {
+        name: "customize_docs",
+        verb: "docs",
+        description: "The reference for one customization surface, written from this build: a settings surface (sidebar, density, theme, composer, background) with each key's choices and default, or an extension surface (section, live-section, pane, newtab, widget, command, composer-command, composer-mention, session-info) with its contract, places and a working example to start from. Omit `surface` for the list. Reads only.",
+        argument: Some((
+            "surface",
+            false,
+            Kind::Text,
+            "One surface, like sidebar or section. Omit for the list.",
+        )),
+        note: None,
+        minutes: false,
+        mutation: false,
+    },
+    CustomizeTool {
+        name: "customize_prompts",
+        verb: "prompts",
+        description: "Copy-paste prompts for common goals (show something in the sidebar, clone an app's flow as a pane, add an animation, a New Tab page, a palette command, a composer slash command): each one a tested prompt that ends with `cmux ext dev --once --json` exit 0. Omit `name` for the list. Reads only.",
+        argument: Some(("name", false, Kind::Text, "One prompt's name. Omit for the list.")),
+        note: None,
+        minutes: false,
+        mutation: false,
+    },
+    CustomizeTool {
         name: "customize_profiles",
         verb: "profiles",
         description: "The saved profiles: name, description, how many settings and files each holds.",
+        argument: None,
+        note: None,
+        minutes: false,
+        mutation: false,
+    },
+    CustomizeTool {
+        name: "customize_recipes",
+        verb: "recipes",
+        description: "Ready-made customizations (a compact sidebar, a different font, a PR widget, a tiling look, pane keys, vertical tabs, larger text, calm, glass, a clock, a look like the Claude desktop app): each one's name, title, wish, what it changes and the `path` of its profile file. To try one, call customize_use with that path: it previews as a draft the person applies or discards. To tailor one, use its `ask` with customize_ask. It writes the recipe files and their guide into cmux's state folder.",
+        argument: None,
+        note: None,
+        minutes: false,
+        mutation: true,
+    },
+    CustomizeTool {
+        name: "customize_doctor",
+        verb: "doctor",
+        description: "What changes the person's customization in a way they may not expect: a pr or other code layer left on, a web-dev overlay, a layer that pins an old build, files that do not load, files or keys cmux skips, values another file or layer overrides, leftovers of a removed layer, unknown settings keys, files in the wrong folder, and stray JSON or config files and environment variables that change cmux outside the usual settings. Warnings break something now; info findings are listed only. Each finding has its file, line, what it changes and its fixes; the app shows the same list. Reads only: a fix (`cmux customize doctor fix ID off|remove|restore`, or `recover` back to a setup that loads) is the person's to choose.",
         argument: None,
         note: None,
         minutes: false,
@@ -315,66 +356,5 @@ pub(super) fn call(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn w(name: &str, args: Value) -> Result<Vec<String>, String> {
-        let tool = TOOLS.iter().find(|tool| tool.name == name).unwrap();
-        words(tool, args.as_object().unwrap())
-    }
-
-    #[test]
-    fn customize_tool_arguments_become_the_cli_words() {
-        assert_eq!(
-            w("customize_ask", json!({"wish": "--compact sidebar, please"})).unwrap(),
-            ["brief", "--", "--compact sidebar, please"]
-        );
-        assert_eq!(w("customize_check", json!({})).unwrap(), ["check"]);
-        assert_eq!(w("customize_schema", json!({})).unwrap(), ["schema"]);
-        assert_eq!(w("customize_schema", json!({"part": "views"})).unwrap(), ["schema", "views"]);
-        assert_eq!(w("customize_apply", json!({"note": "compact"})).unwrap(), ["apply", "compact"]);
-        assert_eq!(w("customize_apply", json!({})).unwrap(), ["apply"]);
-        assert_eq!(w("customize_rollback", json!({})).unwrap(), ["rollback"]);
-        assert_eq!(w("customize_rollback", json!({"generation": 3})).unwrap(), ["rollback", "3"]);
-        assert_eq!(w("customize_show", json!({"generation": 2})).unwrap(), ["show", "2"]);
-        assert_eq!(
-            w("customize_save", json!({"name": "compact-night", "note": "small and dark"}))
-                .unwrap(),
-            ["save", "compact-night", "small and dark"]
-        );
-        assert_eq!(
-            w("customize_use", json!({"profile": "compact-night"})).unwrap(),
-            ["use", "compact-night"]
-        );
-        for (name, bad) in [
-            ("customize_ask", json!({})),
-            ("customize_ask", json!({"wish": " "})),
-            ("customize_show", json!({})),
-            ("customize_show", json!({"generation": "2"})),
-            ("customize_rollback", json!({"generation": 0})),
-            ("customize_save", json!({"name": "--help"})),
-            ("customize_use", json!({"profile": "-x"})),
-            ("customize_status", json!({"extra": 1})),
-            ("customize_schema", json!({"part": "--rust"})),
-            ("customize_discard", json!({"note": "x"})),
-        ] {
-            assert!(w(name, bad.clone()).is_err(), "{name} {bad}");
-        }
-        let names: Vec<String> = descriptors()
-            .iter()
-            .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
-            .collect();
-        assert_eq!(
-            w("customize_try", json!({"profile": "night", "minutes": 2})).unwrap(),
-            ["try", "night", "--minutes", "2"]
-        );
-        assert_eq!(w("customize_try", json!({})).unwrap(), ["try"]);
-        assert_eq!(w("customize_keep", json!({})).unwrap(), ["keep"]);
-        assert_eq!(w("customize_revert", json!({})).unwrap(), ["revert"]);
-        assert!(w("customize_try", json!({"minutes": 0})).is_err());
-        assert!(w("customize_try", json!({"minutes": "5"})).is_err());
-        assert!(w("customize_keep", json!({"minutes": 5})).is_err());
-        assert_eq!(names.len(), 16);
-        assert!(names.iter().all(|name| name.starts_with("customize_")));
-    }
-}
+#[path = "customize_tools_tests.rs"]
+mod tests;

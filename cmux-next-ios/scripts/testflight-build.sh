@@ -7,20 +7,24 @@
 # (.github/workflows/ios-internal-nightly.yml). `--config AppStore` with the
 # production identity (--app-id, --bundle-id com.cmux.app, --app-name and the
 # App Store profile names, or the CMUX_MOBILE_* variables below) builds the
-# public App Store app, the record the classic ios/ app used
-# (.github/workflows/ios-app-store.yml on main). The bundle id must be the one
+# public App Store app, the record the classic ios/ app used, at the AppStore
+# configuration's own MARKETING_VERSION (1.0.0; the INTERNAL lane keeps the base
+# one). main's .github/workflows/ios-app-store.yml still builds the classic ios/
+# app; `--config AppStore` runs by hand or from the one-off rc/ upload workflow
+# (ios-appstore-next-review.yml on rc/cnx-ios-appstore-review), which archives
+# with --unsigned --no-asc and signs with --from-archive. The bundle id must be the one
 # project.yml gives the configuration, and the App Store Connect record must
 # have exactly that name and bundle id, or nothing is built.
 #
 # usage: cmux-next-ios/scripts/testflight-build.sh [--ref <git ref>] [--marketing-version X.Y.Z]
-#          [--build-number N] [--internal-only] [--allow-backend-down]
+#          [--build-number N] [--internal-only | --submittable] [--allow-backend-down]
 #          [--unsigned] [--skip-validate] [--upload]
 #          [--no-asc] [--from-archive <CmuxMobileApp.xcarchive>]
 #          [--config TestFlight|TestFlightStaging|AppStore]
 #          [--app-id <ASC app id>] [--bundle-id <id>] [--app-name <ASC record name>]
 #          [--what-to-test <text>]
 #
-#   --ref                 commit to build (default HEAD); the source is `git archive` of it
+#   --ref                 commit to build (default HEAD); build only source recorded at this commit
 #   --marketing-version   CFBundleShortVersionString (default: project.yml MARKETING_VERSION, the
 #                         configuration's own when it sets one); must be >= every version
 #                         already uploaded to the app record
@@ -28,6 +32,10 @@
 #                         ios/ INTERNAL lane); must be above the latest INTERNAL build
 #   --internal-only       testFlightInternalTestingOnly: the build can never go to
 #                         external groups (e.g. "cmux family")
+#   --submittable         a build App Review may take (any --config, e.g. the cmux INTERNAL
+#                         record's TestFlight build): refuses --internal-only and checks the
+#                         version against the record's last approved App Store version, as
+#                         --config AppStore always does (ios-internal-nightly.yml `submittable`)
 #   --allow-backend-down  archive even if the production Worker's /v1/health is not
 #                         live with only the production Stack project (never with --upload)
 #   --unsigned            no distribution identity needed: archive unsigned and run the
@@ -70,6 +78,7 @@
 #   CMUX_MOBILE_SIGN_IDENTITY   SHA-1 of the distribution identity (default: the first one in
 #                       the keychain that the profile authorizes)
 #   CMUX_MOBILE_BUILDS_ROOT     output root (default ~/cmux-mobile-builds)
+#   CMUX_MOBILE_SPM_CACHE       Swift package clones, kept between builds (default <root>/.cache/spm)
 #   CMUX_MOBILE_XCFRAMEWORK     use this CmuxMobileLinkFFI.xcframework instead of the cache or a build
 #
 #   CMUX_MOBILE_CI_ASC=1        CI only (.github/workflows/ios-internal-nightly.yml): App Store
@@ -105,7 +114,7 @@ prod_stack_project=9790718f-14cd-4f7e-824d-eaf527a82b82
 dev_stack_project=454ecd03-1db2-4050-845e-4ce5b0cd9895
 config=TestFlight what_to_test=""
 
-ref=HEAD marketing="" build_number="" internal_only=false allow_backend_down=0
+ref=HEAD marketing="" build_number="" internal_only=false submittable=0 allow_backend_down=0
 unsigned=0 skip_validate=0 upload=0 no_asc=0 from_archive=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -113,6 +122,7 @@ while [[ $# -gt 0 ]]; do
     --marketing-version) marketing=$2; shift 2 ;;
     --build-number) build_number=$2; shift 2 ;;
     --internal-only) internal_only=true; shift ;;
+    --submittable) submittable=1; shift ;;
     --allow-backend-down) allow_backend_down=1; shift ;;
     --allow-package-drift) shift ;;  # accepted for old callers: Packages/iOS live in feat-cmux-next (2026-11-11)
     --unsigned) unsigned=1; shift ;;
@@ -125,7 +135,7 @@ while [[ $# -gt 0 ]]; do
     --app-id) app_id=$2; shift 2 ;;
     --bundle-id) bundle_id=$2; shift 2 ;;
     --app-name) app_name=$2; shift 2 ;;
-    -h|--help) sed -n '2,72p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,76p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -146,7 +156,9 @@ esac
 [[ "$app_id" =~ ^[0-9]+$ ]] || { echo "error: app id '$app_id' is not an App Store Connect app id" >&2; exit 2; }
 [[ "$bundle_id" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "error: bundle id '$bundle_id' is not a bundle id" >&2; exit 2; }
 [[ -n "$app_name" ]] || { echo "error: --app-name is empty" >&2; exit 2; }
-if [[ $config == AppStore && $internal_only == true ]]; then
+# An App Store build, or one made --submittable, must be able to reach App Review.
+[[ $config == AppStore ]] && submittable=1
+if [[ $submittable == 1 && $internal_only == true ]]; then
   echo "error: --internal-only would keep an App Store build out of App Review" >&2
   exit 2
 fi
@@ -190,6 +202,7 @@ name="$(date -u +%Y%m%d)-$short-testflight"
 out="$root/$name"
 work="$root/.work/$name"
 cache="$root/.cache"
+spm_cache=${CMUX_MOBILE_SPM_CACHE:-$cache/spm}
 private=$(mktemp -d); chmod 700 "$private"
 trap 'rm -rf "$private"' EXIT
 
@@ -210,7 +223,7 @@ display_name=$(config_setting CMUX_MOBILE_DISPLAY_NAME)
 [[ -n "$display_name" ]] || die "$config sets no CMUX_MOBILE_DISPLAY_NAME in project.yml at $sha"
 
 # --- App Store Connect: credentials and the exact app record ----------------
-max_marketing="not checked (--no-asc)" max_build="not checked (--no-asc)"
+max_marketing="not checked (--no-asc)" max_build="not checked (--no-asc)" floor_kind="no App Store Connect check for"
 if [[ $no_asc == 0 ]]; then
 log "App Store Connect: profile, app record"
 [[ $ci_asc == 1 ]] || asc_ auth status --validate --output json | json '
@@ -227,13 +240,32 @@ print(a["name"]+"|"+a["bundleId"])')
 [[ "$record" == "$app_name|$bundle_id" ]] || die "app $app_id is \"$record\", expected \"$app_name|$bundle_id\""
 echo "app $app_id = $app_name ($bundle_id), key $asc_key_id"
 
-# --- Versions above everything already in cmux INTERNAL --------------------
+# --- Versions above everything already in the app record -------------------
+# TestFlight lanes: at or above the highest pre-release version (TestFlight
+# orders builds by it first). AppStore, and any --submittable build: above the last App Store version Apple
+# approved, the only floor App Store Connect enforces; the record keeps
+# pre-release trains (classic's 1.0.4, an earlier 1.2.0 upload) above the
+# App Store version 1.0.0, and a build of a lower open train still uploads.
 log "versions"
-max_marketing=$(asc_ testflight pre-release list --app "$app_id" --paginate --output json | json '
+if [[ $submittable == 1 ]]; then
+  floor_kind="the last approved App Store version of" floor_op=gt floor_fail="is not above"
+  max_marketing=$(asc_ versions list --app "$app_id" --platform IOS --paginate --output json | json '
+import json,sys
+d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]["data"]
+approved={"ACCEPTED","PENDING_APPLE_RELEASE","PENDING_DEVELOPER_RELEASE","PROCESSING_FOR_APP_STORE",
+          "PROCESSING_FOR_DISTRIBUTION","READY_FOR_DISTRIBUTION","READY_FOR_SALE","PREORDER_READY_FOR_SALE",
+          "REPLACED_WITH_NEW_VERSION","REMOVED_FROM_SALE","DEVELOPER_REMOVED_FROM_SALE"}
+def state(a): return a.get("appVersionState") or a.get("appStoreState") or ""
+v=[tuple(map(int,x["attributes"]["versionString"].split("."))) for x in d if state(x["attributes"]) in approved]
+print(".".join(map(str,max(v))) if v else "0")')
+else
+  floor_kind="the highest version in" floor_op=ge floor_fail="is below"
+  max_marketing=$(asc_ testflight pre-release list --app "$app_id" --paginate --output json | json '
 import json,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
 v=[tuple(map(int,x["attributes"]["version"].split("."))) for x in d["data"]]
 print(".".join(map(str,max(v))) if v else "0")')
+fi
 max_build=$(asc_ builds list --app "$app_id" --paginate --output json | json '
 import json,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]["data"]
@@ -242,13 +274,14 @@ print(max(v) if v else 0)')
 [[ -n "$marketing" ]] || marketing=$(config_setting MARKETING_VERSION)
 [[ -n "$marketing" ]] || marketing=$(awk '/^    MARKETING_VERSION:/{print $2; exit}' <<<"$project_yml")
 [[ "$marketing" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "marketing version '$marketing' is not X.Y.Z"
-python3 -I -c 'import sys; a,b=(tuple(map(int,x.split("."))) for x in sys.argv[1:]); sys.exit(0 if a>=b else 1)' "$marketing" "$max_marketing" \
-  || die "marketing version $marketing is below $max_marketing, the highest in $app_name; TestFlight would never offer it"
+python3 -I -c 'import sys; op,a,b=sys.argv[1],*(tuple(map(int,x.split("."))) for x in sys.argv[2:]); sys.exit(0 if (a>b if op=="gt" else a>=b) else 1)' \
+    "$floor_op" "$marketing" "$max_marketing" \
+  || die "marketing version $marketing $floor_fail $max_marketing, $floor_kind $app_name"
 [[ -n "$build_number" ]] || build_number=$(date -u +%Y%m%d%H%M%S)
 [[ "$build_number" =~ ^[0-9]+$ ]] || die "build number '$build_number' must be digits (the INTERNAL lane uses UTC timestamps)"
 python3 -I -c 'import sys; sys.exit(0 if int(sys.argv[1])>int(sys.argv[2]) else 1)' "$build_number" "$max_build" \
   || die "build number $build_number is not above $max_build, the latest $app_name build"
-echo "version $marketing ($build_number); $app_name has up to $max_marketing ($max_build)"
+echo "version $marketing ($build_number); floor $max_marketing ($floor_kind $app_name), latest build $max_build"
 else
   log "App Store Connect: skipped (--no-asc)"
   [[ "$marketing" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "marketing version '$marketing' is not X.Y.Z"
@@ -284,6 +317,7 @@ fi
 
 # --- Signing material -------------------------------------------------------
 profile_path="" profile_uuid="" identity="" ext_profile_path="" ext_profile_uuid="" svc_profile_path="" svc_profile_uuid=""
+associated_domains=NO
 if [[ $unsigned == 0 ]]; then
   log "signing: profile \"$profile_name\", distribution identity"
   # fetch_profile <bundle id> <profile name> <CI file or ""> <out base>: the
@@ -355,6 +389,35 @@ Import one of their .p12 files into the login keychain (see verify/testflight-re
   grep -qx "$identity" <<<"$ext_authorized" || die "\"$ext_profile_name\" does not authorize identity $identity (the app's); regenerate it with the same certificates as \"$profile_name\""
   grep -qx "$identity" <<<"$svc_authorized" || die "\"$svc_profile_name\" does not authorize identity $identity (the app's); regenerate it with the same certificates as \"$profile_name\""
   echo "profile $profile_uuid, extension profiles $ext_profile_uuid $svc_profile_uuid, identity $identity"
+  # Entitlements beyond the base set, decided by the app's profile (a key the
+  # profile lacks fails signing or the upload). Time Sensitive notifications
+  # are required: the TestFlight entitlements files carry the key, asks are
+  # sent time-sensitive, and both App IDs have the capability. cmux's
+  # universal links (the list in App/CmuxMobileApp-TestFlight-Links.entitlements)
+  # are signed in only when the profile carries Associated Domains: the build
+  # then gets CMUX_MOBILE_ASSOCIATED_DOMAINS=YES (project.yml), and
+  # check_entitlements and the --from-archive signing expect exactly this set.
+  read -r profile_time_sensitive profile_associated_domains < <(python3 -I -c '
+import plistlib,sys
+have=plistlib.load(open(sys.argv[1],"rb")).get("Entitlements",{})
+print(int("com.apple.developer.usernotifications.time-sensitive" in have), int("com.apple.developer.associated-domains" in have))' \
+    "$private/profile.plist") || die "could not read the capabilities of \"$profile_name\""
+  [[ "$profile_time_sensitive" == 1 ]] || die "\"$profile_name\" lacks Time Sensitive notifications. Turn on USERNOTIFICATIONS_TIMESENSITIVE for $bundle_id (scripts/asc_ensure_signing.py does it for the App Store profile) and regenerate the profile."
+  if [[ "$profile_associated_domains" == 1 ]]; then
+    associated_domains=YES
+    echo "ok: profile carries Associated Domains; signing in cmux's universal links"
+  else
+    echo "::warning::\"$profile_name\" lacks Associated Domains: https cmux links open Safari, not this build. Turn on ASSOCIATED_DOMAINS for $bundle_id and regenerate the profile (verify/deep-links.md)." >&2
+    notes+=("Signed without universal links: \"$profile_name\" lacks the Associated Domains capability.")
+  fi
+  python3 -I - "$script_dir/../App/CmuxMobileApp-TestFlight-Links.entitlements" "$associated_domains" \
+      "$private/optional-ent.plist" <<'PY' || die "could not write the optional entitlements"
+import plistlib,sys
+out={"com.apple.developer.usernotifications.time-sensitive":True}
+if sys.argv[2]=="YES":
+    out["com.apple.developer.associated-domains"]=plistlib.load(open(sys.argv[1],"rb"))["com.apple.developer.associated-domains"]
+plistlib.dump(out,open(sys.argv[3],"wb"))
+PY
 fi
 
 if [[ -n "$from_archive" ]]; then
@@ -375,7 +438,18 @@ log "cmux-next-ios $config archive $sha -> $out"
 # --- Source (the commit only) ----------------------------------------------
 paths=(cmux-next-ios Packages vendor/stack-auth-swift-sdk-prerelease AppIcon.icon
        cmux-tui schemas backend/catalog backend/packages plans/cmux-next skills mux samples)
-git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+if [[ ${CMUX_INTERNAL_SPARSE_ARCHIVE:-0} == 1 ]]; then
+  # git archive can prefetch excluded blobs in a partial clone. Materialize
+  # the tracked build inputs from this commit, even if the worktree is dirty.
+  (
+    export GIT_INDEX_FILE="$private/source.index"
+    git -C "$repo" -c core.sparseCheckout=false read-tree "$sha"
+    git -C "$repo" ls-files --error-unmatch -z -- "${paths[@]}" ':(exclude)cmux-next-ios/verify' |
+      git -C "$repo" checkout-index --prefix="$work/src/" -z --stdin
+  )
+else
+  git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+fi
 
 # --- CmuxMobileLinkFFI.xcframework (gitignored; same cache key as demo-build.sh) ------
 key=$(printf '%s\n' "$(git -C "$repo" rev-parse "$sha:cmux-next-ios/rust")" \
@@ -394,8 +468,29 @@ else
   log "xcframework: building (key $key)"
   mkdir -p "$cache/cmux-mobile-rust-target"
   ln -s "$cache/cmux-mobile-rust-target" "$work/src/cmux-next-ios/rust/target"
-  JOBS=${JOBS:-8} bash "$work/src/cmux-next-ios/rust/scripts/build-xcframework.sh" > "$out/logs/xcframework.log" 2>&1 \
-    || { tail -30 "$out/logs/xcframework.log"; exit 1; }
+  # Bounded. A cold build takes 4.6 min on a 6-vCPU Blacksmith Mac (run 45871646299), but on fleet Macs the
+  # step before "xcodebuild archive" ran 65-70 min (runs 45752138226, 45760129544) and run 45875722526 sat
+  # 70+ min, holding every later INTERNAL dispatch behind the builder's one-run concurrency group until the
+  # job's 90 min limit. Past the bound the build is stopped and its log tail printed, so a slow Mac fails in
+  # minutes and says where it stalled. The build runs in its own process group so cargo dies with it.
+  xcf_minutes=${CMUX_MOBILE_XCFRAMEWORK_MINUTES:-20}
+  set -m
+  JOBS=${JOBS:-8} bash "$work/src/cmux-next-ios/rust/scripts/build-xcframework.sh" > "$out/logs/xcframework.log" 2>&1 &
+  xcf_pid=$!
+  set +m
+  xcf_start=$SECONDS
+  while kill -0 "$xcf_pid" 2>/dev/null; do
+    if (( SECONDS - xcf_start > xcf_minutes * 60 )); then
+      kill -TERM -- "-$xcf_pid" 2>/dev/null || true
+      sleep 5
+      kill -KILL -- "-$xcf_pid" 2>/dev/null || true
+      wait "$xcf_pid" 2>/dev/null || true
+      tail -40 "$out/logs/xcframework.log"
+      die "xcframework build passed its ${xcf_minutes} min bound on $(hostname -s) (a cold build takes about 5 min; CMUX_MOBILE_XCFRAMEWORK_MINUTES raises it)"
+    fi
+    sleep 5
+  done
+  wait "$xcf_pid" || { tail -30 "$out/logs/xcframework.log"; exit 1; }
   rm -rf "$cache/xcframework/$key"; mkdir -p "$cache/xcframework/$key"
   cp -R "$xcf_dest" "$cache/xcframework/$key/"
 fi
@@ -407,7 +502,7 @@ grep -q "^  $config: release" project.yml || die "$sha has no $config configurat
 archive="$out/CmuxMobileApp.xcarchive"
 args=(-project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$config"
       -destination 'generic/platform=iOS' -archivePath "$archive"
-      -derivedDataPath "$work/dd" -clonedSourcePackagesDirPath "$cache/spm"
+      -derivedDataPath "$work/dd" -clonedSourcePackagesDirPath "$spm_cache"
       MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number"
       CMUX_MOBILE_SOURCE_COMMIT="$sha")
 [[ $production == 0 ]] || args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")
@@ -418,8 +513,45 @@ else
   # give the extension the app's profile.
   args+=(CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=$team CODE_SIGN_IDENTITY="$identity"
          CMUX_MOBILE_APP_PROFILE="$profile_uuid" CMUX_MOBILE_CONTENT_EXTENSION_PROFILE="$ext_profile_uuid"
-         CMUX_MOBILE_SERVICE_EXTENSION_PROFILE="$svc_profile_uuid")
+         CMUX_MOBILE_SERVICE_EXTENSION_PROFILE="$svc_profile_uuid"
+         CMUX_MOBILE_ASSOCIATED_DOMAINS="$associated_domains")
 fi
+# Swift packages: resolve on their own, with bounded backoff, then archive with
+# no package fetch. On 11-26 GitHub answered a fleet Mac's clones of
+# apple/swift-asn1 and swift-crypto with 403 (runs 45733165601, 45752138226),
+# so the archive failed after its 65 min xcframework build. A 403 or 429 there
+# refuses the machine's address for a while; it says nothing about the commit.
+# The clones stay in $spm_cache between builds (the INTERNAL builder points a fleet Mac's at a
+# directory under its home, not the job's temp), so a build whose pins are already cloned
+# resolves from them with no GitHub fetch (-skipPackageUpdates). A pin the clones lack fails
+# that read and the bounded network resolve below runs. Every git transfer SwiftPM starts aborts
+# after 60 s under 1 KiB/s instead of hanging on a reset stream (curl 92, early EOF).
+mkdir -p "$spm_cache"
+export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.lowSpeedLimit GIT_CONFIG_VALUE_0=1024 \
+  GIT_CONFIG_KEY_1=http.lowSpeedTime GIT_CONFIG_VALUE_1=60
+log "swift packages: resolve ($spm_cache)"
+resolve_waits=(0 60 180 300)
+kept_resolved=0
+if [[ -d "$spm_cache/repositories" ]] && [[ -n "$(ls -A "$spm_cache/repositories" 2>/dev/null)" ]] \
+   && xcodebuild -resolvePackageDependencies -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+        -clonedSourcePackagesDirPath "$spm_cache" -skipPackageUpdates > "$out/logs/resolve.log" 2>&1; then
+  echo "swift packages: resolved from the kept clones, no fetch"
+  kept_resolved=1
+fi
+for i in "${!resolve_waits[@]}"; do
+  [[ $kept_resolved == 0 ]] || break
+  [[ ${resolve_waits[$i]} == 0 ]] || { echo "swift packages: GitHub refused the fetch; trying again in ${resolve_waits[$i]} s"; sleep "${resolve_waits[$i]}"; }
+  if xcodebuild -resolvePackageDependencies -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+       -clonedSourcePackagesDirPath "$spm_cache" > "$out/logs/resolve.log" 2>&1; then
+    break
+  fi
+  if ! grep -Eq "returned error: (403|429|5[0-9][0-9])|badResponseStatusCode\((403|429|5[0-9][0-9])\)|Could not resolve host|Connection (reset|refused|timed out)|early EOF|RPC failed|Operation too slow|curl 92" "$out/logs/resolve.log" \
+     || (( i == ${#resolve_waits[@]} - 1 )); then
+    grep -E "error:|fatal:" "$out/logs/resolve.log" | sort -u | head -20
+    die "swift package resolve failed (logs/resolve.log)"
+  fi
+done
+args+=(-disableAutomaticPackageResolution)
 log "xcodebuild archive"
 xcodebuild archive "${args[@]}" > "$out/logs/archive.log" 2>&1 \
   || { grep -E "error:|ARCHIVE FAILED" "$out/logs/archive.log" | sort -u | head -20; die "archive failed (logs/archive.log)"; }
@@ -434,7 +566,7 @@ if [[ -z "$from_archive" && -n "${CMUX_MOBILE_SIMULATOR_APP:-}" ]]; then
   log "xcodebuild build (iphonesimulator) -> $CMUX_MOBILE_SIMULATOR_APP"
   sim_args=(-project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$config"
             -destination 'generic/platform=iOS Simulator' -derivedDataPath "$work/dd-sim"
-            -clonedSourcePackagesDirPath "$cache/spm"
+            -clonedSourcePackagesDirPath "$spm_cache"
             MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number" CMUX_MOBILE_SOURCE_COMMIT="$sha"
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=)
   [[ $production == 0 ]] || sim_args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")
@@ -446,11 +578,21 @@ if [[ -z "$from_archive" && -n "${CMUX_MOBILE_SIMULATOR_APP:-}" ]]; then
 fi
 
 # --- Checks on any app bundle ------------------------------------------------
+# The binary and review-rule checkers are the built commit's, not this script's: the
+# INTERNAL builder runs this script from rc/cnx-ios-builder, which moves only when an
+# admin fast-forwards it, so its own copies fall behind the code they judge. From
+# 2026-11-24 every nightly failed signing because the builder's copy still forbade the
+# App Review demo's MockTerminalSession, which #47190 ships and #53308 allowed.
+built_checker() {  # <path in the repo> -> a copy from $sha (this checkout's when $sha lacks it)
+  local rel=$1 dst="$work/checkers/$1"
+  mkdir -p "$(dirname "$dst")"
+  if git -C "$repo" show "$sha:$rel" > "$dst" 2>/dev/null; then echo "$dst"; else echo "$repo/$rel"; fi
+}
 check_app() {  # <CmuxMobileApp.app>
   local app=$1 info="$1/Info.plist" bad=()
-  bash "$script_dir/check-production-binary.sh" "$app" "$bundle_id" "$binary_mode"
+  bash "$(built_checker cmux-next-ios/scripts/check-production-binary.sh)" "$app" "$bundle_id" "$binary_mode"
   # What App Store Connect rejects only after the upload (ITMS-90626, 90683, ...).
-  python3 -I "$repo/scripts/cmux-next/check-app-store-rules.py" --app "$app" || die "$app breaks an App Store review rule"
+  python3 -I "$(built_checker scripts/cmux-next/check-app-store-rules.py)" --app "$app" || die "$app breaks an App Store review rule"
   [[ "$(plutil -extract CmuxMobileStackEnvironment raw "$info" 2>/dev/null)" == "$stack_env" ]] || bad+=("CmuxMobileStackEnvironment (want '$stack_env')")
   [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || bad+=("CFBundleShortVersionString")
   [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || bad+=("CFBundleVersion")
@@ -474,12 +616,13 @@ check_app() {  # <CmuxMobileApp.app>
 check_entitlements() {  # <CmuxMobileApp.app>
   codesign --verify --strict --deep "$1"
   codesign -d --entitlements - --xml "$1" 2>/dev/null > "$private/ent.plist"
-  python3 -I - "$private/ent.plist" "$team" "$bundle_id" <<'PY'
+  python3 -I - "$private/ent.plist" "$team" "$bundle_id" "$private/optional-ent.plist" <<'PY'
 import plistlib,sys
 e=plistlib.load(open(sys.argv[1],"rb")); team,bid=sys.argv[2],sys.argv[3]
 want={"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
       "aps-environment":"production","get-task-allow":False,"beta-reports-active":True,
       "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}",f"{team}.{bid}.push"]}
+want.update(plistlib.load(open(sys.argv[4],"rb")))
 bad=[f"{k}: {e.get(k)!r} != {v!r}" for k,v in want.items() if e.get(k)!=v]
 extra=sorted(set(e)-set(want))
 if bad or extra:
@@ -561,12 +704,14 @@ if [[ -n "$from_archive" ]]; then
   [[ "$appexes" == "$app/PlugIns/CmuxMobileNotificationContent.appex"$'\n'"$app/PlugIns/CmuxMobileNotificationService.appex" ]] \
     || die "unexpected app extensions: $appexes (CmuxMobileNotificationContent.appex and CmuxMobileNotificationService.appex have profiles here)"
   cp "$profile_path" "$app/embedded.mobileprovision"
-  python3 -I - "$private/sign-ent.plist" "$team" "$bundle_id" <<'PY'
+  python3 -I - "$private/sign-ent.plist" "$team" "$bundle_id" "$private/optional-ent.plist" <<'PY'
 import plistlib,sys
 team,bid=sys.argv[2],sys.argv[3]
-plistlib.dump({"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
+ent={"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
   "aps-environment":"production","get-task-allow":False,"beta-reports-active":True,
-  "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}",f"{team}.{bid}.push"]},open(sys.argv[1],"wb"))
+  "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}",f"{team}.{bid}.push"]}
+ent.update(plistlib.load(open(sys.argv[4],"rb")))
+plistlib.dump(ent,open(sys.argv[1],"wb"))
 PY
   while IFS= read -r nested; do
     codesign --force --sign "$identity" --timestamp "$nested"
@@ -709,7 +854,7 @@ fi
 | Commit | \`$sha\` ($(git -C "$repo" log -1 --format='%s' "$sha")) |
 | Built | $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(scutil --get LocalHostName 2>/dev/null || hostname), $(xcodebuild -version | head -1) |
 | App Store Connect | "$app_name", app id $app_id, bundle \`$bundle_id\` |
-| Version | $marketing ($build_number); $app_name had up to $max_marketing ($max_build) |
+| Version | $marketing ($build_number); floor $max_marketing ($floor_kind $app_name), latest build $max_build |
 | Configuration | $config: -O, \`$(config_setting SWIFT_ACTIVE_COMPILATION_CONDITIONS)\`, no DEBUG; Stack project \`$stack_project\`; Cloud \`$cloud_api_base\` |
 | Service | \`$api_base\` |
 | Signing | $signing |

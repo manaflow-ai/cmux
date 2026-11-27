@@ -56,17 +56,39 @@ package final class RemoteVideoView: NSView {
         needsLayout = true
     }
 
-    /// A fitted image fills its layer (filtered); a native one is 1:1.
+    /// A fitted image fills its layer (filtered); a native one is 1:1. A decoded picture that
+    /// lands one pixel per device pixel on the image rect is drawn unfiltered (nearest). Runs
+    /// again when the picture's size, the frame size, the bounds or the backing scale change.
     private func applyScaling() {
         guard let layer = presenter?.layer else { return }
-        layer.contentsGravity = scaling == .fit ? .resize : .topLeft
-        layer.minificationFilter = scaling == .fit ? .trilinear : .linear
-        layer.magnificationFilter = .linear
+        let oneToOne = geometry?.showsOneToOne(picturePixels: shownPicturePixels) ?? false
+        let gravity: CALayerContentsGravity = scaling == .fit ? .resize : .topLeft
+        let minification: CALayerContentsFilter = oneToOne ? .nearest : (scaling == .fit ? .trilinear : .linear)
+        let magnification: CALayerContentsFilter = oneToOne ? .nearest : .linear
+        if layer.contentsGravity != gravity { layer.contentsGravity = gravity }
+        if layer.minificationFilter != minification { layer.minificationFilter = minification }
+        if layer.magnificationFilter != magnification { layer.magnificationFilter = magnification }
     }
 
+    /// The pixel space of the image rect and the cursor overlay (a `cmux.rd/1` stream's size).
     package func setFramePixels(_ size: CGSize) {
         framePixels = size
         needsLayout = true
+    }
+
+    /// The decoded picture's own size, when it may differ from `framePixels` (a smaller picture
+    /// under `video.scaled`). Zero: the picture is `framePixels` large.
+    package private(set) var picturePixels: CGSize = .zero
+
+    package func setPicturePixels(_ size: CGSize) {
+        guard size != picturePixels else { return }
+        picturePixels = size
+        needsLayout = true
+    }
+
+    /// The picture's size for the filter choice.
+    private var shownPicturePixels: CGSize {
+        picturePixels.width >= 1 && picturePixels.height >= 1 ? picturePixels : framePixels
     }
 
     /// The remote cursor and whether the overlay draws it. Moves the layer at once (a
@@ -105,6 +127,8 @@ package final class RemoteVideoView: NSView {
         } else {
             presenter?.layer.isHidden = true
         }
+        // Bounds, frame or picture size changed (every one of them asks for a layout).
+        applyScaling()
         CATransaction.commit()
         placeCursor()
     }

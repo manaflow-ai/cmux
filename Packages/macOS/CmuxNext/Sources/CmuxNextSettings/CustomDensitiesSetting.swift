@@ -19,89 +19,66 @@ public nonisolated struct CustomDensitiesSetting: Sendable {
     /// The custom densities in `root`, in file order. An entry that is not a valid density, or
     /// whose id repeats or names a built-in, is skipped with a diagnostic.
     public func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> [DensityTokens] {
-        guard let value = root.value(at: Self.configPath) else { return [] }
-        guard case .array(let items) = value else {
-            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.customDensities", message: "expected a list of densities"))
-            return []
+        let reply = SettingsRust.answer("densities.parse", ["root": root.keeping([Self.configPath])])
+        for diagnostic in reply["diagnostics"]?.arrayValue ?? [] {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: diagnostic["path"]?.stringValue ?? Self.configPath.joined(separator: "."), message: diagnostic["message"]?.stringValue ?? "invalid density"))
         }
-        var result: [DensityTokens] = []
-        for (index, item) in items.prefix(limit).enumerated() {
-            let path = "appearance.customDensities[\(index)]"
-            guard let tokens = Self.density(from: item) else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected an object with an id and a name"))
-                continue
-            }
-            if DensityPreset(rawValue: tokens.id) != nil || result.contains(where: { $0.id == tokens.id }) {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: "the id \"\(tokens.id)\" is already used"))
-                continue
-            }
-            result.append(tokens)
-        }
-        return result
+        return (reply["densities"]?.arrayValue ?? []).compactMap(Self.density)
     }
 
     /// Whether `value` is a list of valid densities (the Settings write check).
     public static func accepts(_ value: JSONValue) -> Bool {
-        guard case .array(let items) = value else { return false }
-        return items.allSatisfy { density(from: $0) != nil }
+        SettingsRust.answer("densities.accepts", ["value": value])["valid"]?.boolValue ?? false
     }
 
     /// One density from its JSON object; nil when it has no valid id or name, or a value of the
     /// wrong type. Numbers out of range are clamped (``DensityTokens/init(id:name:basedOn:level:spacing:fontSize:tokens:)``).
     public static func density(from value: JSONValue) -> DensityTokens? {
-        guard case .object(let members) = value,
-              let id = members["id"]?.stringValue, DensitySetting.isValidID(id),
-              let name = members["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty
-        else { return nil }
-        func number(_ key: String) -> Double?? {
-            guard let raw = members[key] else { return .some(nil) }
-            guard let double = raw.doubleValue, double.isFinite else { return nil }
-            return .some(double)
-        }
-        guard let level = number("level"), let spacing = number("spacing"), let fontSize = number("fontSize") else { return nil }
-        var tokens: [String: Double] = [:]
-        if let raw = members["tokens"] {
-            guard case .object(let entries) = raw else { return nil }
-            for (key, entry) in entries {
-                guard let double = entry.doubleValue, double.isFinite, double >= 0 else { return nil }
-                tokens[key] = double
-            }
-        }
-        return DensityTokens(id: id, name: String(name.prefix(64)), basedOn: members["basedOn"]?.stringValue,
-                             level: level ?? 0, spacing: spacing ?? 1, fontSize: fontSize, tokens: tokens)
+        guard let members = SettingsRust.answer("densities.json", ["density": value])["value"]?.objectValue,
+              let id = members["id"]?.stringValue, let name = members["name"]?.stringValue else { return nil }
+        return DensityTokens(id: id, name: name, basedOn: members["basedOn"]?.stringValue,
+                             level: members["level"]?.doubleValue ?? 0, spacing: members["spacing"]?.doubleValue ?? 1,
+                             fontSize: members["fontSize"]?.doubleValue,
+                             tokens: members["tokens"]?.objectValue?.compactMapValues(\.doubleValue) ?? [:])
     }
 
     /// The JSON object for `density`: what cmux.json stores and what export writes. Keys at their
     /// default (`spacing` 1, no `fontSize`, no `tokens`) are left out.
     public static func json(_ density: DensityTokens) -> JSONValue {
-        var members: [String: JSONValue] = ["id": .string(density.id), "name": .string(density.name), "level": .number(density.level)]
+        var members: [String: JSONValue] = [
+            "id": .string(density.id), "name": .string(density.name), "level": .number(density.level),
+        ]
         if let basedOn = density.basedOn { members["basedOn"] = .string(basedOn) }
         if density.spacing != 1 { members["spacing"] = .number(density.spacing) }
         if let fontSize = density.fontSize { members["fontSize"] = .number(fontSize) }
-        if !density.tokens.isEmpty { members["tokens"] = .object(density.tokens.mapValues { .number($0) }) }
+        if !density.tokens.isEmpty { members["tokens"] = .object(density.tokens.mapValues(JSONValue.number)) }
         return .object(members)
     }
 
-    /// A new custom density made from `base`: named `name`, with an id made from the name that
+    /// The cmux.json writes that select `active` (a built-in sets `appearance.density` and clears
+    /// `appearance.customDensity`; a custom one sets `appearance.customDensity`), saving `customs` first when given.
+    public static func writes(customs: [DensityTokens]?, active: DensityTokens) -> [([String], JSONValue?)] {
+        let request: [String: JSONValue] = ["active": json(active)]
+            .merging(customs.map { ["customs": .array($0.map(json))] } ?? [:]) { _, new in new }
+        return SettingsRust.answer("densities.writes", .object(request))["writes"]?.arrayValue?.compactMap { write in
+            guard let path = write["path"]?.arrayValue?.compactMap(\.stringValue) else { return nil }
+            return (path, write["value"].flatMap { $0.isNull ? nil : $0 })
+        } ?? []
+    }
+
+    /// A new custom density made from `base`: named `name` (with `fontSize` when given), with an id made from the name that
     /// none of `existing` uses (`my-tight`, then `my-tight-2`).
-    public static func duplicate(_ base: DensityTokens, name: String, existing: [DensityTokens]) -> DensityTokens {
-        var copy = base
+    public static func duplicate(_ base: DensityTokens, name: String, fontSize: Double? = nil, existing: [DensityTokens]) -> DensityTokens {
+        let request: [String: JSONValue] = ["base": json(base), "name": .string(name), "existing": .array(existing.map(json))]
+            .merging(fontSize.map { ["fontSize": .number($0)] } ?? [:]) { _, new in new }
+        var copy = density(from: SettingsRust.answer("densities.duplicate", .object(request))["value"] ?? .null) ?? base
         copy.name = name
-        copy.basedOn = base.isBuiltIn ? base.id : base.basedOn
-        copy.id = uniqueID(for: name, existing: existing)
         return copy
     }
 
     /// An id for `name`: lowercase letters, digits and hyphens, unique among `existing` and the
     /// built-ins.
     public static func uniqueID(for name: String, existing: [DensityTokens]) -> String {
-        let characters: [Character] = name.lowercased().map { ($0.isLetter || $0.isNumber) && $0.isASCII ? $0 : "-" }
-        let slug = characters.split(separator: "-").map { String($0) }.joined(separator: "-")
-        let base = String((slug.isEmpty ? "custom" : slug).prefix(40))
-        let taken = Set(existing.map(\.id) + DensityPreset.allCases.map(\.rawValue))
-        if !taken.contains(base) { return base }
-        var index = 2
-        while taken.contains("\(base)-\(index)") { index += 1 }
-        return "\(base)-\(index)"
+        SettingsRust.answer("densities.unique_id", ["name": .string(name), "existing": .array(existing.map(json))])["id"]?.stringValue ?? "custom"
     }
 }

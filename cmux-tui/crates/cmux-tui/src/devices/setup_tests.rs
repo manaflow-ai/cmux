@@ -12,6 +12,8 @@ use super::super::model::{Device, Kind, Role, Sources, State, Via};
 use super::super::network::{NetworkKind, NetworkStatus};
 use super::*;
 
+const NIGHTLY_ACPMUX: &str = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+
 /// One Mac's state as the scripts see it.
 #[derive(Clone)]
 struct Mac {
@@ -26,6 +28,12 @@ struct Mac {
     redeem: &'static str,
     grants: (bool, bool),
     shared: bool,
+    /// What the acpmux LaunchAgent runs, when there is one.
+    daemon: Option<String>,
+    /// Whether the installed app's acpmux points the LaunchAgent at its bundle.
+    daemon_app: bool,
+    /// Whether the Mac joined (`~/.local/bin/acpmux` is there).
+    joined: bool,
 }
 
 impl Default for Mac {
@@ -42,6 +50,9 @@ impl Default for Mac {
             redeem: "ok",
             grants: (true, true),
             shared: true,
+            daemon: None,
+            daemon_app: true,
+            joined: false,
         }
     }
 }
@@ -141,6 +152,35 @@ impl Remote for FakeMac {
                 "permissions": {"accessibility": mac.grants.0, "screen_recording": mac.grants.1},
                 "screen": {"shared": mac.shared}}})
             .to_string())
+        } else if script == DAEMON {
+            let bundled = !mac.version.is_empty() && mac.daemon_app;
+            let program = if bundled {
+                NIGHTLY_ACPMUX
+            } else if mac.joined {
+                "/Users/me/.local/bin/acpmux"
+            } else {
+                return Ok(failed(
+                    "error=no acpmux here installs its LaunchAgent: cmux NIGHTLY is too old and the Mac has not joined\n",
+                    "",
+                ));
+            };
+            let changed = mac.daemon.as_deref() != Some(program);
+            mac.daemon = Some(program.to_owned());
+            let gui = mac.console == mac.user;
+            let state = if gui { "running" } else { "atNextLogin" };
+            ok(format!(
+                "by={}\nservice={}\nprogram={program}\nloaded={}\n",
+                if bundled { "app" } else { "join" },
+                json!({"manager": "launchd", "changed": changed, "state": state}),
+                u8::from(gui)
+            ))
+        } else if script == DAEMON_CHECK {
+            let loaded = mac.daemon.is_some() && mac.console == mac.user;
+            ok(format!(
+                "program={}\nloaded={}\n",
+                mac.daemon.clone().unwrap_or_default(),
+                u8::from(loaded)
+            ))
         } else if script == OPEN_SETTINGS {
             ok("")
         } else {
@@ -328,7 +368,7 @@ fn a_fresh_mac_gets_the_app_the_login_item_a_start_and_a_sign_in() {
     assert_eq!(state(&run, "start"), StepState::Changed);
     assert_eq!(state(&run, "sign-in"), StepState::Changed);
     assert_eq!(state(&run, "share"), StepState::Ok);
-    assert_eq!(run.changed, ["app none->2100", "login-item", "started", "signed in"]);
+    assert_eq!(run.changed, ["app none->2100", "daemon", "login-item", "started", "signed in"]);
     assert!(run.failed().is_empty());
     // The install got the URL, length and Team ID on stdin; the script text carries no data.
     let install = mac.sent_script(INSTALL);
@@ -342,7 +382,7 @@ fn a_fresh_mac_gets_the_app_the_login_item_a_start_and_a_sign_in() {
     assert_eq!(redeem, [Some(b"code-123\n".to_vec())]);
     assert!(mac.scripts().iter().all(|s| !s.contains("code-123")));
     let order: Vec<_> = run.lines.iter().map(|l| l.step).collect();
-    assert_eq!(order, ["reach", "app", "login-item", "start", "sign-in", "share"]);
+    assert_eq!(order, ["reach", "app", "daemon", "login-item", "start", "sign-in", "share"]);
 }
 
 #[test]
@@ -525,9 +565,78 @@ fn start_runs_reach_login_item_and_start_only() {
     let mac = FakeMac::new(Mac { version: "1".into(), ..Mac::default() });
     let run = run_device("studio-mac", &mac, &Asker::default(), Mode::Start, false, &mut |_| {});
     let order: Vec<_> = run.lines.iter().map(|l| l.step).collect();
-    assert_eq!(order, ["reach", "login-item", "start"]);
+    assert_eq!(order, ["reach", "daemon", "login-item", "start"]);
     assert!(mac.sent_script(INSTALL).is_empty(), "start never installs");
     assert_eq!(state(&run, "start"), StepState::Changed);
+}
+
+// Leo, 2026-11-16: "if you've connected to a headlessly running mini why would it need
+// anything?": the kept-alive thing on the Mac is the daemon (acpmux's LaunchAgent, run from
+// the app's bundle), not the app; the app keepalive stays beside it.
+#[test]
+fn setup_keeps_the_daemon_alive_under_launchd_from_the_apps_bundle_once() {
+    let mac = FakeMac::new(Mac::default());
+    let first = setup(&mac, &Asker::default());
+    assert_eq!(state(&first, "daemon"), StepState::Changed);
+    assert!(detail(&first, "daemon").contains(NIGHTLY_ACPMUX), "{}", detail(&first, "daemon"));
+    assert!(detail(&first, "daemon").contains("with or without the app"));
+    assert!(first.changed.contains(&"daemon".to_owned()));
+    assert_eq!(mac.mac.borrow().daemon.as_deref(), Some(NIGHTLY_ACPMUX));
+    // The app keepalive is still written: nothing was removed.
+    assert_eq!(state(&first, "login-item"), StepState::Changed);
+    let second = setup(&mac, &Asker::default());
+    assert_eq!(state(&second, "daemon"), StepState::Ok);
+    assert!(!second.changed.contains(&"daemon".to_owned()));
+}
+
+#[test]
+fn the_daemon_script_installs_acpmuxs_own_launch_agent_and_reads_it_back() {
+    assert!(DAEMON.contains(acpmux::capabilities::DAEMON_SERVICE_APP));
+    assert!(DAEMON.contains("--json daemon service install"));
+    assert!(DAEMON.contains("launchctl print \"gui/$(id -u)/com.acpmux.daemon\""));
+    assert!(DAEMON.contains("'/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux'"));
+    for word in ["kill", "bootout", "quit", "sudo"] {
+        assert!(!DAEMON.contains(word), "{word}");
+    }
+}
+
+#[test]
+fn with_no_one_at_the_screen_the_daemon_loads_at_the_next_login() {
+    let mac = FakeMac::new(Mac { version: "2100".into(), console: "root", ..Mac::default() });
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(state(&run, "daemon"), StepState::Changed);
+    assert!(detail(&run, "daemon").contains("loads at the next login on studio-mac"));
+}
+
+#[test]
+fn an_older_nightly_keeps_the_joins_launch_agent_and_a_mac_with_neither_is_told_to_join() {
+    let joined = FakeMac::new(Mac {
+        version: "2100".into(),
+        daemon_app: false,
+        joined: true,
+        ..Mac::default()
+    });
+    let run = setup(&joined, &Asker::default());
+    assert_eq!(state(&run, "daemon"), StepState::Changed);
+    assert!(detail(&run, "daemon").contains("/Users/me/.local/bin/acpmux"));
+    assert!(detail(&run, "daemon").contains("a newer cmux NIGHTLY runs it from the app"));
+    let neither = FakeMac::new(Mac { version: "2100".into(), daemon_app: false, ..Mac::default() });
+    let run = setup(&neither, &Asker::default());
+    assert_eq!(state(&run, "daemon"), StepState::Warn);
+    let line = run.lines.iter().find(|l| l.step == "daemon").unwrap();
+    assert_eq!(line.fix, "cmux device add studio-mac --yes");
+    assert!(run.failed().is_empty(), "the Mac is still set up: {run:?}");
+}
+
+#[test]
+fn a_dry_run_reports_a_loaded_daemon_and_installs_nothing() {
+    let mac = FakeMac::new(Mac { daemon: Some(NIGHTLY_ACPMUX.into()), ..Mac::default() });
+    let run = run_device("studio-mac", &mac, &Asker::default(), Mode::Setup, true, &mut |_| {});
+    assert_eq!(state(&run, "daemon"), StepState::Ok);
+    assert!(mac.sent_script(DAEMON).is_empty());
+    let none = FakeMac::new(Mac::default());
+    let run = run_device("studio-mac", &none, &Asker::default(), Mode::Setup, true, &mut |_| {});
+    assert_eq!(state(&run, "daemon"), StepState::Skip);
 }
 
 #[test]
@@ -535,7 +644,7 @@ fn a_dry_run_changes_nothing() {
     let mac = FakeMac::new(Mac { signed_in: false, grants: (false, true), ..Mac::default() });
     let run = run_device("studio-mac", &mac, &Asker::default(), Mode::Setup, true, &mut |_| {});
     assert!(run.changed.is_empty(), "{run:?}");
-    for script in [INSTALL, KEEPALIVE, START, REDEEM, OPEN_SETTINGS] {
+    for script in [INSTALL, DAEMON, KEEPALIVE, START, REDEEM, OPEN_SETTINGS] {
         assert!(mac.sent_script(script).is_empty());
     }
     assert_eq!(state(&run, "app"), StepState::Skip);
@@ -573,8 +682,13 @@ fn json_lines_have_the_contract_shape() {
     }
     let summary = run.summary_json();
     assert_eq!(summary["device"], "studio-mac");
-    assert_eq!(summary["changed"], json!(["app none->2100", "login-item", "started"]));
-    assert!(summary["summary"].as_str().unwrap().starts_with("studio-mac: changed app none->2100"));
+    assert_eq!(summary["changed"], json!(["app none->2100", "daemon", "login-item", "started"]));
+    assert!(
+        summary["summary"]
+            .as_str()
+            .unwrap()
+            .starts_with("studio-mac: changed app none->2100, daemon")
+    );
 }
 
 fn device(id: &str, name: &str, kind: Kind, os: Option<&str>, via: Via) -> Device {
@@ -592,7 +706,9 @@ fn device(id: &str, name: &str, kind: Kind, os: Option<&str>, via: Via) -> Devic
         added_at: None,
         detail: None,
         full_access: None,
+        parked: false,
         screen: None,
+        hub_device: None,
     }
 }
 
@@ -753,7 +869,7 @@ fn the_daemon_op_and_the_cli_print_the_same_step_lines() {
         &cmux_tui_core::device_setup::DeviceSetupRequest { start_only: true, ..request },
         &mut |line| steps.push(line["step"].as_str().unwrap().to_owned()),
     );
-    assert_eq!(steps, ["reach", "login-item", "start"]);
+    assert_eq!(steps, ["reach", "daemon", "login-item", "start"]);
 }
 
 #[test]

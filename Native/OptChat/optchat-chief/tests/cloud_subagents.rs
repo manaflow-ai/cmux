@@ -41,6 +41,7 @@ fn cloud() -> CloudPlacement {
         dir: PathBuf::from("/home/agent/work"),
         harness: "claude".into(),
         instructions: "SUBAGENT SYSTEM TEXT".into(),
+        fleet: true,
     }
 }
 
@@ -67,10 +68,12 @@ fn wait_for(h: &mut Harness, what: impl Fn(&Harness) -> bool) {
     assert!(what(h), "timed out");
 }
 
-/// The subagent sessions' specs and the text of their first prompts.
+/// The subagent sessions' specs and the text of their first prompts, by
+/// subagent (a1, a2, ...): one spawn's sessions start side by side, so the
+/// order they were made in is not the tasks' order.
 fn subs(h: &Harness) -> Vec<(optchat_chief::acpmux::SessionSpec, String)> {
     let inner = h.agents.inner.lock().unwrap();
-    inner
+    let mut subs: Vec<_> = inner
         .specs
         .iter()
         .enumerate()
@@ -86,7 +89,18 @@ fn subs(h: &Harness) -> Vec<(optchat_chief::acpmux::SessionSpec, String)> {
                 .unwrap_or_default();
             (s.clone(), prompt)
         })
-        .collect()
+        .collect();
+    // Stable: a subagent started twice keeps its sessions' order.
+    subs.sort_by_key(|(s, _)| {
+        let id = &s.tags["optchat.subagent"];
+        (
+            id.trim_start_matches('a')
+                .parse::<u64>()
+                .unwrap_or(u64::MAX),
+            id.clone(),
+        )
+    });
+    subs
 }
 
 #[test]
@@ -183,6 +197,7 @@ fn a_peer_session_names_its_peer_and_sends_only_an_asking_policy() {
         env: Default::default(),
         fast: false,
         peer: Some("cloud1".into()),
+        stop_condition: None,
     };
     let meta = session_meta(&spec, None);
     assert_eq!(meta["peer"], "cloud1");
@@ -1018,12 +1033,18 @@ impl optchat_chief::cloud_vms::CloudVms for PerAgentVms {
 }
 
 fn per_agent(h: &mut Harness, vms: &Arc<PerAgentVms>) -> Arc<Spawner> {
+    per_agent_on(h, vms, false)
+}
+
+/// [`per_agent`] on a host with (`fleet`) or without the fleet client.
+fn per_agent_on(h: &mut Harness, vms: &Arc<PerAgentVms>, fleet: bool) -> Arc<Spawner> {
     let dyn_vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> = vms.clone();
     let sp = Arc::new(
         Arc::try_unwrap(spawner(h, None))
             .ok()
             .unwrap()
             .with_cloud_text("SUBAGENT SYSTEM TEXT".into())
+            .with_fleet(fleet)
             .with_cloud_vms(Some(dyn_vms.clone())),
     );
     h.brain.set_sub_starter(Some(sp.queue_starter()));
@@ -2028,7 +2049,7 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
         ]
     }));
     let vms = Arc::new(PerAgentVms::default());
-    let sp = per_agent(&mut h, &vms);
+    let sp = per_agent_on(&mut h, &vms, true);
     auto_pause_on(&mut h);
     let fleet = Arc::new(FakeFleet::default());
     h.brain.set_fleet_jobs(Some(fleet.clone()), Duration::ZERO);
@@ -2270,4 +2291,34 @@ fn a_tell_to_a_paused_vm_without_the_pool_tool_names_the_tool() {
     let a = sp.clone();
     let told = format!("{:?}", run(&mut h, move || a.tell("a1", "one more thing")));
     assert!(told.contains("pool tool"), "{told}");
+}
+
+/// A cloud subagent's first message names the fleet (`cmux-ci`, `fleet-wait:`) only when
+/// this host has the fleet client; a person without it gets none of it (Leo, 2026-11-26:
+/// "identify all the weird opinoinated fleet things we shipped into the app and remove them").
+#[test]
+fn fleet_instructions_only_on_a_host_with_the_fleet_client() {
+    use optchat_chief::fleet_wait::client_in;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    assert!(!client_in(Some(&home), Some(bin.as_os_str())));
+    assert!(!client_in(None, None));
+    std::fs::write(bin.join("cmux-ci"), "").unwrap();
+    assert!(client_in(Some(&home), Some(bin.as_os_str())));
+    std::fs::write(home.join(".local/bin/cmux-ci"), "").unwrap();
+    assert!(client_in(Some(&home), None));
+    let task = cloud().task("a1", Some("~/fun/cmux"), "build the web page");
+    assert!(task.contains("fleet-wait: JOB_ID"), "{task}");
+    assert!(!task.contains("sr2"), "{task}");
+    assert!(!task.contains("fleet controller"), "{task}");
+    let without = CloudPlacement {
+        fleet: false,
+        ..cloud()
+    }
+    .task("a1", Some("~/fun/cmux"), "build the web page");
+    assert!(!without.contains("fleet-wait"), "{without}");
+    assert!(!without.contains("cmux-ci"), "{without}");
 }

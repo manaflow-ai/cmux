@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextSettings
 import Testing
 
 /// Customize… (`customize.open`) opens customize-by-asking with no terminal (Leo: "how can i try
@@ -40,5 +41,25 @@ struct CustomizeEntryTests {
         invocation.arguments["draft"] = .string("/customize make tabs taller")
         #expect(registry.perform(.customizeOpen, invocation: invocation))
         #expect(AgentHandlers.seed(for: opened.first ?? ActionInvocation()).draft == "/customize make tabs taller")
+    }
+
+    /// Leo, 2026-11-15 (ask-9634dbcdac): opt-in UI, with turning it off as the way back.
+    @Test func rightClickCustomizeIsOneDefaultOffSettingOnEverySurface() throws {
+        let descriptor = try #require(SettingsSchema.descriptor(for: CmuxConfigSnapshot.customizeFromTheAppPath))
+        #expect(CmuxConfigSnapshot.customizeFromTheAppDefault == false)
+        #expect(descriptor.defaultValue == .bool(false))
+        #expect(descriptor.isPaletteExposed)
+        #expect(SettingsSchema.agentSettableKeys.contains(descriptor.id))
+        #expect(CmuxConfigSnapshot.empty.customizeFromTheApp == false)
+    }
+
+    @Test func rightClickCustomizeIsHiddenUntilTheSettingIsOn() {
+        var on = false
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
+        #expect(registry.bindAgentPane(customizeRows: { on }) { _ in })
+        #expect(ActionRegistry.locate(.customizeOpen, in: registry.makeContextMenu(for: .tabStrip)) == nil)
+        on = true
+        #expect(ActionRegistry.locate(.customizeOpen, in: registry.makeContextMenu(for: .tabStrip)) != nil)
+        #expect(registry.descriptor(for: .customizeOpen)?.surfaces.contains(.palette) == true, "the palette row stays")
     }
 }

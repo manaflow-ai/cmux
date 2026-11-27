@@ -25,6 +25,12 @@ the design rests on, on one launch of a NIGHTLY or a built app (scripts/measure/
              with pages (bench builds; pages less raw is the Page.captureScreenshot cost). browser.page.screenshot
              is tried once shown and once hidden behind a terminal tab: the socket refuses it to scripts by design.
 
+--launch open starts the app through LaunchServices (`open -n -a BUNDLE --env ...`), not as a child of this script,
+so the app is its own responsible process for TCC (as when a person opens it): tccd's requests then name the app, not
+the fleet worker, as the responsible process. The report's `launch` says how it started, its pid, its parent (launchd:
+1) and tccd's verdict line (`tcc_verdict`): any kTCCServiceScreenCapture request by the app that is not a preflight
+answered "unknown" (authValue 1) counts against the launch-image design.
+
 Writes OUT/report.json, OUT/report.md and the pictures (OUT/images/*.png: the screen's window, each composite, the
 page image). Exit 0 once the report is written (an artifact comes back only from a passing step), 3 when it could
 not measure. Kills only what it started: its app copy (its bundle's processes), its marker, its log stream.
@@ -237,6 +243,99 @@ class TccLog:
                 "first_line": lines[0][:300] if lines else None}
 
 
+class OpenedApp(frames.App):
+    """frames.App started through LaunchServices (`open -n`): its own responsible process, a child of launchd."""
+
+    class Process:
+        """The opened app's pid, with the poll() frames.App reads."""
+
+        def __init__(self, pid):
+            self.pid, self.returncode = pid, None
+
+        def poll(self):
+            try:
+                os.kill(self.pid, 0)
+            except ProcessLookupError:
+                self.returncode = -1
+                return self.returncode
+            except PermissionError:
+                pass
+            return None
+
+        def wait(self, timeout=None):
+            deadline = None if timeout is None else time.monotonic() + timeout
+            while self.poll() is None:
+                if deadline is not None and time.monotonic() > deadline:
+                    raise subprocess.TimeoutExpired("open -n app", timeout)
+                time.sleep(0.25)  # test script: waiting for the opened app to exit
+            return self.returncode
+
+    def launch(self):
+        # frames.App.launch builds the run's home, defaults and env, then starts the binary; this keeps all of that and
+        # swaps only the start: subprocess.Popen is pointed at `open` for the one call.
+        real_popen = subprocess.Popen
+        binary = os.path.join(self.bundle, "Contents/MacOS", self.executable)
+        opened = {}
+
+        def popen(argv, env=None, **kwargs):
+            if argv and argv[0] != binary:
+                return real_popen(argv, env=env, **kwargs)
+            log = os.path.join(self.root, "app.log")
+            command = ["/usr/bin/open", "-n", "-F", "--stdout", log, "--stderr", log, "-a", self.bundle]
+            # Every key: the app gets launchd's session environment, not this script's, so nothing is inherited.
+            for key, value in sorted((env or {}).items()):
+                command += ["--env", f"{key}={value}"]
+            command += ["--args", *argv[1:]]
+            before = set(pids_of(binary))
+            done = subprocess.run(command, capture_output=True, text=True, timeout=60)
+            if done.returncode != 0:
+                raise frames.Unmeasurable(f"open -n failed ({done.returncode}): {done.stderr.strip()[:300]}")
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                new = [pid for pid in pids_of(binary) if pid not in before]
+                if new:
+                    opened["pid"] = new[0]
+                    return OpenedApp.Process(new[0])
+                time.sleep(0.25)  # test script: LaunchServices starts the app
+            raise frames.Unmeasurable("open -n started no process of the bundle in 30 s")
+
+        subprocess.Popen = popen
+        try:
+            super().launch()
+        finally:
+            subprocess.Popen = real_popen
+        pid = opened.get("pid")
+        parent = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        self.launch_info = {"mode": "open -n", "pid": pid, "ppid": int(parent) if parent.isdigit() else parent}
+        say("opened app", json.dumps(self.launch_info))
+
+
+def pids_of(binary):
+    """Pids whose command line starts with BINARY (the app's executable path) or its real path, from ps: LaunchServices
+    starts a bundle under /var/folders from /private/var/folders."""
+    listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    paths = {binary, os.path.realpath(binary)}
+    pids = []
+    for line in listing.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        command = command.strip()
+        if pid.isdigit() and any(command == path or command.startswith(path + " ") for path in paths):
+            pids.append(int(pid))
+    return pids
+
+
+def tcc_verdict(log):
+    """`ok` when every kTCCServiceScreenCapture request by the app is a preflight answered unknown (authValue 1) or
+    there is none; `STOP` with the requests that are not (a real request, a prompt, a grant or a denial); `no-log`
+    when tccd's log stream gave no line (nothing was read, so nothing is known)."""
+    requests = log.get("app_screen_capture_requests") or []
+    if not log.get("lines"):
+        return {"verdict": "no-log", "requests": 0, "beyond_unknown_preflight": []}
+    beyond = [r for r in requests
+              if not (str(r.get("preflight")).lower() in ("yes", "true", "1") and "authValue=1" in (r.get("result") or ""))]
+    return {"verdict": "STOP" if beyond else "ok", "requests": len(requests), "beyond_unknown_preflight": beyond}
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # (b) Pixels: a PNG read through sips (BMP, scaled down), shares of the probe's colors, difference from the screen.
 
@@ -349,6 +448,33 @@ def wait_for(check, limit, what):
     raise frames.Unmeasurable(f"no {what} in {limit} s")
 
 
+def settle_for(check, limit, what):
+    """Best effort: check()'s first truthy value within `limit` s, else None and a log line naming what never came."""
+    deadline = time.monotonic() + limit
+    while True:
+        try:
+            got = check()
+        except Exception:  # noqa: BLE001 - the app or osascript may not answer yet
+            got = None
+        if got:
+            return got
+        if time.monotonic() >= deadline:
+            say("wait", f"no {what} in {limit} s; going on")
+            return None
+        time.sleep(0.1)  # test script: the poll interval
+
+
+def page_state(control, tab, script):
+    answer = control.call("browser.page.eval", {"tab": tab, "script": script}, timeout=5)
+    return answer.get("value") if isinstance(answer, dict) and not answer.get("error") else None
+
+
+def window_pids():
+    """The pids that own an on-screen window (CGWindowList), or None when it cannot be read."""
+    done = subprocess.run(["osascript", "-l", "JavaScript", "-e", WINDOWS_JXA], capture_output=True, text=True, timeout=10)
+    return {w.get("pid") for w in json.loads(done.stdout or "[]")}
+
+
 def build_workload(control, root):
     """A new workspace: the left pane's terminal prints red-backed text, the right pane shows a blue Chromium page."""
     before = {w.get("id") for w in control.topology().get("workspaces") or []}
@@ -359,7 +485,15 @@ def build_workload(control, root):
                                        if w.get("id") not in before), None), 30, "new workspace")
     left = wait_for(lambda: next((p for p in tabs_of(control, workspace) if p.get("tabs")), None), 30, "terminal")
     terminal = left["tabs"][0]["id"]
-    time.sleep(1.5)  # test script: the shell starts
+    # The shell starts: the new workspace's focused terminal shows its prompt, and the text holds still.
+    shown = lambda: ((control.call("surface.read_text") or {}).get("text") or "").rstrip()
+    if settle_for(shown, 15, "shell prompt in the left terminal"):
+        last, same = None, 0
+        deadline = time.monotonic() + 10
+        while same < 3 and time.monotonic() < deadline:
+            now = shown()
+            same, last = (same + 1 if now == last else 1), now
+            time.sleep(0.1)  # test script: the poll interval of the prompt text
     reply = control.action("terminal.sendText", target=f"tab:{terminal}", text=TERMINAL_TEXT)
     if reply.get("error"):
         raise frames.Unmeasurable(f"terminal.sendText: {reply['error']}")
@@ -378,7 +512,8 @@ def build_workload(control, root):
     chromium = wait_for(lambda: next((t.get("id") for p in tabs_of(control, workspace) for t in p.get("tabs") or []
                                       if t.get("id") not in known and not str(t.get("id")).startswith("pending_")),
                                      None), 30, "Chromium tab")
-    time.sleep(3)  # test script: the page loads and paints
+    # The page loads: its document is complete (a static page with nothing left to fetch).
+    settle_for(lambda: page_state(control, chromium, "document.readyState") == "complete", 30, "loaded Chromium page")
     return {"workspace": workspace, "left_pane": left["id"], "terminal": terminal, "right_pane": right["id"],
             "right_terminal": right_terminal, "chromium": chromium}
 
@@ -476,6 +611,8 @@ def main(argv=None):
     parser.add_argument("--tools", required=True, help="the compiled scripts/measure/tab-switch-frames/tools.swift")
     parser.add_argument("--rounds", type=int, default=12)
     parser.add_argument("--out", default=os.path.join(os.getcwd(), ".build/launch-capture-probe"))
+    parser.add_argument("--launch", choices=("child", "open"), default="child",
+                        help="child: this script starts the binary (default); open: LaunchServices `open -n`")
     args = parser.parse_args(argv)
     if not (args.app or args.dmg):
         parser.error("--app or --dmg")
@@ -505,8 +642,9 @@ def main(argv=None):
         watch.start()
         tcc_log = TccLog(args.out)
         watch.ignore = {executable, "cmux", "tab-switch-tools", "CuaDriver", "cua-driver"}
-        app = frames.App(bundle, root, smoke)
+        app = (OpenedApp if args.launch == "open" else frames.App)(bundle, root, smoke)
         app.launch()
+        report["launch"] = getattr(app, "launch_info", {"mode": "child", "pid": app.process.pid, "ppid": os.getpid()})
         control = app.control
         ids = build_workload(control, root)
         report["workload"] = ids
@@ -518,7 +656,8 @@ def main(argv=None):
         marker.quit()
         rect = ready["window"]
         report["window_points"] = rect
-        time.sleep(1.0)  # test script: the marker's window leaves the screen
+        # The marker's window leaves the screen: its pid owns no window in the window list.
+        settle_for(lambda: marker.process.pid not in window_pids(), 10, "marker window gone from the screen")
         # (b) The screen's own pixels of the window, then each of the app's pictures of it.
         screen_png = os.path.join(images, "screen-window.png")
         problem = screen_window(rect, screen_png)
@@ -555,7 +694,8 @@ def main(argv=None):
         report["timing_runs"] = runs
         # The page hidden behind the right pane's terminal: does Page.captureScreenshot still answer, and in how long.
         control.action("tab.focus", target=f"tab:{ids['right_terminal']}")
-        time.sleep(1.5)  # test script: the page hides
+        # The page hides: behind the terminal its document reports hidden.
+        settle_for(lambda: page_state(control, ids["chromium"], "document.visibilityState") == "hidden", 10, "hidden Chromium page")
         hidden = sources.measure("browser.page.screenshot", "hidden")
         if hidden["png"]:
             kept = os.path.join(images, "browser-page-screenshot-hidden.png")
@@ -576,6 +716,8 @@ def main(argv=None):
                 report["end_error"] = str(error)[:300]
             if tcc_log is not None:
                 report["tcc_log"] = tcc_log.stop(report.get("bundle_id", "?"), report.get("executable"))
+                report["tcc_verdict"] = tcc_verdict(report["tcc_log"])
+                say("tcc verdict", json.dumps(report["tcc_verdict"])[:800])
         if watch is not None:
             report["prompt_watch"] = watch.stop()
         if report.get("bundle_id"):
@@ -598,6 +740,8 @@ def write_markdown(report, path):
     for when in ("tcc_before", "tcc_after"):
         lines.append(f"- {when}: `{json.dumps(report.get(when))[:900]}`")
     lines.append(f"- prompt watch: `{json.dumps(report.get('prompt_watch'))[:900]}`")
+    lines.append(f"- launch: `{json.dumps(report.get('launch'))}`")
+    lines.append(f"- tccd verdict: `{json.dumps(report.get('tcc_verdict'))[:900]}`")
     lines.append(f"- tccd log: `{json.dumps(report.get('tcc_log'))[:900]}`")
     lines += ["", "| picture | left red share | right blue share | right common color | MAD vs screen (all/left/right) |",
               "|---|---|---|---|---|"]

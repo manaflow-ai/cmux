@@ -101,9 +101,9 @@ public final class PermissionRequestCardView: NSView {
         if request.reasonCheck == .unclear {
             add(label("⚠︎ " + strings.unclear, size: TypeScale.detail, weight: TypeScale.emphasis, color: Palette.textPrimary, lines: 3))
         }
-        let deny = CmuxDialogButtonView(CmuxDialogButton(id: "deny", title: strings.deny, role: .cancel), hint: .escape,
+        let deny = CmuxDialogButtonView(CmuxDialogButton(id: "deny", title: strings.deny, role: .cancel), hint: .escape, keycap: true,
                                         target: self, action: #selector(denyPressed))
-        let proceed = CmuxDialogButtonView(CmuxDialogButton(id: "continue", title: strings.proceed, role: .default), hint: .return,
+        let proceed = CmuxDialogButtonView(CmuxDialogButton(id: "continue", title: strings.proceed, role: .default), hint: .return, keycap: true,
                                            target: self, action: #selector(continuePressed))
         var row: [NSView] = []
         if waiting > 0 { row.append(label(strings.more(waiting), size: TypeScale.caption, color: Palette.textTertiary)) }
@@ -121,7 +121,7 @@ public final class PermissionRequestCardView: NSView {
         } else {
             add(label(strings.promptGuide, size: TypeScale.detail, color: Palette.textPrimary, lines: 2))
         }
-        let close = CmuxDialogButtonView(CmuxDialogButton(id: "close", title: strings.close, role: .cancel), hint: .escape,
+        let close = CmuxDialogButtonView(CmuxDialogButton(id: "close", title: strings.close, role: .cancel), hint: .escape, keycap: true,
                                          target: self, action: #selector(closePressed))
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)

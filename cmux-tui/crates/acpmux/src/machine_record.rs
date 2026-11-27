@@ -68,6 +68,26 @@ pub struct MachineCredential {
     /// existed: the next start on the box it runs on takes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloned_on: Option<String>,
+    /// The person named this machine at its join (`machine join --name`), so [`Self::name`] is
+    /// its name to its peers in place of the host name ([`joined_name_at`]). False for a join
+    /// that took the default (the host name) or a sign-in's: those keep the host name.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub named: bool,
+}
+
+/// The name this machine joined under when it was named at its join (`machine join --name`):
+/// what `pairing::machine_name` gives in place of the host name, so machines whose host names
+/// match (VMs made from one image) are still told apart on the hub, in each heartbeat and in
+/// every sender they stamp. None when the record in `home` is missing, unreadable, revoked, a
+/// copy (marked, or joined on a box whose fingerprint is not `current`), took the default name,
+/// or names nothing a session name may be.
+pub(crate) fn joined_name_at(home: &std::path::Path, current: Option<&str>) -> Option<String> {
+    let record = load_at(home).ok().flatten()?;
+    let joined = record.host_fingerprint.as_deref();
+    let other_box = joined.zip(current).is_some_and(|(joined, here)| joined != here);
+    (record.named && !record.revoked && !record.cloned && !other_box)
+        .then_some(record.name)
+        .filter(|name| crate::session_name::validate(name).is_ok())
 }
 
 /// A hub-supplied id the store keeps: non-empty, one line, and no secret-shaped text.
@@ -108,6 +128,16 @@ pub struct Consent {
     pub signed_in_machines_user: Option<String>,
     #[serde(rename = "grantedAt", skip_serializing_if = "Option::is_none")]
     pub granted_at: Option<String>,
+    /// The person's own setting of [`Self::control`] here (`machine_consent_set`, `acpmux host
+    /// consent grant|revoke --control`, Settings > Devices): None when it was never set. Only
+    /// `Some(false)`, the switch turned off, refuses the person's own machines
+    /// ([`joined_consent_allows`]); never set, they are let in, since joining is the consent. A
+    /// file an older build wrote has none (never set).
+    #[serde(rename = "controlLocal", default, skip_serializing_if = "Option::is_none")]
+    pub control_local: Option<bool>,
+    /// [`Self::control_local`] for [`Self::screen`].
+    #[serde(rename = "screenLocal", default, skip_serializing_if = "Option::is_none")]
+    pub screen_local: Option<bool>,
 }
 
 /// The consent surface "control for my other machines signed in to this account" (Leo,
@@ -363,18 +393,68 @@ pub fn require_consent(surface: &str) -> Result<()> {
     }
 }
 
-/// Whether the Mac's own sessions keep computer use with no consent: the requirement comes only
-/// from joins signing in made ([`machine_consent::Authority::required_only_by_sign_in`]).
-pub(crate) fn local_computer_use_kept() -> bool {
-    authority().is_ok_and(|authority| authority.required_only_by_sign_in())
-}
-
 pub fn require_joined_consent(surface: &str) -> Result<()> {
     if consent_status()["consentRequired"] == false { Ok(()) } else { require_consent(surface) }
 }
 
+/// Who a request gated on this machine's consent came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Requester {
+    /// The person's own machine: their own acpmux daemon over a peer link (`ConnAuth::
+    /// peer_daemon`), or the hand they paired on this machine. Joining is the consent (Leo,
+    /// 2026-11-22: "who's gonna walk over and click allow on a headless mac mini"): it is let in
+    /// unless the person turned the surface off here.
+    OwnMachine,
+    /// Anyone else (a paired client credential, another person's device, a shared link): it needs
+    /// the surface granted here, as before.
+    Other,
+}
+
+/// Whether `status` (a [`consent_status`]) lets `requester` use `surface`. No join here: no
+/// requirement. Granted here: yes. The person's own machine: yes unless the person turned the
+/// surface off here (`controlLocal` or `screenLocal` false); never set reads as on. Anyone else:
+/// only a grant.
+pub fn joined_consent_allows(status: &Value, surface: &str, requester: Requester) -> bool {
+    if status["consentRequired"] == false {
+        return true;
+    }
+    if !matches!(surface, "screen" | "control") {
+        return false;
+    }
+    let consent = &status["consent"];
+    if consent[surface] == "granted" {
+        return true;
+    }
+    requester == Requester::OwnMachine && consent[format!("{surface}Local")] != false
+}
+
+/// [`require_joined_consent`] for `requester`: the person's own machine needs no grant here,
+/// only the switch not turned off ([`joined_consent_allows`]). A refusal of the person's own
+/// machine is the person's own Off, so it records no ask (no sheet asks them to undo it).
+pub fn require_joined_consent_from(surface: &str, requester: Requester) -> Result<()> {
+    let status = consent_status();
+    if joined_consent_allows(&status, surface, requester) {
+        return Ok(());
+    }
+    if requester == Requester::Other {
+        let _ = record_consent_refusal(surface);
+    }
+    Err(anyhow!(CONSENT_REQUIRED))
+}
+
 pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
     authority()?.refused(surface)
+}
+
+/// Whether this machine is joined from another device: a live (not revoked, not copied) join
+/// that signing in on this machine did not make (a join line, a pair code, a fleet or Cloud
+/// enrollment). Such a join is the person's consent for their other machines' workspace
+/// circuits (`session_service`), as it is for screen sharing.
+#[cfg(feature = "hub-carrier")]
+pub(crate) fn joined_from_another_device() -> bool {
+    machine_credential().ok().flatten().is_some_and(|record| {
+        !record.revoked && record.joined_by.as_deref() != Some(JOINED_BY_SIGN_IN)
+    })
 }
 
 /// `joined_by` of a join signing in made.

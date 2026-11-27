@@ -1,0 +1,131 @@
+name: fleet rd-host macOS (advisory)
+
+# Advisory: cmux-rd-host's macOS fmt, clippy and tests on a fleet Mac, run on the
+# feat-cmux-next tip at most once per 2-hour window, and a red that names the
+# range of landings since the last tip it checked.
+#
+# rust-workspaces.yml checks cmux-rd-host (its .github/rust-workspaces.toml entry)
+# on Linux only, so the code behind #[cfg(target_os = "macos")] (src/mac/, the
+# hardware encoder path) is never linted by a pull request. On 2026-11-15
+# `cmux-tui-rust-check.sh rd-host` (clippy --all-targets --no-default-features
+# --features bench -D warnings, then the tests, on macOS) was red on
+# feat-cmux-next with two dead_code errors in src/hybrid.rs (fixed in #43668),
+# and no pull request job had seen them.
+#
+# Tip, not pull request (2026-11-22): as a pull request check it ran 70 times in
+# 24 h (2026-11-21T03..22T03, ci_per_pr.py timing feed), 1,358 runner-minutes
+# of gateway wall time, about 2.1 a merged PR, plus the fleet Mac's time behind
+# each, and it was red 0 times. A check that never reds on pull requests runs
+# once per interval at the tip (base-coalesce.yml): the first feat-cmux-next push
+# of each 2-hour window that changes the crate runs it, at most twelve runs a
+# day, and a red names the range since the last tip it checked, for
+# base-red-watch to bisect. A crate push that a window's earlier run already
+# claimed is checked by the next crate push's run (it checks the whole crate at
+# that tip), or by a dispatch. A pull request that wants the verdict before it
+# lands dispatches this workflow on its branch (workflow_dispatch, ref = the
+# branch). vars.CI_RD_HOST_COALESCE = '0' runs it on every crate push again.
+#
+# It gates nothing, as fleet-test-compile.yml: the landing gate and the required
+# compiles neither wait for it nor read it. The workflow's name says "(advisory)"
+# like its job's, so a reader that judges a whole check suite skips it as well.
+#
+# The controller submits the step (RFD 0162, gateway stubs off Mac runners,
+# 2026-11-26). This job ran on a gateway Mac runner (vars.CI_RD_HOST_GATEWAY)
+# only to wait while its cmux-ci client held the step on a fleet Mac: 4.0 Mac
+# job-hours on 2026-11-25 (12 runs, median 1202 s each). It now runs on
+# cmux-linux and reads the verdict with scripts/ci/fleet_compile_result.py
+# --phase rd-host-macos: that read (GET /compile-checks/v1/<sha>?phase=
+# rd-host-macos) submits the same macOS step (cmux-tui-rust-check.sh rd-host)
+# from the controller, trust-gated to a feat-cmux-next push head or a
+# same-repository pull request head, and judges it as this job did (exit 0
+# passes; a FAIL row of `rd-host fmt`, `clippy` or `test` fails; anything else
+# is no verdict). cmuxterm-hq#28074 adds the phase; until the controller runs it,
+# the read is no verdict and this job is a warning. A workflow_dispatch on a
+# branch head no verified run named also reads no verdict.
+#
+# The path filter is the plan: only a change to the crate, the check script or
+# this file starts it. tests/test_ci_rd_host_macos_route.py fails when no
+# feat-cmux-next push that changes a macOS-only file of the crate runs this
+# check on macOS.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/**"
+      - "scripts/ci/cmux-tui-rust-check.sh"
+      - ".github/workflows/fleet-rd-host-macos.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+# One tip run at a time; a started one is never cancelled (the fleet step would be lost).
+concurrency:
+  group: fleet-rd-host-macos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  coalesce:
+    if: github.repository == 'manaflow-ai/cmux'
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: fleet-rd-host-macos
+      hold_minutes: 120
+      no_coalesce: ${{ format('{0}', vars.CI_RD_HOST_COALESCE) == '0' }}
+
+  check:
+    needs: coalesce
+    name: fleet/rd-host-macos (advisory)
+    # The fleet takes this repository's own refs only; a push a window's earlier run covers skips (no runner).
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && github.repository == 'manaflow-ai/cmux' }}
+    # A Linux runner that only reads the controller's public verdict (the Mac is the fleet worker, not this runner).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    permissions:
+      contents: read
+    # Longer than the read's wait (4800 s) and its no-record window: a job timeout concludes as a failure, which
+    # would read as red.
+    timeout-minutes: 90
+    steps:
+      # The trusted reader at this run's commit, not the tree's code: the fleet fetches the tip commit itself.
+      - name: Check out the verdict reader
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      # pass: the step exited 0. fail: a FAIL row for `rd-host fmt`, `rd-host clippy` or `rd-host test` in the
+      # script's summary table, whatever the exit. Anything else (pending past the wait, no record, the controller
+      # down or not yet deployed, a fleet fault, setup) is no verdict: a warning, and this check stays green.
+      - name: Read cmux-rd-host's macOS fmt, clippy and tests from the fleet
+        env:
+          REF: ${{ github.sha }}
+          SINCE: ${{ needs.coalesce.outputs.base }}
+          SERVER: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -uo pipefail
+          reader="$GITHUB_WORKSPACE/scripts/ci/fleet_compile_result.py"
+          if ! [[ -f "$reader" ]] || ! grep -q '"rd-host-macos"' "$reader"; then
+            echo "::warning title=fleet rd-host macOS::the verdict reader at ${REF:0:12} has no rd-host-macos phase; no rd-host verdict."
+            exit 0
+          fi
+          word="$(python3 "$GITHUB_WORKSPACE/scripts/ci/fleet_compile_result.py" --sha "$REF" --repo "$GITHUB_REPOSITORY" --phase rd-host-macos --wait 4800 --no-record 300 2>"$RUNNER_TEMP/fleet-result.err")" || word=none
+          why="$(sed -n 's/^fleet compile result for [0-9a-f]*: [a-z]* (\(.*\))$/\1/p' "$RUNNER_TEMP/fleet-result.err" | tail -n 1)"
+          case "$word" in
+            pass)
+              echo "cmux-rd-host's macOS fmt, clippy and tests passed." ;;
+            fail)
+              range="$REF"
+              if [[ "$SINCE" =~ ^[0-9a-f]{40}$ ]]; then range="$SERVER/compare/$SINCE...$REF (the landings since the last tip checked)"; fi
+              echo "::error title=fleet rd-host macOS::${why:-rd-host FAIL} on macOS at ${REF:0:12}; red range: $range (advisory)."
+              exit 1 ;;
+            *)
+              echo "::warning title=fleet rd-host macOS::No rd-host verdict ($word${why:+: $why})." ;;
+          esac

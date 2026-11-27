@@ -1,6 +1,8 @@
 public import CmuxNextActions
 public import CmuxNextCompat
 import CmuxNextAgentPane
+import CmuxNextDaemon
+import CmuxNextHomeModel
 public import Foundation
 import os
 
@@ -11,13 +13,12 @@ import os
 /// instance per mux home, so starting it again is harmless.
 ///
 /// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
-/// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
-/// and NIGHTLY builds bundle as Contents/Resources/bin/optchat-chief
+/// `mux`, or a local optchat-chief build), else the OptChat Chief that the app
+/// bundles as Contents/Resources/bin/optchat-chief
 /// (scripts/cmux-next/bundle-optchat-chief.sh; Native/OptChat/optchat-chief,
-/// chief-done.md check 7: every Chief turn follows OptChat). The bundled
-/// Chief starts only on DEV and NIGHTLY (`bundledChiefAllowed`, the
-/// DevTools channel rule); Release and RC never bundle or start it: Home
-/// works and the Chief does not answer. Both keep the
+/// chief-done.md check 7: every Chief turn follows OptChat). DEV, NIGHTLY,
+/// RC and stable start it when it is bundled (`bundledChiefAllowed`); stable
+/// ships it since the classic handoff (release.yml bundles it). Both keep the
 /// `host --daemon-socket --mux-home` contract and one lock per mux home.
 /// The mux home is this build's Chief home (`ChiefHome`, one Chief per
 /// build); isolated launches (agent preflights, tests) get their own. The
@@ -37,33 +38,70 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// Starts the app's own acpmux when none runs (the local pane host's prewarm), before a host
     /// that only waits for it launches. Nil: nothing to start.
     public var ensureAppAcpmux: (@Sendable () async -> Void)?
+    /// "cmux Files (dev)" in a DEV build that embeds it (docs/cmux-files-host.md): the host and the
+    /// agents it starts then answer to that helper for Files and Folders, shared by every DEV build,
+    /// as the app's own acpmux does. Nil in every other build, which runs the host as before.
+    var filesHost: FilesHost?
 
     /// The OptChat Chief's file name in the app's Contents/Resources/bin.
     static let bundledChiefName = "optchat-chief"
 
-    /// DEV (a Debug compile) and NIGHTLY (`com.cmuxterm.app.nightly[.<tag>]`)
-    /// start the bundled Chief; Release and RC do not (NIGHTLY compiles as
-    /// Release, so the bundle id decides, as for DevTools).
+    /// Every cmux channel starts the Chief it bundles: DEV (a Debug compile), NIGHTLY
+    /// (`com.cmuxterm.app.nightly[.<tag>]`), RC and stable (`com.cmuxterm.app`, which the
+    /// classic → cmux-next handoff ships with the Chief bundled). Another app's bundle id
+    /// never starts it. Developer tools keep their own DEV and NIGHTLY rule (``DevTools``).
     public static func bundledChiefAllowed(bundleID: String?, isDebugBuild: Bool) -> Bool {
-        DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
+        nonisolated struct Request: Encodable { var bundleId: String?; var stableBundleId: String?; var isDebugBuild: Bool }
+        nonisolated struct Reply: Decodable { var allowed: Bool }
+        let request = Request(bundleId: bundleID, stableBundleId: stableBundleID, isDebugBuild: isDebugBuild)
+        return (try? HomeRules.chiefBrain("bundled_chief_allowed", request) as Reply)?.allowed ?? false
     }
+
+    /// The stable cmux bundle id; RC and NIGHTLY add a suffix to it.
+    static let stableBundleID = "com.cmuxterm.app"
 
     /// Whether this app can start a host at all (`resolve` finds an executable).
     public static func canStart(environment: [String: String] = ProcessInfo.processInfo.environment,
                                 bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                                 bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
                                                                                               isDebugBuild: DevTools.isDebugBuild)) -> Bool {
-        // The build-session kill switch: no Chief host, so no brain starts (cx-9ettq).
-        if AcpmuxEnvironment.agentLaunchDisabled(environment) { return false }
-        let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
-        let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
-        return [override, bundled].compactMap { $0 }.contains { FileManager.default.isExecutableFile(atPath: $0) }
+        // The build-session kill switch: no Chief host, so no brain starts (cx-9ettq); the rules
+        // name no candidate then.
+        let plan = resolvePlan(environment: environment, bundledBinDirectory: bundledBinDirectory,
+                               bundledChiefAllowed: bundledChiefAllowed, usesAppAcpmux: true, acpmuxHome: "")
+        return plan?.candidates.contains { FileManager.default.isExecutableFile(atPath: $0) } ?? false
+    }
+
+    private nonisolated struct ResolvePlanRequest: Encodable {
+        var environment: [String: String]
+        var bundledBinDirectory: String?
+        var bundledChiefAllowed: Bool
+        var usesAppAcpmux: Bool
+        var acpmuxHome: String
+    }
+
+    private nonisolated struct ResolvePlan: Decodable {
+        var disabled: Bool
+        /// The host executables to try, in order (`CMUX_NEXT_MUX_HOST`, then the bundled Chief).
+        var candidates: [String]
+        var acpmuxSet: [String: String]
+        var acpmuxRemove: [String]
+    }
+
+    private static func resolvePlan(environment: [String: String], bundledBinDirectory: URL?, bundledChiefAllowed: Bool,
+                                    usesAppAcpmux: Bool, acpmuxHome: String) -> ResolvePlan? {
+        try? HomeRules.chiefBrain("host_resolve_plan", ResolvePlanRequest(
+            environment: environment, bundledBinDirectory: bundledBinDirectory?.path, bundledChiefAllowed: bundledChiefAllowed,
+            usesAppAcpmux: usesAppAcpmux, acpmuxHome: acpmuxHome))
     }
 
     /// Home's notice on this Mac's Chief while the build-session kill switch
     /// is on (cx-tgf4h): no host starts, so the Chief cannot answer; nil else.
     public static func agentsDisabledNotice(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        AcpmuxEnvironment.agentLaunchDisabled(environment) ? HomeStrings.chiefAgentsDisabled : nil
+        nonisolated struct Request: Encodable { var environment: [String: String] }
+        nonisolated struct Reply: Decodable { var disabled: Bool }
+        let reply = try? HomeRules.chiefBrain("agents_disabled", Request(environment: environment)) as Reply
+        return reply?.disabled == true ? HomeStrings.chiefAgentsDisabled : nil
     }
 
     /// - Parameter appBuild: the build whose acpmux the app's panes use (`AppEnvironment.build`);
@@ -72,26 +110,27 @@ public nonisolated struct HomeBrainHost: Sendable {
                         environment: [String: String] = ProcessInfo.processInfo.environment,
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                         bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
-                                                                                      isDebugBuild: DevTools.isDebugBuild)) -> HomeBrainHost? {
-        if AcpmuxEnvironment.agentLaunchDisabled(environment) { return nil }
-        let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
-        let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
-        guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            return nil
-        }
+                                                                                      isDebugBuild: DevTools.isDebugBuild),
+                        filesHost: ([String: String]) -> FilesHost? = { FilesHost.current(environment: $0) }) -> HomeBrainHost? {
         // NIGHTLY's Chief runs on the app's own acpmux (`~/.acpmux`, as the app's panes resolve
         // it); any other Chief on its Chief home's, never a tag's: a host started later by
-        // another build finds the sessions its state names.
-        var acpmuxEnvironment = environment
+        // another build finds the sessions its state names. The rules say which variables change.
         let usesAppAcpmux = home.usesAppAcpmux
-        if !usesAppAcpmux {
-            acpmuxEnvironment["ACPMUX_HOME"] = home.acpmuxHome.path
-            acpmuxEnvironment.removeValue(forKey: "ACPMUX_SOCKET")
+        guard let plan = resolvePlan(environment: environment, bundledBinDirectory: bundledBinDirectory,
+                                     bundledChiefAllowed: bundledChiefAllowed, usesAppAcpmux: usesAppAcpmux,
+                                     acpmuxHome: home.acpmuxHome.path),
+              !plan.disabled,
+              let path = plan.candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            return nil
         }
+        var acpmuxEnvironment = environment
+        acpmuxEnvironment.merge(plan.acpmuxSet) { $1 }
+        for key in plan.acpmuxRemove { acpmuxEnvironment.removeValue(forKey: key) }
         var host = HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home.muxHome, daemonSocket: daemonSocket, controlSocket: controlSocket,
                                  acpmux: AcpmuxEnvironment.resolve(build: usesAppAcpmux ? appBuild : nil, bundledBinDirectory: bundledBinDirectory,
                                                                    environment: acpmuxEnvironment))
         host.usesAppAcpmux = usesAppAcpmux
+        host.filesHost = filesHost(environment)
         return host
     }
 
@@ -102,46 +141,58 @@ public nonisolated struct HomeBrainHost: Sendable {
         ChiefHome.resolve(tag: tag, environment: environment, userHome: userHome).muxHome
     }
 
-    /// The shell prints the host's pid, so Home watches that process's exit.
+    /// The shell prints the host's pid (with the helper, its launcher's, which forwards signals and
+    /// exits with the host's status), so Home watches that process's exit.
     var arguments: [String] {
-        ["-c", #"set -m; "$@" >>"$MUX_HOST_LOG" 2>&1 </dev/null & echo "$!""#, "mux-host-launch",
-         executable.path, "host", "--daemon-socket", daemonSocket, "--mux-home", muxHome.path]
+        nonisolated struct Request: Encodable { var executable: String; var filesHostExecutable: String?; var daemonSocket: String; var muxHome: String }
+        nonisolated struct Reply: Decodable { var arguments: [String] }
+        let request = Request(executable: executable.path, filesHostExecutable: filesHost?.executable.path,
+                              daemonSocket: daemonSocket, muxHome: muxHome.path)
+        // No argv: the shell runs nothing and prints no pid, so no host starts.
+        return (try? HomeRules.chiefBrain("host_arguments", request) as Reply)?.arguments ?? []
     }
 
-    var childEnvironment: [String: String] {
-        var variables: [String: String] = [
-            "PATH": Self.searchPath(home: FileManager.default.homeDirectoryForCurrentUser),
-            // Constant links to the app that last opened Home (ChiefAppLinks):
-            // the host outlives the app that started it.
-            "MUX_AGENT_TOKEN_FILE": tokenFile.path,
-            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-            "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
-            // `cmux chief` in the brain's turns and subagents opens this Chief
-            // (one Chief per build), never the shared home by default.
-            "CMUX_CHIEF_HOME": muxHome.path,
-            // The host's chief create request must equal the app's (the owner
-            // refuses a different request under the same key).
-            "MUX_USER_NAME": HomeChiefName.localUserName,
-            // ...and its title (HomeChiefName.createRequest, localized).
-            "MUX_CHIEF_TITLE": HomeStrings.chiefName,
-        ]
-        variables.merge(ChiefAppLinks.hostEnvironment(ChiefHome(root: muxHome, isolated: false))) { $1 }
-        if let acpmux {
-            variables.merge(acpmux.childEnvironment) { $1 }
-            variables["ACPMUX_BIN"] = acpmux.executable.path
-        }
-        // The app owns its acpmux: the host waits for it and never starts or stops it
-        // (optchat-chief acpmux_daemon::Mode::Supervised). Never OPTCHAT_ACPMUX_SHARED: its last
-        // Chief to leave ends every session of the daemon, the person's too.
-        if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
-        // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
-        // turns included, its own `cmux mcp serve` (one server per turn).
-        for key in ["USER", "TMPDIR", "MUX_HARNESS", "DO_NOT_TRACK"] {
-            if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
-        }
-        variables.merge(Self.analyticsEnvironment(bundle: .main)) { $1 }
-        return variables
+    var childEnvironment: [String: String] { childEnvironment(process: ProcessInfo.processInfo.environment) }
+
+    /// The host's environment with `process` as the app's own (tests pass theirs).
+    func childEnvironment(process: [String: String]) -> [String: String] {
+        // The rules build it: PATH (``searchPath(home:)``), the token file, HOME, the host log,
+        // CMUX_CHIEF_HOME (`cmux chief` in the brain's turns opens this Chief), the chief create
+        // request's name and title (the owner refuses a different request under the same key),
+        // ChiefAppLinks' constant links (the host outlives the app that started it), acpmux's
+        // environment and ACPMUX_BIN, OPTCHAT_ACPMUX_SUPERVISED on the app's acpmux (never
+        // OPTCHAT_ACPMUX_SHARED: its last Chief to leave ends every session of the daemon), the
+        // app's USER, TMPDIR, MUX_HARNESS, DO_NOT_TRACK and CMUX_BUILD_SPACE, then the analytics ids.
+        let analytics = Self.analyticsEnvironment(bundle: .main)
+        let request = EnvironmentRequest(
+            process: process, home: FileManager.default.homeDirectoryForCurrentUser.path, muxHome: muxHome.path,
+            bundledBinDirectory: Self.bundledBinPath, userName: HomeChiefName.localUserName, chiefTitle: HomeStrings.chiefName,
+            appLinks: ChiefAppLinks.hostEnvironment(ChiefHome(root: muxHome, isolated: false)),
+            acpmuxEnvironment: acpmux?.childEnvironment, acpmuxExecutable: acpmux?.executable.path, usesAppAcpmux: usesAppAcpmux,
+            buildSpaceKey: DaemonLauncher.buildSpaceKey, bundleId: analytics["CMUX_CHIEF_APP_BUNDLE_ID"],
+            appVersion: analytics["CMUX_CHIEF_APP_VERSION"])
+        nonisolated struct Reply: Decodable { var environment: [String: String] }
+        return (try? HomeRules.chiefBrain("host_environment", request) as Reply)?.environment ?? [:]
     }
+
+    private nonisolated struct EnvironmentRequest: Encodable {
+        var process: [String: String]
+        var home: String
+        var muxHome: String
+        var bundledBinDirectory: String?
+        var userName: String
+        var chiefTitle: String
+        var appLinks: [String: String]
+        var acpmuxEnvironment: [String: String]?
+        var acpmuxExecutable: String?
+        var usesAppAcpmux: Bool
+        var buildSpaceKey: String?
+        var bundleId: String?
+        var appVersion: String?
+    }
+
+    /// This app's bundled bin folder (`Contents/Resources/bin`), as the host's PATH names it first.
+    private static var bundledBinPath: String? { Bundle.main.resourceURL?.appendingPathComponent("bin").path }
 
     /// What the Chief's product analytics read from the app (docs/posthog/chief-product-analytics.md):
     /// the bundle id, whose preferences hold the person's `sendAnonymousTelemetry` choice (the host
@@ -157,9 +208,10 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// user's tool directories, where acpmux finds agent harnesses such as `sr` (claude-sr),
     /// then the system. Phase A stand-in for the daemon login environment (spec D26, open).
     static func searchPath(home: URL) -> String {
-        let user = ["bin", ".local/bin", ".bun/bin", ".cargo/bin"].map { home.appendingPathComponent($0).path }
-        return ([Bundle.main.resourceURL?.appendingPathComponent("bin").path].compactMap { $0 } + user
-            + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]).joined(separator: ":")
+        nonisolated struct Request: Encodable { var bundledBinDirectory: String?; var home: String }
+        nonisolated struct Reply: Decodable { var path: String }
+        let reply = try? HomeRules.chiefBrain("search_path", Request(bundledBinDirectory: bundledBinPath, home: home.path)) as Reply
+        return reply?.path ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     }
 
     /// Spawns the host through a throwaway shell with job control, so it gets
@@ -186,55 +238,127 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// owner's agent_mux credential and revokes the binding of the host that
     /// runs, so it is called only when the host must start.
     @concurrent public func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
+        // The rules (`chief_brain.host_start_step`) order the start; this runs each effect:
         // cmux NEXT's one-time adoption of its old homes ends before its brain starts (cx-is1kf.9).
-        await AcpmuxEnvironment.adoptBuildHomes()
-        // A Chief-home acpmux that runs from a replaced bundle (an update replaced the
-        // app it ran from, so the peer check refuses it and Chief chats say acpmux did
-        // not start), or without this Chief home (an older build, or one an app started
-        // before ACPMUX_CHIEF_MUX_HOME), is handed off (AcpmuxChiefHandoff).
-        // Only the Chief host starts that daemon (a tab never does, cx-ebm.54): the
-        // host that ran on it ends, and the one launched below starts it with this
-        // Chief home's env.
-        // An update never cuts a Chief turn: a host that takes it is asked to hand off when idle
-        // (SIGUSR1) and keeps this daemon until its turn ends; its exit restarts this start
-        // (ChiefBrainWatch), which then hands the daemon off. Only an older host is stopped here.
-        let chiefHome = ChiefHome(root: muxHome, isolated: false)
         // The app's own acpmux is the app's to start and hand off (its version handoff), never
-        // the Chief's: it runs the person's chats too. A daemon started without this Chief home
-        // (`ACPMUX_CHIEF_MUX_HOME`, e.g. by the CLI) is kept: it gets it at its next start.
-        // A host still on the Chief's own daemon (the previous build's after an update) moves
-        // over, and that daemon ends (ChiefAppAcpmuxMove).
-        if usesAppAcpmux, let acpmux {
+        // the Chief's: it runs the person's chats too. A host still on the Chief's own daemon (the
+        // previous build's after an update) moves over, and that daemon ends (ChiefAppAcpmuxMove);
+        // one that cannot move yet hands off when its turn ends, and its exit brings the next start
+        // (ChiefBrainWatch). With the kill switch (`CMUX_CHIEF_OWN_ACPMUX=1`) a host this app
+        // launched on the app's acpmux moves back to the Chief's own daemon, and a Chief-home
+        // acpmux that runs from a replaced bundle, or without this Chief home, is handed off
+        // (AcpmuxChiefHandoff): a host that takes it is asked to hand off when idle (SIGUSR1), so an
+        // update never cuts a Chief turn; only an older host is stopped. A live host that reads the
+        // token file keeps its binding; else a token is minted and a host launched, and on the
+        // app's acpmux the host's lock names its pid, so the next start does not take it for an old one.
+        let chiefHome = ChiefHome(root: muxHome, isolated: false)
+        // Swift's `if usesAppAcpmux, let acpmux` took the app's-acpmux path only with an acpmux; the
+        // rules get that, so a missing acpmux takes the leave path as before.
+        var state = StartState()
+        var event = StartEvent(kind: "begin", usesAppAcpmux: usesAppAcpmux && acpmux != nil, hasAcpmux: acpmux != nil)
+        // Every step names one effect; the bound only ends a reply that never finishes.
+        for _ in 0..<32 {
+            let reply: StartReply = try HomeRules.chiefBrain("host_start_step", StartRequest(state: state, event: event))
+            state = reply.state
+            guard let effect = reply.effects.last else { break }
+            for effect in reply.effects.dropLast() { _ = try await run(effect, chiefHome: chiefHome, mintToken: mintToken) }
+            switch try await run(effect, chiefHome: chiefHome, mintToken: mintToken) {
+            case .next(let next): event = next
+            case .finished(let outcome): return outcome
+            }
+        }
+        throw HomeRulesError(op: "chief_brain.host_start_step", code: .decode, detail: "the start never finished")
+    }
+
+    private nonisolated enum StartStep {
+        case next(StartEvent)
+        case finished(StartOutcome)
+    }
+
+    /// Runs one effect of the start; returns the event it gives the rules, or the start's outcome.
+    private func run(_ effect: StartEffect, chiefHome: ChiefHome,
+                     mintToken: @Sendable () async throws -> String) async throws -> StartStep {
+        switch effect.kind {
+        case "adoptBuildHomes":
+            await AcpmuxEnvironment.adoptBuildHomes()
+            return .next(StartEvent(kind: "done"))
+        case "ensureAppAcpmux":
             await ensureAppAcpmux?()
-            let move = ChiefAppAcpmuxMove(home: chiefHome, app: acpmux)
-            guard await move.run() else {
-                // It hands off when its turn ends; its exit brings the next start (ChiefBrainWatch).
-                return .reusedRunningHost(pid: ChiefHostStop.runningHostPID(home: chiefHome))
+            return .next(StartEvent(kind: "done"))
+        case "runAppAcpmuxMove":
+            guard let acpmux else { return .next(StartEvent(kind: "moved", ok: false)) }
+            return .next(StartEvent(kind: "moved", ok: await ChiefAppAcpmuxMove(home: chiefHome, app: acpmux).run()))
+        case "leaveAppAcpmux":
+            return .next(StartEvent(kind: "moved", ok: await ChiefAppAcpmuxMove.leaveAppAcpmux(home: chiefHome)))
+        case "handOffIfStale":
+            guard let acpmux else { return .next(StartEvent(kind: "handOff", stale: false)) }
+            let stale = await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path)
+                .handOffIfStale(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) != nil })
+            return .next(StartEvent(kind: "handOff", stale: stale))
+        case "stopHost":
+            return .next(StartEvent(kind: "stopped", pid: await ChiefHostStop.stop(home: chiefHome)))
+        case "waitForExit":
+            if let pid = effect.pid {
+                _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(effect.seconds ?? 15))
             }
-        } else {
-            // The kill switch (`CMUX_CHIEF_OWN_ACPMUX=1`) is on: a host this app launched on the
-            // app's acpmux moves back to the Chief's own daemon.
-            guard await ChiefAppAcpmuxMove.leaveAppAcpmux(home: chiefHome) else {
-                return .reusedRunningHost(pid: ChiefHostStop.runningHostPID(home: chiefHome))
-            }
-            if let acpmux, await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path)
-                .handOffIfStale(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) != nil }),
-               let pid = await ChiefHostStop.stop(home: chiefHome) {
-                _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
-            }
+            return .next(StartEvent(kind: "done"))
+        case "checkToken":
+            return .next(StartEvent(kind: "token", hasToken: runningHostHasToken))
+        case "mintAndLaunch":
+            let token = try await mintToken()
+            return .next(StartEvent(kind: "launched", pid: await launch(agentToken: token)))
+        case "readLock":
+            return .next(StartEvent(kind: "lockRead", pid: ChiefHostStop.runningHostPID(home: chiefHome)))
+        case "markPid":
+            if let acpmux, let pid = effect.pid { ChiefAppAcpmuxMove(home: chiefHome, app: acpmux).mark(pid: pid) }
+            return .next(StartEvent(kind: "done"))
+        case "finish":
+            let pid = effect.outcome?.pid
+            return .finished(effect.outcome?.kind == "launched" ? .launched(pid: pid) : .reusedRunningHost(pid: pid))
+        default:
+            throw HomeRulesError(op: "chief_brain.host_start_step", code: .decode, detail: "unknown effect \(effect.kind)")
         }
-        // A live host reads the token file at each connect: keep its binding.
-        if runningHostHasToken {
-            return .reusedRunningHost(pid: ChiefHostStop.runningHostPID(home: ChiefHome(root: muxHome, isolated: false)))
+    }
+
+    /// `chief_brain.host_start_step`'s state, round-tripped whole.
+    private nonisolated struct StartState: Codable {
+        nonisolated struct Outcome: Codable {
+            var kind: String
+            var pid: Int32?
         }
-        let token = try await mintToken()
-        let pid = await launch(agentToken: token)
-        // A pid the launch could not read: the host's lock names it, so the next start does
-        // not take this new host for an old one and restart it.
-        if usesAppAcpmux, let acpmux, let marked = pid ?? ChiefHostStop.runningHostPID(home: chiefHome) {
-            ChiefAppAcpmuxMove(home: chiefHome, app: acpmux).mark(pid: marked)
-        }
-        return .launched(pid: pid)
+        var phase: String?
+        var usesAppAcpmux: Bool?
+        var hasAcpmux: Bool?
+        var pending: String?
+        var launchedPid: Int32?
+        var outcome: Outcome?
+    }
+
+    private nonisolated struct StartEvent: Encodable {
+        var kind: String
+        var usesAppAcpmux: Bool?
+        var hasAcpmux: Bool?
+        var ok: Bool?
+        var stale: Bool?
+        var pid: Int32?
+        var hasToken: Bool?
+    }
+
+    private nonisolated struct StartEffect: Decodable {
+        var kind: String
+        var pid: Int32?
+        var seconds: Int?
+        var outcome: StartState.Outcome?
+    }
+
+    private nonisolated struct StartRequest: Encodable {
+        var state: StartState
+        var event: StartEvent
+    }
+
+    private nonisolated struct StartReply: Decodable {
+        var state: StartState
+        var effects: [StartEffect]
     }
 
     /// Whether a host holds this home's lock (`state/host.lock`) and the

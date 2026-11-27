@@ -35,9 +35,25 @@ pub struct Interrupt {
     /// The owner stopped the turn: cancel at once, even while a tool call
     /// waits (`request_hard`), never only at the next tool boundary.
     hard: AtomicBool,
+    /// The stop leaves the session at a point the next turn can go on
+    /// from: the Chief ended its own turn (`stop`, `sleep`), or a person's
+    /// newer message cut it. Such a cancelled turn's session is kept
+    /// (`TurnStart::keep`), so the next turn reads its cache and its work so
+    /// far instead of starting a new Claude Code with the whole view uncached.
+    keeps_session: AtomicBool,
+    /// A stop that ends the session (the owner's Stop, a denial, an engine
+    /// change) came too: it wins over `keeps_session`, whatever the order.
+    ends_session: AtomicBool,
+    /// The brain moved the turn's running work to the background
+    /// (`steer.rs`): the session outlives the turn until that work reports
+    /// (`brain/background.rs`), so the runner hands it back, kept or not.
+    moved_work: AtomicBool,
     /// The turn carries another person's text: the native engine refuses
     /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
+    /// A person's message joined the running wake run: its cost limit no
+    /// longer applies (`Budget`).
+    budget_lifted: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
     /// Wakes [`Interrupt::wait`] on a request.
@@ -49,7 +65,21 @@ impl Interrupt {
         Interrupt::default()
     }
 
+    /// The running turn's cost limit no longer applies.
+    pub fn lift_budget(&self) {
+        self.budget_lifted.store(true, Ordering::SeqCst);
+    }
+
+    pub fn budget_lifted(&self) -> bool {
+        self.budget_lifted.load(Ordering::SeqCst)
+    }
+
     pub fn request(&self) {
+        self.ends_session.store(true, Ordering::SeqCst);
+        self.signal();
+    }
+
+    fn signal(&self) {
         self.wanted.store(true, Ordering::SeqCst);
         {
             let _held = self
@@ -75,6 +105,44 @@ impl Interrupt {
     pub fn request_hard(&self) {
         self.hard.store(true, Ordering::SeqCst);
         self.request();
+    }
+
+    /// `request` from the Chief's own `stop` or `sleep`: a clean end, so
+    /// the session may serve the next turn (`Settings::keep_turn_session`).
+    pub fn request_own(&self) {
+        self.keeps_session.store(true, Ordering::SeqCst);
+        self.signal();
+    }
+
+    /// `request_hard`, and the session may serve the next turn: a person's
+    /// newer message that cannot reach the turn. The next turn prompts the
+    /// same session with that message, as a person who interrupts an agent
+    /// and writes again does.
+    pub fn request_hard_resumable(&self) {
+        self.keeps_session.store(true, Ordering::SeqCst);
+        self.hard.store(true, Ordering::SeqCst);
+        self.signal();
+    }
+
+    /// Whether a cancel this interrupt caused leaves a session the next turn
+    /// may take.
+    /// The turn's running work moved to the background (`steer.rs`).
+    pub fn set_moved_work(&self) {
+        self.moved_work.store(true, Ordering::SeqCst);
+    }
+
+    pub fn moved_work(&self) -> bool {
+        self.moved_work.load(Ordering::SeqCst)
+    }
+
+    /// A stop that ends the session came (the owner's Stop, a denial, an
+    /// engine change): the session is not kept, however the turn ended.
+    pub fn ends_session(&self) -> bool {
+        self.ends_session.load(Ordering::SeqCst)
+    }
+
+    pub fn keeps_session(&self) -> bool {
+        self.keeps_session.load(Ordering::SeqCst) && !self.ends_session.load(Ordering::SeqCst)
     }
 
     pub fn is_hard(&self) -> bool {
@@ -122,6 +190,8 @@ impl Interrupt {
     pub fn clear(&self) {
         self.wanted.store(false, Ordering::SeqCst);
         self.hard.store(false, Ordering::SeqCst);
+        self.keeps_session.store(false, Ordering::SeqCst);
+        self.ends_session.store(false, Ordering::SeqCst);
     }
 
     fn wake_with(&self, tx: Option<Sender<TurnSignal>>) {
@@ -132,8 +202,26 @@ impl Interrupt {
     }
 }
 
+/// Whether a prompt's answer ended its turn while Claude Code runs on into
+/// a carried turn with a message steered in after its last answer
+/// (`_meta.claude.carried`, acpmux `carried_turn.rs`).
+fn carried(answer: &Value) -> bool {
+    answer
+        .pointer("/_meta/claude/carried")
+        .is_some_and(|c| !c.is_null())
+}
+
+/// Whether a prompt's answer is the end acpmux gave a turn itself
+/// (`hub/cancel.rs` `forced_answer`: `cancelForced`, `restarted`).
+fn acpmux_forced_end(answer: &Value) -> bool {
+    let mux = answer.pointer("/_meta/acpmux");
+    ["cancelForced", "restarted"]
+        .iter()
+        .any(|k| mux.and_then(|m| m.get(*k)) == Some(&Value::Bool(true)))
+}
+
 /// Everything a turn needs, decided by the brain.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct TurnStart {
     /// The reply's idempotency key: `turn:optchat:<first new message id>`.
     pub key: String,
@@ -162,10 +250,46 @@ pub struct TurnStart {
     pub keep: bool,
     /// A kept session this turn does not reuse: ended before it starts.
     pub retire: Option<String>,
+    /// A wake run's cost limit (check_in.rs): the turn is stopped when its
+    /// estimated cost reaches it. None: no limit.
+    pub budget: Option<Budget>,
     /// The permission mode an owner's Claude turn runs in
     /// (`engine::permission_mode`, cmux#37392; Manual runs under `ask`);
     /// None (a turn that carries another person's text): the session's own.
     pub permission_mode: Option<String>,
+    /// Shared endpoint health, so a refused primary start contributes to the
+    /// gateway-wide threshold rather than only this turn's retry loop.
+    pub gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>,
+    /// A gateway outage may run this turn on the direct Messages API engine.
+    pub engine_override: Option<crate::brain::Engine>,
+}
+
+/// A turn's cost limit and the rates that price its tokens as they come.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Budget {
+    pub limit_usd: f64,
+    /// Dollars per weighted token, by model (`usage::rates`); `fallback`
+    /// for a model with no measured rate.
+    pub rates: std::collections::BTreeMap<String, f64>,
+    pub fallback: f64,
+}
+
+impl Budget {
+    /// The estimated cost of `requests` (each request's last usage).
+    pub fn spent(&self, requests: &[crate::fold::Request]) -> f64 {
+        requests
+            .iter()
+            .map(|r| {
+                let rate = r
+                    .model
+                    .as_deref()
+                    .and_then(|m| self.rates.get(m))
+                    .copied()
+                    .unwrap_or(self.fallback);
+                crate::usage::weighted_tokens(&r.usage) * rate
+            })
+            .sum()
+    }
 }
 
 /// A turn session kept after its turn (`Settings::keep_turn_session`): the
@@ -176,6 +300,33 @@ pub struct Kept {
     pub session: String,
     /// The last event seq the kept turn folded: the next turn folds after it.
     pub after: u64,
+    /// The session's context at the turn's end: its last request's prompt
+    /// and output tokens (None: not reported).
+    pub context: Option<u64>,
+    /// Claude Code's running cost of the session at the turn's end
+    /// (`total_cost_usd`, the process's total): the next turn in the session
+    /// counts only its rise (`own_cost`). In micro-dollars (`Kept` is `Eq`).
+    pub cost_total: Option<u64>,
+}
+
+/// A turn's own cost from its session's running total `total` and the total
+/// `base` the session had when the turn started (a kept session): the rise,
+/// or the whole total when it went down (a new process). Before 2026-11-20 a
+/// reused turn reported the session's running total as its own, so a kept
+/// session's turns counted every earlier turn again (bench burst5: $0.50 a
+/// probe before kept sessions, $1.83 after; the audit, ledger, analytics and
+/// engine bar read the same value).
+pub fn own_cost(total: Option<f64>, base: Option<u64>) -> Option<f64> {
+    let base = base.map(|b| b as f64 / 1e6);
+    match (total, base) {
+        (Some(t), Some(b)) if t + 1e-9 >= b => Some((t - b).max(0.0)),
+        (t, _) => t,
+    }
+}
+
+/// `usd` in micro-dollars, for [`Kept::cost_total`].
+fn micros(usd: f64) -> u64 {
+    (usd.max(0.0) * 1e6).round() as u64
 }
 
 /// A kept session and the blocks that prompt it again: this turn's new
@@ -284,6 +435,8 @@ pub struct TurnOutcome {
     /// The session this turn left running for the next turn (`TurnStart::keep`
     /// and a clean end); None: the session was ended.
     pub kept: Option<Kept>,
+    /// The host stopped the turn at its cost limit: the estimated dollars.
+    pub budget_stopped: Option<f64>,
     /// The turn failed before its prompt reached a harness (its session did
     /// not start, or its system prompt was not set): nothing ran, so running it again repeats nothing. Set only where that
     /// holds; any other failure keeps false and is never rerun for it.
@@ -367,6 +520,7 @@ pub fn is_transient_session_failure(error: &str) -> bool {
 fn new_session_with_retry(
     agents: &dyn AgentPort,
     spec: &SessionSpec,
+    gateway: Option<&crate::gateway::GatewayHealth>,
     interrupt: &Interrupt,
     deadline: Option<Instant>,
     keep_waiting: &mut dyn FnMut(Duration) -> bool,
@@ -387,6 +541,10 @@ fn new_session_with_retry(
         {
             return Err(error);
         }
+        let wait = gateway.map_or(wait, |gateway| {
+            gateway.record_refusal(&spec.name, &error);
+            gateway.retry_wait().max(wait)
+        });
         note(&error, wait);
         // A bounded wait that a stop request ends early (never a poll).
         if interrupt.wait(wait) {
@@ -541,6 +699,7 @@ pub fn run_with_drafts(
             let created = new_session_with_retry(
                 agents,
                 &spec,
+                start.gateway.as_deref(),
                 interrupt,
                 deadline,
                 &mut keep_waiting,
@@ -579,6 +738,15 @@ pub fn run_with_drafts(
             }
         }
     };
+    if spec.harness.starts_with("claude")
+        && start
+            .gateway
+            .as_ref()
+            .is_some_and(|gateway| matches!(gateway.route(), crate::gateway::GatewayRoute::Primary))
+        && let Some(gateway) = &start.gateway
+    {
+        gateway.mark_healthy();
+    }
     // A kept session's earlier turns are in the log already.
     let after = reused.map_or(0, |r| r.kept.after);
     let mut fold = TurnFold::after(after);
@@ -727,6 +895,7 @@ pub fn run_with_drafts(
             ..TurnOutcome::default()
         };
     }
+    let over_budget: std::cell::Cell<Option<f64>> = std::cell::Cell::new(None);
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
         let before = fold.seq();
         let mut entries = Vec::new();
@@ -740,6 +909,21 @@ pub fn run_with_drafts(
             optchat_host::fault("turn:after-fold");
             progress(&session, fold.seq());
             publish(fold);
+            // A wake run past its cost limit stops now (check_in.rs).
+            if let Some(budget) = &start.budget
+                && over_budget.get().is_none()
+                && !interrupt.budget_lifted()
+            {
+                let spent = budget.spent(fold.requests());
+                if spent >= budget.limit_usd {
+                    over_budget.set(Some(spent));
+                    log(&format!(
+                        "turn {}: about ${spent:.3} reached its ${:.2} limit; stopping it",
+                        start.key, budget.limit_usd
+                    ));
+                    interrupt.request_hard();
+                }
+            }
         }
         Ok(())
     };
@@ -754,6 +938,14 @@ pub fn run_with_drafts(
     // The prompt's answer was an error (even one after the fold ended on
     // `turn_end`): the session is not kept.
     let mut answer_failed = false;
+    // When the fold ended on `turn_end` with the prompt's answer still to
+    // come: the answer says whether Claude Code runs on into a carried turn
+    // (a message steered in after its last answer), which this turn folds.
+    let mut ended_at: Option<Instant> = None;
+    // acpmux ended the turn itself (Claude Code did not answer the cancel in
+    // time, or acpmux restarted it): the old turn may still run and its late
+    // events would fold into the next turn, so the session is never kept.
+    let mut forced_end = false;
     let mut last_event = Instant::now();
     loop {
         // A newer human message: stop the model at once, but let a running
@@ -787,7 +979,11 @@ pub fn run_with_drafts(
         // running tool is not at work, and nobody may ever answer.
         let idle_at = start
             .idle_limit
-            .filter(|_| (!fold.tool_running() || fold.awaits_permission()) && last_cancel.is_none())
+            .filter(|_| {
+                (!fold.tool_running() || fold.awaits_permission())
+                    && last_cancel.is_none()
+                    && fold.ended().is_none()
+            })
             .map(|limit| last_event + limit);
         if idle_at.is_some_and(|at| Instant::now() >= at) {
             answered = true;
@@ -799,7 +995,8 @@ pub fn run_with_drafts(
             append_at(fold.finish(Some(idle_error(limit))), seq);
             break;
         }
-        let wake = [deadline, resend, stream_due, idle_at]
+        let answer_by = ended_at.map(|t| t + ANSWER_WAIT);
+        let wake = [deadline, resend, stream_due, idle_at, answer_by]
             .into_iter()
             .flatten()
             .min();
@@ -811,6 +1008,13 @@ pub fn run_with_drafts(
                     if stream_due.is_some_and(|due| Instant::now() >= due) =>
                 {
                     TurnSignal::Noted
+                }
+                // The fold ended and no answer came: the wait below has
+                // used its time already.
+                Err(RecvTimeoutError::Timeout)
+                    if answer_by.is_some_and(|by| Instant::now() >= by) =>
+                {
+                    break;
                 }
                 Err(RecvTimeoutError::Timeout) if deadline.is_none_or(|d| Instant::now() < d) => {
                     continue;
@@ -879,13 +1083,41 @@ pub fn run_with_drafts(
                 if let Err(e) = fetch(&mut fold) {
                     log(&format!("turn {}: {e}", start.key));
                 }
-                if fold.ended().is_some() {
+                if fold.settled(answered) {
                     break;
+                }
+                if fold.ended().is_some() {
+                    ended_at.get_or_insert_with(Instant::now);
+                } else {
+                    ended_at = None;
                 }
             }
             TurnSignal::Done(answer) => {
                 answered = true;
                 answer_failed = answer.is_err();
+                forced_end |= answer.as_ref().is_ok_and(acpmux_forced_end);
+                if answer.as_ref().is_ok_and(carried) {
+                    // The prompt's answer came at the end of its first turn;
+                    // the carried turn sends none: its own `turn_end` (and
+                    // `turn_result`) end this. Also under a stop: acpmux moves
+                    // the stop to the carried turn, which ends cancelled.
+                    totals = answer.as_ref().ok().and_then(answer_usage);
+                    cost = answer.as_ref().ok().and_then(answer_cost);
+                    if let Err(e) = fetch(&mut fold) {
+                        log(&format!("turn {}: {e}", start.key));
+                    }
+                    fold.expect_carry();
+                    if fold.settled(answered) {
+                        break;
+                    }
+                    // Bounded: a carried turn that never starts or ends.
+                    ended_at = fold.ended().map(|_| Instant::now());
+                    log(&format!(
+                        "turn {}: Claude Code runs on with a message steered in late; following it",
+                        start.key
+                    ));
+                    continue;
+                }
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
                 let stopped = answer
@@ -898,6 +1130,13 @@ pub fn run_with_drafts(
                 let error = answer.err().or_else(|| fetched.err()).or(stopped);
                 let seq = fold.seq();
                 append_at(fold.finish(error), seq);
+                break;
+            }
+            // The connection closed after the turn ended: as before, only
+            // its answer is missing.
+            TurnSignal::Lost if fold.settled(true) => {
+                answered = true;
+                answer_failed = true;
                 break;
             }
             TurnSignal::Lost => {
@@ -925,11 +1164,12 @@ pub fn run_with_drafts(
     publish(&mut fold);
     let done_draft = Some(drafter.borrow_mut().done());
     // The fold ended on `turn_end`: the answer with the token use follows.
-    let until = Instant::now() + ANSWER_WAIT;
+    let until = ended_at.unwrap_or_else(Instant::now) + ANSWER_WAIT;
     while !answered {
         match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
             Ok(TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed) => {}
             Ok(TurnSignal::Done(answer)) => {
+                forced_end |= answer.as_ref().is_ok_and(acpmux_forced_end);
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
                 answer_failed = answer.is_err();
@@ -973,18 +1213,36 @@ pub fn run_with_drafts(
     };
     let error = fold.ended().and_then(|e| e.error.clone());
     let cancelled = is_cancelled(error.as_deref());
-    // Only a clean end keeps the session: a failed, stopped or moved one may
-    // hold a half-done step, and the next turn starts from the view again.
-    let kept = (start.keep
+    // A clean end keeps the session, and so does a cancel at a point the
+    // next turn goes on from (the Chief's own stop or sleep, a person's newer
+    // message: `Interrupt::keeps_session`). A failed or moved one, or one the
+    // owner stopped, may hold a half-done step, and the next turn starts from
+    // the view again. Before 2026-11-19 every cancel ended the session, and
+    // as nearly every Chief turn ends with its own `stop` or `sleep`, almost
+    // no session was kept (8 of ~1,400 turns, Nov 12-19): each turn started
+    // a new Claude Code and wrote its whole input to the cache again.
+    let resumable = cancelled && interrupt.keeps_session() && !forced_end;
+    // The owner's Stop (or a denial, an engine change) ends the session even
+    // when the harness answered it `end_turn` (a turn that finished as the
+    // stop came): acpmux reads such a turn as stopped too.
+    let kept = ((start.keep || interrupt.moved_work())
+        && !interrupt.ends_session()
+        && !fold.expects_carry()
         && orphan.is_none()
         && moved.is_none()
-        && error.is_none()
+        && (error.is_none() || resumable)
         && !answer_failed
-        && !cancelled
+        && (!cancelled || resumable)
+        && !forced_end
         && fold.ended().is_some())
     .then(|| Kept {
         session: session.clone(),
         after: fold.seq(),
+        cost_total: cost.map(micros),
+        context: fold
+            .requests()
+            .last()
+            .map(|r| r.usage.input + r.usage.cache_read + r.usage.cache_write + r.usage.output),
     });
     if orphan.is_none()
         && kept.is_none()
@@ -992,6 +1250,9 @@ pub fn run_with_drafts(
     {
         log(&format!("ending turn session {}: {e}", start.session.name));
     }
+    // From here on the cost is this turn's own (the session's total less
+    // what it was when this turn took the kept session).
+    let cost = own_cost(cost, reused.and_then(|r| r.kept.cost_total));
     // The run's end: what is left of its steps, its use and cost.
     send_run(
         // A turn cut by a lost acpmux link (an update relaunch) runs again
@@ -1017,6 +1278,7 @@ pub fn run_with_drafts(
     };
     TurnOutcome {
         reply: fold.final_text(),
+        budget_stopped: over_budget.get(),
         done_draft,
         cancelled,
         unstarted: false,
@@ -1145,25 +1407,17 @@ pub const CAPACITY_MAX_WAIT: Duration = Duration::from_secs(2 * 60 * 60);
 /// (503) and the API's overload (529), at their "retry after Ns", else
 /// [`CAPACITY_DEFAULT_WAIT`]. None for any other error.
 pub fn capacity_retry_after(error: &str) -> Option<Duration> {
-    let lower = error.to_ascii_lowercase();
-    // An overload without a retry-after stays the turn's error (the shared
-    // corpus, cmux-chief-corpus/1, pins "(turn failed: ...)" for it).
-    let capacity = lower.contains("no non-exhausted")
-        || ((lower.contains("overloaded")
-            || lower.contains("api error: 529")
-            || lower.contains("api error: 503"))
-            && lower.contains("retry after"));
-    if !capacity {
+    // What the error says is read once for acpmux, the compactor and this turn
+    // (cmux_upstream_error; ask-616b73f6bc): "HTTP 529 ...; retry-after: 30" waits here as
+    // it does there. An overload without a retry-after stays the turn's error (the shared
+    // corpus, cmux-chief-corpus/1, pins "(turn failed: ...)" for it); the subrouter's
+    // exhausted pool waits even unnamed.
+    let wait = cmux_upstream_error::retry_after(error);
+    let exhausted = error.to_ascii_lowercase().contains("no non-exhausted");
+    if !exhausted && !(cmux_upstream_error::is_capacity(error) && wait.is_some()) {
         return None;
     }
-    let seconds = lower.find("retry after ").and_then(|at| {
-        let digits: String = lower[at + 12..]
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect();
-        digits.parse::<u64>().ok()
-    });
-    Some(seconds.map_or(CAPACITY_DEFAULT_WAIT, Duration::from_secs))
+    Some(wait.unwrap_or(CAPACITY_DEFAULT_WAIT))
 }
 
 /// Runs `outcome`'s turn again while its route refuses it for want of

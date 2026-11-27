@@ -74,6 +74,10 @@ enum MuxEventFilter {
     /// The events a predicate takes: an internal consumer that reads only a
     /// few kinds never gets (or clones) the others.
     Matching(fn(&MuxEvent) -> bool),
+    /// The events a connection's own predicate takes (a page relay: its
+    /// page's event names, server/cmd_subscribe.rs). The rest never reach
+    /// its mailbox, so its writer thread neither wakes nor renders them.
+    Where(Box<dyn Fn(&MuxEvent) -> bool + Send>),
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -141,6 +145,15 @@ impl MuxEventBroadcaster {
     /// A receiver of the events `accepts` takes.
     pub(crate) fn subscribe_matching(&self, accepts: fn(&MuxEvent) -> bool) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::Matching(accepts))
+    }
+
+    /// A receiver of the events `accepts` takes, where the predicate holds
+    /// state (`subscribe_matching` takes only a plain function).
+    pub(crate) fn subscribe_where(
+        &self,
+        accepts: impl Fn(&MuxEvent) -> bool + Send + 'static,
+    ) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::Where(Box::new(accepts)))
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -244,6 +257,7 @@ impl MuxEventFilter {
             ),
             Self::Conversations => matches!(event, MuxEvent::Conversation(_) | MuxEvent::Empty),
             Self::Matching(accepts) => accepts(event),
+            Self::Where(accepts) => accepts(event),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -299,6 +313,7 @@ impl SurfaceSessionScope {
             | MuxEvent::GitHubChanged { .. }
             | MuxEvent::SettingsChanged(_)
             | MuxEvent::KeybindingsChanged(_)
+            | MuxEvent::AgentSessionShareChanged { .. }
             | MuxEvent::Conversation(_)
             | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }
@@ -309,6 +324,8 @@ impl SurfaceSessionScope {
             | MuxEvent::AppsChanged(_)
             | MuxEvent::StashChanged { .. }
             | MuxEvent::TasksChanged(_)
+            | MuxEvent::ComputerUseActivity(_)
+            | MuxEvent::ComputerUsePreview(_)
             | MuxEvent::ChatsChanged { .. }
             | MuxEvent::Empty => true,
         }

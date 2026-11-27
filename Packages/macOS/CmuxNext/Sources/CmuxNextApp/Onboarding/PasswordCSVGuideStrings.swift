@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the guided CSV import (table Passwords).
 nonisolated enum PasswordCSVGuideStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module.inAppLanguage)
     }
 
     static var sourceTitle: String { t("passwords.csv.guide.title", "Import Passwords from CSV") }

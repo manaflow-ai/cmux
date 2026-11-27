@@ -35,7 +35,7 @@ fn state_root() -> PathBuf {
     }
     let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_else(env::temp_dir);
     if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/cmux/tasks")
+        home.join("Library/Application Support/cmux-next/tasks")
     } else if let Some(xdg) = env::var_os("XDG_STATE_HOME") {
         PathBuf::from(xdg).join("cmux/tasks")
     } else {

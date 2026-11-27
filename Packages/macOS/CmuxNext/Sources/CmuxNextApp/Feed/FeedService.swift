@@ -134,23 +134,14 @@ final class FeedService {
         observers = []
     }
 
-    /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`), in its
-    /// personal team or in `team` (`x-cmux-team`; TeamDO confirms the membership).
+    /// One call to the API Worker as the signed-in user (`v1/ops` or `v1/read`), in its personal team or
+    /// in `team` (`x-cmux-team`; TeamDO confirms the membership): the daemon's `cloud.owner.op`
+    /// (``FeedOwnerCall``), so the request and the session's bearer never go through Swift HTTP.
     func call(_ path: String, _ body: [String: Any], team: String? = nil) async throws -> [String: Any] {
         guard auth.isSignedIn else { throw FeedServiceError.signedOut }
-        var request = URLRequest(url: apiBaseURL.appendingPathComponent(path))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 15
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
-        if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        // The bearer never goes through the shared, caching session.
-        let (data, _) = try await CloudAPIClient.noStoreTransport.data(for: request)
-        guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
-        if let error = reply["error"] as? [String: Any] {
-            throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")
-        }
-        return reply
+        guard let route = FeedOwnerCall.Route(path: path) else { throw FeedServiceError.badReply }
+        let auth = auth
+        return try FeedOwnerCall.read(try await FeedOwnerCall(baseURL: apiBaseURL, credential: { try await auth.tokens().access },
+                                                              team: team, configuration: auth.configuration, machineIO: auth.machineIO).send(route, body))
     }
 }

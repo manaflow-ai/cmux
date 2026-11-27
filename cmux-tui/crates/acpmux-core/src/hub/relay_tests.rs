@@ -24,6 +24,8 @@ struct FakeRelay {
     answer: Answer,
     /// A row of a third machine put into every answer, which the seam must drop.
     foreign: bool,
+    /// The sid the relay sends under, in place of the asker's.
+    sid: Option<String>,
     asked: Mutex<Vec<(String, Page)>>,
 }
 
@@ -34,6 +36,7 @@ impl FakeRelay {
             takes: vec![PEER.into(), "peer-b".into()],
             answer,
             foreign: false,
+            sid: None,
             asked: Mutex::new(Vec::new()),
         })
     }
@@ -48,8 +51,11 @@ impl PageRelay for FakeRelay {
         self.takes.iter().any(|taken| taken == origin)
     }
 
-    fn page(&self, origin: &str, request: Page) -> RelayFuture {
+    fn page(&self, origin: &str, mut request: Page) -> RelayFuture {
         self.asked.lock().unwrap().push((origin.to_owned(), request.clone()));
+        if let Some(sid) = &self.sid {
+            request.sid = sid.clone();
+        }
         match self.answer {
             Answer::Silent => Box::pin(std::future::pending()),
             Answer::Fails(code) => {
@@ -129,7 +135,7 @@ fn view_page(origin: &str, after: Option<ListKey>, max: u32) -> Page {
 
 fn sent(hub: &Hub, page: &Page) -> RelayedPage {
     match hub.relayed_page(page).expect("the relay takes it").expect("a relayed page") {
-        Relayed::Sent(relayed) => relayed,
+        Relayed::Sent(relayed) => *relayed,
         Relayed::Done(_) => panic!("answered at once"),
         Relayed::Busy => panic!("busy"),
     }
@@ -418,4 +424,203 @@ async fn a_local_connection_gets_the_relayed_page_on_its_held_sub() {
     assert_eq!(relay.asked().len(), 1);
     drop(client);
     task.await.unwrap().unwrap();
+}
+
+use crate::conn::Source as ConnSource;
+
+/// A list source that also answers a chat's `page` through its later reply at once, and
+/// records the sids its connection ends.
+struct ChatAndList {
+    list: crate::conn::HubSource,
+    ended: Mutex<Vec<String>>,
+}
+
+impl ConnSource for ChatAndList {
+    fn subscribe(
+        &self,
+        sub: &Sub,
+        person: Option<&[u8]>,
+        sink: Arc<dyn crate::conn::OfferSink>,
+    ) -> Result<(), crate::conn::ConnError> {
+        self.list.subscribe(sub, person, sink)
+    }
+    fn resume(&self, sid: &str, cursor: crate::wire::Cursor) {
+        self.list.resume(sid, cursor);
+    }
+    fn page(&self, page: &Page, person: Option<&[u8]>) -> Result<Frame, crate::conn::ConnError> {
+        self.list.page(page, person)
+    }
+    fn later(
+        &self,
+        request: crate::conn::Later<'_>,
+        person: Option<&[u8]>,
+        reply: crate::conn::Reply,
+    ) -> Option<crate::conn::Reply> {
+        if let crate::conn::Later::Page(page) = &request
+            && page.stream.as_str().starts_with("chat:")
+        {
+            let rows: Vec<serde_json::Value> = Vec::new();
+            let answer = serde_json::json!({"sid": page.sid, "rows": rows});
+            reply.answer(Frame::json(FrameKind::Page, &answer).unwrap());
+            return None;
+        }
+        self.list.later(request, person, reply)
+    }
+    fn end(&self, sid: &str) {
+        self.ended.lock().unwrap().push(sid.to_owned());
+        self.list.end(sid);
+    }
+}
+
+/// Decision 299: a relayed page waiting on a silent origin holds the connection up for
+/// nothing. A chat `page`, a `credit` and an `unsub` sent after it are served at once, and a
+/// second relayed page answers `busy` at once.
+#[tokio::test]
+async fn a_relayed_page_waiting_on_its_origin_holds_up_no_other_request() {
+    use crate::conn::{HubSource, Role, run};
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn send(writer: &mut tokio::io::DuplexStream, request: serde_json::Value) {
+        let frame = Frame::json(FrameKind::Request, &request).unwrap();
+        writer.write_all(&frame.encode()).await.unwrap();
+    }
+    // Well inside RELAY_PAGE_DEADLINE: an answer that waits for the relayed page misses it.
+    async fn receive(reader: &mut tokio::io::DuplexStream) -> Frame {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            let mut header = [0; 4];
+            reader.read_exact(&mut header).await.unwrap();
+            let mut bytes = vec![0; u32::from_be_bytes(header) as usize];
+            reader.read_exact(&mut bytes).await.unwrap();
+            let mut encoded = header.to_vec();
+            encoded.extend(bytes);
+            Frame::from_encoded(&encoded).unwrap()
+        })
+        .await
+        .expect("answered before the relayed page's deadline")
+    }
+
+    let (hub, peer) = pair();
+    let relay = FakeRelay::new(peer, Answer::Silent);
+    hub.set_page_relay(relay.clone());
+    let source =
+        Arc::new(ChatAndList { list: HubSource::new(hub.clone()), ended: Mutex::new(Vec::new()) });
+    let serving = source.clone();
+    let (mut client, server) = tokio::io::duplex(1 << 20);
+    let (rd, wr) = tokio::io::split(server);
+    let surfaces = ["list".to_owned(), "chat".to_owned()];
+    let task =
+        tokio::spawn(async move { run(rd, wr, serving, "test", &surfaces, Role::Local).await });
+    send(
+        &mut client,
+        serde_json::json!({"method":"hello","params":{"clientKind":"test","protocol":2}}),
+    )
+    .await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Hello);
+    for sid in ["s", "t"] {
+        send(
+            &mut client,
+            serde_json::json!({"method":"sub","params":{"sid":sid,"stream":"list","view":"all"}}),
+        )
+        .await;
+        assert_eq!(receive(&mut client).await.kind, FrameKind::Window);
+    }
+    // One relayed page, which its silent origin never answers.
+    send(&mut client, serde_json::json!({"method":"page","params":view_page(PEER, None, 12_000)}))
+        .await;
+    // Behind it: a chat's page, a credit, an unsub, and a second relayed page.
+    send(
+        &mut client,
+        serde_json::json!({"method":"page","params":{"sid":"c","stream":"chat:one"}}),
+    )
+    .await;
+    send(&mut client, serde_json::json!({"method":"credit","params":{"sid":"s","consumed":0}}))
+        .await;
+    send(&mut client, serde_json::json!({"method":"unsub","params":{"sid":"t"}})).await;
+    let mut second = view_page(PEER, None, 12_000);
+    second.sid = "s".into();
+    send(&mut client, serde_json::json!({"method":"page","params":second})).await;
+    let chat = receive(&mut client).await;
+    assert_eq!(chat.kind, FrameKind::Page);
+    assert_eq!(chat.decode_json::<serde_json::Value>().unwrap()["sid"], "c");
+    let busy = receive(&mut client).await;
+    assert_eq!(busy.kind, FrameKind::Error);
+    assert_eq!(busy.decode_json::<serde_json::Value>().unwrap()["code"], RELAY_BUSY);
+    assert!(source.ended.lock().unwrap().iter().any(|sid| sid == "t"), "the unsub was served");
+    assert_eq!(relay.asked().len(), 1, "the second relayed page asked nothing");
+    assert_eq!(hub.relay_in_flight(PEER), 1, "the first still waits on its origin");
+    drop(client);
+    task.await.unwrap().unwrap();
+}
+
+/// The keys progress rule: with more origins than a page has room to ask, the first ones
+/// that fit are asked in the order asked, and only the others' keys are `rest`; a page with
+/// no room even for the first, and nothing else to answer, is `invalid_params`.
+#[tokio::test]
+async fn more_origins_than_fit_ask_the_first_ones_and_rest_the_others() {
+    let (hub, peer) = pair();
+    let origins = (0..40).map(|n| format!("o-{n:02}")).collect::<Vec<_>>();
+    let mut relay = FakeRelay::new(peer, Answer::Peer);
+    Arc::get_mut(&mut relay).unwrap().takes = origins.clone();
+    hub.set_page_relay(relay.clone());
+    let keys = origins
+        .iter()
+        .enumerate()
+        .map(|(n, origin)| ListKey { origin: origin.clone(), ..key(n as u64) })
+        .collect::<Vec<_>>();
+    let frame = sent(&hub, &keys_page(keys.clone(), 256 * 1024)).answer().await.unwrap();
+    let page: PageResult<Summary> = frame.decode_json().unwrap();
+    let answered = page.rows.len();
+    assert!(answered > 0 && answered < 40, "{answered} answered");
+    assert_eq!(
+        page.rows.iter().map(|row| (row.origin.clone(), row.chat_id.clone())).collect::<Vec<_>>(),
+        keys[..answered]
+            .iter()
+            .map(|key| (key.origin.clone(), key.chat_id.clone()))
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(page.rest, keys[answered..].to_vec());
+    let asked = relay.asked().into_iter().map(|(origin, _)| origin).collect::<Vec<_>>();
+    assert_eq!(asked, origins[..answered].to_vec(), "the first ones, in the order asked");
+    // No room for even the first origin, and nothing else to answer: the page leaves less
+    // than a page's least budget once the key is charged.
+    let tight = keys_page([keys[0].clone()], 8192 + 1 + 50);
+    assert!(matches!(hub.relayed_page(&tight), Some(Err(HubError::InvalidPage))));
+}
+
+/// A relay that sends a view page under a shorter sid than the asker's (1 byte against 200):
+/// the origin's page is sized so the asker's frame, under the asker's sid, still fits its `max_bytes`.
+#[tokio::test]
+async fn a_relay_sending_under_a_shorter_sid_still_fits_the_askers_budget() {
+    // An origin as long as `local`: renaming adds nothing, so the page keeps no room for it.
+    const SAME: &str = "peer5";
+    let (hub, peer) = pair();
+    let mut relay = FakeRelay::new(peer, Answer::Peer);
+    let fake = Arc::get_mut(&mut relay).unwrap();
+    fake.sid = Some("r".into());
+    fake.takes = vec![SAME.into()];
+    hub.set_page_relay(relay.clone());
+    let sid = "s".repeat(200);
+    let mut walked = Vec::new();
+    let mut after = None;
+    loop {
+        let mut request = view_page(SAME, after.clone(), 12_000);
+        request.sid = sid.clone();
+        let frame = sent(&hub, &request).answer().await.expect("fits the asker's budget");
+        assert!(frame.encoded_len() <= 12_000);
+        let page: PageResult<Summary> = frame.decode_json().unwrap();
+        assert_eq!(page.sid, sid);
+        walked.extend(ids(&page));
+        if !page.has_after {
+            break;
+        }
+        after = page.after_key;
+    }
+    assert_eq!(walked.len(), 100);
+    // The origin's page leaves room for the asker's sid, whatever sid the relay sends under.
+    let asked = relay.asked();
+    assert!(!asked.is_empty());
+    for (_, page) in asked {
+        assert_eq!(page.max_bytes as usize, 12_000 - sid.len());
+    }
 }

@@ -14,29 +14,55 @@ extension SettingsController {
     /// hand-authored keymaps. Existing comments, unknown top-level keys and
     /// settings outside `shortcuts` remain untouched.
     public func importShortcutKeymap(_ value: JSONValue) async throws {
-        guard case .object(let root) = value else {
+        guard case .object(var root) = value else {
             throw CmuxConfigFile.Failure.invalidPath("keymap must be a JSON object")
+        }
+        // A keymap file also carries the key style and keyboard layout (`app.keyStyle`,
+        // `app.shortcutLayout`); no other `app` key is taken from a shared file.
+        var edits: [(path: [String], value: JSONValue?)] = []
+        if case .object(let app)? = root.removeValue(forKey: "app") {
+            for path in Self.keymapAppPaths {
+                if let value = app[path[1]] { edits.append((path: path, value: Optional(value))) }
+            }
         }
         let shortcuts: [String: JSONValue]
         if case .object(let nested)? = root["shortcuts"] {
             shortcuts = nested
         } else if root.keys.contains(where: { ["bindings", "tiers", "when"].contains($0) }) {
             shortcuts = root
+        } else if root.isEmpty {
+            shortcuts = [:]
         } else {
             shortcuts = ["bindings": .object(root)]
         }
-        let edits = shortcuts.map { key, value in
+        edits += shortcuts.map { key, value in
             (path: ["shortcuts", key], value: Optional(value))
         }
         guard !edits.isEmpty else { return }
         try await file.apply(edits)
     }
 
+    /// The `app` settings a keymap file carries besides `shortcuts`.
+    static let keymapAppPaths = [KeyboardStyleSettings.keyStylePath, KeyboardStyleSettings.shortcutLayoutPath]
+
+    /// The `app` object of a keymap export: the key style and keyboard layout this file sets,
+    /// or nil when it sets neither (the defaults).
+    func keymapAppSettings() async throws -> JSONValue? {
+        var app: [String: JSONValue] = [:]
+        for path in Self.keymapAppPaths {
+            if let value = try await file.value(at: path) { app[path[1]] = value }
+        }
+        return app.isEmpty ? nil : .object(app)
+    }
+
     /// Writes the `shortcuts` object to `url` as a keymap file
-    /// (`{"shortcuts": {...}}`, pretty JSON), atomically.
+    /// (`{"shortcuts": {...}}`, pretty JSON), atomically, with `app.keyStyle` and
+    /// `app.shortcutLayout` when the settings file sets them, so one file shares a
+    /// whole keyboard setup.
     public func exportShortcutKeymap(to url: URL) async throws {
-        let keymap: JSONValue = .object(["shortcuts": try await shortcutKeymap()])
-        try await Self.write(Data(keymap.prettyText().utf8), to: url)
+        var object: [String: JSONValue] = ["shortcuts": try await shortcutKeymap()]
+        if let app = try await keymapAppSettings() { object["app"] = app }
+        try await Self.write(Data(JSONValue.object(object).prettyText().utf8), to: url)
     }
 
     /// The keymap file's bytes, read off the main actor (a user-chosen file can be on a slow volume).

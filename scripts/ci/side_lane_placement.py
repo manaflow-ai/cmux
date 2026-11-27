@@ -720,9 +720,9 @@ def light_side_label(label: str) -> str:
 
 def _family(label: str) -> str:
     """`<class>-xcode-<version>` for any glaeda label naming a class, whatever its role or namespace
-    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than
-    portable_job_placement.family(), which reads only pool.OWNED_LABEL: the nightly builder's pool
-    (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must hold the light minis too."""
+    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than pool.OWNED_LABEL alone:
+    the nightly builder's pool (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must
+    hold the light minis too."""
     parts = (label or "").split("-")
     if not parts or parts[0] != "glaeda":
         return ""
@@ -1037,8 +1037,34 @@ def gateway_taken(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
     return taken
 
 
+# cmux-next.yml fast-tier-fleet's `cmux-ci ... --queue-timeout`: past it the client gives up with no verdict.
+FLEET_CLIENT_QUEUE_WAIT_S = 1200
+FLEET_CONTROLLER = "http://100.89.225.106:18765"
+
+
+def fleet_queue_p90(env: Mapping[str, str], read: Any = None) -> float | None:
+    """The build fleet's light-class queue-wait p90 in seconds (its /v1/status), or None when unread.
+
+    Why: docs/ci/cmux-next-workflow-notes.md note-558. None fails open: placement lists the job as before.
+    """
+    import json
+    import urllib.request
+    base = (env.get("CMUX_FLEET_CONTROLLER") or FLEET_CONTROLLER).rstrip("/")
+    try:
+        if read is None:
+            with urllib.request.urlopen(f"{base}/v1/status", timeout=5) as response:
+                body = response.read()
+        else:
+            body = read(f"{base}/v1/status")
+        value = json.loads(body).get("step_queue_wait_p90_seconds", {}).get("light")
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
 def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
-                  gateway: str, taken: Mapping[str, int] | None = None) -> Any:
+                  gateway: str, taken: Mapping[str, int] | None = None,
+                  queue_p90: float | None = None) -> Any:
     """`placed` with its fleet_jobs kept only while `gateway` has an idle runner for each of them.
 
     A listed job's build-fleet client (cmux-next.yml's <job>-fleet) runs on gateway_runner beside
@@ -1050,9 +1076,16 @@ def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping
 
     A kept job that a Blacksmith macOS label also took (next_macos_cascade.place() lists it so the fleet
     builds it warm) leaves that label; a dropped one keeps it.
+
+    A fleet whose light queue p90 (`queue_p90`) is past the client's wait lists nothing: the client would
+    give up with no verdict while its steps kept their place and ran for nobody (note-558).
     """
     if not placed.fleet_jobs:
         return placed
+    if queue_p90 is not None and queue_p90 > FLEET_CLIENT_QUEUE_WAIT_S:
+        return dataclasses.replace(placed, fleet_jobs=(), why=(
+            f"{placed.why}; the build fleet's light queue p90 is {round(queue_p90 / 60)} min, past its client's "
+            f"{FLEET_CLIENT_QUEUE_WAIT_S // 60}-minute wait, so {', '.join(placed.fleet_jobs)} keep their route"))
     want = len((env.get("GATEWAY_JOBS") or "").split()) + len(placed.fleet_jobs)
     room = (pool.live_owned_free(runners, [gateway])[gateway] - (taken or {}).get(gateway, 0)
             if gateway and runners is not None else 0)
@@ -1103,6 +1136,45 @@ def delimited(jobs: Sequence[str]) -> str:
 
 # The branch whose pushes run the cmux NEXT DEV pipeline.
 FEAT_BRANCH = "refs/heads/feat-cmux-next"
+
+# STACK_SLOT: a same-repository pull request labelled stack-blocker (a base-red repair, or a PR a stack of others waits
+# on) runs its Mac jobs on the std minis' nightly slot, glaeda-nightly-std-xcode-26.6, a label no other PR job asks
+# for, so a busy side label's queue never holds it. GitHub hands a label's queued jobs out in arrival order, so on
+# 2026-11-17 cmux#45498, the repair of a daemon-test red on every feat-cmux-next head, queued behind about 70 PR jobs
+# on glaeda-side-std-xcode-26.6. claude-sr2-coord, 2026-11-17: "A base-red repair jumping the Mac queue is a route we
+# need every day ... build it as the standing mechanism (the stack-blocker path), with a test." glaeda's runner hook
+# admits such a job on the slot (STACK_SLOT there) and ranks it right after nightly jobs. The workflow sets STACK_SLOT
+# only on attempt 1 of a labelled same-repository pull request; it overrides every route a Mac job's runs-on reads
+# ahead of `runner` and `deferred_runner`, so each placed job takes the slot. A rescue re-run (attempt 2) is placed as
+# before. The label is read from the run's own payload, so labelling a PR takes effect on its next push.
+STACK_SLOT_PREFIX = "glaeda-nightly-"
+# The fast tier's own fast label and the DEV compile slot's fresh label are dedicated slots of their own and keep
+# their placement; every shared route a queued job could wait on is cleared.
+STACK_SLOT_CLEARED = ("owned_jobs", "fallback_jobs", "light_jobs", "session_jobs", "borrow_jobs", "retry_jobs",
+                      "blacksmith_12_jobs", "blacksmith_6_jobs")
+
+
+def stack_slot_outputs(env: Mapping[str, str]) -> str:
+    """The outputs that send this run's placed Mac jobs to the nightly slot (STACK_SLOT), or "". Appended after the
+    placement's own, so each key's last value, the one GitHub keeps, is this one."""
+    slot = (env.get("STACK_SLOT") or "").strip()
+    if not slot.startswith(STACK_SLOT_PREFIX) or (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
+        return ""
+    return "".join(f"{key}=\n" for key in STACK_SLOT_CLEARED) + f"runner={slot}\ndeferred_runner={slot}\nwatch=true\n"
+
+
+def write_stack_slot(env: Mapping[str, str]) -> None:
+    """Append stack_slot_outputs() to GITHUB_OUTPUT and say so in the log and the summary."""
+    outputs = stack_slot_outputs(env)
+    if not outputs:
+        return
+    slot = (env.get("STACK_SLOT") or "").strip()
+    why = f"a stack-blocker pull request: its Mac jobs take the nightly slot `{slot}`, ahead of the side label's queue"
+    print(f"side-lane placement: {why}")
+    for name, text in (("GITHUB_OUTPUT", outputs), ("GITHUB_STEP_SUMMARY", f"\n{why}\n")):
+        if path := env.get(name):
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(text)
 
 
 def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
@@ -1333,6 +1405,9 @@ def handback(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None
           and small in cascade.stalled(live, waiting, seen.waits, seen.age)):
         out = f"stalled (oldest queued job {seen.waits.get(small, 0.0):.0f} min)"
     owned = route_label(label, runners, 1) or label
+    if not out and not cascade.blacksmith_on(env):
+        # With Blacksmith macOS off no runner serves its label, so a hand-back there would queue with no runner.
+        out = f"off (vars.{cascade.BLACKSMITH_SWITCH} is not `on`)"
     if not out or not owned.startswith("glaeda-"):
         return small, f"no idle owned Mac, so the fast tier takes `{small}`"
     return owned, f"no idle owned Mac and `{small}` is {out}, so the fast tier waits on the owned route `{owned}`"
@@ -1510,7 +1585,8 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promotion_busy,
                            saturated=runners is not None, route_wait=route_wait(route, runners, seen))
     # A job listed for the build fleet runs its client on the gateway only with an idle runner of its own there.
-    placed = fleet_gateway(placed, env, runners, gateway, taken)
+    placed = fleet_gateway(placed, env, runners, gateway, taken,
+                           fleet_queue_p90(env) if placed.fleet_jobs else None)
     # With no GUI route that has room, the GUI jobs take the largest Blacksmith macOS size that starts them now,
     # after the slots this run's cascade just took (gui_overflow()). An unread fleet vouches for no owned GUI
     # queue either, so it overflows too, as it did before (the step's synthesized `runner` sent it to 6 vCPU).
@@ -1613,12 +1689,14 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     try:
         signal.signal(signal.SIGALRM, timeout)
         signal.setitimer(signal.ITIMER_REAL, PLACEMENT_DEADLINE_SECONDS)
-        return _main(env)
+        code = _main(env)
     except PlacementDeadline:
-        return _timeout_fallback(env)
+        code = _timeout_fallback(env)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
+    write_stack_slot(env)  # STACK_SLOT: after the deadline, so it is always written
+    return code
 
 
 if __name__ == "__main__":

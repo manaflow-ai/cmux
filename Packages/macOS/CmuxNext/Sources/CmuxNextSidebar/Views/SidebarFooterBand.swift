@@ -94,10 +94,10 @@ final class SidebarFooterBand {
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
         // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
         let searchMinX = placeSearch()
-        // Swift live mode's mark follows the avatar; the dots and the update button start after it. App
-        // health's line is not in this row (``placeHealthIndicator(above:)``): its coming and going never
-        // moves the strip, the update button or Search.
-        let leadMaxX = placeLiveBadge(before: searchMinX)
+        // Swift live mode's mark follows the avatar; the dots and the update button start after it.
+        // The Live toggle comes first, right after the avatar; the badge follows it.
+        let liveMaxX = placeLiveToggle(before: searchMinX)
+        let leadMaxX = placeLiveBadge(before: searchMinX, after: liveMaxX) ?? liveMaxX
         let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
@@ -143,10 +143,25 @@ final class SidebarFooterBand {
     /// `SidebarStyle.bottomInset` (Leo 2026-10-20: the line sat too high, the section's own
     /// padding stacked on the margin): no padding under a row as tall as the button, half the
     /// difference under a shorter one, which the button overhangs.
+    ///
+    /// On a screen whose pixel grid cannot hold the density's margin (a half-point margin at 1x, #44449) the line ends
+    /// on the next whole pixel up (`bottomMargin`), and the Search button is whole pixels tall (`searchSide`), so the
+    /// button's bottom and top both land on pixels and the row centers one device pixel over its middle.
     func footerBottomPadding(rowHeight: CGFloat) -> CGFloat {
         guard host?.design.sidebarSections.showSearchButton == true else { return 0 }
-        return max(0, (Self.searchButtonSide - rowHeight) / 2 + searchLensDrop)
+        return max(0, (searchSide - rowHeight) / 2 + searchLensDrop + bottomMargin - SidebarStyle.bottomInset)
     }
+
+    /// The window's device pixel scale (2 before the sidebar has a window).
+    private var pixelScale: CGFloat { host?.window?.backingScaleFactor ?? 2 }
+
+    /// The Search button's side in whole device pixels: `searchButtonSide` is a half point at some densities (#44449),
+    /// which a 1x screen cannot draw both edges of.
+    var searchSide: CGFloat { SidebarStyle.pixelSnapped(Self.searchButtonSide, scale: pixelScale) }
+
+    /// The footer line's bottom margin, `SidebarStyle.bottomInset` rounded up to whole device pixels: 3.5 pt at Compact
+    /// on a 2x screen, 4 on a 1x one.
+    var bottomMargin: CGFloat { (SidebarStyle.bottomInset * pixelScale).rounded(.up) / pixelScale }
 
     /// How far the Search button sits under the avatar's center line: one device pixel. The eye
     /// centers the magnifying glass on its lens, which rides above the glyph's middle with the
@@ -171,7 +186,7 @@ final class SidebarFooterBand {
             return nil
         }
         button.isHidden = false
-        let side = Self.searchButtonSide
+        let side = searchSide
         let x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
             // The search button shares the list rows' trailing column. Preserve the footer's
@@ -198,8 +213,48 @@ final class SidebarFooterBand {
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
         let scale = host.window?.backingScaleFactor ?? 2
-        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
+        // Round the origin up the screen (the view is flipped), never down past the drop: a density's
+        // half-point footer height (every density is Default scaled, #44449) otherwise added half a
+        // pixel to the lens drop, 1.5 pt under the avatar's line at scale 1.
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded(.down) / scale,
+                              width: side, height: side)
         return button.frame.minX
+    }
+
+    // MARK: Live toggle
+
+    /// Places the Live toggle (`host.liveButton`) on the footer line right after the profile avatar, `space2` from it,
+    /// centered on the avatar's line; at the footer's leading inset when the band shows no items (Leo 2026-11-24: "the
+    /// bottom left of the sidebar area ... right after the profile avatar"). It never reaches `searchMinX`: with no
+    /// room it steps out of the line (zero frame). Returns its maxX in the sidebar's coordinates, nil while it does
+    /// not show (`sidebar.showLiveToggle` off, `sidebar.noFade`, or no room).
+    @discardableResult
+    func placeLiveToggle(before searchMinX: CGFloat?) -> CGFloat? {
+        guard let host else { return nil }
+        let button = host.liveButton
+        guard host.design.sidebarSections.showLiveToggle, !host.design.sidebarSections.noFade else {
+            button.isHidden = true
+            return nil
+        }
+        button.isHidden = false
+        let side = searchSide
+        let x: CGFloat, midY: CGFloat
+        if let row = bandFirstRow {
+            (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
+        } else {
+            let footer = host.footer.frame
+            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
+        }
+        let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1
+        guard x + side <= end else {
+            button.frame = .zero
+            return nil
+        }
+        let scale = host.window?.backingScaleFactor ?? 2
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale,
+                              width: side, height: side)
+        return button.frame.maxX
     }
 
     // MARK: Live mode badge
@@ -211,10 +266,10 @@ final class SidebarFooterBand {
     /// of the line (zero frame), and the window's top row shows it while the sidebar is hidden.
     /// Returns its maxX in the sidebar's coordinates, nil while it does not show.
     @discardableResult
-    func placeLiveBadge(before searchMinX: CGFloat?) -> CGFloat? {
+    func placeLiveBadge(before searchMinX: CGFloat?, after liveMaxX: CGFloat? = nil) -> CGFloat? {
         guard let host, let badge = host.liveModeBadge, !badge.isHidden else { return nil }
         let size = badge.fittingSize
-        let x: CGFloat, midY: CGFloat
+        var x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
             (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
         } else {
@@ -222,6 +277,7 @@ final class SidebarFooterBand {
             (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
                 : host.bounds.maxY - SidebarStyle.bottomInset - Self.searchButtonSide / 2)
         }
+        if let liveMaxX { x = liveMaxX + Metrics.space1 }
         let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1
         guard x + size.width <= end else {
             badge.frame = .zero
@@ -232,38 +288,24 @@ final class SidebarFooterBand {
         return badge.frame.maxX
     }
 
-    // MARK: App health
+    // MARK: Experiments mark
 
-    /// Places app health's line (`host.healthIndicator`) over the sidebar, never in the footer row's flow, so
-    /// its arrival and departure move nothing beside it (Leo, 2026-11-11: "slow indicator on the bottom left
-    /// is uselsss and layout shifts the space. it's bad"; it used to sit after the avatar and push the spaces
-    /// strip and the update button along the row). The shipped line floats just above the bottom stack
-    /// (`ceiling`: the top of the footer row and of any card over it), at the avatar's leading edge, on its
-    /// own opaque chip over the list's bottom; a badge (``AvatarBadgePlacing``) sits on the
-    /// avatar's top-trailing corner. The row's own frames are laid out before and without it.
-    func placeHealthIndicator(above ceiling: CGFloat) {
-        guard let host, let line = host.healthIndicator, !line.isHidden else { return }
-        let size = line.fittingSize
-        let scale = host.window?.backingScaleFactor ?? 2
+    /// Places the experiments mark (`host.experimentsMark`) over the sidebar: at the avatar's leading edge,
+    /// just above the bottom stack (`ceiling`). It is never in the footer row's flow: its arrival and
+    /// departure move nothing in the row.
+    func placeExperimentsMark(above ceiling: CGFloat) {
+        guard let host, let mark = host.experimentsMark, !mark.isHidden else { return }
+        let size = mark.fittingSize
         let row = bandFirstRow
-        if (line as? any AvatarBadgePlacing)?.sitsOnAvatar == true {
-            guard let avatar = row?.frame else {
-                line.frame = .zero
-                return
-            }
-            line.frame = WindowTitlebar.alignedFrame(NSRect(x: avatar.maxX - size.width * 0.75, y: avatar.minY - size.height * 0.25,
-                                                            width: size.width, height: size.height), scale: scale)
-            return
-        }
         let x = row?.frame.minX ?? Metrics.space4
         let top = min(ceiling, row?.frame.minY ?? ceiling)
         let width = min(size.width, host.bounds.width - x - Metrics.space4)
         guard width >= Self.searchButtonSide * 2 else {
-            line.frame = .zero
+            mark.frame = .zero
             return
         }
-        line.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: top - Metrics.space2 - size.height, width: width, height: size.height),
-                                                 scale: scale)
+        mark.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: top - Metrics.space2 - size.height, width: width, height: size.height),
+                                                 scale: host.window?.backingScaleFactor ?? 2)
     }
 
     // MARK: Update Available button
@@ -342,7 +384,9 @@ final class SidebarFooterBand {
     /// point is, the styles mix and they don't look good. So they need to look good." and, of
     /// drawing this menu on our own glass: "Well, that's the whole point, right? Like that's what
     /// we wanted to do anyways. have better design (systems too)"). A click on the control while
-    /// the menu is open closes it. The control holds its selected fill until the menu closes.
+    /// the menu is open closes it. The control holds its selected fill until the menu closes. A press
+    /// that opened it and is still held tracks as an `NSMenu`'s does: drag onto a row, release, and the
+    /// row runs (``GlassMenu/trackPress(_:)``).
     ///
     /// The open happens on a later pass of the main run loop, so a caller (a socket action, a
     /// palette run) returns first (Leo, 2026-10-29: "clicking out of a ... context menu is
@@ -359,9 +403,14 @@ final class SidebarFooterBand {
             }
             let glass = GlassMenu(menu: menu)
             let control = anchor as? SidebarItemRowView
-            glass.onClose = { control?.showsMenu = false }
+            glass.onClose = {
+                control?.showsMenu = false
+                control?.pressTracker = nil
+            }
             guard glass.show(from: anchor, preferred: .above) else { return }
             control?.showsMenu = true
+            // Opened by a press still held: the drag and the release pick a row, as on an NSMenu.
+            if let control, control.holdsPress { control.pressTracker = { [weak glass] in glass?.trackPress($0) } }
             self?.openProfileMenu = glass
         }
     }

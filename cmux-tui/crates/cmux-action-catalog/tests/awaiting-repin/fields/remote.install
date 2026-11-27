@@ -1,1 +1,6 @@
+<<<<<<< HEAD
 /isDestructive # remote.install runs on the click (no sheet); the Swift step B follows the re-pin
+=======
+# a waited CLI run of its tracked work gets the 40 s result deadline, not the 2 s control-plane one (lane/catalog-waited-actions-declare): the dump has the old flag until the re-pin
+/waitsForResult
+>>>>>>> origin/feat-cmux-next

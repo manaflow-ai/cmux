@@ -570,6 +570,10 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             return;
         }
         #[cfg(test)]
+        #[path = "subsession_worktree_tests.rs"]
+        mod base_tests;
+
+        #[cfg(test)]
         before_path_removal(&worktree.root);
         // The made folder, emptied, stays at its path while its registration and branch go:
         // nothing can be recreated there meanwhile (worktree care refuses a path that exists).
@@ -781,9 +785,49 @@ pub fn slug(text: &str) -> String {
 /// A new worktree of `folder`'s repository at `~/.cmux/worktrees/<project>/<name>`
 /// on a new branch `cmux/<name>` from the current branch (else HEAD), its
 /// base recorded as `branch.<branch>.cmuxBase`, as `git.worktree.create`
-/// makes one. A taken name gets the next free suffix.
+/// makes one. A taken name gets the next free suffix. `worktrees.location`
+/// and `worktrees.branchPrefix` name another folder and prefix ([`Names`]).
 pub fn make_worktree(folder: Dir<'_>, title: &str) -> Result<Worktree, String> {
-    make_worktree_under(folder, title, &home()?)
+    make_worktree_in(folder, title, &home()?, &Names::read())
+}
+
+/// The settings that place and name the worktrees made here, as
+/// `git.worktree.create` reads them (`cmux_config::worktree_names`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Names {
+    /// `worktrees.location`: None for `~/.cmux/worktrees`.
+    pub location: Option<serde_json::Value>,
+    /// `worktrees.branchPrefix`, default `cmux/`.
+    pub branch_prefix: String,
+}
+
+impl Default for Names {
+    fn default() -> Self {
+        Self {
+            location: None,
+            branch_prefix: cmux_config::worktree_names::DEFAULT_BRANCH_PREFIX.to_owned(),
+        }
+    }
+}
+
+impl Names {
+    /// The settings file's values now; the defaults when it is missing or unreadable.
+    pub fn read() -> Self {
+        match crate::user_settings::read() {
+            crate::user_settings::Settings::Parsed(doc) => Self::from_settings(&doc),
+            _ => Self::default(),
+        }
+    }
+
+    /// The values of the settings document `doc`.
+    pub fn from_settings(doc: &serde_json::Value) -> Self {
+        use cmux_config::worktree_names::{BRANCH_PREFIX_KEY, LOCATION_KEY, branch_prefix};
+        let value = |key: &str| crate::user_settings::value(doc, key);
+        Self {
+            location: value(LOCATION_KEY),
+            branch_prefix: branch_prefix(value(BRANCH_PREFIX_KEY).as_ref()),
+        }
+    }
 }
 
 fn home() -> Result<PathBuf, String> {
@@ -796,11 +840,13 @@ struct Layout {
     /// The started-from folder's place in the repository (`rev-parse --show-prefix`).
     prefix: String,
     format: String,
-    /// `~/.cmux/worktrees/<project>`.
+    /// `~/.cmux/worktrees/<project>` (or `<worktrees.location>/<project>`).
     parent: PathBuf,
+    /// `worktrees.branchPrefix`.
+    branch_prefix: String,
 }
 
-fn layout(folder: Dir<'_>, home: &Path) -> Result<Layout, String> {
+fn layout(folder: Dir<'_>, home: &Path, names: &Names) -> Result<Layout, String> {
     let common =
         PathBuf::from(git(folder, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?);
     let objects = PathBuf::from(git(
@@ -825,10 +871,15 @@ fn layout(folder: Dir<'_>, home: &Path) -> Result<Layout, String> {
         .unwrap_or_else(|| "repository".into());
     // The app's `git.worktree.create` root (`git_ops/worktree.rs`), so its
     // Apply and Remove find these: the person's worktrees, not build state.
-    let parent = cmux_git::worktree_root::worktree_root(home)
-        .map_err(|e| format!("cannot prepare ~/.cmux/worktrees: {e}"))?
-        .join(project);
-    Ok(Layout { objects, prefix, format, parent })
+    let parent = match cmux_config::worktree_names::location(names.location.as_ref(), home) {
+        // Made with the worktree's own folder (`home_fs::create_dirs`).
+        Some(root) => root,
+        None => cmux_git::worktree_root::worktree_root(home)
+            .map_err(|e| format!("cannot prepare ~/.cmux/worktrees: {e}"))?,
+    }
+    .join(project);
+    let branch_prefix = names.branch_prefix.clone();
+    Ok(Layout { objects, prefix, format, parent, branch_prefix })
 }
 
 /// Fills the worktree git just added at `made.root` with `commit`'s files
@@ -870,9 +921,21 @@ fn fill(
     Ok(made)
 }
 
-/// [`make_worktree`] with `home` as the home folder.
+/// [`make_worktree`] with `home` as the home folder and the default [`Names`].
+#[cfg(test)]
 fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Worktree, String> {
-    let layout = layout(folder, home)?;
+    make_worktree_in(folder, title, home, &Names::default())
+}
+
+/// [`make_worktree`] with `home` as the home folder and `names`.
+fn make_worktree_in(
+    folder: Dir<'_>,
+    title: &str,
+    home: &Path,
+    names: &Names,
+) -> Result<Worktree, String> {
+    let layout = layout(folder, home, names)?;
+    let branch_prefix = layout.branch_prefix.as_str();
     let parent = layout.parent.clone();
     // The commit is resolved once; a branch name that reads as an option
     // (`-x`) is recorded as that commit instead.
@@ -880,7 +943,8 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
     let base = current_base(folder, &commit);
     let name = Some(slug(title)).filter(|n| !n.is_empty()).unwrap_or_else(|| "task".into());
     let free = |candidate: &str| {
-        !parent.join(candidate).exists() && !has_branch_ref(folder, &format!("cmux/{candidate}"))
+        !parent.join(candidate).exists()
+            && !has_branch_ref(folder, &format!("{branch_prefix}{candidate}"))
     };
     crate::home_fs::create_dirs(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     // Another start may take a free name before this one adds it: git then
@@ -913,7 +977,7 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
         };
         #[cfg(not(unix))]
         let (root_pin, root_held) = (None, None);
-        let branch = format!("cmux/{chosen}");
+        let branch = format!("{branch_prefix}{chosen}");
         let add =
             ["worktree", "add", "--no-checkout", "-b", &branch, &root.to_string_lossy(), &commit];
         if let Err(e) = git_repo_write(folder, &add) {
@@ -1132,7 +1196,7 @@ pub struct Ensured {
 /// Running it again with the same name gives the same worktree, so a
 /// launcher that runs twice does not make two.
 pub fn ensure_worktree(folder: &Path, name: &str, base: Option<&str>) -> Result<Ensured, String> {
-    ensure_worktree_under(folder, name, base, &home()?, None)
+    ensure_worktree_in(folder, name, base, &home()?, None, &Names::read())
 }
 
 /// Ensure a worktree while preserving a caller-provided branch name.
@@ -1145,7 +1209,7 @@ pub fn ensure_worktree_with_branch(
     if branch.is_empty() || branch.starts_with('-') || branch.ends_with('/') {
         return Err("the branch must be a non-empty git branch name".into());
     }
-    ensure_worktree_under(folder, name, base, &home()?, Some(branch))
+    ensure_worktree_in(folder, name, base, &home()?, Some(branch), &Names::read())
 }
 
 type Lock = std::sync::Arc<std::sync::Mutex<()>>;
@@ -1160,12 +1224,24 @@ fn name_lock(root: &Path) -> Lock {
     locks.entry(root.to_path_buf()).or_default().clone()
 }
 
+#[cfg(test)]
 fn ensure_worktree_under(
     folder: &Path,
     name: &str,
     base: Option<&str>,
     home: &Path,
     explicit_branch: Option<&str>,
+) -> Result<Ensured, String> {
+    ensure_worktree_in(folder, name, base, home, explicit_branch, &Names::default())
+}
+
+fn ensure_worktree_in(
+    folder: &Path,
+    name: &str,
+    base: Option<&str>,
+    home: &Path,
+    explicit_branch: Option<&str>,
+    names: &Names,
 ) -> Result<Ensured, String> {
     let chosen = slug(name);
     if chosen.is_empty() {
@@ -1174,9 +1250,11 @@ fn ensure_worktree_under(
     if base.is_some_and(|b| b.is_empty() || b.starts_with('-')) {
         return Err("the base must be a ref or commit, not an option".into());
     }
-    let layout = layout(folder.into(), home)?;
+    let layout = layout(folder.into(), home, names)?;
     let root = layout.parent.join(&chosen);
-    let branch = explicit_branch.map(str::to_owned).unwrap_or_else(|| format!("cmux/{chosen}"));
+    let branch = explicit_branch
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("{}{chosen}", layout.branch_prefix));
     let lock = name_lock(&root);
     let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
     // A second pass covers another process adding it meanwhile.
@@ -1257,7 +1335,10 @@ fn ensure_worktree_under(
         let worktree = fill(folder.into(), &layout, made, &commit, reused.is_some())?;
         return Ok(Ensured { worktree, reused });
     }
-    Err(format!("{} was added and removed while this ran; run it again", root.display()))
+    Err(format!(
+        "{} kept being added and removed while this ran (another process makes worktrees there)",
+        root.display()
+    ))
 }
 
 /// `root` as a worktree of `folder`'s repository: Some(its branch, None
@@ -1278,6 +1359,10 @@ fn listed_worktree(folder: &Path, root: &Path) -> Option<Option<String>> {
     }
     found.then_some(None)
 }
+
+#[cfg(test)]
+#[path = "subsession_worktree_tests.rs"]
+mod base_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1784,5 +1869,35 @@ mod tests {
         let e = ensure_worktree_under(&repo, "y", None, &home, None).err().unwrap();
         assert!(e.contains("checked out in another worktree") && e.contains("elsewhere"), "{e}");
         assert!(ensure_worktree_under(&repo, "//", None, &home, None).is_err());
+    }
+
+    /// `worktrees.location` and `worktrees.branchPrefix` from the settings file: the shared
+    /// folder and the prefix of every worktree made here, a lane's and a chat's.
+    #[test]
+    fn the_worktree_folder_and_branch_prefix_settings_place_and_name_worktrees() {
+        let (_scratch, repo, home) = repo();
+        let shared = home.join("elsewhere/wt");
+        let doc = serde_json::json!({
+            "worktrees": {"location": shared.to_string_lossy(), "branchPrefix": "me/"}
+        });
+        let names = Names::from_settings(&doc);
+        assert_eq!(names.branch_prefix, "me/");
+
+        let lane = ensure_worktree_in(&repo, "Lane One", None, &home, None, &names).unwrap();
+        assert_eq!(lane.worktree.root, shared.join("proj/lane-one"));
+        assert_eq!(lane.worktree.branch, "me/lane-one");
+        sh(&repo, &["rev-parse", "me/lane-one"]);
+
+        let chat = make_worktree_in(repo.as_path().into(), "Task", &home, &names).unwrap();
+        assert_eq!(chat.root, shared.join("proj/task"));
+        assert_eq!(chat.branch, "me/task");
+        assert!(!home.join(".cmux/worktrees/proj").exists());
+
+        // A `~/` location is the home folder's; an unusable prefix is the default.
+        let doc = serde_json::json!({"worktrees.location": "~/wt", "worktrees.branchPrefix": "-x"});
+        let names = Names::from_settings(&doc);
+        assert_eq!(names.branch_prefix, "cmux/");
+        let chat = make_worktree_in(repo.as_path().into(), "Next", &home, &names).unwrap();
+        assert_eq!(chat.root, home.join("wt/proj/next"));
     }
 }

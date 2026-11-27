@@ -374,20 +374,46 @@ impl Machine {
         let url = format!("file://{}", self.0.join("src").display());
         let repo = Repo { r#ref: r#ref.map(str::to_owned), ..Repo::new("o", "r") };
         let step = repo.step().replace("https://github.com/o/r.git", &url);
+        let inherited = std::env::var("PATH").unwrap_or_default();
+        let path = format!("{}:{inherited}", self.0.join("bin").display());
+        self.run_step(&step, script, &path)
+    }
+
+    /// Runs `step` as the runner does (beside the bootstrap script `script`) on `path`.
+    fn run_step(&self, step: &str, script: &str, path: &str) -> (i32, serde_json::Value) {
+        self.run_step_in(step, script, path, None)
+    }
+
+    /// [`Machine::run`] on a machine whose repo archive store is `store`.
+    fn run_with_store(&self, store: &str) -> (i32, serde_json::Value) {
+        let url = format!("file://{}", self.0.join("src").display());
+        let step = Repo::new("o", "r").step().replace("https://github.com/o/r.git", &url);
+        let inherited = std::env::var("PATH").unwrap_or_default();
+        let path = format!("{}:{inherited}", self.0.join("bin").display());
+        self.run_step_in(&step, crate::machine_bootstrap::NO_SCRIPT, &path, Some(store))
+    }
+
+    /// [`Machine::run_step`] with `CMUX_REPO_ARCHIVE_STORE` set to `store`, or unset.
+    fn run_step_in(
+        &self,
+        step: &str,
+        script: &str,
+        path: &str,
+        store: Option<&str>,
+    ) -> (i32, serde_json::Value) {
         std::fs::write(self.0.join("boot/script"), script).unwrap();
         let file = self.0.join("boot/repo");
         std::fs::write(&file, step).unwrap();
         // As the bootstrap writes it (0o700): the fill runs the step again by its path.
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let inherited = std::env::var("PATH").unwrap_or_default();
-        let path = format!("{}:{inherited}", self.0.join("bin").display());
-        let status = std::process::Command::new("sh")
-            .arg(&file)
-            .env("HOME", self.0.join("home"))
-            .env("PATH", path)
-            .status()
-            .unwrap();
+        let mut sh = std::process::Command::new("sh");
+        sh.arg(&file).env("HOME", self.0.join("home")).env("PATH", path);
+        match store {
+            Some(store) => sh.env("CMUX_REPO_ARCHIVE_STORE", store),
+            None => sh.env_remove("CMUX_REPO_ARCHIVE_STORE"),
+        };
+        let status = sh.status().unwrap();
         let record =
             std::fs::read_to_string(self.0.join("boot/repo-status.json")).unwrap_or_default();
         (status.code().unwrap_or(-1), serde_json::from_str(&record).unwrap_or_default())
@@ -457,6 +483,251 @@ fn without_a_hold_the_whole_repository_is_cloned() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&shallow.stdout).trim(), "false");
+}
+
+#[cfg(unix)]
+/// The bootstrap runner runs the step on systemd's default PATH, which has no store folder: a
+/// machine whose `cmux` is only the store's (`/opt/cmux/current/bin/cmux`, as on the Cloud image)
+/// still clones through the cmux GitHub App and keeps that path for push. Before, the step looked
+/// only on the PATH and cloned anonymously, so a private repository ended `needs_github` on a
+/// machine whose team had GitHub connected.
+#[test]
+fn a_store_cmux_off_the_path_is_the_github_path() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let Some(machine) = Machine::new(false) else { return };
+    let store = machine.0.join("store/cmux");
+    std::fs::create_dir_all(machine.0.join("store")).unwrap();
+    std::fs::write(&store, "#!/bin/sh\nexit 2\n").unwrap();
+    std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let socket = machine.0.join("agent.sock");
+    let Ok(_listener) = std::os::unix::net::UnixListener::bind(&socket) else { return };
+    let url = format!("file://{}", machine.0.join("src").display());
+    let step = Repo::new("o", "r")
+        .step()
+        .replace("https://github.com/o/r.git", &url)
+        .replace("/opt/cmux/current/bin/cmux", &store.display().to_string())
+        .replace("/run/cmux-vm-agent/agent.sock", &socket.display().to_string());
+    // Only the machine's shims and the system's own tools: no `cmux` or `cmux-tui` on the PATH.
+    let path = format!("{}:/usr/bin:/bin", machine.0.join("bin").display());
+    let (code, record) = machine.run_step(&step, crate::machine_bootstrap::NO_SCRIPT, &path);
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(
+        (record["status"].as_str(), record["credential"].as_str()),
+        (Some("cloned"), Some("cmux-github"))
+    );
+    assert_eq!(
+        machine.git(&["config", "--local", "--get-all", "credential.https://github.com.helper"]),
+        format!("!'{}' github credential", store.display()),
+        "the checkout keeps the store's helper for push"
+    );
+}
+
+#[cfg(unix)]
+/// The person's own GitHub login carried from their Mac (`~/.config/cmux/git-hosts/github.com`)
+/// makes the cmux helper the clone's first path, even with no Cloud agent socket: `cmux github
+/// credential` answers that login first. The checkout keeps the helper for push.
+#[test]
+fn a_carried_github_login_is_the_first_github_path() {
+    let Some(machine) = Machine::new(false) else { return };
+    machine.cmux("#!/bin/sh\nexit 2\n");
+    let own = machine.0.join("home/.config/cmux/git-hosts");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::write(own.join("github.com"), "gho_carried\n").unwrap();
+    let (code, record) = machine.run();
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(
+        (record["status"].as_str(), record["credential"].as_str()),
+        (Some("cloned"), Some("cmux-github"))
+    );
+    assert!(
+        machine
+            .git(&["config", "--local", "--get-all", "credential.https://github.com.helper"])
+            .ends_with("github credential"),
+        "the checkout keeps the cmux helper for push"
+    );
+}
+
+#[cfg(unix)]
+/// Where the platform edge's name resolves, the machine's git reaches github.com through the
+/// platform (cmux-platform GitHubEgress.ts), which adds the repository token: the step clones by
+/// the rewrite alone, with no helper, and the checkout keeps the rewrite (a URL) for push and pull.
+/// Here the edge is a folder of bare repositories at `edge/OWNER/REPO.git`.
+#[test]
+fn a_machine_behind_the_platform_edge_clones_through_it_with_no_helper() {
+    let Some(machine) = Machine::new(false) else { return };
+    machine.cmux("#!/bin/sh\nexit 2\n");
+    let edge = machine.0.join("edge");
+    let made = std::process::Command::new("git")
+        .arg("clone")
+        .arg("-q")
+        .arg("--bare")
+        .arg(machine.0.join("src"))
+        .arg(edge.join("o/r.git"))
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let base = format!("file://{}/", edge.display());
+    let step = Repo::new("o", "r")
+        .step()
+        .replace("getent hosts platform.cmux.internal", "true")
+        .replace("https://platform.cmux.internal/v1/cloud/git/github.com/", &base);
+    let inherited = std::env::var("PATH").unwrap_or_default();
+    let path = format!("{}:{inherited}", machine.0.join("bin").display());
+    let (code, record) = machine.run_step(&step, crate::machine_bootstrap::NO_SCRIPT, &path);
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(
+        (record["status"].as_str(), record["credential"].as_str()),
+        (Some("cloned"), Some("edge"))
+    );
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+    assert_eq!(machine.git(&["config", "remote.origin.url"]), "https://github.com/o/r.git");
+    assert_eq!(
+        machine.git(&["config", "--local", &format!("url.{base}.insteadOf")]),
+        "https://github.com/",
+        "the checkout keeps the rewrite"
+    );
+    assert_eq!(
+        machine.git(&["config", "--local", "--get-all", "credential.https://github.com.helper"]),
+        "",
+        "and no helper"
+    );
+    let fetched = std::process::Command::new("git")
+        .arg("-C")
+        .arg(machine.checkout())
+        .args(["fetch", "-q", "origin"])
+        .env("HOME", machine.0.join("home"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .status()
+        .unwrap();
+    assert!(fetched.success(), "the agent's own fetch goes through the edge too");
+}
+
+/// What a machine can get of a GitHub token after the step, on one harness for both paths: its `cmux` (with the agent
+/// socket, so the helper path is on offer either way) hands a fake installation token to anyone who
+/// asks `github credential get`. Counted: tokens the machine's own git gets (`git credential fill`, as a push asks),
+/// files under the machine's home and boot folders that hold the token, and the minting calls.
+#[cfg(unix)]
+fn github_token_on_the_machine(through_edge: bool) -> Option<(usize, usize, usize)> {
+    const TOKEN: &str = "ghs_cmuxEdgeProbe0000000000000000000000000";
+    let machine = Machine::new(false)?;
+    let calls = machine.0.join("mint-calls");
+    let mint = format!(
+        "#!/bin/sh\n[ \"$1 $2 $3\" = \"github credential get\" ] || exit 2\necho x >> '{}'\n\
+         printf 'username=x-access-token\\npassword={TOKEN}\\n'\n",
+        calls.display()
+    );
+    machine.cmux(&mint);
+    let socket = machine.0.join("agent.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).ok()?;
+    let edge = machine.0.join("edge");
+    let mut step = Repo::new("o", "r")
+        .step()
+        .replace("/run/cmux-vm-agent/agent.sock", &socket.display().to_string());
+    if through_edge {
+        let made = std::process::Command::new("git")
+            .args(["clone", "-q", "--bare"])
+            .arg(machine.0.join("src"))
+            .arg(edge.join("o/r.git"))
+            .status()
+            .unwrap();
+        assert!(made.success());
+        step = step.replace("getent hosts platform.cmux.internal", "true").replace(
+            "https://platform.cmux.internal/v1/cloud/git/github.com/",
+            &format!("file://{}/", edge.display()),
+        );
+    } else {
+        let url = format!("file://{}", machine.0.join("src").display());
+        step = step.replace("https://github.com/o/r.git", &url);
+    }
+    let path = format!("{}:/usr/bin:/bin", machine.0.join("bin").display());
+    let (code, record) = machine.run_step(&step, crate::machine_bootstrap::NO_SCRIPT, &path);
+    assert_eq!((code, record["status"].as_str()), (0, Some("cloned")), "{record}");
+    let want = if through_edge { "edge" } else { "cmux-github" };
+    assert_eq!(record["credential"].as_str(), Some(want), "{record}");
+
+    // A push's question, asked by the machine's git in the checkout, with the machine's own config only.
+    let mut fill = std::process::Command::new("git")
+        .arg("-C")
+        .arg(machine.checkout())
+        .args(["credential", "fill"])
+        .env("HOME", machine.0.join("home"))
+        .env("XDG_CONFIG_HOME", machine.0.join("home/.config"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("PATH", &path)
+        .env_remove("GIT_ASKPASS")
+        .env_remove("SSH_ASKPASS")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    use std::io::Write as _;
+    fill.stdin
+        .take()
+        .unwrap()
+        .write_all(b"protocol=https\nhost=github.com\npath=o/r.git\n\n")
+        .unwrap();
+    let answer = fill.wait_with_output().unwrap();
+    let from_git = String::from_utf8_lossy(&answer.stdout).matches(TOKEN).count();
+
+    fn files_holding(dir: &std::path::Path, needle: &[u8]) -> usize {
+        let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+        entries
+            .flatten()
+            .map(|entry| {
+                let path = entry.path();
+                match entry.file_type() {
+                    Ok(kind) if kind.is_dir() => files_holding(&path, needle),
+                    Ok(kind) if kind.is_file() => std::fs::read(&path)
+                        .map(|bytes| usize::from(bytes.windows(needle.len()).any(|w| w == needle)))
+                        .unwrap_or(0),
+                    _ => 0,
+                }
+            })
+            .sum()
+    }
+    let on_disk = ["home", "boot"]
+        .iter()
+        .map(|dir| files_holding(&machine.0.join(dir), TOKEN.as_bytes()))
+        .sum();
+    let minted = std::fs::read_to_string(&calls).map(|log| log.lines().count()).unwrap_or(0);
+    Some((from_git, on_disk, minted))
+}
+
+#[cfg(unix)]
+/// The stop condition of the egress pursuit: behind the edge the machine holds no way to a GitHub token. Today's
+/// helper path is measured on the same harness, so the numbers say what the edge removed: the machine's git got the
+/// token (1), behind the edge it gets none (0), and no file and no mint holds or makes one.
+#[test]
+fn behind_the_edge_no_github_token_reaches_the_machine() {
+    let Some((helper_git, helper_disk, helper_minted)) = github_token_on_the_machine(false) else {
+        return;
+    };
+    let Some((edge_git, edge_disk, edge_minted)) = github_token_on_the_machine(true) else {
+        return;
+    };
+    eprintln!(
+        "github token on the machine: git fill {helper_git} -> {edge_git}, files {helper_disk} -> {edge_disk}, \
+         mints {helper_minted} -> {edge_minted}"
+    );
+    assert_eq!(helper_git, 1, "the harness sees today's helper path reach the token");
+    assert_eq!(
+        (edge_git, edge_disk, edge_minted),
+        (0, 0, 0),
+        "behind the edge no token reaches the machine"
+    );
+}
+
+#[test]
+fn the_edge_path_is_offered_on_github_only_and_before_the_cmux_helper() {
+    let step = Repo::new("o", "r").step();
+    let edge = step.find(r#"if [ "$github" = 1 ] && getent hosts platform.cmux.internal"#).unwrap();
+    let own = step.find(r#"if [ "$github" = 1 ] && [ -f "$own" ]"#).unwrap();
+    let helper = step.find(r#"[ -S /run/cmux-vm-agent/agent.sock ]"#).unwrap();
+    assert!(edge < helper, "the edge is tried before a helper that mints in the machine");
+    assert!(own < edge, "the person's carried GitHub login is tried before the edge");
+    assert!(step.contains(r#"if [ -n "$rewrite" ]; then set -- -c "$rewrite" "$@"; fi"#));
 }
 
 #[cfg(unix)]
@@ -909,4 +1180,90 @@ fn a_warm_update_made_inline_records_the_updated_commit() {
     let head = machine.git(&["rev-parse", "HEAD"]);
     assert!(machine.checkout().join("z.txt").is_file(), "updated inline");
     assert_eq!(record["sha"].as_str(), Some(head.as_str()), "the record names the updated commit");
+}
+
+#[cfg(unix)]
+/// The machine's `cmux` with `repo hold` (when `hold`) and a `repo from-archive` that stands for
+/// the store (`cli/repo_archive.rs`): a depth-1 checkout one commit behind the source, with the
+/// store's origin, or exit 3 when `$HOME/no-archive` exists. It notes its call in `$HOME/archive`.
+fn archive_cmux(hold: bool) -> String {
+    let hold = if hold { "" } else { "  [ \"$3\" = --help ] && exit 2\n" };
+    format!(
+        "#!/bin/sh\n\
+         if [ \"$1 $2\" = \"repo hold\" ]; then\n{hold}  [ \"$3\" = --help ] && exit 0\n  \
+         echo \"$3\" > \"$HOME/held\"; shift 4; exec \"$@\"\nfi\n\
+         [ \"$1 $2\" = \"repo from-archive\" ] || exit 2\n\
+         [ \"$3\" = --help ] && exit 0\n\
+         echo \"$*\" > \"$HOME/archive\"\n\
+         [ -e \"$HOME/no-archive\" ] && exit 3\n\
+         while [ $# -gt 0 ]; do case $1 in --url) u=$2; shift 2;; --at) a=$2; shift 2;; *) shift;; esac; done\n\
+         git clone -q --depth 2 \"$u\" \"$a\" && git -C \"$a\" reset -q --hard HEAD~1 &&\n  \
+         git -C \"$a\" remote set-url origin https://store.example/o/r.git\n"
+    )
+}
+
+#[cfg(unix)]
+/// hq RFD 0065 piece 2: with a store configured, a new checkout comes from the archive (here one
+/// commit behind), takes this start's URL as its origin, is brought to the source's head and gets
+/// its history, all without a clone.
+#[test]
+fn a_configured_store_checks_out_from_the_archive_then_catches_up() {
+    let Some(machine) = Machine::new(false) else { return };
+    machine.cmux(&archive_cmux(false));
+    let (code, record) = machine.run_with_store("/srv/archives");
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(record["status"].as_str(), Some("cloned"));
+    let call = std::fs::read_to_string(machine.0.join("home/archive")).unwrap();
+    assert!(call.contains("--archive-only --url file://"), "{call}");
+    let url = format!("file://{}", machine.0.join("src").display());
+    assert_eq!(machine.git(&["remote", "get-url", "origin"]), url);
+    let head = std::process::Command::new("git")
+        .args(["-C", &machine.0.join("src").display().to_string(), "rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert_eq!(machine.git(&["rev-parse", "HEAD"]), String::from_utf8_lossy(&head.stdout).trim());
+    assert_eq!(record["sha"].as_str(), Some(machine.git(&["rev-parse", "HEAD"]).as_str()));
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+    assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
+}
+
+#[cfg(unix)]
+/// With a hold, the chat starts on the archive's checkout and the fetch runs behind it
+/// (`refresh`); here the hold runs it in the foreground, so the step ends at the head.
+#[test]
+fn a_configured_store_with_a_hold_catches_up_behind_the_chat() {
+    let Some(machine) = Machine::new(false) else { return };
+    machine.cmux(&archive_cmux(true));
+    let (code, record) = machine.run_with_store("/srv/archives");
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(
+        (record["status"].as_str(), record["fill"].as_str()),
+        (Some("cloned"), Some("background"))
+    );
+    assert!(machine.0.join("home/archive").is_file());
+    let held = std::fs::read_to_string(machine.0.join("home/held")).unwrap();
+    assert_eq!(held.trim(), machine.checkout().display().to_string());
+    assert_eq!(machine.git(&["status", "--porcelain"]), "");
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+}
+
+#[cfg(unix)]
+/// A store without the repo (exit 3), and no store at all (the default), clone as before; with
+/// no store the archive is never asked.
+#[test]
+fn without_an_archive_the_clone_runs_as_before() {
+    let Some(machine) = Machine::new(false) else { return };
+    machine.cmux(&archive_cmux(false));
+    std::fs::write(machine.0.join("home/no-archive"), "").unwrap();
+    let (code, record) = machine.run_with_store("/srv/archives");
+    assert_eq!((code, record["status"].as_str()), (0, Some("cloned")), "{record}");
+    assert!(machine.0.join("home/archive").is_file());
+    assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+
+    let Some(machine) = Machine::new(false) else { return };
+    machine.cmux(&archive_cmux(false));
+    let (code, record) = machine.run();
+    assert_eq!((code, record["status"].as_str()), (0, Some("cloned")), "{record}");
+    assert!(!machine.0.join("home/archive").exists());
 }

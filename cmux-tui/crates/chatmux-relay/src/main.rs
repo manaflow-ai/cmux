@@ -43,7 +43,7 @@ fn trust_description(trust: Trust) -> &'static str {
         Trust::Autonomous => {
             "YOLO (autonomous / unattended): approved agents may run ordinary file and command \
              actions without per-command approval. The machine owner must confirm it at the \
-             keyboard; secrets, billing, identity, trust changes, Coderouter grants, destructive \
+             keyboard; secrets, billing, identity, trust changes, destructive \
              environment deletion, and unsupported relay actions keep their own authority."
         }
     }
@@ -537,8 +537,6 @@ Environment:
   CHATMUX_RELAY_AUTOSTART      1 installs autostart, 0 skips the offer
   CHATMUX_RELAY_SAS_APPROVE    1 auto-approves the --code pairing (scripted
                                setup only; you skip the mutual verification)
-
-Coderouter commands are not available in this version.
 ",
         config_path = config_path.display(),
     );
@@ -652,8 +650,14 @@ async fn main() {
         Some(Command::Pair) | None => {}
     }
 
-    let runtime =
-        Runtime { backend, web_base, config_path, interactive, http: reqwest::Client::new() };
+    let http = match cmux_egress::client("chatmux_relay") {
+        Ok(http) => http,
+        Err(error) => {
+            eprintln!("could not build the HTTP client: {error}");
+            return;
+        }
+    };
+    let runtime = Runtime { backend, web_base, config_path, interactive, http };
 
     if parsed.managed_mode {
         let now = std::time::SystemTime::now()

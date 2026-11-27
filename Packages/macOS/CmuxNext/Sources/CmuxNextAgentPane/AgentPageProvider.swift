@@ -1,3 +1,4 @@
+import CmuxNextApps
 public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
@@ -13,15 +14,18 @@ public extension PageDescriptor {
     /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern. It plays video
     /// and audio only from its own origin: the files the host granted (``AgentPaneMediaGrants``),
-    /// served in byte ranges under `__media/` (``AgentPageMediaResource``), and its app sections'
-    /// bundle images under `__appbundle/` (``AppsPanelsPageProvider``).
+    /// served in byte ranges under `__media/` (``AgentPageMediaResource``), its app sections'
+    /// bundle images under `__appbundle/` (``AppsPanelsPageProvider``), and the chart and diagram
+    /// libraries (Ondine, Mermaid, Vega) under `__lib/` (``AgentPageResources``).
     static let agent = PageDescriptor(
-        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace],
+        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace, CustomizeChatPage.namespace],
+        nativeOps: [PageVisibleSlices.stream],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      media: ["'self'"],
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),
-        dynamicPrefixes: [AgentPageMediaResource.prefix, AgentPaneChatSnapshots.prefix, AppsPanelsPageProvider.bundlePrefix],
+        dynamicPrefixes: [AgentPageMediaResource.prefix, AgentPaneChatSnapshots.prefix, AppsPanelsPageProvider.bundlePrefix,
+                          MarkdownPageResource.library],
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
         // appear when the agent decides: a click meant only to bring the window forward must not answer them.
         acceptsFirstMouse: false)
@@ -36,17 +40,21 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.finishSound", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
+            "pane.checkpointAvailability", "pane.commandAvailability", "pane.composerFilled", "pane.framePacing", "pane.painted", "pane.launchSettle", "pane.inputEchoed", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.finishSound", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump", "cloud.preview.open",
-            "newTab.remember", "newTab.setTemplate", "nowPlaying.command", "readAloud.speak", "readAloud.stop", "chat.attention.open", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
+            "newTab.remember", "newTab.setTemplate", "nowPlaying.command", "readAloud.speak", "readAloud.stop", "chat.attention.open", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.cloudPick", "newTab.warm", "shortcut.edit", "action.run", "editors.list", "file.open", "browser.open",
             "project.list", "project.icon", "folder.complete", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "agent.mini", "agent.mini.show", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "share.op", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "chat.attach.external", "attachment.sourceIcon", "app.action", "chats.open", "chats.resume", "chats.openInTerminal", "chats.watch", "chats.page",
-            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.moveToMachine", "pane.tabState", "pane.tabRowTools", "pane.sessionInfo", "pane.sessionInfo.overlays", "pane.sessionInfo.pinch", "pane.glass", "pane.toastAvoidance", "pane.toast", "pane.copyText", "pane.tabRowTools.set", "pane.tabRowTools.openMenu", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.subagentShown", "chat.processTerminal", "chat.openTab", "chat.tryAnotherApproach", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.leftover", "chat.leftoverTaken", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.snapshot.put", "chat.snapshot.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
+            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.moveToMachine", "pane.tabState", "pane.tabRowTools", "pane.sessionInfo", "pane.sessionInfo.overlays", "pane.sessionInfo.pinch", "pane.glass", "pane.toastAvoidance", "pane.toast", "pane.copyText", "pane.tabRowTools.set", "pane.tabRowTools.openMenu", "customizations.menu", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.subagentShown", "chat.processTerminal", "chat.openTab", "chat.tryAnotherApproach", "cloud.folder.add", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.cloudStartQueue", "chat.leftover", "chat.leftoverTaken", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.snapshot.put", "chat.snapshot.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
-            "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.worktree.setup", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
+            "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.worktree.setup", "git.worktree.setup.run", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "externalAccess.openSettings",
             "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
-            "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
-            "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.setUp", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
+            "transport.open", "transport.send", "transport.close", "transport.ack", "transport.gesture", "transport.gesture.release",
+            "chat.missing", "uiPointer.report", "designSelection.released", "acpmux.restart", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.setUp", "cloud.setupState", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
+            // Fork before a risky step (paneSnapshot.ts forkFirst): its own line so the list above merges cleanly.
+            "cloud.forkFirst",
+            // The pricing card's Subscribe (cloud.plan.subscribe {plan}: pro or max), which opens that plan's checkout.
+            "cloud.plan.subscribe",
             // The composer streams every upload (cloudUploads.ts); without these the page fell back to one frame, which refuses a file over 24 MiB (#28647).
             "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel",
             // The model menu's Add account (App.tsx); the old bridge took it, the page host refused it unknown_op.
@@ -59,7 +67,7 @@ public nonisolated struct AgentPageOps {
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
-            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneGitHubRequest.methods).union(AgentPaneCloudReservationRequest.methods).union(AgentPaneCloudTurnRewind.methods) { methods[method] = method }
+            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneGitHubRequest.methods).union(AgentPaneCloudReservationRequest.methods).union(AgentPaneCloudTurnRewind.methods).union(AgentProjectPaletteRequest.methods) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods
@@ -147,9 +155,15 @@ public final class AgentPageProvider: PageProvider {
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
+    /// The ids of browser picks that left the composer (`designSelection.released {ids}`): removed
+    /// or sent. ``AgentPaneView`` passes them to the browser, which takes their pins off the page.
+    public var onDesignSelectionReleased: @MainActor ([String]) -> Void = { _ in }
     /// The page's flicker events (`diag.flicker`, `{events}`), for the pane's ring file
     /// (``AgentPageFlickerLog/recordPage(_:page:pid:)``). ``AgentPaneView`` sets it; until then they are dropped.
     public var onFlicker: @MainActor (JSONValue) -> Void = { _ in }
+
+    var onHandshake: (@MainActor () -> Void)?
+    var onProjectPalette: (@MainActor (String, JSONValue, Bool) -> JSONValue)?
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -384,11 +398,17 @@ public final class AgentPageProvider: PageProvider {
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
+        // When the page's open of its acpmux socket reached the app: after the handshake the page asks
+        // at once, so the time to here is the bridge's (bench_relaunch_reconnect.py PHASES).
+        if method == "transport.open" { AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open_asked") }
         // Short words and numbers for the flicker ring file: written off the main thread, answered
         // at once, and never parsed as a pane request nor logged (it comes once a second while the page draws).
         if method == AgentPageFlickerLog.method {
             onFlicker(params)
             return .null
+        }
+        if AgentProjectPaletteRequest.methods.contains(method) {
+            return onProjectPalette?(method, params, context.userGesture) ?? .object(["shown": .bool(false)])
         }
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
         if method == "pane.setScrollToBottomOnSend" || method == "pane.setRemoteControl", !context.userGesture {
@@ -411,6 +431,13 @@ public final class AgentPageProvider: PageProvider {
             onUiPointerReport(params)
             return .object(["ok": .bool(true)])
         }
+        if method == "designSelection.released" {
+            // Bounded: a composer holds at most a few dozen chips; only design pick ids pass.
+            let ids = (params["ids"]?.arrayValue ?? []).compactMap(\.stringValue)
+                .filter { $0.hasPrefix("design-") && $0.count <= 64 }.prefix(64)
+            if !ids.isEmpty { onDesignSelectionReleased(Array(ids)) }
+            return .object(["ok": .bool(true)])
+        }
         if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
         if AgentPaneUnsentPrompts.handles(method: method) {
             switch await AgentPaneUnsentPrompts.reply(to: method, params: params) {
@@ -418,14 +445,25 @@ public final class AgentPageProvider: PageProvider {
             case .failure(let error): throw PageError(code: error.code, message: error.message)
             }
         }
-        AgentPaneTailCache.keepHandOver(of: method, params: params.foundationObject as? [String: Any], pageGeneration: tailGeneration)
-        let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
+        AgentPaneTailCache.keepHandOver(of: method, params: params, pageGeneration: tailGeneration)
+        // A kept hand-over's tail is the store's, never the model's: it is not walked into Foundation
+        // on the main actor for a request that never reads it (cmuxterm-hq#19028).
+        let request = AgentPaneRequest(body: ["method": method, "params": Self.withoutHandOver(params, of: method).foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
+        if request == .ready { onHandshake?() }
         // `context.userGesture` is host-authenticated PageRouter state; it cannot be supplied by
         // page params. Pass it through only at this seam so shared-page user-only writes survive a
         // long native menu, while the legacy bridge still uses its pane gesture credit.
         return try Self.value(of: await model.respond(to: request, userGesture: context.userGesture))
+    }
+
+    /// `params` less a `chat.subagentPane`'s `handOver` (``AgentPaneTailCache/keepHandOver(of:params:pageGeneration:)``);
+    /// every other method's params as they are.
+    nonisolated static func withoutHandOver(_ params: JSONValue, of method: String) -> JSONValue {
+        guard method == "chat.subagentPane", case .object(var members) = params,
+              members.removeValue(forKey: "handOver") != nil else { return params }
+        return .object(members)
     }
 
     /// The value of an ``AgentPaneReply``, or its failure as a ``PageError``. The model's code and

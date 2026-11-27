@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 
 /// A menu of the page with no room above or below its anchor in the pane shows past the window's
@@ -40,6 +41,31 @@ extension AgentPaneView {
             if picked != nil, let self { AgentPanePersonInput.record(self.model.transport.gestures, sources: self.eventSources) }
             reply(["ok": true, "value": ["picked": picked.map { $0 as Any } ?? NSNull()]])
         }
+    }
+
+    /// Pops the menu bar's Customizations menu (CustomizationsMenu.swift, found by its identifier,
+    /// since this package does not link the settings window) with its top center at `point`, CSS px
+    /// in the page's viewport, on the main queue's next turn so the page call returns first; false
+    /// when the menu bar has no such menu.
+    func popCustomizationsMenu(at point: CGPoint) -> Bool {
+        guard let shown = Self.menuBarSubmenu(NSUserInterfaceItemIdentifier("cmux.menu.customizations"),
+                                              in: NSApp.mainMenu) else { return false }
+        let local = CGPoint(x: point.x * webView.pageZoom, y: point.y * webView.pageZoom)
+        MainDelivery().later { [weak webView] in
+            // A view in no window cannot anchor a menu (AppKit raises).
+            guard let webView, webView.window != nil else { return }
+            let at = webView.isFlipped ? local : CGPoint(x: local.x, y: webView.bounds.height - local.y)
+            shown.popUpAtPointer(at, in: webView)
+        }
+        return true
+    }
+
+    private static func menuBarSubmenu(_ id: NSUserInterfaceItemIdentifier, in menu: NSMenu?) -> NSMenu? {
+        for item in menu?.items ?? [] {
+            if item.identifier == id, let submenu = item.submenu { return submenu }
+            if let found = menuBarSubmenu(id, in: item.submenu) { return found }
+        }
+        return nil
     }
 
     private func sendPopupEvent(_ event: [String: Any]) {

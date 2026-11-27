@@ -60,24 +60,41 @@ extension WorkspaceTabsSource {
         chatPairing(tab, in: workspace)?.chat
     }
 
+    /// The face the person chose for `tab` in an earlier launch (kept per account and Mac).
+    private func keptFace(_ tab: WorkspaceTab) -> TabFace? {
+        guard let macID = workspaceSnapshot?.macID,
+              let showsChat = terminalChatBackend?.keptTerminalChatFace(tabID: tab.id, on: macID) else { return nil }
+        return showsChat ? .chat : .terminal
+    }
+
+    /// The person chose `face` for tab `tabID`: shown now, and kept for the next launch.
+    private func choose(_ face: TabFace, for tabID: String, on macID: String) {
+        chosenFaces[tabID] = face
+        terminalChatBackend?.keepTerminalChatFace(face == .chat, tabID: tabID, on: macID)
+    }
+
     /// `tab`'s facts, as Rust reads them.
+    /// Off (Settings → Terminal → Terminal and Chat Toggle, the default), no tab offers the toggle
+    /// and nothing below reads the Mac's chats for it.
     func terminalChatFacts(_ tab: WorkspaceTab, in workspace: Workspace) -> TerminalChatFacts {
+        let on = terminalChatToggleOn()
         switch tab.kind {
-        case .terminal:
+        case .terminal where on:
             let refused = terminalChatRefusingMacs.contains(workspace.macID) && terminalChatSessionID(tab, in: workspace) == nil
-            return TerminalChatFacts(terminal: true, chat: false, agent: tab.harness, session: tab.linkIDs?.harnessSession,
-                                     running: false, chatRefused: refused)
-        case .agent:
+            return TerminalChatFacts(toggleOn: true, terminal: true, chat: false, agent: tab.harness,
+                                     session: tab.linkIDs?.harnessSession, running: false, chatRefused: refused)
+        case .agent where on:
             let listing = tab.linkIDs?.agentSession.flatMap { id in
                 terminalChatBackend?.terminalChatListings(on: workspace.macID).first { $0.sessionID == id }
             }
             let harness = listing?.harness ?? tab.harness
             let session = listing?.agentSessionID
-            return TerminalChatFacts(terminal: false, chat: true, agent: harness, session: session,
+            return TerminalChatFacts(toggleOn: true, terminal: false, chat: true, agent: harness, session: session,
                                      running: session.flatMap { terminalTab(running: $0, harness: harness, on: workspace.macID) } != nil,
                                      chatRefused: false)
-        case .browser, .simulator:
-            return TerminalChatFacts(terminal: false, chat: false, agent: nil, session: nil, running: false, chatRefused: false)
+        case .terminal, .agent, .browser, .simulator:
+            return TerminalChatFacts(toggleOn: on, terminal: tab.kind == .terminal, chat: tab.kind == .agent, agent: nil,
+                                     session: nil, running: false, chatRefused: false)
         }
     }
 
@@ -85,9 +102,10 @@ extension WorkspaceTabsSource {
         terminalChatFaces(facts: terminalChatFacts(tab, in: workspace))
     }
 
-    /// The face `tab` shows: the person's choice while it is enabled, else Rust's default.
+    /// The face `tab` shows: the person's choice (this launch's, else the one kept from an earlier
+    /// launch) while it is enabled, else Rust's default.
     func face(of tab: WorkspaceTab, faces: TerminalChatFaces) -> TabFace {
-        guard faces.offered, let chosen = chosenFaces[tab.id] else { return faces.defaultFace }
+        guard faces.offered, let chosen = chosenFaces[tab.id] ?? keptFace(tab) else { return faces.defaultFace }
         switch chosen {
         case .chat: return faces.chatEnabled ? .chat : faces.defaultFace
         case .terminal: return faces.terminalEnabled ? .terminal : faces.defaultFace
@@ -121,7 +139,7 @@ extension WorkspaceTabsSource {
 
     /// The chat face needs a chat no chat of the Mac is: ask the Mac for its View Only chat, once
     /// per session. A Mac that refuses a phone this (acpmux `remote.adopt_refused`) is not asked
-    /// again; its terminals open on the terminal face, their chat face disabled with why.
+    /// again; its terminals are only terminals there (no toggle).
     ///
     /// Also keeps the pairing on disk once a chat shows the session (or forgets a stale one), so
     /// a relaunch with the Mac out of reach opens on that chat's kept turns.
@@ -164,7 +182,10 @@ extension WorkspaceTabsSource {
                 // The terminal stays reachable: the tab falls back to it, and says why.
                 guard let self else { return }
                 terminalChatLog.error("view only chat failed: \(String(describing: error), privacy: .public)")
-                if self.chosenFaces[tabID] != .terminal { self.chosenFaces[tabID] = .terminal }
+                // Not while the Mac's link is down or coming back: the failure is the link's, and the
+                // person's own chat face stays what they chose.
+                let linkUp = self.store.macConnection[macID].map { $0 == .connected } ?? true
+                if linkUp, self.chosenFaces[tabID] != .terminal { self.chosenFaces[tabID] = .terminal }
                 self.show(Self.message(error))
             }
         }
@@ -181,7 +202,7 @@ extension WorkspaceTabsSource {
             return
         case .show(let face):
             ConnectTimeline.shared.event("terminal_chat_swap", detail: face == .chat ? "chat" : "terminal")
-            chosenFaces[tabID] = face
+            choose(face, for: tabID, on: workspace.macID)
             if face == .terminal { terminal.focusInput(for: tab, in: workspace) }
             CmuxMobileTheme.standard.haptics.selection()
         case .revealTerminal(let harness, let session):
@@ -190,7 +211,7 @@ extension WorkspaceTabsSource {
                 return
             }
             let (home, running) = found
-            chosenFaces[running.id] = .terminal
+            choose(.terminal, for: running.id, on: home.macID)
             if home.id == workspace.id {
                 activate(running.id)
             } else {
@@ -198,9 +219,6 @@ extension WorkspaceTabsSource {
                 store.requestOpen(tabID: running.id, in: home.id)
                 show("The terminal running this chat is in \u{201C}\(home.title)\u{201D}.")
             }
-        case .unavailable(let reason):
-            show(reason)
-            CmuxMobileTheme.standard.haptics.error()
         }
     }
 
@@ -242,6 +260,7 @@ struct TerminalChatPair<Terminal: View, Chat: View>: View {
                 .opacity(showsChat ? 1 : 0)
                 .allowsHitTesting(showsChat)
                 .accessibilityHidden(!showsChat)
+                .environment(\.chatFaceHidden, !showsChat)
         }
     }
 }
@@ -256,8 +275,13 @@ struct TerminalChatPage<Terminal: View>: View {
     let topInset: CGFloat
     let reportScroll: (CGFloat) -> Void
     @ViewBuilder let terminal: Terminal
+    /// Settings → Terminal → Terminal and Chat Toggle: read so turning it off drops a shown chat
+    /// face at once (`terminalChatFacts` reads the same key).
+    @AppStorage(CmuxMobilePreferences.Key.terminalChatToggle)
+    private var toggleOn = CmuxMobilePreferences.defaultTerminalChatToggle
 
     var body: some View {
+        let _ = toggleOn
         let faces = source.pairFaces(tab, in: workspace)
         let showsChat = faces.offered && source.face(of: tab, faces: faces) == .chat
         let chatSession = faces.offered ? source.terminalChatSessionID(tab, in: workspace) : nil
@@ -274,6 +298,7 @@ struct TerminalChatPage<Terminal: View>: View {
                     CmuxSpinner(label: Text("Opening chat…"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color.cmuxMobileBackground)
+                        .placeholderBound("tab.opening.chat", .milliseconds(2000))
                 }
             }
         }

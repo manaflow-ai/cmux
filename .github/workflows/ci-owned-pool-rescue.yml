@@ -70,7 +70,7 @@ on:
       - cmux NEXT Stable
       - cmux-next frame pacing
       - cmux-next media
-      - cmux-next PR autofix
+      - cmux-next PR autofix (advisory)
       - cmux-next CEF shim C++ tests
       - cmux-next car guards
       - cmux-next
@@ -85,6 +85,7 @@ on:
       - SSH remote daemon
       - Terminal hang diagnostics
       - Feed reply provider verification
+      - Cloud chat proof (staging and production, tagged DEV app)
     types: [requested, completed]
   workflow_dispatch:
     inputs:
@@ -107,6 +108,8 @@ on:
 permissions: {}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
   # Renaming the source workflow silently stops every `workflow_run` consumer
   # of it; tests/test_ci_workflow_run_sources.py derives the expected name from
@@ -141,6 +144,7 @@ env:
     .github/workflows/remote-daemon.yml
     .github/workflows/terminal-hang-diagnostics.yml
     .github/workflows/test-feed-reply-providers.yml
+    .github/workflows/cloud-chat-proof.yml
 
 concurrency:
   group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt) }}
@@ -159,7 +163,7 @@ jobs:
     # immediately when that run has no owned job, so this cannot strand a
     # dedicated build behind a stale variable gate.
     if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.path == '.github/workflows/ci.yml' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event.workflow_run.event) || github.event.workflow_run.path == '.github/workflows/test-ios.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/iroh-release-gate.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path != '.github/workflows/nightly.yml' && github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && contains(fromJSON('["pull_request","pull_request_target","push","schedule","workflow_dispatch"]'), github.event.workflow_run.event) || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/nightly.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && (github.event.workflow_run.head_branch == 'main' && startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push')) && github.event.workflow_run.head_repository.full_name == github.repository && (github.event_name != 'workflow_run' || github.event.action != 'completed' || github.event.workflow_run.conclusion == 'failure')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks the Blacksmith size
     # A sweeper adopts runs for 300 minutes and gives a rescue 25 more to
     # settle (SWEEP_SECONDS, RESCUE_GRACE_SECONDS). A single run's watch is
     # at most 150 minutes plus the same grace (JOB_TIMEOUT_SECONDS).
@@ -170,7 +174,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Checkout trusted rescue
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: main
           persist-credentials: false

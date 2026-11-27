@@ -39,7 +39,6 @@
 #   rust-cmux-remote-browser-host  Helpers/cmux-remote-browser-host.app
 #                           cmux-tui/crates/cmux-remote-browser-host/Cargo.lock at the
 #                           pinned binary's source_commit (remote-browser-host.pin.json)
-#   rust-cmux-cua           cmux Computer Use.app            manaflow-ai/cmux-cua at the scripts/build-cmux-cua.sh pin
 #
 # In pin mode first-party crates point at the permanent tag
 # cmux-tui-src-<pin, 11 characters>, which must exist.
@@ -58,6 +57,8 @@ CHECK=0 TUI_SOURCE=pin TREES="" WRITE_TREES=0
 # remote_refs and net_retry: a remote that does not answer is never read as a missing ref.
 # shellcheck source=scripts/cmux-next/lib/origin-net.sh
 source "$ROOT/scripts/cmux-next/lib/origin-net.sh"
+# shellcheck source=scripts/cmux-next/lib/rbh-source.sh
+source "$ROOT/scripts/cmux-next/lib/rbh-source.sh"
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -86,8 +87,6 @@ fi
 # interpreter.
 python3 "$NOTICES/python_floor.py"
 
-cua_rev="$(sed -n 's/^CMUX_CUA_PINNED_SHA="\([0-9a-f]*\)"$/\1/p' "$ROOT/scripts/build-cmux-cua.sh")"
-[[ "$cua_rev" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no CMUX_CUA_PINNED_SHA in scripts/build-cmux-cua.sh" >&2; exit 1; }
 
 mkdir -p "$CACHE"
 if [[ "$TUI_SOURCE" == pin ]]; then
@@ -120,19 +119,10 @@ else
   tui_label="at ${ref:0:11}"
 fi
 
-cua_src="$CACHE/cmux-cua-$cua_rev"
-if [[ ! -d "$cua_src" ]]; then
-  rm -rf "$cua_src.partial" && mkdir -p "$cua_src.partial"
-  git -C "$cua_src.partial" init --quiet
-  net_retry "fetch cmux-cua $cua_rev" git -C "$cua_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux-cua.git "$cua_rev"
-  git -C "$cua_src.partial" checkout --quiet FETCH_HEAD
-  [[ "$(git -C "$cua_src.partial" rev-parse HEAD)" == "$cua_rev" ]] || { echo "error: cmux-cua checkout is not $cua_rev" >&2; exit 1; }
-  mv "$cua_src.partial" "$cua_src"
-fi
-cua_rust="$cua_src/libs/cmux-cua/rust"
 # The agent screen-detection plugin is its own Cargo workspace inside cmux-tui.
 asd_rel=cmux-tui/bindings/examples/rust-agent-screen-detection
 asd_src="$tui_src/$asd_rel"
+
 
 # The remote browser host is a prebuilt, pinned binary (ensure-remote-browser-host.sh),
 # not a build of this tree: its notices come from the crate at the pin's
@@ -153,10 +143,8 @@ if ! grep -q "^$rbh_rev" <<<"$rbh_tag_lines"; then
 fi
 rbh_src="$CACHE/cmux-rbh-src-$rbh_rev"
 if [[ ! -d "$rbh_src" ]]; then
-  # Its own shallow fetch (as for cmux-cua), not this checkout's history.
-  rm -rf "$rbh_src.git" "$rbh_src.partial" && mkdir -p "$rbh_src.partial"
-  git init --quiet "$rbh_src.git"
-  net_retry "fetch the remote browser host source $rbh_rev" git -C "$rbh_src.git" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux.git "$rbh_rev"
+  rm -rf "$rbh_src.partial" && mkdir -p "$rbh_src.partial"
+  rbh_fetch_source "$ROOT" "$rbh_src.git" "$rbh_rev" "${CMUX_NOTICES_RBH_REMOTE:-https://github.com/manaflow-ai/cmux.git}"
   [[ "$(git -C "$rbh_src.git" rev-parse FETCH_HEAD)" == "$rbh_rev" ]] || { echo "error: fetched commit is not $rbh_rev" >&2; exit 1; }
   [[ "$(git -C "$rbh_src.git" rev-parse "FETCH_HEAD:$rbh_crate")" == "$rbh_tree" ]] ||
     { echo "error: $rbh_crate at $rbh_rev is not the pin's crate_tree $rbh_tree" >&2; exit 1; }
@@ -186,7 +174,6 @@ if [[ "$WRITE_TREES" == 1 ]]; then
   cargo_tree rust-optchat-chief "$ROOT/Native/OptChat/optchat-chief" optchat-chief
   cargo_tree rust-mobile-host "$ROOT/cmux-next-ios/rust" cmux-mobile-host
   cargo_tree rust-cmux-remote-browser-host "$rbh_src/$rbh_crate" cmux-remote-browser-host
-  cargo_tree rust-cmux-cua "$cua_rust" cmux-cua
 fi
 
 python3 "$NOTICES/fetch_crates.py" --cache "$CACHE" \
@@ -196,8 +183,7 @@ python3 "$NOTICES/fetch_crates.py" --cache "$CACHE" \
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" \
   --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" \
   --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" \
-  --lock "$rbh_src/$rbh_crate/Cargo.lock" \
-  --lock "$cua_rust/Cargo.lock"
+  --lock "$rbh_src/$rbh_crate/Cargo.lock"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -255,11 +241,6 @@ section rust-cmux-remote-browser-host "Rust crates: remote browser host (Helpers
   --lock "$rbh_src/$rbh_crate/Cargo.lock" --lock-label "$rbh_crate/Cargo.lock at ${rbh_rev:0:11} (the pinned binary's source)" \
   --root cmux-remote-browser-host --workspace "$rbh_src/$rbh_crate" --repo-root "$rbh_src" \
   --first-party 'cmux-tui/crates/*' --source-tag "$rbh_ref"
-section rust-cmux-cua "Rust crates: Computer Use helper (cmux Computer Use.app, manaflow-ai/cmux-cua)" \
-  --lock "$cua_rust/Cargo.lock" --lock-label "manaflow-ai/cmux-cua Cargo.lock at ${cua_rev:0:11}" \
-  --root cmux-cua --workspace "$cua_rust" \
-  --path-download "git+https://github.com/manaflow-ai/cmux-cua.git@$cua_rev"
-
 python3 "$ROOT/scripts/cmux-next/notices/ghostty_themes_notice.py" --root "$ROOT" --out "$work/ghostty-themes.md"
 # CMUX_NOTICES_OUT (tree mode only): write the notices there instead of the checkout's file. nightly-next-one generates
 # them in the background while the Release build copies the committed file (app-third-party-notices.sh generate).
@@ -275,13 +256,11 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --section "$work/rust-optchat-chief.md"
   --section "$work/rust-mobile-host.md"
   --section "$work/rust-cmux-remote-browser-host.md"
-  --section "$work/rust-cmux-cua.md"
   --out "$OUT_FILE")
 review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" --lock "$asd_src/Cargo.lock"
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock"
-  --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock "$rbh_src/$rbh_crate/Cargo.lock"
-  --lock "$cua_rust/Cargo.lock")
+  --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock "$rbh_src/$rbh_crate/Cargo.lock")
 if [[ "$TUI_SOURCE" == tree ]]; then
   "${compose[@]}"
   echo "wrote $OUT_FILE for this tree (${ref:0:11}; $(wc -c < "$OUT_FILE" | tr -d ' ') bytes)"

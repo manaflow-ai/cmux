@@ -80,6 +80,8 @@ fn each_destructive_action_routes_to_its_question() {
     assert_eq!(confirmation("workspace.rename", false), Confirmation::None);
     // Install or Update on the person's own SSH machine destroys nothing: it runs on the click.
     assert_eq!(confirmation("remote.install", false), Confirmation::None);
+    // Roll Back quits into the build this Mac kept; updating again undoes it: it runs on the pick.
+    assert_eq!(confirmation("updates.rollback", false), Confirmation::None);
 }
 
 #[test]

@@ -114,6 +114,7 @@ public final class PageInfoController {
             model.needsReload = false
             // A site read before opens on its last counts, not on Loading; this opening's read replaces them.
             model.siteData = siteDataMemory.last(for: site)
+            model.siteDataDeleteFailure = nil
             model.certificates = nil
             startObserving()
             loadAsyncData()
@@ -151,7 +152,7 @@ public final class PageInfoController {
     private func present(in window: NSWindow, anchor: NSView) {
         guard let panel else { return }
         // The rows' icon column lines up with the omnibar button.
-        anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil)).offsetBy(dx: -PageInfoStyle.rowInset, dy: 0)
+        anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil)).offsetBy(dx: -PageInfoStyle.anchorInset, dy: 0)
         // The bubble takes the omnibar's theme scope (its room or workspace).
         panel.adoptThemeScope(of: anchor)
         guard let placed = popup.show(size: cardSize, anchor: anchorRect, in: window, preferred: anchor.toolbarPopupSide, makeKey: true) else { return }

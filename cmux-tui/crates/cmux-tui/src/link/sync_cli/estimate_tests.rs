@@ -232,3 +232,27 @@ fn the_words_say_what_goes_and_what_stays() {
         "Starting now with 30 kB (3 files); 70 kB stays on this Mac until the chat asks for it"
     );
 }
+
+/// A Mac with no measured rate sizes its first pass to what a slow uplink sends in the budget:
+/// the 2026-11-17 start (1.73 MB/s, no `copy-rates.json`) sent a 256 MiB "one minute" pass in
+/// 155 s. Once a copy recorded a fast rate, the first pass is as large as before.
+#[test]
+fn an_unmeasured_link_sizes_the_first_pass_for_a_slow_uplink_and_a_measured_one_wins() {
+    let state = tempfile::tempdir().unwrap();
+    with(None, Some(state.path()), || {
+        assert_eq!(rate(), (DEFAULT_RATE, false));
+        let first = size_cap::first_limits().0;
+        let uplink = 1_730_000;
+        assert!(
+            first.div_ceil(uplink) <= BUDGET.as_secs(),
+            "{first} bytes take {} s at 1.73 MB/s",
+            first.div_ceil(uplink)
+        );
+        assert!(first < size_cap::FIRST_BYTES);
+        // A copy measured a fast link: it is used from the next start on.
+        let mib = 1024 * 1024;
+        record_rate(512 * mib, Duration::from_secs(2));
+        assert_eq!(rate(), (256 * mib, true));
+        assert_eq!(size_cap::first_limits().0, size_cap::FIRST_BYTES);
+    });
+}

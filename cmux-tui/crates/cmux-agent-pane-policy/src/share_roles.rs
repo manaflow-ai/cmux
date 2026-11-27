@@ -34,6 +34,19 @@ pub const GUEST_VERBS: [&str; 7] = [
     "agent-session-detach",
 ];
 
+/// A named invitee with `drive`: the talk guest's watch and write verbs, plus cancel. Drive is
+/// never selected for a link guest because the daemon rejects that role on link terms.
+pub const DRIVER_VERBS: [&str; 8] = [
+    "agent-session-attach",
+    "agent-session-observe",
+    "agent-session-events",
+    "agent-session-prompt",
+    "agent-session-cancel",
+    "agent-session-typing",
+    "agent-session-view",
+    "agent-session-detach",
+];
+
 /// An invitee with the `view` role: watch only (no prompt, no typing).
 pub const VIEWER_VERBS: [&str; 5] = [
     "agent-session-attach",
@@ -44,18 +57,5 @@ pub const VIEWER_VERBS: [&str; 5] = [
 ];
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_viewer_and_a_guest_never_get_more_than_they_should() {
-        // A viewer never writes; a guest never cancels; a teammate never sees typing or view.
-        assert!(!VIEWER_VERBS.contains(&"agent-session-prompt"));
-        assert!(!GUEST_VERBS.contains(&"agent-session-cancel"));
-        assert!(!TEAMMATE_VERBS.contains(&"agent-session-typing"));
-        for verbs in [&TEAMMATE_VERBS[..], &GUEST_VERBS[..], &VIEWER_VERBS[..]] {
-            assert!(verbs.iter().all(|v| v.starts_with("agent-session-")));
-            assert!(!verbs.iter().any(|v| v.contains("permission") || v.contains("start")));
-        }
-    }
-}
+#[path = "share_roles_tests.rs"]
+mod tests;

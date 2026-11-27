@@ -7,8 +7,9 @@ import QuartzCore
 /// plain layers in it around the content rect of the pane that zooms (above, below, left, right). It has no mask and
 /// no blur. The four layers are square, so the small areas outside the pane's rounded corners stay undimmed.
 ///
-/// Its opacity is the only thing that changes while it shows, on the render server (`Motion.panes`, the pane veil's
-/// fade): no pane moves under it. It is in the plane only around a zoom: a layout at rest carries no layer for it.
+/// Its opacity changes while it shows, on the render server (`Motion.panes`, the pane veil's fade). At a zoom whose
+/// pane moves, the four layers move too, so the hole goes with the pane (``moveHole(from:_:)``). It is in the plane
+/// only around a zoom: a layout at rest carries no layer for it.
 final class PaneZoomDimView: NSView {
     static let dimIdentifier = NSUserInterfaceItemIdentifier("pane.zoom.dim")
 
@@ -43,17 +44,32 @@ final class PaneZoomDimView: NSView {
             applyColors()
         }
         if frame != extent { frame = extent }
-        // The hole in this view's coordinates, inside it. A pane with nothing of it in the screen leaves no hole.
-        let shown = hole.offsetBy(dx: -extent.minX, dy: -extent.minY).intersection(CGRect(origin: .zero, size: extent.size))
-        let clear = shown.isNull ? .zero : shown
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         dim.frame = CGRect(origin: .zero, size: extent.size)
-        parts[0].frame = CGRect(x: 0, y: 0, width: extent.width, height: clear.minY)
-        parts[1].frame = CGRect(x: 0, y: clear.maxY, width: extent.width, height: extent.height - clear.maxY)
-        parts[2].frame = CGRect(x: 0, y: clear.minY, width: clear.minX, height: clear.height)
-        parts[3].frame = CGRect(x: clear.maxX, y: clear.minY, width: extent.width - clear.maxX, height: clear.height)
+        for (part, rect) in zip(parts, Self.rects(around: hole.offsetBy(dx: -extent.minX, dy: -extent.minY), in: extent.size)) { part.frame = rect }
         CATransaction.commit()
+    }
+
+    /// The four parts around `hole` in a view of `size` (above, below, left, right), in the view's coordinates. Only
+    /// what is inside the view is left clear: a pane with nothing of it in the screen leaves no hole.
+    private static func rects(around hole: CGRect, in size: CGSize) -> [CGRect] {
+        let shown = hole.intersection(CGRect(origin: .zero, size: size))
+        let clear = shown.isNull ? .zero : shown
+        return [CGRect(x: 0, y: 0, width: size.width, height: clear.minY),
+                CGRect(x: 0, y: clear.maxY, width: size.width, height: size.height - clear.maxY),
+                CGRect(x: 0, y: clear.minY, width: clear.minX, height: clear.height),
+                CGRect(x: clear.maxX, y: clear.minY, width: size.width - clear.maxX, height: clear.height)]
+    }
+
+    /// The hole goes with a pane that moves to the place the dim was put around: it starts at `old` (the plane's
+    /// coordinates). `move` gets each part with how far its origin is from its place at the start, and how much
+    /// larger it is then; it puts that move on the part's layer.
+    func moveHole(from old: CGRect, _ move: (CALayer, CGPoint, CGSize) -> Void) {
+        for (part, from) in zip(parts, Self.rects(around: old.offsetBy(dx: -frame.minX, dy: -frame.minY), in: frame.size)) {
+            let now = part.frame
+            move(part, CGPoint(x: from.minX - now.minX, y: from.minY - now.minY), CGSize(width: from.width - now.width, height: from.height - now.height))
+        }
     }
 
     /// The dim comes, on the pane veil's fade: from nothing to its full strength, or, `continuing` a dim that was
@@ -62,9 +78,10 @@ final class PaneZoomDimView: NSView {
         Motion.panes.set(dim, "opacity", to: Float(amount), fade: .paneDim, from: continuing ? nil : Float(0))
     }
 
-    /// The dim goes: from its full strength to nothing, on the pane veil's fade.
-    func fadeOut() {
-        Motion.panes.set(dim, "opacity", to: Float(0), fade: .paneDim, from: Float(amount))
+    /// The dim goes, on the pane veil's fade: from its full strength to nothing, or, `continuing` a dim that came
+    /// with a zoom, from the strength it shows.
+    func fadeOut(continuing: Bool) {
+        Motion.panes.set(dim, "opacity", to: Float(0), fade: .paneDim, from: continuing ? nil : Float(amount))
     }
 
     override func viewDidChangeEffectiveAppearance() {

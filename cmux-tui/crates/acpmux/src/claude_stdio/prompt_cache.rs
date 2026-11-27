@@ -18,15 +18,29 @@
 //! out as `_meta.acpmux.cacheExpiresAt` (unix ms) on the call's `usage_update` and on the result's
 //! resend. A call that used no cache keeps the last expiry; a subagent's call (its cache is its
 //! own) moves none; a compaction clears it (the next call writes a new cache).
+//!
+//! The same updates say how the cache did (Leo, 2026-11-18, the cache line): `cacheHit`, the last
+//! main-loop call's cache reads over its whole prompt (0-1), and `cacheMiss`, the last call that
+//! read under half of what the call before it left (`{cause, at}`), with its likely cause: a
+//! compaction since, a model or effort change, the cache's expiry, else `unknown`. Settings names
+//! an account's newest miss (`hub/account_usage.rs`, Leo, 2026-11-23: "the last cache-miss cause").
+//!
+//! Every miss of a turn is also counted by cause (`TurnMisses`) on the prompt result's
+//! `_meta.harnessMagic.cacheAlarm`, RFD 0158 §1's per-call alarm: a turn-level share hides a
+//! break when the turn's later calls read the cache the first one wrote again (`hub/cache_alarm.rs`).
 
 use super::Translator;
 use crate::no_panic::JsonExt;
 use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex as StdMutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub const FIVE_MINUTES_MS: u64 = 5 * 60 * 1000;
 pub const ONE_HOUR_MS: u64 = 60 * 60 * 1000;
+/// Under this much context left by the call before, a call that reads little is no miss worth
+/// naming (a chat's first calls, a fresh compaction's tail).
+pub const MIN_MISS_CONTEXT: u64 = 4_096;
 
 /// The chat's prompt cache as its main loop's last call left it, in unix ms (0: none yet).
 #[derive(Default)]
@@ -37,6 +51,69 @@ pub(super) struct CacheClock {
     requested_at_ms: AtomicU64,
     /// When the cache lapses (0: none in use, not known, or compacted).
     expires_at_ms: AtomicU64,
+    /// The last call's hit ratio in thousandths, plus one (0: no call yet).
+    hit_milli: AtomicU64,
+    /// The last call that missed: its likely cause and when it started.
+    miss: StdMutex<Option<(&'static str, u64)>>,
+    /// The model and effort the last call ran with.
+    ran_with: StdMutex<Option<(String, String)>>,
+    /// A compaction since the last call.
+    compacted_since: AtomicBool,
+    /// This turn's misses, for RFD 0158 §1's alarm (`take_turn_misses`).
+    turn_misses: StdMutex<TurnMisses>,
+}
+
+/// One turn's main-loop calls that missed the cache, by cause (RFD 0158 §1). A miss with no
+/// cause the daemon can name (`unknown`: still warm, same model, effort and no compaction) is a
+/// prefix churn; the others are declared boundaries.
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct TurnMisses {
+    pub by_cause: std::collections::BTreeMap<&'static str, u64>,
+    /// The context those misses wrote again instead of reading.
+    pub unread_tokens: u64,
+}
+
+impl TurnMisses {
+    pub fn churn(&self) -> u64 {
+        self.by_cause.get("unknown").copied().unwrap_or(0)
+    }
+
+    /// The counters for the turn's `_meta.harnessMagic.cacheAlarm`; None with no miss.
+    pub fn to_json(&self) -> Option<Value> {
+        let total: u64 = self.by_cause.values().sum();
+        (total > 0).then(|| {
+            json!({
+                "callMisses": total,
+                "callChurn": self.churn(),
+                "callDeclared": total - self.churn(),
+                "callUnreadTokens": self.unread_tokens,
+                "cause": self.by_cause,
+            })
+        })
+    }
+}
+
+/// Why a call read under half of the context the call before it left: a compaction since
+/// (`compacted`), a model or effort change, the cache's expiry (the call started at or after
+/// `expired_at`, 0 when none was known), else `unknown`.
+pub fn miss_cause(
+    compacted: bool,
+    model_changed: bool,
+    effort_changed: bool,
+    expired_at: u64,
+    at_ms: u64,
+) -> &'static str {
+    if compacted {
+        "compaction"
+    } else if model_changed {
+        "model"
+    } else if effort_changed {
+        "effort"
+    } else if expired_at > 0 && at_ms >= expired_at {
+        "expired"
+    } else {
+        "unknown"
+    }
 }
 
 /// The tier a call's usage says it wrote, if it wrote any.
@@ -63,12 +140,57 @@ pub fn now_ms() -> u64 {
 }
 
 impl CacheClock {
-    /// A main-loop call started at `at_ms`, with the usage its start names.
-    fn started(&self, usage: Option<&Value>, at_ms: u64) {
+    /// A main-loop call started at `at_ms`, with the usage its start names, on `ran_with` (its
+    /// model and effort), after the call before left `context` tokens for it to read.
+    fn started(&self, usage: Option<&Value>, at_ms: u64, context: u64, ran_with: (String, String)) {
+        let expired_at = self.expires_at_ms.load(Ordering::SeqCst);
+        let before =
+            self.ran_with.lock().unwrap_or_else(|e| e.into_inner()).replace(ran_with.clone());
+        let compacted = self.compacted_since.swap(false, Ordering::SeqCst);
         self.requested_at_ms.store(at_ms, Ordering::SeqCst);
-        if let Some(usage) = usage {
-            self.call(usage);
+        let Some(usage) = usage else { return };
+        self.call(usage);
+        let input = usage.get_u64("input_tokens").unwrap_or(0);
+        let read = usage.get_u64("cache_read_input_tokens").unwrap_or(0);
+        let write = usage.get_u64("cache_creation_input_tokens").unwrap_or(0);
+        let prompt = input + read + write;
+        if let Some(milli) = (read * 1000).checked_div(prompt) {
+            self.hit_milli.store(milli + 1, Ordering::SeqCst);
         }
+        // Only a chat whose calls use the cache misses it.
+        let caching = self.ttl_ms.load(Ordering::SeqCst) > 0;
+        if caching && context >= MIN_MISS_CONTEXT && read.saturating_mul(2) < context {
+            let (model, effort) =
+                before.map_or((false, false), |(m, e)| (m != ran_with.0, e != ran_with.1));
+            let cause = miss_cause(compacted, model, effort, expired_at, at_ms);
+            *self.miss.lock().unwrap_or_else(|e| e.into_inner()) = Some((cause, at_ms));
+            let mut turn = self.turn_misses.lock().unwrap_or_else(|e| e.into_inner());
+            *turn.by_cause.entry(cause).or_default() += 1;
+            turn.unread_tokens = turn.unread_tokens.saturating_add(context.saturating_sub(read));
+        }
+    }
+
+    /// Adds how the cache did to a main-loop `usage_update`'s `_meta.acpmux` (module docs).
+    fn stamp(&self, acpmux: &mut Value) {
+        if let Some(milli) = self.hit_milli.load(Ordering::SeqCst).checked_sub(1) {
+            acpmux.set("cacheHit", json!(milli as f64 / 1000.0));
+        }
+        if let Some((cause, at)) = *self.miss.lock().unwrap_or_else(|e| e.into_inner()) {
+            acpmux.set("cacheMiss", json!({"cause": cause, "at": at}));
+        }
+    }
+
+    /// A turn's resend of its context: its expiry and how the cache did.
+    pub(super) fn resend(&self, mut update: Value) -> Value {
+        update = with_expiry(update, self.expires_at());
+        if let Some(obj) = update.as_object_mut() {
+            let meta = obj.entry("_meta").or_insert_with(|| json!({}));
+            if let Some(meta) = meta.as_object_mut() {
+                let acpmux = meta.entry("acpmux").or_insert_with(|| json!({}));
+                self.stamp(acpmux);
+            }
+        }
+        update
     }
 
     /// The last call's `usage`: the cache's expiry from it, kept for the turn's result.
@@ -88,6 +210,11 @@ impl CacheClock {
         expires
     }
 
+    /// This turn's misses, and the next turn counts its own.
+    pub(super) fn take_turn_misses(&self) -> TurnMisses {
+        std::mem::take(&mut *self.turn_misses.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
     pub(super) fn expires_at(&self) -> Option<u64> {
         Some(self.expires_at_ms.load(Ordering::SeqCst)).filter(|t| *t > 0)
     }
@@ -95,13 +222,21 @@ impl CacheClock {
     /// A compaction replaced the context: the next call writes a new cache, so none is warm.
     pub(super) fn compacted(&self) {
         self.expires_at_ms.store(0, Ordering::SeqCst);
+        self.compacted_since.store(true, Ordering::SeqCst);
     }
 }
 
 impl Translator {
-    /// A main-loop call started (its `message_start`): the cache it read or wrote lives from now.
-    pub(super) fn call_started(&self, usage: Option<&Value>) {
-        self.cache.started(usage, now_ms());
+    /// A main-loop call started (its `message_start`, on `model`): the cache it read or wrote
+    /// lives from now.
+    pub(super) async fn call_started(&self, usage: Option<&Value>, model: Option<&str>) {
+        let model = match model {
+            Some(m) => m.to_owned(),
+            None => self.loop_model.lock().await.clone(),
+        };
+        let effort = self.effort.lock().await.clone();
+        let context = self.context_end.load(Ordering::SeqCst);
+        self.cache.started(usage, now_ms(), context, (model, effort));
     }
 
     /// One model call's usage (its `message_delta`) as the `usage_update` acpmux sends, of the
@@ -125,6 +260,11 @@ impl Translator {
             self.context_from_compaction.store(false, Ordering::SeqCst);
             if let Some(at) = self.cache.call(u) {
                 acpmux.set("cacheExpiresAt", json!(at));
+            }
+            self.cache.stamp(&mut acpmux);
+            // When the call went out and came back (`model_calls.rs`).
+            if let Some(timing) = self.model_clock.ended(now_ms()) {
+                acpmux.set("timing", timing);
             }
         }
         let size = self.context_window.load(Ordering::SeqCst);

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import OSLog
 
 /// cmux: what a click on a bubble's link opens. Every destination is re-checked at click
 /// time with `MarkdownLinkPolicy` (only http, https and mailto, plus a host's extra
@@ -33,32 +34,85 @@ extension ChatController {
     /// opens nothing). A card tap is the one time a received card may fetch its preview
     /// (HomeLinkPreviews).
     func openLink(_ hit: MessagesWindowView.Hit, at p: CGPoint) -> Bool {
+        openLink(linkTarget(hit, at: p), ref: hit.row.ref)
+    }
+
+    /// Opens `target`, a link of the part `ref`: a click's (above) or an accessibility press's
+    /// (`TranscriptLinkElement`), so both open the same way. False when there is no link.
+    func openLink(_ target: PaneLinkTarget?, ref: PartRef) -> Bool {
         let other = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask).isSuperset(of: [.command, .shift]) == true
-        switch linkTarget(hit, at: p) {
+        switch target {
         case let .text(url)?:
+            guard let url else { noteLink(Self.linkLine(nil, "refused by the link policy: opened nothing")); return true }
             // An agent-message fold's row: expands or collapses in place (HomeStore.toggleAgentMessages).
-            if let url, let group = HomeAgentMessageRow.group(toggledBy: url) {
+            if let group = HomeAgentMessageRow.group(toggledBy: url) {
                 intents?.toggleAgentMessages(group)
                 return true
             }
             // An app link (a workspace, pane, tab, chat or Chief subagent) or a path goes to the host, never to the system.
-            if let url, url.isCmuxAppLink || url.isHomePathLink { onAppLink?(url) } else if let url { onOpenLink(url, other) }
+            // Each press says where it went (category app.links; goal agent-shortcut-found: run 45968907489's
+            // press on "turn it on" logged nothing).
+            if url.isCmuxAppLink || url.isHomePathLink {
+                if let onAppLink {
+                    noteLink(Self.linkLine(url, "handed to the app"))
+                    onAppLink(url)
+                } else {
+                    noteLink(Self.linkLine(url, "taken by no app link handler: opened nothing"))
+                }
+            } else {
+                if url.scheme?.lowercased().hasPrefix("cmux") == true {
+                    noteLink(Self.linkLine(url, "is no app link: handed to the system"))
+                }
+                onOpenLink(url, other)
+            }
         case let .card(raw, url)?:
-            if let url { intents?.linkTapped(hit.row.ref, url: raw); onOpenLink(url, other) }
+            if let url { intents?.linkTapped(ref, url: raw); onOpenLink(url, other) }
+            else { noteLink(Self.linkLine(nil, "on a card refused by the link policy: opened nothing")) }
         case nil:
             return false
         }
         return true
     }
 
-    /// The URL a click at `p` (host coordinates) opens, or nil (tests, accessibility).
-    func linkURL(at p: CGPoint) -> URL? {
-        guard let hit = demo?.hit(p) else { return nil }
-        switch linkTarget(hit, at: p) {
+    /// A mouse-up on a link that opened nothing: says what took it (the onboarding walk's turn-on row
+    /// reads it, category app.links). Only the dropped path pays for the hit test.
+    func noteDroppedLinkClick(at p: CGPoint, _ taker: String) {
+        guard let url = linkURL(at: p) else { return }
+        noteLink(Self.linkLine(url, "taken by \(taker): opened nothing", press: "click"))
+    }
+
+    static let linkLog = Logger(subsystem: "com.cmuxterm.app.next", category: "app.links")
+
+    /// A line of the app.links log: "app link press on host/path what" (hq's link_log matches "app link").
+    static func linkLine(_ url: URL?, _ what: String, press: String = "press") -> String {
+        guard let url else { return "app link \(press) \(what)" }
+        return "app link \(press) on \(url.host ?? "")\(url.path) \(what)"
+    }
+
+    /// Logs `line` in category app.links (public: a link's host and path, never its query).
+    static func noteLink(_ line: String) {
+        linkLog.notice("\(line, privacy: .public)")
+    }
+
+    /// Logs `line` and hands it to ``linkNotes`` (tests read the lines there).
+    func noteLink(_ line: String) {
+        Self.noteLink(line)
+        linkNotes?(line)
+    }
+
+    /// The URL `target` opens, or nil (refused, or no link).
+    static func url(of target: PaneLinkTarget?) -> URL? {
+        switch target {
         case let .text(url)?: return url
         case let .card(_, url)?: return url
         case nil: return nil
         }
+    }
+
+    /// The URL a click at `p` (host coordinates) opens, or nil (tests, accessibility).
+    func linkURL(at p: CGPoint) -> URL? {
+        guard let hit = demo?.hit(p) else { return nil }
+        return Self.url(of: linkTarget(hit, at: p))
     }
 }
 

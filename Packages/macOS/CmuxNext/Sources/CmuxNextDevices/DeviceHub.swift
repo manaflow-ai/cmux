@@ -1,6 +1,8 @@
 public import CmuxNextCompat
 public import Foundation
 public import Observation
+import CmuxNextWakeups
+import os
 
 /// The signed-in user's devices as this app sees them: who is online, who
 /// shares Mac Screen, permissions, relays, requests waiting for an answer,
@@ -22,12 +24,27 @@ public final class DeviceHub {
     public private(set) var status: Status = .idle
     public private(set) var connection: DeviceHubSocket.State = .disconnected
     public private(set) var me: HubMe?
-    public private(set) var devices: [HubDevice] = []
+    public private(set) var devices: [HubDevice] = [] {
+        didSet { if devices != oldValue { deviceNames = Dictionary(devices.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }) } }
+    }
+    /// Each device's name by id, kept with ``devices``: a tab title reads one name in O(1), never a scan of the
+    /// device list per tab (hq#22524: `MacScreenPages.deviceName` hung the main thread titling every tab).
+    public private(set) var deviceNames: [String: String] = [:]
+    /// A device-list read succeeded since sign-in. `ready` only means this device is registered: the list
+    /// comes after the socket connects, so an empty `devices` before it says nothing (ask-6a79af928f).
+    public private(set) var devicesListed = false
+    /// Why the last device-list read failed; nil once a read succeeds.
+    public private(set) var devicesListError: DeviceHubError?
+    /// Socket states and device-list reads, so a quiet Your Devices can be read from the log (ask-6a79af928f).
+    @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
     /// Verified Mac destinations for native screen actions, observed with the device list.
     public var macScreenAvailability: [String: Bool] { HubDevice.macScreenAvailability(in: devices) }
     /// Permissions by host id (`GET /v1/permissions?host=`); this device's are fetched on every refresh.
     public private(set) var permissions: [String: [HubPermission]] = [:]
     public private(set) var relays: [HubRelay] = []
+    /// The account's "My agents can turn screen sharing and control on my machines" (`GET /v1/settings`):
+    /// off until read, and off again on sign-out.
+    public private(set) var agentsMayShare = false
     /// The opened relay secrets this device holds, by relay id: what the Keychain
     /// holds, loaded off the main actor by ``refreshRelays()`` (a Keychain read can
     /// take seconds), and kept in step by ``saveRelay(id:name:urls:secret:enabled:priority:)``
@@ -55,6 +72,9 @@ public final class DeviceHub {
     /// The relay secret store (the Keychain): every call off the main actor, one at a time.
     @ObservationIgnored let vault: RelaySecretVault
     @ObservationIgnored let platform: DevicePlatform
+    /// What registration names this Mac and this install by (``DeviceIdentity/machineKey``, the bundle id); nil omits it.
+    @ObservationIgnored let machineKey: String?
+    @ObservationIgnored let appId: String?
     @ObservationIgnored let now: @Sendable () -> Date
     /// Makes a new identity when the hub refuses this one (`device_removed`, `device_key_mismatch`).
     @ObservationIgnored let renewIdentity: (@Sendable () throws -> DeviceIdentity)?
@@ -63,31 +83,42 @@ public final class DeviceHub {
     /// (``start()``) nor signs it out (``signOut(ending:reason:)``). Set before ``start()``.
     @ObservationIgnored public var ownsDevice = true
     @ObservationIgnored private var socketTask: Task<Void, Never>?
+    /// Reads the device list on its own after registering, so Your Devices never waits on the socket alone.
+    @ObservationIgnored private var listTask: Task<Void, Never>?
+    /// How long one device-list read may take before Your Devices says why it has no list (`.failed`) and reads again.
+    @ObservationIgnored public var listDeadline: Duration = .seconds(20)
+    /// The pause before a failed device-list read is tried again.
+    @ObservationIgnored public var listRetryDelay: Duration = .seconds(10)
     /// Relays this device saved that no listing has shown yet (kept from pruning).
     @ObservationIgnored var savedNotListed: Set<String> = []
     /// Bumped by start and stop: an answer from an older run is dropped.
     @ObservationIgnored private var generation = 0
 
     public init(client: DeviceHubClient, socket: DeviceHubSocket? = nil, secrets: any RelaySecretStore, deviceName: String,
-                platform: DevicePlatform = .macos, renewIdentity: (@Sendable () throws -> DeviceIdentity)? = nil,
+                platform: DevicePlatform = .macos, machineKey: String? = nil, appId: String? = nil,
+                renewIdentity: (@Sendable () throws -> DeviceIdentity)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.client = client
         self.socket = socket ?? DeviceHubSocket(connector: URLSessionDeviceHubConnector(client: client))
         vault = RelaySecretVault(store: secrets)
         self.deviceName = deviceName
         self.platform = platform
+        self.machineKey = machineKey
+        self.appId = appId
         self.renewIdentity = renewIdentity
         self.now = now
     }
 
     /// The app's hub: its Secure Enclave identity under `<bundleIdentifier>.device-hub`
     /// (loaded off the main thread, renewed when the hub refuses it), relay secrets
-    /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token).
+    /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token), in `buildSpace`.
     public static func forApp(baseURL: URL, bundleIdentifier: String, deviceName: String,
-                              tokens: any DeviceHubAccountTokenProvider, loginKeychain: LoginKeychain) async throws -> DeviceHub {
+                              tokens: any DeviceHubAccountTokenProvider, loginKeychain: LoginKeychain,
+                              buildSpace: DeviceHubBuildSpace = .nightly) async throws -> DeviceHub {
         let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain) }
-        return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens),
+        return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens, buildSpace: buildSpace),
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain), deviceName: deviceName,
+                         machineKey: DeviceIdentity.machineKey, appId: bundleIdentifier,
                          renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain) })
     }
 
@@ -115,7 +146,8 @@ public final class DeviceHub {
     var deviceList: DeviceList {
         let key = DeviceListKey(thisID: identity.id, name: deviceName, devices: devices)
         if let cached = deviceListCache, cached.key == key { return cached.list }
-        let list = DeviceList.make(thisID: identity.id, thisName: deviceName, platform: platform, devices: devices)
+        let list = DeviceList.make(thisID: identity.id, thisName: deviceName, platform: platform,
+                                   thisMachineID: thisDevice?.machineId, devices: devices)
         deviceListCache = (key, list)
         return list
     }
@@ -123,9 +155,10 @@ public final class DeviceHub {
     struct DeviceListKey: Equatable { var thisID: String, name: String, devices: [HubDevice] }
     @ObservationIgnored private var deviceListCache: (key: DeviceListKey, list: DeviceList)?
 
-    /// What `viewer` may do on `host`'s screen; `ask` when no permission is stored.
+    /// What `viewer` may do on `host`'s screen; `full` when no permission is stored (the hub's default
+    /// for the account's own devices, PROTOCOL.md).
     public func scope(host: String, viewer: String) -> DeviceScope {
-        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .ask
+        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .full
     }
 
     // MARK: Lifecycle
@@ -137,9 +170,11 @@ public final class DeviceHub {
         generation += 1
         let run = generation
         status = .starting
+        devicesListError = nil
+        var registered: HubDevice?
         do {
             do {
-                if ownsDevice { _ = try await client.registerDevice(name: deviceName, platform: platform) }
+                if ownsDevice { registered = try await client.registerDevice(name: deviceName, platform: platform, machineKey: machineKey, appId: appId) }
             } catch let error as DeviceHubError where (error.code == .deviceRemoved || error.code == .deviceKeyMismatch) && renewIdentity != nil {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
@@ -147,9 +182,12 @@ public final class DeviceHub {
                 do { fresh = try await Self.loadIdentity(renewIdentity) } catch { throw DeviceHubError.identity("\(error)") }
                 guard run == generation else { return }
                 client.setIdentity(fresh)
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                registered = try await client.registerDevice(name: deviceName, platform: platform, machineKey: machineKey, appId: appId)
             }
             guard run == generation else { return }
+            // The hub's own answer for this device: This Mac draws from it before the list arrives (the sharing
+            // toggle's answer replaces this record the same way). It is not a list read, so `devicesListed` stays false.
+            if let registered, !devices.contains(where: { $0.id == registered.id }) { replace(registered) }
             status = .ready
         } catch {
             guard run == generation else { return }
@@ -157,12 +195,17 @@ public final class DeviceHub {
             status = .failed(lastError?.description ?? "\(error)")
             return
         }
+        listTask?.cancel()
+        listTask = Task { [weak self] in await self?.readListUntilListed(run: run) } // task-owner: stopSocket cancels it
         let socket = self.socket, hub = WeakHub(hub: self)
         socketTask = Task {
             await socket.run { event in
                 await hub.hub?.handle(event)
             }
         }
+        // The list over HTTP now, not only once the socket connects: a socket that never connects
+        // left This Mac undrawn and the page at "Loading your devices…" (CMUX-13, as the shared hub does).
+        await refreshDevices()
     }
 
     /// Signed out: closes the socket and forgets the account and every record.
@@ -199,8 +242,11 @@ public final class DeviceHub {
         connection = .disconnected
         me = nil
         devices = []
+        devicesListed = false
+        devicesListError = nil
         permissions = [:]
         relays = []
+        agentsMayShare = false
         openedSecrets = [:]
         pendingRequests = []
         tickets = [:]
@@ -212,6 +258,8 @@ public final class DeviceHub {
 
     @discardableResult
     private func stopSocket() -> Task<Void, Never>? {
+        listTask?.cancel()
+        listTask = nil
         let task = socketTask
         task?.cancel()
         socketTask = nil
@@ -224,6 +272,7 @@ public final class DeviceHub {
         switch event {
         case let .state(state):
             connection = state
+            logger.info("device hub socket: \(String(describing: state), privacy: .public)")
             if state == .connected {
                 // Back on the hub: whatever changed while away (a relaunched host's history) is read again.
                 pushCount += 1
@@ -244,6 +293,8 @@ public final class DeviceHub {
             await refreshPermissions(host: host ?? identity.id)
         case .relaysChanged:
             await refreshRelays()
+        case .settingsChanged:
+            await refreshSettings()
         case let .sessionRequest(request):
             if !pendingRequests.contains(where: { $0.id == request.id }) { pendingRequests.append(request) }
             onSessionPush?(push)
@@ -251,7 +302,7 @@ public final class DeviceHub {
             pendingRequests.removeAll { $0.id == ticket.sessionId }
             tickets[ticket.sessionId] = ticket
             onSessionPush?(push)
-        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _):
+        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _, _):
             pendingRequests.removeAll { $0.id == id }
             tickets[id] = nil
             onSessionPush?(push)
@@ -270,6 +321,17 @@ public final class DeviceHub {
         await refreshDevices()
         for host in permissionHosts { await refreshPermissions(host: host) }
         await refreshRelays()
+        await refreshSettings()
+    }
+
+    /// The account's settings again (a push said they changed, a reconnect).
+    /// A hub that cannot answer (an older one, no route) reads as off and is no error: the
+    /// permission defaults to off, and off is how every path behaved before it existed.
+    public func refreshSettings() async {
+        let run = generation
+        let settings = try? await client.accountSettings()
+        guard run == generation else { return }
+        agentsMayShare = settings?.agentsMayShare ?? false
     }
 
     /// The hosts whose permission lists a refresh reads: this device's own, then every
@@ -282,10 +344,53 @@ public final class DeviceHub {
         await load { try await $0.me() } into: { hub, value in hub.me = value }
     }
 
+    /// Reads the list now, and again after each failure, until one read succeeds: the socket's connect is
+    /// not the only way to a list (a socket that never connects left Your Devices on "Loading" for good).
+    private func readListUntilListed(run: Int) async {
+        var backoff = Backoff(initial: listRetryDelay, maximum: max(listRetryDelay, .seconds(60)))
+        // wakeup-allow: each failed read awaits Backoff.wait; ends on a listed read, cancel or a new run.
+        while !Task.isCancelled, run == generation, !devicesListed {
+            await refreshDevices()
+            guard !devicesListed, !Task.isCancelled else { return }
+            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
+            do { try await backoff.wait(owner: "device-hub.list-retry") } catch { return }
+        }
+    }
+
+    /// `body`, or `DeviceHubError.transport` when it has not answered by `deadline`.
+    nonisolated static func within<Value: Sendable>(_ deadline: Duration, what: String,
+                                        _ body: @escaping @Sendable () async throws -> Value) async throws -> Value {
+        // concurrency-allow: the losing child is cancelled; URLSession and the sleep both honor cancellation.
+        try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask { try await body() }
+            group.addTask {
+                // wakeup-allow: one-shot deadline for a device-hub call.
+                try await ContinuousClock().sleep(for: deadline)
+                throw DeviceHubError.transport("\(what) did not answer in \(deadline.components.seconds) s")
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw DeviceHubError.transport("\(what) ended without an answer") }
+            return first
+        }
+    }
+
     public func refreshDevices() async {
-        await load { try await $0.devices() } into: { hub, value in
-            hub.devices = value
-            hub.forgetPermissions(notListedIn: Set(value.map(\.id)))
+        let run = generation
+        do {
+            let client = self.client
+            let value = try await Self.within(listDeadline, what: "the device list") { try await client.devices() }
+            guard run == generation else { return }
+            devices = value
+            devicesListed = true
+            devicesListError = nil
+            let listsThis = value.contains { $0.id == identity.id }
+            logger.info("device hub list read: \(value.count, privacy: .public) devices, this device listed: \(listsThis, privacy: .public)")
+            forgetPermissions(notListedIn: Set(value.map(\.id)))
+        } catch {
+            guard run == generation else { return }
+            fail(error)
+            devicesListError = lastError
+            logger.error("device hub list read failed: \(self.lastError?.description ?? "\(error)", privacy: .public)")
         }
     }
 
@@ -360,6 +465,20 @@ public final class DeviceHub {
         replace(device)
     }
 
+    /// Turns this device's Mac Screen sharing on or off for an owner's agent under the account's
+    /// standing permission; the hub's audit row names the agent session and its device.
+    public func setMacScreenShared(_ shared: Bool, agent: HubAgentActor) async throws {
+        let device = try await perform { try await $0.setMacScreenShared(shared, agent: agent) }
+        replace(device)
+    }
+
+    /// "My agents can turn screen sharing and control on my machines": a person's change only (a
+    /// Settings click or the app's confirm dialog), with this app's full hub session.
+    public func setAgentsMayShare(_ on: Bool) async throws {
+        let settings = try await perform { try await $0.setAgentsMayShare(on) }
+        agentsMayShare = settings.agentsMayShare
+    }
+
     public func setPermission(host: String, viewer: String, scope: DeviceScope) async throws {
         _ = try await perform { try await $0.setPermission(host: host, viewer: viewer, scope: scope) }
         await refreshPermissions(host: host)
@@ -368,6 +487,11 @@ public final class DeviceHub {
     /// From this device as viewer: asks `host` for a session.
     public func requestSession(host: String, scope: SessionScope) async throws -> HubSession {
         try await perform { try await $0.requestSession(host: host, scope: scope) }
+    }
+
+    /// From this device as viewer: a fresh viewer ticket for an approved or live session.
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        try await perform { try await $0.reattachSession(id) }
     }
 
     /// From this device as host: answers a request.
@@ -432,6 +556,8 @@ public final class DeviceHub {
         let current = try await perform { try await $0.devices() }
         guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         devices = current
+        devicesListed = true
+        devicesListError = nil
         let sealed: [String: String]
         do { sealed = try RelaySealing.seal(secret, relayID: id, for: current) } catch {
             throw DeviceHubError.identity("sealing the relay secret: \(error)")

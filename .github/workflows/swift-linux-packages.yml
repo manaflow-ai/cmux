@@ -19,21 +19,35 @@ name: Swift packages on Linux
 # build on it incrementally (tests/test_ci_swift_packages_linux_cache.py).
 
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    paths:
-      - Packages/**
-      - vendor/stack-auth-swift-sdk-prerelease/**
-      - scripts/ci/swift-linux-packages.txt
-      - scripts/ci/package-test-lane.sh
-      - .github/workflows/swift-linux-packages.yml
+  # A feat-cmux-next pull request starts this only through pr-router.yml (one router per push, RFD 0023):
+  # the router lists the changed files once and calls it when a change reaches a package this tests
+  # (scripts/ci/pr_router.json `affects`: Packages/Shared, Packages/iOS, the Stack Auth SDK, the lane
+  # scripts). A Packages/macOS-only change (a third of merges) no longer starts four Linux legs.
+  workflow_call:
   push:
     branches: [feat-cmux-next]
     paths:
       - Packages/**
       - vendor/stack-auth-swift-sdk-prerelease/**
+      - cmux-next-ios/CmuxMobileKit/**
+      # Files outside the kit its listed test targets read (scripts/ci/swift_linux_reach.py EXTRA_INPUTS).
+      - cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json
+      - cmux-next-ios/rust/crates/cmux-mobile-host/tests/fixtures/seal-vectors.json
+      - cmux-next-ios/verify/agent-cli-hybrid/**
+      - schemas/deeplinks/agent-link.json
+      - schemas/notice-timing/notice-timing.json
+      - design/icons/source/**
       - scripts/ci/swift-linux-packages.txt
+      - scripts/ci/swift-linux-targets.txt
+      - scripts/ci/swift_linux_targets.py
       - scripts/ci/package-test-lane.sh
+      - scripts/ci/swift-test-debug-info.sh
+      - scripts/ci/swiftpm-binary-module-guard.sh
+      - scripts/ci/github-egress-direct.sh
+      - scripts/ci/app_ffi_linux.py
+      - scripts/cmux-next/build-app-ffi.sh
+      - cmux-tui/crates/**
+      - cmux-tui/Cargo.lock
       - .github/workflows/swift-linux-packages.yml
   workflow_dispatch:
 
@@ -46,17 +60,62 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+  # Which groups a pull request's change can fail (scripts/ci/swift_linux_reach.py): a group runs when the
+  # diff touches one of its packages or a package one of them reaches through `.package(path:)`, and the
+  # listed group sends only the reached rows of the list to the fleet. Before, every pull request the router
+  # started this for ran all eleven groups and all of the list's suites: one Packages/iOS change cost about 41
+  # runner-minutes here, now about 16. A push, a dispatch, a change to this workflow or the lane scripts, or a
+  # plan that fails runs every group (`*`).
+  plan:
+    name: Swift packages on Linux plan
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      groups: ${{ steps.reach.outputs.groups || '*' }}
+      listed: ${{ steps.reach.outputs.listed || '*' }}
+    steps:
+      - name: Checkout the merge commit and its base
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Reach
+        id: reach
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only -z HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+          python3 scripts/ci/swift_linux_reach.py --changed "$RUNNER_TEMP/changed" --github-output "$GITHUB_OUTPUT"
+
   swift-linux-packages:
     name: Swift packages on Linux (${{ matrix.group }})
+    needs: plan
+    # A failed or skipped plan never skips a group: REACHED is then 1 for every group.
+    if: ${{ !cancelled() }}
+    # Runs on every pull request the router starts it for: these suites run here instead of on a Mac, so a
+    # red here is the only place a pull request learns it broke one.
     # 32 vCPU: swift build compiles a package's modules in parallel (tests/test_ci_linux_compile_runners.py);
     # 16 vCPU while the Blacksmith outage switch is on (tests/test_ci_blacksmith_linux_failover.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
-    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    # A group the change cannot fail starts no container and skips every step (REACHED below).
+    container: ${{ (needs.plan.result != 'success' || needs.plan.outputs.groups == '*' || contains(needs.plan.outputs.groups, format('"{0}"', matrix.group))) && 'public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197' || '' }}
+    env:
+      REACHED: ${{ (needs.plan.result != 'success' || needs.plan.outputs.groups == '*' || contains(needs.plan.outputs.groups, format('"{0}"', matrix.group))) && '1' || '' }}
+      # The list's rows the listed group runs: `*` for every row, else their package directories.
+      LISTED_ROWS: ${{ needs.plan.result == 'success' && needs.plan.outputs.listed || '*' }}
+      # Mac fallback (Leo, 2026-11-25: "having our mac fleet be able to like... exist as fallbacks if we fucked
+      # up logic for linux and whatnot is still fine"): on our own runs a package that fails here is handed to
+      # the mac-fallback job instead of failing this one; a fork's run has no Mac of ours, so it fails here.
+      MAC_FALLBACK: ${{ github.repository_owner == 'manaflow-ai' && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '1' || '' }}
     defaults:
       run:
         shell: bash
@@ -69,29 +128,65 @@ jobs:
             packages: Packages/Shared/CmuxSentryTelemetry
           - group: mobile-core
             packages: >-
-              Packages/Shared/CMUXMobileCore
+              Packages/Shared/CmuxHomeCore
               Packages/Shared/CmuxTheme
-              Packages/iOS/CmuxMobilePairedMac
-              Packages/iOS/CmuxMobileShellModel
           # Other SDK suites need a local Stack backend; these use URLProtocol fixtures.
           - group: stack-auth
             packages: vendor/stack-auth-swift-sdk-prerelease
-            test_filter: RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
+            test_filter: RefreshLifecycleTests|RefreshRejectionTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
+          # The cmux-next iPhone app's modules that need no UI framework (the manifest's CMUX_SWIFTPM_TARGET_LINUX
+          # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
+          - group: ios-kit
+            packages: cmux-next-ios/CmuxMobileKit
+          # Whole packages that pass on Linux.
+          - group: CmuxAgentBrands
+            packages: Packages/Shared/CmuxAgentBrands
+          - group: CmuxChiefList
+            packages: Packages/Shared/CmuxChiefList
+          - group: CmuxConnectivityTelemetry
+            packages: Packages/Shared/CmuxConnectivityTelemetry
+          - group: CmuxDeviceHub
+            packages: Packages/Shared/CmuxDeviceHub
+          - group: CmuxEgress
+            packages: Packages/Shared/CmuxEgress
+          - group: CmuxVisibleRows
+            packages: Packages/Shared/CmuxVisibleRows
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A reused pool workspace can hold a repository the container cannot read (an alternate on the VM's git
+      # mirror, a broken index: "index cache-tree records empty sub-tree"); drop it and check out fresh.
+      - name: Checkout
+        id: checkout
+        if: env.REACHED == '1'
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
-      # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite, and the image
-      # ships only its runtime.
-      - name: Install python3 and SQLite headers
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout in a fresh repository
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite and CmuxVNC the system
+      # zlib, and the image ships only their runtimes. CmuxNext's ChromiumRuntime tests pack and unpack
+      # .tar.xz with the system tar: macOS's bsdtar reads xz itself, GNU tar here needs xz-utils. CmuxNext's
+      # Linux shape links CCmuxAppFFI as libcmux_app_ffi.a, which the lane builds with scripts/ci/app_ffi_linux.py
+      # (rustup under the package's .build, so the cache below keeps it; clang compiles the crates' C).
+      - name: Install python3, SQLite and zlib headers, xz
+        if: env.REACHED == '1'
+        run: bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils
 
       - name: Cache key
         id: key
+        if: env.REACHED == '1'
         run: |
           set -euo pipefail
-          inputs="$({ find Packages vendor/stack-auth-swift-sdk-prerelease -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+          inputs="$({ find Packages vendor/stack-auth-swift-sdk-prerelease cmux-next-ios -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
               -type f \( -name Package.swift -o -name Package.resolved \) -print0
             printf '%s\0' scripts/ci/swift-linux-packages.txt scripts/ci/swift-test-debug-info.sh; } |
             LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
@@ -103,30 +198,115 @@ jobs:
 
       - name: Restore .build
         id: build_cache
+        if: env.REACHED == '1'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: |
             Packages/**/.build
             vendor/stack-auth-swift-sdk-prerelease/.build
+            cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}
           restore-keys: |
             swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-
 
+      # Why the fleet: on our own runs each listed suite is one fleet request for the kinds linux,mac
+      # (build-fleet ci_step_kinds.go). The controller runs it on a Linux step worker and spills it to a Mac
+      # only when no Linux worker takes it within --spill-after or its Linux run fails for a Linux reason,
+      # judged by the classifier the Mac fallbacks use; every spill is logged in /v1/sched/plan and
+      # /v1/sched/series. A fork's run, or a run that cannot reach the controller, runs the suites here
+      # and hands its failures to the mac-fallback job below.
+      - name: Fetch the fleet client from the controller
+        id: fleet
+        if: env.REACHED == '1' && matrix.group == 'listed' && env.MAC_FALLBACK == '1'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: |
+          set -euo pipefail
+          [[ -n "$CONTROLLER" ]] || { echo "no CMUX_FLEET_CONTROLLER variable"; exit 1; }
+          client="$RUNNER_TEMP/fleet-client"
+          mkdir -p "$client"
+          curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client/manifest.json"
+          python3 - "$client" "$CONTROLLER" <<'PY'
+          import hashlib, json, sys, urllib.request
+          from pathlib import Path
+          root, controller = Path(sys.argv[1]), sys.argv[2]
+          for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+              if "/" in name or name.startswith("."):
+                  raise SystemExit(f"bad client file name {name!r}")
+              data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+              if hashlib.sha256(data).hexdigest() != digest:
+                  raise SystemExit(f"{name}: sha256 mismatch")
+              (root / name).write_bytes(data)
+          PY
+          grep -q -- "'--kinds'" "$client/ci-client.py" || { echo "the controller's client has no --kinds yet"; exit 1; }
+          echo "client=$client" >> "$GITHUB_OUTPUT"
+
+      - name: Every listed suite as one fleet request (linux, then a Mac)
+        id: fleet-suites
+        if: env.REACHED == '1' && matrix.group == 'listed' && steps.fleet.outputs.client != ''
+        env:
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          CLIENT: ${{ steps.fleet.outputs.client }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/fleet-suites"
+          suite() {
+            local n="$1" dir="$2" targets="$3" status=0
+            python3 "$CLIENT/ci-client.py" run --class light --kinds linux,mac --spill-after 1800 \
+              --script scripts/ci/package-test-lane.sh --arg=suite --arg="$dir" --arg="$targets" \
+              --ref "$HEAD_SHA" --repo manaflow-ai/cmux --no-supersede \
+              --timeout 2400 --queue-timeout 2400 > "$RUNNER_TEMP/fleet-suites/$n.log" 2>&1 || status=$?
+            printf '%s\t%s\t%s\n' "$status" "$dir" "$targets" > "$RUNNER_TEMP/fleet-suites/$n.exit"
+          }
+          n=0
+          while read -r dir targets _; do
+            case "$dir" in ''|'#'*) continue ;; esac
+            [ "$LISTED_ROWS" = '*' ] || case " $LISTED_ROWS " in *" ${dir%/} "*) ;; *) continue ;; esac
+            n=$((n + 1))
+            while [ "$(jobs -rp | wc -l)" -ge 8 ]; do wait -n || true; done
+            suite "$n" "$dir" "$targets" &
+          done < scripts/ci/swift-linux-packages.txt
+          wait
+          status=0
+          echo "| Package | Targets | Fleet result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for i in $(seq 1 "$n"); do
+            IFS=$'\t' read -r rc dir targets < "$RUNNER_TEMP/fleet-suites/$i.exit"
+            echo "::group::$dir ($targets): exit $rc"
+            cat "$RUNNER_TEMP/fleet-suites/$i.log"
+            echo "::endgroup::"
+            if [ "$rc" = 0 ]; then
+              echo "| \`$dir\` | $targets | pass |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error title=$dir::failed on the fleet (on Linux, and on a Mac when it spilled there); the log above names the worker"
+              echo "| \`$dir\` | $targets | failed |" >> "$GITHUB_STEP_SUMMARY"
+              status=1
+            fi
+          done
+          exit "$status"
+
       - name: package-test-lane.sh suite, every listed package
-        if: matrix.group == 'listed'
+        if: env.REACHED == '1' && matrix.group == 'listed' && steps.fleet.outputs.client == ''
         run: |
           set -euo pipefail
           status=0
           while read -r dir targets _; do
             case "$dir" in ''|'#'*) continue ;; esac
+            [ "$LISTED_ROWS" = '*' ] || case " $LISTED_ROWS " in *" ${dir%/} "*) ;; *) continue ;; esac
             echo "::group::$dir ($targets)"
-            bash scripts/ci/package-test-lane.sh suite "$dir" "$targets" || { echo "::error::$dir failed on Linux"; status=1; }
+            if ! bash scripts/ci/package-test-lane.sh suite "$dir" "$targets"; then
+              echo "::error::$dir failed on Linux"; status=1
+              printf 'suite\t%s\t%s\n' "$dir" "$targets" >> "$RUNNER_TEMP/linux-failed.tsv"
+            fi
             echo "::endgroup::"
           done < scripts/ci/swift-linux-packages.txt
-          exit "$status"
+          [ -n "$MAC_FALLBACK" ] || exit "$status"
 
       - name: Build and test
-        if: matrix.group != 'listed'
+        if: env.REACHED == '1' && matrix.group != 'listed'
         env:
           PACKAGES: ${{ matrix.packages }}
           TEST_FILTER: ${{ matrix.test_filter }}
@@ -152,18 +332,193 @@ jobs:
             if [ "$result" != pass ]; then
               echo "::error title=$package::$result"
               failed="$failed $package"
+              printf 'whole\t%s\t%s\n' "$package" "${TEST_FILTER:-}" >> "$RUNNER_TEMP/linux-failed.tsv"
             fi
           done
           if [ -n "$failed" ]; then
             echo "Failed:$failed"
-            exit 1
+            [ -n "$MAC_FALLBACK" ] || exit 1
           fi
 
+      # Every fallback is logged: a warning on this run, the table in its summary, and the artifact the
+      # mac-fallback job reads, so the Linux logic gets fixed rather than living on the Mac. The step tests
+      # the file itself: hashFiles() sees only the workspace, never runner.temp, so a hashFiles() gate
+      # here skipped every handoff and a red Linux suite passed this run green with no Mac rerun.
+      - name: Hand Linux failures to the Mac fallback
+        id: handoff
+        if: always() && env.MAC_FALLBACK == '1'
+        run: |
+          set -euo pipefail
+          [[ -s "$RUNNER_TEMP/linux-failed.tsv" ]] || { echo "no Linux failures to hand over"; exit 0; }
+          echo "handed=1" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Linux failures handed to the Mac fallback (${{ matrix.group }})"
+            echo "| Kind | Package | Targets or filter |"
+            echo "| --- | --- | --- |"
+            awk -F'\t' '{ printf "| %s | `%s` | %s |\n", $1, $2, $3 }' "$RUNNER_TEMP/linux-failed.tsv"
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS=$'\t' read -r _ package _; do
+            echo "::warning title=linux-fallback::$package failed on Linux; the mac-fallback job reruns it on a Mac"
+          done < "$RUNNER_TEMP/linux-failed.tsv"
+          cp "$RUNNER_TEMP/linux-failed.tsv" "linux-failed-${{ matrix.group }}.tsv"
+
+      - name: Upload the handed failures
+        if: always() && steps.handoff.outputs.handed == '1'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-fallback-${{ matrix.group }}
+          path: linux-failed-${{ matrix.group }}.tsv
+          retention-days: 7
+
       - name: Save .build
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build_cache.outputs.cache-hit != 'true'
+        if: success() && steps.handoff.outputs.handed != '1' && steps.fleet-suites.outcome != 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: |
             Packages/**/.build
             vendor/stack-auth-swift-sdk-prerelease/.build
+            cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}
+
+  # The Linux target ratchet (scripts/ci/swift_linux_targets.py): every target listed in
+  # scripts/ci/swift-linux-targets.txt is still in its package's Linux shape (`swift package dump-package`
+  # with the row's environment). Seconds, no build, and no Mac fallback: a target that leaves Linux turns
+  # this red; ci-guards keeps the list's count at or above its floor, so the count only goes up.
+  linux-targets:
+    name: Swift targets on Linux (ratchet)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Install python3
+        run: bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3
+      - name: Every listed target is in its package's Linux shape
+        run: python3 scripts/ci/swift_linux_targets.py --verify
+
+  # One small Linux job decides whether any group handed a package to the Mac, so a green run never
+  # takes a Mac from the queue.
+  fallback-plan:
+    name: Mac fallback plan
+    needs: swift-linux-packages
+    if: always() && !cancelled() && github.repository_owner == 'manaflow-ai'
+    runs-on: cmux-linux
+    timeout-minutes: 5
+    outputs:
+      needed: ${{ steps.plan.outputs.needed }}
+    steps:
+      - name: Read the handed failures
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        continue-on-error: true
+        with:
+          pattern: linux-fallback-*
+          path: handed
+          merge-multiple: true
+      - name: Plan
+        id: plan
+        shell: bash
+        run: |
+          if compgen -G "handed/*.tsv" > /dev/null; then
+            echo "needed=1" >> "$GITHUB_OUTPUT"
+            cat handed/*.tsv
+          else
+            echo "needed=0" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The Mac fallback: reruns, on a Mac of the owned pool, exactly the packages that failed on Linux. A
+  # package green here and red on Linux is a Linux-specific failure: logged, and the run stays green. Red
+  # here too is a real failure, and this job fails the run. A fork's run never gets here (fallback-plan
+  # runs only in manaflow-ai and a fork pull request hands nothing over); its hosted branches only say so.
+  mac-fallback:
+    name: Swift packages Mac fallback
+    needs: fallback-plan
+    if: ${{ !cancelled() && needs.fallback-plan.outputs.needed == '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15 }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: linux-fallback-*
+          path: handed
+          merge-multiple: true
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # CmuxMobileKit's binary target, Frameworks/CmuxMobileLinkFFI.xcframework, is gitignored; Linux strips it
+      # (CMUX_SWIFTPM_TARGET_LINUX), the Mac manifest needs it, so without it the rerun stopped at "does not contain
+      # a binary artifact" (run 45819272661). It comes from cmux-next-ios-kit.yml's caches (same keys), else is built.
+      - name: CmuxMobileLinkFFI.xcframework key
+        id: xcf-key
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          awk -F'\t' '$2 == "cmux-next-ios/CmuxMobileKit" { f = 1 } END { exit !f }' handed/*.tsv 2>/dev/null ||
+            { echo "CmuxMobileKit not handed over"; exit 0; }
+          # Set first: a key that cannot be read (no tomllib) still builds it.
+          echo "needed=1" >> "$GITHUB_OUTPUT"
+          inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+          xcode="$(xcodebuild -version | tr -cs 'A-Za-z0-9.' '-')"
+          echo "key=cmux-next-ios-link-ffi-xcf-${RUNNER_OS}-${RUNNER_ARCH}-${xcode}-${inputs}" >> "$GITHUB_OUTPUT"
+          echo "fleet_key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
+      - name: Restore CmuxMobileLinkFFI.xcframework
+        id: xcf-restore
+        if: ${{ steps.xcf-key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.key }}
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework
+        id: xcf-fleet-restore
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' && steps.xcf-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
+      - name: Set up pinned Rust
+        if: ${{ steps.xcf-key.outputs.needed == '1' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Build CmuxMobileLinkFFI.xcframework
+        if: ${{ steps.xcf-key.outputs.needed == '1' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        env:
+          JOBS: "8"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+
+      - name: Rerun the Linux failures on the Mac
+        run: |
+          set -uo pipefail
+          status=0
+          echo "| Package | Linux | Mac |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          while IFS=$'\t' read -r kind package extra; do
+            echo "::group::$package ($kind)"
+            if [ "$kind" = suite ]; then
+              bash scripts/ci/package-test-lane.sh suite "$package" "$extra"
+            else
+              filter=()
+              [ -z "$extra" ] || filter=(--filter "$extra")
+              swift build --package-path "$package" --build-tests &&
+                { [ ! -d "$package/Tests" ] || swift test --package-path "$package" --skip-build --parallel "${filter[@]}"; }
+            fi
+            rc=$?
+            echo "::endgroup::"
+            if [ "$rc" = 0 ]; then
+              echo "::warning title=linux-fallback::$package passed on the Mac after failing on Linux: a Linux-specific failure to fix"
+              echo "| \`$package\` | failed | passed (Linux-specific) |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error title=$package::failed on Linux and on the Mac"
+              echo "| \`$package\` | failed | failed |" >> "$GITHUB_STEP_SUMMARY"
+              status=1
+            fi
+          done < <(cat handed/*.tsv)
+          exit "$status"

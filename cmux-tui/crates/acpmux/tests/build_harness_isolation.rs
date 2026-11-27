@@ -1,6 +1,6 @@
 //! A DEV build's harness profiles never reach a shipped build (hq#2569 item
 //! 11). A dogfood lane on a capture mini put a fake ACP agent (`p4rtfake`,
-//! models m1 and m2) in the user harness folder `~/.config/cmux/harnesses`
+//! models m1 and m2) in the user harness folder `~/.config/cmux-next/harnesses`
 //! for its DEV build, and cmux NEXT's model picker on that mini showed it as
 //! a harness named "P". The user folder is per user, not per build, so per-
 //! build isolation (cx-is1kf) did not cover it.
@@ -9,6 +9,10 @@
 //! use (`BuildIdentity::acpmux_home`): a DEV build (and an old
 //! `~/.acpmux/tags/<tag>` home) adds and lists harnesses in a folder of its
 //! own home, and NIGHTLY, cmux NEXT and release keep the user folder.
+//!
+//! A DEV build still reads the user folder below its own, never writing it
+//! (issue 46025: dev builds lost the person's "Claude Code (sr2 internal)"
+//! harness from the model picker while NIGHTLY showed it).
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -31,7 +35,7 @@ fn scratch() -> PathBuf {
 }
 
 /// `acpmux args` as the build whose acpmux home is `acpmux_home`. No
-/// `XDG_CONFIG_HOME`: the user folder is `$HOME/.config/cmux/harnesses`, as
+/// `XDG_CONFIG_HOME`: the user folder is `$HOME/.config/cmux-next/harnesses`, as
 /// on a real Mac. No daemon runs (the socket is absent).
 fn run(root: &Path, acpmux_home: &Path, args: &[&str]) -> Output {
     let mut cmd: Command = daemon_env::acpmux(root);
@@ -78,7 +82,7 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
     for h in [&rc_tagged, &release_tagged] {
         assert!(h.to_string_lossy().ends_with("--lab"), "not a tagged key: {h:?}");
     }
-    let shared = home.join(".config").join("cmux").join("harnesses");
+    let shared = home.join(".config").join(cmux_config::NEXT_DIR).join("harnesses");
 
     // The person's own harness, in the user folder.
     std::fs::create_dir_all(&shared).unwrap();
@@ -101,14 +105,37 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
     assert!(out.status.success(), "add failed: {}", text(&out));
     assert!(!shared.join("tagfake.toml").exists(), "the tag home's fake landed in the user folder");
 
-    // Each DEV home lists its own fake and not the person's harnesses.
+    // Each DEV home lists its own fake and the person's harnesses, not another
+    // DEV home's.
     let dev_list = listed(&root, &dev);
     assert!(dev_list.contains(&"p4rtfake".into()), "DEV lost its own harness: {dev_list:?}");
     assert!(!dev_list.contains(&"tagfake".into()), "DEV lists another home's: {dev_list:?}");
-    assert!(!dev_list.contains(&"mine".into()), "DEV reads the user folder: {dev_list:?}");
+    assert!(dev_list.contains(&"mine".into()), "DEV lost the user's harness: {dev_list:?}");
     let tag_list = listed(&root, &tag);
     assert!(tag_list.contains(&"tagfake".into()), "the tag home lost its harness: {tag_list:?}");
     assert!(!tag_list.contains(&"p4rtfake".into()), "{tag_list:?}");
+    assert!(tag_list.contains(&"mine".into()), "the tag home lost the user's: {tag_list:?}");
+
+    // The user folder is read-only to a DEV build: removing the person's
+    // harness there fails and leaves the file.
+    let out = run(&root, &dev, &["--json", "harness", "remove", "mine"]);
+    assert!(!out.status.success(), "DEV removed the user's harness: {}", text(&out));
+    assert!(shared.join("mine.toml").is_file(), "DEV deleted the user's profile file");
+
+    // A copy in the DEV home wins over the person's, with no "defines it too"
+    // warning for a copy the person made on purpose.
+    std::fs::write(
+        dev.join("harnesses").join("mine.toml"),
+        "schema = 1\nid = \"mine\"\nname = \"Mine (dev)\"\ncommand = \"/bin/echo\"\n",
+    )
+    .unwrap();
+    let out = run(&root, &dev, &["--json", "harness", "list"]);
+    assert!(out.status.success(), "list failed: {}", text(&out));
+    let list: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let mine = list["harnesses"].as_array().into_iter().flatten().find(|row| row["id"] == "mine");
+    let mine = mine.unwrap_or_else(|| panic!("DEV lost mine: {list}"));
+    assert_eq!(mine["name"], "Mine (dev)", "the DEV copy did not win: {mine}");
+    assert!(!text(&out).contains("too and wins"), "a shadow warning: {}", text(&out));
 
     // Shipped builds list the person's harness and no DEV fake.
     for (name, acpmux_home) in [

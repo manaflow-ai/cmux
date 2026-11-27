@@ -1,6 +1,7 @@
 //! One bounded v2 connection over any ordered byte stream.
 
 use crate::hub::HubError;
+use acpmux_list_types::resume::ResumeErrorClass;
 mod list;
 #[cfg(test)]
 mod replay_gates;
@@ -65,6 +66,33 @@ impl ConnError {
     pub fn coded(code: &'static str, message: impl Into<String>) -> Self {
         Self::Coded { code, message: message.into() }
     }
+
+    /// What this error means to a resume (`acpmux_list_types::resume`), by
+    /// variant, io kind and code, never by message text. Exhaustive on
+    /// purpose: a new variant must be classified here.
+    pub fn resume_class(&self) -> ResumeErrorClass {
+        match self {
+            ConnError::Io(error) => ResumeErrorClass::from_io_kind(error.kind()),
+            ConnError::Hub(error) => error.resume_class(),
+            ConnError::Coded { code, .. } => match *code {
+                // The row id names another edition of the book: the stream it
+                // followed was replaced, so resync from a window.
+                "stale_edition" => ResumeErrorClass::GapTooOld,
+                // The chat's mailbox is full for now; it drains.
+                "mailbox_full" => ResumeErrorClass::Transient,
+                _ => ResumeErrorClass::Unknown,
+            },
+            // Bad input and limits: the same request is refused the same way.
+            ConnError::Frame(_)
+            | ConnError::TooManySubscriptions
+            | ConnError::DuplicateSubscription(_)
+            | ConnError::UnknownSubscription(_)
+            | ConnError::ReplyBudget
+            | ConnError::InvalidRequest(_)
+            | ConnError::IdentifierTooLong
+            | ConnError::IdentityTooLarge => ResumeErrorClass::Unknown,
+        }
+    }
 }
 
 /// A request a source answers later, through a [`Reply`]: a chat's `page` and `blob`, which
@@ -75,8 +103,17 @@ pub enum Later<'a> {
 }
 
 enum ReplyTo {
-    Connection(Arc<std::sync::Mutex<ConnectionState>>),
+    Connection(Arc<std::sync::Mutex<ConnectionState>>, Held),
     Channel(std::sync::mpsc::Sender<Frame>),
+}
+
+/// The room a [`Reply`] answers into: a chat's held room, a relayed page's own (decision
+/// 299), or none, for a relayed page that came while another was unanswered.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Held {
+    Chat,
+    Relay,
+    Nothing,
 }
 
 /// Where the answer to a [`Later`] request goes. The connection holds the room the request
@@ -92,11 +129,19 @@ pub struct Reply {
 impl Reply {
     fn new(
         state: Arc<std::sync::Mutex<ConnectionState>>,
+        held: Held,
         method: &'static str,
         sid: Option<String>,
         id: Option<String>,
     ) -> Self {
-        Self { to: Some(ReplyTo::Connection(state)), method, sid, id }
+        Self { to: Some(ReplyTo::Connection(state, held)), method, sid, id }
+    }
+
+    /// Whether the connection holds room for this reply to come later. False for a relayed
+    /// page that came while another is unanswered: its source answers it at once, `busy` if
+    /// it would have to wait (decision 299).
+    pub fn may_wait(&self) -> bool {
+        !matches!(self.to, Some(ReplyTo::Connection(_, Held::Nothing)))
     }
 
     /// A reply read from a channel, for a caller with no connection (tests, benches).
@@ -111,9 +156,14 @@ impl Reply {
 
     pub fn answer(mut self, frame: Frame) {
         match self.to.take() {
-            Some(ReplyTo::Connection(state)) => {
+            Some(ReplyTo::Connection(state, held)) => {
                 if let Ok(mut state) = state.lock() {
-                    let _ = state.answer_held(frame);
+                    let _ = match held {
+                        Held::Chat => state.answer_held(frame),
+                        Held::Relay => state.answer_relay(frame),
+                        // On the request's own turn, in the room it reserved.
+                        Held::Nothing => state.offer_reply(frame),
+                    };
                 }
             }
             Some(ReplyTo::Channel(tx)) => {
@@ -325,6 +375,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
             let state = state.lock().map_err(|_| poisoned())?;
             // One chat `page` or `blob` waits for its answer at a time. A second waits here,
             // and the socket is not read, until the first is answered; offers go on meanwhile.
+            // A relayed list page never waits here (decision 299).
             let waits = state.has_unanswered() && *class == Class::Later;
             !waits && (state.request_room() || (hello_seen && known_control(frame, &state)))
         } else {
@@ -418,9 +469,12 @@ enum Control {
 /// What a frame is, read once off the socket.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Class {
-    /// A chat stream's `page` or `blob`, or a list `page` that names another origin (row 8b):
-    /// its source may answer it later, and it holds its reply's room until then.
+    /// A chat stream's `page` or `blob`: its source may answer it later, and it holds its
+    /// reply's room until then.
     Later,
+    /// A list `page` that names another origin (row 8b): a relay may answer it later, in room
+    /// of its own (decision 299). It never waits for a chat's request, nor one for it.
+    Relayed,
     Other,
 }
 
@@ -450,24 +504,25 @@ fn classify(frame: &Frame) -> Class {
         origin: Option<std::borrow::Cow<'a, str>>,
     }
     let other = |named: &Named<'_>| named.origin.as_deref().is_some_and(|origin| origin != "local");
-    let later = frame.kind == FrameKind::Request
-        && serde_json::from_slice::<Head<'_>>(frame.payload()).is_ok_and(|head| {
-            let Some(params) = head.params else { return false };
-            match (head.method.as_ref(), params.stream.as_deref()) {
-                ("page" | "blob", Some(stream)) if stream.starts_with("chat:") => true,
-                ("page", Some("list")) => {
-                    params.filter.is_some_and(|filter| {
-                        serde_json::from_str::<Named<'_>>(filter.get())
-                            .is_ok_and(|named| other(&named))
-                    }) || params.keys.is_some_and(|keys| {
-                        serde_json::from_str::<Vec<Named<'_>>>(keys.get())
-                            .is_ok_and(|keys| keys.iter().any(other))
-                    })
-                }
-                _ => false,
-            }
-        });
-    if later { Class::Later } else { Class::Other }
+    if frame.kind != FrameKind::Request {
+        return Class::Other;
+    }
+    let Ok(head) = serde_json::from_slice::<Head<'_>>(frame.payload()) else { return Class::Other };
+    let Some(params) = head.params else { return Class::Other };
+    match (head.method.as_ref(), params.stream.as_deref()) {
+        ("page" | "blob", Some(stream)) if stream.starts_with("chat:") => Class::Later,
+        ("page", Some("list"))
+            if params.filter.is_some_and(|filter| {
+                serde_json::from_str::<Named<'_>>(filter.get()).is_ok_and(|named| other(&named))
+            }) || params.keys.is_some_and(|keys| {
+                serde_json::from_str::<Vec<Named<'_>>>(keys.get())
+                    .is_ok_and(|keys| keys.iter().any(other))
+            }) =>
+        {
+            Class::Relayed
+        }
+        _ => Class::Other,
+    }
 }
 
 fn known_control(frame: &Frame, state: &ConnectionState) -> bool {
@@ -586,13 +641,33 @@ fn process_frame(
             }
             if class == Class::Later {
                 let identity = hold_reply(state)?;
-                let reply = Reply::new(state.clone(), "page", Some(page.sid.clone()), None);
+                let reply =
+                    Reply::new(state.clone(), Held::Chat, "page", Some(page.sid.clone()), None);
                 let Some(reply) = source.later(Later::Page(&page), identity.as_deref(), reply)
                 else {
                     return Ok(());
                 };
                 reply.disarm();
                 state.lock().map_err(|_| poisoned())?.unhold_reply();
+            }
+            if class == Class::Relayed {
+                // Its own room, up to its `max_bytes`, or none while another relayed page is
+                // unanswered: then its source answers it at once (decision 299).
+                let (held, identity) = {
+                    let mut state = state.lock().map_err(|_| poisoned())?;
+                    let held = state.hold_relay(page.max_bytes as usize);
+                    (held, state.identity().map(ToOwned::to_owned))
+                };
+                let room = if held { Held::Relay } else { Held::Nothing };
+                let reply = Reply::new(state.clone(), room, "page", Some(page.sid.clone()), None);
+                let Some(reply) = source.later(Later::Page(&page), identity.as_deref(), reply)
+                else {
+                    return Ok(());
+                };
+                reply.disarm();
+                if held {
+                    state.lock().map_err(|_| poisoned())?.unhold_relay();
+                }
             }
             let identity = state.lock().map_err(|_| poisoned())?.identity().map(ToOwned::to_owned);
             let frame = source.page(&page, identity.as_deref())?;
@@ -606,7 +681,7 @@ fn process_frame(
                 ));
             }
             let identity = hold_reply(state)?;
-            let reply = Reply::new(state.clone(), "blob", None, Some(blob.id.clone()));
+            let reply = Reply::new(state.clone(), Held::Chat, "blob", None, Some(blob.id.clone()));
             if let Some(reply) = source.later(Later::Blob(&blob), identity.as_deref(), reply) {
                 reply.disarm();
                 state.lock().map_err(|_| poisoned())?.unhold_reply();
