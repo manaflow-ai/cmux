@@ -776,9 +776,18 @@ struct ChatComposer: View {
         LoadFrameProbe.shared?.event("send")
         #endif
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
-        // A multi-line draft shrinks to one line on the line motion, with the transcript.
-        withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { text = "" }
-        attachments = []
+        // A send that glides (`ChatSendMotion`): the field clears and shrinks on the spring the
+        // sent bubble glides in on (the transcript's `ChatSendSettle`), as one motion. Otherwise
+        // a multi-line draft shrinks to one line on the line motion, with the transcript.
+        if ChatSendMotion.current != .off {
+            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
+                text = ""
+                attachments = []
+            }
+        } else {
+            withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { text = "" }
+            attachments = []
+        }
         sendCount += 1
         if CmuxMobilePreferences.dismissKeyboardAfterSend() { focus.wrappedValue = false }
     }
