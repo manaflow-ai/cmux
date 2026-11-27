@@ -1811,6 +1811,9 @@ html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpm
   --nt-row-detail: var(--text-detail);
   --acpmux-composer-glyph: 16px;
 }
+/* The rows' list owns the padding (.nt-rows), so the popup has none. Two classes, so a shared `.ui-popup` padding
+   (ui/ui.css, when a chunk brings it in) never adds a second 6 px by load order. */
+.ui-popup.nt-popover { padding: 0; }
 :root .ui-popup.nt-popover .nt-rows > .nt-row {
   gap: var(--uc-row-gap);
   padding-inline: var(--ui-row-padding-inline);
