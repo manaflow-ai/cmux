@@ -198,7 +198,8 @@ async fn cloud_only_moves_the_chat_to_a_fresh_machine() {
     let asked = src.call("_acpmux/place_set", json!({"sessionId": id, "place": cloud})).await;
     assert_eq!(asked["state"], "needs_confirm", "{asked}");
     assert_eq!(asked["leftBehind"][0]["kind"], "outside_repo", "{asked}");
-    assert!(calls(scratch.path()).is_empty(), "nothing starts before the person confirms");
+    let early = calls(scratch.path());
+    assert!(early.is_empty(), "nothing starts before the person confirms: {early:?}");
 
     let go = src
         .call(
