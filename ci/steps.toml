@@ -162,6 +162,9 @@ export GITHUB_PATH="$CI_TOOLS/zig-path" GITHUB_ENV="$CI_TOOLS/zig-env"
 : > "$GITHUB_PATH"
 : > "$GITHUB_ENV"
 # Job-local, never sudo: a root-owned install in $CI_TOOLS failed the job at cleanup after every step passed.
+# A machine that keeps RUNNER_TOOL_CACHE between jobs (a persistent runner, a build fleet pool VM whose image holds
+# it) keeps the verified tarball there, so its next job checks the sha256 and unpacks, with no download.
+export ZIG_TARBALL_CACHE_DIR="${ZIG_TARBALL_CACHE_DIR:-${RUNNER_TOOL_CACHE:+$RUNNER_TOOL_CACHE/zig}}"
 GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 RUNNER_TEMP="$CI_TOOLS" ./scripts/install-zig-ci.sh
 mkdir -p "$CI_TOOLS/bin"
 zig_bin="$(sed -n 's/^CMUX_ZIG=//p' "$CI_TOOLS/zig-env" | tail -n 1)"
@@ -220,6 +223,14 @@ run = "python3 tests/test_indexnow_notification.py"
 # granting none, and every cmux-next and cmux-tui artifacts run ended in startup_failure with 0 jobs until #56935
 # at 20:07Z (31 runs on the artifacts workflow alone; the Cloud channel stayed on an 18:56Z commit). Its tree fails
 # this step: "2 reusable-workflow permission mismatch(es) across 69 local call site(s)". Under a second, offline.
+[step.cargo-proc-macros-unstripped]
+job = "linux"
+timeout = 120
+title = "Cargo proc-macros unstripped"
+about = "every Cargo.toml whose release profile strips also sets `[profile.release.build-override] strip = false`, so Xcode 27's strip can't break proc-macro dylibs (rustc E0463)"
+inputs = ["**/Cargo.toml", "tests/test_cargo_proc_macros_unstripped.py"]
+run = "python3 tests/test_cargo_proc_macros_unstripped.py"
+
 [step.reusable-workflow-permissions]
 job = "linux"
 timeout = 120
@@ -231,6 +242,25 @@ inputs = [
   "tests/test_ci_reusable_workflow_permissions.py",
 ]
 run = "python3 tests/test_ci_reusable_workflow_permissions.py"
+
+# The compile preflight's own rules (cmux-next-compile-preflight.yml: no tier gate, no job-level if:, the build
+# NIGHTLY runs; scripts/ci/compile_preflight.py's web-touched and error lines). It ran as a step of the preflight job
+# on every pull request head, 14-15 s of a 40 s run that changed no web source, ~1.8k runner-min/day; here it runs
+# when one of the files it tests changes.
+[step.compile-preflight-rules]
+job = "linux"
+timeout = 60
+title = "Compile preflight rules"
+about = "the compile preflight runs on every tier, never reports skipped, and names the bundler's errors"
+inputs = [
+  ".github/workflows/cmux-next-compile-preflight.yml",
+  ".github/workflows/pr-router.yml",
+  "scripts/ci/compile_preflight.py",
+  "scripts/cmux-next/web-bundle-key.py",
+  "scripts/cmux-next/build-web-bundles.sh",
+  "tests/test_ci_compile_preflight.py",
+]
+run = "python3 -I tests/test_ci_compile_preflight.py"
 
 # Packages/Shared/CmuxAgentCursor is vendored verbatim from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA
 # (scripts/cmux_agent_cursor_vendor.py). This fails when the copy was edited by hand or the pin moved
@@ -334,13 +364,22 @@ python3 tests/test_ci_cdn_user_agent.py
 [step.ci-group-guards]
 job = "linux"
 timeout = 300
-title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, routed jobs, pair scope)"
-about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict, routed job dependencies and pair-run attachment selection"
+title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, proof record and UI proof, routed jobs, pair scope)"
+about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict, the proof record and UI proof verdict, routed job dependencies and pair-run attachment selection"
 inputs = [
   ".github/workflows/**",
   "scripts/ci/ci_timing_readout.py",
   "scripts/ci/check_repo_variables.py",
   "scripts/ci/ios_fast_verdict.*",
+  "scripts/ci/proof_record.py",
+  "scripts/ci/ui_proof_verdict.py",
+  "scripts/cmux-next/hot-verify.py",
+  "scripts/ci/ios_verify.py",
+  "scripts/ci/ios-verify.sh",
+  "ci/proof-record/**",
+  "cmux-next-ios/FlowSuite/**",
+  "tests/test_ci_proof_record.py",
+  "tests/test_ci_ui_proof_verdict.py",
   "tests/test_ci_timing_readout.py",
   "tests/test_ci_check_repo_variables.py",
   "tests/test_ci_ios_fast_verdict.py",
@@ -353,6 +392,8 @@ status=0
 python3 tests/test_ci_timing_readout.py || status=1
 python3 tests/test_ci_check_repo_variables.py || status=1
 python3 tests/test_ci_ios_fast_verdict.py || status=1
+python3 -I tests/test_ci_proof_record.py || status=1
+python3 -I tests/test_ci_ui_proof_verdict.py || status=1
 python3 tests/test_ci_routed_jobs_check_needs.py || status=1
 python3 tests/test_cmux_next_pair_e2e_guards.py || status=1
 exit "$status"
@@ -585,9 +626,33 @@ python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
 exit "$rc"
 '''
 
+# cmux-tui-windows-check (cargo check --target x86_64-pc-windows-gnu) runs only in the post-merge
+# batch, so a unix-only use in acpmux reached feat-cmux-next three times (batches 45693869119,
+# 45720080410, 45726394764; fixed forward by #54573). This names the same uses on the PR in seconds.
+[step.unix-only-on-windows]
+job = "linux"
+timeout = 120
+title = "acpmux builds on Windows (unix-only uses)"
+about = "no std::os::unix, std::os::fd, net::Unix*, Windows-missing libc item, unix-only crate or main-less target in acpmux (or its dev-dependency cmux-fault) outside a cfg(unix) item or module"
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/cmux-fault/**",
+  "scripts/ci/unix_only_on_windows.py",
+  "scripts/ci/libc_windows_gnu.txt",
+  "tests/test_ci_unix_only_on_windows.py",
+]
+run = '''
+rc=0
+python3 -I tests/test_ci_unix_only_on_windows.py || rc=1
+python3 -I scripts/ci/unix_only_on_windows.py --github || rc=1
+exit "$rc"
+'''
+
 # Checks that run bun or node, each of which had a workflow, a runner and a checkout of its own (app-platform.yml,
 # ci-artifact-transport.yml, cloud-vm-image-lock.yml, mux.yml, automation-bench.yml). Those workflows keep their
-# push and dispatch runs; a pull request runs them here. `inputs` is each one's former pull_request path filter.
+# push and dispatch runs where needed; automation-bench and cloud-vm-image-lock now live only here.
+# `inputs` is each one's former pull_request path filter.
 [step.app-platform]
 job = "linux"
 timeout = 300
@@ -706,7 +771,6 @@ inputs = [
   "scripts/ci/verify-r2-canary.py",
   "scripts/ci/r2-canary-cloudflare.py",
   "tests/test_ci_r2_canary.py",
-  ".github/workflows/ci-artifact-canary.yml",
   "tests/test_ci_r2_artifact.py",
   ".github/actions/download-test-product/action.yml",
   "scripts/ci/measure-r2-artifact-run.py",
@@ -1242,7 +1306,7 @@ exit "$status"
 job = "linux"
 timeout = 300
 title = "Tooling tests 2 (fast gates, ratchets and test registries)"
-about = "cmux-next-guards.yml tooling-tests' steps tt-fast-gates to tt-swift-test-coverage-tests, those the change reaches"
+about = "cmux-next-guards.yml tooling-tests' steps tt-fast-gates to tt-swift-cloud-http-tests, those the change reaches"
 inputs = ["**"]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
@@ -1277,6 +1341,7 @@ if want tt-pr-lane-coverage; then python3 tests/test_pr_lane_coverage.py || stat
 if want tt-test-registry; then python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage; then python3 -I scripts/ci/swift_test_coverage.py --base "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage-tests; then python3 -I tests/test_swift_test_coverage.py || status=1; fi
+if want tt-swift-cloud-http-tests; then python3 -I tests/test_swift_cloud_http.py || status=1; fi
 exit "$status"
 '''
 
@@ -1358,8 +1423,18 @@ exit "$status"
 job = "linux"
 timeout = 300
 title = "Tooling tests 5 (measure, checkup, packaging and web routing scripts)"
-about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-tip-test-compile, those the change reaches"
-inputs = ["**"]
+about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-ci-step-table, those the change reaches"
+# `**` routes every change in the post-merge batch; on a pull request (--pr-scope) a whole-tree input routes
+# nothing, so the named inputs are what run tt-ci-step-table there when the table, a workflow or its rules change.
+inputs = [
+  "**",
+  "ci/steps.toml",
+  "ci/run",
+  ".github/workflows/*",
+  "scripts/ci/ci_steps.py",
+  "scripts/ci/web_subareas.py",
+  "tests/test_ci_step_table.py",
+]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
 sel=all
@@ -1397,6 +1472,7 @@ if want tt-install-zig; then python3 tests/test_install_zig_ci_reviewed_version.
 if want tt-normalize-pbxproj; then python3 tests/test_normalize_pbxproj.py || status=1; fi
 if want tt-web-validation; then python3 tests/test_web_validation.py || status=1; fi
 if want tt-tip-test-compile; then python3 tests/test_ci_tip_test_compile.py || status=1; fi
+if want tt-ci-step-table; then python3 tests/test_ci_step_table.py || status=1; fi
 exit "$status"
 '''
 
@@ -2059,6 +2135,9 @@ inputs = [
   "release-notes/next/highlights/*.md",
   "web/data/**",
   "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  # The relay's params rule (web_subareas.py REACT_EXACT, cmux#46563): the contract test checks the page against it.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/**",
   "scripts/build-webviews-app.sh",
@@ -2138,6 +2217,10 @@ title = "Chat flow layout-shift budget"
 about = "the chat's send, thinking, compaction, steer-during-compaction, background-task and reload flows held to a layout-shift budget (test/chat-flow-shift-budget-browser.test.ts)"
 needs = ["bun", "node"]
 inputs = [
+  # web_subareas.py counts the react-apps-check fleet scripts and the pane's policy in chat_flow too (REACT_EXACT).
+  "scripts/ci/react-apps-check-fleet.sh",
+  "scripts/ci/react_apps_fleet.py",
+  "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
   "webviews/**",
   "Resources/markdown-viewer/**",
   "config/vite-plus/**",
@@ -2145,6 +2228,9 @@ inputs = [
   "release-notes/next/highlights/*.md",
   "web/data/**",
   "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  # The relay's params rule (web_subareas.py REACT_EXACT, cmux#46563): the contract test checks the page against it.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/**",
   "scripts/build-webviews-app.sh",
@@ -3182,6 +3268,9 @@ alone = true
 title = "App Store shelf"
 about = "every App Store listing installs and shows something (the three cmux-tui shelf tests run and pass)"
 needs = ["rust", "zig"]
+# The nightly's shelf job runs the same script on the build commit; its red reds the run and files
+# report-nightly-shelf-red (it holds no publish since 2026-11-25). cmux#46903 reached it only through
+# `first-party-apps/**`, which --pr-scope left to the post-merge batch, so the nightly found it (fix cmux#61540).
 inputs = [
   ".github/workflows/app-store-shelf.yml",
   "first-party-apps/**",
@@ -3202,6 +3291,39 @@ export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
 export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC=""
 unset CMUX_ZIG ZIG
 bash scripts/ci/app-store-shelf-check.sh
+'''
+
+# The nightly's "Generate third-party notices (cmux-next)" generates the Rust notices from the tree and refuses a
+# crate whose license it does not accept: cmux#59540 added jpeg-encoder (IJG) and the nightly stopped there hours
+# after the merge. cmux-next-guards.yml's rust-notices-tree runs the same command only with full-ci, so a landing
+# head on the affected tier never ran it; this step does (pr_router.py nightly_gate_steps). The inputs are that
+# job's filter.
+[step.rust-notices]
+job = "linux"
+# cmux-next-guards.yml's rust-notices-tree bound (25 min) less its checkout; cargo metadata over every workspace.
+alone = true
+timeout = 1200
+title = "Rust third-party notices (as the nightly generates them)"
+about = "the third-party notices generate from this tree's Rust crates and Swift packages, every license accepted"
+needs = ["rust"]
+nightly = [
+  "nightly.yml:nightly-next-one:Generate third-party notices (cmux-next)",
+  "nightly.yml:build-nightly-app:Generate third-party notices (cmux-next)",
+]
+inputs = [
+  "**/Cargo.toml",
+  "**/Cargo.lock",
+  "scripts/cmux-next/remote-browser-host.pin.json",
+  "cmux-tui/build-support/notices/**",
+  "scripts/cmux-next/generate-third-party-notices.sh",
+  "scripts/cmux-next/notices/**",
+  "Packages/macOS/CmuxNext/Package.resolved",
+]
+run = '''
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+CMUX_NOTICES_ALLOW_CARGO=1 CMUX_NOTICES_CACHE="$RUNNER_TEMP/cmux-notices" \
+  ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+  --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 '''
 
 # cmux-vm-clients.yml's rust job; its sdk job is the step cmux-vm-sdk, and `inputs` is the filter the two jobs
@@ -3964,7 +4086,7 @@ selected=()
 # A pure app FFI re-pin runs only the handler coverage suite (cmux_next_route.py pure_ffi_repin).
 if grep -qx 'ffi_repin=true' "$CI_TOOLS/fast-tiers.txt"; then selected=(--only "app handler coverage"); fi
 # Otherwise only the suites (and the package builds) the change reaches run; the post-merge batch runs every suite
-# (cmux-next-fast-tier-batch.yml). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
+# (cmux-next-pr-pipeline-mac-batch.yml sets it to `0`). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
 if [ ${#selected[@]} -eq 0 ] && [ "${CI_FAST_TIER_PR_SCOPE:-1}" != 0 ] && [ -n "${CI_PATHS_FILE:-}" ]; then
   selected=(--changed-files "$CI_PATHS_FILE")
 fi

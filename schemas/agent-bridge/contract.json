@@ -182,6 +182,7 @@
     "pane.checkpointAvailability": "pane.checkpointAvailability",
     "pane.clientReady": "pane.clientReady",
     "pane.commandAvailability": "pane.commandAvailability",
+    "pane.composerFilled": "pane.composerFilled",
     "pane.copyText": "pane.copyText",
     "pane.edit": "pane.edit",
     "pane.finishSound": "pane.finishSound",
