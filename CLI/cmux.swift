@@ -42411,6 +42411,21 @@ export default {
         if let agentID = firstString(in: fallbackObject, keys: ["agent_id", "agentId"]) {
             event["agent_id"] = agentID
         }
+        if let agentType = firstString(in: fallbackObject, keys: ["agent_type", "agentType"]) {
+            event["agent_type"] = agentType
+        }
+        if source == "claude" {
+            // Lets the app tie a spawned subagent's later task notification
+            // to the child this spawn opened.
+            if hookEventName == "PreToolUse",
+               let toolUseID = firstString(in: fallbackObject, keys: ["tool_use_id", "toolUseId"]) {
+                event["tool_use_id"] = toolUseID
+            }
+            if hookEventName == "UserPromptSubmit",
+               let finished = parsedInput.object?["finished_task_ids"] as? [String], !finished.isEmpty {
+                event["finished_task_ids"] = finished
+            }
+        }
         event["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
 
         let frame: [String: Any] = [
@@ -44981,6 +44996,7 @@ export default {
         if let value = causalEvidence.requestIdentity { eventDict["request_id"] = value }
         if let value = Self.semanticOccurredAtMs(stdinObj) { eventDict["occurred_at_ms"] = value }
         if let value = firstString(in: stdinObj, keys: ["agent_id", "agentId"]) { eventDict["agent_id"] = value }
+        if let value = firstString(in: stdinObj, keys: ["agent_type", "agentType"]) { eventDict["agent_type"] = value }
 
         // Sync. For actionable events we block within the agent's shortest
         // declared 120s hook deadline while waiting for the user's Feed click.

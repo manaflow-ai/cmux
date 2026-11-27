@@ -395,6 +395,12 @@ with:
   "description": "<child label>"}`: start opens the child on the parent
   record, stop closes the oldest running child (FIFO). The `agent_id` field is
   not read; only `_opencode_request_id` can correlate a stop event to a child.
+  Claude Code children are different: a `SubagentStop` closes the child whose
+  subagent reported that `agent_id` on one of its own hook events (or, for a
+  subagent that fired none, a running child of the stop's `agent_type`), and
+  a stop for an agent cmux never saw start closes nothing. A subagent stopped
+  with `TaskStop` closes when the parent's next prompt carries its
+  `<task-notification>`. The parent's own `Stop` leaves children running.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool), `hasUnread` (Bool, whether that surface
   has an unread notification). It is named differently from the workspace-level
