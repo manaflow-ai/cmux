@@ -439,6 +439,54 @@ test("a tail drawn while connecting does not say the chat is working", async () 
   live.push(await tab.client);
 });
 
+/// Leo, 2026-11-24, on a chat revived after an update: "this on reviving had tons of layout shifts ...
+/// juts show the latest bit." A tail kept while its turn ran drew that turn as ended (its work as the
+/// bottom row) until the attach said it runs, then put the live line in its place: one shift frame,
+/// 64 px, in bench/first-load-after-restart (native-ready-tail and refused-no-copy, RUNNING=1; two in
+/// refused, whose copy drew the live line first). The tail now says it ends inside a turn
+/// (`tailMidTurn`), so the rows draw it running as the copy did, while `isWorking` stays false (no
+/// Stop, no clock); acpmux's list or attach takes over from there.
+test("a tail kept mid-turn says so until acpmux says whether the turn runs, and never says working", async () => {
+  const chat = new Fixture("revive-mid-turn");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retrying now")] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+  expect(chat.host.tails.has(chat.a)).toBe(true);
+
+  const tab = chat.tab(chat.a, { holdConnect: true });
+  await flush();
+  expect(text(tab.last())).toContain("Retrying now");
+  expect(tab.last()!.tailMidTurn).toBe(true);
+  expect(tab.last()!.isWorking).toBe(false);
+
+  // acpmux answers (its list and attach call the chat idle here): the tail's guess goes.
+  tab.daemon.connect();
+  live.push(await tab.client);
+  await flush();
+  expect(tab.last()!.tailMidTurn).toBeUndefined();
+  expect(text(tab.last())).toContain("Retrying now");
+});
+
+test("a tail whose turn ended draws no running turn", async () => {
+  const chat = new Fixture("revive-ended");
+  chat.pages.set(chat.a, {
+    events: [
+      prompt("Look at the retry path"),
+      reply(chat.a, "Retry added."),
+      ["mux", "turn_result", { stopReason: "end_turn" }],
+    ],
+  });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+
+  const tab = chat.tab(chat.a, { holdConnect: true });
+  await flush();
+  expect(text(tab.last())).toContain("Retry added.");
+  expect(tab.last()!.tailMidTurn).toBeUndefined();
+  tab.daemon.connect();
+  live.push(await tab.client);
+});
+
 /// A connect that fails before the attach while acpmux is only coming back (its socket refused, as
 /// while it restarts after an update) keeps the rows it drew: the page's retry draws the same ones
 /// while it connects, so the pane never goes blank between them (Leo, 2026-11-09: "the chat loading

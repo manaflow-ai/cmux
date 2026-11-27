@@ -3,7 +3,6 @@
 # the change that fixes it (the lint fails on a listed file that is in order), so this list only
 # shrinks. Never add a line: load src/ after the DOM instead (test/support/importWithDom.ts).
 # One path per line, from webviews/.
-
 # test/
 test/agent-pane-cached-chat-open.test.ts
 test/agent-pane-costs-export.test.tsx
@@ -26,7 +25,6 @@ test/transcript-collapsed-tool-runs.test.tsx
 test/transcript-fold-anchor.test.tsx
 test/transcript-fold-motion.test.tsx
 test/web-sources-follow-ups.test.tsx
-
 # src/
 src/agent-session/acpmux/AddAccountDialog.test.tsx
 src/agent-session/acpmux/AddProjectPanel.test.tsx

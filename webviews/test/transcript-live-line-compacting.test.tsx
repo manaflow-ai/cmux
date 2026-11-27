@@ -77,6 +77,8 @@ const saved = new Map<string, unknown>();
 
 beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  // Each change shown at once: the line's dwell (LINE_DWELL_MS) has its own tests in Thinking.test.tsx.
+  dom.window.document.documentElement.dataset.liveDwell = "off";
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
   Object.assign(scope, {

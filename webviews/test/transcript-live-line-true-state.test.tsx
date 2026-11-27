@@ -215,6 +215,12 @@ test("a notice that set the agent going again after its reply starts the turn's 
   const line = liveLine([prompt, reply, notice]);
   expect(line.at).toBe(notice.at);
   expect(drawn(line, notice.at + 24_000)).toBe("Thinking 24s");
+  // A call after the reply: the agent was still at work, so a notice steered in then (acpmux
+  // who-else) set nothing going and the clock keeps the prompt's start. A thought is not a call.
+  const ran = activity("r", T0 + 61_000, [shell("bun run typecheck", "completed", T0 + 61_000, T0 + 70_000)]);
+  expect(continuationStart([prompt, reply, ran, notice], T0)).toBe(T0);
+  const mused = activity("t", T0 + 61_000, [thought(T0 + 61_000, T0 + 62_000)]);
+  expect(continuationStart([prompt, reply, mused, notice], T0)).toBe(notice.at);
 });
 
 const scope = globalThis as Record<string, unknown>;

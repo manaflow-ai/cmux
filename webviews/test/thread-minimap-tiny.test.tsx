@@ -8,6 +8,7 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
 
@@ -133,6 +134,7 @@ for (let height = 96; height <= 336; height += 16)
             />,
           ),
         );
+        await railFrame();
         const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
         const end = scroller.scrollTop;
         const stride = Math.max(7, Math.ceil(end / 120));

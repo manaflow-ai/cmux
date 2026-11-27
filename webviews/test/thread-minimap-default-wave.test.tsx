@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -148,6 +149,7 @@ async function render(arms?: Record<string, string>) {
       />,
     ),
   );
+  await railFrame();
   const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
   expect(scroller).not.toBeNull();
   // A cold open of a chat this long draws its history at rough heights and lays it out whole a frame and a task
