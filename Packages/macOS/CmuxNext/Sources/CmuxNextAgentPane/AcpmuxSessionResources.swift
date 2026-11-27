@@ -1,5 +1,5 @@
 import CmuxNextDaemon
-import CmuxNextResources
+public import CmuxNextResources
 import Foundation
 
 /// One chat's agent processes, as its acpmux daemon measures them (`_acpmux/session_resources`,
