@@ -16,7 +16,7 @@
 //!
 //! Codex does not always send that later completion: a terminal it dropped (its thread unloaded or
 //! closed, or the process gone unseen) stayed `running` here, so the chat read `commandsRunning` and
-//! `indicator: working` for hours with no shell left under Codex (gcp-agent-lane-10, 2026-11-27:
+//! `indicator: working` for hours with no shell left under Codex (2026-11-27:
 //! three ready Codex chats whose turns ended 07:02Z to 14:48Z, each with only `codex-code-mode-host`
 //! under it, kept a held VM from draining). So at each turn's start and end, and when the thread's
 //! status changes, a thread with terminals running asks `thread/backgroundTerminals/list`, and each

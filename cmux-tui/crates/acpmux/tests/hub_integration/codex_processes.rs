@@ -343,7 +343,7 @@ async fn again(c: &mut TestClient, id: &str, said: &str) {
     assert_eq!(r["stopReason"], "end_turn", "{r}");
 }
 
-/// Codex dropped a background terminal with no item end (gcp-agent-lane-10, 2026-11-27: ready
+/// Codex dropped a background terminal with no item end (2026-11-27: ready
 /// chats kept `commandsRunning` for hours with no shell under Codex): the next turn's
 /// `thread/backgroundTerminals/list` does not list it, so it ends; the one still listed runs on.
 #[tokio::test]
