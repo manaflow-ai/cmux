@@ -14,6 +14,7 @@ const row = (r: typeof devices.$inferSelect): Device => ({
   name: r.name,
   wgPublicKey: r.wgPublicKey,
   machineId: r.machineId,
+  modelKind: r.modelKind,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
   lastSeenAt: iso(r.lastSeenAt)
@@ -48,12 +49,13 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
       const [prev] = await db.select({ teamId: devices.teamId, owner: devices.ownerUserId }).from(devices).where(eq(devices.deviceId, d.deviceId)).limit(1)
       if (prev && prev.owner !== d.ownerUserId) return "not_owner"
       const machine = d.machineId === undefined ? {} : { machineId: d.machineId }
+      const model = d.modelKind === undefined ? {} : { modelKind: d.modelKind }
       const [r] = await db
         .insert(devices)
-        .values({ ...d, machineId: d.machineId ?? null })
+        .values({ ...d, machineId: d.machineId ?? null, modelKind: d.modelKind ?? null })
         .onConflictDoUpdate({
           target: devices.deviceId,
-          set: { teamId: d.teamId, kind: d.kind, name: d.name, wgPublicKey: d.wgPublicKey, ...machine, updatedAt: sql`now()` },
+          set: { teamId: d.teamId, kind: d.kind, name: d.name, wgPublicKey: d.wgPublicKey, ...machine, ...model, updatedAt: sql`now()` },
           setWhere: eq(devices.ownerUserId, d.ownerUserId)
         })
         .returning()
@@ -163,6 +165,7 @@ export const memoryStore = (): Store => ({
     const device: Device = {
       ...d,
       machineId: d.machineId === undefined ? (prev?.machineId ?? null) : d.machineId,
+      modelKind: d.modelKind === undefined ? (prev?.modelKind ?? null) : d.modelKind,
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
       lastSeenAt: prev?.lastSeenAt ?? null

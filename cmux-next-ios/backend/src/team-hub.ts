@@ -11,6 +11,7 @@ export interface Attachment {
   projectId: string
   deviceId: string
   kind: "mac" | "phone"
+  modelKind?: string | null
   name: string
   /**
    * The team (or personal space) the socket was opened for: the team its device is registered in. It picks
@@ -84,6 +85,7 @@ export interface HubDevice {
   /** The owner key of src/index.ts (`<sub>` or `<projectId>:<sub>`): must be this hub's owner. */
   ownerKey: string
   kind: "mac" | "phone"
+  modelKind?: string | null
   name: string
   teamId: string
   userId: string
@@ -101,6 +103,7 @@ export interface SeedMac {
   teamId: string
   lastSeenAt: string | null
   machineId?: string | null
+  modelKind?: string | null
 }
 
 const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "bye"])
@@ -185,6 +188,8 @@ export class TeamHub extends DurableObject<Env> {
     addColumn("macs", "team_id")
     addColumn("devices", "team_id")
     addColumn("macs", "machine_id")
+    addColumn("macs", "model_kind")
+    addColumn("devices", "model_kind")
     // The last application ping of a Mac's closed or replaced socket (connectivity alerts, `macLiveness`).
     addColumn("macs", "last_ping_at")
     // The Mac's last signaling connects, JSON ms (connectivity alerts: a host that restarted).
@@ -229,13 +234,14 @@ export class TeamHub extends DurableObject<Env> {
     const prevMac = this.macRow(d.deviceId)
     const oldTeam = prevTeam ?? prevMac?.team_id ?? null
     this.sql.exec(
-      `INSERT INTO devices (device_id, owner_key, kind, name, team_id) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(device_id) DO UPDATE SET owner_key = excluded.owner_key, kind = excluded.kind, name = excluded.name, team_id = excluded.team_id`,
+      `INSERT INTO devices (device_id, owner_key, kind, name, team_id, model_kind) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(device_id) DO UPDATE SET owner_key = excluded.owner_key, kind = excluded.kind, name = excluded.name, team_id = excluded.team_id, model_kind = COALESCE(excluded.model_kind, devices.model_kind)`,
       d.deviceId,
       d.ownerKey,
       d.kind,
       d.name,
-      d.teamId
+      d.teamId,
+      d.modelKind ?? null
     )
     const moved = oldTeam !== null && oldTeam !== d.teamId
     if (moved && d.kind === "mac") {
@@ -255,16 +261,17 @@ export class TeamHub extends DurableObject<Env> {
     }
     const machineId = d.machineId ?? null
     this.sql.exec(
-      `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at, machine_id) VALUES (?, ?, ?, ?, ?, NULL, ?)
-       ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id, team_id = excluded.team_id, machine_id = excluded.machine_id`,
+      `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at, machine_id, model_kind) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+       ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id, team_id = excluded.team_id, machine_id = excluded.machine_id, model_kind = COALESCE(excluded.model_kind, macs.model_kind)`,
       d.deviceId,
       d.name,
       d.userId,
       d.projectId,
       d.teamId,
-      machineId
+      machineId,
+      d.modelKind ?? null
     )
-    if (!prevMac || prevMac.name !== d.name || moved || prevMac.team_id !== d.teamId || (prevMac.machine_id ?? null) !== machineId)
+    if (!prevMac || prevMac.name !== d.name || moved || prevMac.team_id !== d.teamId || (prevMac.machine_id ?? null) !== machineId || (d.modelKind != null && prevMac.model_kind !== d.modelKind))
       this.broadcast(d.teamId, JSON.stringify({ type: "presence", mac: this.presenceOf(d.deviceId) }))
     // Older builds on the same Mac now listed as that computer's: their sockets' phones hear it.
     for (const id of d.claimed ?? []) {
@@ -286,8 +293,8 @@ export class TeamHub extends DurableObject<Env> {
     if (this.seeded()) return
     for (const m of macs)
       this.sql.exec(
-        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at, machine_id)
-         SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM forgotten WHERE device_id = ?) ON CONFLICT(device_id) DO NOTHING`,
+        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at, machine_id, model_kind)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM forgotten WHERE device_id = ?) ON CONFLICT(device_id) DO NOTHING`,
         m.deviceId,
         m.name,
         owner.userId,
@@ -295,6 +302,7 @@ export class TeamHub extends DurableObject<Env> {
         m.teamId,
         m.lastSeenAt ? Date.parse(m.lastSeenAt) : null,
         m.machineId ?? null,
+        m.modelKind ?? null,
         m.deviceId
       )
     this.sql.exec(`INSERT INTO meta (key, value) VALUES ('seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
@@ -572,25 +580,26 @@ export class TeamHub extends DurableObject<Env> {
       // Not seeded yet: let the Worker's slow path seed the owner's Macs from the database first.
       if (!this.seeded()) return new Response("not seeded", { status: 409 })
       const row = this.sql
-        .exec<{ owner_key: string; kind: string; name: string; team_id: string | null }>(`SELECT owner_key, kind, name, team_id FROM devices WHERE device_id = ?`, claim.deviceId)
+        .exec<{ owner_key: string; kind: string; name: string; team_id: string | null; model_kind: string | null }>(`SELECT owner_key, kind, name, team_id, model_kind FROM devices WHERE device_id = ?`, claim.deviceId)
         .toArray()[0]
       if (!row) return new Response("unknown device", { status: 409 })
       if (row.owner_key !== claim.ownerKey) return new Response("not owner", { status: 403 })
       // Registered in another team as far as this hub knows: the database decides (wrong_team or a newer row).
       if (row.team_id !== claim.teamId) return new Response("other team", { status: 409 })
-      att = { userId: claim.userId, projectId: claim.projectId, deviceId: claim.deviceId, kind: row.kind === "mac" ? "mac" : "phone", name: row.name, teamId: claim.teamId }
+      att = { userId: claim.userId, projectId: claim.projectId, deviceId: claim.deviceId, kind: row.kind === "mac" ? "mac" : "phone", modelKind: row.model_kind, name: row.name, teamId: claim.teamId }
     }
     if (!att) return new Response("missing identity", { status: 400 })
     if (!claim) {
       // The slow path checked the database: remember the device for next time.
       this.sql.exec(
-        `INSERT INTO devices (device_id, owner_key, kind, name, team_id) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(device_id) DO UPDATE SET owner_key = excluded.owner_key, kind = excluded.kind, name = excluded.name, team_id = excluded.team_id`,
+        `INSERT INTO devices (device_id, owner_key, kind, name, team_id, model_kind) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(device_id) DO UPDATE SET owner_key = excluded.owner_key, kind = excluded.kind, name = excluded.name, team_id = excluded.team_id, model_kind = COALESCE(excluded.model_kind, devices.model_kind)`,
         att.deviceId,
         ownerKey,
         att.kind,
         att.name,
-        att.teamId
+        att.teamId,
+        att.modelKind ?? null
       )
     }
     // One live socket per device: a reconnect replaces the old socket without an offline blip.
@@ -608,14 +617,15 @@ export class TeamHub extends DurableObject<Env> {
     this.live.set(att.deviceId, server)
     if (att.kind === "mac") {
       this.sql.exec(
-        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id, team_id = excluded.team_id, last_seen_at = excluded.last_seen_at`,
+        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at, model_kind) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id, team_id = excluded.team_id, last_seen_at = excluded.last_seen_at, model_kind = COALESCE(excluded.model_kind, macs.model_kind)`,
         att.deviceId,
         att.name,
         att.userId,
         att.projectId,
         att.teamId,
-        Date.now()
+        Date.now(),
+        att.modelKind ?? null
       )
       const connects = [...this.connectsOf(att.deviceId), Date.now()].slice(-8)
       this.sql.exec(`UPDATE macs SET connects = ? WHERE device_id = ?`, JSON.stringify(connects), att.deviceId)
@@ -786,8 +796,8 @@ export class TeamHub extends DurableObject<Env> {
 
   private macRow(deviceId: string) {
     return this.sql
-      .exec<{ name: string; owner_user_id: string; owner_project_id: string | null; team_id: string | null; last_seen_at: number | null; machine_id: string | null; kind: string | null }>(
-        `SELECT m.name, m.owner_user_id, m.owner_project_id, m.team_id, m.last_seen_at, m.machine_id, d.kind FROM macs m LEFT JOIN devices d ON d.device_id = m.device_id WHERE m.device_id = ?`,
+      .exec<{ name: string; owner_user_id: string; owner_project_id: string | null; team_id: string | null; last_seen_at: number | null; machine_id: string | null; model_kind: string | null }>(
+        `SELECT name, owner_user_id, owner_project_id, team_id, last_seen_at, machine_id, model_kind FROM macs WHERE device_id = ?`,
         deviceId
       )
       .toArray()[0]
@@ -811,7 +821,7 @@ export class TeamHub extends DurableObject<Env> {
       lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
       ownerUserId: r.owner_user_id,
       machineId: r.machine_id ?? null,
-      kind: r.kind ?? null
+      kind: r.model_kind ?? null
     }
   }
 

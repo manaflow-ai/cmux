@@ -36,6 +36,13 @@
       "when": 1792814437765,
       "tag": "0004_push_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795770000000,
+      "tag": "0005_device_model_kind",
+      "breakpoints": true
     }
   ]
 }

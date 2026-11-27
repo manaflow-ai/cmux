@@ -16,6 +16,7 @@ export const devices = pgTable(
      * keyed hash the Mac derives (never the raw hardware id). Null for phones and for Macs that never sent one.
      */
     machineId: text("machine_id"),
+    modelKind: text("model_kind"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true })

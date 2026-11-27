@@ -108,7 +108,7 @@ extension IPhoneHostService {
             agentTabHost: agentTabHost,
             newChatPicks: newChatPicks,
             computerName: { if let nameOverride { return nameOverride } else { return await computerName() } },
-            deviceKind: { [weak daemon] in daemon.identity?.machineDevice },
+            deviceKind: { [weak daemon] in daemon?.identity?.machineDevice },
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
             surfaceHosts: surfaceHosts,

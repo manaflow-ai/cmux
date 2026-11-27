@@ -238,7 +238,7 @@ describe("per-user hub: one user's own devices", () => {
     const phone = await register(wes, "phone", `personal-${owner}`)
     const p = await connect(wes, `personal-${owner}`, phone)
     await hello(p)
-    expect(p.frames[0].macs).toEqual([{ deviceId: mac, name: "Old Mac", online: false, lastSeenAt: null, ownerUserId: owner }])
+    expect(p.frames[0].macs).toEqual([{ deviceId: mac, name: "Old Mac", online: false, lastSeenAt: null, ownerUserId: owner, kind: null }])
     // And the phone can dial it once it connects.
     const m = await connect(wes, `personal-${owner}`, mac)
     p.send(offer(phone, mac))

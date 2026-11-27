@@ -11,6 +11,7 @@ import CmuxMobileTransport
 import Foundation
 import Observation
 import OSLog
+import UIKit
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "live")
 
@@ -530,9 +531,10 @@ public final class LiveCoordinator {
         do {
             // One round trip: both registrations, this team's Macs and the account's Macs.
             let asked = removedMacs.mark
+            let modelKind = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
             if let boot = try await api.bootstrap(teamID: teamID, devices: [
                 (identity.link, "phone", deviceName), (identity.presence, "phone", "\(deviceName) (presence)"),
-            ]) {
+            ], modelKind: modelKind) {
                 ConnectTimeline.shared.mark("registered", detail: "bootstrap")
                 guard !Task.isCancelled, store.activeTeamID == teamID else { return }
                 if !warm { idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link) }
@@ -547,8 +549,8 @@ public final class LiveCoordinator {
                 return
             }
             // A service before 0.8.0: the separate calls, both registrations at once.
-            async let linkDevice: Void = api.registerDevice(id: identity.link, kind: "phone", name: deviceName, teamID: teamID)
-            async let presenceDevice: Void = api.registerDevice(id: identity.presence, kind: "phone", name: "\(deviceName) (presence)", teamID: teamID)
+            async let linkDevice: Void = api.registerDevice(id: identity.link, kind: "phone", name: deviceName, teamID: teamID, modelKind: modelKind)
+            async let presenceDevice: Void = api.registerDevice(id: identity.presence, kind: "phone", name: "\(deviceName) (presence)", teamID: teamID, modelKind: modelKind)
             try await linkDevice
             if !warm {
                 // The link device is registered: warm its socket while the rest loads.

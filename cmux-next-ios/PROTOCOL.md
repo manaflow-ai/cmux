@@ -69,6 +69,13 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
 - Devices: `deviceId` is a client-generated UUID persisted in Keychain;
   `kind` is `mac` or `phone`. A phone keeps one pair of ids (link, presence)
   per account and keeps them across sign-out (`verify/persistence.md`).
+- Model kind: optional `modelKind` on registration and device records says which
+  glyph to draw (`macbook`, `mac-mini`, `imac`, `mac-studio`, `mac-pro`, `iphone`,
+  `ipad`, or a future lowercase `word(-word)*` name, at most 32 characters).
+  It is separate from admission's `kind: mac|phone`. Omitted, null, or malformed strings
+  preserve the stored model; another non-string value is `400 bad_request`. Older rows
+  have a null model. Mac-only REST lists and signaling `hello`/`presence` expose
+  the model as optional `kind`; unknown or absent models keep the app's fallback.
 - Machine id (added 2026-10-21): each cmux build on a Mac is its own device
   (its own id in its own Application Support folder, its own identity key and
   paired phones), so a Mac running a nightly and a dev build, or one that kept
