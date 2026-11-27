@@ -247,6 +247,7 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-screenshots",
  "cmux-sdk-ffi",
+ "cmux-sign-clone-sweep",
  "cmux-terminal-prediction",
  "cmux-update-prewarm-core",
  "cmux-url-input",
@@ -721,6 +722,13 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
