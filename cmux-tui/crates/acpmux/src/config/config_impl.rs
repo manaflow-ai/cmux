@@ -543,6 +543,18 @@ impl Config {
         self.harnesses.get(name)
     }
 
+    /// Whether harness `name`'s chats call no model, so they spend nothing (`hub/usage_view.rs`
+    /// meters them as zero tokens): a profile file that declares `no_model = true`, or the
+    /// built-in `chief` (`cmux-tui chief acp`), which only posts each prompt into the Chief
+    /// conversation: the Chief's model turns run as their own optchat chats, metered there.
+    /// Never inferred from the argv: `acpmux cli-agent` can wrap a model CLI too.
+    pub fn runs_no_model(&self, name: &str) -> bool {
+        match self.profile_meta.get(name) {
+            Some(meta) => meta.no_model,
+            None => name == super::CHIEF_PROFILE && self.discovered.contains(name),
+        }
+    }
+
     /// The web listener this daemon actually serves, if any.
     pub fn web_listener(&self) -> Option<&WebSocketConfig> {
         self.websocket.as_ref().filter(|_| !self.web_unbound)
