@@ -537,7 +537,7 @@ final class AppServices {
     /// `appearance.agentSignature`: every window's sidebar dot glyphs, asked of this app's acpmux only while on.
     private(set) lazy var agentSignatures = SidebarAgentSignatures(
         socket: { [weak self] in self.flatMap(QuitAgents.environment)?.socketPath }
-    ) { try await AgentActivityLineConnection.oneShot(path: $0, send: $1, deadline: .seconds(10)) }
+    ) { try await AgentActivityLineConnection.oneShot(path: $0, send: $1, deadline: .seconds(10)) }  // timeout: a miss only keeps the old dot glyphs
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Reads the plan again a few times after a return from the payment page (`paidPlanReturned`).

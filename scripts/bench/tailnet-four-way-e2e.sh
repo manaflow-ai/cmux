@@ -49,8 +49,11 @@ else
 fi
 d() { "${DOCKER[@]}" "$@"; }
 
-OUT=${2:-/tmp/tfw-$RUN_ID}
+# The default is a fresh mktemp folder of this run (a guessed /tmp name could be another account's link).
+OUT=${2:-}
+[ -n "$OUT" ] || OUT=$(mktemp -d "${TMPDIR:-/tmp}/tfw.XXXXXX")
 mkdir -p "$OUT"
+echo "out: $OUT" >&2
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/cmux-four-way.XXXXXX")
 chmod 700 "$WORK"
 mkdir -m 700 "$WORK/keys"

@@ -248,6 +248,7 @@ pub(super) fn mint_key(
 fn send(call: &Call) -> Result<String, String> {
     let http = cmux_egress::client_builder("cmux_tui::vm_tailnet")
         .redirect(reqwest::redirect::Policy::none())
+        // timeout: the TCP connect only (the whole call has its own 30 s bound below); past it the mint call reports the error.
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .build()
