@@ -1117,6 +1117,8 @@ jobs:
           backend: r2
           path: ${{ runner.temp }}/acpmux-base-run
           key: acpmux-tests-base-log-${{ inputs.sha || github.sha }}
+          # Pull requests judge base reds by this entry: a save that wrote nothing fails, not warns.
+          required: true
 
       # A red the judge excused (a flake that passed alone, a test red on the merge parent too) is green
       # for this base only: it is not kept for the tree.
