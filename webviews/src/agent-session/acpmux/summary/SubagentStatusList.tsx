@@ -6,7 +6,8 @@
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
 // chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
-import { memo, useContext } from "react";
+import { useContext, memo } from "react";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
@@ -19,8 +20,9 @@ import { type Subagent } from "../subagents/subagentFold";
 import { sameAgentRowProps } from "../subagents/subagentLook";
 import { sameValue } from "../session-info/sameValue";
 
-import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
-import { Spinner } from "../conversation/icons";
+import { retrying, retryLabel, sessionRetry, sessionRetryKey } from "../subagents/retryState";
+import { WaitSpinner } from "../conversation/WaitSpinner";
+import { Spinner } from "../conversation/Spinner";
 import {
   SUBSESSION_STATE_LABEL,
   subsessionDisplayName,
@@ -165,20 +167,33 @@ export function SubagentStatusList({
           {t("summary.openInPane")}
         </button>
       )}
-      {autoOpen && (
-        <label className="acpmux-summary-row acpmux-summary-autoopen">
-          <input
-            type="checkbox"
-            aria-label={t("summary.subagents.openPanes")}
-            checked={autoOpen.on}
-            onChange={(event) => autoOpen.set(event.currentTarget.checked)}
-          />
-          <span className="acpmux-summary-text">{t("summary.subagents.openPanes")}</span>
-        </label>
-      )}
+      {autoOpen && <AutoOpenSwitch on={autoOpen.on} set={autoOpen.set} label={t("summary.subagents.openPanes")} />}
     </section>
   );
 }
+
+/// The switch for opening new subagents in panes, drawn again only when its setting or label changes.
+/// The list above re-renders on the page clock while a subagent runs, and React 19 writes an input's
+/// `name` and `type` on every render of it (ReactDOMInput `updateInput`), so drawn inline it took
+/// three attribute writes a second in an idle chat, each an edge mark on the card's scroller
+/// (summary-card-idle-attributes.test.tsx). Its setter is the page's one module function
+/// (subagents/subagentPanes.ts `setAutoOpen`), so the memo holds.
+const AutoOpenSwitch = memo(function AutoOpenSwitch({
+  on,
+  set,
+  label,
+}: {
+  on: boolean;
+  set: (on: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="acpmux-summary-row acpmux-summary-autoopen">
+      <input type="checkbox" aria-label={label} checked={on} onChange={(event) => set(event.currentTarget.checked)} />
+      <span className="acpmux-summary-text">{label}</span>
+    </label>
+  );
+});
 
 /// A subagent's row: the tray's own line (subagents/AgentLine.tsx), so a subagent reads the same here
 /// and above the composer. Memoized on the fields of its agent it draws and its plain values
@@ -203,6 +218,8 @@ const SubagentStatusRow = memo(function SubagentStatusRow({
   resume?: ResumeActions;
 }) {
   const t = useT();
+  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const now = useNow(ticking(agent));
   const waiting = waits ? new Set([agent.id]) : NO_WAITING;
   return (
@@ -212,7 +229,7 @@ const SubagentStatusRow = memo(function SubagentStatusRow({
         icon={SUBAGENT_FALLBACK}
         mark={mark}
         status={subagentStatus(agent, waiting)}
-        state={subagentStateText(t, agent, waiting)}
+        state={subagentStateText(t, agent, waiting, connectionQuiet)}
         working={Boolean(retrying(agent))}
         time={formatDuration(elapsed(agent, now))}
         iconSize={ROW_ICON}
@@ -294,6 +311,8 @@ const SubsessionStatusRow = memo(function SubsessionStatusRow({
   // While acpmux retries its failed turn, it works again (subagents/retryState.ts ``sessionRetry``).
   const phase = sessionRetry(session);
   const retry = phase.kind === "retrying" ? phase.retry : undefined;
+  // Its words wait out the shared bound (retryState.ts ``retryWords``); the ring turns at once.
+  const retryLasting = useConnectionQuietKeys()(sessionRetryKey(session.sessionId), retry !== undefined);
   const status = retry ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state];
   // What a working one does now, or what one waiting on the person waits for.
   const line = session.waiting ? waitingLine(t, session.waiting) : session.doing;
@@ -323,9 +342,20 @@ const SubsessionStatusRow = memo(function SubsessionStatusRow({
       {session.queued ? (
         <span className="acpmux-summary-meta">{t("subsession.queued", { n: session.queued })}</span>
       ) : null}
-      <span className="acpmux-summary-meta acpmux-summary-agent__state">
-        {retry && <Spinner size={12} loading />}
-        {retry ? retryLabel(t, retry) : t(SUBSESSION_STATE_LABEL[session.state])}
+      <span
+        className="acpmux-summary-meta acpmux-summary-agent__state"
+        title={t(SUBSESSION_STATE_LABEL[session.state])}
+      >
+        {retry ? <WaitSpinner size={12} loading /> : session.state === "working" && <Spinner size={12} loading />}
+        {/* Working is the spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). A retry
+            inside the shared bound reads as working too. */}
+        {retry
+          ? retryLasting
+            ? retryLabel(t, retry)
+            : null
+          : session.state === "working"
+            ? null
+            : t(SUBSESSION_STATE_LABEL[session.state])}
       </span>
     </button>
   );

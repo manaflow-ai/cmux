@@ -9,7 +9,8 @@
 // says its state and its task. The live counts sit in the section's head (the running ones as their mark
 // and number, then "40 done",
 // `subagentCountParts`).
-import { memo, useCallback, useState, useMemo } from "react";
+import { useState, memo, useCallback, useMemo } from "react";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
@@ -38,10 +39,10 @@ import { SessionInfoFold } from "./SessionInfoSection";
 import {
   SUBAGENTS_SHOWN,
   NO_SESSIONS,
+  subagentCountParts,
   nextSubagentStatusChange,
   splitSubagentLines,
   type SubagentEntry,
-  subagentCountParts,
 } from "./subagentsSectionModel";
 import { useStatusClock } from "./statusClock";
 import { CountLine } from "../summary/LiveCount";
@@ -195,6 +196,8 @@ export function SubagentsSection({
   harness?: string;
 }) {
   const t = useT();
+  // A retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   // Not the second's clock: the lines' order and groups move only when a subagent turns idle, and
   // each line's time ticks in its own leaf (SubagentTime), so a tick sorts and draws nothing here.
@@ -222,7 +225,7 @@ export function SubagentsSection({
       detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
-      state: subagentStateText(t, agent, waiting, now),
+      state: subagentStateText(t, agent, waiting, connectionQuiet, now),
       working: Boolean(retrying(agent)),
       // How long it has run (subagentGroupModel.ts `elapsed`): one waiting on work of its own still counts.
       since: agent.startedAt,
@@ -240,7 +243,7 @@ export function SubagentsSection({
       identity: child.sessionId,
       name: child.title,
       status,
-      ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
+      ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child, connectionQuiet)),
       icon: "agent.chat",
       mark: child.harness,
       depth: 0,
@@ -251,7 +254,7 @@ export function SubagentsSection({
       entry.agent ? agentLine(entry.agent, entry.depth, entry.status) : sessionLine(entry.session, entry.status);
     const split = splitSubagentLines(agents, waiting, sessions, now);
     return { runningLines: split.running.map(toLine), endedLines: split.ended.map(toLine) };
-  }, [agents, waiting, sessions, now, t, language, harness, senderBadge]);
+  }, [agents, waiting, sessions, now, t, language, harness, senderBadge, connectionQuiet]);
   const shown = moreFold.drawn ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
   // Each line is its own memo boundary (SubagentLineRow): a tick, a change to another subagent or a
   // scroll draws only the lines whose words changed.

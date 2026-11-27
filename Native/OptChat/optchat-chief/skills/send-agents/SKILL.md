@@ -12,12 +12,16 @@ now, one chat per task: never a subagent whose job is to start agents,
 never a terminal (unless the person says terminal), never a message to a
 chat that is already open on something else.
 
-## 1. One workspace per task, no duplicates
+## 1. An issue first, one workspace per issue
 
-- Title: `<issue#>: <3-5 word liner>`, the number of the issue or pull
-  request the work is for and what it does, for example
-  `4812: Flaky login test`. Without a number: 3-5 words of what it does.
-  Never `fix`, `task 3`, `#NEXT` or another placeholder.
+- Work in a GitHub repository with no issue yet: file one first (`gh issue
+  create`), a short sanitized summary of the task in your own words, never
+  the person's raw prompt or a secret.
+- Title: exactly `<issue#>: <3-5 word liner>`, the issue number (never the
+  pull request's, never a `#`) and what the work does, for example
+  `4812: Flaky login test`. Work that has only a pull request:
+  `PR #<number>: <3-5 words>`; with neither, 3-5 words of what it does.
+  Never `fix`, `fix issue N`, `task 3`, `#NEXT` or another placeholder.
 - Look first: `cmux --json workspace list`. A workspace whose name starts
   with that number, or names that same work, already has its agent: send
   the new words there (`cmux agents chat send <chat> -- "<text>"`), move it
@@ -27,21 +31,22 @@ chat that is already open on something else.
 ## 2. Start the chat
 
 ```sh
-cmux --json agents chat new --top --harness claude --cwd <repo> \
-  --name "<title>" -- "<prompt>"
+cmux --json agents chat new --top --harness claude --model claude-opus-5-5 \
+  --effort medium --cwd <repo> --name "<title>" -- "<prompt>"
 ```
 
-- `--harness claude` for Claude, `--harness codex` for Codex. Leave out
-  `--model` and `--effort`: the harness's default model and effort run, as
-  in the app's New Agent Chat. Pass them only when the person names a
-  model or an effort.
+- Claude runs on Opus 5.5 at medium effort, as above. Codex: `--harness
+  codex` with its default model and effort. A model or effort the person
+  names wins.
 - `--top` makes a new workspace first in the sidebar, under Home, holding
-  only the chat: add no terminal to it.
+  only the chat. Never `cmux workspace create` first (it adds a terminal),
+  and add no terminal to it.
 - `--cwd` is the repository or folder the work is in, never `~`.
 - The receipt names the chat (an acpmux session id), its tab, pane and
   workspace. When the workspace's name is not the title, `cmux workspace
   <ws_…> rename "<title>"`.
 - Several tasks: one `agents chat new` per task, each with its own title.
+  Do it yourself: no helper chat, subagent or workspace to start them.
 
 ## 3. The prompt
 
@@ -62,7 +67,7 @@ use the `current` or `focused` selectors and never pass --focus.
 Keep going until the pull request is ready: checks your change broke are
 fixed, review comments answered, no merge conflicts. Then stop.
 If you launch a dev build, quit it once you are done verifying it, or when
-you cannot verify.
+you cannot verify. Never move the person's focus.
 ```
 
 ## 4. Check before you say sent
@@ -71,15 +76,23 @@ you cannot verify.
 turn started). Then post one line per agent: the title and a link to its
 workspace, `[4812: Flaky login test](cmux://workspace/ws_…)`. A start that
 failed: read the receipt or the chat (`cmux agents chat read <chat>`), fix
-the cause and start it again in the same workspace; never leave a failed or
-empty workspace behind, and never report a chat you did not see running.
+the cause and start it again in the same workspace, unasked; never leave a
+failed or empty workspace behind, and never report a chat you did not see
+running.
 
 ## 5. Follow it to the end
 
+- An agent's diagnosis or "it works" is a claim: check it against real data
+  (the diff, the logs, a test run) before you pass it on, and say what you
+  verified.
 - When its pull request is ready, tell the person in one line what it does
   and link it: `[OWNER/REPO#123](https://github.com/OWNER/REPO/pull/123),
   which makes new windows open with one workspace`.
+- A ready pull request to `feat-cmux-next` whose change was verified (tests
+  or a dev build) and has no conflicts: squash-merge it (`gh pr merge <n>
+  --squash`). Pull requests to any other branch wait for the person.
 - When its pull request merges, close the workspace you made for it
   (`cmux workspace <ws_…> close`) and say so in one line.
 - Nudging an agent later: `cmux agents chat send <chat> -- "<text>"`, then
-  `cmux agents chat state <chat>` to see that it took the message.
+  `cmux agents chat state <chat>` to see that it took the message, and move
+  its workspace to the top.

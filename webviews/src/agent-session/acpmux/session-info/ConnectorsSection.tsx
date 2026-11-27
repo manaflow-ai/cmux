@@ -3,7 +3,7 @@
 // its Reconnect button asks Claude Code to connect it again; the row then reads connected when
 // acpmux says so. Without that, "Needs reconnect" is plain text: nothing here looks clickable that
 // is not.
-import { memo, useState } from "react";
+import { useState, memo } from "react";
 import { useConnectionQuiet } from "../../../ui/lasting";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -77,9 +77,11 @@ function PendingState() {
   );
 }
 
-/// A failed server's Reconnect: busy while Claude Code tries, and after an error from acpmux it
-/// reads Try again (in the danger color) and tries again. Success needs nothing here: acpmux marks
-/// the server connected, and the row draws that instead of this button.
+/// A failed server's Reconnect: busy while Claude Code tries; after an error from acpmux it stays
+/// Reconnect (`data-state="failed"`, the danger color), never a "Try again". It is the person's
+/// call, not asked again on its own: Claude Code's mcp_reconnect restarts the server's process or
+/// opens its sign-in. Success needs nothing here: acpmux marks the server connected, and the row
+/// draws that instead of this button.
 export function ReconnectButton({
   name,
   reconnect,
@@ -89,12 +91,9 @@ export function ReconnectButton({
 }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "reconnecting" | "failed">("idle");
+  // retry-prompt-ok: reconnecting restarts the MCP server's process or opens its sign-in (OAuth).
   const label = t(
-    state === "reconnecting"
-      ? "sessionInfo.connectors.reconnecting"
-      : state === "failed"
-        ? "sessionInfo.connectors.retry"
-        : "sessionInfo.connectors.reconnectAction",
+    state === "reconnecting" ? "sessionInfo.connectors.reconnecting" : "sessionInfo.connectors.reconnectAction",
   );
   return (
     <button
