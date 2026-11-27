@@ -3,6 +3,7 @@
 //! Chromium's `History` model, opened in WAL mode with one connection.
 //! Incognito never gets one.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -266,22 +267,59 @@ impl VisitStore {
     }
 
     /// One row per URL, most recent first.
+    ///
+    /// One sequential scan of the table (rowid order, no index walk): each URL keeps its count,
+    /// its last visit and the title of its newest titled visit, then the URLs sort by last
+    /// visit. The `GROUP BY` with a title subquery per URL it replaced grew faster than the log
+    /// (4.3x the per-visit cost from 10k to 100k visits).
     pub fn summaries(&self, limit: usize) -> Result<Vec<VisitSummary>, HistoryError> {
-        let mut statement = self.connection.prepare(
-            "SELECT url, (SELECT title FROM visits v2 WHERE v2.url = v.url AND v2.title IS NOT NULL \
-             ORDER BY visit_time_ms DESC LIMIT 1), COUNT(*), MAX(visit_time_ms) \
-             FROM visits v GROUP BY url ORDER BY MAX(visit_time_ms) DESC LIMIT ?1",
-        )?;
-        let rows =
-            statement.query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
-                Ok(VisitSummary {
-                    url: row.get(0)?,
-                    title: row.get(1)?,
-                    visit_count: row.get::<_, i64>(2)?.unsigned_abs(),
-                    last_visit_ms: row.get(3)?,
-                })
-            })?;
-        Ok(rows.collect::<Result<_, _>>()?)
+        struct Sum {
+            summary: VisitSummary,
+            titled_ms: i64,
+        }
+        let mut statement =
+            self.connection.prepare("SELECT url, title, visit_time_ms FROM visits")?;
+        let mut at: HashMap<String, usize> = HashMap::new();
+        let mut sums: Vec<Sum> = Vec::new();
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let url = row.get_ref(0)?.as_str().map_err(rusqlite::Error::from)?;
+            let visit_ms: i64 = row.get(2)?;
+            let index = match at.get(url) {
+                Some(&index) => index,
+                None => {
+                    at.insert(url.to_owned(), sums.len());
+                    sums.push(Sum {
+                        summary: VisitSummary {
+                            url: url.to_owned(),
+                            title: None,
+                            visit_count: 0,
+                            last_visit_ms: visit_ms,
+                        },
+                        titled_ms: i64::MIN,
+                    });
+                    sums.len() - 1
+                }
+            };
+            let sum = &mut sums[index];
+            sum.summary.visit_count += 1;
+            sum.summary.last_visit_ms = sum.summary.last_visit_ms.max(visit_ms);
+            // The title of the newest visit that has one. A URL's visits mostly repeat its title:
+            // a newer one that matches only moves the time, with no copy.
+            if (sum.summary.title.is_none() || visit_ms > sum.titled_ms)
+                && let Some(title) =
+                    row.get_ref(1)?.as_str_or_null().map_err(rusqlite::Error::from)?
+            {
+                if sum.summary.title.as_deref() != Some(title) {
+                    sum.summary.title = Some(title.to_owned());
+                }
+                sum.titled_ms = visit_ms;
+            }
+        }
+        let mut out: Vec<VisitSummary> = sums.into_iter().map(|sum| sum.summary).collect();
+        out.sort_unstable_by(|a, b| b.last_visit_ms.cmp(&a.last_visit_ms));
+        out.truncate(limit);
+        Ok(out)
     }
 
     /// The visit with `id`, if it exists.
@@ -734,3 +772,7 @@ fn move_aside(path: &Path) -> Result<(), HistoryError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "visits_summaries_tests.rs"]
+mod summaries_tests;
