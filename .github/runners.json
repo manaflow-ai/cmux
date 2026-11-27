@@ -616,7 +616,6 @@
     "test-ios.yml#ios-simulator-build": "apple-ios",
     "auto-journey.yml#journey": "apple-gui",
     "chief-evals.yml#fleet-ab": {"class": "apple-gui", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
-    "cmux-next-fast-tier-batch.yml#swift-fleet": {"class": "apple-swift-tests", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
     "cmux-next-head-compile.yml#compile": {"class": "apple-app-build", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
     "cmux-next-ios-keyboard-motion.yml#bench": {"class": "apple-ios", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
     "cmux-next-pair-e2e-vm.yml#pair-e2e": {"class": "apple-ios", "picker_followup": "runs-on reads RUNNER_POOLS.macos_26; take it from a picker job's output"},
@@ -630,15 +629,15 @@
     "nightly.yml#build-live-code-variant": {"class": "apple-app-build"},
     "nightly.yml#sign-live-code-variant": {"class": "apple-signing-release", "picker_followup": "runs-on names the trusted signing label; take it from pick-nightly-sign-runner's output"},
     "nightly.yml#fixit-handoff": {"class": "portable-checks"},
-    "pr-pipeline.yml#mac": {"class": "apple-swift-tests", "picker_followup": "runs-on reads vars.CI_OVERFLOW_MAC or cmux-mac; take it from a picker job's output"},
-    "pr-pipeline.yml#mac-fallback": {"class": "apple-swift-tests", "picker_followup": "runs-on reads vars.CI_OVERFLOW_MAC or cmux-mac; take it from a picker job's output"},
+    "pr-pipeline.yml#mac": {"class": "apple-swift-tests", "picker_followup": "runs-on is cmux-mac on own-branch runs (RFD 0165: no Blacksmith overflow); take it from a picker job's output"},
+    "pr-pipeline.yml#mac-fallback": {"class": "apple-swift-tests", "picker_followup": "runs-on is cmux-mac on own-branch runs (RFD 0165: no Blacksmith overflow); take it from a picker job's output"},
     "swift-linux-packages.yml#mac-fallback": {"class": "apple-swift-tests", "picker_followup": "runs-on reads RUNNER_POOLS.macos_15; take it from a picker job's output"},
     "fleet-compile-check.yml#compile-check": {"class": "apple-swift-tests", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
     "ios-base-bisect.yml#bisect": {"class": "apple-ios", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
     "ios-launch-tti-hosted.yml#measure": {"class": "apple-ios", "picker_followup": "explicit hosted launch-TTI timing stays on its ephemeral measurement queue"},
     "ios-sim-linux-build.yml#build-fleet": {"class": "apple-ios", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
     "pr-pipeline.yml#ios-fast": "apple-ios",
-    "pr-pipeline.yml#ios-macos": "apple-ios"
+    "pr-pipeline.yml#ios-macos": {"class": "apple-ios", "picker_followup": "runs-on is cmux-mac on own-branch runs (RFD 0165: no Blacksmith overflow); take it from a picker job's output"}
   },
   "hosted_light_jobs": {
     "$comment": [

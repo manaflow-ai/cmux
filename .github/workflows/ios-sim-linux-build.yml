@@ -35,7 +35,7 @@ jobs:
     name: Build the iPhone app and UI tests for the simulator
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
     # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 45  # the client waits up to 600 s queued plus 1800 s running
     steps:
       - name: Resolve the commit

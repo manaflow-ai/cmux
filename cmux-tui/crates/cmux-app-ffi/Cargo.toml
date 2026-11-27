@@ -69,6 +69,8 @@ cmux-motion = { path = "../cmux-motion", default-features = false }
 # the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
 cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
 cmux-launch-record = { path = "../cmux-launch-record" }
+# The idle pass over leftover Chromium code-sign clones (src/sign_clone_sweep.rs).
+cmux-sign-clone-sweep = { path = "../cmux-sign-clone-sweep" }
 # Live wallpapers (src/wallpaper.rs, include/cmux_wallpaper_ffi.h): the program check
 # and its Metal translation (naga), the scheduler, the Frame packer.
 cmux-wallpaper = { path = "../cmux-wallpaper" }

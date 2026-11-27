@@ -34,7 +34,7 @@ jobs:
   bench:
     name: Energy bench on a fleet simulator
     if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 150
     permissions:
       contents: read
