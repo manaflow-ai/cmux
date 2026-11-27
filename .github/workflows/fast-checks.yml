@@ -60,7 +60,7 @@ jobs:
   # this job, and the App token is not passed to the checks job.
   admit:
     if: github.repository == 'manaflow-ai/cmux' && inputs.setup != 'kernel-free'
-    runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ inputs.runner == 'blacksmith-8vcpu-ubuntu-2404' && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:
@@ -69,7 +69,7 @@ jobs:
       # Fast-checks placement tooling is reviewed and pinned on feat-cmux-next;
       # main only carries this wiring and reads that exact helper revision:
       # #34270's, which decides on one census read instead of polling 180 s.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: 159a701991677b65aa48d11d54e1579d58f6b1cb
           path: .fast-checks-tools
@@ -86,15 +86,29 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
       - name: Mint routing read token
         id: route-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -181,6 +195,12 @@ jobs:
             else
               rm -rf .git/hooks .git/logs .git/refs
               rm -f .git/config .git/index .git/packed-refs .git/objects/info/alternates
+              # Git takes a directory for a repository only with refs/ and HEAD in it. Without them
+              # actions/checkout saw no repository, deleted the whole disk and fetched cold: every run
+              # sampled 2026-11-27 printed "fatal: --local can only be used inside a git repository"
+              # and spent 26 s fetching (ci-min-per-pr-14).
+              mkdir -p .git/refs/heads .git/refs/tags
+              printf 'ref: refs/heads/main\n' > .git/HEAD
               cat > .git/config <<'EOF'
           [core]
             repositoryformatversion = 0
@@ -195,7 +215,7 @@ jobs:
             fi
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.source_sha }}
           path: .fast-checks-checkout
@@ -400,7 +420,7 @@ jobs:
       # The script comes from this workflow's own commit, never from the source snapshot.
       - name: Check out the SwiftPM artifact prefetch
         if: contains(inputs.command, 'swift')
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .fast-checks-tools
@@ -425,7 +445,7 @@ jobs:
       # workflow's own commit, never from the source snapshot.
       - name: Check out the cargo workspace check
         if: contains(inputs.command, 'cargo')
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .fast-checks-cargo-tools
@@ -451,11 +471,18 @@ jobs:
           rm -rf -- "$FAST_CHECKS_OUT"
           mkdir -p -- "$FAST_CHECKS_OUT"
           python3 - <<'PY'
-          import json, os, pathlib, shlex, signal, subprocess, time
+          import hashlib, json, os, pathlib, shlex, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
           command_text = os.environ['FAST_CHECKS_COMMAND']
+
+          def write_receipt(result):
+              result['command_sha256'] = hashlib.sha256(command_text.encode()).hexdigest()
+              receipt = json.dumps(result)
+              print('FAST_CHECKS_RECEIPT=' + receipt, flush=True)
+              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(receipt)
+
           try:
               lexer = shlex.shlex(command_text, posix=True)
               lexer.whitespace_split = True
@@ -487,8 +514,7 @@ jobs:
                   exit_code=0,
               )
               print('::notice::display checks are advisory and skipped on the fast-checks gating path', flush=True)
-              print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
-              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+              write_receipt(result)
               raise SystemExit(0)
           # cargo -p CRATE from a workspace that excludes CRATE: refused with the next step before it runs.
           cargo_check = pathlib.Path(os.environ.get('GITHUB_WORKSPACE', '/nonexistent'), '.fast-checks-cargo-tools', 'scripts', 'ci', 'cargo_package_workspace_check.py')
@@ -499,15 +525,14 @@ jobs:
                   result = dict(source_sha=actual, source_tree=tree, head_after=actual, command_started_at=time.time(),
                       command_seconds=0, exit_code=refused, refused='cargo-package-workspace',
                       run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
-                  print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
-                  pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+                  write_receipt(result)
                   raise SystemExit(refused)
           started_at = time.time()
           start = time.monotonic()
           command = subprocess.Popen(
               ['timeout', '--signal=TERM', '--kill-after=30s',
                os.environ['FAST_CHECKS_TIMEOUT'] + 's', 'bash', '-c',
-               os.environ['FAST_CHECKS_COMMAND']],
+               command_text],
               cwd=directory, start_new_session=True)
           command_pgid = command.pid
           try:
@@ -524,8 +549,7 @@ jobs:
           result = dict(source_sha=actual, source_tree=tree, head_after=after,
               command_started_at=started_at, command_seconds=round(time.monotonic() - start, 3), exit_code=code,
               command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
-          print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+          write_receipt(result)
           raise SystemExit(code if actual == after else 2)
           PY
 
@@ -607,7 +631,7 @@ jobs:
           mkdir -p -- .fast-checks-checkout
           rm -rf -- .fast-checks-checkout/.git .fast-checks-tools/.git
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 10
         with:
           ref: ${{ inputs.source_sha }}
@@ -642,7 +666,7 @@ jobs:
       - name: Check out the SwiftPM artifact prefetch on the Mac
         if: contains(inputs.command, 'swift')
         timeout-minutes: 5
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .fast-checks-tools
@@ -681,7 +705,7 @@ jobs:
           rm -rf -- "$FAST_CHECKS_OUT"
           mkdir -p -- "$FAST_CHECKS_OUT"
           python3 - <<'PY'
-          import json, os, pathlib, signal, subprocess, time
+          import hashlib, json, os, pathlib, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
@@ -690,7 +714,8 @@ jobs:
           tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
           started_at = time.time()
           start = time.monotonic()
-          command = subprocess.Popen(['bash', '-c', os.environ['FAST_CHECKS_COMMAND']],
+          command_text = os.environ['FAST_CHECKS_COMMAND']
+          command = subprocess.Popen(['bash', '-c', command_text],
                                      cwd=directory, start_new_session=True)
           command_pgid = command.pid
           timed_out = False
@@ -720,7 +745,8 @@ jobs:
           after = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           result = dict(source_sha=actual, source_tree=tree, head_after=after,
               command_started_at=started_at, command_seconds=round(time.monotonic() - start, 3), exit_code=code,
-              timed_out=timed_out, command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
+              timed_out=timed_out, command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count(),
+              command_sha256=hashlib.sha256(command_text.encode()).hexdigest())
           print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
           pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
           raise SystemExit(code if actual == after else 2)

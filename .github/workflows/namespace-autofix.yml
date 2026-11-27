@@ -40,15 +40,16 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 10
     permissions:
       contents: write
+      pull-requests: read
     steps:
       # This workflow is pull_request_target on purpose. Only this base-revision
       # copy of the helper is executed; the PR tree is treated as data.
       - name: Checkout trusted base helpers
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           # One commit each: the job reads base files, diffs two trees and commits on the PR head, none of
@@ -77,9 +78,16 @@ jobs:
         id: fix
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          # Reads go through the job's own token: the App installation's quota is
+          # shared with every other App caller and ran dry mid-job (cmux#57591,
+          # "API rate limit exceeded"). Only the push needs the App token.
+          READ_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          # A listing the job token's spent budget refused is sent again once, after the reset, when that is at most
+          # this far off: the wait, the lint (about 3 min on a large PR) and the push fit inside timeout-minutes.
+          RATE_LIMIT_WAIT_S: '300'
         run: |
           set -euo pipefail
           if [ -z "$APP_TOKEN" ]; then
@@ -87,7 +95,24 @@ jobs:
             exit 0
           fi
 
-          git fetch --no-tags --depth=1 origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"
+          # Every git network call goes through git_retry: a transient server answer
+          # ("fatal: protocol error: bad pack header", jobs 140171550533, 140171553343
+          # and 140171797930 at 21:13Z on 2026-11-26) failed the first fetch of three
+          # jobs at once. Four tries, 5, 15 and 30 s apart (under a minute in all).
+          # None of these spend REST quota: git over HTTPS is not rate limited
+          # like the API.
+          git_retry() {
+            local attempt=1 delay
+            for delay in 5 15 30; do
+              "$@" && return 0
+              echo "::warning::git attempt $attempt failed ($*); retrying in ${delay}s."
+              sleep "$delay"
+              attempt=$((attempt + 1))
+            done
+            "$@"
+          }
+
+          git_retry git fetch --no-tags --depth=1 origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"
           fetched_head="$(git rev-parse refs/remotes/pr/head)"
           [ "$fetched_head" = "$HEAD_SHA" ] || {
             echo "::error::Fetched PR head $fetched_head does not match event head $HEAD_SHA"
@@ -135,12 +160,92 @@ jobs:
           # The PR's own files (GitHub's merge-base diff), never `git diff BASE_SHA
           # HEAD_SHA`: that two-dot diff against base's tip also lists every file
           # base changed since the branch point, and the fix then rewrote and
-          # pushed the PR's stale copies of them (#55382). Both checkouts are
-          # depth 1, so there is no merge-base here to diff against.
-          GH_TOKEN="$APP_TOKEN" gh api --paginate \
-            "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
-            --jq '.[] | select(.status != "removed") | .filename' \
-            | awk '/^(Packages|ios\/cmux)\/.*\.swift$/ { print }' \
+          # pushed the PR's stale copies of them (#55382). The API's list is the
+          # first source. github.token's quota is the repo's, shared with every
+          # job here, and it ran dry too ("API rate limit exceeded for
+          # installation", cmux#58259 at 18:17Z and 18:30Z on 2026-11-26), so a
+          # failed listing falls back to git: deepen both depth-1 histories until
+          # they meet and diff from their merge base, the same three-dot diff.
+          # A listing the budget refused (403/429, core remaining 0) is first sent
+          # again once, after the reset, when that is at most RATE_LIMIT_WAIT_S
+          # away: the git fallback found no merge base within 8500 commits on
+          # runs 45924331840 (01:45:47Z) and 45965901335 (08:28:43Z) on
+          # 2026-11-27, red until a rerun after the reset
+          # (tests/test_ci_namespace_autofix_rate_limit_wait.py).
+          listed="$RUNNER_TEMP/namespace-listed.txt"
+          list_err="$RUNNER_TEMP/namespace-listed.err"
+          list_files() {
+            GH_TOKEN="$READ_TOKEN" gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
+              --jq '.[] | select(.status != "removed") | .filename' > "$listed" 2> "$list_err"
+          }
+          # The core budget's reset epoch when the last listing was a quota refusal, else nothing
+          # (rate_limit reads spend no budget).
+          refused_until() {
+            grep -qiE 'rate limit|HTTP 429' "$list_err" || return 0
+            GH_TOKEN="$READ_TOKEN" gh api rate_limit \
+              --jq 'select(.resources.core.remaining == 0) | .resources.core.reset' 2>/dev/null || true
+          }
+          listed_ok=""
+          reset=""
+          if list_files; then
+            listed_ok=1
+          else
+            cat "$list_err" >&2
+            reset="$(refused_until)"
+            if [ -n "$reset" ]; then
+              wait=$(( reset - $(date +%s) + 5 ))
+              [ "$wait" -ge 1 ] || wait=1
+              if [ "$wait" -le "$RATE_LIMIT_WAIT_S" ]; then
+                echo "::notice::The budget refused the PR's file listing; listing again in ${wait}s, after the reset at $(date -u -d "@$reset" +%H:%M:%SZ)."
+                sleep "$wait"
+                if list_files; then
+                  listed_ok=1
+                else
+                  cat "$list_err" >&2
+                  reset="$(refused_until)"
+                fi
+              else
+                echo "::warning::The budget refused the PR's file listing; its reset ($(date -u -d "@$reset" +%H:%M:%SZ)) is past the ${RATE_LIMIT_WAIT_S}s wait."
+              fi
+            fi
+          fi
+          if [ -z "$listed_ok" ]; then
+            echo "::warning::Listing the PR's files through the API failed (see above); using git's merge-base diff instead."
+            merge_base=""
+            fetch_failed=""
+            for deepen in 100 400 1600 6400; do
+              merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)"
+              [ -z "$merge_base" ] || break
+              # One fetch per side: given both at once, git deepened only one of them.
+              # The head goes through refs/pull/N/head, as above: a fork PR's raw
+              # head SHA may not be fetchable from origin.
+              if ! git_retry git fetch --no-tags --quiet --deepen="$deepen" origin "$BASE_SHA"; then
+                fetch_failed="deepening base $BASE_SHA by $deepen"; break
+              fi
+              if ! git_retry git fetch --no-tags --quiet --deepen="$deepen" origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"; then
+                fetch_failed="deepening the PR head by $deepen"; break
+              fi
+            done
+            [ -n "$merge_base" ] || merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)"
+            if [ -z "$merge_base" ]; then
+              # Refuse, never skip: a skipped autofix would read as clean.
+              if [ -n "$fetch_failed" ]; then
+                echo "::error::Both sources of the PR's files failed: the API listing (above) and git, whose fetch failed while $fetch_failed (above). Rerun the job."
+              else
+                rerun="once the API quota resets"
+                [ -z "$reset" ] || rerun="after $(date -u -d "@$reset" +%H:%M:%SZ), when the API quota resets"
+                echo "::error::Both sources of the PR's files failed: the API listing (above) and git, which found no merge base of $BASE_SHA and $HEAD_SHA within 8500 commits. Rerun $rerun."
+              fi
+              exit 1
+            fi
+            echo "Merge base: $merge_base"
+            # quotePath off: git otherwise prints non-ASCII paths quoted and
+            # escaped ("Packages/\303\251.swift"), which the API never does and
+            # the Packages/ filter below would silently drop.
+            git -c core.quotePath=false diff --no-renames --name-only --diff-filter=d "$merge_base" "$HEAD_SHA" > "$listed"
+          fi
+          awk '/^(Packages|ios\/cmux)\/.*\.swift$/ { print }' "$listed" \
             | sort -u > "$RUNNER_TEMP/namespace-files.txt"
           if [ ! -s "$RUNNER_TEMP/namespace-files.txt" ]; then
             echo "No changed package Swift files; namespace autofix is clean."
@@ -178,7 +283,7 @@ jobs:
           GIT_CONFIG_COUNT=1 \
           GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
           GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git -c core.hooksPath=/dev/null push --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
+            git_retry git -c core.hooksPath=/dev/null push --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
           echo "Applied safe namespace fixes and pushed lint: apply namespace autofix." >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$lint_status" -ne 0 ]; then

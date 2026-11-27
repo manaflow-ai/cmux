@@ -8,6 +8,10 @@ one-job VMs the fleet reconciler boots per queued job and deletes after it, with
 Each job names its label right after the fork branch, behind that label's own switch variable (=1 puts the job back on
 the Blacksmith selector after it, as an overflow route nothing depends on). A job may not lead with a label under
 another label's switch, nor with a persistent-pool label.
+
+Where the switch held one value, the job names the label it resolved to as a literal (goal linux-pickers-gone,
+cmux main: no Linux `runs-on` reads a variable): a one-job JIT label, or the Blacksmith size the switch sent it to.
+A literal is never a persistent-pool label.
 """
 from __future__ import annotations
 
@@ -23,6 +27,7 @@ SWITCHES = {
     "CI_REPAIR_SKIP_FLEET": "cmux-gcp-repair-jit-x64",
     "CI_PR_CONTROL_SKIP_FLEET": "cmux-gcp-pr-control-jit-x64",
     "CI_GATE_SKIP_FLEET": "cmux-gcp-gate-jit-x64",
+    "CI_SECRET_SKIP_FLEET": "cmux-gcp-secret-jit-x64",
 }
 LEAD = re.compile(
     r"(?:\([^()]*\) && )?vars\.(CI_[A-Z_]+_SKIP_FLEET) != '1' && '(cmux-gcp-[a-z-]+-jit-x64)' \|\| "
@@ -32,6 +37,10 @@ LEAD = re.compile(
 # do for ourselves? ... what do we do about this sort of situation?"). Unset, the operand is skipped and the job keeps
 # the route it had.
 QUEUE_OPERAND = "vars.CI_QUEUE_RESERVED == '1' && 'cmux-gcp-queue-jit-x64' || "
+# The same jobs with the switch's value written out: the queue label alone.
+QUEUE_LITERAL = FORK_BRANCH + "'cmux-gcp-queue-jit-x64' }}"
+# A job whose switch was written out: one literal one-job label after the fork branch.
+LITERAL_LEAD = re.compile(r"'(cmux-gcp-[a-z-]+-jit-x64|blacksmith-\dvcpu-ubuntu-2404)' }}$")
 QUEUE_LABEL = "cmux-gcp-queue-jit-x64"
 QUEUE_WORKFLOWS = frozenset({
     "ci-cla-quota-rerun.yml",
@@ -75,6 +84,10 @@ class WriteTokenJitLabelTests(unittest.TestCase):
                 rest = rest[len(QUEUE_OPERAND):]
             if rest is not None and rest.startswith("github.event_name == 'pull_request' && "):
                 rest = rest.split(" || ", 1)[1]
+            if rest is not None and LITERAL_LEAD.fullmatch(rest):
+                if QUEUE_LABEL in rest and name not in QUEUE_WORKFLOWS:
+                    failures.append(f"{name}:{number} names the reserved queue label")
+                continue
             matched = LEAD.match(rest) if rest is not None else None
             if matched is None:
                 failures.append(f"{name}:{number} does not lead with a JIT label: {runs_on}")
@@ -90,7 +103,9 @@ class WriteTokenJitLabelTests(unittest.TestCase):
                     continue
                 named.add(path.name)
                 self.assertIn(path.name, QUEUE_WORKFLOWS, f"{path.name}:{number} names the reserved queue label")
-                self.assertIn(QUEUE_OPERAND, line, f"{path.name}:{number} names it outside its on switch")
+                self.assertTrue(QUEUE_OPERAND in line or QUEUE_LITERAL in line
+                                or line.strip() == "runs-on: " + QUEUE_LABEL,
+                                f"{path.name}:{number} names it outside its on switch")
         self.assertEqual(named, QUEUE_WORKFLOWS)
 
     def test_the_exceptions_are_still_needed(self) -> None:

@@ -42,12 +42,23 @@ class HistoryAdmission(unittest.TestCase):
         # the risk:* label this job sets), and that skipped run takes another name
         # and its own concurrency group, so the newest "risk evidence" is always a
         # real grade (the backend-migrations gate's "label (ignored)" pattern).
-        ignored = ("(github.event.action == 'labeled' || github.event.action == 'unlabeled') && "
-                   "github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived'")
-        self.assertEqual(self.job["if"], "${{ !(" + ignored + ") }}")
+        # freeze-ok grades too (this job posts the merge freeze status into feat-cmux-next), and so does
+        # every edit but a title-only one (risk_tier.py never reads the title) or a review bot's summary edit.
+        label = ("((github.event.action == 'labeled' || github.event.action == 'unlabeled') && "
+                 "github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && "
+                 "(github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1'))")
+        title = "(github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base)"
+        # A review bot's own summary edit of the description (cubic-dev-ai, blacksmith-sh) never touches a line
+        # risk_tier.py reads: it skips the same way, under its own name and group.
+        bot = ("(github.event.action == 'edited' && !github.event.changes.base && "
+               "(github.event.sender.login == 'cubic-dev-ai[bot]' || github.event.sender.login == 'blacksmith-sh[bot]'))")
+        self.assertEqual(self.job["if"], "${{ !(" + label + " || " + title + " || " + bot + ") }}")
         self.assertEqual(self.job["name"],
-                         "${{ " + ignored + " && 'risk evidence label (ignored)' || 'risk evidence' }}")
-        self.assertIn(ignored + " && format('-label-{0}', github.run_id)", self.job["concurrency"]["group"])
+                         "${{ " + label + " && 'risk evidence label (ignored)' || " + title
+                         + " && 'risk evidence title edit (ignored)' || " + bot
+                         + " && 'risk evidence review bot edit (ignored)' || 'risk evidence' }}")
+        self.assertIn("(" + label + " || " + title + " || " + bot + ") && format('-ignored-{0}', github.run_id)",
+                      self.job["concurrency"]["group"])
         for name in ("Checkout the classifier at the tip of the pull request's base branch",
                      "Grade the pull request", "Set the risk label",
                      "Hold only an unowned takeback"):

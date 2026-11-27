@@ -75,7 +75,7 @@ jobs:
       # which is most of this job's time and gates the macOS job's start.
       - name: Checkout
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Depth 2 reaches both parents of a PR merge commit, which is all
           # the backend-tag path check needs to diff.
@@ -135,7 +135,7 @@ jobs:
       success()
       && needs.route.outputs.run_e2e == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 150
     environment: ios-e2e
     permissions:
@@ -145,7 +145,7 @@ jobs:
       # Only what the backend runs: a full checkout of this repository is the
       # slowest step otherwise.
       - name: Checkout backend sources
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -326,7 +326,7 @@ jobs:
       SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
       - name: Checkout cmux
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: recursive

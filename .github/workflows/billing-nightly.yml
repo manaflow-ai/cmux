@@ -87,7 +87,7 @@ jobs:
       fail-fast: false
       matrix:
         environment: [Sandbox, Production]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 15
     environment: billing-nightly
     permissions:
@@ -98,9 +98,21 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+
+      # Spare App tokens (each its own REST budget) for the gh calls below when the job token is rate limited
+      # (run 45794727111). Optional: an empty output leaves the job token alone.
+      - name: Mint spare tokens
+        id: spare
+        continue-on-error: true
+        uses: ./.github/actions/spare-issue-tokens
+        with:
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
       - name: Check configuration
         id: config
@@ -110,6 +122,7 @@ jobs:
           HAS_APPLE_IAP_ISSUER_ID: ${{ secrets.APPLE_IAP_ISSUER_ID != '' }}
           HAS_APPLE_IAP_PRIVATE_KEY: ${{ secrets.APPLE_IAP_PRIVATE_KEY != '' }}
           HAS_APPLE_NOTIFICATIONS_HEALTH_TOKEN: ${{ secrets.APPLE_NOTIFICATIONS_HEALTH_TOKEN != '' }}
+          GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/billing_nightly.py config --environment billing-nightly APPLE_IAP_KEY_ID APPLE_IAP_ISSUER_ID APPLE_IAP_PRIVATE_KEY APPLE_NOTIFICATIONS_HEALTH_TOKEN
 
@@ -155,7 +168,7 @@ jobs:
   apple-api:
     name: apple-api
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 10
     environment: billing-nightly
     permissions:
@@ -166,9 +179,21 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+
+      # Spare App tokens (each its own REST budget) for the gh calls below when the job token is rate limited
+      # (run 45794727111). Optional: an empty output leaves the job token alone.
+      - name: Mint spare tokens
+        id: spare
+        continue-on-error: true
+        uses: ./.github/actions/spare-issue-tokens
+        with:
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
       - name: Check configuration
         id: config
@@ -178,6 +203,7 @@ jobs:
           HAS_APPLE_IAP_ISSUER_ID: ${{ secrets.APPLE_IAP_ISSUER_ID != '' }}
           HAS_APPLE_IAP_PRIVATE_KEY: ${{ secrets.APPLE_IAP_PRIVATE_KEY != '' }}
           HAS_APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID: ${{ vars.APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID != '' }}
+          GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/billing_nightly.py config --environment billing-nightly APPLE_IAP_KEY_ID APPLE_IAP_ISSUER_ID APPLE_IAP_PRIVATE_KEY APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID
 
@@ -224,7 +250,7 @@ jobs:
   apple-post-release:
     name: apple-post-release
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.post_release_check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 50
     environment: billing-nightly
     permissions:
@@ -235,9 +261,21 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+
+      # Spare App tokens (each its own REST budget) for the gh calls below when the job token is rate limited
+      # (run 45794727111). Optional: an empty output leaves the job token alone.
+      - name: Mint spare tokens
+        id: spare
+        continue-on-error: true
+        uses: ./.github/actions/spare-issue-tokens
+        with:
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
       - name: Check configuration
         id: config
@@ -247,6 +285,7 @@ jobs:
           HAS_APPLE_IAP_ISSUER_ID: ${{ secrets.APPLE_IAP_ISSUER_ID != '' }}
           HAS_APPLE_IAP_PRIVATE_KEY: ${{ secrets.APPLE_IAP_PRIVATE_KEY != '' }}
           HAS_APPLE_NOTIFICATIONS_HEALTH_TOKEN: ${{ secrets.APPLE_NOTIFICATIONS_HEALTH_TOKEN != '' }}
+          GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/billing_nightly.py config --environment billing-nightly APPLE_IAP_KEY_ID APPLE_IAP_ISSUER_ID APPLE_IAP_PRIVATE_KEY APPLE_NOTIFICATIONS_HEALTH_TOKEN
 
@@ -289,7 +328,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -324,7 +363,7 @@ jobs:
     name: alert
     needs: [suite, apple-delivery, apple-api, apple-post-release, storekit]
     if: ${{ always() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 5
     environment: billing-nightly
     permissions:
@@ -332,14 +371,29 @@ jobs:
       issues: write
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/billing_nightly.py
+          sparse-checkout: |
+            scripts/ci/billing_nightly.py
+            .github/actions/spare-issue-tokens/
           sparse-checkout-cone-mode: false
+
+      # Spare App tokens (each its own REST budget) for the gh calls below when the job token is rate limited
+      # (run 45794727111). Optional: an empty output leaves the job token alone.
+      - name: Mint spare tokens
+        id: spare
+        continue-on-error: true
+        uses: ./.github/actions/spare-issue-tokens
+        with:
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
       - name: Open, update or close the red-nightly issue; tell Slack when the state changes
         env:
+          GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           NEEDS: ${{ toJSON(needs) }}

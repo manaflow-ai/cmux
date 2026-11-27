@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 /// Finds diagnostic candidates for a held lock without granting process-control authority.
@@ -46,12 +50,17 @@ public struct CodexWriterProcessInspector: Sendable {
         for pid in processIDs().prefix(8192) where pid > 0 {
             guard !Task.isCancelled, uptime() < deadline else { break }
             guard let before = process(pid), holds(device: device, inode: inode, pid: pid, deadline: deadline) else { continue }
+            #if canImport(Darwin)
             var path = [CChar](repeating: 0, count: 4096)
             let length = path.withUnsafeMutableBytes { proc_pidpath(pid, $0.baseAddress, UInt32($0.count)) }
             guard length > 0, let after = process(pid),
                   before.pbi_start_tvsec == after.pbi_start_tvsec,
                   before.pbi_start_tvusec == after.pbi_start_tvusec else { continue }
             let rawName = path.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
+            #else
+            guard let rawName = LinuxProcFS.executablePath(pid), let after = process(pid),
+                  before.startTicks == after.startTicks else { continue }
+            #endif
             let safeName = String((rawName as NSString).lastPathComponent.unicodeScalars.filter {
                 CharacterSet.alphanumerics.contains($0) || " ._-".unicodeScalars.contains($0)
             })
@@ -63,6 +72,7 @@ public struct CodexWriterProcessInspector: Sendable {
         return candidates.sorted { $0.processID < $1.processID }
     }
 
+    #if canImport(Darwin)
     private func process(_ pid: Int32) -> proc_bsdinfo? {
         var info = proc_bsdinfo()
         let size = MemoryLayout<proc_bsdinfo>.stride
@@ -96,4 +106,25 @@ public struct CodexWriterProcessInspector: Sendable {
         }
         return bytes > 0 ? Array(pids.prefix(min(pids.count, Int(bytes) / MemoryLayout<Int32>.stride))) : []
     }
+    #else
+    // Linux: /proc stands in for libproc (see LinuxProcFS).
+    private func process(_ pid: Int32) -> LinuxProcessSnapshot? {
+        guard let info = LinuxProcFS.snapshot(pid), info.userID == getuid(), !info.isZombie else { return nil }
+        return info
+    }
+
+    private func holds(device: Int32, inode: UInt64, pid: Int32, deadline: TimeInterval) -> Bool {
+        for fd in LinuxProcFS.descriptors(pid) {
+            guard !Task.isCancelled, uptime() < deadline else { return false }
+            // The inspection stores st_dev truncated to Int32; compare the same way.
+            if let file = LinuxProcFS.descriptorFile(pid, fd),
+               Int32(truncatingIfNeeded: file.device) == device, file.inode == inode { return true }
+        }
+        return false
+    }
+
+    private static func userProcessIDs() -> [Int32] {
+        LinuxProcFS.userProcessIDs()
+    }
+    #endif
 }

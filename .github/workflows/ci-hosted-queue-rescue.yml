@@ -49,7 +49,7 @@ jobs:
       github.repository == 'manaflow-ai/cmux' &&
       contains(fromJSON('["failure","cancelled"]'), github.event.workflow_run.conclusion) &&
       contains(fromJSON('["pull_request","pull_request_target","issue_comment","merge_group"]'), github.event.workflow_run.event)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 5
     steps:
       - name: Mint the cmux-bot token
@@ -70,15 +70,30 @@ jobs:
       # The two reads go on the manaflow-glaeda-route App's own budget (GITHUB_TOKEN's ran
       # out on 2026-10-21). The re-run stays on GH_TOKEN: attempt 3 is routed by its
       # triggering actor being github-actions[bot] (ci-macos.yml).
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
       - name: Mint the glaeda-route token
         id: glaeda-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
@@ -101,7 +116,7 @@ jobs:
       - name: Rerun only a no-runner hosted queue timeout
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
+          READ_TOKEN: ${{ steps.glaeda-token.outputs.token || steps.cmux-bot-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           EVENT_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}

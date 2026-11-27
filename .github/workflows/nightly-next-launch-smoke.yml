@@ -79,7 +79,7 @@ jobs:
     # and a cache, which needs no Mac (it held a nightly mini's slot ~200 min a day, mostly in checkout). No
     # secrets and no environment: GITHUB_TOKEN reads only. A dispatch takes the same VM on its first attempt; a
     # pull request's run, or a re-run of a dispatch, takes Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 8
     permissions:
       actions: read # the in-flight read of this workflow's runs
@@ -93,7 +93,7 @@ jobs:
       checked: ${{ steps.seen.outputs.cache-hit == 'true' || steps.seen-hour.outputs.cache-hit == 'true' }}
       hour: ${{ steps.hour.outputs.hour }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
@@ -174,7 +174,7 @@ jobs:
       DMG_URL: ${{ needs.pick.outputs.url }}
       DMG_LENGTH: ${{ needs.pick.outputs.length }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
@@ -271,7 +271,7 @@ jobs:
       group: nightly-next-launch-crash-${{ needs.pick.outputs.build }}
       cancel-in-progress: false
     # A scheduled run's on the pick's one-job VM (cmux-gcp-nightly-jit-x64).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 20
     permissions:
       actions: write # dispatch nightly-next-rollback.yml
@@ -288,7 +288,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -302,7 +302,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
@@ -359,13 +359,44 @@ jobs:
           fi
 
       # Also when the dispatch failed: the issue then says the build may still be up.
+      # Its report outlives an exhausted GITHUB_TOKEN: spare App tokens, then the reset (runs 45548650589 and
+      # 45551813915 failed, and their report died on "API rate limit exceeded for installation"). Optional: a
+      # ref without these files reports with the job token alone.
+      - name: Check out the failure report tools
+        if: always()
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: .incident-report
+          sparse-checkout: |
+            /.github/actions/spare-issue-tokens/
+            /scripts/ci/gh-spare
+            /scripts/ci/incident_report.cjs
+          sparse-checkout-cone-mode: false
+      - name: Mint spare issue tokens
+        id: spare
+        if: always()
+        continue-on-error: true
+        uses: ./.incident-report/.github/actions/spare-issue-tokens
+        with:
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       - name: File the crash
         if: always()
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
+          GH_SPARE_WAIT_SECONDS: "300"  # after the rollback request, inside the job's 20 min
           ACTION: ${{ steps.rollback.outputs.action }}
           WHY: ${{ steps.rollback.outputs.why }}
         run: |
+          # gh through gh-spare: spare tokens, then the reset, when GitHub refuses one for its rate limit.
+          gh() { if [ -x "$GITHUB_WORKSPACE/.incident-report/scripts/ci/gh-spare" ]; then "$GITHUB_WORKSPACE/.incident-report/scripts/ci/gh-spare" "$@"; else command gh "$@"; fi; }
           set -euo pipefail
           title="nightly-next launch crash: build $BUILD"
           case "${ACTION:-failed}" in

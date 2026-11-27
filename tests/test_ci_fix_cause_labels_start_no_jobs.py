@@ -335,16 +335,84 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
 
     def test_merge_freeze_checks_only_on_freeze_ok(self):
         # Only freeze-ok changes the merge freeze verdict; any other label skips under another name, open or closed.
-        freeze = label_target_workflows()["merge-freeze.yml"]
+        # Into main merge-freeze.yml checks; into feat-cmux-next risk tier's evidence job checks (one runner per head),
+        # and merge-freeze.yml's own job only with vars.MERGE_FREEZE_OWN_RUNNER=1.
+        workflows = label_target_workflows()
+        freeze, risk = workflows["merge-freeze.yml"], workflows["risk-tier.yml"]
         for action in sorted(LABEL_ACTIONS):
             for state in ("open", "closed"):
-                context = event(action, "freeze-ok", state=state)
-                self.assertEqual(jobs_started(freeze, context), ["check"], (action, state))
-                self.assertEqual(job_name(freeze, "check", context), "merge freeze")
+                for own in (False, True):
+                    main = event(action, "freeze-ok", state=state, base="main")
+                    feat = event(action, "freeze-ok", state=state)
+                    if own:
+                        main["vars"]["MERGE_FREEZE_OWN_RUNNER"] = feat["vars"]["MERGE_FREEZE_OWN_RUNNER"] = "1"
+                    self.assertEqual(jobs_started(freeze, main), ["check"], (action, state, own))
+                    self.assertEqual(job_name(freeze, "check", main), "merge freeze")
+                    self.assertEqual(jobs_started(freeze, feat), ["check"] if own else [], (action, state, own))
+                    self.assertEqual(job_name(freeze, "check", feat),
+                                     "merge freeze" if own else "merge freeze (in risk evidence)")
+                    self.assertEqual(jobs_started(risk, feat), [] if own else ["evidence"], (action, state, own))
+                    self.assertEqual(job_name(risk, "evidence", feat),
+                                     "risk evidence label (ignored)" if own else "risk evidence")
                 for label in ("fix-cause:ci-config", "risk:normal", "area:ios"):
-                    context = event(action, label, state=state)
-                    self.assertEqual(jobs_started(freeze, context), [], (action, label, state))
-                    self.assertEqual(job_name(freeze, "check", context), "merge freeze label (ignored)")
+                    for base in ("main", "feat-cmux-next"):
+                        context = event(action, label, state=state, base=base)
+                        self.assertEqual(jobs_started(freeze, context), [], (action, label, state, base))
+                        self.assertEqual(job_name(freeze, "check", context), "merge freeze label (ignored)")
+
+    def test_merge_freeze_into_feat_cmux_next_starts_no_runner_of_its_own(self):
+        # GitHub runs main's copy for every pull request into feat-cmux-next; risk tier's evidence job already
+        # starts a runner on each head and posts the `merge freeze / merge freeze` status there.
+        workflows = label_target_workflows()
+        freeze, risk = workflows["merge-freeze.yml"], workflows["risk-tier.yml"]
+        for action in ("opened", "synchronize", "reopened", "ready_for_review"):
+            feat, main = event(action, "", state="open"), event(action, "", state="open", base="main")
+            self.assertEqual(jobs_started(freeze, feat), [], action)
+            self.assertEqual(job_name(freeze, "check", feat), "merge freeze (in risk evidence)")
+            self.assertEqual(jobs_started(risk, feat), ["evidence"], action)
+            self.assertEqual(jobs_started(freeze, main), ["check"], action)
+            feat["vars"]["MERGE_FREEZE_OWN_RUNNER"] = "1"
+            self.assertEqual(jobs_started(freeze, feat), ["check"], action)
+        steps = {s.get("name"): s for s in risk["jobs"]["evidence"]["steps"]}
+        status = steps["Check the pull request against open freezes (merge freeze status)"]
+        self.assertIn("merge_freeze.py", status["run"])
+        self.assertIn('context="merge freeze / merge freeze"', status["run"])
+        self.assertIs(status["continue-on-error"], True)
+        self.assertIn("!github.event.pull_request.draft", status["if"])
+        self.assertEqual(steps["Checkout the merge freeze checker from main"]["with"]["ref"], "refs/heads/main")  # full ref since #56905
+        self.assertEqual(risk["jobs"]["evidence"]["permissions"]["statuses"], "write")
+
+    def test_risk_tier_skips_a_title_only_edit(self):
+        # risk_tier.py reads the body and the base, never the title.
+        risk = label_target_workflows()["risk-tier.yml"]
+        for changes, runs in (({"title": {"from": "x"}}, False), ({}, False), ({"body": {"from": "x"}}, True),
+                              ({"base": {"ref": {"from": "main"}}}, True),
+                              ({"title": {"from": "x"}, "body": {"from": "y"}}, True)):
+            context = event("edited", "", state="open")
+            context["github"]["event"]["changes"] = changes
+            self.assertEqual(jobs_started(risk, context), ["evidence"] if runs else [], changes)
+            self.assertEqual(job_name(risk, "evidence", context),
+                             "risk evidence" if runs else "risk evidence title edit (ignored)")
+
+    def test_risk_tier_skips_a_review_bots_summary_edit(self):
+        # cubic-dev-ai and blacksmith-sh rewrite only their own summary of the description; an agent's or a
+        # person's body edit (a `Takes back #N:` line, a receipt) and any base change still grade.
+        risk = label_target_workflows()["risk-tier.yml"]
+        body, base = {"body": {"from": "x"}}, {"base": {"ref": {"from": "main"}}}
+        for sender, changes, runs in (("cubic-dev-ai[bot]", body, False), ("blacksmith-sh[bot]", body, False),
+                                      ("cubic-dev-ai[bot]", base, True), ("cmux-agents-lanes[bot]", body, True),
+                                      ("teamleaderleo", body, True), (None, body, True)):
+            context = event("edited", "", state="open")
+            context["github"]["event"]["changes"] = changes
+            if sender:
+                context["github"]["event"]["sender"] = {"login": sender}
+            self.assertEqual(jobs_started(risk, context), ["evidence"] if runs else [], (sender, changes))
+            self.assertEqual(job_name(risk, "evidence", context),
+                             "risk evidence" if runs else "risk evidence review bot edit (ignored)")
+        # A bot's push or label is not an edit: a push grades, as from anyone.
+        context = event("synchronize", "", state="open")
+        context["github"]["event"]["sender"] = {"login": "blacksmith-sh[bot]"}
+        self.assertEqual(jobs_started(risk, context), ["evidence"])
 
     def test_the_repository_has_label_target_workflows(self):
         # Guards the scan itself: an empty set would pass everything.

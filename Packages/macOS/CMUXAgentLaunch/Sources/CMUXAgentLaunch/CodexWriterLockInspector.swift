@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 /// Inspects Codex's cross-process writer lock without creating or removing files.
@@ -8,6 +12,24 @@ import Foundation
 public struct CodexWriterLockInspector: Sendable {
     /// Creates a stateless kernel lock inspector.
     public init() {}
+
+    /// `stat.st_dev` as the inspection stores it (`dev_t` is UInt64 on Linux).
+    private static func lockDevice(_ file: stat?) -> Int32? {
+        #if canImport(Darwin)
+        file?.st_dev
+        #else
+        file.map { Int32(truncatingIfNeeded: $0.st_dev) }
+        #endif
+    }
+
+    /// `stat.st_ino` as the inspection stores it.
+    private static func lockInode(_ file: stat?) -> UInt64? {
+        #if canImport(Darwin)
+        file?.st_ino
+        #else
+        file.map { UInt64($0.st_ino) }
+        #endif
+    }
 
     /// Probes an exact UUID thread under the supplied effective Codex home.
     ///
@@ -28,7 +50,7 @@ public struct CodexWriterLockInspector: Sendable {
         func result(_ state: CodexWriterLockInspection.State, _ file: stat? = nil) -> CodexWriterLockInspection {
             CodexWriterLockInspection(
                 state: state, codexHome: home, lockPath: path,
-                device: file?.st_dev, inode: file?.st_ino
+                device: Self.lockDevice(file), inode: Self.lockInode(file)
             )
         }
         guard threadID != nil, codexHome.hasPrefix("/"), !codexHome.utf8.contains(0) else {

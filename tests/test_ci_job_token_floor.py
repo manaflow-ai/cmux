@@ -34,9 +34,12 @@ EXEMPT = {
     "nightly.yml:pick-classic-sign-runner": NIGHTLY_MAIN,
     "nightly.yml:prepare-nightly-variant": NIGHTLY_MAIN,
     "nightly.yml:publish-nightly": NIGHTLY_MAIN,
-    "actions-artifact-prune.yml:prune": "its own floor: stops at 50 calls left, deletes paced 0.4 s apart",
-    "ci-cla-quota-rerun.yml:cla-quota-rerun": "reads only the free /rate_limit on github.token (RATE_TOKEN); "
-                                              "re-runs go on the glaeda-route App",
+    "storage-maintenance.yml:r2-binaries": "job route permits only the daily 07:53 schedule or manual dispatch; not hourly",
+    "storage-maintenance.yml:pr-media": "job route permits only the Monday 06:41 schedule or manual dispatch; not hourly",
+    "storage-maintenance.yml:actions-artifacts": "its own floor: stops at 50 calls left, deletes paced 0.4 s apart",
+    "ci-cla-quota-rerun.yml:cla-quota-rerun": "its own floor: the free /rate_limit on github.token (RATE_TOKEN) "
+                                              "first; reads and re-runs on it only above FLOOR_MIN while the "
+                                              "glaeda-route App's hour is spent",
     "ci-hosted-backlog-rescue.yml:backlog": "gated on cmux-bot's floor (app_spend_mark --floor pass); "
                                             "hosted_light_rescue.py reads the workflow token only above POOL_RESERVE",
     "ci-owned-pool-rescue.yml:rescue": "hosted_light_rescue.py reads the workflow token only above POOL_RESERVE",

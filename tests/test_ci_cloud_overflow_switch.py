@@ -21,6 +21,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # probed sizes stall), then its own bounded CI_TRUSTED_RUNNER pick: ephemeral labels only, never a probed size.
 REPAIR_LABEL = "cmux-gcp-repair-jit-x64"
 SECRET_JIT_LABEL = "cmux-gcp-secret-jit-x64"
+# The selector written out as the label it resolves to today (CI_REPAIR_SKIP_FLEET=1, CI_TRUSTED_RUNNER outside its
+# list): no variable can move the watch at all.
+WATCH_FROZEN = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}"
 WATCH_SELECTOR = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
     "vars.CI_REPAIR_SKIP_FLEET != '1' && '" + REPAIR_LABEL + "' || contains(fromJSON('"
@@ -188,7 +191,7 @@ class SigningDerivationTests(unittest.TestCase):
     def test_the_switch_and_checker_read_feat_cmux_next(self) -> None:
         for name in ("ci-cloud-overflow-probe.yml", "ci-repo-variables.yml"):
             text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
-            self.assertIn("ref: feat-cmux-next", text, name)
+            self.assertIn("ref: refs/heads/feat-cmux-next", text, name)
             self.assertIn(f"{signing.DIRS_ENV}: .signing-workflows/feat-cmux-next/.github/workflows", text, name)
 
     def test_a_derived_variable_never_gets_an_owned_failover(self) -> None:
@@ -312,7 +315,8 @@ class SigningVariableTests(unittest.TestCase):
         # Read from the workflows: this tree's signing jobs, and the feat-cmux-next one the fixture stands in for.
         derived = signing.signing_variables()
         self.assertIn("MACOS_RUNNER_26", derived)
-        self.assertIn("LINUX_RUNNER", derived)
+        # main's signing jobs name their Linux runner as a literal now, so LINUX_RUNNER is no signing variable here.
+        self.assertNotIn("LINUX_RUNNER", derived)
         self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED", derived)
 
     def test_no_failover_names_a_reused_machine_for_a_signing_variable(self) -> None:
@@ -326,7 +330,6 @@ class SigningVariableTests(unittest.TestCase):
                         self.assertTrue(signing.ephemeral_label(values[name]), (pin, override, name, values[name]))
                 if override:
                     self.assertTrue(any("MACOS_RUNNER_26" in p and "ignored" in p for p in problems))
-                    self.assertTrue(any("signing jobs run on LINUX_RUNNER" in p for p in problems))
         self.assertNotIn("MACOS_RUNNER_26", switch.failover_values(PIN, "")[0])
 
     def test_no_override_moves_macos_runner_26(self) -> None:
@@ -364,7 +367,10 @@ class SigningVariableTests(unittest.TestCase):
                               "Linux_Runner": {"before": None, "after": "cmux-linux-owned"}}}
         resumes = switch.plan_resume(record, {})
         self.assertEqual(len(resumes), 2)
-        self.assertTrue(all(item.skipped for item in resumes))
+        # No signing job on main reads LINUX_RUNNER any more (its runs-on values are written out), so only the
+        # macOS key is held back.
+        self.assertEqual({item.name.upper(): bool(item.skipped) for item in resumes},
+                         {"MACOS_RUNNER_26": True, "LINUX_RUNNER": False})
         self.assertFalse(signing.allowed_value("macos_runner_26", "glaeda-std-xcode-26.6"))
 
     def test_restore_still_puts_back_a_recorded_value(self) -> None:
@@ -1233,6 +1239,12 @@ class WorkflowTests(unittest.TestCase):
         # so the hosted light rescue it carries ran every 20-25 minutes (cmuxterm-hq#6671).
         runs_on = re.search(r"name: Watch the probe and switch overflow\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
         runs_on, _, comment = runs_on.partition(" # ")
+        if runs_on == WATCH_FROZEN:
+            # Written out: one ephemeral label, never a probed size, read from no variable.
+            self.assertTrue(comment.startswith("ephemeral-required:"), comment)
+            self.assertEqual(runner_label_errors(runs_on), [])
+            self.assertNotIn("blacksmith-2vcpu-ubuntu-2404", switch.PROBE_LABELS)
+            return
         self.assertEqual(runs_on, WATCH_SELECTOR)
         self.assertTrue(comment.startswith("ephemeral-required:"), comment)
         self.assertEqual(runner_label_errors(runs_on), [])
@@ -1272,7 +1284,7 @@ class WorkflowTests(unittest.TestCase):
         for name, job in yaml.safe_load(self.text)["jobs"].items():
             if "secrets." not in json.dumps(job) and "create-github-app-token" not in json.dumps(job):
                 continue
-            if job["runs-on"] == WATCH_SELECTOR:
+            if job["runs-on"] in (WATCH_SELECTOR, WATCH_FROZEN):
                 continue
             self.assertNotIn("${{", job["runs-on"], name)
             self.assertTrue(job["runs-on"].startswith(switch.CLOUD_PREFIX), name)
@@ -1288,7 +1300,8 @@ class WorkflowTests(unittest.TestCase):
                 moved.append(f"{path.name}:{name}")
                 self.assertNotIn("secrets.", json.dumps(job), f"{path.name}:{name}")
                 self.assertNotIn("create-github-app-token", json.dumps(job), f"{path.name}:{name}")
-        self.assertIn("nightly-next-feed-watch.yml:watch", moved)
+        # nightly-next-feed-watch's watch, its last reader on main, names its runner as a literal now, so `moved`
+        # may be empty.
 
     def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
         # The switch's variable writes and record delete are separate calls; a group keyed by anything a
@@ -1307,11 +1320,15 @@ class WorkflowTests(unittest.TestCase):
     def test_never_reads_a_lane_switch(self) -> None:
         # The switch never reads or changes a lane switch. One exception, read-only and outside the switch: the
         # pools step hands CI_OWNED_POOL_SLOTS to expected_wait.py, which judges an owned family's expected wait
-        # by its slots (cmuxterm-hq#16113 step 3) and never writes it.
-        [pools] = [step for step in yaml.safe_load(self.text)["jobs"]["watch"]["steps"] if step.get("id") == "pools"]
+        # by its slots (cmuxterm-hq#16113 step 3) and never writes it. The fast watch after it reruns that same pass
+        # (runner_pools.fast_watch()), so it hands the same value on.
+        steps = yaml.safe_load(self.text)["jobs"]["watch"]["steps"]
+        [pools] = [step for step in steps if step.get("id") == "pools"]
+        [watch] = [step for step in steps if "--fast-watch" in str(step.get("run", ""))]
         self.assertEqual(pools["env"].get("CI_OWNED_POOL_SLOTS"), "${{ vars.CI_OWNED_POOL_SLOTS }}")
+        self.assertEqual(watch["env"].get("CI_OWNED_POOL_SLOTS"), "${{ vars.CI_OWNED_POOL_SLOTS }}")
         slots_line = "          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}"
-        self.assertEqual(self.text.splitlines().count(slots_line), 1)
+        self.assertEqual(self.text.splitlines().count(slots_line), 2)
         code = "\n".join(line for line in self.text.splitlines()
                          if not line.lstrip().startswith("#") and line != slots_line)
         for name in LANE_SWITCHES:
@@ -1468,8 +1485,11 @@ class ReadTokenTests(unittest.TestCase):
         [pools] = [s for s in steps if s.get("id") == "pools"]
         self.assertEqual(pools["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"], "${{ steps.runners-token.outputs.token }}")
         self.assertLess(steps.index(mint), steps.index(pools))
+        # The fast watch reruns the pools step's pass (runner_pools.fast_watch()) with the same read.
+        [watch] = [s for s in steps if "--fast-watch" in str(s.get("run", ""))]
+        self.assertEqual(watch["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"], pools["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"])
         for other in steps:
-            if other is not pools:
+            if other is not pools and other is not watch:
                 self.assertNotIn("runners-token", json.dumps(other.get("env", {})), other.get("name"))
         [spill] = [s for s in steps if s.get("id") == "spill-tooling"]
         self.assertIn("f95bc766b1fc840ab8817e4d9bb61348a2084b07", spill["with"]["ref"])
