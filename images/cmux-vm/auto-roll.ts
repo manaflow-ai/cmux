@@ -491,9 +491,9 @@ function behindTip(pin: string, pinned: string): string {
  * whose lookup fails still bakes its image change on the pinned build, as before.
  *
  * latest/ tracks main, so when it names a main build that is not on TIP this falls back to TIP's own published builds
- * (publishedOnTip). 2026-11-27: latest named main's 3bb7a878 (#53905) from 23:33Z on, every push roll logged "latest
- * build 3bb7a878c526 is not on HEAD" and kept 348e8a8a, the dispatch roll that would have re-pinned (45920175696) was
- * replaced by a push run in the concurrency group, and NOW's cloud-lock row sat at 167 min (bound 120).
+ * (publishedOnTip). 2026-11-27: latest named main's 3bb7a878 (#53905), every push roll logged "latest build
+ * 3bb7a878c526 is not on HEAD" and kept 348e8a8a, the dispatch roll that would have re-pinned (45920175696) was
+ * cancelled with zero jobs and replaced by a push run in the concurrency group, and the lock sat at 348e8a8a from 00:27Z.
  */
 function newestPublished(pinned: string, tip: string, lock: string): { pin: string; why: string } {
   const keep = (why: string) => ({ pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (${why})` });
