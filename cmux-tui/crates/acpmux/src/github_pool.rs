@@ -74,7 +74,7 @@ pub fn pool_of<S: AsRef<str>>(args: &[S]) -> Pool {
     let words: Vec<&str> = args.iter().map(AsRef::as_ref).collect();
     match words.first().copied() {
         Some("api") => {
-            let path = api_path(&words[1..]);
+            let path = api_path(words.get(1..).unwrap_or_default());
             let path = path.trim_start_matches('/');
             if path == "graphql" {
                 Pool::Graphql
