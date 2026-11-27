@@ -501,6 +501,11 @@ class Evidence(unittest.TestCase):
         rung, gcp = "cmux-freestyle-linux-x64", "cmux-fleet-linux-x64"
         pools = runner_pools.load_pools()
         fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
+        # Read the leaders from runner-pools.json, not a copied list: cmux#59644 put GCP back in front of the 8 vCPU
+        # pools after this test named its own FREESTYLE_LED and GCP_LED, which left both names undefined on main.
+        FREESTYLE_LED = [name for name, pool in pools.items() if pool["members"][0] == rung]
+        GCP_LED = [name for name, pool in pools.items() if pool["members"][0] == gcp]
+        self.assertTrue(GCP_LED)
         for oldest, moves in ((runner_pools.OWNED_FREESTYLE_STALL_MINUTES - 0.5, False),
                               (runner_pools.OWNED_FREESTYLE_STALL_MINUTES, True), (3, True)):
             with self.subTest(oldest=oldest):

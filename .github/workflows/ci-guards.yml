@@ -1681,6 +1681,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_github_release_publication.py
 
+      - name: Validate the nightly publish guard reads the release through gh with retries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_publication_guard_release_read.py
+
       - name: Validate publish gh calls go out as the release App first, github.token as fallback
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_app_token.py
