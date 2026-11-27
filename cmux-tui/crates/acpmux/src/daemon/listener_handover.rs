@@ -339,13 +339,31 @@ pub(crate) fn usable(listener: UnixListener, socket: &Path) -> Result<UnixListen
     Ok(listener)
 }
 
-/// A received unix listener serves `socket` only when it is bound at that path.
+/// A received unix listener serves `socket` only when it is bound at that path, or at the staged
+/// name `server/unix_bind.rs` binds before it moves the socket into place (`<dir>/.b<hex>/s`, the
+/// name the kernel keeps reporting). Before, every listener the daemon bound that way was refused
+/// here, so a take-over bound again while the old daemon's handed queue was still open, met it
+/// ("another acpmux daemon owns ..."), and exited after the old daemon had stopped: an update's
+/// swap left no daemon.
 pub(crate) fn serves_path(listener: &UnixListener, socket: &Path) -> bool {
-    listener
-        .local_addr()
-        .ok()
-        .and_then(|a| a.as_pathname().map(Path::to_path_buf))
-        .is_some_and(|bound| super::same_path(&bound, socket))
+    let Some(bound) =
+        listener.local_addr().ok().and_then(|a| a.as_pathname().map(Path::to_path_buf))
+    else {
+        return false;
+    };
+    super::same_path(&bound, socket) || staged_for(&bound, socket)
+}
+
+/// Whether `bound` is `server/unix_bind.rs`'s staging name for `socket`: `s` in a `.b<hex>`
+/// folder beside it.
+fn staged_for(bound: &Path, socket: &Path) -> bool {
+    let (Some(stage), Some(dir)) = (bound.parent(), socket.parent()) else { return false };
+    let stage_name = stage.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    bound.file_name() == Some(std::ffi::OsStr::new("s"))
+        && stage_name
+            .strip_prefix(".b")
+            .is_some_and(|hex| !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+        && stage.parent().is_some_and(|p| super::same_path(p, dir))
 }
 
 #[cfg(test)]
