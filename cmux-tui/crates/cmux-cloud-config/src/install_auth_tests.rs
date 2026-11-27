@@ -416,6 +416,31 @@ fn an_invalid_public_key_is_refused() {
 }
 
 #[test]
+fn public_jwk_checks_point_shape_and_preserves_both_coordinates() {
+    for len in 0..=130 {
+        if len != 65 {
+            assert_eq!(public_jwk(&vec![0x04; len]), Err(Error::InvalidPublicKey));
+        }
+    }
+    for prefix in 0..=255u8 {
+        if prefix != 0x04 {
+            let mut point = vec![prefix];
+            point.extend(1..=64u8);
+            assert_eq!(public_jwk(&point), Err(Error::InvalidPublicKey));
+        }
+    }
+    let point = STANDARD.decode(x963()).unwrap();
+    assert_eq!(
+        public_jwk(&point).unwrap(),
+        json!({
+            "kty": "EC", "crv": "P-256",
+            "x": URL_SAFE_NO_PAD.encode((1..=32u8).collect::<Vec<_>>()),
+            "y": URL_SAFE_NO_PAD.encode((33..=64u8).collect::<Vec<_>>()),
+        })
+    );
+}
+
+#[test]
 fn display_names_are_cut_to_80_utf16_units_on_a_character() {
     assert_eq!(display_name("", "iPhone"), "iPhone");
     assert_eq!(display_name("Leo's Mac", "Mac"), "Leo's Mac");
