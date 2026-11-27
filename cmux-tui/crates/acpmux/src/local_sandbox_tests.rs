@@ -188,26 +188,32 @@ fn only_an_effective_trusted_setting_can_select_claudes_sandbox() {
     std::fs::create_dir_all(home.join(".claude")).unwrap();
     let mut env = BTreeMap::new();
     env.insert("HOME".into(), home.display().to_string());
-    assert!(!claude_sandbox_on(&[], &cwd, &env));
+    assert!(!claude_sandbox_on(&[], &cwd, &env).unwrap());
     let on = r#"{"sandbox":{"enabled":true}}"#;
-    assert!(claude_sandbox_on(&s(&["--settings", on]), &cwd, &env));
-    assert!(claude_sandbox_on(&[format!("--settings={on}")], &cwd, &env));
+    assert!(claude_sandbox_on(&s(&["--settings", on]), &cwd, &env).unwrap());
+    assert!(claude_sandbox_on(&[format!("--settings={on}")], &cwd, &env).unwrap());
     // Claude applies the last --settings value, so an earlier true cannot disable our wrapper.
-    assert!(!claude_sandbox_on(
-        &s(&["--settings", on, "--settings", r#"{"sandbox":{"enabled":false}}"#]),
-        &cwd,
-        &env
-    ));
-    assert!(claude_sandbox_on(
-        &s(&["--settings", r#"{"sandbox":{"enabled":false}}"#, "--settings", on]),
-        &cwd,
-        &env
-    ));
+    assert!(
+        !claude_sandbox_on(
+            &s(&["--settings", on, "--settings", r#"{"sandbox":{"enabled":false}}"#]),
+            &cwd,
+            &env
+        )
+        .unwrap()
+    );
+    assert!(
+        claude_sandbox_on(
+            &s(&["--settings", r#"{"sandbox":{"enabled":false}}"#, "--settings", on]),
+            &cwd,
+            &env
+        )
+        .unwrap()
+    );
     std::fs::write(cwd.join(".claude/settings.local.json"), on).unwrap();
-    assert!(!claude_sandbox_on(&[], &cwd, &env));
+    assert!(claude_sandbox_on(&[], &cwd, &env).is_err());
     std::fs::remove_file(cwd.join(".claude/settings.local.json")).unwrap();
     std::fs::write(home.join(".claude/settings.json"), on).unwrap();
-    assert!(claude_sandbox_on(&[], &cwd, &env));
+    assert!(claude_sandbox_on(&[], &cwd, &env).unwrap());
 
     // CLAUDE_CONFIG_DIR replaces the default ~/.claude home and must be inspected too.
     let configured = t.path().join("configured-claude");
@@ -215,23 +221,26 @@ fn only_an_effective_trusted_setting_can_select_claudes_sandbox() {
     std::fs::write(configured.join("settings.json"), on).unwrap();
     env.insert("CLAUDE_CONFIG_DIR".into(), configured.display().to_string());
     std::fs::remove_file(home.join(".claude/settings.json")).unwrap();
-    assert!(claude_sandbox_on(&[], &cwd, &env));
+    assert!(claude_sandbox_on(&[], &cwd, &env).unwrap());
 
     // An explicit source list excludes user settings while retaining project settings.
     std::fs::write(configured.join("settings.json"), on).unwrap();
-    assert!(!claude_sandbox_on(&s(&["--setting-sources", "project,local"]), &cwd, &env));
+    assert!(!claude_sandbox_on(&s(&["--setting-sources", "project,local"]), &cwd, &env).unwrap());
     std::fs::write(cwd.join(".claude/settings.json"), on).unwrap();
-    assert!(!claude_sandbox_on(&s(&["--setting-sources", "project"]), &cwd, &env));
+    assert!(claude_sandbox_on(&s(&["--setting-sources", "project"]), &cwd, &env).is_err());
     let off = r#"{"sandbox":{"enabled":false}}"#;
     std::fs::write(cwd.join(".claude/settings.json"), off).unwrap();
-    assert!(!claude_sandbox_on(&[], &cwd, &env));
-    assert!(claude_sandbox_on(&s(&["--setting-sources=user"]), &cwd, &env));
+    assert!(!claude_sandbox_on(&[], &cwd, &env).unwrap());
+    assert!(claude_sandbox_on(&s(&["--setting-sources=user"]), &cwd, &env).unwrap());
 
     std::fs::write(cwd.join("launch.json"), on).unwrap();
     let flags = s(&["--settings", on, "--settings=launch.json"]);
-    assert!(!claude_sandbox_on(&flags, &cwd, &env));
-    assert!(claude_sandbox_on(&s(&["--settings", on, "--", "--settings=launch.json"]), &cwd, &env));
-    assert!(!claude_sandbox_on(&s(&["--settings", on, "--settings"]), &cwd, &env));
+    assert!(claude_sandbox_on(&flags, &cwd, &env).is_err());
+    assert!(
+        claude_sandbox_on(&s(&["--settings", on, "--", "--settings=launch.json"]), &cwd, &env)
+            .unwrap()
+    );
+    assert!(claude_sandbox_on(&s(&["--settings", on, "--settings"]), &cwd, &env).is_err());
 }
 
 #[test]
@@ -246,20 +255,76 @@ fn claude_settings_fail_closed_and_managed_policy_cannot_be_filtered_out() {
     std::fs::write(config.join("settings.json"), on).unwrap();
     for invalid in ["{", "[]", r#"{"sandbox":{"enabled":"true"}}"#] {
         std::fs::write(cwd.join(".claude/settings.local.json"), invalid).unwrap();
-        assert!(!claude_sandbox_on(&[], &cwd, &env), "invalid source: {invalid}");
+        assert!(claude_sandbox_on(&[], &cwd, &env).is_err(), "invalid source: {invalid}");
     }
     std::fs::remove_file(cwd.join(".claude/settings.local.json")).unwrap();
     // A directory at the settings path is unreadable as a file, even when CI runs as root.
     std::fs::create_dir(cwd.join(".claude/settings.local.json")).unwrap();
-    assert!(!claude_sandbox_on(&[], &cwd, &env));
+    assert!(claude_sandbox_on(&[], &cwd, &env).is_err());
     std::fs::remove_dir(cwd.join(".claude/settings.local.json")).unwrap();
-    assert!(claude_sandbox_on(&s(&["--settings", "{}"]), &cwd, &env));
-    assert!(!claude_sandbox_on(&s(&["--settings", "{"]), &cwd, &env));
+    assert!(claude_sandbox_on(&s(&["--settings", "{}"]), &cwd, &env).unwrap());
+    assert!(claude_sandbox_on(&s(&["--settings", "{"]), &cwd, &env).is_err());
     std::fs::write(config.join("remote-settings.json"), r#"{"sandbox":{"enabled":false}}"#)
         .unwrap();
-    assert!(!claude_sandbox_on(&s(&["--setting-sources", "user", "--settings", on]), &cwd, &env));
+    assert!(
+        !claude_sandbox_on(&s(&["--setting-sources", "user", "--settings", on]), &cwd, &env)
+            .unwrap()
+    );
     std::fs::write(config.join("remote-settings.json"), "{").unwrap();
-    assert!(!claude_sandbox_on(&s(&["--setting-sources", "user", "--settings", on]), &cwd, &env));
+    assert!(
+        claude_sandbox_on(&s(&["--setting-sources", "user", "--settings", on]), &cwd, &env)
+            .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn ambiguous_settings_report_a_launch_error_before_spawning_either_sandbox() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    let config = t.path().join("config");
+    std::fs::create_dir_all(cwd.join(".claude")).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), config.display().to_string())]);
+    let on = r#"{"sandbox":{"enabled":true}}"#;
+    std::fs::write(config.join("settings.json"), on).unwrap();
+    let local = cwd.join(".claude/settings.local.json");
+    std::fs::write(&local, "{").unwrap();
+    let error = required_prefix("/bin/sh", &[], &cwd, &env).unwrap_err().to_string();
+    assert!(error.contains(local.to_str().unwrap()) && error.contains("Correct"), "{error}");
+    std::fs::remove_file(&local).unwrap();
+    let flags = s(&["--settings", on, "--settings", "missing.json"]);
+    let error = required_prefix("/bin/sh", &flags, &cwd, &env).unwrap_err().to_string();
+    assert!(error.contains("--settings") && error.contains("readable"), "{error}");
+
+    // A valid managed override still takes precedence over the explicit and user values.
+    let managed = config.join("remote-settings.json");
+    std::fs::write(&managed, r#"{"sandbox":{"enabled":false}}"#).unwrap();
+    let args = s(&["--settings", on]);
+    assert!(required_prefix("/bin/sh", &args, &cwd, &env).unwrap().is_some());
+    std::fs::write(&managed, on).unwrap();
+    assert!(required_prefix("/bin/sh", &[], &cwd, &env).unwrap().is_none());
+    // Project exclusions would weaken that managed delegation. Stop with the offending source.
+    std::fs::write(&local, r#"{"sandbox":{"excludedCommands":["echo"]}}"#).unwrap();
+    let error = required_prefix("/bin/sh", &[], &cwd, &env).unwrap_err().to_string();
+    assert!(error.contains(local.to_str().unwrap()) && error.contains("Remove"), "{error}");
+}
+
+#[test]
+fn managed_plist_sandbox_values_must_agree() {
+    let path = Path::new("com.anthropic.claudecode.plist");
+    for (flat, expected) in [("true", Some(true)), ("false", None)] {
+        let plist = format!(
+            r#"<?xml version="1.0"?><plist version="1.0"><dict>
+                <key>sandbox.enabled</key><{flat}/>
+                <key>sandbox</key><dict><key>enabled</key><true/></dict>
+            </dict></plist>"#
+        );
+        assert_eq!(
+            ClaudeSandboxSetting::from_file(path, plist.as_bytes()).and_then(|value| value.enabled),
+            expected
+        );
+    }
 }
 
 #[test]
@@ -386,7 +451,7 @@ fn settings_inside_project_roots_cannot_grant_exceptions_through_other_sources()
         for name in ["settings.json", "remote-settings.json"] {
             let file = dir.join(name);
             std::fs::write(&file, setting).unwrap();
-            assert!(!claude_sandbox_on(&args, &cwd, &env));
+            assert!(claude_sandbox_on(&args, &cwd, &env).is_err());
             assert_eq!(api_endpoint(&args, &cwd, &env), None);
             std::fs::remove_file(file).unwrap();
         }
@@ -416,7 +481,7 @@ fn turning_a_settings_file_into_inline_json_preserves_its_source() {
         crate::agent_launch_choices::apply_claude(&mut argv, &cwd, &choices);
         let args = &argv[1..];
         assert!(last_settings(args).unwrap().unwrap().starts_with('{'));
-        assert_eq!(claude_sandbox_on(args, &cwd, &env), trusted);
+        assert_eq!(claude_sandbox_on(args, &cwd, &env).ok(), trusted.then_some(true));
         assert_eq!(api_endpoint(args, &cwd, &env).is_some(), trusted);
         assert!(policy_files(args, &cwd, &env).contains(&file));
     }
@@ -435,9 +500,9 @@ fn merged_project_sandbox_options_cannot_weaken_a_trusted_delegation() {
     for name in ["settings.json", "settings.local.json"] {
         let path = cwd.join(".claude").join(name);
         std::fs::write(&path, r#"{"sandbox":{"excludedCommands":["echo"]}}"#).unwrap();
-        assert!(!claude_sandbox_on(&[], &cwd, &env));
-        assert!(!claude_sandbox_on(&s(&["--settings", on]), &cwd, &env));
-        assert!(claude_sandbox_on(&s(&["--setting-sources=user"]), &cwd, &env));
+        assert!(claude_sandbox_on(&[], &cwd, &env).is_err());
+        assert!(claude_sandbox_on(&s(&["--settings", on]), &cwd, &env).is_err());
+        assert!(claude_sandbox_on(&s(&["--setting-sources=user"]), &cwd, &env).unwrap());
         std::fs::remove_file(path).unwrap();
     }
 }
