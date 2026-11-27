@@ -5,7 +5,13 @@
 // (bench/hostLoad.ts contention factor past 1.5) a miss warns and exits 0.
 // Run: cd webviews && bun bench/model-picker-search.bench.ts
 import { ModelSearchIndex } from "../src/agent-session/acpmux/modelSearch";
-import { effortWords, fitsQuery, matchingModels, parseQuery } from "../src/agent-session/acpmux/modelQuery";
+import {
+  effortWords,
+  fitsQuery,
+  matchingModels,
+  parseQuery,
+  type QueryModel,
+} from "../src/agent-session/acpmux/modelQuery";
 import { contentionFactor, probe } from "./hostLoad";
 
 const started = performance.now();
@@ -65,7 +71,7 @@ function measure(routerModels: number) {
     const all = entries.flatMap((entry) => entry.models.map((model) => ({ model, entry })));
     const q = parseQuery("m", efforts);
     const t = performance.now();
-    matchingModels(all as never, q, ({ model, entry }: never, p: never) => fitsQuery(model, (entry as Entry).name, p));
+    matchingModels(all, q, ({ model, entry }, p) => fitsQuery(model as QueryModel, entry.name, p));
     full.push(performance.now() - t);
   }
   const total = entries.reduce((s, e) => s + e.models.length, 0);
