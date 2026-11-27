@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45993856776",
+  "recorded_at": "2026-11-27T12:11:43Z",
+  "reason": "cmux-tui 58845c13653b changes the image's cmux-tui (pinned f47cc565fce5)",
+  "dry_run": false,
+  "cmux_tui": "58845c13653be9b63ad70332fb1be793946f1f28",
+  "fixes": [
+    {
+      "sha": "6114af3e53e7d0aee47cdb7e85f719c7713d68ce",
+      "mergedAt": "2026-11-27T02:25:58-08:00",
+      "subject": "acpmux: an idle-closed peer link is not a dead machine"
+    },
+    {
+      "sha": "7d6b82c0e977c8abd696df7fd4e6fb8df1321279",
+      "mergedAt": "2026-11-27T02:25:58-08:00",
+      "subject": "acpmux: failing test, an idle-closed peer link is not a dead machine"
+    },
+    {
+      "sha": "4b2109c678cfbd415dd023e05cb3fbd0aa8f4b90",
+      "mergedAt": "2026-11-27T10:22:15Z",
+      "subject": "acpmux: push host health on the mesh heartbeat so placement never reads hub-only hosts as unknown (#56556)"
+    },
+    {
+      "sha": "813f61e5bda789b3eda5be9e60cd4c260e859e94",
+      "mergedAt": "2026-11-27T10:17:20Z",
+      "subject": "acpmux: each stream record names the one before it (prev); the pane reads a lost range back instead of needing a reload (#58740)"
+    },
+    {
+      "sha": "3228801ccec434be73faae2946b42a441fec7995",
+      "mergedAt": "2026-11-27T10:16:39Z",
+      "subject": "cmux-tui: fix clippy in machine join (unused BufRead, SignedIn alias) (#60076)"
+    },
+    {
+      "sha": "93cf42e6ad415a23a17fd1344d30044604d7631c",
+      "mergedAt": "2026-11-27T10:15:58Z",
+      "subject": "acpmux: done chats archive to cloud history and leave the live list (session lifecycle) (#60417)"
+    },
+    {
+      "sha": "1ff52da8978540f832b333d6c9408d0d33063eb2",
+      "mergedAt": "2026-11-27T10:13:58Z",
+      "subject": "Classify customization contracts in the resource-v2 checker (#61081)"
+    },
+    {
+      "sha": "2ce126023f05b1e16e5032658550023b1ae28087",
+      "mergedAt": "2026-11-27T10:13:46Z",
+      "subject": "cloud start-chat: a machine given up on names the last stage seen (creating, provisioning, running, not listed) (#60051)"
+    },
+    {
+      "sha": "afae8a7cb8001459553dda1635726ceecd5892c6",
+      "mergedAt": "2026-11-27T10:13:41Z",
+      "subject": "test: a partial-line write shows while its program still runs (#3079) (#60678)"
+    },
+    {
+      "sha": "e42fbc3393972bfba3153ebda2fdd77620b7f759",
+      "mergedAt": "2026-11-27T10:12:56Z",
+      "subject": "acpmux test fakes: treat the agent card as hidden first-turn context (#60997)"
+    },
+    {
+      "sha": "c124a4cd14c36c5642c883941612e836854286c1",
+      "mergedAt": "2026-11-27T02:05:37-08:00",
+      "subject": "cmux-next: move the sidebar item info rules (built-in looks, fallback, hidden items, avatar initials) to Rust (step A) (#57759)"
+    },
+    {
+      "sha": "821435562d99365cbbca4803e2bff74399bb71ca",
+      "mergedAt": "2026-11-27T02:05:28-08:00",
+      "subject": "acpmux: run the app's own cmux CLI, never classic's on PATH (#58019)"
+    },
+    {
+      "sha": "a627f9365c41f55873f1ec3b911a397f52d3d117",
+      "mergedAt": "2026-11-27T10:04:02Z",
+      "subject": "acpmux pool: key warm agents by the machine kind (cloud journey stub chat hit the team route) (#61006)"
+    },
+    {
+      "sha": "ed04fb531cf475769f4c6d49fc8db148ee525744",
+      "mergedAt": "2026-11-27T09:58:14Z",
+      "subject": "cmux-config: keymap presets, digit scheme, classic shortcut import as keymap.* ops (settings step A) (#57129)"
+    },
+    {
+      "sha": "06ce65ec5ae31593bad73c29899f41c7e9711d2b",
+      "mergedAt": "2026-11-27T09:57:47Z",
+      "subject": "cmux token help: say \"interface\", not the legacy resource word \"surface\" (#59748)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T12:11:43Z",
+    "snapshot_id": "sh-0443b4e81872478f8ab0831fb27b3d2f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45993856776): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5af1e1c79eb2d8d13695218acf39f4f895211823",
+    "image": "cloud-native-auto-58845c13-45993856776-1",
+    "revision": "ci-45993856776-1",
+    "at": "2026-11-27T12:11:43Z"
+  },
+  "rolled_back": false
+}
