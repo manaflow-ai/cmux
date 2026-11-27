@@ -171,11 +171,11 @@ fn lower(global: &GlobalArgs, change: LowerChange) -> i32 {
 
 /// `share off`: on a joined Mac, the share host's own device (the one that serves shares with
 /// the app closed, cmuxterm-hq docs/design/remote-screen-share-zero-touch.md Z4); elsewhere
-/// cmux Remote's worker or the app, as before.
+/// the agent's ticket or cmux Remote's worker or the app, as before (`share_off_agent`).
 fn share_off(global: &GlobalArgs) -> i32 {
     crate::acp::configure_home();
     match share_off_result(acpmux::share_host::share_off_here()) {
-        None => lower(global, LowerChange::ShareOff),
+        None => share_off_agent(global),
         Some(Ok(value)) => super::wire::print_local_success(&value, global.output),
         Some(Err(error)) => super::wire::print_local_error(&error, global.output, 1),
     }
@@ -340,9 +340,10 @@ fn share_device(global: &GlobalArgs, device: &str) -> i32 {
     }
 }
 
-/// `share off`: the app turns it off as the agent's change when it takes the agent's ticket
-/// (`remote_host_agent::share_off`); otherwise exactly as before (`LowerChange::ShareOff`).
-fn share_off(global: &GlobalArgs) -> i32 {
+/// `share off` with no share host here: the app turns it off as the agent's change when it takes
+/// the agent's ticket (`remote_host_agent::share_off`); otherwise exactly as before
+/// (`LowerChange::ShareOff`).
+fn share_off_agent(global: &GlobalArgs) -> i32 {
     agent::share_off(
         || daemon_value(global, &agent::ticket_request("unshare", None, &agent::this_agent())),
         |params| super::mcp::agent_app(global, "remote.confirm", params, CONFIRM_TIMEOUT, None),
