@@ -301,7 +301,9 @@ fn worktree(
         Err("its folder is gone".to_string())
     } else if memo && crate::walk_memo::is_open() {
         let now = now_ms();
-        match crate::walk_memo::facts(&entry.path, now, |f| signature(&entry, common_dir, &f.git_dir)) {
+        match crate::walk_memo::facts(&entry.path, now, |f| {
+            signature(&entry, common_dir, &f.git_dir)
+        }) {
             // Whether its owner still runs is asked every time.
             Some(facts) => Ok(Facts { owner: owner(&facts.git_dir), ..facts }),
             None => {

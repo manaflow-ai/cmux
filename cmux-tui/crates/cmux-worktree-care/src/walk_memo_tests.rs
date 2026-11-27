@@ -3,7 +3,9 @@ use crate::store::care_tests::scratch;
 use std::time::{Duration, Instant};
 
 fn measure(root: &Path, now: u64) -> Sizes {
-    sizes(root, &[], now, || crate::disk::sizes(root, &[], Instant::now() + Duration::from_secs(10)))
+    sizes(root, &[], now, || {
+        crate::disk::sizes(root, &[], Instant::now() + Duration::from_secs(10))
+    })
 }
 
 #[test]

@@ -19,9 +19,9 @@
 //! Only the thread of a pass that opened the memo (`open`) uses it; everything else walks
 //! and reads as before.
 
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::cell::{Cell, RefCell};
 
 use serde::{Deserialize, Serialize};
 
@@ -148,7 +148,9 @@ pub fn open(dir: &Path) {
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Memo>(&bytes).ok())
         .unwrap_or_default();
-    MEMO.with(|m| *m.borrow_mut() = Some(Open { dir: dir.to_path_buf(), memo, budget: REWALK_BUDGET }));
+    MEMO.with(|m| {
+        *m.borrow_mut() = Some(Open { dir: dir.to_path_buf(), memo, budget: REWALK_BUDGET })
+    });
 }
 
 /// Writes the memo back (entries not seen for a week dropped) and closes it.
@@ -203,7 +205,11 @@ pub(crate) fn sizes(
             return None;
         }
         entry.seen = now;
-        Some(Sizes { total: entry.total, parts: entry.parts.iter().cloned().collect(), partial: false })
+        Some(Sizes {
+            total: entry.total,
+            parts: entry.parts.iter().cloned().collect(),
+            partial: false,
+        })
     });
     if let Some(sizes) = reused {
         count(|c| c.sizes_reused += 1);

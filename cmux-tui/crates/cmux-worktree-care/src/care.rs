@@ -738,15 +738,12 @@ mod tests {
     fn whole(home: &Path) -> Config {
         let mut config = config(home, false);
         config.only_families = Vec::new();
-        config.off = caches::families(&caches::Layout {
-            home,
-            worktree_roots: &[],
-            clone_roots: &[],
-        })
-        .iter()
-        .map(|f| f.name.to_string())
-        .filter(|name| name != "xcode-derived-data")
-        .collect();
+        config.off =
+            caches::families(&caches::Layout { home, worktree_roots: &[], clone_roots: &[] })
+                .iter()
+                .map(|f| f.name.to_string())
+                .filter(|name| name != "xcode-derived-data")
+                .collect();
         config
     }
 
@@ -764,7 +761,9 @@ mod tests {
         let shown = status(&home, &config.store, &Default::default()).unwrap();
         let last = shown.last.expect("the pass was recorded");
         assert_eq!(last.reclaimable(), report.reclaimable);
-        assert!(last.families().iter().any(|f| f.name == "xcode-derived-data" && f.reclaimable >= 8192));
+        assert!(
+            last.families().iter().any(|f| f.name == "xcode-derived-data" && f.reclaimable >= 8192)
+        );
         assert_eq!(crate::walk_memo::take_cost(), crate::walk_memo::Cost::default());
 
         // The next pass measures nothing again: the memo answers.

@@ -106,7 +106,9 @@ pub fn sizes(root: &Path, parts: &[PathBuf], deadline: Instant) -> Sizes {
 /// (`walk_memo`): a pass measures again only what outlived its time to
 /// live, within its walk budget.
 pub fn sizes_memo(root: &Path, parts: &[PathBuf], deadline: Instant) -> Sizes {
-    crate::walk_memo::sizes(root, parts, crate::inventory::now_ms(), || sizes(root, parts, deadline))
+    crate::walk_memo::sizes(root, parts, crate::inventory::now_ms(), || {
+        sizes(root, parts, deadline)
+    })
 }
 
 #[cfg(unix)]
