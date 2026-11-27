@@ -124,7 +124,7 @@ describe("built-in rules: command shapes anyone runs", () => {
     ["docker compose up -d", "Starting containers", "docker"],
     ["ssh -o BatchMode=yes dev@build-host 'cd ~/app && cargo test -p acpmux'", "On build-host: Testing acpmux", "ssh"],
     ["ssh mini-3 'tail -f /var/log/x.log'", "On mini-3: tail", "ssh"],
-    ["ssh -N mini-3", "Connecting to mini-3", "ssh"],
+    ["ssh -N mini-3", "SSH to mini-3", "ssh"],
     // A setup step's substitution is work: it stays named before the rule's words (#34679).
     ["A=$(touch marker); bun test", "touch marker · Running tests", "js"],
     [

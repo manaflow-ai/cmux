@@ -172,6 +172,7 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStart.stage.machine": "Starting your Cloud machine",
   "cloudStart.stage.clone": "Copying your project",
   "cloudStart.stage.setup": "Running your setup script",
+  "cloudStart.eta.longer": "taking longer than usual",
   "cloudStartup.leftOnMac": "{count} files stayed on this Mac",
   "cloudStartup.leftOnMac#one": "{count} file stayed on this Mac",
 };
@@ -341,5 +342,30 @@ export function quietStage(
     ...(since !== undefined ? { since } : {}),
     step: counted.indexOf(current) + 1,
     steps: counted.length,
+  };
+}
+
+/// How long an agent usually takes to start on a Cloud machine before its line says the start is
+/// taking longer than usual.
+export const AGENT_START_SLOW_MS = 30_000;
+
+/// The line a Cloud chat's first prompt shows on the machine's own chat page while that agent
+/// starts: the same "Starting Claude Code" and clock the Mac's start view ended on,
+/// never a bare "Thinking" (Leo, 2026-11-24: "what would a new user be seeing here?"). Past
+/// `AGENT_START_SLOW_MS` the usual wait gives way to "taking longer than usual".
+export function agentStartStage(
+  agent: string,
+  since: number | undefined,
+  now: number,
+  t: Translate = defaultTranslate,
+): QuietStage {
+  const slow = since !== undefined && now - since >= AGENT_START_SLOW_MS;
+  return {
+    id: "harness",
+    label: t("cloudStartup.harnessStarting", { harness: agent }),
+    ...(slow ? { detail: t("cloudStart.eta.longer") } : {}),
+    since,
+    step: 1,
+    steps: 1,
   };
 }
