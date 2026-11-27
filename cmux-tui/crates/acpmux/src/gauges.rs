@@ -38,6 +38,21 @@ struct Phase {
     at_ms: u64,
     /// Its length; None while it runs. A mark is a phase of 0 ms.
     ms: Option<u64>,
+    /// TEMP probe: VmHWM MB at start and at end.
+    hwm: (u64, u64),
+}
+
+/// TEMP probe: the process's resident high-water mark in MB.
+fn hwm_mb() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("VmHWM:"))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|k| k.parse::<u64>().ok())
+        })
+        .map_or(0, |kb| kb / 1024)
 }
 
 /// A running phase: its length is recorded when this drops.
@@ -53,6 +68,7 @@ impl Drop for PhaseGuard {
         let mut phases = self.gauges.phases.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(phase) = phases.get_mut(self.index) {
             phase.ms = Some(ms);
+            phase.hwm.1 = hwm_mb();
         }
     }
 }
@@ -73,7 +89,12 @@ impl Gauges {
         if phases.len() >= PHASES {
             return PhaseGuard { gauges: self, index: usize::MAX, started };
         }
-        phases.push(Phase { name, at_ms: millis(started - self.born), ms: None });
+        phases.push(Phase {
+            name,
+            at_ms: millis(started - self.born),
+            ms: None,
+            hwm: (hwm_mb(), 0),
+        });
         PhaseGuard { gauges: self, index: phases.len() - 1, started }
     }
 
@@ -83,14 +104,19 @@ impl Gauges {
         if phases.len() >= PHASES || phases.iter().any(|p| p.name == name) {
             return;
         }
-        phases.push(Phase { name, at_ms: millis(self.born.elapsed()), ms: Some(0) });
+        phases.push(Phase {
+            name,
+            at_ms: millis(self.born.elapsed()),
+            ms: Some(0),
+            hwm: (hwm_mb(), 0),
+        });
     }
 
     /// `gauges` in `_acpmux/status`, but for the connections' queues, which the server adds.
     pub fn status(&self) -> Value {
         let phases: Vec<Value> = {
             let phases = self.phases.lock().unwrap_or_else(PoisonError::into_inner);
-            phases.iter().map(|p| json!({"name": p.name, "atMs": p.at_ms, "ms": p.ms})).collect()
+            phases.iter().map(|p| json!({"name": p.name, "atMs": p.at_ms, "ms": p.ms, "hwm": [p.hwm.0, p.hwm.1]})).collect()
         };
         json!({
             "uptimeMs": millis(self.born.elapsed()),

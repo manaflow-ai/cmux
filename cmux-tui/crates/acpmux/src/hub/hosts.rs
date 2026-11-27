@@ -120,6 +120,10 @@ pub(super) struct OpenWork {
     /// previous controller stopped. Recovered from its logged `compaction`
     /// updates so Stop keeps the prompt-first path after a restart.
     compacting: bool,
+    /// The chat's process table as the adoption checkpoint keeps it (`journal.rs`
+    /// `keep_processes`): the adoption rebuilds the table from it (`recover_work`).
+    #[serde(skip)]
+    pub(super) processes: Option<super::processes::SavedProcesses>,
 }
 
 /// What the host records say (`Hub::read_host_records`).
@@ -761,6 +765,7 @@ impl Hub {
             return Ok(());
         }
         let of = incarnation.clone();
+        let _probe = crate::gauges::global().phase("TEMP adopt: seq+subagents+turn");
         let (resume_after, subagents, turn_open) = self
             .read_whole_log(session, move |hub, s| {
                 (hub.last_host_seq(s, &of), hub.subagents_from_log(s, &of), hub.log_turn_open(s))
@@ -768,12 +773,14 @@ impl Hub {
             .await?;
         // The subagents the host still runs, before its first replayed line reaches the tap:
         // a child's line is tagged with its session from the first one (`work_below.rs`).
+        drop(_probe);
         self.seed_subagents(session, subagents);
         // So is the turn its log has open: the replay's model work is that turn's, not one the
         // person did not start, until recovery below rebuilds it (`background_turn.rs`).
         let _adopted_turn = self.hold_adopted_turn(session, turn_open);
         let tap = self.session_tap(session);
         let caller_token = record.caller_token.clone();
+        let _probe = crate::gauges::global().phase("TEMP adopt: attach");
         let attached = ChildAgent::attach_hosted(
             &session.meta().harness,
             record,
@@ -805,6 +812,7 @@ impl Hub {
                 return Ok(());
             }
         };
+        drop(_probe);
         // Its replay is not known to be in the log until its end is learned (below).
         child.mark_replay_unknown();
         // The owner's Cloud credential it was launched on, which no daemon restart keeps: read
@@ -847,8 +855,10 @@ impl Hub {
         let stalls = std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some();
         #[cfg(not(debug_assertions))]
         let stalls = false;
+        let _probe = crate::gauges::global().phase("TEMP adopt: replay");
         let replayed =
             !stalls && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        drop(_probe);
         if !replayed {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
@@ -902,9 +912,12 @@ impl Hub {
             return Ok(());
         }
         let of = incarnation.clone();
+        let _probe = crate::gauges::global().phase("TEMP adopt: recovery read");
         let work = self
             .read_whole_log(session, move |hub, s| hub.recovery_work(s, &of, resume_after))
             .await?;
+        drop(_probe);
+        let _probe = crate::gauges::global().phase("TEMP adopt: recover+meta");
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
@@ -957,11 +970,15 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         incarnation: &str,
-        work: OpenWork,
+        mut work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
         session.compacting.store(work.compacting, Ordering::SeqCst);
-        self.recover_processes(session);
+        {
+            let _p = crate::gauges::global().phase("TEMP rec: recover_processes");
+            self.recover_processes(session, work.processes.take());
+        }
+        let _pt = crate::gauges::global().phase("TEMP rec: rest of recover_work");
         // A carried turn the restart cut before its prompt went out (or before it started):
         // the agent runs it still, and it goes on (`carried_turn.rs`).
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone()
@@ -1793,6 +1810,8 @@ impl Hub {
             started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
+        // Its first adoption resumes from a checkpoint, not the whole log (`checkpoint.rs`).
+        self.prime_adoption_checkpoint(session, &record.incarnation);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and
         // none of its reports waits (`full_access_bound.rs`).
         session.floor.left_host_read.store(false, Ordering::SeqCst);
