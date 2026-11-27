@@ -3296,9 +3296,10 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
-        // What its harness spent, read after a turn (`usage_view.rs`), is bookkeeping: it never
-        // keeps the chat's agent awake.
-        if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
+        // Bookkeeping never keeps the chat's agent awake (`idle.rs`): what its harness spent,
+        // read after a turn (`usage_view.rs`), a restarted daemon taking its host back, and a
+        // read mark (`seen.rs`), which a look writes whoever looked.
+        if !idle::bookkeeping(&record.dir, &record.kind, &record.msg) {
             self.touch(session);
         }
         // A stub goes in without the record's recovery mark (`restore_writer.rs`).
