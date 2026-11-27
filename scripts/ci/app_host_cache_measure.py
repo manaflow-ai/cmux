@@ -144,7 +144,9 @@ def setup(root: Path, state: Path, env: dict[str, str]) -> None:
         ["git", "rev-parse", "HEAD:ghostty"], cwd=root, text=True).strip()
     xcode_env = state / "xcode.env"
     xcode_env.touch()
-    command([str(root / "scripts/select-ci-xcode.sh")], root, dict(env, GITHUB_ENV=str(xcode_env)))
+    # Pin only this workload; never switch the worker's global Xcode default.
+    command([str(root / "scripts/select-ci-xcode.sh")], root,
+            dict(env, GITHUB_ENV=str(xcode_env), CMUX_CI_SKIP_XCODE_SELECT="1"))
     for line in xcode_env.read_text().splitlines():
         if line.startswith("DEVELOPER_DIR="):
             env["DEVELOPER_DIR"] = line.split("=", 1)[1]
