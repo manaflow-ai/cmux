@@ -228,7 +228,13 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("state", choices=("pending", "success", "failure", "error"))
     st.add_argument("description")
     sub.add_parser("verdict", help="post decide()'s state from PIPELINE, RUN, VERDICT, SUMMARY and FAST_GATES")
+    sub.add_parser("decide", help="print decide()'s state and description, tab-separated (the router's proof gate reads it)")
     args = parser.parse_args(argv)
+    if args.cmd == "decide":
+        state, desc = decide(os.environ.get("PIPELINE", ""), os.environ.get("RUN", ""), os.environ.get("VERDICT", ""),
+                             os.environ.get("SUMMARY", ""), os.environ.get("FAST_GATES", ""))
+        print(f"{state}\t{desc}")
+        return 0
     if args.cmd == "verdict":
         args.cmd = "status"
         args.state, args.description = decide(os.environ.get("PIPELINE", ""), os.environ.get("RUN", ""),

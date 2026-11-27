@@ -258,6 +258,15 @@ class DecideTest(unittest.TestCase):
                      ("success", "true", "")):
             self.assertLessEqual(len(self.decide(*args)[1]), 140)
 
+    def test_the_decide_command_prints_state_and_description(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k not in ("TOKENS", "REPO", "SHA", "GITHUB_OUTPUT")}
+        env.update(PIPELINE="skipped", FAST_GATES="success", RUN="", VERDICT="", SUMMARY="")
+        out = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/ci/ios_fast_verdict.py"), "decide"],
+                             env=env, capture_output=True, text=True, check=True).stdout
+        state, desc = out.rstrip("\n").split("\t")
+        self.assertEqual(state, "error")
+        self.assertIn("skipped", desc)
+
     def test_the_verdict_command_without_a_token_passes(self) -> None:
         env = {k: v for k, v in os.environ.items() if k not in ("TOKENS", "REPO", "SHA", "GITHUB_OUTPUT")}
         env.update(PIPELINE="skipped", FAST_GATES="failure")
@@ -384,7 +393,8 @@ class WorkflowTest(unittest.TestCase):
         post = next(s for s in router["route"]["steps"] if s.get("name") == "Post the iOS fast verdict status")
         self.assertIn("ios_fast_verdict.py status", post["run"])
         verdict = status["steps"][-1]
-        self.assertIn("ios_fast_verdict.py verdict", verdict["run"])
+        self.assertIn("ios_fast_verdict.py decide", verdict["run"])
+        self.assertIn("proof_record.py gate", verdict["run"])
         self.assertEqual(verdict["env"]["PIPELINE"], "${{ needs.pipeline.result }}")
         self.assertEqual(verdict["env"]["FAST_GATES"], "${{ needs.fast-gates.result }}")
 
