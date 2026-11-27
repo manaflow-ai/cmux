@@ -393,6 +393,9 @@ const BACKGROUND_LABELS: Record<(typeof BACKGROUNDS)[number], string> = {
   light: "Background: light picture",
   dark: "Background: dark picture",
   busy: "Background: busy picture",
+  "photo-light": "Background: light photo (snowy dunes)",
+  "photo-dark": "Background: dark photo (city at night)",
+  "photo-busy": "Background: busy photo (market stall)",
 };
 
 /** The title area tone axis (env.ts TITLE_AREA_TONES): the chrome in the content's colour, or a shade apart. */
