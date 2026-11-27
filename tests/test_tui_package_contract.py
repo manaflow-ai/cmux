@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import platform
+import shlex
 import shutil
 import signal
 import stat
@@ -20,6 +21,7 @@ VALIDATOR = ROOT / "cmux-tui/dist/scripts/validate_package_contract.py"
 PYPI_BUILDER = ROOT / "cmux-tui/dist/scripts/package_pypi.py"
 
 VERSION = "1.2.3"
+AUTOCLOUD_HELP = "An agent chat on any machine\nCommands:\n  login"
 NPM_TARGETS = {
     "cmux-tui-darwin-arm64": ("darwin", "arm64"),
     "cmux-tui-darwin-x64": ("darwin", "x64"),
@@ -68,9 +70,20 @@ def host_npm_target() -> str:
     raise RuntimeError(f"unsupported test host: {system}-{machine}")
 
 
-def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
+def write_executable(
+    path: Path, output: str = "cmux-tui 1.2.3", *, autocloud_help: str = AUTOCLOUD_HELP
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"#!/bin/sh\nprintf '%s\\n' '{output}'\n")
+    # The installed launcher checks both the release and AutoCloud help (#55901).
+    # Keep the responses separate so a missing command cannot pass as a version line.
+    path.write_text(
+        "#!/bin/sh\n"
+        'if [ "$#" -eq 2 ] && [ "$1" = autocloud ] && [ "$2" = --help ]; then\n'
+        f"  printf '%s\\n' {shlex.quote(autocloud_help)}\n"
+        "  exit 0\n"
+        "fi\n"
+        f"printf '%s\\n' {shlex.quote(output)}\n"
+    )
     path.chmod(0o755)
 
 
@@ -199,7 +212,12 @@ def write_ssh_manifests(root: Path) -> None:
         path.write_text(json.dumps(manifest) + "\n")
 
 
-def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None:
+def make_npm_packages(
+    root: Path,
+    tui_version_output: str | None = None,
+    *,
+    autocloud_help: str = AUTOCLOUD_HELP,
+) -> None:
     root.mkdir()
     for name, (os_name, cpu) in NPM_TARGETS.items():
         package = root / name
@@ -228,6 +246,7 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
         write_executable(
             package / "bin/cmux-tui",
             tui_version_output or f"cmux {VERSION} ({BUILD_COMMIT}; {name})",
+            autocloud_help=autocloud_help,
         )
         write_executable(package / "bin/cmux-tui-hook", "cmux-tui-hook 1.2.3")
         write_executable(package / "bin/cmux-agent-screen-detection", "detector")
@@ -372,6 +391,32 @@ def test_npm_contract_packs_and_installs_matching_platform(tmp_path: Path) -> No
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_npm_contract_rejects_missing_autocloud_help(tmp_path: Path) -> None:
+    """A valid release must still fail if its installed command lacks either help marker."""
+    for index, (help_output, missing) in enumerate(
+        (
+            (f"cmux {VERSION}", "An agent chat on any machine"),
+            ("An agent chat on any machine", "login"),
+            ("Commands:\n  login", "An agent chat on any machine"),
+        )
+    ):
+        packages = tmp_path / f"npm-packages-{index}"
+        make_npm_packages(packages, autocloud_help=help_output)
+
+        result = run_validator(
+            "--npm-packages",
+            str(packages),
+            "--version",
+            VERSION,
+            "--install-npm-package",
+            host_npm_target(),
+        )
+
+        assert result.returncode != 0, result.stdout
+        assert "cmux autocloud --help" in result.stderr, result.stderr
+        assert f"'{missing}'" in result.stderr, result.stderr
 
 
 def test_npm_relay_contract_installs_and_runs_isolated_smoke(tmp_path: Path) -> None:
@@ -848,6 +893,7 @@ def test_pypi_contract_rejects_non_executable_hook(tmp_path: Path) -> None:
 def main() -> None:
     tests = (
         test_npm_contract_packs_and_installs_matching_platform,
+        test_npm_contract_rejects_missing_autocloud_help,
         test_npm_relay_contract_installs_and_runs_isolated_smoke,
         lambda _directory: test_host_npm_target_rejects_unknown_architecture(),
         test_npm_contract_rejects_a_binary_that_reports_another_release,
