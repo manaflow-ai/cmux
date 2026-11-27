@@ -335,7 +335,7 @@ public final class NativePopupHost {
 /// A popup panel that takes the keyboard (a text field, a picker): a ``NativePopupHost`` closes it
 /// when it loses the keys, or, shown without them (the app was not active), when another window
 /// of the app takes them (``ActiveAppKeyPanel``).
-open class NativePopupPanel: ActiveAppKeyPanel {
+open class NativePopupPanel: ActiveAppKeyPanel, FullScreenFollowingChild {
     /// Set by the host: the panel lost the keys (false), or, shown without them, another window of
     /// the app took them (true).
     var onLostKeys: ((_ elsewhere: Bool) -> Void)?

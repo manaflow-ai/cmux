@@ -77,3 +77,6 @@ final class PalettePanel: ActiveAppKeyPanel {
         // Esc is handled by keyHandler; swallow the responder-chain fallback.
     }
 }
+
+/// A child panel of the main window: it joins a full screen Space only with that window (``FullScreenFollowingChild``).
+extension PalettePanel: FullScreenFollowingChild {}
