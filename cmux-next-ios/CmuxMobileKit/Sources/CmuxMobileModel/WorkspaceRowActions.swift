@@ -62,8 +62,8 @@ extension WorkspaceCreator {
     /// unpinned rows other than Home and itself, in the Mac's sidebar order. Nil when it is alone.
     nonisolated static func edgeAnchor(_ top: Bool, of workspace: Workspace, in workspaces: [Workspace]) -> Workspace? {
         #if os(iOS)
-        // Rust's workspace_edge_anchor (workspace_row_actions.rs) says which row and why.
-        guard let id = workspaceEdgeAnchor(top: top, workspaceId: workspace.id, macId: workspace.macID,
+        // Rust's workspace_new_row_anchor (workspace_row_actions.rs) says which row and why.
+        guard let id = workspaceNewRowAnchor(top: top, workspaceId: workspace.id, macId: workspace.macID,
                                            rows: workspaces.map { $0.rowFacts(pending: false) }) else { return nil }
         return workspaces.first { $0.id == id }
         #else
