@@ -966,9 +966,9 @@ mod sidebar_face_tests;
 pub mod auto_archive;
 pub mod auto_archive_ledger;
 pub mod chief_panel;
-pub mod closing_panes;
 pub mod divider_insert;
 pub mod dock_model;
+pub mod drop_overlay_geometry;
 pub mod drop_rules;
 pub mod floating_panes;
 
@@ -993,6 +993,7 @@ pub mod sidebar_drag_geometry;
 pub mod sidebar_drop;
 pub mod sidebar_edits;
 pub mod sidebar_face;
+pub mod sidebar_feeds;
 pub mod sidebar_hover_card_rules;
 pub mod sidebar_item_info;
 pub mod sidebar_launch_order;
@@ -1004,6 +1005,7 @@ pub mod sidebar_row;
 pub mod sidebar_row_layout;
 pub mod sidebar_sections;
 pub mod sidebar_session_tree;
+pub mod tab_drag_rules;
 pub mod window_registry;
 #[cfg(test)]
 mod window_registry_tests;
