@@ -29,7 +29,6 @@ import {
   layoutConversation,
   type PlacedLayout,
   type RowHeights,
-  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -767,6 +766,7 @@ function TranscriptView({
   jumpButton = false,
   needsYou,
   dock,
+  stackOutside = false,
   queueWithdrawn,
   queueIds,
   queuedTail,
@@ -853,6 +853,11 @@ function TranscriptView({
   /// it, the scrollbar's track to the pane's bottom as in the Claude and Codex apps, and its end sits
   /// above it. Its height is room under the last row, followed as it changes before the frame paints.
   dock?: HTMLElement | null;
+  /// The bottom stack sits under the scroller, in the pane's flow (composerPlace.experiment.ts
+  /// `outside`): the composer's growth shrinks the viewport. While the chat follows the latest, each
+  /// resize of the viewport puts its end back on the last row before the frame paints; scrolled up,
+  /// the offset stays, so the reader's top row holds.
+  stackOutside?: boolean;
   /// Prompts withdrawn from the queue (snapshot `queueWithdrawn`): no row comes for one whose card
   /// leaves the stack, so the view keeps no room for it.
   queueWithdrawn?: readonly string[];
@@ -1659,6 +1664,12 @@ function TranscriptView({
   withdrawn.current = withdrawnSet;
   const dockRef = useRef(dock);
   dockRef.current = dock;
+  const stackOutsideRef = useRef(stackOutside);
+  stackOutsideRef.current = stackOutside;
+  /// Puts a following view's end back on the last row after the viewport resized (set below, where
+  /// the layout it reads is in scope).
+  const holdEndRef = useRef<(node: HTMLElement) => void>(() => {});
+  const holdEndOnViewResize = (node: HTMLElement) => holdEndRef.current(node);
   // The wheel over the stack's parts scrolls nothing (wheelPassThrough.ts installDockWheelHold).
   useEffect(() => (dock ? installDockWheelHold(dock) : undefined), [dock]);
   const queueSession = useRef(sessionId);
@@ -3188,6 +3199,7 @@ function TranscriptView({
     const observer = new ResizeObserver(() => {
       noteQueue();
       let stepped = false;
+      const viewWas = box.height;
       runThen(
         () =>
           flushSync(() =>
@@ -3199,6 +3211,7 @@ function TranscriptView({
         // Even if the pass threw: widthStep cleared the settle's timer, and only this places it again.
         () => servedWidth(stepped),
       );
+      if (stackOutsideRef.current && node.clientHeight !== viewWas) holdEndOnViewResize(node);
     });
     observer.observe(node);
     measure(false);
@@ -5849,6 +5862,17 @@ function TranscriptView({
   const anchorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
+  // The stack outside the scroller (`stackOutside`): the composer's growth resizes the viewport, in
+  // the frame's own rendering steps, after a forced layout may already have clamped the offset to a
+  // shorter field's end. While the chat follows, the end goes back on the last row here, before the
+  // frame paints: the bottom edge holds on every frame of the field's motion. Scrolled up, nothing
+  // writes: the offset is the reader's top row, and it holds.
+  holdEndRef.current = (node) => {
+    if (!followingRef.current || jumpTarget.current !== undefined || foldAnchor.current) return;
+    const latest = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
+    const { top } = settleFollowBottomAt(node, latest);
+    scrolledTo.current = { top, atLatest: true };
+  };
   /// Lets the room above the loaded rows go when they are a tail shorter than the view and the view is
   /// within a viewport of their top with no page there yet (`roomGone` above). Runs after each
   /// placement and on every scroll event.
@@ -6298,11 +6322,15 @@ function TranscriptView({
     // also what the jsdom behavior tests dispatch without a wheel event, so do not classify every
     // programmatic-looking event as layout work.
     // A held disclosure (foldAnchor) keeps the view where it is, not at the latest row.
+    // With the stack outside the scroller (`stackOutside`), a composer line that goes gives the
+    // viewport its height back, and the browser clamps the offset to the scroller's end of that
+    // moment, a whole line up when a forced layout saw the field's end height before its motion drew
+    // it. No input moved it, so the chat still follows: pinned changes on the reader's input alone.
     const layoutDriven =
       followingRef.current &&
       programmatic &&
       !foldAnchor.current &&
-      Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
+      (stackOutsideRef.current || Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX);
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
       // The offset it settled on, read before its origin's style write (never after it).
@@ -7097,6 +7125,8 @@ function TranscriptView({
   /// An older page asked for has not settled yet; and the check that follows one that brought nothing.
   const olderAsking = useRef(false);
   const olderRecheck = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /// The session whose rows have painted once, after which it reads older history ahead (`checkOlder`).
+  const olderPaintedFor = useRef<string | undefined>(undefined);
   /// The latest ask: only its settling re-arms the check, so a late answer to an earlier one (a
   /// chat switched away from) cannot cancel the recheck of the ask that followed it.
   const olderAsk = useRef(0);
@@ -7137,6 +7167,11 @@ function TranscriptView({
       olderLoadRequested.current = undefined;
       return;
     }
+    // A chat's open reads ahead only after its newest rows have painted (`olderPaintedFor`): the older page's fold is
+    // one long commit (about 150 ms on a god chat), and asked from the open's first commit it landed before the newest
+    // message's frame in 4 of 7 opens (goal chat-attach-p95: god p50 352 ms against the small chat's 222). Rows that
+    // do not reach the view's top still ask at once, so the band above them is not left blank.
+    if (olderPaintedFor.current !== sessionKey && node.scrollHeight - (layout.origin ?? 0) > node.clientHeight) return;
     // Measured from the loaded rows' top, under the room held for the history above them.
     const ahead = olderAhead.ahead(node.clientHeight * OLDER_AHEAD_VIEWPORTS, node.clientHeight, performance.now());
     // A chat that shed older records while the view follows declines the read (direct.ts `loadOlder`); a chat opened
@@ -7193,6 +7228,21 @@ function TranscriptView({
   useEffect(() => {
     checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
+  useEffect(() => {
+    if (!hasRows || olderPaintedFor.current === sessionKey) return;
+    // A frame callback runs before the frame paints; a task queued from it runs after.
+    let task: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      task = setTimeout(() => {
+        olderPaintedFor.current = sessionKey;
+        checkOlderNow.current();
+      }, 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(task);
+    };
+  }, [hasRows, sessionKey]);
   useEffect(() => () => clearTimeout(olderRecheck.current), []);
   // Newer history a reader scrolled far up let go of (canLoadNewer) pages back in as the view nears the rows' end,
   // as older history does at their top: within OLDER_AHEAD_VIEWPORTS of it, once per page (`newerLoadKey`), and
