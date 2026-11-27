@@ -127,6 +127,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.claim_fence_retry_write_failed",
     "cloud.connect.read",
     "cloud.create.adopted",
+    "cloud.create.approved",
     "cloud.create.attach_after_bind",
     "cloud.create.image_refollowed",
     "cloud.create.submit",
@@ -459,7 +460,9 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
                  "mode": TOKEN, "attempt": INT, "total_ms": INT, "path": TOKEN, "fallback": TOKEN, "behind": INT,
-                 "paused_for_ms": INT, "why": TOKEN, "exit": INT}
+                 "paused_for_ms": INT, "why": TOKEN, "exit": INT,
+                 # cloud.approval.run's split (cmux-platform#2295): queued, re-admission, delivery and the run itself.
+                 "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
@@ -467,12 +470,14 @@ PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running")
 
 # The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
 # ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
-TRACE_MSGS = frozenset({"cloud.create.submit", "cloud.create.trace", "cloud.start.submit", "cloud.start.trace"})
+# cloud.approval.run (cmux-platform#2295) carries an approved create's value.timings steps the same way.
+TRACE_MSGS = frozenset({"cloud.create.submit", "cloud.create.trace", "cloud.start.submit", "cloud.start.trace",
+                        "cloud.approval.run"})
 TRACE_STEPS = frozenset({
     "adopt", "answer", "attach_network", "bind_committed", "bind_file", "bind_wait", "budget", "carrier", "claim_prep",
     "driver", "edge", "ensure", "entitlements", "images", "needs_rule", "network", "plan_read", "power",
-    "prepare_network", "principal", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
-    "stale_submit", "submit",
+    "prepare_network", "principal", "provider", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
+    "stale_submit", "submit", "vm_api",
 })
 
 
