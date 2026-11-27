@@ -156,5 +156,5 @@ fn only_new_messages_a_day_past_their_deadline_expire() {
         seen,
         surge,
     ];
-    assert_eq!(expired_ids(&items, now), ["past"]);
+    assert_eq!(expired_ids(&items, now, Item::due), ["past"]);
 }
