@@ -990,9 +990,9 @@ pub mod sidebar_list_rules;
 pub mod sidebar_pending_records;
 pub mod sidebar_row;
 pub mod sidebar_row_layout;
+pub mod sidebar_sections;
+pub mod sidebar_session_tree;
 pub mod window_registry;
 #[cfg(test)]
 mod window_registry_tests;
-pub mod sidebar_sections;
-pub mod sidebar_session_tree;
 pub mod workspace_port_links;
