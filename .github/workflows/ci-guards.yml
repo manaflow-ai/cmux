@@ -1076,7 +1076,9 @@ jobs:
 
       - name: Validate the cmux-next web-bundle cache contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_cmux_next_web_bundle_cache.py
+        run: |
+          python3 tests/test_cmux_next_web_bundle_cache.py
+          python3 tests/test_cmux_next_web_bundle_sparse.py
 
       - name: Validate the nightly builder
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1397,6 +1399,12 @@ jobs:
       - name: Validate every workflow guard is wired
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
+
+      - name: Validate workflow apt installs survive a mirror that is mid-sync
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        # "E: Failed to fetch ... File has unexpected size ... Mirror sync in progress?" was 10 false reds in 24 h
+        # (2026-11-27); scripts/ci/apt-retry.sh and the LEGACY ratchet in this test are the fix.
+        run: python3 tests/test_ci_workflow_apt_mirror_sync.py
 
       - name: Validate every non-cone sparse checkout keeps .gitmodules
         if: ${{ !cancelled() && matrix.group == 'ci' }}
