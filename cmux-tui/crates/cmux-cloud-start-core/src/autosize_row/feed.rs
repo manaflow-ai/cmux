@@ -68,14 +68,12 @@ impl Feed {
     /// resend or a wire version this build does not draw).
     pub fn add(&mut self, event: &Event, viewer: Option<&str>) -> bool {
         let Some(next) = row(event, viewer) else { return false };
-        let at = match self.records.iter().position(|r| r.record == event.record) {
-            Some(at) => at,
-            None => {
-                self.records.push(Record { record: event.record.clone(), ..Record::default() });
-                self.records.len() - 1
-            }
+        if !self.records.iter().any(|r| r.record == event.record) {
+            self.records.push(Record { record: event.record.clone(), ..Record::default() });
+        }
+        let Some(record) = self.records.iter_mut().find(|r| r.record == event.record) else {
+            return false;
         };
-        let record = &mut self.records[at];
         let mut changed = false;
         if !event.machine.is_empty() && record.machines.last() != Some(&event.machine) {
             record.machines.retain(|machine| machine != &event.machine);
@@ -89,7 +87,7 @@ impl Feed {
         changed |= rows != before;
         record.rows = rows;
         if changed {
-            self.clock += 1;
+            self.clock = self.clock.saturating_add(1);
             record.changed = self.clock;
         }
         self.evict();
