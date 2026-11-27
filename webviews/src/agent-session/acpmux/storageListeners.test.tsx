@@ -147,7 +147,9 @@ test("a choice storage refused stays this page's, through another pane's change 
   // Storage works again: a choice for chat C saves, and chat A's choice is saved with it.
   await act(async () => setTranscriptView("c", "thinking"));
   expect(transcriptViewOf("a")).toBe("verbose");
-  expect(JSON.parse(localStorage.getItem(VIEW_KEY)!)).toEqual({ b: "thinking", a: "verbose", c: "thinking" });
+  // Picks save to the detail ladder's map (chatDetailChoice.ts); the old view map still reads.
+  expect(JSON.parse(localStorage.getItem("cmux.acpmux.detail")!)).toEqual({ a: "verbose", c: "thinking" });
+  expect(transcriptViewOf("b")).toBe("thinking");
 
   await act(async () => root!.unmount());
   root = undefined;

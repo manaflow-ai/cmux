@@ -33,12 +33,91 @@ pub const CLAUDE_ENV: &[(&str, &str)] = &[
     ("BASH_MAX_TIMEOUT_MS", "2147483647"),
 ];
 
-/// The autocompact window acpmux starts a Claude Code session with when the person set none
-/// (`usage_stats::claude_autocompact_unset`). Claude Code compacts only near the model's own
-/// window, 1M for a `[1m]` model; Leo runs his sessions at 400k (Leo 2026-10-20: "I think I
-/// usually have, like, 400K on my typical [Claude] sessions"), and Claude Code's /context then
-/// reads against 400k too.
-pub const CLAUDE_AUTOCOMPACT_WINDOW: (&str, &str) = ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "400000");
+/// Claude Code's autocompact window variable.
+pub const CLAUDE_AUTOCOMPACT_WINDOW_ENV: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+
+/// The cmux setting that names an autocompact window (tokens) acpmux starts a Claude Code
+/// session with when nothing of the person's own decides it
+/// (`usage_stats::claude_autocompact_unset`). Unset, the default: acpmux adds none, and Claude
+/// Code compacts where it compacts on its own. acpmux used to give every such session 400k, the
+/// window Leo runs his own sessions at (Leo 2026-10-20: "I think I usually have, like, 400K on
+/// my typical [Claude] sessions"); that is his fleet's choice, named in its own settings, not
+/// everyone's (Leo, 2026-11-26: "we ought to not make jcmux/acpmux so opinionated with
+/// compacition. only do it for our personal fleet situation").
+pub const SETTING_AUTOCOMPACT_WINDOW: &str = "agents.claudeAutocompactWindow";
+
+/// The window [`SETTING_AUTOCOMPACT_WINDOW`] names in settings `doc`: a whole number of tokens
+/// above 0, else none.
+pub fn claude_autocompact_window_in(doc: Option<&serde_json::Value>) -> Option<String> {
+    doc.and_then(|d| crate::user_settings::value(d, SETTING_AUTOCOMPACT_WINDOW))
+        .and_then(|v| v.as_u64())
+        .filter(|n| *n > 0)
+        .map(|n| n.to_string())
+}
+
+/// The window the cmux settings file names now, as Claude Code's variable and its value.
+pub fn claude_autocompact_window() -> Option<(&'static str, String)> {
+    let doc = match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => Some(doc),
+        _ => None,
+    };
+    claude_autocompact_window_in(doc.as_ref()).map(|v| (CLAUDE_AUTOCOMPACT_WINDOW_ENV, v))
+}
+
+/// RFD 0147's spawn-time output caps, a harness-magic feature off unless
+/// `agents.harnessMagic.outputCaps.enabled` is `true` (Leo, 2026-11-26, of the fleet's
+/// harness magic: "only do it for our personal fleet situation"); `ACPMUX_HM_OUTPUT_CAPS`
+/// `0` or `1` overrides it. On, a session's Claude Code starts with a lower inline cap on a Bash
+/// result ([`OUTPUT_CAPS_BASH_SETTING`], in its `--settings`: `agent_launch_choices.rs`) and on
+/// an MCP result ([`OUTPUT_CAPS_MCP_ENV`]). Past either, Claude Code itself saves the whole
+/// output to a file and gives the lane a preview and the path, as it does at its own caps.
+/// A value the launch, the profile, the login or Claude Code's user settings set wins.
+///
+/// Claude Code 2.1.332: `bashOutputMaxChars` (default 30000, clamped to 4000-128000) is the
+/// Bash spill point; `BASH_MAX_OUTPUT_LENGTH` "on its own only sizes the read-back window", so
+/// it is left alone. `MAX_MCP_OUTPUT_TOKENS` defaults to 25000.
+pub const OUTPUT_CAPS_SETTING: &str = "agents.harnessMagic.outputCaps.enabled";
+/// The daemon's switch over [`OUTPUT_CAPS_SETTING`].
+pub const OUTPUT_CAPS_ENV: &str = "ACPMUX_HM_OUTPUT_CAPS";
+/// Claude Code's setting for the characters of a Bash result it keeps inline.
+pub const OUTPUT_CAPS_BASH_SETTING: &str = "bashOutputMaxChars";
+/// Half of Claude Code's 30000: about 4k tokens inline, the rest in the spill file.
+pub const OUTPUT_CAPS_BASH_CHARS: u64 = 15_000;
+/// Claude Code's cap, in tokens, on an MCP tool result.
+pub const OUTPUT_CAPS_MCP_ENV: &str = "MAX_MCP_OUTPUT_TOKENS";
+/// Two fifths of Claude Code's 25000.
+pub const OUTPUT_CAPS_MCP_TOKENS: &str = "10000";
+
+/// Whether the output caps are on, given the settings file (`doc`) and the daemon's
+/// [`OUTPUT_CAPS_ENV`] (`env`).
+pub fn output_caps_in(doc: Option<&serde_json::Value>, env: Option<&str>) -> bool {
+    match env.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+        Some("0" | "false" | "off" | "no") => return false,
+        Some("1" | "true" | "on" | "yes") => return true,
+        _ => {}
+    }
+    doc.and_then(|d| crate::user_settings::value(d, OUTPUT_CAPS_SETTING))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+/// [`output_caps_in`] now.
+pub fn output_caps() -> bool {
+    let doc = match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => Some(doc),
+        _ => None,
+    };
+    output_caps_in(doc.as_ref(), std::env::var(OUTPUT_CAPS_ENV).ok().as_deref())
+}
+
+/// The output-cap env `env` (what the harness would get) leaves unset, when the caps are `on`.
+pub fn output_caps_env(
+    on: bool,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Option<(&'static str, &'static str)> {
+    (on && !env.contains_key(OUTPUT_CAPS_MCP_ENV))
+        .then_some((OUTPUT_CAPS_MCP_ENV, OUTPUT_CAPS_MCP_TOKENS))
+}
 
 /// What a `claude` started in a cmux terminal gets on top of [`CLAUDE_ENV`] (agent chats get
 /// [`CLAUDE_CHAT_RETRY_ENV`]; Leo 2026-11-24:
@@ -76,24 +155,27 @@ pub const CLAUDE_RETRY_CHOICES: &[&str] = &[
 
 /// The environment a terminal's `claude` starts with beyond its own (the cmux-tui Claude
 /// wrapper): every [`CLAUDE_ENV`] and [`CLAUDE_TERMINAL_ENV`] knob `getenv` leaves unset, and
-/// the chats' autocompact window ([`CLAUDE_AUTOCOMPACT_WINDOW`]) when neither the launch
+/// the chats' autocompact window ([`claude_autocompact_window`], when the settings name one)
+/// when neither the launch
 /// (`args`, after `terminal_autocompact` gave it the chat profile's `--autocompact`), its env nor
 /// Claude's settings choose one, exactly as [`lift_claude`] does for an agent chat.
 pub fn terminal_claude_env(
     args: &[String],
     cwd: &std::path::Path,
     getenv: impl Fn(&str) -> Option<String>,
-) -> Vec<(&'static str, &'static str)> {
+) -> Vec<(&'static str, String)> {
     let retry_chosen = CLAUDE_RETRY_CHOICES.iter().any(|name| getenv(name).is_some());
     let terminal = if retry_chosen { &[][..] } else { CLAUDE_TERMINAL_ENV };
-    let mut lifted: Vec<(&'static str, &'static str)> = CLAUDE_ENV
+    let mut lifted: Vec<(&'static str, String)> = CLAUDE_ENV
         .iter()
         .chain(terminal)
-        .copied()
         .filter(|(key, _)| getenv(key).is_none())
+        .map(|(key, value)| (*key, (*value).to_owned()))
         .collect();
-    if claude_choice_unset(args, cwd, &getenv) {
-        lifted.push(CLAUDE_AUTOCOMPACT_WINDOW);
+    if let Some(window) = claude_autocompact_window()
+        && claude_choice_unset(args, cwd, &getenv)
+    {
+        lifted.push(window);
     }
     lifted
 }
@@ -107,7 +189,7 @@ pub fn claude_choice_unset(
     getenv: impl Fn(&str) -> Option<String>,
 ) -> bool {
     let env =
-        ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"]
+        ["CLAUDE_CONFIG_DIR", CLAUDE_AUTOCOMPACT_WINDOW_ENV, "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"]
             .into_iter()
             .filter_map(|name| getenv(name).map(|value| (name.to_string(), value)))
             .collect();
@@ -164,8 +246,12 @@ pub fn lift_claude(
             env: have.into_iter().collect(),
             ..Default::default()
         };
-        if crate::usage_stats::claude_autocompact_unset(&source) {
-            let (key, value) = CLAUDE_AUTOCOMPACT_WINDOW;
+        if let Some((key, value)) = claude_autocompact_window()
+            && crate::usage_stats::claude_autocompact_unset(&source)
+        {
+            cmd.env(key, value);
+        }
+        if let Some((key, value)) = output_caps_env(output_caps(), &source.env) {
             cmd.env(key, value);
         }
     }

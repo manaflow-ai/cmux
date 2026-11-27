@@ -1,7 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { KeyHint } from "../../ui/KeyHint";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
-import { playResize } from "./conversation/fold";
 import { ChevronDown } from "./conversation/icons";
 import { Markdown } from "./conversation/Markdown";
 import { toolIcon } from "./conversation/toolRowModel";
@@ -355,17 +354,9 @@ export function PermissionCard({
   const [expanded, setExpanded] = useState<string>();
   const showFull = expanded === permission.permissionId;
   const fullId = React.useId();
-  // The command's box grows to the full command (and back) on the fold's clock (fold.ts `playResize`)
-  // from the height it was drawn at before the toggle, so the stack's top and the transcript's rows
-  // over it travel together instead of the card growing in one frame.
-  const commandRef = useRef<HTMLDivElement>(null);
-  const commandFrom = useRef<number | undefined>(undefined);
-  useLayoutEffect(() => {
-    const node = commandRef.current;
-    const from = commandFrom.current;
-    commandFrom.current = undefined;
-    if (node && from !== undefined) playResize(node, from);
-  }, [showFull]);
+  // The command's box takes the full command (and back) in one frame: the stack's room changes once and
+  // the transcript's rows over it glide on the dock's own clock (no height is animated, cmuxterm-hq
+  // docs/design/transcript-motion-model.md rule 7).
   // A one-line command longer than the two lines the preview holds is cut off: measured, so "Show
   // full command" is offered whenever the preview does not show all of it.
   const previewRef = useRef<HTMLElement>(null);
@@ -552,6 +543,7 @@ export function PermissionCard({
         // In plain words, with the pane's reason when it words one; acpmux's text goes to the log.
         const known = knownRefusalText(failure);
         if (!known) console.warn("agent pane: the plan was not built", failure);
+        // retry-prompt-ok: building the plan again is an answer to the agent (a paid model turn).
         refuse(sent, known ? t("permission.plan.buildRefused", { error: known }) : t("permission.plan.buildFailed"));
       },
     );
@@ -670,7 +662,7 @@ export function PermissionCard({
   };
 
   const commandBlock = command && (
-    <div ref={commandRef} className="acpmux-permission-command" data-expanded={showFull || undefined}>
+    <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
       {showFull ? (
         <Surface.Inset as="pre" mono scroll id={fullId} className="acpmux-permission-command-full">
           <code>{command}</code>
@@ -686,10 +678,7 @@ export function PermissionCard({
           className="acpmux-permission-command-toggle"
           aria-expanded={showFull}
           aria-controls={showFull ? fullId : undefined}
-          onClick={() => {
-            commandFrom.current = commandRef.current?.getBoundingClientRect().height;
-            setExpanded(showFull ? undefined : permission.permissionId);
-          }}
+          onClick={() => setExpanded(showFull ? undefined : permission.permissionId)}
         >
           {showFull ? t("permission.hideFullCommand") : t("permission.showFullCommand")}
         </button>

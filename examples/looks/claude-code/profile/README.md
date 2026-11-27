@@ -4,7 +4,7 @@ The whole Claude Code desktop app in one install, not only its look: the
 [whole](../whole) look (theme, project sidebar, transcript, one-line composer, New Tab home,
 usage section, Session Info status line) with every Claude Code feature look's settings, actions
 and keys, Claude's prompts in the composer's / menu, its attach and / buttons on the composer, its
-searchable model picker with effort apart, and its send pop.
+short model menu with effort apart, and its send pop.
 
 ```sh
 cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/profile
@@ -45,13 +45,13 @@ sent to the customization lead. Gap letters are the lines sent.
 | [Cmd-Shift-M opens the permission mode menu (Ask, Auto accept edits, Plan, Bypass)](https://code.claude.com/docs/en/desktop) | keyboard | matched | keybindings.json cmd+shift+m agentPane.setMode |
 | [Cmd-/ shows every shortcut](https://code.claude.com/docs/en/desktop) | keyboard | matched | keybindings.json cmd+slash keybindings.open |
 | [Esc stops Claude's response](https://code.claude.com/docs/en/desktop) | keyboard | matched | cmux's own Esc in the chat (no binding needed) |
-| [Model picker from a key, searchable](https://code.claude.com/docs/en/desktop) | model_effort_picker | matched | cmd+shift+i and opt+p agentPane.switchModel; customize/ cmux.composer.model.picker/1 modelMenu search |
+| [Model picker from a key, a short menu](https://code.claude.com/docs/en/desktop) | model_effort_picker | matched | agentPane.display.modelPickerStyle menu (the short models-then-effort menu, not the searchable list); cmd+shift+i and opt+p agentPane.switchModel |
 | [Effort control apart from the model](https://code.claude.com/docs/en/desktop) | model_effort_picker | partial | cmux.composer.model.picker/1 reasoningMenu separate; cmd+shift+e agentPane.setEffort; gap (f): agentPane.setEffort from a key may need --effort (unverified) |
-| [Mode and model chips under the prompt box, outside it](https://code.claude.com/docs/en/desktop) | composer | gap | gap (h): no setting or interface moves the mode and model chips outside the box |
-| [One-line prompt box, 'Type / for commands'](https://code.claude.com/docs/en/desktop) | composer | partial | agent-pane/theme.css paints the one-line #303030 box; the placeholder text is cmux's |
+| [Mode and model chips under the prompt box, outside it](https://code.claude.com/docs/en/desktop) | composer | matched | `agentPane.composerLook` `auto` (Claude's look) draws the computer, folder, mode and model chips in the quiet row under the box. The Chief chip on the nightly is the Chief-only build's, not the profile's |
+| [One-line prompt box, 'Type / for commands'](https://code.claude.com/docs/en/desktop) | composer | matched | agent-pane/theme.css paints the one-line #303030 box; `agentPane.composerPlaceholder` empty keeps 'Type / for commands', the app's own text |
 | [Voice dictation](https://code.claude.com/docs/en/desktop) | composer | gap | gap (i): no interface or setting for voice dictation in the composer |
 | [Slash commands in the prompt box](https://code.claude.com/docs/en/slash-commands) | slash_commands | matched | Claude's own / commands pass through; customize/ cmux.composer.command/1 adds /review /pr /test /explain; toolbar Commands button |
-| [Attach images and files, drag and drop](https://code.claude.com/docs/en/desktop) | attachments | matched | cmux composer attachments; customize/ cmux.composer.toolbar/1 Add files button |
+| [Attach images and files, drag and drop](https://code.claude.com/docs/en/desktop) | attachments | matched | cmux composer attachments; the composer + menu Add files (one attach control, as the app) |
 | [@-mention files](https://code.claude.com/docs/en/desktop) | attachments | partial | cmux composer @ file mentions (built in); not yet captured beside the app |
 | [Panes: chat, diff, browser, terminal, file, plan, tasks side by side](https://code.claude.com/docs/en/desktop) | panels | gap | gap (j): no layout preset arranges chat, diff, browser, terminal and tasks panes side by side |
 | [Preview pane with the dev server's page](https://code.claude.com/docs/en/desktop) | panels | partial | cmux browser pane opens beside the chat; no preview toggle key; gap (j): no layout preset arranges chat, diff, browser, terminal and tasks panes side by side |
@@ -64,7 +64,9 @@ sent to the customization lead. Gap letters are the lines sent.
 | [Context usage ring](https://code.claude.com/docs/en/desktop) | status | matched | agentPane.showContextUsage true; agentPane.composerRing context |
 | [Notifications when Claude needs permission or finishes](https://code.claude.com/docs/en/settings) | status | matched | notifications.delivery.permissionRequest banner, .question badge, .taskComplete off |
 | [Sessions grouped by project, subagents nested](https://code.claude.com/docs/en/desktop) | sidebar | matched | sidebar.groupBy folder; sidebar.sessionTree true; 284 pt sidebar |
+| [Chats with no project listed as plain rows, no "No Folder" header](https://code.claude.com/docs/en/desktop) | sidebar | matched | sidebar.folderlessUngrouped true |
 | [No Home or App Store rows above the sessions](https://code.claude.com/docs/en/desktop) | sidebar | matched | sidebar.sections.hidden ["sec_top"] hides Home, App Store and coderouter; Settings and the account stay in the bottom row |
+| [New session, Search, Artifacts and Customize rows above the sessions](https://code.claude.com/docs/en/desktop) | sidebar | partial | sidebar.nav palette.newAgentChat, search.chats, artifacts.show, customize.open; no More row: no cmux action opens that menu |
 | [Recent sessions list](https://code.claude.com/docs/en/desktop) | sidebar | partial | the New Tab home lists recents (renderHome); the Recents sidebar section (claude-code/session-recents) cannot ship beside Usage: gap (a): a look ships one customize app, one export per interface; Recents and Usage cannot both be cmux.section/1 |
 | [Worktree per session in .claude/worktrees](https://code.claude.com/docs/en/desktop) | sessions | matched | agentPane.sessionWorktrees project |
 | [Continue a CLI session in the desktop app; teleport a cloud session](https://code.claude.com/docs/en/desktop) | sessions | matched | actions claude-code-desktop-continue, claude-code-teleport; cmd+j c chooseComputer |
@@ -74,6 +76,7 @@ sent to the customization lead. Gap letters are the lines sent.
 | [Copy the conversation](https://code.claude.com/docs/en/desktop) | status | matched | cmd+j x agentChat.copyConversation |
 | [Account switching](https://code.claude.com/docs/en/desktop) | account_switching | gap | gap (m): no setting places an account switcher; switching never captured |
 | [Settings page](https://code.claude.com/docs/en/desktop) | settings | gap | gap (n): a look cannot restyle cmux Settings |
+| [Proportions: transcript, preview, terminal and tasks panels split side by side](https://code.claude.com/docs/en/desktop) | proportions | gap | 800 pt transcript at 14 pt, a 284 pt sidebar with 13 pt chrome type (appearance.metrics.chromeFontSize); gap (j): no setting arranges panes, and cmux-next does not read workspace layouts (`commands`), so the profile cannot open the split |
 
 | Motion | Reference | Status | How, or the gap |
 | --- | --- | --- | --- |

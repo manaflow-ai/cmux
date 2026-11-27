@@ -76,6 +76,7 @@ impl Mux {
         self.retire_roster_terminal(terminal_id);
         // Read the terminal's open local items and drop its ring together.
         self.close_terminal_feed_items(terminal_id);
+        self.forget_terminal_warm_compact(terminal_id);
     }
 
     pub(super) fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) {

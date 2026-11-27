@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextHomeModel
 
 /// Under the Chief's screen in the profile's Computer tab and on its expanded page: who drives the
 /// computer, and the one button that changes it (Chief computer take-over). "<name> is using the
@@ -11,22 +12,39 @@ import CmuxNextDesign
 public final class HomeChiefComputerControlBar: NSStackView {
     /// What the bar shows for a lease.
     public nonisolated struct Line: Equatable, Sendable {
-        public nonisolated enum Action: Equatable, Sendable { case takeOver, giveBack }
+        public nonisolated enum Action: String, Equatable, Sendable, Decodable { case takeOver, giveBack }
         public var status: String
         public var action: Action
     }
 
+    private nonisolated struct WireLine: Decodable {
+        var status: String
+        var action: Line.Action
+    }
+
     /// The line for `state` (nil: not known yet, no line). A request from the Chief puts its reason
     /// in place of "You're in control", since that is what the person took over for.
+    /// Rust's `chief_settings.controlLine` (cmux-home-rules `chief_settings/computer.rs`).
     public static func line(_ state: HomeChiefComputerControlState?, chief: String) -> Line? {
         guard let state else { return nil }
-        switch state.holder {
-        case .chief:
-            return Line(status: HomeEngineStrings.computerChiefDriving(chief), action: .takeOver)
-        case .human:
-            let reason = state.reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return Line(status: reason.isEmpty ? HomeEngineStrings.computerYouDrive : reason, action: .giveBack)
+        // The name is in the localized line already; `%` doubled so the rule's formatter keeps it.
+        let driving = HomeEngineStrings.computerChiefDriving(chief).replacingOccurrences(of: "%", with: "%%")
+        let request = LineRequest(control: .init(holder: state.holder.rawValue, reason: state.reason), chief: chief,
+                                  strings: .init(chiefDrivingFormat: driving, youDrive: HomeEngineStrings.computerYouDrive))
+        do {
+            let line: WireLine? = try HomeRules.call("chief_settings.controlLine", request)
+            return line.map { Line(status: $0.status, action: $0.action) }
+        } catch {
+            return nil
         }
+    }
+
+    private nonisolated struct LineRequest: Encodable {
+        struct Control: Encodable { var holder: String; var reason: String? }
+        struct Strings: Encodable { var chiefDrivingFormat: String; var youDrive: String }
+        var control: Control
+        var chief: String
+        var strings: Strings
     }
 
     let status = ThemedLabel(wrappingLabelWithString: "")
