@@ -152,15 +152,7 @@ jobs:
           ref: ${{ steps.ref.outputs.sha }}
           persist-credentials: false
           fetch-depth: 1
-          # The key reads git trees only, which a sparse checkout still has; cmux-tui builds the binary.
-          sparse-checkout: |
-            .github/
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/deadline_http.py
-            cmux-next-ios/verify/screen-parity
-            cmux-tui/
-          sparse-checkout-cone-mode: false
+          # Full tree: the cmux-tui workspace reaches path crates outside cmux-tui/ (workers/, rust/, vendor/).
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Build cmux-shotdiff
@@ -278,13 +270,7 @@ jobs:
           ref: ${{ needs.parity-key.outputs.sha }}
           persist-credentials: false
           fetch-depth: 1
-          sparse-checkout: |
-            .github/
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/deadline_http.py
-            cmux-tui/
-          sparse-checkout-cone-mode: false
+          # Full tree: the cmux-tui workspace reaches path crates outside cmux-tui/ (workers/, rust/, vendor/).
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ios-sim-mac-shots
