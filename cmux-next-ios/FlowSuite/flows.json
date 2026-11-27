@@ -87,6 +87,24 @@
       "note": "Selected whenever compile matches: build-for-testing of CmuxMobileApp plus compile.scripts. No flow paths needed."
     },
     {
+      "id": "screen-share-synthetic-frames",
+      "title": "Synthetic host frames decode and present in the phone viewer within budget",
+      "source": ["leo:2026-11-27-simulated-phone-checks"],
+      "kit": ["CmuxMobileBrowserStreamTests/SyntheticScreenSharingTests"],
+      "ui": [],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**",
+        "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileBrowserStreamTests/**",
+        "cmux-tui/crates/cmux-rd-host/**",
+        "cmux-tui/crates/cmux-rd-link/**",
+        "cmux-tui/crates/cmux-rd-proto/**",
+        "cmux-tui/crates/cmux-transport/**"
+      ],
+      "note": "Real iOS sink, decoder and renderer with synthetic host H.264; displayed pixels, counts and delivery-to-display p95. Carrier/network tests run separately."
+    },
+    {
       "id": "screen-share-portrait-refused",
       "title": "A refused portrait request during screen sharing does not crash",
       "source": ["regression:6"],

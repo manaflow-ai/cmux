@@ -33,6 +33,21 @@ class SelectTests(unittest.TestCase):
     def sel(self, *paths):
         return fs.select(MANIFEST, list(paths))
 
+    def test_screen_share_changes_run_real_decoder_and_presentation(self):
+        for path in (
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/BrowserVideoDecoder.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing/MacScreenRdConnection.swift",
+            "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileBrowserStreamTests/SyntheticScreenSharingTests.swift",
+            "cmux-tui/crates/cmux-rd-host/src/stream.rs",
+            "cmux-tui/crates/cmux-rd-link/src/lib.rs",
+            "cmux-tui/crates/cmux-rd-proto/src/lib.rs",
+            "cmux-tui/crates/cmux-transport/src/lib.rs",
+        ):
+            with self.subTest(path=path):
+                result = self.sel(path)
+                self.assertIn("screen-share-synthetic-frames", result["flows"])
+                self.assertIn("CmuxMobileBrowserStreamTests/SyntheticScreenSharingTests", result["kit"])
+
     def test_unrelated_change_runs_nothing(self):
         r = self.sel("webviews/src/App.tsx", "docs/readme.md")
         self.assertFalse(r["ios"])
