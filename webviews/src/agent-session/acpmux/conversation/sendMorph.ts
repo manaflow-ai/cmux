@@ -228,7 +228,13 @@ export function noteSendOrigins(
       const picture = shown.ownerDocument.createElement("img");
       picture.src = image.currentSrc || image.src;
       picture.alt = "";
-      Object.assign(picture.style, { width: "100%", height: "100%", objectFit: "cover", display: "block" });
+      Object.assign(picture.style, {
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        objectPosition: "left top",
+        display: "block",
+      });
       copy.appendChild(picture);
     }
     const chip = { rect, radius: radiusOf(shown), copy };
@@ -513,7 +519,7 @@ class Flight {
       Object.assign(copy.style, { width: "100%", height: "100%", maxWidth: "none", visibility: "visible" });
       for (const image of [copy, ...copy.querySelectorAll<HTMLElement>("img")])
         if (image instanceof HTMLImageElement)
-          Object.assign(image.style, { width: "100%", height: "100%", objectFit: "cover" });
+          Object.assign(image.style, { width: "100%", height: "100%", objectFit: "cover", objectPosition: "left top" });
       overlay.appendChild(copy);
       piece.ghost.appendChild(overlay);
       piece.overlay = overlay;
