@@ -23,12 +23,14 @@ package nonisolated struct DormantRecord: Codable, Sendable, Equatable {
     package enum Kind: String, Codable, Sendable {
         case agentChat = "agent_chat"
         case browserTab = "browser_tab"
+        /// A hibernated workspace's terminal (`TerminalLastFrames`): keyed by its tab.
+        case terminal
         case workspace
     }
 
     package var version: Int
     package var kind: Kind
-    /// The item's key in its store (a chat's launch-image slot, a browser tab's key, a workspace id).
+    /// The item's key in its store (a chat's launch-image slot, a browser tab's or terminal's tab key, a workspace id).
     package var key: String
     /// The machine the item lives on; nil for this Mac.
     package var machine: String?

@@ -23,6 +23,9 @@ public struct TerminalLastFrames {
     /// terminal's card shows how it last looked, never an empty tile.
     private let pictures = TerminalEvictedPictures()
 
+    /// Hibernated workspaces' terminals' frames, on disk (``stow(_:)``): one record each in memory, not a frame.
+    private let dormant = TerminalDormantFrames()
+
     /// `key`'s kept picture (only a terminal that had output), at most ``TerminalEvictedPictures/side`` px.
     public func picture(_ key: String) -> CGImage? { pictures.image(key) }
 
@@ -43,11 +46,21 @@ public struct TerminalLastFrames {
         return trim(to: capacity)
     }
 
-    /// Forgets `key`'s frame and picture (the tab closed, or its new surface shows it).
+    /// Forgets `key`'s frame and picture, in memory or asleep on disk (the tab closed, or its new surface shows it).
     @discardableResult
     public mutating func remove(_ key: String) -> TerminalLastFrame? {
         pictures.drop(key)
+        dormant.drop(key)
         return removeFrame(key)
+    }
+
+    /// `key`'s workspace hibernated (its terminal just evicted): its frame leaves memory for a file and a
+    /// ``DormantRecord`` (``TerminalDormantFrames``); its picture stays for the hover card. A warm-set eviction
+    /// keeps its frame in memory, so a quick switch back shows it with no read.
+    public mutating func stow(_ key: String) {
+        guard let frame = removeFrame(key) else { return }
+        dormant.stow(frame, key: key)
+        note("slept")
     }
 
     @discardableResult
@@ -118,10 +131,24 @@ public struct TerminalLastFrames {
 
     /// `key`'s new session draws now: it shows the frame that waits for it, if any.
     public mutating func show(_ key: String, on session: TerminalSession) {
-        guard let frame = remove(key) else { return }
-        note(session.showLastFrame(frame) ?? "shown")
+        let waking = dormant.wake(key)
+        if let frame = remove(key) { return note(session.showLastFrame(frame) ?? "shown") }
+        switch waking {
+        case .frame(let frame): note(session.showLastFrame(frame) ?? "shown")
+        case .image(let image): note(TerminalLaunchFrame(image).show(on: session) ? "shown_from_disk" : "has_content")
+        case nil: return
+        }
     }
 
+    /// Hibernated terminals' frames: still being encoded, and kept on disk (count and bytes).
+    public var sleeping: (encoding: Int, stored: Int, bytes: Int) { dormant.counts }
+
+    /// Returns once every sleeping frame's encode and file write started so far is done (tests).
+    func sleepSettled() async { await dormant.settled() }
+
     /// `debug.surfaces` last_frames: the outcome counts and the frames stored now.
-    public var report: [String: Int] { outcomes.merging(["stored": count]) { $1 } }
+    public var report: [String: Int] {
+        let sleeping = dormant.counts
+        return outcomes.merging(["stored": count, "sleeping": sleeping.encoding + sleeping.stored, "sleeping_bytes": sleeping.bytes]) { $1 }
+    }
 }
