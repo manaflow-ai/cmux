@@ -62,7 +62,8 @@ target="$repo/.build/cmux-tui-rust-target"
 src="$repo"
 if [ -n "$build_sha" ]; then
   [[ "$build_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "projection-macos: BUILD_SHA must be a full SHA" >&2; exit 2; }
-  git -C "$repo" cat-file -e "$build_sha^{commit}" 2>/dev/null || git -C "$repo" fetch -q origin "$build_sha"
+  source "$repo/scripts/measure/fetch-commit.sh"
+  measure_fetch_commit "$repo" "$build_sha" || exit 1
   src="$root/src"
   mkdir -p "$src"
   git -C "$repo" archive "$build_sha" cmux-tui | tar -x -C "$src"
