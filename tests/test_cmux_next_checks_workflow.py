@@ -1059,7 +1059,7 @@ class PathRoutingStructure(unittest.TestCase):
         # A reused pass (JobsReuseAPassOnTheSameInputs) skips both.
         # 2026-10-26: or this run's Linux web-bundles artifact, which the minis can
         # read when they cannot read Blacksmith's cache.
-        self.assertEqual(build["if"], "${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success') && {REUSE_GUARD} }}".replace("{REUSE_GUARD}", REUSE_GUARD))
+        self.assertEqual(build["if"], "${{ needs.web-bundles.result == 'skipped' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && {REUSE_GUARD} }}".replace("{REUSE_GUARD}", REUSE_GUARD))
         install = next(step for step in steps if step.get("name") == "Install the restored web bundles")
         self.assertEqual(install["if"], "${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success') && {REUSE_GUARD} }}".replace("{REUSE_GUARD}", REUSE_GUARD))
 
@@ -1072,7 +1072,7 @@ class PathRoutingStructure(unittest.TestCase):
                 build = next(step for step in steps if step.get("name") == "Build the web bundles")
                 # swift-test also skips it on a reused pass (JobsReuseAPassOnTheSameInputs).
                 miss = "steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success'"
-                self.assertIn(build["if"], (miss, "${{ (" + miss + ") && " + REUSE_GUARD + " }}"))
+                self.assertEqual(build["if"], "${{ needs.web-bundles.result == 'skipped' && " + miss + " && " + REUSE_GUARD + " }}")
 
     def test_mac_jobs_install_the_run_s_linux_web_bundles(self):
         """2026-10-26: the minis cannot read Blacksmith's cache, so they rebuilt the
@@ -1097,6 +1097,10 @@ class PathRoutingStructure(unittest.TestCase):
                 self.assertTrue(download["continue-on-error"])
                 self.assertIn("needs.web-bundles.result == 'success'", download["if"])
                 self.assertIn("steps.web-bundle-cache.outputs.cache-hit != 'true'", download["if"])
+                fail = steps[names.index("Fail when the built web bundles could not be delivered")]
+                self.assertIn("needs.web-bundles.result == 'success'", fail["if"])
+                self.assertIn("steps.web-bundle-artifact.outcome != 'success'", fail["if"])
+                self.assertIn("refusing a duplicate local build", fail["run"])
                 # After both caches, before the install and the build.
                 self.assertLess(names.index("Restore the web bundles built for this source key"), names.index(download["name"]))
                 self.assertLess(names.index(download["name"]), names.index("Install the restored web bundles"))

@@ -4078,12 +4078,18 @@ jobs:
           name: cmux-next-web-bundles-${{ steps.web-bundle-key.outputs.key }}
           path: web-bundles-out
 
+      - name: Fail when the built web bundles could not be delivered
+        if: ${{ needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
+        run: |
+          echo "::error::web-bundles completed but R2, GitHub cache, and the run artifact all missed; refusing a duplicate local build"
+          exit 1
+
       - name: Install the restored web bundles
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success') && steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success') && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ needs.web-bundles.result == 'skipped' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
@@ -4521,13 +4527,19 @@ jobs:
           name: cmux-next-web-bundles-${{ steps.web-bundle-key.outputs.key }}
           path: web-bundles-out
 
+      - name: Fail when the built web bundles could not be delivered
+        if: ${{ needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
+        run: |
+          echo "::error::web-bundles completed but R2, GitHub cache, and the run artifact all missed; refusing a duplicate local build"
+          exit 1
+
       - name: Install the restored web bundles
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success') && steps.reuse.outputs.hit != 'true' }}
         working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/build-web-bundles.sh --from "$GITHUB_WORKSPACE/web-bundles-out"
 
       - name: Build the web bundles
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success') && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ needs.web-bundles.result == 'skipped' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
         working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/build-web-bundles.sh
 
@@ -5177,13 +5189,19 @@ jobs:
           name: cmux-next-web-bundles-${{ steps.web-bundle-key.outputs.key }}
           path: web-bundles-out
 
+      - name: Fail when the built web bundles could not be delivered
+        if: ${{ needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
+        run: |
+          echo "::error::web-bundles completed but R2, GitHub cache, and the run artifact all missed; refusing a duplicate local build"
+          exit 1
+
       - name: Install the restored web bundles
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success') && steps.reuse.outputs.hit != 'true' }}
         working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/build-web-bundles.sh --from "$GITHUB_WORKSPACE/web-bundles-out"
 
       - name: Build the web bundles
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success') && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ needs.web-bundles.result == 'skipped' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
         working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/build-web-bundles.sh
 

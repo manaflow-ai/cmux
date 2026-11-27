@@ -42,6 +42,43 @@ def step_if(step: str) -> str:
     return match.group(1)
 
 
+def builder_count(producer_result: str, *, r2_hit: bool = False,
+                  cache_hit: bool = False, artifact_success: bool = False,
+                  reuse_hit: bool = False) -> int:
+    """Count web bundle builders under the consumer delivery contract.
+
+    A successful producer must deliver through R2, the GitHub cache, or its run
+    artifact. If every delivery route misses, the consumer fails instead of
+    compiling the same source a second time. A skipped producer intentionally
+    leaves the consumer's local build as the fallback.
+    """
+    if reuse_hit or r2_hit or cache_hit or artifact_success:
+        return 0
+    if producer_result == "success":
+        return 0  # explicit transport failure, no duplicate builder
+    return int(producer_result == "skipped")
+
+
+def old_builder_count(*, r2_hit: bool = False, cache_hit: bool = False,
+                      artifact_success: bool = False, reuse_hit: bool = False) -> int:
+    """The pre-fix predicate, retained to make the measured delta explicit."""
+    return int(not (r2_hit or cache_hit or artifact_success) and not reuse_hit)
+
+
+def check_delivery_builder_counts() -> None:
+    # These are the three failure/availability paths that previously mattered:
+    # successful producer + failed delivery (1 -> 0), valid delivery (0 -> 0),
+    # and intentionally skipped producer (1 -> 1).
+    cases = (
+        ("failed-download", dict(producer_result="success"), 1, 0),
+        ("valid-artifact", dict(producer_result="success", artifact_success=True), 0, 0),
+        ("skipped-producer", dict(producer_result="skipped"), 1, 1),
+    )
+    for name, kwargs, before, after in cases:
+        assert old_builder_count(**{k: v for k, v in kwargs.items() if k != "producer_result"}) == before, name
+        assert builder_count(**kwargs) == after, name
+
+
 def main() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
@@ -63,6 +100,8 @@ def main() -> None:
         source_key = step_block(job, "Source key of the web bundles")
         r2 = step_block(job, "Restore the web bundles from R2")
         restore = step_block(job, "Restore the web bundles built for this source key")
+        artifact = step_block(job, "Download the web bundles this run's bundle job built")
+        fail_delivery = step_block(job, "Fail when the built web bundles could not be delivered")
         install = step_block(job, "Install the restored web bundles")
         build = step_block(job, "Build the web bundles")
         setup_node = step_block(job, "Setup Node")
@@ -74,10 +113,16 @@ def main() -> None:
         assert r2_miss in step_if(restore), job_name
         assert f"{r2_hit} || {gh_hit}" in step_if(install), job_name
         assert f"{r2_miss} && {gh_miss}" in step_if(build), job_name
+        assert "needs.web-bundles.result == 'skipped'" in step_if(build), job_name
+        assert "needs.web-bundles.result == 'success'" in step_if(fail_delivery), job_name
+        assert "steps.web-bundle-artifact.outcome != 'success'" in step_if(fail_delivery), job_name
+        assert "refusing a duplicate local build" in fail_delivery, job_name
+        assert "continue-on-error: true" in artifact, job_name
 
-        order = [job.index(step) for step in (setup_node, source_key, r2, restore, install, build)]
+        order = [job.index(step) for step in (setup_node, source_key, r2, restore, artifact, fail_delivery, install, build)]
         assert order == sorted(order), f"{job_name}: web-bundle steps out of order"
 
+    check_delivery_builder_counts()
     check_dev_release_compile(workflow)
     check_size_budget_head_cache()
     print("cmux-next web-bundle cache workflow contract passed")
