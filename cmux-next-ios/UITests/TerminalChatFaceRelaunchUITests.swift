@@ -72,9 +72,19 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
     func face(_ app: XCUIApplication) -> String? {
         guard let row = faceRow(app) else { return nil }
         let face = row.label.hasPrefix("Show Terminal") ? "chat" : "terminal"
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        dismiss(app)
         _ = row.waitForNonExistence(timeout: 5)
         return face
+    }
+
+    /// Closes the open page menu (or the keyboard) without a tap on the page: a tap on the terminal
+    /// lands on its text, and a path there opens Files and Links over the page.
+    @MainActor
+    func dismiss(_ app: XCUIApplication) {
+        // The status bar's strip: the menu's full-screen dismiss region covers it, the page has no text there.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).tap()
+        let files = app.staticTexts["Files and Links"].firstMatch
+        if files.exists { app.buttons["Done"].firstMatch.tap() }
     }
 
     /// Waits until the open tab shows `wanted` (the kept face lands once the file is read).
@@ -163,7 +173,7 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
         attach(app, "15-chat-face-sent")
 
         // The terminal ran it: its face shows the mock shell's echo.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        dismiss(app)
         show(app, "terminal")
         expectFace(app, "terminal", "16-terminal-face-shows-the-prompt")
     }
