@@ -26,6 +26,12 @@ on:
         required: false
         type: string
         default: ""
+      # The commit the ios fast verdict checks out; empty: the event's (a pull request's merge commit).
+      # ios-fast-verdict-dispatch.yml passes the PR's merge commit, since its own event's commit is the base tip.
+      ref:
+        required: false
+        type: string
+        default: ""
     # The ios fast verdict, for pr-router.yml's ios-fast-status (the `cmux/ios-fast` commit status): whether its plan
     # builds anything, its summary, and the ios-fast job's result (empty when it never finished).
     outputs:
@@ -696,6 +702,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 2
           sparse-checkout: |
             ci/
@@ -840,6 +847,7 @@ jobs:
       - name: Checkout the merge commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
           fetch-depth: 1
           submodules: false
