@@ -487,6 +487,7 @@ final class TerminalDemoDriver {
         meter.stop()
         let result = meter.summary + meter.smoothness(rowHeight: controller.debugRowHeight) + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
             + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) touches=\(meter.touches) isTUI=\(model.isTUI)"
+            + " reader=\(controller.tuiReader.isOpen ? \"open\" : \"closed\")"
             + Self.paintNote(session.paintSamples)
         model.demoNote = "tuipan-\(variant) done " + result
         mark(model.demoNote)
