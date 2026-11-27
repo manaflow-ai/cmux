@@ -3527,7 +3527,18 @@ function shapeLiveTurn(
   // call still owns the question card even when that call belongs to the hidden prefix.
   const wrapUp = liveWrapUp(all);
   const drawn = wrapUp ? withoutLiveWrapUp(kept, wrapUp) : kept;
-  const shaped = shapeLiveRows(user, drawn, clockOffset, trayAgents, turnStartedAtMs, foldsPrompt, worked, workOpen);
+  // The clock reads the whole turn: the calls the open read hid still say the agent was at work.
+  const shaped = shapeLiveRows(
+    user,
+    drawn,
+    clockOffset,
+    trayAgents,
+    turnStartedAtMs,
+    foldsPrompt,
+    worked,
+    workOpen,
+    all,
+  );
   if (!wrapUp) return shaped;
   const card: AcpmuxRow = {
     id: `${NEXT_STEP}-${user.id}`,
@@ -3620,6 +3631,7 @@ function shapeLiveRows(
   foldsPrompt: boolean,
   worked = drawn.some((row) => row.kind === "activity" && row.inBackground === undefined),
   workOpen = false,
+  clockRows: readonly AcpmuxRow[] = drawn,
 ): AcpmuxRow[] {
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
   // read before the Codex-style runs fold it: the call it runs is what the live line names.
@@ -3648,7 +3660,7 @@ function shapeLiveRows(
   // A notice that opens the rows drawn here starts its stretch too, when the harness's turn began
   // before it.
   // One start and one formula with the ended turn's "Worked for" (`turnClock`).
-  const clock = turnClock(user, drawn, turnStartedAtMs);
+  const clock = turnClock(user, clockRows, turnStartedAtMs);
   const start = clock.start;
   const at = start + clockOffset;
   const shapeAs = (arm: string): AcpmuxRow[] => {
@@ -3787,15 +3799,33 @@ export function turnClock(
 }
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
-/// not send) that came after the agent had replied since then, which set it going again.
+/// not send) that came after the agent had replied since then, which set it going again. The reply
+/// must be the agent's last step before the notice: a call after it means the agent was still at
+/// work, the reply was commentary, and a notice then (acpmux who-else steers one into the running
+/// turn) set nothing going. A who-else notice 7 s before a 6m 44s turn's answer read "Worked for 7s".
+/// The call must start at or after the reply: a history page can place a call that started before
+/// it later in the rows.
 export function continuationStart(rows: readonly AcpmuxRow[], start: number): number {
   let from = start;
-  let replied = false;
+  let replied: number | undefined;
   for (const row of rows) {
-    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) replied = true;
-    else if (row.kind === "user" && !sentByPerson(row) && replied && hasTimestamp(row.at) && row.at > from) {
+    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) replied = row.at;
+    else if (
+      replied !== undefined &&
+      row.kind === "activity" &&
+      row.at >= replied &&
+      row.items?.some((item) => item.tool)
+    )
+      replied = undefined;
+    else if (
+      row.kind === "user" &&
+      !sentByPerson(row) &&
+      replied !== undefined &&
+      hasTimestamp(row.at) &&
+      row.at > from
+    ) {
       from = row.at;
-      replied = false;
+      replied = undefined;
     }
   }
   return from;
