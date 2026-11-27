@@ -376,6 +376,7 @@ on:
       - skills/cmux-extension-author/recipes/section.md
       - skills/cmux-extension-author/recipes/session-info.md
       - skills/cmux-extension-author/recipes/widget.md
+      - skills/cmux-extension-author/**
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -762,6 +763,7 @@ on:
       - skills/cmux-extension-author/recipes/section.md
       - skills/cmux-extension-author/recipes/session-info.md
       - skills/cmux-extension-author/recipes/widget.md
+      - skills/cmux-extension-author/**
   # Why: note-366
   workflow_dispatch:
     inputs:

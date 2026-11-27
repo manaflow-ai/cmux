@@ -208,6 +208,7 @@ on:
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/settings/source/notifications.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -401,6 +402,7 @@ on:
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/settings/source/notifications.json"
   workflow_dispatch:
 
 concurrency:
