@@ -11,10 +11,14 @@
 #
 # Safe by construction:
 #   - If no real console user is logged in (console owner is root/loginwindow),
-#     or passwordless sudo is unavailable, it falls back to running in the
-#     current bootstrap. That is exactly today's behavior, so it can never make
-#     a runner worse; it only helps runners that DO have a logged-in user the
-#     command was failing to reach.
+#     or passwordless sudo is unavailable for any command the hop runs, it
+#     falls back to running in the current bootstrap. That is exactly today's
+#     behavior, so it can never make a runner worse; it only helps runners that
+#     DO have a logged-in user the command was failing to reach. One exception:
+#     an isolated app-host run (CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1) on a
+#     runner whose sudoers allows only some of those commands, and that is not
+#     already in the console user's Aqua session, fails at once and names the
+#     refused command, since its tests could not reach testmanagerd.
 #   - On a runner whose agent is already in the console session, the hop is into
 #     the same session (effectively a no-op).
 #
@@ -217,10 +221,44 @@ prepare_app_host_home_for_console_user() {
         "$validation_function" "$confirmation_validation_function"
 }
 
+# Passwordless sudo for `true` alone does not make the hop possible: a sudoers
+# that names only some commands passes `sudo -n true` and then refuses the
+# `sudo -n test` that preparation starts with. Probe every command form the
+# hop runs, so such a runner takes the fallback below instead of failing on
+# the first preparation check with "isolation directory is unavailable".
+console_hop_sudo_refusal=""
+probe_console_hop_sudo() {
+  local console_user="$1" console_uid="$2" probe_file form
+  sudo -n true 2>/dev/null || { console_hop_sudo_refusal="sudo -n true"; return 1; }
+  probe_file="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-console-hop-probe.XXXXXX")" || {
+    console_hop_sudo_refusal="mktemp"
+    return 1
+  }
+  for form in \
+    "test -e /" \
+    "stat -f %Su /" \
+    "/bin/bash -c :" \
+    "env true" \
+    "chown $(id -un) $probe_file" \
+    "chmod u+rw $probe_file" \
+    "-u $console_user true" \
+    "launchctl asuser $console_uid true"
+  do
+    # shellcheck disable=SC2086 # each form is a fixed list of words
+    if ! sudo -n $form >/dev/null 2>&1; then
+      console_hop_sudo_refusal="sudo -n $form"
+      rm -f "$probe_file"
+      return 1
+    fi
+  done
+  rm -f "$probe_file"
+}
+
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
 if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   && [ "$console_user" != "loginwindow" ] \
-  && console_uid="$(id -u "$console_user" 2>/dev/null)" && sudo -n true 2>/dev/null; then
+  && console_uid="$(id -u "$console_user" 2>/dev/null)" \
+  && probe_console_hop_sudo "$console_user" "$console_uid"; then
   console_home="$( (dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
   [ -n "$console_home" ] || console_home="$HOME"
   prepare_app_host_home_for_console_user \
@@ -269,8 +307,15 @@ else
   if [ -n "${console_uid:-}" ] && [ "$current_uid" = "$console_uid" ] \
     && [ "$session_manager" = "Aqua" ]; then
     echo "Console session: already running as console user '$console_user' (uid $console_uid) in Aqua; no sudo hop needed." >&2
+  elif [ -n "$console_hop_sudo_refusal" ] && [ "$console_hop_sudo_refusal" != "sudo -n true" ] \
+    && [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
+    # Partial sudoers on an isolated app-host run: the current bootstrap cannot
+    # reach testmanagerd, so falling back would spend the shard's whole test
+    # watchdog running zero tests. Say what the host must fix instead.
+    echo "::error::Runner ${RUNNER_NAME:-unknown} allows passwordless 'sudo -n true' but asks for a password for '$console_hop_sudo_refusal', which the console-session hop needs; current uid=${current_uid:-unknown}, session=${session_manager:-unknown}. Fix this runner's sudoers (NOPASSWD for the hop's commands) or run the runner as a console-user LaunchAgent." >&2
+    exit 1
   else
-    echo "::warning::Cannot enter console user '$console_user' Aqua session without passwordless sudo; current uid=${current_uid:-unknown}, session=${session_manager:-unknown}. Running in the current bootstrap; verify the runner is a console-user LaunchAgent before GUI XCTest." >&2
+    echo "::warning::Cannot enter console user '$console_user' Aqua session without passwordless sudo${console_hop_sudo_refusal:+ (refused: $console_hop_sudo_refusal)} on runner ${RUNNER_NAME:-unknown}; current uid=${current_uid:-unknown}, session=${session_manager:-unknown}. Running in the current bootstrap; verify the runner is a console-user LaunchAgent before GUI XCTest." >&2
   fi
 fi
 exec "$@"

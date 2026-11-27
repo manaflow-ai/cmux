@@ -1403,6 +1403,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_console_session_env_forwarding.py
 
+      - name: Validate console-session sudo probe
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_ci_console_session_sudo_probe.py
+
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_notification_semantics.py
