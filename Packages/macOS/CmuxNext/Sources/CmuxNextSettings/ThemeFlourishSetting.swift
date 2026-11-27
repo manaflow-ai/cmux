@@ -49,15 +49,6 @@ public nonisolated struct ThemeFlourishSetting: Sendable {
         return shownLight == shownDark ? shownDark : .pair(light: shownLight, dark: shownDark)
     }
 
-    /// Whether `value` is valid for `appearance.paneArt.*`: a list of fixed pictures.
-    static func acceptsPictures(_ value: JSONValue) -> Bool {
-        value.arrayValue?.allSatisfy(BackdropSelectionSetting.acceptsPicture) ?? false
-    }
-
-    /// The keys whose values are pictures a theme file may write relative to its folder.
-    static let picturePaths = [sidebarHeaderDarkPath, sidebarHeaderLightPath]
-    static let pictureListPaths = [paneArtDarkPath, paneArtLightPath]
-
     private struct Reader {
         let root: JSONValue
         var diagnostics: [SettingsDiagnostic] = []

@@ -179,7 +179,7 @@ final class SettingsPageProvider: PageProvider {
                     throw PageError.userOnly(userOnly)
                 }
                 await self.settings.reload()
-                return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
+                return SettingsSchema.changedKeys(SettingsSchema.storedValues(in: before), SettingsSchema.storedValues(in: self.settings.snapshot.root))
             }
         case "cmux.settings.host.lists": return SettingsHostSection.merged(try Self.host(hostSections, "host lists").map { $0.read() })
         case "cmux.settings.devices.remove":
@@ -395,19 +395,20 @@ final class SettingsPageProvider: PageProvider {
         let initialFileRoots = settings.fileRoot.value(at: ChatSettings.rootsPath)
         let initialManagedRoots = settings.managedChatRoots
         let task = Task { @MainActor in
-            var last = initialRoot
+            var lastStored = SettingsSchema.storedValues(in: initialRoot)
             var lastFileRoots = initialFileRoots
             var lastManagedRoots = initialManagedRoots
             for await (count, root, fileRoots, managedRoots) in ObservationStream({
                 (settings.loadCount, settings.snapshot.root, settings.fileRoot.value(at: ChatSettings.rootsPath), settings.managedChatRoots)
             }) {
+                let stored = SettingsSchema.storedValues(in: root)
                 let keys = SettingsSchema.all.filter {
-                    $0.storedValue(in: root) != $0.storedValue(in: last)
+                    stored[$0.id] != lastStored[$0.id]
                         || ($0.path == ChatSettings.rootsPath && (fileRoots != lastFileRoots || managedRoots != lastManagedRoots))
                 }.map(\.id)
                 lastFileRoots = fileRoots
                 lastManagedRoots = managedRoots
-                last = root
+                lastStored = stored
                 if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
             }
         }

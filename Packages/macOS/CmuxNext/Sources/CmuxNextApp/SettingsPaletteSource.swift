@@ -72,11 +72,9 @@ final class SettingsPaletteSource: PaletteSettingsSource {
                                 recentFonts: settings.recentFonts.families, developerTools: developerTools,
                                 locale: Locale.autoupdatingCurrent.identifier)
         if let built, built.inputs == inputs { return built.rows }
-        let root = settings.snapshot.root
-        let rows = SettingsSchema.all.filter { $0.isPaletteListed(developerTools: developerTools) }.map { descriptor in
-            let current = pending[descriptor.id].map { $0.value ?? settings.defaultValue(of: descriptor) } ?? descriptor.effectiveValue(in: root)
-            return row(descriptor, current: current, inherited: descriptor.inheritedValue(in: root), colors: colors)
-        }
+        let listed = SettingsSchema.all.filter { $0.isPaletteListed(developerTools: developerTools) }
+        let reads = settings.paletteReads(listed, pending: pending.mapValues { $0.value }, themeColors: colors)
+        let rows = listed.compactMap { descriptor in reads[descriptor.id].map { row(descriptor, read: $0.read, current: $0.current, colors: colors) } }
         built = (inputs, rows)
         rowBuilds += 1
         return rows
@@ -134,7 +132,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         SettingsSchema.descriptor(for: id.split(separator: ".").map(String.init))
     }
 
-    private func row(_ descriptor: SettingDescriptor, current: JSONValue?, inherited: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
+    private func row(_ descriptor: SettingDescriptor, read: SettingRowRead, current: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
         let isFont = descriptor.kind == .fontFamily
         let options = if descriptor.kind == .theme, let themes {
             SettingOption.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
@@ -142,10 +140,10 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         } else if isFont {
             settings.recentFonts.options(current: current?.stringValue, families: AppFontSetting.families(for: descriptor.id, fixedPitch: TerminalFontSetting.installedFamilies), defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
-            settings.paletteOptions(descriptor, current: current, inherited: inherited, themeColors: colors)
+            settings.paletteOptions(descriptor, read: read, current: current, themeColors: colors)
         }
         let currentOption = options.first(where: \.isCurrent)
-        let label = descriptor.paletteSummary(current: current, options: options) ?? currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
+        let label = descriptor.paletteSummary(read, options: options) ?? currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
         let kind: PaletteSettingRow.Kind
         if descriptor.kind == .toggle {
             kind = .toggle(isOn: current?.boolValue ?? false)

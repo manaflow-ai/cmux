@@ -65,13 +65,19 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
         let rows = AgentPaneDisplaySettingsSchema.descriptors
             + MarkdownViewerSettingsSchema.descriptors.filter { followed.contains($0.id) }
             + Self.followedAppPaths.compactMap { SettingsSchema.descriptor(for: $0) }
+        // One Rust call per root (`schema.rows`), not one or two per row.
+        let looked = lookRoot.map { _ in rows.filter { Self.themedPaths.contains($0.path) }.map(\.id) } ?? []
+        var reads = SettingsSchema.reads(root: fileRoot, keys: rows.map(\.id).filter { !looked.contains($0) })
+        if let lookRoot, !looked.isEmpty {
+            reads.merge(SettingsSchema.reads(root: lookRoot, keys: looked)) { _, look in look }
+        }
         for descriptor in rows {
-            let root = Self.themedPaths.contains(descriptor.path) ? lookRoot ?? fileRoot : fileRoot
             // A value an earlier form of the row wrote reads as what it meant (the Chat Minimap toggle).
             // A renamed row's old key applies while the new one is absent (``RenamedSettingKeys``).
-            guard let stored = root.value(at: descriptor.path) ?? RenamedSettingKeys.legacyValue(for: descriptor.path, in: root),
-                  stored != .null,
-                  let value = AgentPaneDisplaySettingsSchema.pageValue(descriptor.id, stored), descriptor.accepts(value)
+            // The value in effect is the accepted one, so only a value that differs from it is asked.
+            guard let read = reads[descriptor.id], let stored = read.stored,
+                  let value = AgentPaneDisplaySettingsSchema.pageValue(descriptor.id, stored),
+                  value == read.effective || descriptor.accepts(value)
             else { continue }
             values[descriptor.id] = value
         }
