@@ -1387,6 +1387,87 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
 }
 
 #[test]
+fn a_join_made_while_the_daemon_runs_is_set_up_without_a_restart() {
+    use super::NotRunning;
+    use super::linux::{Step, Tick, tick};
+    let rd = rd_identity(1000, 1);
+    let not_joined = || Err(NotRunning::new("not_joined", "this machine is not joined"));
+    let join = |generation: u64| -> Result<Value, NotRunning> {
+        Ok(json!({"machineId": "m1", "credentialGeneration": generation}))
+    };
+    // The daemon started before the join (the bug: the watcher ended there), then a join, a
+    // leave, and a join again, with cmux-rd installed all along.
+    let timeline = [not_joined(), not_joined(), join(1), join(1), not_joined(), join(2), join(2)];
+    let mut attempted = None;
+    let mut seen = Vec::new();
+    for read in timeline {
+        match tick(read, Value::clone, &mut attempted, Some(rd)) {
+            Tick::NotJoined(why) => {
+                assert_eq!(why.code, "not_joined");
+                assert_eq!(attempted, None, "a leave forgets what was tried");
+                seen.push("not_joined".to_owned());
+            }
+            Tick::Joined(_, key, Step::Enable(id)) => {
+                attempted = Some((id, key.clone()));
+                seen.push(format!("enable {}", key["credentialGeneration"]));
+            }
+            Tick::Joined(_, _, step) => seen.push(format!("{step:?}")),
+        }
+    }
+    assert_eq!(
+        seen,
+        ["not_joined", "not_joined", "enable 1", "Wait", "not_joined", "enable 2", "Wait"]
+    );
+    // A join while cmux-rd is not there yet says so, and its install is set up on its tick.
+    let mut attempted = None;
+    assert!(matches!(
+        tick(join(3), Value::clone, &mut attempted, None),
+        Tick::Joined(_, _, Step::NotInstalled)
+    ));
+    assert!(matches!(
+        tick(join(3), Value::clone, &mut attempted, Some(rd)),
+        Tick::Joined(_, _, Step::Enable(_))
+    ));
+    assert_eq!(super::JOIN_CHECK_EVERY, Duration::from_secs(60));
+}
+
+#[tokio::test]
+async fn a_status_from_before_a_join_says_the_host_starts_and_wakes_the_check() {
+    use super::state::{not_running_json, refreshed};
+    use super::{NotRunning, joined_since, next_check};
+    // Every join reason, read against a machine joined now: out of date.
+    for state in super::JOIN_STATES {
+        assert!(joined_since(state, false, || true), "{state}");
+        assert!(!joined_since(state, false, || false), "{state}");
+    }
+    // A running host, or one stopped for another reason, never asks about the join.
+    let asked = std::cell::Cell::new(false);
+    let ask = || {
+        asked.set(true);
+        true
+    };
+    assert!(!joined_since("set_up", true, ask));
+    assert!(!joined_since("not_installed", false, ask));
+    assert!(!joined_since("enable_failed", false, ask));
+    assert!(!asked.get());
+    // The daemon's own not-joined status, unchanged while the machine is not joined.
+    let why = NotRunning::new("not_joined", "this machine is not joined");
+    let before = not_running_json(Some(&why), true);
+    assert_eq!(refreshed(before.clone(), || false), before);
+    // Joined since: it says the host starts, and the check is woken now, not in a minute.
+    let after = refreshed(before, || true);
+    assert_eq!(after["state"], "starting");
+    assert_eq!(after["running"], false);
+    assert!(after["detail"].as_str().unwrap().contains("joined since"));
+    tokio::time::timeout(Duration::from_secs(5), next_check(Duration::from_secs(3600)))
+        .await
+        .expect("a recheck wakes the join check at once");
+    // The Linux host's status says the same.
+    let linux = super::linux::status_json("not_joined", "x", Path::new("/rd"), "");
+    assert_eq!(refreshed(linux, || true)["state"], "starting");
+}
+
+#[test]
 fn a_ping_without_a_pong_ends_the_link() {
     let s = Duration::from_secs;
     // No ping yet, or one just sent: the socket is fine.

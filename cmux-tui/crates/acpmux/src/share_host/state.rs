@@ -308,15 +308,41 @@ pub(crate) fn device_hub_of(host: &str) -> Option<Value> {
 }
 
 /// `share-host status` in this daemon: the running host's, or why it does not run.
+/// A status that says the join keeps the host from running is read against the join now: when the
+/// machine has joined since, the daemon's check runs at once and the answer says it starts.
 pub(crate) fn status_now() -> Value {
     if let Some(shared) = RUNNING.get() {
         return shared.status_json();
     }
-    if let Some(status) = lock(&LINUX).clone() {
+    let status = match lock(&LINUX).clone() {
+        Some(status) => status,
+        None => {
+            let why = lock(&NOT_RUNNING).clone();
+            not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
+        }
+    };
+    refreshed(status, || super::joined().is_ok())
+}
+
+/// `status`, or, when it says the host does not run for want of a join and the machine is joined
+/// now (`joined_now`, asked only then), that the host starts: the join check is woken
+/// ([`super::recheck`]) so it does.
+pub(crate) fn refreshed(status: Value, joined_now: impl FnOnce() -> bool) -> Value {
+    let state = status.get("state").and_then(Value::as_str).unwrap_or_default();
+    let running = status.get("running").and_then(Value::as_bool).unwrap_or(false);
+    if !super::joined_since(state, running, joined_now) {
         return status;
     }
-    let why = lock(&NOT_RUNNING).clone();
-    not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
+    super::recheck();
+    let mut status = status;
+    if let Some(fields) = status.as_object_mut() {
+        fields.insert("state".into(), json!("starting"));
+        fields.insert(
+            "detail".into(),
+            json!("this machine joined since the daemon last looked; the share host starts now"),
+        );
+    }
+    status
 }
 
 /// The status of a share host that does not run, and why. `supported`: this daemon's system has
