@@ -49,6 +49,11 @@
     "sidebar.workspaceRow.lastActivity": false,
     "sidebar.workspaceRow.pullRequest": true,
     "sidebar.workspaceRow.agentStatus": true,
+
+    // Motion. The reference treats motion as part of the product: a prompt you send settles into
+    // the thread rather than appearing at once, and panels move fast. Animations off and Reduce
+    // Motion still win over both.
+    "agentPane.display.sendPop": true,
     "ui.animationSpeed": "fast"
   }
 }
