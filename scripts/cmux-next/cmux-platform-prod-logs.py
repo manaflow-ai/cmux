@@ -127,6 +127,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.claim_fence_retry_write_failed",
     "cloud.connect.read",
     "cloud.create.adopted",
+    "cloud.create.approved",
     "cloud.create.attach_after_bind",
     "cloud.create.image_refollowed",
     "cloud.create.submit",
@@ -204,6 +205,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.spare.claimed",
     "cloud.spare.gateway_read",
     "cloud.spare.hold_refused",
+    "cloud.spare.promotion_failed",
     "cloud.spare.ready_failed",
     "cloud.spare.ready_told",
     "cloud.spare.replay_failed",
@@ -459,20 +461,24 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
                  "mode": TOKEN, "attempt": INT, "total_ms": INT, "path": TOKEN, "fallback": TOKEN, "behind": INT,
-                 "paused_for_ms": INT, "why": TOKEN, "exit": INT}
+                 "paused_for_ms": INT, "why": TOKEN, "exit": INT,
+                 # cloud.approval.run's split (cmux-platform#2295): queued, re-admission, delivery and the run itself.
+                 "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
-PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running")
+PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running", "recycled")
 
 # The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
 # ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
-TRACE_MSGS = frozenset({"cloud.create.submit", "cloud.create.trace", "cloud.start.submit", "cloud.start.trace"})
+# cloud.approval.run (cmux-platform#2295) carries an approved create's value.timings steps the same way.
+TRACE_MSGS = frozenset({"cloud.create.submit", "cloud.create.trace", "cloud.start.submit", "cloud.start.trace",
+                        "cloud.approval.run"})
 TRACE_STEPS = frozenset({
     "adopt", "answer", "attach_network", "bind_committed", "bind_file", "bind_wait", "budget", "carrier", "claim_prep",
     "driver", "edge", "ensure", "entitlements", "images", "needs_rule", "network", "plan_read", "power",
-    "prepare_network", "principal", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
-    "stale_submit", "submit",
+    "prepare_network", "principal", "provider", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
+    "stale_submit", "submit", "vm_api",
 })
 
 
@@ -510,6 +516,14 @@ def trace_steps(steps):
 # it a slow start reads only `power` (production 2026-11-26 22:42-23:42Z: 121058, 36714 and 32351 ms, all `power`), and
 # whether cmux-vm or the provider held the time cannot be told apart.
 POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms")
+
+
+# A start trace's `kind`, who the start was for (cmux-platform CloudCore.ts startKind: a person's, CLOUD_SPARE_RUNNING_MS's
+# window resume, the channel refresh's, a warm's), and `before`, the VM's state before the call (Driver.ts powerBefore).
+# hq#31259 (2026-11-26): a paused VM's start p50 6.6 s, max 121 s, and the slow ones matched no person's submit or
+# claim; only these say which spare wake they were. Each is kept only as one of its fixed words, any other dropped.
+START_KINDS = frozenset({"person", "window", "refresh", "warm"})
+START_BEFORE = frozenset({"paused", "stopped", "pausing", "starting", "running", "other"})
 
 
 def power_split(power):
@@ -866,6 +880,20 @@ def vm_event_line(e):
     return None
 
 
+# cloud.spare.promotion_failed (cmux-platform#2318 CloudDO.spareFailedPromotion): a spare taken out of its person's pool
+# because its bind's edge name check stayed unresolved, with the image it booted. Only the image's build revision (its
+# first run of 8 lowercase hex, a cmux commit such as 2d3eba54) is kept, so the cold-start tables count bad spares per
+# image; the rest of the image's name is dropped.
+IMAGE_REV = re.compile(r"(?<![0-9a-f])([0-9a-f]{8})(?:[0-9a-f]*)(?![0-9a-z])")
+
+
+def image_rev(image):
+    if not isinstance(image, str) or len(image) > 96:
+        return None
+    m = IMAGE_REV.search(image)
+    return m.group(1) if m else None
+
+
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg or cmux-vm event, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
@@ -898,6 +926,16 @@ def public_log(j):
         power = power_split(j.get("power"))
         if power is not None:
             out["power"] = power
+    if msg == "cloud.start.trace":
+        out.pop("kind", None)
+        if j.get("kind") in START_KINDS:
+            out["kind"] = j["kind"]
+        if j.get("before") in START_BEFORE:
+            out["before"] = j["before"]
+    if msg == "cloud.spare.promotion_failed":
+        rev = image_rev(j.get("image"))
+        if rev is not None:
+            out["image_rev"] = rev
     if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
         out["kicked"] = j["kicked"]
     if msg in SPARE_COUNT_MSGS:
