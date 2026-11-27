@@ -104,6 +104,12 @@ pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPredicti
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
 pub use vnc::{VncJsonError, vnc_json};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
+pub use workspace_arrangement::{
+    ArrangementInput, ArrangementPin, ArrangementPlace, ArrangementWorkspace, WorkspaceAnchor,
+    WorkspaceCloseKind, WorkspaceCloseRow, WorkspaceContainerRow, WorkspaceEdgeSide, WorkspaceSortBy,
+    WorkspaceSortRow, workspace_arrangement_apply, workspace_close_question, workspace_close_targets,
+    workspace_containers, workspace_edge_anchor, workspace_sorted,
+};
 pub use workspace_groups::{
     GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,
     PhoneSidebarRow, PhoneWorkspaceGroup, WorkspaceGroupSlot, pending_group_edit_step, workspace_group_slots,
