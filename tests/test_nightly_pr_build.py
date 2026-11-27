@@ -9,11 +9,13 @@ differ by arch and are stable; the Swift job runs check-release-compile.sh with 
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,15 +72,27 @@ class Route(unittest.TestCase):
         repo = {"full_name": "manaflow-ai/cmux"}
         pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},
               "labels": [{"name": "ready-to-land"}]}
-        for action in ("synchronize", "labeled"):
+        # The land handoff starts it; a push of a labelled PR waits for land's ask unless the switch is 0.
+        for action, at_land, starts in (("labeled", "1", True), ("synchronize", "1", False),
+                                        ("labeled", "0", True), ("synchronize", "0", True)):
             event = {"action": action, "label": {"name": "ready-to-land"}, "pull_request": pr}
             tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
             self.assertTrue(pr_router.head_tier.land_affected(tier))
-            for path, expected in ((npb.WORKFLOW, True), ("Packages/macOS/CmuxNext/Sources/X.swift", True),
+            for path, expected in ((npb.WORKFLOW, starts), ("Packages/macOS/CmuxNext/Sources/X.swift", starts),
                                    ("docs/readme.md", False)):
-                with self.subTest(action=action, path=path):
-                    start, _ = pr_router.route(event, callees, [path], decided=tier)
-                    self.assertEqual(name in start, expected)
+                with self.subTest(action=action, at_land=at_land, path=path), \
+                        mock.patch.dict(os.environ, {"CI_NIGHTLY_PR_BUILD_AT_LAND": at_land}):
+                    start, why = pr_router.route(event, callees, [path], decided=tier)
+                    self.assertEqual(name in start, expected, why[name])
+        # full-ci (a lane VM's handoff pulse) is land's ask too; the merge train's tip builds on its push.
+        event = {"action": "labeled", "label": {"name": "full-ci"}, "pull_request": pr}
+        tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+        self.assertIn(name, pr_router.route(event, callees, [npb.WORKFLOW], decided=tier)[0])
+        tip = {**pr, "head": {"repo": repo, "ref": pr_router.TRAIN_TIP}}
+        event = {"action": "synchronize", "pull_request": tip}
+        tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+        if pr_router.head_tier.land_affected(tier):
+            self.assertIn(name, pr_router.route(event, callees, [npb.WORKFLOW], decided=tier)[0])
         for changes in ({"draft": True}, {"labels": []}):
             event = {"action": "synchronize", "pull_request": {**pr, **changes}}
             tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
@@ -176,6 +190,19 @@ class Workflow(unittest.TestCase):
         timeout = re.search(r"(?ms)^  swift-fleet:\n.*?timeout-minutes: (\d+)", text)
         self.assertIsNotNone(timeout)
         self.assertLessEqual(int(timeout.group(1)), 90)
+
+    def test_swift_job_detaches_and_the_fleet_posts_the_verdict(self) -> None:
+        # Leo, 2026-11-27: "de facto, im asking for 99% fewer minutes of ci time, period." The job held a runner
+        # ~20 min per arch while its step sat queued (run 46030977376 job 140614747339), ~20k runner-min/day.
+        text = (ROOT / npb.WORKFLOW).read_text()
+        self.assertIn("DETACH: ${{ vars.CI_NIGHTLY_PR_BUILD_DETACH || '1' }}", text)
+        self.assertIn('detach=(--report-check "$REPORT_CHECK" --detach)', text)
+        self.assertIn('${detach[@]+"${detach[@]}"}', text)  # empty-array safe under set -u on macOS bash 3.2
+        name = re.search(r"REPORT_CHECK: (.*)$", text, re.M)
+        self.assertIsNotNone(name)
+        self.assertIn("(advisory)", name.group(1))
+        # report_check.go reportCheckName, with the matrix expression standing in for the arch.
+        self.assertRegex(name.group(1).replace("${{ matrix.arch }}", "arm64"), r"^[A-Za-z0-9][A-Za-z0-9 ._()/:+-]{0,99}$")
 
 
 if __name__ == "__main__":
