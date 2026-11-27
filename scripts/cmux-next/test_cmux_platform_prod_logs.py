@@ -563,6 +563,17 @@ class NeverBoundTests(unittest.TestCase):
                  ("the VM this machine's first create made is not there yet",
                   "the VM this machine's first create made is not there yet"),
                  ("restore snapshot is missing because tenant-x", "other"),
+                 # Production messages carry their module's prefix (vmapi/CloudProvider.ts unavailable).
+                 ("VM API: restore snapshot is missing", "VM API: restore snapshot is missing"),
+                 ("VM API: HTTP 503 (busy) secret-tenant-words", "VM API: HTTP 503"),
+                 ("VM API: boot image img_secret-tenant-words is not listed yet",
+                  "VM API: boot image is not listed yet"),
+                 ("VM API network: unconfirmed mesh ACL apply", "VM API network: unconfirmed mesh ACL apply"),
+                 ("VM API network: mesh ACL apply HTTP 400 secret-tenant-words", "VM API network: mesh ACL apply HTTP 400"),
+                 ("VM API: file write HTTP 500", "VM API: file write HTTP 500"),
+                 ("VM API: secret-tenant-words", "VM API: other"),
+                 ("TypeError: secret-tenant-words is not a function", "TypeError"),
+                 ("the machine network is unavailable", "the machine network is unavailable"),
                  (None, "other"))
         for message, want in cases:
             with self.subTest(message=message):
