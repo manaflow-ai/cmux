@@ -2297,6 +2297,35 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A file that folds (EditDiff `collapsible`, the edited-files card): its name is the toggle, a chevron
+   before it that points down while open and right while folded, as a disclosure does. The header's bare
+   space folds it too. */
+.cv-edit-diff__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+.cv-edit-diff__chevron {
+  flex: none;
+  color: var(--agent-muted);
+}
+.cv-edit-diff[data-collapsed] .cv-edit-diff__chevron {
+  transform: rotate(-90deg);
+}
+.cv-edit-diff[data-collapsed] > .cv-edit-diff__header {
+  border-bottom-color: transparent;
+}
+.cv-edit-diff__body[hidden] {
+  display: none;
+}
 .cv-edit-diff__add {
   flex: none;
   /* A tenth toward the text, so the count holds 4.5:1 on a card's fill too (the raw status ink was 4.43:1). */
@@ -2506,7 +2535,7 @@ pre.cv-math-source {
   /* Transcript arrivals follow Claude Code's softer standard step. Reuse the host-scaled move token
      so speed, minimal-motion and reduced-motion gates still apply to the shared arrival clock. */
   --agent-motion-arrive: var(--agent-motion-move, var(--cmux-motion-standard, 180ms));
-  /* Its width is what a row's 100cqw reads: an opened edited-files card spans it (EditedFilesCard.css). */
+  /* Its width is what a row's 100cqw reads. */
   container-type: inline-size;
 }
 /* Where Session Info lies over the chat, the transcript leaves its box out (session-info/chatCut.ts):
