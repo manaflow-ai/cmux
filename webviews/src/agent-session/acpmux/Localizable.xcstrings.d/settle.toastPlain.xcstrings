@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "edited.hideFiles" : {
-      "comment" : "Agent pane",
+    "settle.toastPlain" : {
+      "comment" : "Agent pane: toast when a chat was settled (archived as done) by hand. {title} is the chat's title.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settled: {title}"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "إخفاء الملفات"
+            "value" : "تمت التسوية: {title}"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sakrij datoteke"
+            "value" : "Završeno: {title}"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Skjul filer"
+            "value" : "Afsluttet: {title}"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dateien ausblenden"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hide files"
+            "value" : "Abgeschlossen: {title}"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ocultar archivos"
+            "value" : "Cerrado: {title}"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Masquer les fichiers"
+            "value" : "Classé : {title}"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nascondi file"
+            "value" : "Concluso: {title}"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルを隠す"
+            "state" : "needs_review",
+            "value" : "完了済み: {title}"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "លាក់ឯកសារ"
+            "value" : "បានបញ្ចប់៖ {title}"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "파일 숨기기"
+            "value" : "정리됨: {title}"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Skjul filer"
+            "value" : "Avsluttet: {title}"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ukryj pliki"
+            "value" : "Zakończono: {title}"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ocultar arquivos"
+            "value" : "Concluído: {title}"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Скрыть файлы"
+            "value" : "Завершено: {title}"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ซ่อนไฟล์"
+            "value" : "ปิดแล้ว: {title}"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dosyaları gizle"
+            "value" : "Tamamlandı: {title}"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Сховати файли"
+            "value" : "Завершено: {title}"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ẩn tệp"
+            "value" : "Đã khép lại: {title}"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "隐藏文件"
+            "value" : "已归结：{title}"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "隱藏檔案"
+            "value" : "已歸結：{title}"
           }
         }
       }
