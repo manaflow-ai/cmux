@@ -163,10 +163,28 @@ struct AgentPaneCloudSetUpTests {
         #expect(error["retryable"] as? Bool == false)
     }
 
+    /// cmux#63349: a sign-in that failed ends the card's wait with `cloud_setup_failed` and words the card
+    /// shows, and keeps no click for the start; the picker's button says the same.
+    @Test func aSetUpWhoseSignInFailedSaysWhy() async {
+        let model = AgentPaneModel(host: NoHost(), sessionId: nil)
+        model.onCloudStartChat = { _ in AgentPaneReply.success() }
+        model.onCloudSetUp = { _, _, _, _ in .failure(.failed("network")) }
+        let key = UUID().uuidString
+        model.transport.gestures.record()
+        let reply = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "connectChatGPT", "family": "codex"]]))
+        #expect(Self.code(reply) == "cloud_setup_failed")
+        #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == "this Mac could not reach the sign-in service")
+        let again = AgentPaneRequest(body: ["method": "cloud.startChat", "params": ["task": "kept prompt", "key": key, "home": true, "signedIn": true]])
+        #expect(Self.code(await model.respond(to: again)) == "cloud_sign_in_cancelled")
+        model.transport.gestures.record()
+        let picker = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["action": "connectChatGPT", "family": "codex"]]))
+        #expect(Self.code(picker) == "cloud_setup_failed")
+    }
+
     @Test func aSetUpThatEndsWithNoConnectionKeepsNoClick() async {
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         model.onCloudStartChat = { _ in AgentPaneReply.success() }
-        model.onCloudSetUp = { _, _, _, _ in nil }
+        model.onCloudSetUp = { _, _, _, _ in .failure(.withdrawn) }
         let key = UUID().uuidString
         model.transport.gestures.record()
         let reply = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "openSettings", "family": "claude"]]))
@@ -298,7 +316,7 @@ struct AgentPaneCloudSetUpTests {
         model.ownsCloudConnectionMachine = { $0 == "vm_b" }
         model.onCloudSetUp = { _, _, machine, scope in
             #expect(machine == "vm_b" && scope == environment)
-            return .init(machine: machine, usesMachineLogin: true, environment: scope, bindsEnvironment: true)
+            return .success(.init(machine: machine, usesMachineLogin: true, environment: scope, bindsEnvironment: true))
         }
         model.transport.gestures.record()
         let setup = AgentPaneRequest(body: ["method": "cloud.setUp", "params": [
@@ -357,7 +375,7 @@ struct AgentPaneCloudSetUpTests {
         model.onCloudSetUp = { action, family, machine, environment in
             #expect(machine == nil && environment == nil)
             ran.append((action, family))
-            return .init()
+            return .success(.init())
         }
         let setUp = AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["action": "connectChatGPT", "family": "codex"]])
         #expect(Self.code(await model.respond(to: setUp)) == "transport.gesture_required")

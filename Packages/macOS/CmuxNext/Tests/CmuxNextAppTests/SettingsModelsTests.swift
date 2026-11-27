@@ -1183,9 +1183,13 @@ import Testing
         let daemon = Daemon()
         daemon.waits.withLock { $0 = ["pending", "failed"] }
         let models = make(daemon: daemon)
+        var failures: [String] = []
+        models.onSignInFailed = { family, code in failures.append("\(family):\(code)") }
         _ = try await models.run(["action": "connectChatGPT"], context: click)
         await models.chatgptTask?.value
         #expect(models.state["chatgpt"] == ["attempt": .null, "error": "no_plan_scope"])
+        // cmux#63349: a Cloud chat waiting on this sign-in hears it failed, so its card stops waiting.
+        #expect(failures == ["codex:no_plan_scope"])
     }
 
     @Test func onlyOpenAIsSignInPageIsOpened() async throws {

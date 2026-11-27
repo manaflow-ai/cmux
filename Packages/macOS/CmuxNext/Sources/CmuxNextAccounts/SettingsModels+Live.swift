@@ -177,6 +177,7 @@ extension SettingsModels {
         guard chatgptAttempt == attempt else { return }
         setChatGPT(attempt: nil, error: error)
         dismissSignInPage?("chatgpt:\(attempt)")
+        if let error { onSignInFailed?("codex", error) }
     }
 
     /// Connect Claude in one click (Leo, 2026-11-25: no copy and paste at all): acpmux runs
@@ -305,6 +306,7 @@ extension SettingsModels {
         guard claudeTokenAttempt == attempt else { return }
         setClaudeToken(attempt: nil, phase: nil, error: error, saved: saved)
         dismissSignInPage?("claude-token:\(attempt)")
+        if let error { onSignInFailed?("claude", error) }
     }
 
     /// Save an API key in the Keychain and send its reference to the connection owner.

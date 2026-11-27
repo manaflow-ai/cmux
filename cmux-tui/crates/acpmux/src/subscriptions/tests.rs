@@ -690,3 +690,23 @@ async fn kimi_refresh_only_discards_grant_on_unauthorized_or_invalid_grant() {
         provider.write(&places.home, id, &record).unwrap();
     }
 }
+
+/// cmux#63349: a sign-in whose host the egress gate does not list fails after the browser part
+/// (ChatGPT's did). Every subscription sign-in's own hosts (SuperGrok, Copilot, Kimi Code in both
+/// regions, OpenRouter) are on the allowlist, so a client moved behind the gate keeps signing in.
+#[test]
+fn the_egress_gate_lists_every_subscription_sign_in_host() {
+    let e = Endpoints::default();
+    for url in [
+        &e.grok_issuer,
+        &e.github,
+        &e.github_api,
+        &e.kimi_global,
+        &e.kimi_china,
+        &e.kimi_global_api,
+        &e.kimi_china_api,
+        &e.openrouter,
+    ] {
+        assert_eq!(cmux_egress::verdict(url), cmux_egress::Verdict::Listed, "{url}");
+    }
+}
