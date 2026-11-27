@@ -8,8 +8,8 @@ import Testing
 /// (cmux-cloud-api `previews.rs`'s `cloud.vm.*`), the platform answers they decode, and the fields a CLI or
 /// agent run gets back.
 @Suite(.serialized)
-struct CloudAPIClientProvisionAPITests {
-    typealias FakeDaemon = CloudAPIClientRunTests.FakeDaemon
+struct CloudDaemonProvisionAPITests {
+    typealias FakeDaemon = CloudDaemonRunTests.FakeDaemon
 
     nonisolated static let key = #"{"id":"key-1","publicationId":"vm_abc:3000","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":null}"#
     nonisolated static let publication = #"{"id":"vm_abc:3000","hostname":"p3000-abc.preview.test","url":"https://p3000-abc.preview.test","domainKind":"managed","vmId":"vm_abc","port":3000,"targetPort":3000,"protocol":"https","accessMode":"personal","teamId":"team-1","state":"active"}"#
@@ -33,10 +33,10 @@ struct CloudAPIClientProvisionAPITests {
     }
 
     /// The app's preview client (CloudService.previewAPI): the person's session at the platform origin.
-    private func api(_ daemon: FakeDaemon) throws -> CloudAPIClient {
-        var worker = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")), accessToken: { "access" },
+    private func api(_ daemon: FakeDaemon) throws -> CloudDaemon {
+        var worker = CloudDaemon.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")), accessToken: { "access" },
                                                    teamID: { "team-1" })
-        worker.daemon.daemonCall = { input, _ in try daemon.run(input) }
+        worker.daemonCall = { input, _ in try daemon.run(input) }
         return worker.previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
     }
 
@@ -105,8 +105,8 @@ struct CloudAPIClientProvisionAPITests {
         let daemon = daemon()
         let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
                                                        process: [:], isDebugBuild: true)
-        var classic = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" })
-        classic.daemon.daemonCall = { input, _ in try daemon.run(input) }
+        var classic = CloudDaemon(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" })
+        classic.daemonCall = { input, _ in try daemon.run(input) }
         await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
             try await classic.listPublications()
         }
