@@ -233,6 +233,9 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
         // The live perf commentator (perf_watch.rs).
         untyped(method::MUX_PERF, Request),
+        // The app's and webviews' own trace spans, written to the daemon's trace sink (perf_trace.rs).
+        untyped(crate::perf_trace::METHOD_SPANS, Request),
+        untyped(crate::perf_trace::METHOD_STATUS, Request),
         // Each caller's requests over a recent window (caller_stats.rs).
         untyped(method::MUX_CALLERS, Request),
         // The felt-latency histograms (cmux-felt).
@@ -360,6 +363,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GOAL_SET, Request),
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
+        untyped(method::MUX_HISTORY_READ, Request),
         untyped(method::MUX_SURGERY, Request),
         untyped(method::MUX_PLAN_BUILD, Request),
         untyped(method::MUX_PLAN_COMPARE, Request),
@@ -391,6 +395,8 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::WatchTakeOverParams>(method::MUX_WATCH_TAKE_OVER, Request),
         keyed::<params::ReleaseToWatchParams>(method::MUX_RELEASE_TO_WATCH, Request),
         keyed::<params::ArchiveParams>(method::MUX_ARCHIVE, Request),
+        keyed::<params::UndeleteParams>(method::MUX_UNDELETE, Request),
+        untyped(method::MUX_DELETED, Request),
         keyed::<params::SideParams>(method::MUX_SIDE, Request),
         keyed::<params::BtwParams>(method::MUX_BTW, Request),
         untyped(method::MUX_TAG, Request),
@@ -400,6 +406,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SESSION_RESYNC, Request),
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
+        untyped(method::MUX_SCORECARD_REPLAY, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         untyped(method::MUX_PAUSED_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
@@ -650,8 +657,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_snapshots_clear", Request),
         untyped("_acpmux/journal_restore", Request),
         untyped("_acpmux/attachments_held", Request),
-        untyped(crate::perf_trace::METHOD_SPANS, Request),
-        untyped(crate::perf_trace::METHOD_STATUS, Request),
         untyped(crate::agent_credentials::UPDATE_METHOD, Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),

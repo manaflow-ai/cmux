@@ -61,7 +61,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out trusted report code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -94,8 +94,12 @@ jobs:
           CMUX_CI_RUNNER_VARIABLES: |
             CI_AWS_SIDE_RUNNER=${{ vars.CI_AWS_SIDE_RUNNER }}
             CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
+            CI_DEV_COMPILE_NIGHTLY_RUNNER=${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER }}
             CI_DEV_COMPILE_RUNNER=${{ vars.CI_DEV_COMPILE_RUNNER }}
+            CI_DEV_COMPILE_NIGHTLY_RUNNER=${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER }}
+            CI_FORK_LINUX_RUNNER=${{ vars.CI_FORK_LINUX_RUNNER }}
             CI_FAST_LANE_RUNNER=${{ vars.CI_FAST_LANE_RUNNER }}
+            CI_FORK_LINUX_RUNNER=${{ vars.CI_FORK_LINUX_RUNNER }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
             CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
@@ -108,6 +112,7 @@ jobs:
             CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
+            CI_REACT_SHARD_RUNNER=${{ vars.CI_REACT_SHARD_RUNNER }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SESSION_LANE_RUNNER=${{ vars.CI_SESSION_LANE_RUNNER }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
@@ -115,6 +120,7 @@ jobs:
             CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
+            CMUX_IOS_SIM_LINUX_BUILD_RUNNER=${{ vars.CMUX_IOS_SIM_LINUX_BUILD_RUNNER }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
             LINUX_BUILD_RUNNER=${{ vars.LINUX_BUILD_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}

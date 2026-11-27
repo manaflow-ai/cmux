@@ -59,20 +59,24 @@ on:
         description: "probe: hot swap out state (scripts/ci/piece_swap.py State); sha is then the culprit with some pieces swapped out."
         type: string
         default: ""
+      confirm:
+        description: "probe: flake-aware confirm run (red-N at the culprit, green-N at its parent) before a revert."
+        type: string
+        default: ""
   push:
     branches:
       - lane/post-merge-drill-*
 
 run-name: >-
   ${{ inputs.mode == 'probe'
-      && format('probe {0} {1} at {2}', inputs.suite, inputs.only || 'all', inputs.sha)
+      && format('probe {0} {1} at {2}{3}', inputs.suite, inputs.only || 'all', inputs.sha, inputs.confirm && format(' confirm {0}', inputs.confirm) || '')
       || format('batch {0}', inputs.reason || github.event_name) }}
 
 permissions: {}
 
 concurrency:
   # One batch run per branch at a time; probes queue per suite and job, never cancelled.
-  group: cmux-next-post-merge-${{ github.ref_name }}-${{ inputs.mode == 'probe' && format('probe-{0}-{1}', inputs.suite, inputs.only) || 'batch' }}
+  group: cmux-next-post-merge-${{ github.ref_name }}-${{ inputs.mode == 'probe' && format('probe-{0}-{1}{2}', inputs.suite, inputs.only, inputs.confirm) || 'batch' }}
   cancel-in-progress: false
 
 env:
@@ -96,21 +100,21 @@ jobs:
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
-          for attempt in 1 2; do
+          for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
             timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done
@@ -211,9 +215,11 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+    # statuses: its full-carry job (scripts/ci/head_tier.py) asks for it.
     permissions:
       actions: read
       contents: read
+      statuses: read
 
   web:
     needs: plan
@@ -362,21 +368,21 @@ jobs:
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
-          for attempt in 1 2; do
+          for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
             timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done
@@ -430,10 +436,11 @@ jobs:
           ORIGIN: ${{ inputs.origin }}
           TRIES: ${{ inputs.tries }}
           PIECES: ${{ inputs.pieces }}
+          CONFIRM: ${{ inputs.confirm }}
         run: |
           python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \
-            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES"
+            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES" --confirm "$CONFIRM"
       # The next batch starts as this one ends when the base has piled up NEXT_POST_MERGE_EVERY_MERGES merges since
       # this run's commit, so batches follow merges, not the 30-minute cron alone. It runs after a successful
       # judge only, and never fails it: a red here would make this batch read as untested.
@@ -467,7 +474,7 @@ jobs:
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
@@ -475,7 +482,7 @@ jobs:
           ref: ${{ github.ref }}
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
@@ -483,7 +490,7 @@ jobs:
       - name: Fetch this ref's history
         timeout-minutes: 4
         run: |
-          for attempt in 1 2; do
+          for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
             timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done

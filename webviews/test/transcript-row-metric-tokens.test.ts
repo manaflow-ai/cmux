@@ -59,7 +59,6 @@ describe("the shared row metric", () => {
     // set the prose's size themselves.
     const rules: [string, string][] = [
       ["conversation/conversation.css", ".cv-tools {"],
-      ["conversation/conversation.css", ".cv-worked {"],
       ["conversation/conversation.css", ".cv-received {"],
       ["conversation/AgentMessageRow.css", ".cv-agentmsg {"],
       ["conversation/MessageGroupHead.css", ".cv-message-group__head {"],
@@ -75,6 +74,17 @@ describe("the shared row metric", () => {
         size: "var(--cv-row-font-size)",
       });
     }
+  });
+  test("Worked for and its new-messages tag keep the prose size, one token for both", () => {
+    const css = read("conversation/conversation.css");
+    expect(css).toContain("--cv-worked-font-size: var(--cv-font-size);");
+    const sizeOf = (sheet: string, selector: string) => {
+      const at = sheet.indexOf(`\n${selector}`);
+      expect({ selector, found: at >= 0 }).toEqual({ selector, found: true });
+      return /font-size:\s*([^;]+);/.exec(sheet.slice(at, sheet.indexOf("\n}", at)))?.[1];
+    };
+    expect(sizeOf(css, ".cv-worked {")).toBe("var(--cv-worked-font-size)");
+    expect(sizeOf(read("conversation/unread.css"), ".cv-since__line {")).toBe("var(--cv-worked-font-size)");
   });
   test("a session chip is the metric's chip", () => {
     const tag = read("conversation/AgentTag.css");

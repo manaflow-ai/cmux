@@ -40,7 +40,7 @@ export function outOfView(element: Element, scroller: Element): boolean {
 /// The properties a motion may have for it to be finished here: paint only. A motion that sizes or
 /// places a box (a height, a padding, a margin) out of the view still moves what is in it when the
 /// view is pinned to the bottom, so ending it at once would step the rows in view; those belong to
-/// the anchor pass and their owners (fold.ts `foldOffScreen`).
+/// the anchor pass and their owners.
 const PAINT = new Set([
   "opacity",
   "transform",
