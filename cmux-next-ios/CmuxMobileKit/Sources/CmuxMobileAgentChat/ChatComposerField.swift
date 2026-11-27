@@ -108,10 +108,7 @@ struct ChatComposerField: UIViewRepresentable {
     /// on a terminal's chat face parked out of sight (`chatFaceHidden`); a face swap updates it.
     private func markReadyIfShown() {
         guard !faceHidden else { return }
-        LaunchMarks.shared.markNextFrame("chat_composer_ready")
-        #if DEBUG
-        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
-        #endif
+        ChatReadyMark.take()
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
@@ -161,6 +158,37 @@ struct ChatComposerField: UIViewRepresentable {
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }
         func textViewDidEndEditing(_ textView: UITextView) { if parent.isFocused { parent.isFocused = false } }
     }
+}
+
+/// `chat_composer_ready`: the first frame showing the chat's answer control, the composer or the
+/// permission bar or sudo card that takes its place. A chat whose kept history is in its first frame
+/// (#57970) and waits on the person opens on its permission bar and never builds a composer; marked
+/// at the composer only, that open never took the mark (LaunchTTIUITests' chat flow on `ws-s0`).
+@MainActor
+enum ChatReadyMark {
+    static func take() {
+        LaunchMarks.shared.markNextFrame("chat_composer_ready")
+        #if DEBUG
+        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
+        #endif
+    }
+}
+
+/// Takes ``ChatReadyMark`` for a control in the composer's place, once it shows (not on a chat
+/// face parked behind its terminal).
+private struct ChatReadyMarkOnShow: ViewModifier {
+    @Environment(\.chatFaceHidden) private var faceHidden
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { if !faceHidden { ChatReadyMark.take() } }
+            .onChange(of: faceHidden) { _, hidden in if !hidden { ChatReadyMark.take() } }
+    }
+}
+
+extension View {
+    /// See ``ChatReadyMarkOnShow``.
+    func chatReadyMarkOnShow() -> some View { modifier(ChatReadyMarkOnShow()) }
 }
 
 /// The chat field: takes a focus asked for before it had a window once it gets one.

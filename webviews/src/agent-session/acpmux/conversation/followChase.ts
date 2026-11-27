@@ -117,6 +117,9 @@ const CATCH_UP_LINES = 1;
 const CATCH_UP_S = 0.15;
 /// At rest: drawn within this of its layout and moving slower than REST_SPEED px/s.
 const REST_PX = 0.25;
+/// The most of a send pop's rise one 60 Hz frame moves (SEND-RISE): its curve's fast start nominally
+/// moves ~14% in the first frame, so a late frame stays near it instead of jumping ahead.
+const RISE_FRAME_SHARE = 0.12;
 const REST_SPEED = 4;
 /// A frame gap longer than this (a hidden page, a long task) integrates as this long: the shared
 /// scroll clock's paced rides use the same bound (scrollMotion.ts).
@@ -253,6 +256,38 @@ function sendMsOf(node: HTMLElement, scale: number): number {
   return token ?? MOTION_SEND_MS * scale;
 }
 
+/// SEND-RISE (composerStates.css). Leo, 2026-11-22, after the send pop: "the chat transcript above
+/// doesn't quite smoothly account for things." The pop plays the sent bubble on its own 450 ms
+/// curve while the rows above it, on the 0 send step, jumped up by the room it took in one frame.
+/// With the pop on, the thread rises into that room on the pop's own clock and curve
+/// (`--agent-motion-send-rise`, `--agent-ease-send-rise`), so the rows above, the bubble and its
+/// thinking row move as one motion and rest in the same frame. Off (the default), the rise's clock
+/// is the send step's (0: everything lands at once, as before).
+export function sendRiseMs(node: HTMLElement): number {
+  const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+  return cssTimeMs(style?.getPropertyValue("--agent-motion-send-rise") ?? "") ?? sendMsOf(node, 1);
+}
+
+/// The pop's own rise (`--agent-motion-send-rise` set, which only the send pop does): 0 when the pop
+/// is off, even on a page with its own send clock. A path that only the pop changes reads this, so the
+/// pop off leaves it exactly as before (review of #55252, F1: SEND-SLIM's `data-send-entrance` clock).
+export function popRiseMs(node: HTMLElement): number {
+  const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+  return cssTimeMs(style?.getPropertyValue("--agent-motion-send-rise") ?? "") ?? 0;
+}
+
+function sendRiseMsOf(node: HTMLElement, scale: number): number {
+  const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+  return cssTimeMs(style?.getPropertyValue("--agent-motion-send-rise") ?? "") ?? sendMsOf(node, scale);
+}
+
+/// The rise's curve (`--agent-ease-send-rise`), the send motion's own when the page sets none.
+function sendRiseEase(node: HTMLElement): (progress: number) => number {
+  const raw = node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-ease-send-rise") ?? "";
+  const curve = raw.trim() ? parseBezier(raw.trim()) : undefined;
+  return curve ? (progress) => bezierAt(curve, progress) : sendEase;
+}
+
 /// What `alongsideMove` reads of one animation once: how far its keyframes move a row's `translate`
 /// (px, the y span) and its easing.
 type Slide = { span: number; ease: (progress: number) => number };
@@ -344,7 +379,16 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   /// (the reply's growth, `land`, `hold`) hands it back to the spring from where it is drawn and how
   /// fast it goes; a send's step keeps every move that raises the rows while it plays.
   let arrival:
-    | { from: number; at: number; duration: number; ease: (progress: number) => number; sent: boolean }
+    | {
+        from: number;
+        at: number;
+        duration: number;
+        ease: (progress: number) => number;
+        sent: boolean;
+        /// The send pop's rise only (SEND-RISE): the whole move this step carries (px), so no frame
+        /// moves more than RISE_FRAME_SHARE of it. Unset with the pop off, which keeps the line cap.
+        span?: number;
+      }
     | undefined;
   /// The `steady` arm: the drift's state, and what `shift` drew back since its last frame (px).
   let steady: SteadyState = { x: 0, speed: 0, rate: 0 };
@@ -369,6 +413,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     recheck = undefined;
   };
   let last: number | undefined;
+  /// The last step's frame time: the frames a step's move was painted over (`span`'s cap). Unset
+  /// until a step ran, so the first step after a move counts one frame, however late the move came.
+  let painted: number | undefined;
   let scale = 1;
   /// While the trail is past its bound: the speed (px/s) that brings it back within BURST_S of the
   /// landing that put it there, 0 inside the bound.
@@ -421,6 +468,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
     frame = undefined;
     last = undefined;
+    painted = undefined;
     x = 0;
     v = 0;
     burst = 0;
@@ -442,12 +490,16 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     // (covered by another workspace), so nobody saw the chase start. It lands before this frame
     // paints instead of sliding in from where it was held: one block that arrived while away, with
     // nothing after it to move the rows, drew 79 px off on the first frame back (#41252).
-    if (performance.now() - askedAt >= FRAMELESS_MS) {
+    // A send's rise is never frameless: the reader just pressed Return and watches it, and the send's
+    // own render is the long task that held this frame (see `shift`).
+    if (!arrival?.sent && performance.now() - askedAt >= FRAMELESS_MS) {
       stop();
       return;
     }
     const dt = last === undefined ? 1 / 120 : Math.min(MAX_STEP_S, Math.max(0, (now - last) / 1000));
     last = now;
+    const paintedFrames = painted === undefined ? 1 : Math.max(1, Math.round(((now - painted) * 60) / 1000));
+    painted = now;
     const from = x;
     // Past CATCH_UP_LINES behind (a burst faster than the limit) the limit rises by what is further
     // behind over CATCH_UP_S, so a frame never moves far while the view stays near the newest line.
@@ -474,7 +526,13 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A send's step moves no frame more than a line (its curve's fast start moves a fifth of a long
       // move in the first frame); the curve, slowing, takes back what a frame held over.
       if (arrival.sent) {
-        const most = CHASE_MAX_FRAME_LINES * line * Math.max(1, Math.round(dt * 120));
+        let most = CHASE_MAX_FRAME_LINES * line * Math.max(1, Math.round(dt * 120));
+        // The pop's rise runs on real time, so a frame that comes late (a loaded page) carried its
+        // lateness of the curve's fast start in one paint: 34-52 px of a 177-236 px rise, 19-22% of it
+        // (agent-pane.send-rise on CI). It moves no more than RISE_FRAME_SHARE of the rise per 60 Hz
+        // frame it covers; the curve, slowing, takes the held-over part back before its end.
+        if (arrival.span !== undefined)
+          most = Math.min(most, Math.max(REST_PX, arrival.span * RISE_FRAME_SHARE * paintedFrames));
         if (Math.abs(nextX - x) > most) nextX = x + Math.sign(nextX - x) * most;
       }
       v = (nextX - x) / Math.max(dt, 1e-3);
@@ -589,6 +647,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
       frame = undefined;
       last = undefined;
+      painted = undefined;
       v = 0;
       burst = 0;
       due = undefined;
@@ -670,7 +729,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (thread && thread !== node) stop();
       // No frame ran since one was asked for FRAMELESS_MS ago: nobody sees the chase, so the rows
       // move at once, and what it held lands with them. One frame running again ends it.
-      if (frameless || (frame !== undefined && performance.now() - askedAt >= FRAMELESS_MS)) {
+      // Not a send's own rows, nor a move while their rise plays (the thinking row measured a pass
+      // later): their commits are themselves the long tasks that held the frame (130-168 ms on a
+      // runner with 14 of 16 cores busy), and the reader is watching, so landing them at once drew
+      // the whole rise in one paint (agent-pane.send-rise: 118-230 px in the first frame).
+      if (
+        !sent &&
+        !arrival?.sent &&
+        (frameless || (frame !== undefined && performance.now() - askedAt >= FRAMELESS_MS))
+      ) {
         stop();
         thread = node;
         if (!frameless) {
@@ -738,8 +805,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A move during a step (the arrived row's measured height a pass later) keeps that step's end,
       // longer only as its frames need, so a second pass never starts the motion over.
       const left = arrival ? (arrival.duration - arrival.at) * 1000 : undefined;
-      // The steady arm times only a send's rise: an arrived row joins the drift.
-      const timed = !held && (arm === "blocks" || arm === "spring" || (arm === "steady" && sent)) && x !== 0;
+      // The steady arm times only a send's rise: an arrived row joins the drift. With the send pop on,
+      // a move that raises the rows while the rise plays (the thinking row measured a pass after the
+      // send's rows) joins the rise too: dropped to the drift, it ended the rise early and the rows
+      // rested 175 ms before the bubble (SEND-RISE, agent-pane.send-rise pop-3-lines). Off, the
+      // send step's 0 rise lands at once, so the drift keeps it as before; so does a page with its own
+      // send clock (`popRiseMs`: the pop's rise only).
+      const joinsRise = arm === "steady" && !sent && arrival?.sent === true && moved < 0 && popRiseMs(node) > 0;
+      const timed =
+        !held && (arm === "blocks" || arm === "spring" || (arm === "steady" && (sent || joinsRise))) && x !== 0;
       // A send's rows, or any move that raises the rows while a send's step plays, rise on the send
       // motion to that step's end (one motion with the bubble's entrance, `sendEase`).
       const sending = sent || (arrival?.sent === true && moved < 0);
@@ -749,24 +823,40 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       const rest = joining ? 1 - joining.ease(Math.min(1, joining.at / joining.duration)) : 0;
       arrival =
         joining && rest > 1e-6
-          ? { ...joining, from: x / rest }
+          ? {
+              ...joining,
+              from: x / rest,
+              span: joining.span === undefined ? undefined : joining.span + Math.abs(moved),
+            }
           : timed && sending
             ? {
                 from: x,
                 at: 0,
-                duration: Math.max(1000 / 120, arrival?.sent ? (left ?? 0) : sendMsOf(node, scale)) / 1000,
-                ease: sendEase,
+                duration: Math.max(1000 / 120, arrival?.sent ? (left ?? 0) : sendRiseMsOf(node, scale)) / 1000,
+                ease: sendRiseEase(node),
                 sent: true,
+                span: popRiseMs(node) > 0 ? Math.abs(x) : undefined,
               }
             : timed && arrived && arrivalLook(node)
-              ? { from: x, at: 0, duration: arrivalStepMs(x, scale, left) / 1000, ease: arrivalEase, sent: false }
+              ? {
+                  from: x,
+                  at: 0,
+                  duration: arrivalStepMs(x, scale, left) / 1000,
+                  ease: arrivalEase,
+                  sent: false,
+                }
               : undefined;
+      // A send's step that starts now counts its frames from now: the frame already asked for came
+      // late because these rows' own commit held it (148 ms under load), and crediting that lateness
+      // let its first step move 44 px of a 178 px rise (RISE_FRAME_SHARE per frame it covered).
+      if (arrival?.sent && arrival.at === 0) painted = undefined;
       draw();
       cancelRecheck();
       if (frame === undefined) {
         // Integrate from this frame's time: the first step lands one display frame on.
         const view = node.ownerDocument.defaultView;
         last = at;
+        painted = undefined;
         askedAt = performance.now();
         frame = view?.requestAnimationFrame(step);
       }
