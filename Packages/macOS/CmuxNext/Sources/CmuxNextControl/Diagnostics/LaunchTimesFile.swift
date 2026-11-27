@@ -158,6 +158,9 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     /// (`home.saved_page_shown`), else the Chief's first page (`home.first_page`, classic Home); nil when
     /// Home showed by its deadline first.
     public var homeFirstPageMs: Double?
+    /// Process start to Home's reveal (`reveal.home`), including a reveal caused by the deadline.
+    /// This is the app-owned launch-to-Home reading; `homeFirstPageMs` remains nil for a deadline reveal.
+    public var homeRevealMs: Double?
     /// What showed Home: `mark` (its first page came) or `deadline` (``LaunchReveal``'s deadline passed first).
     public var homeRevealedBy: String?
     /// Process start to the window taking keys (`window_usable`): Home's message field has the keyboard in the key
@@ -206,7 +209,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case startedAt = "started_at", version, build, commit
         case preMainMs = "pre_main_ms", mainMs = "main_ms", firstWindowFrameMs = "first_window_frame_ms"
-        case homeFirstPageMs = "home_first_page_ms", homeRevealedBy = "home_revealed_by"
+        case homeFirstPageMs = "home_first_page_ms", homeRevealMs = "reveal_home_ms", homeRevealedBy = "home_revealed_by"
         case windowUsableMs = "window_usable_ms", firstShellLiveMs = "first_shell_live_ms", noSnapshot = "no_snapshot"
         case priorChatPaintedMs = "prior_chat_painted_ms", priorChatLiveMs = "prior_chat_live_ms"
         case prewarmed, prewarmReason = "prewarm_reason", firstLaunchOfBuild = "first_launch_of_build", phases
@@ -226,6 +229,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         firstWindowFrameMs = round(marks["first_window_frame_committed"])
         if let main = marks["main_start"], let frame = marks["first_window_frame_committed"] { mainMs = round(frame - main) }
         homeFirstPageMs = round(marks["home.saved_page_shown"] ?? marks["home.first_page"])
+        homeRevealMs = round(marks["reveal.home"])
         if marks["reveal.home"] != nil { homeRevealedBy = marks["reveal.home.by_deadline"] != nil ? "deadline" : "mark" }
         windowUsableMs = round(marks["window_usable"])
         firstShellLiveMs = round(marks["first_shell_live"])
@@ -410,6 +414,12 @@ public nonisolated final class LaunchBinderLaps: Sendable {
             state.times[name, default: 0] += Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15
             state.last = now
         }
+    }
+
+    /// Starts the next lap now: the binders the App runs after its first frame lap from their own start.
+    public func restart() {
+        let now = ContinuousClock.now
+        state.withLock { $0.last = now }
     }
 
     /// Each binder's milliseconds so far.
