@@ -1092,7 +1092,7 @@ async fn new_on_peer(
             .or_else(|| mux_meta(params).and_then(|m| m.get("name")))
             .and_then(Value::as_str);
         hub.note_created_remote(&peer.name, id, name);
-        view::subscribe_remote(hub, conn, id, None);
+        view::subscribe_remote(hub, conn, id, &peer.name, None);
         peer.mark_attached(id);
     }
     if let Some(obj) = result.as_object_mut() {
@@ -3900,6 +3900,8 @@ async fn dispatch_request_with_identity(
                         hidden,
                         idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
                         remote: false,
+                        remote_peer: None,
+                        remote_presence: None,
                         rows: None,
                         omit_time_breakdown: omits_time_breakdown(&params),
                         quiet_hidden,
@@ -3910,7 +3912,11 @@ async fn dispatch_request_with_identity(
                 );
                 let detail = hub.session_detail(&s);
                 let last = s.meta().last_seq;
-                let presence = hub.presence.snapshot(&s.id);
+                let presence = if view::a_link(conn) {
+                    hub.presence.shared_snapshot(&s.id)
+                } else {
+                    hub.presence.snapshot(&s.id)
+                };
                 let reader = crate::author::author(&params).ok().flatten();
                 let read_through = hub.read_through(&s, crate::hub::reader_of(reader.as_ref()));
                 let mut reply = json!({
@@ -3961,6 +3967,8 @@ async fn dispatch_request_with_identity(
                     hidden,
                     idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
                     remote: false,
+                    remote_peer: None,
+                    remote_presence: None,
                     rows: None,
                     omit_time_breakdown: omits_time_breakdown(&params),
                     quiet_hidden,
@@ -4033,7 +4041,11 @@ async fn dispatch_request_with_identity(
             hub.lane_report_events_read(conn.caller(), &s.id, &page.events);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
-            let presence = hub.presence.snapshot(&s.id);
+            let presence = if view::a_link(conn) {
+                hub.presence.shared_snapshot(&s.id)
+            } else {
+                hub.presence.snapshot(&s.id)
+            };
             // The attaching person's seen cursor (`hub/seen.rs` `read_through`); attaching never
             // moves it.
             let reader = crate::author::author(&params).ok().flatten();
@@ -4625,6 +4637,8 @@ async fn dispatch_request_with_identity(
             hub.handoff_start(&params, control, sender).await
         }
         method::MUX_HANDOFF_DISCARD => heap(|| hub.handoff_discard(&params)).await,
+        // A session move's wait handoff (`bg_rearm.rs`): the person's, here or from a peer.
+        method::MUX_BG_REARM => super::bg_rearm::handle(hub, conn, &params).await,
         // Anything else that names a session goes to the agent untouched, from the unix
         // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {

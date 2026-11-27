@@ -424,6 +424,9 @@
     "terminal-shell-lines-v1": [
       "control:set-client-info.capabilities/terminal-shell-lines-v1"
     ],
+    "try-pr-v1": [
+      "service:try-pr"
+    ],
     "webrtc-media": [
       "field:webrtc-offer#mediaFor"
     ],
