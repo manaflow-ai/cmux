@@ -10,7 +10,7 @@ import Observation
 ///
 /// The owner calls ``failed()`` when an attempt fails and ``succeeded()`` when one works. After a failure the next
 /// attempt runs after a capped, jittered ``Backoff``, but only while the view is in sight (``setInSight(_:)``, which
-/// ``AutoRetrySightView`` drives from appear/disappear and the window's occlusion). Out of sight nothing is armed; back
+/// ``View/autoRetry(_:)`` drives from appear/disappear and the window's occlusion). Out of sight nothing is armed; back
 /// in sight, a failing load runs one attempt at once. Nothing shows at first: ``showsNotice`` turns true only once the
 /// failures have lasted ``NoticeTiming/connectionQuiet``, and then the view draws at most one quiet line, no button.
 ///
@@ -111,8 +111,8 @@ public final class AutoRetry {
     }
 }
 
-/// Reports whether its window is in sight: ordered in, not minimized, not fully covered. An AppKit host adds one to the
-/// view whose load an ``AutoRetry`` retries and forwards `changed` to ``AutoRetry/setInSight(_:)``.
+/// Reports whether its window is in sight: ordered in, not minimized, not fully covered. A view that hosts an
+/// ``AutoRetry`` adds one and passes its reports to ``AutoRetry/setInSight(_:)`` (with its own appear state).
 public final class AutoRetrySightView: NSView {
     public var changed: @MainActor (Bool) -> Void
     private weak var followed: NSWindow?

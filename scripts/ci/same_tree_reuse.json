@@ -282,6 +282,7 @@
    "smoke-production": "its outputs feed later jobs; a skipped run leaves them empty; needed by image-roll-settle: a skip would skip them or read as no verdict; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)",
    "image-roll-settle": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; checks out feat-cmux-next, not the run's commit; judges other jobs (if: always() or failure())",
    "tail-production": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "tail-staging": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
    "sweep-orphans-production": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
    "journey-machines-staging": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
    "migrate-production": "needed by deploy-production: a skip would skip them or read as no verdict; reads secrets; publish, release, deploy, live or cloud work (by its name)",

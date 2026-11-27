@@ -198,6 +198,7 @@ public struct ChiefMemoryInspectorView: View {
 
 extension View {
     /// Drives `retry`'s sight from this view: appear and disappear, and its window's occlusion and minimizing.
+    /// (Here, not in CmuxNextDesign's AppKit `AutoRetry`: this inspector is its one SwiftUI user.)
     func autoRetry(_ retry: AutoRetry) -> some View {
         modifier(AutoRetrySight(retry: retry))
     }
@@ -217,7 +218,7 @@ private struct AutoRetrySight: ViewModifier {
     }
 }
 
-/// Hosts ``AutoRetrySightView`` (CmuxNextDesign's AppKit sight) in this SwiftUI page.
+/// Hosts CmuxNextDesign's `AutoRetrySightView`, which reports whether the window is in sight.
 private struct AutoRetryWindowSight: NSViewRepresentable {
     let changed: @MainActor (Bool) -> Void
 
