@@ -155,10 +155,10 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
-  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
@@ -167,12 +167,13 @@ import {
   RETRY_FIRST_MS,
 } from "../hostRetry";
 import {
+  acpmuxSendsReady,
   heldStartStop,
+  paneSends,
   sendsHeldForHost,
   untilHostAnswers,
-  acpmuxSendsReady,
-  paneSends,
   pageClientLink,
+  paneSends,
 } from "../sendWhenReady";
 import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
