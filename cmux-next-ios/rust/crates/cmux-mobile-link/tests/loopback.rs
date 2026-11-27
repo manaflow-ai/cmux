@@ -862,10 +862,6 @@ async fn webrtc_dial_gives_up_on_an_unanswered_offer_at_its_answer_deadline() {
 /// resumes over a new transport and the channel sees every byte once, in
 /// order; the Mac serves the link once.
 async fn reliable_resume(kind: TransportKind) {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_test_writer()
-        .try_init();
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let phone_id = uuid::Uuid::new_v4().to_string();
     let mac_id = uuid::Uuid::new_v4().to_string();
