@@ -1,6 +1,9 @@
 //! Swift `ThemeSpec(_:)` (CmuxNextDesignTokens): `Name`, or a `light:A,dark:B`
 //! pair in either order, a missing side using the other.
 
+use cmux_theme_tokens::{THEME_OVERRIDE_MAX_CHARS, theme_override_char_is_safe};
+use unicode_segmentation::UnicodeSegmentation;
+
 use crate::trim_spaces;
 
 /// A parsed theme spec: the theme for each system appearance.
@@ -15,7 +18,12 @@ impl ThemeSpec {
     /// with an unknown prefix, or characters that could start another config
     /// line (control characters, `#`, `=`, `"`).
     pub fn parse(raw: &str) -> Option<ThemeSpec> {
-        let trimmed = cmux_theme_tokens::theme_override_value(raw)?;
+        let trimmed = trim_spaces(raw);
+        if trimmed.graphemes(true).nth(THEME_OVERRIDE_MAX_CHARS).is_some()
+            || !trimmed.chars().all(theme_override_char_is_safe)
+        {
+            return None;
+        }
         let (mut light, mut dark, mut plain) = (None, None, None);
         for part in trimmed.split(',') {
             let text = trim_spaces(part);
@@ -90,5 +98,8 @@ mod tests {
         }
         assert_eq!(ThemeSpec::parse(&"x".repeat(201)), None);
         assert!(ThemeSpec::parse(&"x".repeat(200)).is_some());
+        let composed_of_two_scalars = "e\u{301}".repeat(200);
+        assert!(ThemeSpec::parse(&composed_of_two_scalars).is_some());
+        assert!(ThemeSpec::parse(&(composed_of_two_scalars + "a")).is_none());
     }
 }

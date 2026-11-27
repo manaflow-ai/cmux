@@ -279,6 +279,7 @@ dependencies = [
  "serde_json",
  "unicase",
  "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]

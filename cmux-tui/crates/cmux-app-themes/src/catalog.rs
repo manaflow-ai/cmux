@@ -4,6 +4,7 @@
 use std::collections::BTreeSet;
 
 use serde::Serialize;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::theme_spec::ThemeSpec;
 
@@ -27,7 +28,12 @@ pub fn accepts(text: &str, known: &BTreeSet<String>) -> Acceptance {
         return Acceptance::Accept;
     }
     let names: BTreeSet<String> = [spec.light, spec.dark].into();
-    let unknown: Vec<String> = names.into_iter().filter(|name| !known.contains(name)).collect();
+    let unknown: Vec<String> = names
+        .into_iter()
+        .filter(|name| {
+            !known.contains(name) && !known.iter().any(|listed| listed.nfd().eq(name.nfd()))
+        })
+        .collect();
     if unknown.is_empty() {
         Acceptance::Accept
     } else if unknown.iter().all(|name| name.starts_with('/')) {
@@ -63,6 +69,7 @@ mod tests {
         assert_eq!(accepts("light:Nord,dark:Dracula", &names), Acceptance::Accept);
         assert_eq!(accepts("light:Nord,dark:Nope", &names), Acceptance::Refuse);
         assert_eq!(accepts("nord", &names), Acceptance::Refuse);
+        assert_eq!(accepts("Cafe\u{301}", &known(&["Café"])), Acceptance::Accept);
         assert_eq!(
             accepts("light:/tmp/a,dark:Nord", &names),
             Acceptance::AcceptIfFiles { paths: vec!["/tmp/a".to_owned()] }

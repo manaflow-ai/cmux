@@ -63,7 +63,8 @@ pub use app_theme::{
 pub use colors::parse_color;
 pub use config::{
     Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, THEME_ACCENT_KEY,
-    THEME_OVERRIDE_MAX_CHARS, load, theme_file_accent, theme_for, theme_override_value,
+    THEME_OVERRIDE_MAX_CHARS, load, theme_file_accent, theme_for, theme_override_char_is_safe,
+    theme_override_value,
 };
 pub use image_palette::{
     ImageError, ImagePalette, MAX_SAMPLES, Pixels, SWATCHES, decode_ppm, palette_from_image,
