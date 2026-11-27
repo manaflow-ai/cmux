@@ -44,6 +44,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A glyph is a pure function of the id: answered here for a peer's session too.
     method::SESSION_SIGNATURE,
     method::MUX_STATUS,
+    method::MUX_LIVE,
     method::MUX_PERF,
     method::MUX_CALLERS,
     method::MUX_FELT_SNAPSHOT,
@@ -746,6 +747,11 @@ async fn forward_inner(
         if m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params)) {
             if !peer.ready() {
                 wake_if_composing(&peer, m, params, conn.origin);
+            }
+            // The local owner's opt-in controls what leaves this machine, including authored
+            // view/typing requests. A peer's opt-in cannot grant permission for this person.
+            if !hub.presence.is_live() {
+                return Err(crate::hub::presence::peer_unsupported());
             }
         }
         // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are

@@ -3877,7 +3877,11 @@ async fn dispatch_request_with_identity(
                 );
                 let detail = hub.session_detail(&s);
                 let last = s.meta().last_seq;
-                let presence = hub.presence.snapshot(&s.id);
+                let presence = if view::a_link(conn) {
+                    hub.presence.shared_snapshot(&s.id)
+                } else {
+                    hub.presence.snapshot(&s.id)
+                };
                 let reader = crate::author::author(&params).ok().flatten();
                 let read_through = hub.read_through(&s, crate::hub::reader_of(reader.as_ref()));
                 let mut reply = json!({
@@ -3999,7 +4003,11 @@ async fn dispatch_request_with_identity(
             hub.lane_report_events_read(conn.caller(), &s.id, &page.events);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
-            let presence = hub.presence.snapshot(&s.id);
+            let presence = if view::a_link(conn) {
+                hub.presence.shared_snapshot(&s.id)
+            } else {
+                hub.presence.snapshot(&s.id)
+            };
             // The attaching person's seen cursor (`hub/seen.rs` `read_through`); attaching never
             // moves it.
             let reader = crate::author::author(&params).ok().flatten();
@@ -4047,6 +4055,19 @@ async fn dispatch_request_with_identity(
                 hub.wake_for(&session, super::trust_gate::for_web(conn.origin, &params), "typing");
             }
             Ok(done)
+        }
+        method::MUX_LIVE => {
+            if view::a_link(conn) {
+                return Err(crate::hub::presence::peer_unsupported());
+            }
+            match params.get("live") {
+                None | Some(Value::Null) => {}
+                Some(Value::Bool(live)) => {
+                    hub.presence.set_live(*live);
+                }
+                Some(_) => return Err(RpcError::invalid_params("live must be a boolean")),
+            }
+            Ok(json!({"live": hub.presence.is_live()}))
         }
         method::MUX_HERE_BEAT => {
             if view::a_link(conn) {

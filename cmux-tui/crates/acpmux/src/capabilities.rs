@@ -386,6 +386,7 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: CHAT_PRESENCE,
         wire: &[
+            method::MUX_LIVE,
             method::MUX_TYPING,
             method::MUX_PRESENCE,
             method::MUX_ROOMS,
