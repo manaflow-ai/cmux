@@ -91,16 +91,16 @@ fn state_index(row: &Value) -> Option<usize> {
 impl Order {
     fn insert(&mut self, row: &Value) {
         let place = place(row);
-        if let Some(state) = state_index(row) {
-            self.by_state[state].insert(place.clone());
+        if let Some(set) = state_index(row).and_then(|state| self.by_state.get_mut(state)) {
+            set.insert(place.clone());
         }
         self.all.insert(place);
     }
 
     fn remove(&mut self, row: &Value) {
         let place = place(row);
-        if let Some(state) = state_index(row) {
-            self.by_state[state].remove(&place);
+        if let Some(set) = state_index(row).and_then(|state| self.by_state.get_mut(state)) {
+            set.remove(&place);
         }
         self.all.remove(&place);
     }
@@ -328,7 +328,8 @@ impl Chats {
 
     /// The rows `query` names, newest first: N steps along the order, never a sort.
     fn newest(&self, query: &ChatQuery) -> Vec<Value> {
-        let set = query.state.map_or(&self.order.all, |state| &self.order.by_state[state]);
+        let set =
+            query.state.and_then(|state| self.order.by_state.get(state)).unwrap_or(&self.order.all);
         let limit = query.limit.unwrap_or(usize::MAX);
         let places: Box<dyn Iterator<Item = &Place>> = match &query.before {
             Some(before) => Box::new(set.range((Bound::Excluded(before), Bound::Unbounded))),
