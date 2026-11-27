@@ -326,7 +326,7 @@ pub fn plan_recorded(
             url: repo.github.url(),
             repo: repo.github.slug(),
             base,
-            head_ref: repo.head_ref.clone(),
+            head_ref: repo.head_ref,
             head: recorded.head.clone(),
             index: recorded.index.clone(),
             work: recorded.work.clone(),
@@ -351,38 +351,18 @@ enum Since<'a> {
     Previous(&'a PreviousSeed),
 }
 
-/// The working copy as the plan sees it: [`Here`] and the GitHub remote a seed goes to.
+/// The working copy as the plan sees it.
 struct Repo {
-    here: Here,
+    top: PathBuf,
+    head: String,
+    head_ref: Option<String>,
     remote: String,
     /// HEAD's upstream (`refs/remotes/...`) when it is on [`Self::remote`].
     upstream: Option<String>,
     github: github::GithubRepo,
 }
 
-/// The working copy without its remote: what [`current`] reads. A pull
-/// compares commits, so it skips the four git runs that find the GitHub
-/// remote (`remote`, `for-each-ref`, `config`, `remote get-url`).
-struct Here {
-    top: PathBuf,
-    head: String,
-    head_ref: Option<String>,
-}
-
-impl std::ops::Deref for Repo {
-    type Target = Here;
-    fn deref(&self) -> &Here {
-        &self.here
-    }
-}
-
-impl std::ops::DerefMut for Repo {
-    fn deref_mut(&mut self) -> &mut Here {
-        &mut self.here
-    }
-}
-
-impl Here {
+impl Repo {
     fn open(folder: &Path) -> Result<Self, Fallback> {
         let shown = folder.display();
         let top =
@@ -406,15 +386,7 @@ impl Here {
             return Err(Fallback::new(FallbackCode::NoCommit, "the repository has no commit yet"));
         };
         let head_ref = git::optional(git::at(&top).args(["symbolic-ref", "-q", "HEAD"]));
-        Ok(Self { top, head, head_ref })
-    }
-}
-
-impl Repo {
-    fn open(folder: &Path) -> Result<Self, Fallback> {
-        let here = Here::open(folder)?;
-        let (top, head_ref) = (&here.top, &here.head_ref);
-        let remotes: Vec<String> = git::text(git::at(top).arg("remote"))
+        let remotes: Vec<String> = git::text(git::at(&top).arg("remote"))
             .map_err(|error| failed("listing remotes", error))?
             .lines()
             .map(str::to_string)
@@ -422,7 +394,7 @@ impl Repo {
         if remotes.is_empty() {
             return Err(Fallback::new(FallbackCode::NoRemote, "the repository has no remote"));
         }
-        let tracked = head_ref.as_deref().and_then(|head_ref| upstream_of(top, head_ref));
+        let tracked = head_ref.as_deref().and_then(|head_ref| upstream_of(&top, head_ref));
         let tracked = tracked.filter(|(remote, _)| remotes.contains(remote));
         let remote = if let Some((remote, _)) = &tracked {
             remote.clone()
@@ -439,8 +411,15 @@ impl Repo {
                 ),
             ));
         };
-        let github = remote_repo(top, &remote)?;
-        Ok(Self { here, remote, upstream: tracked.map(|(_, upstream)| upstream), github })
+        let github = remote_repo(&top, &remote)?;
+        Ok(Self {
+            top,
+            head,
+            head_ref,
+            remote,
+            upstream: tracked.map(|(_, upstream)| upstream),
+            github,
+        })
     }
 
     /// [`Planned::bases`], with duplicates left out.
@@ -508,9 +487,7 @@ impl Repo {
     fn merge_base(&self, other: &str) -> Option<String> {
         git::optional(git::at(&self.top).args(["merge-base", self.head.as_str(), other]))
     }
-}
 
-impl Here {
     /// An absolute path inside the repository's git dir (`--git-path`).
     fn git_path(&self, name: &str) -> Result<PathBuf, Fallback> {
         git::text(git::at(&self.top).args([
@@ -607,7 +584,7 @@ pub(crate) struct Current {
 }
 
 pub(crate) fn current(folder: &Path) -> Result<Current, Fallback> {
-    let repo = Here::open(folder)?;
+    let repo = Repo::open(folder)?;
     let scratch = Scratch::new()?;
     let made = commits(&repo, &scratch)?;
     Ok(Current { head_ref: repo.head_ref, head: repo.head, index: made.index, work: made.work })
@@ -749,7 +726,7 @@ fn build(
 /// working tree with untracked files that are not ignored, less
 /// [`untracked_left_out`], on INDEX), built through a copy of the index in
 /// `scratch`.
-fn commits(repo: &Here, scratch: &Scratch) -> Result<Commits, Fallback> {
+fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
     let index = scratch.0.join("index");
     let real_index = repo.git_path("index")?;
     if real_index.is_file() {
@@ -828,7 +805,7 @@ fn commits(repo: &Here, scratch: &Scratch) -> Result<Commits, Fallback> {
     Ok(Commits { index: index_commit, work, skipped, sparse })
 }
 
-impl Here {
+impl Repo {
     /// git in the working copy with the scratch index.
     fn scratch_git(&self, index: &Path) -> Command {
         let mut command = git::at(&self.top);
@@ -850,7 +827,7 @@ impl Here {
     }
 }
 
-fn commit(repo: &Here, tree: &str, parent: &str, message: &str) -> Result<String, Fallback> {
+fn commit(repo: &Repo, tree: &str, parent: &str, message: &str) -> Result<String, Fallback> {
     git::text(
         git::at(&repo.top)
             .env("GIT_AUTHOR_NAME", SEED_NAME)
@@ -891,7 +868,7 @@ pub(crate) const BIG_UNTRACKED_TOTAL_CAP: u64 = 1_000_000_000;
 /// folders the project rebuilds on the machine (one entry each, as a copy
 /// names them) and big files past [`BIG_UNTRACKED_FILE_CAP`] or, in path
 /// order, past what is left of [`BIG_UNTRACKED_TOTAL_CAP`].
-fn untracked_left_out(repo: &Here) -> Result<Vec<Skipped>, Fallback> {
+fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
     use std::os::unix::ffi::OsStrExt as _;
     let listed =
         git::output(git::at(&repo.top).args(["ls-files", "-z", "--others", "--exclude-standard"]))
@@ -1013,7 +990,7 @@ fn submodules(repo: &Repo) -> Result<(Vec<Submodule>, Vec<Skipped>), Fallback> {
 }
 
 /// The sparse-checkout patterns when sparse checkout is on.
-fn sparse_patterns(repo: &Here) -> Result<Option<String>, Fallback> {
+fn sparse_patterns(repo: &Repo) -> Result<Option<String>, Fallback> {
     let on = git::optional(git::at(&repo.top).args(["config", "--bool", "core.sparseCheckout"]));
     if on.as_deref() != Some("true") {
         return Ok(None);
