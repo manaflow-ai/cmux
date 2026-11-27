@@ -9,7 +9,8 @@ import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { useSenderIconLook } from "./senderIconLook";
-import { SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
+import { SubagentHarnessContext, SubagentNavContext, SubagentPaneContext, useNow } from "./subagentGroupModel";
+import { groupLabel } from "./SubagentGroup";
 import { subagentTaskLabel } from "./subsessions";
 import { SubagentChipPreview } from "./SubagentPreview";
 import { STARTED_CROWD_FROM, startedLineCrowd } from "./startedLineCrowd.experiment";
@@ -29,6 +30,8 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const { badge } = useSenderIconLook();
   const [crowdArm] = useState(() => experimentArm(startedLineCrowd));
   const agents = row.subagents ?? [];
+  const paused = agents.some((agent) => agent.capacityWait);
+  const now = useNow(paused);
   if (!agents.length) return null;
   const shownCount = Math.max(1, Math.min(agents.length, row.startedNamed ?? agents.length));
   const shown = agents.slice(0, shownCount);
@@ -48,6 +51,20 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
       fallback={SUBAGENT_FALLBACK}
     />
   );
+  if (paused) {
+    const label = groupLabel(t, language, agents, now);
+    return (
+      <div className="cv-tools">
+        <TranscriptActivityRow
+          icon={identity(0)}
+          className="cv-subagent-started"
+          ariaLabel={label}
+          chevron={false}
+          before={label}
+        />
+      </div>
+    );
+  }
   // Three or more at once (startedLineCrowd.experiment.ts; Leo, 2026-11-22: "this is so fucking
   // awkward as ui"): seven chips on one line were a letter or two each, so the crowd reads as a count.
   if (agents.length >= STARTED_CROWD_FROM && crowdArm !== "chips") {

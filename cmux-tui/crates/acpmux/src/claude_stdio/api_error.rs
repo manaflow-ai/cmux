@@ -15,9 +15,15 @@ use serde_json::Value;
 /// assistant line marked `is_api_error_message`, or a `<synthetic>` one whose text starts with
 /// "API Error". None for any other line, a subagent's included (its own turn handles it).
 pub(super) fn text(line: &Value) -> Option<String> {
-    if line.get("type").and_then(Value::as_str) != Some("assistant")
-        || line.get("parent_tool_use_id").and_then(Value::as_str).is_some()
-    {
+    if line.get("parent_tool_use_id").and_then(Value::as_str).is_some() {
+        return None;
+    }
+    assistant_text(line)
+}
+
+/// An explicitly synthetic API error, before routing it to its own main or helper turn.
+pub(super) fn assistant_text(line: &Value) -> Option<String> {
+    if line.get("type").and_then(Value::as_str) != Some("assistant") {
         return None;
     }
     let said: String = line
@@ -47,6 +53,20 @@ pub(super) fn text(line: &Value) -> Option<String> {
         (None, Some(kind)) => format!("API Error: {kind}"),
         (None, None) => "API Error".to_owned(),
     })
+}
+
+/// A generic task end must not erase that same helper's explicit upstream error. A new
+/// diagnostic always wins; neither the parent's error nor another helper's is consulted.
+pub(super) fn subagent_failure<'a>(summary: &'a str, last: Option<&'a str>) -> &'a str {
+    let generic = summary.trim().trim_end_matches('.').to_ascii_lowercase();
+    if matches!(
+        generic.as_str(),
+        "" | "agent terminated" | "agent terminated early" | "subagent failed"
+    ) {
+        last.unwrap_or(summary)
+    } else {
+        summary
+    }
 }
 
 /// The error a result ends its turn with, if it fails it: `None` when the result says nothing

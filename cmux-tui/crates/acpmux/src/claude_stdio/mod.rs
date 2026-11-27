@@ -670,6 +670,10 @@ pub struct Translator {
     /// success (`api_error.rs`): "API Error: Repeated 529 Overloaded errors" left chats idle
     /// with no retry (Leo, 2026-11-24: "do they get stranded!?").
     api_error: Mutex<Option<String>>,
+    /// Each active helper's last synthetic API error, keyed by its Agent tool id. Task ends
+    /// can say only "Agent terminated"; retain the explicit cause without borrowing a
+    /// sibling's or parent's error. Bounded by active helpers and MAX_FAILURE_CHARS per entry.
+    subagent_api_errors: Mutex<HashMap<String, String>>,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
@@ -880,6 +884,7 @@ impl Translator {
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
             api_error: Mutex::new(None),
+            subagent_api_errors: Mutex::new(HashMap::new()),
             prompt_echo: Mutex::new(None),
             prompt_queued: AtomicBool::new(false),
             renaming: Mutex::new(std::collections::VecDeque::new()),

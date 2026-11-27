@@ -268,6 +268,8 @@ def init():
 AGENT_503 = "a503a503a503a503"
 RESUMES = [0]  # SendMessage resumes so far
 AGENT_ERRORS = {
+    "agent-429": "API Error: 429 no non-exhausted claude accounts available; retry after 1s",
+    "agent-rate-limit": "API Error: 429 rate_limit_error; Retry-After: 1",
     "agent-503": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, "
                  "usually temporary (error type server_error, HTTP 503)",
     "agent-400": "API Error: 400 invalid_request_error: prompt is too long",
@@ -275,10 +277,21 @@ AGENT_ERRORS = {
 }
 
 
+def agent_failure_summary(tool, kind):
+    if kind in ("agent-429", "agent-rate-limit"):
+        # Claude can emit the helper's explicit error, then only a generic task end.
+        send({"type": "assistant", "parent_tool_use_id": tool, "is_api_error_message": True,
+              "api_error_status": 429, "message": {"model": "<synthetic>", "role": "assistant",
+              "content": [{"type": "text", "text": AGENT_ERRORS[kind]}]}})
+        return "Agent terminated"
+    return "Agent terminated early due to an API error: " + AGENT_ERRORS[kind]
+
+
 def agent_failure(tool, kind="agent-503"):
+    summary = agent_failure_summary(tool, kind)
     send({"type": "system", "subtype": "task_notification", "task_id": AGENT_503, "tool_use_id": tool,
           "status": "failed", "output_file": "",
-          "summary": "Agent terminated early due to an API error: " + AGENT_ERRORS[kind]})
+          "summary": summary})
 
 
 def extra_agents():
@@ -300,10 +313,12 @@ def agent_failed(said):
 
         threading.Thread(target=fail_late, daemon=True).start()
         return
-    agent_failure("toolu_a503", next(k for k in AGENT_ERRORS if said.startswith(k)))
+    kind = next(k for k in AGENT_ERRORS if said.startswith(k))
+    agent_failure("toolu_a503", kind)
     for tool, task in extra_agents():
+        summary = agent_failure_summary(tool, kind)
         send({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool,
-              "status": "failed", "output_file": "", "summary": AGENT_ERRORS["agent-503"]})
+              "status": "failed", "output_file": "", "summary": summary})
     send(init())
     if said.startswith("agent-503-held: "):
         import time
@@ -1347,6 +1362,10 @@ while True:
                       "content": "Async agent launched"}]}})
                 send({"type": "system", "subtype": "task_started", "task_id": task, "tool_use_id": tool,
                       "description": "Extra %d" % i, "task_type": "local_agent", "is_backgrounded": True})
+        for tool, task in extra_agents():
+            if 'SendMessage to "%s"' % task in said:
+                send({"type": "system", "subtype": "task_started", "task_id": task,
+                      "tool_use_id": tool + "_resume", "is_backgrounded": True})
         if 'SendMessage to "%s"' % AGENT_503 in said:
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_send", "name": "SendMessage",
                   "input": {"to": AGENT_503, "message": "Continue where you stopped."}}]}})

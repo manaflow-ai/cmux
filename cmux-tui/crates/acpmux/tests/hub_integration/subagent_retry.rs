@@ -111,6 +111,49 @@ async fn a_subagent_a_503_failed_is_resumed_in_its_chat() {
     assert_eq!(user_messages(&hub, &id).len(), 2);
 }
 
+/// Forced 429 storm through Claude's real translator, the hub, retry timer, prompt queue,
+/// and SendMessage resume. No person restarts any helper; every original agent id returns.
+#[tokio::test]
+async fn a_429_storm_automatically_resumes_twelve_original_helpers() {
+    for (scenario, reason) in [("agent-429", "capacity"), ("agent-rate-limit", "rate_limit")] {
+        let env = BTreeMap::from([("FAKE_CLAUDE_EXTRA_503".to_owned(), "11".to_owned())]);
+        let (hub, _c, id) = chat_env(scenario, vec![5], env).await;
+        let got = until(&hub, &id, |o| o.iter().filter(|v| *v == "fired").count() == 12).await;
+        assert_eq!(got.iter().filter(|v| *v == "scheduled").count(), 12, "{scenario}: {got:?}");
+        assert_eq!(got.iter().filter(|v| *v == "fired").count(), 12, "{scenario}: {got:?}");
+        messages_until(&hub, &id, 13).await;
+        let resumed = until(&hub, &id, |_| {
+            last_entries(&hub, &id).len() == 12
+                && last_entries(&hub, &id).iter().all(|e| e["state"] == "running")
+        })
+        .await;
+        let entries = last_entries(&hub, &id);
+        assert_eq!(entries.len(), 12, "{scenario}: {resumed:?}");
+        assert!(
+            entries.iter().all(|e| e["state"] == "running" && e["capacityWait"].is_null()),
+            "{scenario}: {entries:?}"
+        );
+        let held: Vec<_> = records(&hub, &id)
+            .into_iter()
+            .filter_map(|r| r.msg.pointer("/params/_meta/acpmux/subagents/0").cloned())
+            .filter(|e| e["retry"].is_object())
+            .collect();
+        assert_eq!(held.len(), 12);
+        for entry in held {
+            let wait = &entry["capacityWait"];
+            assert_eq!(wait["reason"], reason);
+            assert!(wait["resumesAt"].as_u64().unwrap() >= wait["since"].as_u64().unwrap() + 1_000);
+        }
+        let resumed_ids: std::collections::HashSet<_> = user_messages(&hub, &id)
+            .into_iter()
+            .skip(1)
+            .map(|m| m["_meta"]["provenance"]["agentId"].clone())
+            .collect();
+        assert_eq!(resumed_ids.len(), 12);
+        hub.kill(&hub.resolve(&id).unwrap(), false).await.unwrap();
+    }
+}
+
 /// Waits (up to 10 s) for the session's `n`th user message.
 async fn messages_until(hub: &Hub, id: &str, n: usize) {
     for _ in 0..200 {
