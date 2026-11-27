@@ -647,6 +647,9 @@ export type GitHubConnectionState = {
   }>;
   /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
   signIn?: string | null;
+  /** The optional personal GitHub CLI login shown below the App connection. */
+  cliSignIn?: string;
+  cliSignInDetail?: string;
   /** With `signIn`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
   signInBackend?: string | null;
 };
@@ -1946,6 +1949,88 @@ export type HubRun =
   | { action: "pause"; paused: boolean }
   | ({ action: "addRule" } & HubRuleFields);
 
+/** An API token's scope (cmux platform `/v1/tokens`): exactly these three. A token never reads the vault. */
+export type TokenScope = "machines" | "chats" | "usage";
+
+/** One API token as `cmux token list --json` passes the platform's `TokenView` through. Never the secret. */
+export type ApiToken = {
+  id: string;
+  name: string;
+  /** `cmux_pat_AbCd…wXyZ`. */
+  display: string;
+  scopes: TokenScope[];
+  /** `team`: a team service token, not tied to a person. */
+  owner: "me" | "team";
+  source: "personal" | "service" | "github";
+  createdBy: string;
+  createdByName?: string;
+  createdAt: string;
+  /** ISO, or null when it never expires. */
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  spendCapUsd: number | null;
+  /** `owner/name`, for a token a GitHub Actions run exchanged. */
+  repository?: string;
+};
+
+/** A repository whose GitHub Actions runs may exchange their OIDC token for a one-hour cmux token. */
+export type GithubTokenRule = {
+  id: string;
+  repository: string;
+  ref?: string;
+  environment?: string;
+  scopes: TokenScope[];
+  spendCapUsd: number | null;
+  createdAt: string;
+  createdBy: string;
+  lastUsedAt: string | null;
+};
+
+/** Settings > Developer (`SettingsDeveloperTokens.state`). */
+export type DeveloperTokensState = {
+  loading: boolean;
+  /** `unavailable`: no bundled cmux CLI; `failed`: the list did not answer (its words in `listError`). */
+  problem: "unavailable" | "failed" | null;
+  listError: { code: string; message: string } | null;
+  /** The platform origin the list read (for the curl example); null when the CLI named none. */
+  platform: string | null;
+  /** The team the list read (`team_…`), for the workflow snippet. */
+  team: string | null;
+  tokens: ApiToken[];
+  canManageTeamTokens: boolean;
+  /** The GitHub Actions rules; null when the person cannot manage them or they were not read. */
+  githubRules: GithubTokenRule[] | null;
+  /** The last gesture's refusal, in the platform's or the CLI's words. */
+  error: { action: string; code: string; message: string } | null;
+};
+
+/** A new token's fields (the CLI's `token create` flags). `expiresInDays` null never expires. */
+export type TokenFields = {
+  name: string;
+  scopes: TokenScope[];
+  expiresInDays: number | null;
+  spendCapUsd?: number | null;
+  owner: "me" | "team";
+};
+
+/** A repository rule's fields (`token github allow`). */
+export type GithubRuleFields = {
+  repository: string;
+  ref?: string;
+  environment?: string;
+  scopes: TokenScope[];
+};
+
+/** One Developer gesture; everything but refresh runs only on a click. */
+export type DeveloperTokensRun =
+  | { action: "refresh" }
+  | ({ action: "create" } & TokenFields)
+  | { action: "revoke" | "removeRepository"; id: string }
+  | ({ action: "allowRepository" } & GithubRuleFields);
+
+/** What `create` answers: the new token, once. The host keeps no copy, so the page holds it until Done. */
+export type CreatedToken = { token: string; tokenInfo: Pick<ApiToken, "scopes"> | null };
+
 /** A label for one choice the automation form offers (the CLI's catalog). */
 export type AutocloudChoice = { value: string; label: string };
 
@@ -2659,6 +2744,10 @@ export type SettingsOps = {
   "cmux.settings.hub.state": [Record<string, never>, HubState];
   /** Native: one Integrations gesture (`cmux hub link|remove|rule|pause`, or an approval answered on the click). */
   "cmux.settings.hub.run": [HubRun, unknown];
+  /** Native: Settings > Developer, API tokens as the bundled `cmux token list --json` reads them. */
+  "cmux.settings.tokens.state": [Record<string, never>, DeveloperTokensState];
+  /** Native: one Developer gesture (`cmux token create|revoke|github allow|github remove`); `create` answers the token once. */
+  "cmux.settings.tokens.run": [DeveloperTokensRun, { ok?: boolean; created?: CreatedToken }];
   "cmux.settings.autocloud.state": [Record<string, never>, AutocloudState];
   "cmux.settings.autocloud.run": [AutocloudAction, AutocloudAnswer];
   /** Native: Settings > Integrations > Connections, the hosted MCP catalog as `cmux mcp-servers catalog --json` shapes it. */
