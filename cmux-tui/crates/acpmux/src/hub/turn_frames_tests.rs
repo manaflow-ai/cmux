@@ -143,6 +143,8 @@ fn live_turn(id: &str) -> Turn {
         kinds: HashMap::new(),
         chrome: false,
         simulator: false,
+        cwd: PathBuf::from("/elsewhere"),
+        touched: Vec::new(),
     }
 }
 
@@ -150,7 +152,7 @@ fn live_turn(id: &str) -> Turn {
 fn a_live_build_asks_for_a_build_frame_of_the_running_turn() {
     let session = "rfd0152-built-running";
     turns().insert(session.to_owned(), live_turn("t1"));
-    let reply = built(session, "rust");
+    let reply = built(Some(session), "rust", None);
     assert_eq!(reply["asked"], true, "{reply}");
     assert_eq!(reply["turnId"], "t1");
     let all = turns();
@@ -163,12 +165,12 @@ fn a_live_build_asks_for_a_build_frame_of_the_running_turn() {
 
 #[test]
 fn a_live_build_with_no_running_turn_takes_nothing() {
-    assert_eq!(built("rfd0152-built-none", "swift")["asked"], false);
+    assert_eq!(built(Some("rfd0152-built-none"), "swift", None)["asked"], false);
     let session = "rfd0152-built-ended";
     let mut ended = live_turn("t2");
     ended.live = false;
     turns().insert(session.to_owned(), ended);
-    let reply = built(session, "chromium");
+    let reply = built(Some(session), "chromium", None);
     assert_eq!(reply["asked"], false);
     assert!(!turns()[session].chrome, "an ended turn is left as it was");
 }
@@ -177,10 +179,60 @@ fn a_live_build_with_no_running_turn_takes_nothing() {
 fn a_live_build_from_an_unknown_source_is_refused() {
     let session = "rfd0152-built-unknown";
     turns().insert(session.to_owned(), live_turn("t3"));
-    let reply = built(session, "gradle");
+    let reply = built(Some(session), "gradle", None);
     assert_eq!(reply["asked"], false);
     assert!(reply["reason"].as_str().unwrap().contains("rust"), "{reply}");
     assert!(!turns()[session].chrome);
+}
+
+#[test]
+fn a_turn_worked_in_a_tree_by_its_folder_or_a_path_it_named() {
+    let tree = Path::new("/w/cmux");
+    assert!(worked_in(tree, Path::new("/w/cmux/webviews"), &[]));
+    assert!(worked_in(tree, Path::new("/home/me"), &["/w/cmux/a.rs".to_owned()]));
+    assert!(worked_in(tree, Path::new("/w"), &["cmux/b.swift".to_owned()]));
+    assert!(!worked_in(tree, Path::new("/w/cmux-other"), &["/w/cmux2/a.rs".to_owned()]));
+    assert!(!worked_in(Path::new("/"), Path::new("/w/cmux"), &[]), "/ is no tree");
+    assert!(!worked_in(Path::new("cmux"), Path::new("/w/cmux"), &[]), "nor a relative one");
+}
+
+#[test]
+fn a_live_build_reaches_every_chat_that_worked_in_its_tree() {
+    let (own, other, away) = ("rfd0152-tree-own", "rfd0152-tree-other", "rfd0152-tree-away");
+    let tree = Path::new("/rfd0152/tree");
+    turns().insert(own.to_owned(), live_turn("o1"));
+    let mut editing = live_turn("e1");
+    editing.touched.push("/rfd0152/tree/webviews/a.tsx".to_owned());
+    turns().insert(other.to_owned(), editing);
+    turns().insert(away.to_owned(), live_turn("a1"));
+    let reply = built(Some(own), "rust", Some(tree));
+    assert_eq!(reply["asked"], true, "{reply}");
+    assert_eq!(reply["turnId"], "o1", "the loop's own chat is named first");
+    let asked: Vec<&str> = reply["chats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["sessionId"].as_str().unwrap())
+        .collect();
+    assert!(asked.contains(&own) && asked.contains(&other), "{reply}");
+    assert!(!asked.contains(&away), "a chat that never touched the tree gets none: {reply}");
+    assert!(turns()[other].chrome);
+    assert!(!turns()[away].chrome);
+}
+
+#[test]
+fn a_loop_from_a_plain_terminal_reaches_the_chats_in_its_tree() {
+    let session = "rfd0152-tree-terminal";
+    let mut turn = live_turn("p1");
+    turn.cwd = PathBuf::from("/rfd0152/plain/cmux-tui");
+    turns().insert(session.to_owned(), turn);
+    let reply = built(None, "swift", Some(Path::new("/rfd0152/plain")));
+    assert_eq!(reply["asked"], true, "{reply}");
+    assert_eq!(reply["turnId"], Value::Null);
+    assert_eq!(reply["chats"][0]["turnId"], "p1");
+    let none = built(None, "swift", Some(Path::new("/rfd0152/nobody")));
+    assert_eq!(none["asked"], false);
+    assert!(none["reason"].as_str().unwrap().contains("tree"), "{none}");
 }
 
 #[test]

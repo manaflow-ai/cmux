@@ -4170,13 +4170,22 @@ async fn dispatch_request_with_identity(
         }
         // A read, for whoever may read the log; `look` captures the page now (the `look` tool).
         method::MUX_TURN_FRAMES => {
+            // A `cmux live` loop's build is in place (`acpmux frame @ --built SOURCE --tree PATH`):
+            // a frame in the loop's chat and each chat that worked in its tree. A loop started from
+            // a plain terminal names no chat, only its tree.
+            if let Some(source) = str_param(&params, "built") {
+                let tree = str_param(&params, "tree").map(std::path::Path::new);
+                let s = match str_param(&params, "sessionId").filter(|k| !k.is_empty()) {
+                    Some(key) => Some(hub.resolve(key)?),
+                    None if tree.is_some() => None,
+                    None => Some(hub.resolve(session_key(&params)?)?),
+                };
+                let id = s.as_ref().map(|s| s.id.as_str());
+                return Ok(crate::hub::turn_frames::built(id, source, tree));
+            }
             let s = hub.resolve(session_key(&params)?)?;
             if params.get("look").and_then(Value::as_bool) == Some(true) {
                 return Ok(crate::hub::turn_frames::look(&s.id).await);
-            }
-            // A `cmux live` loop's build is in place (`acpmux frame @ --built SOURCE`): a frame.
-            if let Some(source) = str_param(&params, "built") {
-                return Ok(crate::hub::turn_frames::built(&s.id, source));
             }
             Ok(crate::hub::turn_frames::turn_frames(&s.id, &params).await)
         }

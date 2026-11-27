@@ -882,7 +882,7 @@ class Loop:
         with open(self.state / "history.jsonl", "a") as history:
             history.write(json.dumps(entry) + "\n")
         if entry.get("outcome") == "swapped" and not self.on_swap:
-            live_frames.built("rust")  # the chat's frames show the swapped daemon, not the save
+            live_frames.built("rust", tree=self.tree)  # the chat's frames show the swapped daemon, not the save
         if self.on_swap:
             self.on_swap(entry)
 

@@ -626,17 +626,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Frame { session, built } => {
+        Command::Frame { session, built, tree } => {
             let client = connect(true).await?;
-            let id = crate::cli::resolve::control_id(&client, &session).await?;
-            let v = client
-                .request(method::MUX_TURN_FRAMES, json!({"sessionId": id, "built": built}))
-                .await?;
+            // Outside a chat a loop names only its tree: the chats that worked in it get the frame.
+            let outside = session == "@" && std::env::var_os("ACPMUX_SESSION_ID").is_none();
+            let id = if outside && tree.is_some() {
+                String::new()
+            } else {
+                crate::cli::resolve::control_id(&client, &session).await?
+            };
+            let tree = tree.map(|t| std::path::absolute(&t).unwrap_or(t));
+            let mut params = json!({"sessionId": id, "built": built});
+            if let Some(tree) = &tree {
+                params["tree"] = json!(tree.to_string_lossy());
+            }
+            let v = client.request(method::MUX_TURN_FRAMES, params).await?;
             if json_out {
                 print_json(&v);
             } else if v.get("asked").and_then(Value::as_bool) == Some(true) {
-                let turn = v.get("turnId").and_then(Value::as_str).unwrap_or_default();
-                println!("frame asked for turn {turn}");
+                let chats = v.get("chats").and_then(Value::as_array).map_or(1, Vec::len);
+                println!("frame asked in {chats} chat(s)");
             } else {
                 let why = v.get("reason").and_then(Value::as_str);
                 println!("no frame: {}", why.unwrap_or("the daemon took none"));

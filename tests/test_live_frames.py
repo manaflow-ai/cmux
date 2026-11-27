@@ -37,6 +37,14 @@ class Command(unittest.TestCase):
 
     def test_nothing_outside_a_chat_or_for_an_unknown_source(self):
         self.assertIsNone(live_frames.command("rust", {"ACPMUX_BIN": "/opt/acpmux"}))
+
+    def test_the_tree_reaches_the_chats_working_in_it_with_or_without_a_chat(self):
+        env = {"ACPMUX_SESSION_ID": "chat-1", "ACPMUX_BIN": "/opt/acpmux"}
+        self.assertEqual(live_frames.command("rust", env, "/w/cmux"),
+                         ["/opt/acpmux", "frame", "chat-1", "--built", "rust", "--tree", "/w/cmux"])
+        # A loop from a plain terminal: no chat, only the tree.
+        self.assertEqual(live_frames.command("swift", {"ACPMUX_BIN": "/opt/acpmux"}, Path("/w/cmux")),
+                         ["/opt/acpmux", "frame", "@", "--built", "swift", "--tree", "/w/cmux"])
         self.assertIsNone(live_frames.command("gradle", {"ACPMUX_SESSION_ID": "c", "ACPMUX_BIN": "/opt/acpmux"}))
         self.assertIsNone(live_frames.command("rust", {"ACPMUX_SESSION_ID": "c", "PATH": "/nonexistent"}))
 
@@ -61,7 +69,7 @@ class RustLive(unittest.TestCase):
 
     def loop(self, state: Path, on_swap=None):
         loop = object.__new__(self.rl.Loop)
-        loop.state, loop.on_swap = state, on_swap
+        loop.state, loop.on_swap, loop.tree = state, on_swap, Path("/w/cmux")
         return loop
 
     def test_a_swap_asks_and_a_failed_build_does_not(self):
@@ -70,7 +78,7 @@ class RustLive(unittest.TestCase):
             loop.record({"outcome": "build_failed"})
             built.assert_not_called()
             loop.record({"outcome": "swapped"})
-            built.assert_called_once_with("rust")
+            built.assert_called_once_with("rust", tree=Path("/w/cmux"))
 
     def test_the_measurement_loop_never_asks(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(self.rl.live_frames, "built") as built:
@@ -84,12 +92,12 @@ class LiveMode(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(lm.live_frames, "built") as built:
             log = Path(tmp) / "live-code.log"
             log.write_text("")
-            phases = lm.Phases(Path(tmp) / "phases.jsonl", log=log)
+            phases = lm.Phases(Path(tmp) / "phases.jsonl", log=log, tree=Path("/w/cmux"))
             phases.waiting["patch1"] = (0.0, {"placed_at": 1.0, "heard_at": 0.5})
             with log.open("a") as f:
                 f.write("applied patch1.dylib load_ms=3 at=2.0\n")
             phases.settle()
-            built.assert_called_once_with("swift")
+            built.assert_called_once_with("swift", tree=Path("/w/cmux"))
 
 
 if __name__ == "__main__":

@@ -1071,13 +1071,20 @@ pub enum Command {
     /// A frame of the chat's page now, kept in its running turn's frames strip (cmuxterm-hq RFD
     /// 0152): `--built SOURCE` says a `cmux live` loop's build is in place (`rust`, `swift`,
     /// `chromium`, `web`), so the frame shows the swapped build, not the save before it. `@` is the
-    /// chat this shell runs in. No running turn: nothing is taken.
-    #[command(hide = true, after_help = "Example:\n  acpmux frame @ --built rust")]
+    /// chat this shell runs in. `--tree PATH`: the loop's checkout; every chat whose running turn
+    /// worked in it gets the frame too, and outside a chat (`@` with no `ACPMUX_SESSION_ID`) only
+    /// they do. No running turn: nothing is taken.
+    #[command(
+        hide = true,
+        after_help = "Examples:\n  acpmux frame @ --built rust\n  acpmux frame @ --built swift --tree ~/src/cmux"
+    )]
     Frame {
         #[arg(default_value = "@")]
         session: String,
         #[arg(long, value_name = "SOURCE")]
         built: String,
+        #[arg(long, value_name = "PATH")]
+        tree: Option<std::path::PathBuf>,
     },
     /// Make a session the successor of sessions that died or moved (a rotation, a restart under a
     /// new name, a move): a message to one of them reaches it, here and through the mesh hub.
