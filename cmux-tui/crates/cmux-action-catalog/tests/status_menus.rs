@@ -485,3 +485,18 @@ fn c_abi_round_trip() {
     // SAFETY: exactly what the call wrote, freed once.
     unsafe { cmux_action_catalog_reply_free(reply, len) };
 }
+
+/// Signed out on a dev build: the line under Sign In names the backend it signs in to (cmux#46930;
+/// Leo: "why is the stuff so weird to log in to dev builds?"); signed in, no such line. The Swift
+/// `MenuBarMenuSpecTests.signInNamesItsBackend` case, row for row.
+#[test]
+fn sign_in_names_its_backend() {
+    let line = "Signs in to Development backend · dev-abc.cmux.dev";
+    let signed_out = ids(&items(json!({ "signInBackend": line })));
+    assert_eq!(
+        signed_out[..3],
+        ["palette.auth.signIn".to_owned(), format!("info:{line}"), "-".to_owned()]
+    );
+    let signed_in = ids(&items(json!({ "account": { "lines": ["Ada"] }, "signInBackend": line })));
+    assert!(!signed_in.contains(&format!("info:{line}")));
+}

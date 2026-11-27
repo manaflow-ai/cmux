@@ -224,6 +224,11 @@ fn sections(state: &Value, strings: &Strings) -> Vec<Vec<Value>> {
             Some(strings.format("menu.menuBar.signIn", "Sign In to cmux…")),
             "person.crop.circle",
         ));
+        // What Sign In signs in to, under it while signed out (cmux#46930; Leo: "why is the
+        // stuff so weird to log in to dev builds?").
+        if let Some(backend) = str_field(state, "signInBackend") {
+            account.push(info(backend.to_owned(), None, false));
+        }
     }
     let mut agents = Vec::new();
     if let Some(awake) = present(state.get("keepingAwake")) {
