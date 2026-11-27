@@ -11,6 +11,7 @@ dependencies = [
  "acpmux-client",
  "acpmux-core",
  "acpmux-hot",
+ "acpmux-list-types",
  "aho-corasick",
  "anyhow",
  "arc-swap",
@@ -87,6 +88,7 @@ dependencies = [
  "cmux-tailnet-front",
  "cmux-tailnet-join",
  "cmux-tailnet-local",
+ "cmux-team-messaging",
  "cmux-transport",
  "cmux-transport-rewrite",
  "cmux-tui-hooks",
@@ -109,6 +111,7 @@ dependencies = [
  "hpke",
  "imbl",
  "inotify",
+ "jpeg-encoder",
  "jsonschema",
  "libc",
  "memchr",
@@ -188,6 +191,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux-book",
  "acpmux-client",
+ "acpmux-list-types",
  "arc-swap",
  "cmux-scope",
  "libc",
@@ -1636,6 +1640,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bytes"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "cmux-cas",
+ "flate2",
+ "libc",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-cas"
 version = "0.1.0"
 dependencies = [
@@ -1934,6 +1950,7 @@ dependencies = [
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
+ "cmux-message-preview",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
@@ -1945,6 +1962,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 
@@ -2010,6 +2028,7 @@ dependencies = [
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
+ "acpmux-list-types",
  "base64",
  "cmux-local-auth",
  "cmux-sdk",
@@ -2363,6 +2382,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",
@@ -2507,6 +2527,7 @@ name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
  "regex-automata",
+ "url",
 ]
 
 [[package]]
@@ -2526,6 +2547,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -2557,6 +2579,7 @@ dependencies = [
 name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-conversation",
  "cmux-mobile-core",
  "cmux-rd-screen",
  "serde_json",
@@ -2681,6 +2704,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-pool-pod"
 version = "0.1.0"
 dependencies = [
@@ -2772,6 +2802,8 @@ version = "0.1.0"
 dependencies = [
  "cmux-rd-proto",
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3440,6 +3472,8 @@ dependencies = [
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
+ "cmux-bytes",
+ "cmux-cas",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -3476,6 +3510,7 @@ dependencies = [
  "cmux-no-checkout",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-phone-page",
  "cmux-process",
  "cmux-projection",
  "cmux-proxy",
@@ -3563,6 +3598,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -4054,6 +4090,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 
@@ -6448,6 +6485,12 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
 ]
+
+[[package]]
+name = "jpeg-encoder"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b454d911ac55068f53495488d8ccd0646eaa540c033a28ee15b07838afafb01f"
 
 [[package]]
 name = "js-sys"

@@ -1,4 +1,5 @@
-// A turn's action row (Copy, Fork, Pin, Read aloud, ⋯, then its age) is hidden at rest and shows,
+// A turn's action row (Copy, Fork, Pin, Read aloud, ⋯, then its age) is hidden at rest (the chat's
+// last reply's buttons excepted, Lucas 2026-11-26) and shows,
 // on a super fast fade, while the pointer is on that turn or a key is inside it, as Claude Code
 // desktop's (Leo, 2026-11-22: "claude hides buttons until you hover over the relevant area of a turn
 // response. they do a SUPER FAST fade in and fade out for it. which i like. and you hover and you get
@@ -39,9 +40,19 @@ describe("a turn's action row", () => {
       .filter((selector) => /\.cv-turn-actions(?![\w-])/.test(selector))
       .filter(
         (selector) =>
-          !/:hover|:focus|data-turn-revealed|data-popup-open|data-reading|--failed|--resumable/.test(selector),
+          !/:hover|:focus|data-turn-revealed|data-popup-open|data-popup-within|data-reading|--failed|--resumable|--final-footer/.test(
+            selector,
+          ),
       );
     expect(alwaysOn).toEqual([]);
+  });
+
+  test("shows at rest on the chat's last reply only (Lucas, 2026-11-26), its age still on hover", () => {
+    const shown = rules.filter(opacityOne).flatMap((rule) => rule.selectors);
+    expect(shown).toContain(
+      ".acpmux-turnSummary.acpmux-row--final-footer .cv-turn-actions:not(.cv-turn-actions--waiting)",
+    );
+    expect(shown.filter((selector) => /--final-footer/.test(selector) && /\.cv-turn-time/.test(selector))).toEqual([]);
   });
 
   test("shows for the pointer on the turn and for keyboard focus inside it", () => {
