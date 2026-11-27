@@ -1537,6 +1537,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_light_jobs_pool_mirror_checkout.py
 
+      - name: Validate registered ci pool checkout reuse sparse
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_checkout_reuse_sparse.py
+
       - name: Validate registered ci pool tokens
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pool_tokens.py
