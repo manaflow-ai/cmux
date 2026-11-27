@@ -17,10 +17,12 @@ const duress = !!process.env.DURESS;
 const n = Number(process.env.PEOPLE ?? (duress ? 20_000 : 2_000));
 const k = Number(process.env.PICKED ?? (duress ? 2_000 : 200));
 const passes = Number(process.env.PASSES ?? 30);
-const people: HomeParticipant[] = Array.from(
-  { length: n },
-  (_, i) => ({ id: `p${i}`, kind: "person", name: `Person ${i}`, chief: false }) as HomeParticipant,
-);
+const people: HomeParticipant[] = Array.from({ length: n }, (_, i) => ({
+  id: `p${i}`,
+  kind: "human",
+  name: `Person ${i}`,
+  chief: false,
+}));
 const order = Array.from({ length: k }, (_, i) => `p${i * Math.floor(n / k)}`);
 const mode = process.env.MODE ?? "set";
 // The old lookup: the array itself answers `has` with includes (a linear scan).
