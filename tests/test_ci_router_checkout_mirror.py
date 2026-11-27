@@ -29,7 +29,9 @@ SAME_REPO_NO_FILTER = ("${{ github.event_name == 'pull_request' && github.event.
 class RouterCheckoutReadsTheMirror(unittest.TestCase):
     def test_the_router_checkout_drops_the_blob_filter_on_a_same_repo_pull_request(self) -> None:
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
-        checkouts = [step for job in jobs.values() for step in job.get("steps", [])
+        # The route job's sparse checkout is the one note-559 timed; ios-fast-status (#59926) checks out three
+        # small files at depth 1 and has no mirror rule.
+        checkouts = [step for step in jobs["route"].get("steps", [])
                      if str(step.get("uses", "")).startswith("actions/checkout@")]
         self.assertTrue(checkouts, "pr-router.yml has no checkout step")
         for step in checkouts:
