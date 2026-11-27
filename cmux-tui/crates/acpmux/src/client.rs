@@ -32,8 +32,6 @@ impl Drop for PendingRequest<'_> {
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
-    /// The daemon's ABI revision from its hello (`abi_hello.rs`); none from a pre-hello daemon.
-    daemon_abi_rev: std::sync::Mutex<Option<u64>>,
     /// The session this connection proved at initialize, never the caller's claim.
     proven_caller_session: std::sync::OnceLock<String>,
     /// Absolute path to the CLI bundled with the app that started the daemon,
@@ -44,6 +42,9 @@ pub struct Client {
     /// The socket this client connected to: a list caller opens its v2 list on it
     /// (`cli/list_read.rs`).
     socket: std::path::PathBuf,
+    /// The wire ABI the daemon named at initialize (`_meta.acpmux.abi`); 0 for a daemon from
+    /// before the field ([`crate::protocol::peer_abi`]).
+    daemon_abi: std::sync::atomic::AtomicU32,
     /// The features the daemon listed at initialize (`_meta.acpmux.features`).
     daemon_features: std::sync::Mutex<Vec<String>>,
     /// The stable capabilities the daemon listed at initialize (`_meta.acpmux.capabilities`).
@@ -176,10 +177,10 @@ impl Client {
         }
         Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
-            daemon_abi_rev: std::sync::Mutex::new(None),
             proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
             socket: path.to_path_buf(),
+            daemon_abi: std::sync::atomic::AtomicU32::new(0),
             daemon_features: std::sync::Mutex::new(Vec::new()),
             daemon_capabilities: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
@@ -236,7 +237,6 @@ impl Client {
         {
             let _ = self.proven_caller_session.set(session.to_owned());
         }
-        *self.daemon_abi_rev.lock_or_recover() = crate::abi_hello::read(&init).rev;
         *self.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
         *self.daemon_cli_path.lock_or_recover() = init
@@ -244,6 +244,8 @@ impl Client {
             .and_then(Value::as_str)
             .filter(|path| std::path::Path::new(path).is_absolute())
             .map(std::path::PathBuf::from);
+        self.daemon_abi
+            .store(crate::protocol::peer_abi(&init), std::sync::atomic::Ordering::Relaxed);
         if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
             *self.daemon_features.lock_or_recover() =
                 features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
@@ -282,15 +284,15 @@ impl Client {
         self.request(method::MUX_PERSON_PROVE, json!({ "proof": proof })).await.is_ok()
     }
 
-    /// The daemon's ABI revision, as its hello said (`abi_hello.rs`); none from a daemon before
-    /// the hello, which [`crate::abi_hello::skew`] reads as pre-hello.
-    pub fn daemon_abi_rev(&self) -> Option<u64> {
-        *self.daemon_abi_rev.lock_or_recover()
-    }
-
     /// The daemon's build id, as reported at initialize.
     pub fn daemon_build(&self) -> Option<String> {
         self.daemon_build.lock_or_recover().clone()
+    }
+
+    /// The daemon's wire ABI, as named at initialize; 0 for a daemon from before the field.
+    /// A newer surface is asked for by [`Client::daemon_lists`], not by comparing this.
+    pub fn daemon_abi(&self) -> u32 {
+        self.daemon_abi.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The CLI path reported by the daemon's app launcher, if any.

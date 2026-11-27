@@ -11,34 +11,25 @@ fn memory_hub() -> std::sync::Arc<crate::hub::Hub> {
 }
 
 #[test]
-fn the_revision_is_the_gates_newest() {
-    assert_eq!(parse_revision(r#"{"base": 1, "revisions": []}"#), (1, 1));
-    assert_eq!(parse_revision(r#"{"base": 1, "revisions": [{"rev": 2}, {"rev": 4}]}"#), (1, 4));
-    assert_eq!(parse_revision("not json"), (1, 1));
-    // The committed file: one revision past the base when this test was written; it only grows.
-    let (base, rev) = revision();
-    assert_eq!(base, 1);
-    assert!(rev >= 2, "{rev}");
-}
-
-#[test]
 fn a_hello_is_read_and_never_fails() {
-    let (_, ours) = revision();
+    let ours = crate::protocol::ABI;
     let hello = |meta: Value| json!({"clientInfo": {"name": "x"}, "_meta": {"acpmux": meta}});
-    assert_eq!(skew(read(&hello(json!({}))).rev), Skew::PreHello);
-    assert_eq!(skew(read(&hello(json!({"abi": "two"}))).rev), Skew::PreHello);
-    assert_eq!(skew(read(&hello(json!({"abi": {"rev": -1}}))).rev), Skew::PreHello);
-    assert_eq!(skew(read(&hello(json!({"abi": {"rev": 0}}))).rev), Skew::Older);
-    assert_eq!(skew(read(&hello(json!({"abi": {"rev": ours}}))).rev), Skew::Same);
-    assert_eq!(skew(read(&hello(json!({"abi": {"rev": ours + 9}}))).rev), Skew::Newer);
+    assert_eq!(skew(read(&hello(json!({}))).abi), Skew::PreHello);
+    assert_eq!(skew(read(&hello(json!({"abi": "two"}))).abi), Skew::PreHello);
+    assert_eq!(skew(read(&hello(json!({"abi": -1}))).abi), Skew::PreHello);
+    // 0 is no revision (`peer_abi`); 1, the base, is behind this build.
+    assert_eq!(skew(read(&hello(json!({"abi": 0}))).abi), Skew::PreHello);
+    assert_eq!(skew(read(&hello(json!({"abi": 1}))).abi), Skew::Older);
+    assert_eq!(skew(read(&hello(json!({"abi": ours}))).abi), Skew::Same);
+    assert_eq!(skew(read(&hello(json!({"abi": ours + 9}))).abi), Skew::Newer);
     let long = "b".repeat(500);
     let read_long = read(&hello(json!({"build": long})));
     assert_eq!(read_long.build.map(|b| b.len()), Some(64));
     // The daemon's result names itself in agentInfo.
-    let result = json!({"agentInfo": {"name": "acpmux"}, "_meta": {"acpmux": {"abi": own(), "build": "b1"}}});
+    let result = json!({"agentInfo": {"name": "acpmux"}, "_meta": {"acpmux": {"abi": ours, "build": "b1"}}});
     assert_eq!(
         read(&result),
-        Hello { client: "acpmux".into(), rev: Some(ours), build: Some("b1".into()) }
+        Hello { client: "acpmux".into(), abi: Some(ours), build: Some("b1".into()) }
     );
 }
 
@@ -53,8 +44,8 @@ async fn old_and_new_peers_initialize_and_status_counts_them() {
     let listener = crate::server::bind_unix(&path).await.unwrap();
     tokio::spawn(crate::server::serve_unix(hub, listener));
     let client = Client::connect(&path).await.unwrap();
-    let (_, ours) = revision();
-    assert_eq!(client.daemon_abi_rev(), Some(ours));
+    let ours = crate::protocol::ABI;
+    assert_eq!(client.daemon_abi(), ours);
 
     let name = format!("abi-test-{}", std::process::id());
     let hello = |meta: Value| {
@@ -63,11 +54,11 @@ async fn old_and_new_peers_initialize_and_status_counts_them() {
     };
     for meta in [
         json!({}),
-        json!({"abi": {"rev": ours + 5, "base": 1}, "build": "future"}),
+        json!({"abi": ours + 5, "build": "future"}),
         json!({"abi": [1, 2], "build": 7}),
     ] {
         let init = client.request(method::INITIALIZE, hello(meta.clone())).await.unwrap();
-        assert_eq!(init.pointer("/_meta/acpmux/abi"), Some(&own()), "{meta}: {init}");
+        assert_eq!(init.pointer("/_meta/acpmux/abi"), Some(&json!(ours)), "{meta}: {init}");
         assert_eq!(
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str),
             Some(crate::hub::build())
@@ -75,7 +66,7 @@ async fn old_and_new_peers_initialize_and_status_counts_them() {
     }
 
     let status = client.request(method::MUX_STATUS, json!({})).await.unwrap();
-    assert_eq!(status.pointer("/abi/rev"), Some(&json!(ours)), "{status}");
+    assert_eq!(status.pointer("/abi/abi"), Some(&json!(ours)), "{status}");
     let peers = status.pointer("/abi/peers").and_then(Value::as_array).unwrap();
     let mine = |skew: &str| {
         peers

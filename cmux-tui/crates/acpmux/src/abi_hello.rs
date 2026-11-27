@@ -1,9 +1,9 @@
 //! The ABI hello (hq RFD 0178, build 3): every `initialize` carries `{abi, build, features[]}`
 //! both ways, so two acpmux builds agree on what they share instead of upgrading in lockstep.
 //!
-//! - `abi` is `{rev, base}`: the newest revision of `spec/acpmux-abi.compat.json`, the file the
-//!   wire ABI gate (cmux#55527) makes every breaking change add a revision to. It is read from
-//!   that file at compile time, so the hello and the gate cannot disagree.
+//! - `abi` is [`crate::protocol::ABI`], the newest revision of `spec/acpmux-abi.compat.json`, the
+//!   file the wire ABI gate (cmux#55527) makes every breaking change add a revision to (#57322
+//!   sends it in the daemon's reply; this module sends it in the client's and peer's hello too).
 //! - `build` is the sender's build id (`build_info.rs`).
 //! - `features` are the ids each side reads or serves (`capabilities.rs`,
 //!   `server/client_features.rs`), already exchanged before this module.
@@ -21,47 +21,13 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 
-/// The `_meta.acpmux` key the hello's ABI revision goes under, in both directions.
-pub const FIELD: &str = "abi";
-
-/// The gate's compat file: its `base` and the `rev` of each revision since.
-const COMPAT: &str = include_str!("../spec/acpmux-abi.compat.json");
-
-/// The most distinct `(client, rev, build)` rows the status keeps; past it the rest count in
+/// The most distinct `(client, abi, build)` rows the status keeps; past it the rest count in
 /// `omitted`, so a fleet of many builds costs a bounded map.
 const MAX_ROWS: usize = 256;
 
-/// This build's ABI: `(base, rev)`, `rev` being the newest revision in the compat file (the base
-/// when it has none).
-pub fn revision() -> (u64, u64) {
-    static REVISION: OnceLock<(u64, u64)> = OnceLock::new();
-    *REVISION.get_or_init(|| parse_revision(COMPAT))
-}
-
-fn parse_revision(compat: &str) -> (u64, u64) {
-    let v: Value = serde_json::from_str(compat).unwrap_or(Value::Null);
-    let base = v.get("base").and_then(Value::as_u64).unwrap_or(1);
-    let rev = v
-        .get("revisions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|r| r.get("rev").and_then(Value::as_u64))
-        .max()
-        .unwrap_or(base)
-        .max(base);
-    (base, rev)
-}
-
-/// The `abi` value this build says in its hello.
-pub fn own() -> Value {
-    let (base, rev) = revision();
-    json!({"rev": rev, "base": base})
-}
-
 /// Puts this build's `abi` and `build` into a hello's `_meta.acpmux` map.
 pub fn stamp(meta: &mut serde_json::Map<String, Value>) {
-    meta.insert(FIELD.to_owned(), own());
+    meta.insert("abi".to_owned(), json!(crate::protocol::ABI));
     meta.insert("build".to_owned(), json!(crate::hub::build()));
 }
 
@@ -88,10 +54,10 @@ impl Skew {
     }
 }
 
-/// The skew of a peer whose hello said ABI revision `rev`.
-pub fn skew(rev: Option<u64>) -> Skew {
-    let ours = revision().1;
-    match rev {
+/// The skew of a peer whose hello said ABI revision `abi` (none: it said no readable one).
+pub fn skew(abi: Option<u32>) -> Skew {
+    let ours = crate::protocol::ABI;
+    match abi {
         None => Skew::PreHello,
         Some(r) if r < ours => Skew::Older,
         Some(r) if r == ours => Skew::Same,
@@ -104,7 +70,7 @@ pub fn skew(rev: Option<u64>) -> Skew {
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Hello {
     pub client: String,
-    pub rev: Option<u64>,
+    pub abi: Option<u32>,
     pub build: Option<String>,
 }
 
@@ -119,12 +85,13 @@ pub fn read(hello: &Value) -> Hello {
         .chars()
         .take(64)
         .collect();
-    let rev = hello.pointer(&format!("/_meta/acpmux/{FIELD}/rev")).and_then(Value::as_u64);
+    // 0 is what `peer_abi` reads for none or a malformed value; revisions start at the base, 1.
+    let abi = Some(crate::protocol::peer_abi(hello)).filter(|&abi| abi > 0);
     let build = hello
         .pointer("/_meta/acpmux/build")
         .and_then(Value::as_str)
         .map(|b| b.chars().take(64).collect());
-    Hello { client, rev, build }
+    Hello { client, abi, build }
 }
 
 fn seen() -> &'static Mutex<(BTreeMap<Hello, u64>, u64)> {
@@ -148,17 +115,16 @@ pub fn note(hello: Hello) {
 /// `_acpmux/status`'s `abi`: this build's revision and the hellos heard since the start, by
 /// client, revision and build, each with its skew.
 pub fn status() -> Value {
-    let (base, rev) = revision();
     let guard = seen().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let (rows, omitted) = &*guard;
     let peers: Vec<Value> = rows
         .iter()
         .map(|(h, n)| {
-            json!({"client": h.client, "rev": h.rev, "build": h.build,
-                "skew": skew(h.rev).as_str(), "hellos": n})
+            json!({"client": h.client, "abi": h.abi, "build": h.build,
+                "skew": skew(h.abi).as_str(), "hellos": n})
         })
         .collect();
-    json!({"rev": rev, "base": base, "peers": peers, "omitted": omitted})
+    json!({"abi": crate::protocol::ABI, "peers": peers, "omitted": omitted})
 }
 
 #[cfg(test)]
