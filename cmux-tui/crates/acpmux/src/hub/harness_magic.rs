@@ -40,6 +40,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: "prefetch", on: super::prefetch::enabled },
     Feature { name: "surgery", on: super::surgery::enabled },
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
+    Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
 ];
 
 /// The settings key of `feature`'s off switch.
