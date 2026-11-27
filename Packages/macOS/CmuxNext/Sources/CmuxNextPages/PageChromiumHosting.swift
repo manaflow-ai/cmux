@@ -58,9 +58,37 @@ extension PageChromiumPage {
     /// No DevTools image.
     public func devToolsImage() async -> CGImage? { nil }
 
-    public func restartRenderer() { reload() }
+    /// The renderer's restart (Chromium's own end of a hung one), else a plain reload.
+    public func restartRenderer() {
+        if let rendererProcess { rendererProcess.restartRenderer() } else { reload() }
+    }
 
-    public var isUnresponsive: Bool { false }
+    public var isUnresponsive: Bool { rendererProcess?.isUnresponsive ?? false }
+
+    /// No renderer process the host can see.
+    public var rendererProcess: (any PageRendererProcess)? { nil }
+}
+
+/// The renderer process a Chromium page lives in, as the page host sees it (a CEF tab): its hang
+/// state, its identity, and the two ways to end it.
+@MainActor
+public protocol PageRendererProcess: AnyObject {
+    /// Whether Chromium's hang monitor says the renderer stopped answering (observable).
+    var isUnresponsive: Bool { get }
+    /// The one renderer process hosting the page (Chromium's renderer client id: pages that share
+    /// a renderer share it); nil when unknown or the page spans several.
+    var rendererClientID: Int32? { get }
+    /// That renderer's process id; nil when unknown.
+    var rendererProcessID: Int32? { get }
+    /// Whether DevTools may hold the page on purpose (they are open: a breakpoint stops its main
+    /// thread), so a silent main thread is then no hang.
+    var isBeingDebugged: Bool { get }
+    /// App Health's restart: Chromium's own end of a renderer it reported hung, else a reload.
+    func restartRenderer()
+    /// Ends the renderer by force, whether or not Chromium reported it hung (the liveness watchdog
+    /// proved it): every page in it ends with it. Returns the pid ended (0: ended, pid unknown),
+    /// nil when nothing was ended.
+    func endRenderer() -> Int32?
 }
 
 extension PageChromiumHosting {
@@ -136,6 +164,9 @@ public protocol PageChromiumPage: AnyObject {
     /// Whether Chromium's hang monitor says the page's renderer stopped answering (observable: the
     /// page view follows it for app health's renderer part). The default: never.
     var isUnresponsive: Bool { get }
+    /// The renderer process the page lives in (its hang state, identity and ends); the default:
+    /// none, so the page never reads hung and its restart is a reload.
+    var rendererProcess: (any PageRendererProcess)? { get }
     /// Sets the page zoom (1 is 100%).
     func setZoom(_ zoom: Double)
     /// Gives or takes the keyboard focus.

@@ -56,6 +56,12 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// The host's pushes into the page since it was made: scripts, `Runtime.evaluate` batches and their bytes, each
     /// batch JSON-parsed by Chromium on the main thread (`debug.page` state's `pushes`; the many-chats bench reads it).
     public private(set) var pushes = (scripts: 0, batches: 0, bytes: 0)
+    /// Binding calls the page sent (its message seq on the host side), the last one's name once
+    /// parsed, and when it came (`systemUptime`): the liveness watchdog logs them before it ends a
+    /// hung renderer, so the log names what the page did last.
+    public private(set) var messagesReceived: UInt64 = 0
+    public private(set) var lastMessageName: String?
+    public private(set) var lastMessageUptime: TimeInterval?
     /// Binding calls waiting for their parse off the main actor, in arrival order.
     private var inbox: AsyncStream<String>.Continuation?
     private var reading: Task<Void, Never>?
@@ -307,6 +313,8 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         // number its context reuses (a new renderer numbers its contexts again).
         if Self.endsContexts(head.method) { documentReplaced() }
         guard head.method == "Runtime.bindingCalled", head.contains(Self.bindingName) else { return false }
+        messagesReceived &+= 1
+        lastMessageUptime = ProcessInfo.processInfo.systemUptime
         if inbox == nil { startReading() }
         if case .dropped = inbox?.yield(json) { logger.error("page host binding call dropped: \(Self.maximumWaitingCalls) wait for their parse") }
         return true
@@ -325,6 +333,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
                 guard let self else { return }
                 switch parsed {
                 case .call(let message, let context):
+                    lastMessageName = message.name
                     // task-owner: one message; its reply goes back to the context that sent it
                     Task { [weak self] in await self?.answer(message, context: context) }
                 case .refused:

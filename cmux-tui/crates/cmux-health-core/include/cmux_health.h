@@ -16,8 +16,9 @@
 /*
  Bumped on any change to a type, a function or an op.
  3: the page event `navigationStarted`, and each action's `label` and `cause`.
+ 4: `liveness` parts, their `ping` and `endRenderer` actions, and `endRenderer`'s `hungMs`.
  */
-#define CMUX_HEALTH_ABI_VERSION 3
+#define CMUX_HEALTH_ABI_VERSION 4
 
 #define CMUX_HEALTH_OK 0
 

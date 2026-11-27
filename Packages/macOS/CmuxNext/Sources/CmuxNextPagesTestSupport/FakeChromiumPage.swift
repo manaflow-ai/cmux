@@ -149,6 +149,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var hasKeys = false
     /// Does nothing.
     public func setVisible(_ visible: Bool) { visibility.append(visible) }
+    /// The renderer process the page reports (``PageChromiumPage/rendererProcess``); nil: none.
+    public var rendererProcess: (any PageRendererProcess)?
 
     /// Sets ``closed`` and runs ``onClose``.
     public func close() {

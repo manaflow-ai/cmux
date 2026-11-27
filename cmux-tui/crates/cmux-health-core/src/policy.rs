@@ -51,6 +51,25 @@ pub const PAGE_SHARED_RECHECK_MS: u64 = 5_000;
 pub const RENDERER_STUCK_MS: u64 = 5_000;
 pub const RENDERER_LADDER: &[RepairAction] = &[RepairAction::RestartRenderer];
 
+/// Liveness (one renderer of visible agent chats): quiet this long (no beat from any of its
+/// pages, no ping answer) gets a ping. Its pages beat every 2 s while anything happens in them,
+/// so only a renderer whose pages all rest is pinged: at most one round trip per renderer per
+/// 15 s, and none for a renderer with no visible chat.
+pub const LIVENESS_QUIET_MS: u64 = 15_000;
+/// A ping unanswered this long gets a second one.
+pub const LIVENESS_PING_EVERY_MS: u64 = 15_000;
+/// Pings unanswered in a row before a renderer can be hung.
+pub const LIVENESS_PINGS: usize = 2;
+/// Hung: [`LIVENESS_PINGS`] pings unanswered and this long since the first of them, all of it
+/// visible and awake. The part is registered only after its first page's first beat, so a
+/// document still booting at a cold launch is never timed; a renderer is ended at the earliest
+/// 45 s after it last answered.
+pub const LIVENESS_HUNG_MS: u64 = 30_000;
+/// A tick this much later than its deadline means the host itself did not run (App Nap, a
+/// debugger stopped the app, a stall of its own): the pings out are void.
+pub const LIVENESS_LATE_MS: u64 = 5_000;
+pub const LIVENESS_LADDER: &[RepairAction] = &[RepairAction::EndRenderer];
+
 /// acpmux silent this long (no answered liveness ask) is `stuck`.
 pub const ACPMUX_SILENT_MS: u64 = 10_000;
 pub const ACPMUX_LADDER: &[RepairAction] =
@@ -125,7 +144,9 @@ pub fn backoff(attempt: u32) -> u64 {
 pub fn wait_after(action: RepairAction, attempt: u32) -> u64 {
     let wait = backoff(attempt);
     match action {
-        RepairAction::ReloadPage | RepairAction::RestartRenderer => wait.max(PAGE_BOOT_MS),
+        RepairAction::ReloadPage | RepairAction::RestartRenderer | RepairAction::EndRenderer => {
+            wait.max(PAGE_BOOT_MS)
+        }
         _ => wait,
     }
 }

@@ -113,8 +113,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     func load(_ url: URL) { tab.load(url) }
 
     func reload() { tab.reload() }
-    var isUnresponsive: Bool { tab.state.isUnresponsive }
-    func restartRenderer() { if tab.state.isUnresponsive { tab.answerUnresponsivePage(terminate: true) } else { tab.reload() } }
+    var rendererProcess: (any PageRendererProcess)? { tab }
 
     func setZoom(_ zoom: Double) { tab.setZoom(zoom) }
 

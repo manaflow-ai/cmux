@@ -215,7 +215,7 @@ extension PageWebView {
                 guard let self, let session, self.chromiumSession === session, session.page.isUnresponsive else { return false }
                 // A restart reloads every page in the renderer: never over unsaved edits (App Health's own rule).
                 return !PageRegistry.pages().contains(where: \.holdsEdits)
-            }, restart: { [weak self] in self?.restartRenderer() })
+            }, restart: { [weak self] in _ = self?.restartRenderer() })
         }
         if healthFeed != nil || session.hangRestart != nil {
             let hang = ObservationStream { [weak session] in session?.page.isUnresponsive ?? false }

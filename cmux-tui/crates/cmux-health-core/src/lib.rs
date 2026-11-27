@@ -45,6 +45,10 @@ pub enum Kind {
     Acpmux,
     PageHost,
     Roster,
+    /// One renderer's main thread, for the visible agent chats it hosts: answered by any of their
+    /// beats or by the host's ping, so a renderer whose pages all rest is still checked (the
+    /// liveness rule in [`model`]).
+    Liveness,
 }
 
 /// A part's state, best first, so `Ord` gives the worst (`max`).
@@ -79,6 +83,12 @@ pub enum RepairAction {
     /// Tell the launcher a restoring owner makes progress: never kill or
     /// replace it.
     HoldReplace,
+    /// Ask the renderer's main thread to answer (a `liveness` part whose pages are quiet): one
+    /// cheap round trip; its answer is the part's `beat`. Not a repair: no receipt, no attempt.
+    Ping,
+    /// End the renderer by force (a `liveness` part that missed its pings): its pages load again
+    /// in a new one.
+    EndRenderer,
     #[default]
     None,
 }
@@ -95,6 +105,10 @@ pub struct Action {
     /// This part's count of actions sent, never reset: the host echoes it in
     /// `repairResult`, so a late result never lands on a newer attempt.
     pub token: u64,
+    /// `endRenderer` only: how long the renderer has not answered (since its last beat or ping
+    /// answer), for the host's log line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hung_ms: Option<u64>,
     /// The part's label (`register`), for the host's log: which part it repairs.
     pub label: String,
     /// Why, in the words the indicator shows ("Not answering for 12 s."), for the host's log.

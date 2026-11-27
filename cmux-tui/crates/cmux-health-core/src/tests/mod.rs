@@ -6,6 +6,7 @@
 
 mod daemon;
 mod host_reload;
+mod liveness;
 mod page;
 mod parts;
 mod scale;

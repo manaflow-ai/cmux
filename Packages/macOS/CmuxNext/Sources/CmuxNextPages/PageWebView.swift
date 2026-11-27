@@ -306,6 +306,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// App health's ``restartRenderer()`` ended the renderer: the end is a repair, not a crash, so
     /// the page reloads even under a host that shows the crash notice. Cleared by that reload.
     var rendererRestartPending = false
+    /// The line the host shows once the page's new document loads after the liveness watchdog
+    /// ended its hung renderer (``prepareForRendererEnd(notice:)``); nil otherwise.
+    var pendingRestartNotice: String?
+    /// The page came back after its hung renderer was ended: its host shows `line` (one line
+    /// saying the page was restarted and why). Never silent.
+    public var onRendererRestarted: ((String) -> Void)?
+    /// Who the page is, for the watchdog's log line before it ends the renderer (the agent pane:
+    /// session and tab). Nil: only the page's own id is logged.
+    public var logIdentity: (@MainActor () -> String)?
     let claimState = PageClaimState()
 
     public var pageID: String { descriptor.id }
