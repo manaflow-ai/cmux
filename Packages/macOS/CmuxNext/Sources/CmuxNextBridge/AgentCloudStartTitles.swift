@@ -4,8 +4,8 @@ public import Observation
 
 /// The title a Cloud chat start lends its tabs (2026-11-10: a Cloud chat's row read "workspace-6" with no cloud mark
 /// and its tab "New Tab" while the start ran). From the Send, the New Tab page that sent reads as the chat it starts:
-/// its tab and its workspace's row take the prompt's gist, as a local chat's do from its first prompt, and the row
-/// draws the cloud mark (``SidebarMapping/PageFace/startsInCloud``). Once the chat opens on its machine the title moves
+/// its tab and its workspace's row take the prompt's gist, as a local chat's do from its first prompt (only the tab
+/// wears the cloud; a sidebar row never does, cmux#55668). Once the chat opens on its machine the title moves
 /// to that chat's tab, which keeps it until its chat has a title of its own on this Mac.
 ///
 /// Each tab is held weakly by its record's identity: a closed tab's entry never names a later tab.
@@ -67,7 +67,7 @@ public final class AgentCloudStartTitles {
     /// Whether workspace `id` is one New Cloud Chat opened for its chat (``beginWorkspace(_:)``), until its start ends.
     public func startsInCloud(workspace id: String) -> Bool { cloudWorkspaces.contains(id) }
 
-    /// New Cloud Chat opened workspace `id` for its chat: its row draws the cloud mark from now.
+    /// New Cloud Chat opened workspace `id` for its chat: its tab wears the cloud from now (``marksCloud(_:workspace:)``).
     public func beginWorkspace(_ id: String) { cloudWorkspaces.insert(id) }
 
     /// The start in workspace `id` ended: on its machine the chat has a row of its own, and on this Mac it is a local chat.
@@ -83,7 +83,7 @@ public final class AgentCloudStartTitles {
     }
 
     /// Whether `tab`'s Send started a Cloud chat that is starting or failed (``begin(_:task:untitled:)`` until ``opened(_:)``):
-    /// its tab shows the cloud (cmux#51000). Only the tab strip reads it; the sidebar row reads ``startsInCloud(_:)``.
+    /// its tab shows the cloud (cmux#51000). Only the tab strip reads it; no sidebar row draws a cloud.
     public func sentToCloud(_ tab: TabModel) -> Bool { cloudSends[ObjectIdentifier(tab)]?.tab === tab }
 
     /// Whether `tab`, in workspace `workspace`, wears the cloud while it is a Cloud chat not yet shown in place (cmux#51000): its Send started

@@ -184,6 +184,13 @@ export function CustomizeLibraryView({
       ref={card}
     >
       <h3 className="group-title">{t("settingsPage.customizeLibrary.title")}</h3>
+      {/* The card's description, above its rows as Agents on This Mac's is: a row of its own drew it the
+          row's full width, past the 60% a row's text keeps to (settings-cohesive-look). */}
+      {listing && !(drawn && entries.length === 0) && (
+        <div className="row-help" data-library-help="">
+          {t("settingsPage.customizeLibrary.help")}
+        </div>
+      )}
       <div
         className="rows"
         ref={windowed ? rowWindow.list : undefined}
@@ -206,12 +213,6 @@ export function CustomizeLibraryView({
           </div>
         ) : listing ? (
           <>
-            <div className="row" data-library-help="">
-              {/* In a row label, so the line keeps to the card's left ~60% like every row's description. */}
-              <div className="row-label">
-                <span className="row-help">{t("settingsPage.customizeLibrary.help")}</span>
-              </div>
-            </div>
             <LibraryList
               listing={listing}
               entries={entries}

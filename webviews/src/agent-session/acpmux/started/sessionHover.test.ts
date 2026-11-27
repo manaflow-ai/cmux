@@ -17,10 +17,10 @@ test("a running chat's card says what its turn does now, its place and its last 
       status: "running",
       updatedAt: AT,
       lane: { state: "working" },
-      turn: { planStep: "Run the sidebar tests", activity: "bun test sidebar" },
+      turn: { activity: "bun test sidebar" },
     }),
   );
-  expect(info.doing).toBe("Run the sidebar tests · bun test sidebar");
+  expect(info.doing).toBe("bun test sidebar");
   expect(info.waiting).toBeUndefined();
   expect(info.preview).toBeUndefined();
   expect(info.meta?.[0]).toBe("cmux");

@@ -124,12 +124,6 @@ extension Array where Element == TurnItem {
                 if !call.isRunning, call.endedAt == nil { call.endedAt = Date() }
                 self[index] = .tool(call)
             }
-        case .plan(let entries):
-            if let index = firstIndex(where: { if case .plan = $0 { true } else { false } }), case .plan(let id, _) = self[index] {
-                self[index] = .plan(id: id, entries: entries)
-            } else if !entries.isEmpty {
-                append(.plan(id: UUID().uuidString, entries: entries))
-            }
         default:
             break
         }

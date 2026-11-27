@@ -241,7 +241,7 @@ export function rowsToHold(
     const row = rows[index]!;
     source.add(row.id);
     if (row.kind === "activity" && follows) back.add(row.id);
-    if ((row.kind === "user" && !isLineRow(row)) || (row.kind !== "plan" && was.has(row.id))) follows = true;
+    if ((row.kind === "user" && !isLineRow(row)) || was.has(row.id)) follows = true;
   }
   // Whether a row in view stands over each run: one of the last rows before the tail, or a row of
   // the chat in the tail. A date over an older page that loads is in view and is no row of the
@@ -267,7 +267,7 @@ export function rowsToHold(
     const run = came.get(row.id);
     if (!run) {
       if (seen.has(row.id)) under = true;
-      if (row.kind !== "plan" && was.has(row.id) && source.has(row.id)) followed = true;
+      if (was.has(row.id) && source.has(row.id)) followed = true;
     } else if (followed && under && run.over && comesBack(run.row).length > 0) {
       return [...new Set([...came.values()].flatMap((each) => comesBack(each.row)))];
     }

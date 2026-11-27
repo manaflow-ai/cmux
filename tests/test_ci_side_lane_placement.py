@@ -1581,6 +1581,7 @@ class GatewayRoute(unittest.TestCase):
             free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
             with mock.patch.object(placement.pool, "GitHub") as github, \
                     mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                    mock.patch.object(placement, "fleet_queue_p90", return_value=None), \
                     contextlib.redirect_stdout(io.StringIO()):
                 github.return_value.runners.return_value = runners
                 placement.main(values)
@@ -1967,6 +1968,8 @@ class CmuxNextWiring(unittest.TestCase):
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready",
+                                                            # The PR's live labels (#57329), as path_route exports them.
+                                                            "labels": ",full-ci,",
                                                             # The generated-files job runs here, for its own label.
                                                             "generated_host": "generated-files"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
@@ -2025,6 +2028,7 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(name):
                 context = self.context(attempt=attempt, fork=fork)
                 context["github"]["event"]["pull_request"]["labels"] = labels
+                context["needs"]["path_route"]["outputs"]["labels"] = "," + ",".join(l["name"] for l in labels) + ","
                 context["github"]["event_name"] = event_name
                 self.assertEqual(evaluate(expression, context), want)
         idle = [runner("mini-a-glaeda-3"), runner("mini-a-glaeda-4", labels=(STD, SIDE, GUI))]
@@ -2043,6 +2047,7 @@ class CmuxNextWiring(unittest.TestCase):
                 values = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 context = self.context()
                 context["github"]["event"]["pull_request"]["labels"] = label
+                context["needs"]["path_route"]["outputs"]["labels"] = ",stack-blocker,"
                 context["needs"][self.PLACEMENT]["outputs"].update(values, placed_attempt="1")
                 routes = {name: evaluate(runs_on_route(self.workflow()["jobs"][name], name), context) for name in JOBS}
                 if stack:
@@ -2583,10 +2588,11 @@ class FeedReplyFullText(unittest.TestCase):
 
 
 class SmallMacChecks(unittest.TestCase):
-    """The zsh HEAD watcher check holds no secrets and changes no session, so a same-repository run takes
-    cmux-mac behind vars.CI_OVERFLOW_MAC; a fork pull request keeps Blacksmith macOS."""
+    """Host-only checks use the shared Mac pool on same-repository runs and an ephemeral Mac on forks."""
 
-    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),)
+    # RFD 0165: the pipeline's host-only Mac leg ignores the Blacksmith overflow switch.
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch", FALLBACK),
+            ("pr-pipeline.yml", "ios-macos", CMUX_MAC))
 
     def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
                 head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai", overflow: str = "") -> dict:
@@ -2596,14 +2602,14 @@ class SmallMacChecks(unittest.TestCase):
         return context
 
     def test_own_branch_runs_take_cmux_mac_and_a_fork_blacksmith(self):
-        for name, job in self.JOBS:
+        for name, job, overflow_route in self.JOBS:
             runs_on = runs_on_route(yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"][job], job)
             with self.subTest(workflow=name):
                 for event in ("pull_request", "push", "workflow_dispatch"):
                     self.assertEqual(evaluate(runs_on, self.context(event=event)), CMUX_MAC, event)
                 self.assertEqual(evaluate(runs_on, self.context(attempt="2")), CMUX_MAC)
                 self.assertEqual(evaluate(runs_on, self.context(owned="0")), CMUX_MAC)
-                self.assertEqual(evaluate(runs_on, self.context(overflow=FALLBACK)), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(overflow=FALLBACK)), overflow_route)
                 self.assertEqual(evaluate(runs_on, self.context(head="someone/cmux")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(owner="someone")), "macos-26")
 
@@ -2823,7 +2829,8 @@ class AppFfiBuildPlacement(unittest.TestCase):
 
     def test_the_build_runs_whatever_the_placement_did(self):
         build = self.workflow()["jobs"]["build"]
-        self.assertEqual(build["needs"], "placement")
+        # portable-tests (#57324): the Linux portable FFI tests gate the Mac build, and placement routes it.
+        self.assertEqual(build["needs"], ["placement", "portable-tests"])
         self.assertIn("!cancelled()", build["if"])
 
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useAutoRetry } from "../autoRetry";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import type { WorkflowAgent } from "./workflow";
@@ -41,11 +42,17 @@ export function useWorkflowTranscript(
     agent?.lastMessage,
     connection,
   ]);
+  // A failed read is asked again on its own while the transcript shows (autoRetry.ts): it reads as
+  // loading, and only a failure that lasts the house deadline says so, in one quiet line.
+  const { stillTrying } = useAutoRetry(reader?.failed, () => void reader?.refresh(), {
+    busy: reader?.loading ?? false,
+    shown: enabled,
+  });
   const rows = useMemo((): AcpmuxRow[] | undefined => {
     if (!enabled || !request || request.sessionId !== sessionId || !id) return undefined;
-    const notice = reader?.failed
-      ? t("workflow.detailUnavailable")
-      : (!reader || reader.loading) && !reader?.rows.length
+    const notice = stillTrying
+      ? t("workflow.stillLoadingTranscript")
+      : (!reader || reader.loading || reader.failed) && !reader?.rows.length
         ? t("replay.loading")
         : reader?.truncated
           ? t("workflow.historyLimited")
@@ -65,7 +72,7 @@ export function useWorkflowTranscript(
           ]
         : []),
     ];
-  }, [reader, id, request, t, revision, enabled, sessionId]);
+  }, [reader, id, request, t, revision, enabled, sessionId, stillTrying]);
   return {
     rows,
     canLoadOlder: reader?.canLoadOlder ?? false,

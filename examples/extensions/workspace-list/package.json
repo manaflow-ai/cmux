@@ -1,0 +1,10 @@
+{
+  "name": "cmux-extension-workspace-list",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The built-in workspace list, rebuilt on cmux-extension-sdk to copy and change.",
+  "dependencies": {
+    "cmux-extension-sdk": "file:../../../cmux-tui/crates/cmux-extension-sdk/typescript"
+  }
+}

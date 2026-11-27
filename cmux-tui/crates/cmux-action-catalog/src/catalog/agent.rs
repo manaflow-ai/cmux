@@ -662,6 +662,9 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ActionCatalog", "action.agentPane.searchChats", "Search Agent Chats"),
         keywords: &["agent", "chat", "search", "find", "sessions", "acpmux"],
+        // Command-J K reaches it from terminals and the code editor too, where Command-K stays
+        // the terminal's Clear and the editor's Command-K chords (bindings.rs's scoped Command-K).
+        default_chord: Some(Chord { first: Shortcut { key: "j", modifiers: CMD }, second: Shortcut { key: "k", modifiers: 0 } }),
         category: "agents",
         symbol: "magnifyingglass",
         surfaces: PALETTE | KEYBOARD,

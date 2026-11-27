@@ -2,6 +2,7 @@
 """scripts/cmux-next/media/whats-new-clips.py: specs, cutting a capture to its clip steps, the
 idle-clip refusal, the clip's length, and the highlight's clip line. Encoding (ffmpeg, img2webp)
 and the fleet capture are not run here."""
+import re
 import importlib.util, io, json, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
@@ -27,6 +28,90 @@ SPEC = {
 }
 SHA = "b" * 64
 URL = clips.URL_PREFIX + "sidebar-archive/0123456789ab.webp"
+
+
+class SettingsStepTests(unittest.TestCase):
+    """A clip opens Settings in front (`"focus": true`), opens a row that is there, and never sets a userOnly row."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.schema = Path(folder.name) / "settings-schema.json"
+        self.schema.write_text(json.dumps({"rows": [
+            {"key": "mobile.autoApprovePhones", "agent_settable": False, "agent_refusal": "userOnly"},
+            {"key": "home.chiefBubbleStyle", "agent_settable": True, "agent_refusal": None},
+            {"key": "updates.installWhenIdleMinutes", "page_hidden": True, "consumers": ["cmux-next"]},
+            {"key": "classic.only", "consumers": ["cmux"]}],
+            "sections": [{"id": "appearance"}],
+            "page": {"categories": [{"id": "appearance", "actions": ["appearance"], "lead": ["looksGallery"]}]}}))
+        # The native gate's names (SettingsAnchor.swift's shape): looksGallery is a page card, not one of these.
+        self.anchors = Path(folder.name) / "SettingsAnchor.swift"
+        self.anchors.write_text("""public enum SettingsCardID: String, CaseIterable, Sendable {
+    case theme, terminal
+
+    public var section: SettingsSection {
+        switch self {
+        case .theme: .appearance
+        case .terminal: .terminal
+        }
+    }
+}
+
+public enum SettingsPageAnchor: String, CaseIterable, Sendable {
+    case joinControl = "devices.join.control"
+    public static func joinConsent(_ surface: String) -> SettingsPageAnchor? { nil }
+}
+""")
+
+    def problems(self, *steps):
+        return clips.settings_problems(list(steps), self.schema, self.anchors)
+
+    def test_open_settings_needs_focus(self):
+        step = {"title": "Settings", "rpc": {"method": "action.run", "params": {
+            "action": "openSettings", "arguments": {"setting": "home.chiefBubbleStyle"}}}}
+        self.assertTrue(any('"focus": true' in p for p in self.problems(step)))
+        step["rpc"]["params"]["focus"] = True
+        self.assertEqual(self.problems(step), [])
+
+    def test_open_settings_names_a_row_that_is_there(self):
+        step = {"title": "Settings", "rpc": {"method": "action.run", "params": {
+            "action": "openSettings", "arguments": {"setting": "updates.gone"}, "focus": True}}}
+        self.assertTrue(any("no row or card updates.gone" in p for p in self.problems(step)))
+        self.assertEqual(self.problems({**step, "optional": "the before app has no updates.gone"}), [])
+
+    def test_open_settings_names_a_card_that_is_there(self):
+        def opening(key):
+            return {"title": "Card", "rpc": {"method": "action.run", "params": {
+                "action": "openSettings", "arguments": {"setting": key}, "focus": True}}}
+        for key in ("card.theme", "theme", "card.terminal", "section.appearance", "action.appearance.appearance",
+                    "devices.join.control"):
+            self.assertEqual(self.problems(opening(key)), [], key)
+        # The page links looksGallery, but the app's gate refuses it (media run 45837430593), and the
+        # switch's `case .theme:` lines are not cards.
+        for key in ("card.looksGallery", "card.gone", "card..theme: .appearance", "card.theme.inner", "section.gone"):
+            self.assertTrue(any(f"no row or card {key}" in p for p in self.problems(opening(key))), key)
+
+    def test_open_settings_skips_a_row_the_page_hides(self):
+        def opening(key):
+            return {"title": "Row", "rpc": {"method": "action.run", "params": {
+                "action": "openSettings", "arguments": {"setting": key}, "focus": True}}}
+        for key in ("updates.installWhenIdleMinutes", "classic.only"):
+            self.assertTrue(any(f"no row or card {key}" in p for p in self.problems(opening(key))), key)
+
+    def test_the_real_gate_has_no_looks_gallery_card(self):
+        places = clips.settings_cards()
+        self.assertIn("card.theme", places)
+        self.assertNotIn("card.looksGallery", places)
+        self.assertIn("section.appearance", places)
+
+    def test_a_user_only_row_is_never_set(self):
+        self.assertTrue(any("agents may not change mobile.autoApprovePhones" in p for p in self.problems(
+            {"title": "On", "cmux": ["settings", "set", "mobile.autoApprovePhones", "true"]})))
+        self.assertTrue(self.problems({"title": "Off", "cmux": ["settings", "reset", "mobile.autoApprovePhones"]}))
+        self.assertEqual(self.problems({"title": "Theme", "cmux": ["settings", "set", "home.chiefBubbleStyle", "theme"]}), [])
+
+    def test_the_shipped_specs_pass(self):
+        self.assertEqual([p for p in clips.check() if "settings" in p.lower() or "focus" in p], [])
 
 
 class SpecTests(unittest.TestCase):
@@ -106,6 +191,14 @@ class TimelineTests(unittest.TestCase):
     def test_a_clip_that_never_changes_is_refused(self):
         with self.assertRaisesRegex(clips.ClipError, "idle"):
             self.plan([bytes([10] * 64)] * 8)
+
+    def test_a_before_that_never_changes_is_its_one_frame_held(self):
+        # space-button-spacing's before (2026-11-27): the old app has no spacing setting, so the window is
+        # the same throughout, and that window is the before. An after like it stays refused (above).
+        frames = [Path(f"f{i}.png") for i in range(8)]
+        with mock.patch.object(clips, "gray", return_value=bytes([10] * 64)):
+            plan = clips.timeline(SPEC, frames, "crop", still=True)
+        self.assertEqual(plan, [(Path("f0.png"), clips.MIN_SECONDS)])
 
     def test_a_clip_past_eight_seconds_is_refused(self):
         frames = [bytes([i * 7 % 256] * 64) for i in range(40)]
@@ -228,6 +321,46 @@ class NightlyTourTests(unittest.TestCase):
                                  [("archive", ["after"]), ("better", ["before"]), ("uncategorized", ["after"])])
                 with mock.patch("sys.stdout"):  # its "more wait" notice
                     self.assertEqual(len(clips.plan(base, head, tours, limit=1, exists=lambda url: False, root=repo)), 1)
+
+    def test_the_plan_reads_published_clips_from_the_pr_media_tree_not_a_rate_limited_head(self):
+        # 2026-11-25 (cmux run 45636169467): raw.githubusercontent.com answered HTTP 429 to the published
+        # HEADs, two published clips planned again, and iphone-pairs-without-qr waited past PLAN_LIMIT.
+        tree = {"truncated": False, "tree": [
+            {"path": "better", "type": "tree"},
+            {"path": "better/clip-auto-after.webp", "type": "blob"},
+            {"path": "archive/clip-auto-after.failed.json", "type": "blob"}]}
+        asked = []
+        root = [{"name": "README.md", "type": "file", "sha": "f" * 40}, {"name": "whats-new", "type": "dir", "sha": "a" * 40}]
+        files = clips.pr_media_files(get=lambda path: asked.append(path) or (root if "contents" in path else tree))
+        self.assertEqual(asked, ["repos/manaflow-ai/cmux/contents?ref=pr-media",
+                                 f"repos/manaflow-ai/cmux/git/trees/{'a' * 40}?recursive=1"])
+        self.assertEqual(files, {"whats-new/better/clip-auto-after.webp", "whats-new/archive/clip-auto-after.failed.json"})
+        def limited(url):
+            raise AssertionError(f"asked raw for {url}")
+        with mock.patch.object(clips, "published", limited):
+            exists = clips.listed(files, clips.published)
+            self.assertTrue(exists(clips.auto_url("better", "after")))
+            self.assertFalse(exists(clips.auto_url("better", "before")))
+        markers = []
+        marker = clips.listed(files, lambda url: markers.append(url) or {"spec": "x"})
+        self.assertIsNone(marker(clips.failed_url("better", "after")))
+        self.assertEqual(marker(clips.failed_url("archive", "after")), {"spec": "x"})
+        self.assertEqual(markers, [clips.failed_url("archive", "after")])
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, base, head = self.repo(tmp)
+            with mock.patch.object(clips, "SPECS", repo / "release-notes/next/clips"), \
+                 mock.patch.object(clips, "published", limited):
+                rows = clips.plan(base, head, Path(tmp, "tours"), exists=clips.listed(files, clips.published),
+                                  root=repo)
+            self.assertEqual([(r["id"], r["roles"]) for r in rows],
+                             [("archive", ["after"]), ("better", ["before"]), ("uncategorized", ["after"])])
+        # A tree that cannot be read whole leaves each clip to its own HEAD, as before.
+        with mock.patch("sys.stderr", io.StringIO()):
+            self.assertIsNone(clips.pr_media_files(get=lambda path: (_ for _ in ()).throw(OSError("down"))))
+        self.assertIsNone(clips.pr_media_files(get=lambda path: root if "contents" in path else {"truncated": True, "tree": []}))
+        with mock.patch("sys.stderr", io.StringIO()):  # no whats-new/ on the branch
+            self.assertIsNone(clips.pr_media_files(get=lambda path: root[:1]))
+        self.assertIs(clips.listed(None, clips.failure_marker), clips.failure_marker)
 
     def commit(self, repo, message, when, files):
         """Commits FILES ({relative path: text}) at WHEN (seconds since the epoch); returns the commit."""
@@ -432,7 +565,7 @@ class NightlyTourTests(unittest.TestCase):
             self.assertEqual([r["id"] for r in rows], ["f1", "newer"])
 
     def test_publish_auto_marks_each_clip_whose_tour_failed_with_its_tip_and_spec(self):
-        def render_tour(clip_id, tour_dir, out, keep):
+        def render_tour(clip_id, tour_dir, out, keep, role="after"):
             raise clips.ClipError("the tour did not run every step")
         put = mock.Mock()
         module = mock.Mock(put_files=put)
@@ -545,7 +678,7 @@ class NightlyTourTests(unittest.TestCase):
     def test_publish_auto_marks_no_failure_for_a_tour_that_never_ran(self):
         # "no app at 62da558...; its befores wait": the before tours never ran, and publish-auto marked them
         # failed with their spec, which put them behind every other row on the next plan.
-        def render_tour(clip_id, tour_dir, out, keep):
+        def render_tour(clip_id, tour_dir, out, keep, role="after"):
             raise clips.ClipError("the tour did not run every step")
         put = mock.Mock()
         module = mock.Mock(put_files=put)
@@ -651,6 +784,28 @@ class NightlyTourTests(unittest.TestCase):
         frames = clips.tour_frames(SPEC, manifest, Path("/tour"), Path("/unused"))
         self.assertEqual([f.name for f in frames], ["frame-00001.jpg", "frame-00004.jpg", "frame-00007.jpg"])
 
+    def test_a_window_that_goes_away_in_a_clip_step_ends_the_clip_on_an_empty_frame(self):
+        # warn-before-quit-shortcut's before (2026-11-27): the old app quits on the first ⌘Q, its frames stop
+        # 0.1 s into the step, and the clip was refused as "1 frame(s)". It now ends on the window, then empty.
+        manifest = self.manifest(0.0, 2.0, 3.5, video=False)
+        manifest["frames"] = [{"file": f"frames/frame-{i:05d}.jpg", "step": step, "time": t}
+                              for i, (step, t) in enumerate([(1, 0.0), (1, 1.9), (2, 2.0), (2, 2.1)])]
+        made = []
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(clips, "size_of", return_value=(660, 612)), \
+                mock.patch.object(clips, "run", side_effect=lambda argv, **kw: made.append(argv)):
+            with self.assertRaisesRegex(clips.ClipError, "span 1 frame"):
+                clips.tour_frames(SPEC, manifest, Path("/tour"), Path(tmp))
+            self.assertEqual(made, [], "no empty frame while the window is there")
+            manifest["frames_ended"] = {"step": 2, "time": 2.2, "reason": "no window"}
+            ended = clips.tour_frames(SPEC, manifest, Path("/tour"), Path(tmp))
+        self.assertEqual([f.name for f in ended], ["frame-00001.jpg", "frame-00003.jpg", "closed.png"])
+        self.assertIn(f"color=c={clips.CLOSED_COLOR}:s=660x612", made[0])
+        # A window that went away outside the clip steps adds nothing.
+        manifest["frames_ended"]["step"] = 3
+        with self.assertRaisesRegex(clips.ClipError, "span 1 frame"):
+            clips.tour_frames(SPEC, manifest, Path("/tour"), Path("/unused"))
+
     def test_a_tour_with_a_failed_clip_step_or_no_step_times_is_refused(self):
         with self.assertRaisesRegex(clips.ClipError, "steps failed: Archive"):
             clips.tour_frames(SPEC, self.manifest(0, 1, 2, statuses={1: "unavailable"}), Path("/t"), Path("/u"))
@@ -665,7 +820,7 @@ class NightlyTourTests(unittest.TestCase):
     def test_publish_auto_renders_each_role_from_its_tour_folder_and_uploads_nothing_without_ocr(self):
         rendered = []
 
-        def render_tour(clip_id, tour_dir, out, keep):
+        def render_tour(clip_id, tour_dir, out, keep, role="after"):
             rendered.append((clip_id, tour_dir.parent.name, tour_dir.name))
             keep.mkdir(parents=True)
             (keep / "0000.png").write_bytes(b"png")
@@ -689,7 +844,7 @@ class NightlyTourTests(unittest.TestCase):
             ocr.write_text('#!/bin/sh\ncase "$1" in *.webp) exit 2;; esac\ncat "$1"\n')
             ocr.chmod(ocr.stat().st_mode | stat.S_IEXEC)
 
-            def render_tour(clip_id, tour_dir, out, keep=None):
+            def render_tour(clip_id, tour_dir, out, keep=None, role="after"):
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(b"RIFF\0\0\0\0WEBPVP8X animated")
                 keep.mkdir(parents=True)
@@ -1014,7 +1169,8 @@ class WorkflowTests(unittest.TestCase):
         run = self.step("tour", "clips")["run"]
         self.assertTrue(run.startswith("set +e\n"), "GitHub's bash -e ends the step at the first failed tour")
         self.assertLess(run.index("count="), run.index("record after"))
-        self.assertIn("|| echo", run.split("tour.py", 1)[1].split("}", 1)[0])
+        # The tour's own call (bounded() and the comments before it name tour.py too, cmux#56365).
+        self.assertIn("|| echo", run.split("media/tour.py --app", 1)[1].split("}", 1)[0])
 
     def test_iphone_clips_have_their_own_nightly_workflow_with_no_pull_request_job(self):
         import yaml
@@ -1027,7 +1183,7 @@ class WorkflowTests(unittest.TestCase):
         jobs = doc["jobs"]
         self.assertIn("plan --app iphone", next(s for s in jobs["plan"]["steps"] if s.get("id") == "plan")["run"])
         self.assertEqual(jobs["record"]["needs"], "plan")
-        self.assertEqual(jobs["record"]["runs-on"], "${{ vars.CI_EVAL_STEP_GATEWAY }}")
+        self.assertEqual(jobs["record"]["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }}")
         run = next(s for s in jobs["record"]["steps"] if s.get("id") == "record")["run"]
         self.assertTrue(run.startswith("set +e\n"))
         self.assertIn("--class simulator --script scripts/ci/cmux-next-ios-sim.sh", run)
@@ -1035,6 +1191,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("whats-new-clips.py iphone-runs", run)
         self.assertIn('artifact --failed "$step"', run)
         self.assertLess(run.index("done < <("), run.index('"$out/plan.json"'))
+        # Bounded to its job (cmux-next-iphone-clips on 11-26: clips one after another, each with an unbounded
+        # queue wait, sat to the 240-min timeout): every clip's step starts at once, then the job waits for all,
+        # and the queue wait, cmux-ci's uncounted compile (5400 s) and the run fit the job with room to upload.
+        self.assertIn('record_one "$id" "$roles" "$before" &', run)
+        self.assertLess(run.index("record_one \"$id\""), run.index("\nwait\n"))
+        self.assertIn('--queue-timeout "$QUEUE_S" --timeout "$RUN_S"', run)
+        bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=(\d+)", run))
+        self.assertLessEqual(int(bounds["QUEUE_S"]) + 5400 + int(bounds["RUN_S"]),
+                             (jobs["record"]["timeout-minutes"] - 20) * 60)
+        self.assertIn('"$client" cancel', run)
         publish = jobs["publish"]
         self.assertEqual((publish["needs"], publish["environment"]), ("record", "pr-media"))
         self.assertIn("publish-auto", next(s for s in publish["steps"] if s.get("name") == "Publish the clips")["with"]["command"])

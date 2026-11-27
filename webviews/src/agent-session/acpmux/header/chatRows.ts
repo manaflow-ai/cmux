@@ -48,7 +48,7 @@ export function moveMachineRow(
         ? t("composer.moveToMenu")
         : children.length === 1 && more.length === 0
           ? children[0]!.label
-          : t("composer.environment"),
+          : t("composer.computer"),
     icon: "machine.remote",
     children,
   };

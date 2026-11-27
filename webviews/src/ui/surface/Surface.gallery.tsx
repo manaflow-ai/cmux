@@ -4,7 +4,7 @@
 // busy) and in both appearances through scripts/gallery/capture-states.mjs (surface.capture.json): a
 // surface reads at 4.5:1 over every one, and the ask card is the same material, corner, ring, type and
 // buttons as the card beside it.
-import { Keycap } from "../../agent-session/acpmux/Keycap";
+import { KeyHint } from "../KeyHint";
 import { componentEntry } from "../../gallery/format";
 import { SURFACE_ROLES, Surface, surfaceMaterial, type SurfaceRole } from "./Surface";
 
@@ -43,17 +43,16 @@ function Specimen({ role }: { role: SurfaceRole }) {
           <Surface.Action>
             Deny
             <Surface.Keys>
-              <Keycap>N</Keycap>
-              <Keycap>Esc</Keycap>
+              <KeyHint keys="N" />
+              <KeyHint keys="Esc" />
             </Surface.Keys>
           </Surface.Action>
           <Surface.Trailing>
             <Surface.Action kind="primary">
               Allow once
               <Surface.Keys>
-                <Keycap>Y</Keycap>
-                <Keycap>⌘</Keycap>
-                <Keycap>↩</Keycap>
+                <KeyHint keys="Y" />
+                <KeyHint keys="⌘↩" />
               </Surface.Keys>
             </Surface.Action>
           </Surface.Trailing>
