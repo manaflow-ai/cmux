@@ -226,7 +226,8 @@ pub(super) fn start(
 /// already came from a peer stay on this daemon so they cannot loop.
 fn send_presence(hub: &Hub, conn: &Conn, note: &serde_json::Value) {
     let remote = note.get(crate::hub::presence::REMOTE_MARKER).is_some();
-    if (super::view::a_link(conn) && remote)
+    if (super::view::a_link(conn)
+        && (!conn.client_features.hears_any(&[crate::hub::presence::PEER_FEATURE]) || remote))
         || (!super::view::a_link(conn)
             && !conn.client_features.hears_any(&[crate::capabilities::CHAT_PRESENCE]))
     {

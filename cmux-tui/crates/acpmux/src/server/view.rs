@@ -213,6 +213,7 @@ pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
             hub.attach_count_from(s, -1, !before.hidden, a_person(conn));
         }
     }
+    conn.incoming_presence.detach(hub, &s.id);
     hub.presence.leave(&s.id, &conn.id);
 }
 
