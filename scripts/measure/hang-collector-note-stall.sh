@@ -53,6 +53,9 @@ struct NoteStallBench {
         return "BENCH \(label) n=\(iterations) p50=\(p(0.5))ns p99=\(p(0.99))ns p999=\(p(0.999))ns max=\(times.last!)ns"
     }
 
+    /// The spinners' join, synchronous: `DispatchGroup.wait` is unavailable in an async function (Swift 6).
+    static func joined(_ group: DispatchGroup) -> Bool { group.wait(timeout: .now() + 10) == .success }
+
     @Test func noteStallMainThreadCost() async throws {
         guard ProcessInfo.processInfo.environment["NOTE_STALL_BENCH"] == "1" else { return }
         _ = await Self.run("warmup", iterations: 500)
@@ -69,7 +72,7 @@ struct NoteStallBench {
         }
         defer {
             stop.value.store(true, ordering: .releasing)
-            #expect(group.wait(timeout: .now() + 10) == .success)
+            #expect(Self.joined(group))
         }
         try await Task.sleep(for: .milliseconds(200))
         print(await Self.run("duress", iterations: 6000))
