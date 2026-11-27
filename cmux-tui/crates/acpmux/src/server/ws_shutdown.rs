@@ -119,10 +119,13 @@ impl WsShutdown {
 /// shutdown would stop the copy too: there only the drop applies, and a retry waits in the
 /// listener's queue for the next image's first accept.
 pub(super) fn close_admission(listener: tokio::net::TcpListener) {
-    close_admission_unless_kept(
-        listener,
-        crate::daemon::keeps_listeners() || crate::daemon::listener_handover::listeners_live_on(),
-    );
+    // The handover is unix-only; keeps_listeners is false off Unix.
+    #[cfg(unix)]
+    let kept = crate::daemon::keeps_listeners()
+        || crate::daemon::listener_handover::listeners_live_on();
+    #[cfg(not(unix))]
+    let kept = crate::daemon::keeps_listeners();
+    close_admission_unless_kept(listener, kept);
 }
 
 fn close_admission_unless_kept(listener: tokio::net::TcpListener, kept: bool) {
