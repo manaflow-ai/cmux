@@ -1,4 +1,6 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
+# guard-inputs: scripts/ci/
+# (its git reads are of temporary fixture repos; HEAD^ is text it checks the scripts for)
 import ast
 import contextlib
 import copy
