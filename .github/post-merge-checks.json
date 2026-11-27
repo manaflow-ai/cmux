@@ -74,10 +74,6 @@
       "kind": "check",
       "why": "Chief evals on the base only: Leo cut its advisory pull request run on 2026-11-24 (#54661, goal ci-runner-min-per-day-50k); a red shows on base"
     },
-    "cloud-devbox-image-rebake.yml": {
-      "kind": "publish",
-      "why": "rebakes the Cloud devbox image after its inputs land"
-    },
     "cloud-harness-matrix.yml": {
       "kind": "publish",
       "why": "a start matrix on live staging machines, run by its request file, not of the change"

@@ -59,7 +59,6 @@ PICKS: dict[str, int] = {
     "ci-queue-janitor.yml": 1,
     "ci-web.yml": 7,
     "cloud-capture-provision.yml": 1,
-    "cloud-devbox-image-rebake.yml": 1,
     "cloud-vm-dogfood.yml": 3,
     "cloud-vm-image-bake.yml": 3,
     "cloud-vm-image-promote.yml": 2,

@@ -1392,8 +1392,7 @@ export type DevboxAwaitingRebake = {
 };
 
 /**
- * Data, not code, so the rebake workflow (cloud-devbox-image-rebake.yml,
- * `devbox-rebake.ts settle`) can drop the entries its promotion satisfied.
+ * Data, not code, so a rebake (`devbox-rebake.ts settle`) can drop the entries its promotion satisfied.
  */
 export const devboxAwaitingRebakePath = path.join(webRoot, "services/vms/images/awaiting-rebake.json");
 

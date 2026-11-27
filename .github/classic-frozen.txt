@@ -14,7 +14,7 @@
 # One rule per line: GLOB SCOPE REASON. `**` crosses directories, `*` stays within one segment. SCOPE no longer
 # changes what a merge into feat-cmux-next may touch (nothing is held there); it is what NEXT work's reads skip
 # (repo-tools, prior-art): `all` is skipped on feat-cmux-next and main, `main` on main only (on feat-cmux-next the
-# same path is NEXT's, like the NEXT devbox image under web/services/vms that cloud-devbox-image-rebake.yml bakes).
+# same path is NEXT's, like the devbox image code under web/services/vms).
 #
 # Not classic, and not frozen: NEXT code that calls classic (CloudCLICall.swift's drained classic /api/runs,
 # CloudClassicPageOps.swift), cmux-api (backend/apps/api) and workers/cmux-vm.

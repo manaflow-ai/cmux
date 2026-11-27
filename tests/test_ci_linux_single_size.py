@@ -70,7 +70,6 @@ SINGLE_SIZE: dict[str, int] = {
     "ci-web.yml": 0,
     "ci.yml": 0,
     "cloud-capture-provision.yml": 0,
-    "cloud-devbox-image-rebake.yml": 0,
     "cloud-vm-canary.yml": 0,
     "cloud-vm-env-audit.yml": 0,
     "cloud-vm-guest-install.yml": 0,

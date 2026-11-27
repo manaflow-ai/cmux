@@ -98,7 +98,7 @@
   "next_deploys_not_classic": [
     "backend.yml: push to feat-cmux-next deploys cmux-api development and staging (cloud-api-staging.cmux.dev); production only by the promote dispatch. Not on main's tree, so a push to main runs nothing from it.",
     "cmux-vm.yml: feat-cmux-next and feat-cmux-vm-* pushes deploy the NEXT cmux-vm Worker; production by dispatch.",
-    "release-rails.yml, cloud-devbox-image-rebake.yml, app-ffi-release.yml: NEXT release rails and images from feat-cmux-next.",
+    "release-rails.yml, app-ffi-release.yml: NEXT release rails from feat-cmux-next.",
     "backend-migrations.yml: a labelled PR applies NEXT cmux-next Postgres migrations (staging, then production)."
   ]
 }

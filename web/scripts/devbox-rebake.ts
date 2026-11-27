@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * The steps of the devbox rebake workflow (.github/workflows/cloud-devbox-image-rebake.yml)
- * that are not the bake itself. The bake, verify, size derivation and manifest write stay
+ * The steps of a devbox rebake that are not the bake itself (its workflow,
+ * cloud-devbox-image-rebake.yml, left feat-cmux-next with M21: NEXT boots only cmux-vm images). The bake, verify, size derivation and manifest write stay
  * promote-devbox-image.ts's; this only decides, names, records, settles and prunes.
  *
  *   bun scripts/devbox-rebake.ts plan [--force]
