@@ -1461,6 +1461,20 @@ async fn sweep_run(offset: u64, cut: Cut, facts: &mut SweepFacts) -> Result<Stri
 async fn carrier_drop_sweep_every_frame_offset_loses_nothing() {
     let seed: u64 =
         std::env::var("CARRIER_SWEEP_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+    sweep(seed).await;
+}
+
+/// The same sweep under a fixed nonzero seed, so black holes (the link waits out its
+/// liveness bound, then redials) are cut at their offsets on every run, not only on request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn carrier_drop_sweep_seeded_black_holes_lose_nothing() {
+    sweep(SWEEP_MIXED_SEED).await;
+}
+
+/// The fixed seed of the mixed sweep: it cuts about half the offsets with a black hole.
+const SWEEP_MIXED_SEED: u64 = 7;
+
+async fn sweep(seed: u64) {
     let offsets: Vec<u64> = match std::env::var("CARRIER_SWEEP_OFFSETS") {
         Ok(list) if !list.trim().is_empty() => list
             .split(',')
@@ -1501,8 +1515,9 @@ async fn carrier_drop_sweep_every_frame_offset_loses_nothing() {
             "error": outcome.as_ref().err(),
         }));
     }
-    // CARRIER_SWEEP_REPORT: the rows as JSON, for the pre-gate of cloud-carrier-chaos-staging.
-    if let Ok(path) = std::env::var("CARRIER_SWEEP_REPORT") {
+    // CARRIER_SWEEP_REPORT_DIR: each seed's rows as JSON, for the pre-gate of cloud-carrier-chaos-staging.
+    if let Ok(dir) = std::env::var("CARRIER_SWEEP_REPORT_DIR") {
+        let path = std::path::Path::new(&dir).join(format!("sweep-seed-{seed}.json"));
         let report = json!({"seed": seed, "total": SWEEP_TOTAL, "rows": rows});
         std::fs::write(&path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
     }
