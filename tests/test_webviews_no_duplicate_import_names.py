@@ -7,8 +7,11 @@ has already been declared". This happened twice on 2026-11-26 in
 VirtualTranscript.tsx (fixed by #59145, then again after #48219 and #57269
 merged), and the second time it stopped the nightly web bundle build.
 
-This test reads every .ts/.tsx file under webviews/src. It fails when any
-single import statement binds one local name twice.
+This test reads every .ts/.tsx file under webviews/src. It fails when a file's
+import statements bind one local name twice, in one statement or across two
+(`import { a } from "./m"` and `import { a } from "./n"` fail the bundle the
+same way). cmux-next guards / static-checks runs it, so the car guards run it on
+every merge-queue car that touches webviews/src, where two such PRs first meet.
 """
 
 import os
@@ -42,8 +45,8 @@ def local_names(clause):
 
 def duplicates(text):
     found = []
+    seen = set()
     for match in IMPORT.finditer(text):
-        seen = set()
         for name in local_names(match.group(1)):
             if name in seen:
                 found.append(name)
@@ -56,6 +59,7 @@ def main():
     assert duplicates("import { a, b as a } from './m';") == ["a"]
     assert duplicates("import { a, b } from './m';\nimport { a as c } from './n';") == []
     assert duplicates("import D, { d } from './m';") == []
+    assert duplicates("import { a } from './m';\nimport type { a } from './n';") == ["a"]
 
     bad = []
     for dirpath, dirnames, filenames in os.walk(ROOT):
@@ -69,9 +73,9 @@ def main():
             if dups:
                 bad.append(f"{os.path.relpath(path, ROOT)}: {', '.join(sorted(set(dups)))}")
     if bad:
-        print("one import statement names these twice:\n  " + "\n  ".join(bad))
+        print("a file's imports bind these names twice:\n  " + "\n  ".join(bad))
         return 1
-    print("ok: no import statement under webviews/src names a binding twice")
+    print("ok: no file under webviews/src imports one name twice")
     return 0
 
 
