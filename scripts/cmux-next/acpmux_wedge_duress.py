@@ -245,15 +245,32 @@ def sample_stacks(pid: int, out: Path) -> str:
     if sys.platform == "darwin" and shutil.which("sample"):
         subprocess.run(["sample", str(pid), "3", "-mayDie", "-file", str(out)], capture_output=True, timeout=60)
         return "sample"
-    if shutil.which("gdb"):
-        r = subprocess.run(["gdb", "-batch", "-p", str(pid), "-ex", "thread apply all bt 40"],
-                           capture_output=True, text=True, timeout=120)
-        out.write_text(r.stdout + r.stderr)
-        return "gdb"
-    if shutil.which("eu-stack"):
-        r = subprocess.run(["eu-stack", "-p", str(pid)], capture_output=True, text=True, timeout=120)
-        out.write_text(r.stdout + r.stderr)
-        return "eu-stack"
+    # Yama's ptrace_scope 1 lets only an ancestor attach; the debugger is the harness's child, not
+    # the daemon's parent, so it attaches through `sudo -n` where the host allows that.
+    pre: list[str] = []
+    try:
+        scope = Path("/proc/sys/kernel/yama/ptrace_scope").read_text().strip()
+    except OSError:
+        scope = "0"
+    if scope != "0" and os.geteuid() != 0 and shutil.which("sudo"):
+        if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0:
+            pre = ["sudo", "-n"]
+    tools = [("gdb", ["gdb", "-batch", "-p", str(pid), "-ex", "thread apply all bt 40"]),
+             ("lldb", ["lldb", "--batch", "-p", str(pid), "-o", "thread backtrace all -c 40", "-o", "detach"]),
+             ("eu-stack", ["eu-stack", "-p", str(pid)])]
+    for name, argv in tools:
+        if not shutil.which(argv[0]):
+            continue
+        r = subprocess.run([*pre, shutil.which(argv[0]), *argv[1:]], capture_output=True, text=True, timeout=180)
+        text = r.stdout + r.stderr
+        if re.search(r"acpmux::|tokio::", text):
+            out.write_text(f"# {name} (ptrace_scope={scope}, via sudo: {bool(pre)})\n" + text)
+            return name
+    if pre:
+        rows = subprocess.run([*pre, "sh", "-c", f"for t in /proc/{pid}/task/*; do echo \"== $t $(cat $t/comm)\"; "
+                               "cat $t/stack 2>/dev/null; done"], capture_output=True, text=True, timeout=60)
+        out.write_text(rows.stdout)
+        return "kernel-stack"
     rows = []
     for tid in sorted(os.listdir(f"/proc/{pid}/task")) if Path(f"/proc/{pid}/task").exists() else []:
         try:
@@ -277,7 +294,7 @@ def tally_stacks(files: list[Path], top: int = 12) -> list[dict]:
     for f in files:
         text = f.read_text(errors="replace")
         # gdb: "Thread N (...)" blocks; sample: indented call graph per "Thread_" block; wchan: lines.
-        blocks = re.split(r"\n(?=Thread \d|\s*\d+ Thread_)", text)
+        blocks = re.split(r"\n(?=Thread \d|\s*\d+ Thread_|\s*\*? ?thread #\d|== /proc/)", text)
         for b in blocks:
             if not WAIT.search(b):
                 continue
@@ -334,6 +351,8 @@ class Wedge:
         self.daemon: subprocess.Popen | None = None
         self.daemon_log = out / "daemon.log"
         self.sessions: list[tuple[str, str]] = []  # (name, id)
+        self.peer_envs: list[dict] = []  # each peer daemon's env, for its live chats
+        self.peer_live: list[tuple[dict, str]] = []  # (env, name) of chats on the peer daemons
 
     def spawn(self, argv: list[str], env: dict, log_to: Path, **kw) -> subprocess.Popen:
         p = subprocess.Popen(argv, env=env, stdout=log_to.open("w"), stderr=subprocess.STDOUT,
@@ -355,8 +374,17 @@ class Wedge:
         private(home / "run")
         seed_rows(home, self.a.peer_rows, i)
         env = dict(self.env, HOME=str(st / "home"), ACPMUX_HOME=str(home), TMPDIR=str(st / "tmp"),
-                   XDG_RUNTIME_DIR=str(st / "run"), ACPMUX_SOCKET=str(st / "run" / "acpmux.sock"),
-                   ACPMUX_AGENT_LAUNCH="deny")
+                   XDG_RUNTIME_DIR=str(st / "run"), ACPMUX_SOCKET=str(st / "run" / "acpmux.sock"))
+        env.pop("ACPMUX_PEER_DIAL_AT_START", None)
+        if self.a.peer_live:
+            # Live chats on the stand-in agent: each turn is a row notice to every link this daemon
+            # serves (`peer_session_changed`, hub/peers.rs), as Leo's peers' working chats were.
+            private(home / "config.json", json.dumps({
+                "harnesses": {"fake": {"argv": ["python3", str(self.out / "agent-wrapper.py")], "family": "codex"}},
+                "defaultHarness": "fake", "permissionPolicy": "approve-all"}))
+        else:
+            env["ACPMUX_AGENT_LAUNCH"] = "deny"
+        self.peer_envs.append(env)
         p = subprocess.Popen([self.peer_acpmux, "daemon", "run", "--ready-fd", "1", "--listen", "127.0.0.1:0",
                               "--log", "warn"], env=env, stdout=subprocess.PIPE,
                              stderr=(self.out / f"peer-{i}.log").open("w"), stdin=subprocess.DEVNULL,
@@ -429,6 +457,26 @@ class Wedge:
                                        "sessionId": str(uuid.uuid5(uuid.NAMESPACE_DNS, sender))},
                               "body": f"HUB-{n} from {sender}: status update for {name}", "attempt": 1})
 
+    def peer_prompter(self) -> None:
+        """A turn on a random peer chat every `--peer-prompt-every` seconds: row notices, fanned out."""
+        n = 0
+        while self.peer_live and not self.stop.wait(self.a.peer_prompt_every):
+            env, name = self.rng.choice(self.peer_live)
+            n += 1
+            try:
+                argv = [self.peer_acpmux, "send", name, f"turn {n}"]
+                if n <= 3:  # the first few in full, so a send that never lands says why in peer-send.log
+                    rr = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60,
+                                        stdin=subprocess.DEVNULL)
+                    with (self.out / "peer-send.log").open("a") as f:
+                        f.write(f"{name} rc={rr.returncode}\n{rr.stdout[-400:]}{rr.stderr[-800:]}\n")
+                else:
+                    self.procs.append(subprocess.Popen(argv, env=env, start_new_session=True, stdin=subprocess.DEVNULL,
+                                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+                    self.procs = [p for p in self.procs if p.poll() is None or p is self.daemon]
+            except OSError:
+                pass
+
     def churner(self) -> None:
         while not self.stop.is_set():
             if self.churn_on.wait(0.5) and not self.stop.is_set():
@@ -492,16 +540,20 @@ class Wedge:
                 box: dict = {}
                 sampler = threading.Thread(target=lambda f=f, box=box: box.update(tool=sample_stacks(pid, f)))
                 sampler.start()
-            reads["byId"].append(self.read_inbox(sid))
-            reads["byName"].append(self.read_inbox(name_))
+            # A sampled read waits on the debugger's stop too: kept apart, not in the percentiles.
+            bucket = "sampled" if sampler else None
+            ri, rn = self.read_inbox(sid), self.read_inbox(name_)
+            if bucket:
+                reads.setdefault("sampled", []).extend([ri, rn])
+            else:
+                reads["byId"].append(ri)
+                reads["byName"].append(rn)
             if sampler:
                 sampler.join()
                 tool = box.get("tool")
             ps_rows.append(ps_row(pid))
             i += 1
             if i >= self.a.reads and time.monotonic() >= deadline:
-                break
-            if i >= self.a.reads * 4:
                 break
             rest = gap - (time.monotonic() - t_read)
             if rest > 0 and time.monotonic() + rest < deadline:
@@ -551,6 +603,7 @@ class Wedge:
         srv = ds.http.server.ThreadingHTTPServer(("127.0.0.1", 0), ds.make_handler(self.hub))
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         port = srv.server_address[1]
+        (self.out / "agent-wrapper.py").write_text(ds.WRAPPER)
         targets = []
         for i in range(a.peer_daemons):
             t = self.start_peer_daemon(i)
@@ -571,7 +624,6 @@ class Wedge:
             "meshRelay": {"url": f"http://127.0.0.1:{port}", "tokenCommand": [shutil.which("echo") or "/bin/echo", "t"]},
             "peers": peers,
         }
-        (self.out / "agent-wrapper.py").write_text(ds.WRAPPER)
         private(self.state / "acpmux-home" / "config.json", json.dumps(cfg, indent=1))
         version = self.run([self.acpmux, "--version"]).stdout.strip()
         log("acpmux", version, f"{a.peers} peers ({n_stall} stalled) over {a.peer_daemons} peer daemons")
@@ -584,7 +636,17 @@ class Wedge:
                 log(f"session recv-{k} did not start; see new-recv-{k}.log")
                 return 4
             self.sessions.append(s)
-        for f in (self.hub_sender, self.churner, self.reaper):
+        work = self.state / "work"
+        private(work)
+        for i, env in enumerate(self.peer_envs):
+            for k in range(a.peer_live):
+                nm = f"peer{i}-live-{k}"
+                subprocess.run([self.peer_acpmux, "new", "-n", nm, "-m", "fake", "--policy", "approve-all", "-d",
+                                "--cwd", str(work), "hello"], env=env, capture_output=True, timeout=60,
+                               stdin=subprocess.DEVNULL)
+                self.peer_live.append((env, nm))
+        log(f"{len(self.peer_live)} live chats on the peer daemons, a turn every {a.peer_prompt_every}s")
+        for f in (self.hub_sender, self.churner, self.reaper, self.peer_prompter):
             threading.Thread(target=f, daemon=True).start()
         self.stop.wait(a.settle)
         res = {"schema": "acpmux.wedge-duress.v1", "acpmux": self.acpmux, "version": version,
@@ -685,6 +747,8 @@ def main() -> int:
     ap.add_argument("--peers", type=int, default=200)
     ap.add_argument("--peer-daemons", type=int, default=10)
     ap.add_argument("--peer-rows", type=int, default=20)
+    ap.add_argument("--peer-live", type=int, default=3, help="live chats per peer daemon (0: rows only)")
+    ap.add_argument("--peer-prompt-every", type=float, default=0.2, help="seconds between peer-chat turns")
     ap.add_argument("--stall-frac", type=float, default=0.1)
     ap.add_argument("--flap", type=float, default=0.5, help="seconds between link cuts in duress")
     ap.add_argument("--sessions", type=int, default=8)
