@@ -62,7 +62,7 @@ import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashComman
 import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
 import { claimedReply } from "./conversation/waitingAskStore";
-import { type QueuedEntry, shownText, heldReason, uniqueById, queueSummary } from "./composerQueueModel";
+import { type QueuedEntry, shownText, heldReason, uniqueById } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { revealControls } from "../../ui/revealCover";
@@ -1206,7 +1206,6 @@ export const ComposerQueue = React.memo(function ComposerQueue({
           page.defaultView?.addEventListener("blur", done, { signal: ended.signal });
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
-        title={queueSummary(shown.length, t)}
       >
         {note && (
           <li className="acpmux-queue-paused">
