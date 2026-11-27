@@ -75,7 +75,8 @@ struct PaletteFirstFrameReadsTests {
         defer { palette.closeForTest() }
         let provider = try #require(palette.commandsPage().providers.first as? RegistryPaletteProvider)
         let first = try #require(provider.firstFrameItems, "the root reads a first frame")
-        let full = provider.makeItems()
+        // A full read of its own: the first frame's provider would take the first frame's reads as read.
+        let full = try #require(palette.commandsPage().providers.first as? RegistryPaletteProvider).makeItems()
         func shown(_ items: [PaletteItem]) -> [String] {
             items.filter { !$0.hidesWhenQueryEmpty }.map { "\($0.id)|\($0.title)|\($0.isEnabled)|\($0.keycaps ?? [])|\(String(describing: $0.toggleState))" }
         }
@@ -125,5 +126,104 @@ struct PaletteFirstFrameReadsTests {
         #expect(palette.model.current?.providerItems["registry"]?.count == full.count)
         await palette.model.settle()
         #expect(palette.model.rows.contains { $0.item.actionID == target.actionID }, "typing \"\(target.title)\" did not find it")
+    }
+
+    /// A family the usage history knows (a `family:` Recent row) is on the first frame with its members read.
+    @Test func firstFrameHasARecentFamily() throws {
+        let reads = Reads()
+        let registry = Self.registry(reads)
+        let palette = Self.palette(registry)
+        defer { palette.closeForTest() }
+        let full = try #require(palette.commandsPage().providers.first as? RegistryPaletteProvider).makeItems()
+        let family = try #require(full.first { $0.id.hasPrefix("family:") && $0.isEnabled }, "the catalog lists a family row")
+        palette.model.recordUse(family.id)
+        let provider = try #require(palette.commandsPage().providers.first as? RegistryPaletteProvider)
+        let first = try #require(provider.firstFrameItems)
+        let row = try #require(first.first { $0.id == family.id }, "the recent \(family.id) is not on the first frame")
+        #expect(row.isEnabled == family.isEnabled)
+        #expect(row.section.id == family.section.id)
+    }
+
+    /// A long history reads only the uses the Recent section ranks from (the 15 strongest), not every row it knows:
+    /// 300 used actions read no more than the root's own rows do, and the latest use is on the first frame.
+    @Test func aLongHistoryReadsOnlyItsStrongestUses() async throws {
+        let reads = Reads()
+        let registry = Self.registry(reads)
+        let palette = Self.palette(registry)
+        defer { palette.closeForTest() }
+        reads.ids = []
+        _ = RegistryPaletteProvider(registry: registry).makeItems()
+        let expected = Set(reads.ids)
+        let roots = RegistryPaletteProvider.rootIntentIDs
+        let used = registry.descriptors.map(\.id).filter { !roots.contains($0) && expected.contains($0) }.prefix(300)
+        try #require(used.count > 2 * RegistryPaletteProvider.FirstFrameRows.recentCandidates)
+        for id in used { palette.model.recordUse("action:\(id.rawValue)") }
+        reads.ids = []
+        palette.show(.commands)
+        let beforeFrame = Set(reads.ids)
+        #expect(beforeFrame.count * 2 < expected.count,
+                "with \(used.count) uses the open read \(beforeFrame.count) of \(expected.count) actions before its first frame")
+        let latest = try #require(used.last)
+        #expect(beforeFrame.contains(latest), "the latest use \(latest) was not read for the first frame")
+        await palette.model.settleDeferredLoads()
+    }
+
+    /// A toggle run before the open's after-frame load (type-ahead) lists its new state after the run: the run reads
+    /// every action first, so the reload after it reads the toggle again, not the first frame's read.
+    @Test func aToggleRunBeforeTheFrameListsItsNewState() async throws {
+        let reads = Reads()
+        let registry = Self.registry(reads)
+        let roots = RegistryPaletteProvider.rootIntentIDs
+        let full = RegistryPaletteProvider(registry: registry).makeItems()
+        let listed = Set(full.compactMap(\.actionID))
+        let id = try #require(registry.descriptors.first { descriptor in
+            !roots.contains(descriptor.id) && listed.contains(descriptor.id) && descriptor.paletteTarget == nil
+                && !descriptor.arguments.contains(where: \.palettePrompts)
+        }?.id)
+        @MainActor final class Setting { var on = false }
+        let setting = Setting()
+        registry.bindEffect(id) { _ in
+            setting.on.toggle()
+            return .done
+        }
+        var action = try #require(registry.action(for: id))
+        action.paletteState = { setting.on }
+        action.paletteStateIsSetting = true
+        registry.register(action)
+        let palette = Self.palette(registry)
+        defer { palette.closeForTest() }
+        palette.model.searcher.rankSettings.withLock { $0.pins = [id.rawValue] }
+        palette.show(.commands)
+        let shown = try #require(palette.model.current?.providerItems["registry"]?.first { $0.actionID == id },
+                                 "the pinned toggle is not on the first frame")
+        #expect(shown.toggleState == false)
+        palette.model.run(shown.primary, of: shown)
+        #expect(setting.on)
+        let after = palette.model.current?.providerItems["registry"]?.first { $0.actionID == id }
+        #expect(after?.toggleState == true, "the toggle lists its state before the run")
+        await palette.model.settle()
+    }
+
+    /// A family row run before the open's after-frame load opens the family's page as a row run after it does: every
+    /// member, folded as the root folds it.
+    @Test func aFamilyRowRunBeforeTheFrameOpensItsWholePage() async throws {
+        func page(runBeforeTheFrame: Bool) async throws -> (id: String, rows: [String]) {
+            let reads = Reads()
+            let palette = Self.palette(Self.registry(reads))
+            defer { palette.closeForTest() }
+            palette.show(.commands)
+            if !runBeforeTheFrame { await palette.model.settle() }
+            let row = try #require(palette.model.current?.providerItems["registry"]?.first { $0.id.hasPrefix("rootFamily:") && $0.isEnabled },
+                                   "the root lists a family row")
+            palette.model.run(row.primary, of: row)
+            let items = try #require(palette.model.current?.providerItems[row.id], "the family row opened no page")
+            await palette.model.settle()
+            return (row.id, items.map { "\($0.id)|\($0.hidesWhenQueryEmpty)|\($0.isEnabled)|\(String(describing: $0.toggleState))" })
+        }
+        let early = try await page(runBeforeTheFrame: true)
+        let late = try await page(runBeforeTheFrame: false)
+        #expect(early.id == late.id)
+        #expect(!early.rows.isEmpty)
+        #expect(early.rows == late.rows, "a family page opened before the frame differs by \(Set(early.rows).symmetricDifference(late.rows).count) rows")
     }
 }

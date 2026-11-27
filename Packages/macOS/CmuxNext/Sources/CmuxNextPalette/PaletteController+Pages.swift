@@ -12,7 +12,10 @@ extension PaletteController {
         // gate: 25-36 ms of Cmd-Shift-P's turn read every action's state).
         registryProvider.firstFrameRows = { [weak model] in
             guard let model else { return .init(keys: [], pins: []) }
-            return .init(keys: model.frecency.rowKeys, pins: model.searcher.rankSettings.withLock { $0.pins })
+            // Recent ranks from the strongest uses only (``RegistryPaletteProvider/FirstFrameRows/recentCandidates``), not
+            // the whole history (up to 500 rows, which would read most of the catalog again).
+            let recent = model.frecency.strongestKeys(RegistryPaletteProvider.FirstFrameRows.recentCandidates, now: model.now())
+            return .init(keys: Set(recent), pins: model.searcher.rankSettings.withLock { $0.pins })
         }
         var providers: [any PaletteProvider] = [registryProvider]
         // Commands only: no open workspace, group, pane or tab rows, whatever is typed. Those are Cmd-P's (Go to

@@ -103,6 +103,10 @@ public final class RegistryPaletteProvider: PaletteProvider {
         var families: Set<String> = []
 
         /// From the usage history's row keys (`action:ID`, `family:ID`, as the rows set them) and the pinned action ids.
+        /// The uses the empty query's Recent section ranks from: the ranker reads 3 times its Recent limit (5,
+        /// `PaletteRanker`'s `recentLimit`) of the strongest uses and lists the first that are rows here.
+        static let recentCandidates = 15
+
         init(keys: Set<String>, pins: [String]) {
             for key in keys {
                 if key.hasPrefix("action:") {
