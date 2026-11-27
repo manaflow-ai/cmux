@@ -173,6 +173,11 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
         ]);
       } catch (error) {
         console.error(`stage ${name}: ${await page.locator("body").innerText()}`);
+        const wire = await page.evaluate(async (modulePath) => {
+          const { acpWire } = await import(modulePath);
+          return acpWire.exportJsonl();
+        }, "/src/agent-session/acpmux/wire.ts");
+        console.error(`stage ${name} wire: ${wire}`);
         throw error;
       } finally {
         clearTimeout(timer);
