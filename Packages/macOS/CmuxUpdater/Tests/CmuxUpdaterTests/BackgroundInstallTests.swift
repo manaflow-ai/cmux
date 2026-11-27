@@ -89,6 +89,16 @@ import Testing
         #expect(!harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
+    /// cmux NEXT shares this defaults domain with the classic NIGHTLY app. Its driver intercepts
+    /// Sparkle's silent callback, so enabling the app-owned path must leave the shared preference on
+    /// for the classic app's automatic-update migration.
+    @Test func aSharedDefaultsHostCanKeepSparkleSilentPreference() {
+        let harness = Harness(automaticDownloads: true)
+        harness.controller.disablesSparkleSilentStagingPreference = false
+        harness.controller.installsUpdatesInBackground = true
+        #expect(harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+    }
+
     /// A build the host refuses (cmux NEXT: a pulled build) is never downloaded, offered or
     /// accepted: background mode does not accept it, the prompt flow does not show it, and a
     /// prompt that waits when the host comes to refuse it is not downloaded.

@@ -431,9 +431,11 @@ public final class UpdaterService {
             // The track decides, not the bundle id: the tip app has a DEV id but runs Sparkle.
             let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: identity.track == .development,
                                               isDisabledByPolicy: { policy.disablesUpdates })
-            // No Sparkle window: the found and staged steps are the sidebar's cards. This setter
-            // disables Sparkle's silent-staging key for this bundle, while cmux NEXT's own
+            // No Sparkle window: the found and staged steps are the sidebar's cards. Keep
+            // Sparkle's silent-install preference in the shared domain untouched. The driver
+            // intercepts Sparkle's silent callback, while cmux NEXT's own
             // `updates.downloadAutomatically` preference controls background downloads.
+            controller.disablesSparkleSilentStagingPreference = false
             controller.installsUpdatesInBackground = true
             // The daemon keeps every terminal, agent and running turn, so all app relaunches are
             // immediate. `UpdateDriver` uses this same flag for automatic installs.
@@ -739,7 +741,7 @@ public final class UpdaterService {
             automaticChecks: reason == nil && bool(UpdateSettings.automaticChecksKey, fallback: true),
             // cmux NEXT's own `updates.downloadAutomatically` as applied (network and managed policy
             // included), not Sparkle's `SUAutomaticallyUpdate`: cmux NEXT stages through its own driver
-            // and turns that key off at every launch, and the legacy NIGHTLY app shares it.
+            // and leaves that shared key untouched so the classic NIGHTLY app keeps its migration.
             automaticDownloads: reason == nil && downloadsFoundUpdates,
             phase: UpdatePhase(state),
             detectedVersion: controller?.model.detectedUpdateVersion,

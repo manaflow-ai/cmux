@@ -26,6 +26,10 @@ public final class UpdateController {
     private let defaults: UserDefaults
     private let fileManager: FileManager
     private let hostBundle: Bundle
+    /// Hosts that share Sparkle's defaults domain with another cmux app leave this true only
+    /// when they own that domain. cmux NEXT keeps Sparkle's silent-install preference intact and
+    /// lets ``UpdateDriver`` intercept the silent callback instead.
+    public var disablesSparkleSilentStagingPreference = true
     /// Whether the running build is a cmux DEV/staging build that must never be compared against
     /// the public release appcast. See ``UpdateFeedResolver/isDevLikeBundleIdentifier(_:)``.
     let isDevLikeBundle: Bool
@@ -34,6 +38,7 @@ public final class UpdateController {
     /// preference mutation beside the private defaults store; extensions use this narrow seam.
     @discardableResult
     func disableSparkleSilentStagingIfNeeded() -> Bool {
+        guard disablesSparkleSilentStagingPreference else { return false }
         guard defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey) else { return false }
         defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
         return true
