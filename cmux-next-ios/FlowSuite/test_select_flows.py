@@ -21,8 +21,12 @@ class ManifestTests(unittest.TestCase):
 
     def test_every_regression_row_has_a_flow(self):
         rows = {s for f in MANIFEST["flows"] for s in f["source"]}
-        for n in range(1, 13):
+        for n in list(range(1, 13)) + [21]:
             self.assertIn(f"regression:{n}", rows)
+
+    def test_composer_layout_change_runs_its_tests(self):
+        r = fs.select(MANIFEST, ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Composer/TerminalComposer.swift"])
+        self.assertIn("composer-grow-and-controls", [f["id"] if isinstance(f, dict) else f for f in r["flows"]])
 
 
 class SelectTests(unittest.TestCase):
@@ -49,13 +53,40 @@ class SelectTests(unittest.TestCase):
         self.assertTrue(r["build_for_testing"])
 
     def test_ios_file_matching_no_flow_runs_smoke_and_compile_only(self):
-        r = self.sel("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/Recorder.swift")
+        r = self.sel("cmux-next-ios/UITests/Support/Launch.swift")
         self.assertEqual(r["flows"], ["smoke-launch-sign-in", "compile-app-and-tests"])
+
+    def test_any_kit_source_also_builds_the_macos_half(self):
+        # Row 17: a macOS-only compile break in the kit hid its chat and model tests for days.
+        r = self.sel("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/Recorder.swift")
+        self.assertEqual(r["flows"], ["smoke-launch-sign-in", "compile-app-and-tests", "kit-macos-swift-test"])
 
     def test_shared_rust_crate_the_app_links_is_ios_affecting(self):
         r = self.sel("cmux-tui/crates/cmux-tailnet/src/lib.rs")
         self.assertTrue(r["compile"])
         self.assertIn("workspaces-empty-mac-loads", r["flows"])
+
+    def test_every_crate_the_ffi_compiles_is_ios_affecting(self):
+        # The crates come from the FFI's Cargo graph (scripts/ci/ios_link_ffi_key.py), not a list: cmux-wg and
+        # cmux-felt were outside the old path walk (the 2026-11 audit: 254 shared-Rust PRs never built for iOS).
+        sys.path.insert(0, str(fs.REPO / "scripts/ci"))
+        import ios_link_ffi_key as key
+        sys.path.pop(0)
+        crates, roots = fs.ffi_closure(fs.REPO)
+        self.assertIn("cmux-tui/crates/cmux-wg", crates)
+        self.assertEqual(crates, key.closure("HEAD")[0])
+        for d in crates + [f"{r}/Cargo.lock" for r in roots]:
+            r = self.sel(d if d.endswith(".lock") else f"{d}/src/lib.rs")
+            self.assertTrue(r["compile"], d)
+            self.assertIn("compile-app-and-tests", r["flows"], d)
+
+    def test_redial_change_runs_the_reconnect_flow_on_a_paired_mac(self):
+        for path in ("cmux-tui/crates/cmux-remote/src/connection.rs", "cmux-tui/crates/cmux-tui/src/remote_runtime.rs"):
+            r = self.sel(path)
+            self.assertIn("reconnect-after-drop", r["flows"], path)
+            self.assertEqual(r["pair_e2e"], ["reconnect-drops=10,60"])
+            self.assertEqual(fs.sim_args(r, 1)[-1], "pair-e2e reconnect-drops=10,60")
+        self.assertNotIn("reconnect-after-drop", self.sel("cmux-tui/crates/cmux-tui/src/main.rs")["flows"])
 
     def test_shared_swift_package_the_app_links_is_ios_affecting(self):
         r = self.sel("Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/AuthCoordinator.swift")
