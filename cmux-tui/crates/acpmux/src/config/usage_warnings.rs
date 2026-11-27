@@ -6,8 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The `contextTokens` line for a session whose own window acpmux does not know (no autocompact
-/// cap it could read, no window its harness reported or the catalog has): the autocompact window
-/// acpmux starts Claude Code with (`harness_limits::CLAUDE_AUTOCOMPACT_WINDOW`). Every session
+/// cap it could read, no window its harness reported or the catalog has): 400k. Every session
 /// whose window is known is held to that window instead (`UsageLimits::context_tokens`).
 pub const FALLBACK_CONTEXT_TOKENS: u64 = 400_000;
 /// More subagents started in the last hour than this warns. Measured 2026-10-30 (the PR that
@@ -16,7 +15,7 @@ pub const FALLBACK_CONTEXT_TOKENS: u64 = 400_000;
 pub const DEFAULT_SUBAGENTS_PER_HOUR: u64 = 40;
 
 /// `usageWarnings` in config.json: `{"contextTokens": 400000, "subagentsPerHour": 40,
-/// "autocompactCap": true}`. Each threshold 0 (or `autocompactCap` false) turns its rule off;
+/// "autocompactCap": true}` (`autocompactCap` is off unless true). Each threshold 0 (or `autocompactCap` false) turns its rule off;
 /// `contextTokens` unset holds each session to its own window.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -29,8 +28,8 @@ pub struct UsageWarningsConfig {
     /// Default 40.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagents_per_hour: Option<u64>,
-    /// `autocompactCap`: warn on a Claude session that runs with no autocompact cap.
-    /// Default true.
+    /// `autocompactCap`: warn on a Claude session that runs with no autocompact cap. Default
+    /// false: Claude Code ships with none, and acpmux adds none unless the settings name one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autocompact_cap: Option<bool>,
 }
@@ -77,7 +76,7 @@ impl UsageWarningsConfig {
                 Some(n) => ContextLimit::Fixed(n),
             },
             subagents_per_hour: on(self.subagents_per_hour.unwrap_or(DEFAULT_SUBAGENTS_PER_HOUR)),
-            autocompact_cap: self.autocompact_cap.unwrap_or(true),
+            autocompact_cap: self.autocompact_cap.unwrap_or(false),
         }
     }
 }

@@ -265,6 +265,9 @@ impl Hub {
                         // whole list of the tasks that still run.
                         if !muted && let Some(line) = params.as_ref() {
                             match method.as_str() {
+                                "claude.command_lifecycle" => {
+                                    tap_hub.command_lifecycle(&tap_session, line)
+                                }
                                 "claude.system.task_notification" => {
                                     tap_hub.subagent_task_notified(&tap_session, line)
                                 }
@@ -579,6 +582,11 @@ impl Hub {
                 None
             };
             let (rec, logged) = tap_hub.append_logged(&tap_session, d, &kind, value, host_seq);
+            // A compaction summary the log took: its turns' outline follows, off this path
+            // (`hub/compaction_outline.rs`).
+            if logged && d == "in" && kind == "compaction_summary" {
+                tap_hub.outline_compaction(&tap_session, rec.seq);
+            }
             // Only a logged update's sections count as logged: a retried write is compared with
             // what the log holds.
             if logged && let Some(repeats) = repeats {

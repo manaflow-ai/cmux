@@ -279,3 +279,78 @@ async fn an_evicted_row_holds_a_fraction_of_its_rows_and_reads_back_whole() {
         assert!(row.rows_held() * 4 < whole, "s{i} holds {} of {whole} bytes", row.rows_held());
     }
 }
+
+/// The cap alone (no idle period): `hub_with` made the chats, then eviction by idle time is off.
+fn capped(n: usize, cap: usize) -> Arc<Hub> {
+    let hub = hub_with(n);
+    hub.evicted.set_after(None);
+    hub.evicted.set_cap(Some(cap));
+    hub
+}
+
+fn resident(hub: &Hub) -> usize {
+    hub.sessions.lock().unwrap().len()
+}
+
+#[tokio::test]
+async fn a_cap_of_10_with_50_idle_chats_leaves_10_resident() {
+    let hub = capped(50, 10);
+    assert_eq!(hub.evict_idle_chats(), 0, "no idle period: that pass leaves them");
+    assert_eq!(hub.evict_over_cap(), 40);
+    assert_eq!(resident(&hub), 10);
+    assert_eq!(hub.eviction_counts().0, 40);
+    assert_eq!(hub.evict_over_cap(), 0, "at the cap nothing more leaves");
+    // Off by default: with no cap nothing leaves.
+    hub.evicted.set_cap(None);
+    assert_eq!(hub.evict_over_cap(), 0);
+}
+
+#[tokio::test]
+async fn the_cap_takes_the_least_recently_used_first() {
+    let hub = capped(12, 10);
+    // s0 and s1 were used last.
+    let now = hub.clock_now();
+    for id in ["s0", "s1"] {
+        hub.session_get(id).unwrap().last_active.store(now + 1_000_000_000, Ordering::SeqCst);
+    }
+    assert_eq!(hub.evict_over_cap(), 2);
+    assert!(in_map(&hub, "s0") && in_map(&hub, "s1"));
+    assert_eq!(resident(&hub), 10);
+}
+
+#[tokio::test]
+async fn a_busy_chat_is_never_evicted_for_the_cap() {
+    let hub = capped(20, 5);
+    // Ten chats a client is attached to: the oldest, so the first the cap would take.
+    let held: Vec<_> = (0..10).map(|i| format!("s{i}")).collect();
+    for id in &held {
+        hub.session_get(id).unwrap().attached.fetch_add(1, Ordering::SeqCst);
+    }
+    hub.evict_over_cap();
+    for id in &held {
+        assert!(in_map(&hub, id), "{id} is attached and stays");
+    }
+    assert_eq!(resident(&hub), 10, "over the cap while ten are held; the rest left");
+    assert_eq!(hub.evict_over_cap(), 0);
+}
+
+#[tokio::test]
+async fn a_chat_evicted_for_the_cap_and_touched_comes_back_whole() {
+    let hub = capped(5, 1);
+    let before: Vec<_> = (0..5)
+        .map(|i| {
+            let s = hub.session_get(&format!("s{i}")).unwrap();
+            (hub.own_row_text(&s, false), hub.own_row_text(&s, true))
+        })
+        .collect();
+    assert_eq!(hub.evict_over_cap(), 4);
+    let gone = (0..5).map(|i| format!("s{i}")).find(|id| !in_map(&hub, id)).unwrap();
+    let i: usize = gone[1..].parse().unwrap();
+    let session = hub.session_get(&gone).expect("rehydrates");
+    assert_eq!(session.read_meta(|m| m.name.clone()), format!("chat-{i}"));
+    assert_eq!(hub.own_row_text(&session, false), before[i].0);
+    assert_eq!(hub.own_row_text(&session, true), before[i].1);
+    let (samples, p50, p99) = hub.evicted.rehydrate_quantiles();
+    assert_eq!(samples, 1, "its rehydrate was timed");
+    assert!(p50 > 0 && p99 >= p50);
+}
