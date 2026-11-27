@@ -130,6 +130,7 @@
    "ci-guard-group": "reads pull request metadata or the base (github.event.before), not only the tree; checks out ${{ steps.changes.outputs.base }}, not the run's commit",
    "static-checks": "needed by pr-red-checks: a skip would skip them or read as no verdict; publish, release, deploy, live or cloud work (by its name)",
    "rust-notices-tree": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree",
+   "ios-placeholder-bounds": "below break-even: seconds of stdlib Python; a receipt write per green run costs about what reuse saves, and land-judge needs its own check run on every head",
    "own-change-checks": "needed by pr-red-checks: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before), not only the tree",
    "pr-red-checks": "calls a reusable workflow: no step here can record its pass; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.ref), not only the tree; judges other jobs (if: always() or failure())",
    "tooling-tests": "reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
