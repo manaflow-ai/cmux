@@ -43,10 +43,25 @@
 //! all of them then move as one transaction, and the branches in order, a
 //! branch that can't move putting back the ones before it.
 //!
-//! On any conflict none of this Mac's files change: the answer is
-//! `{"ok":false,"error_code":"sync_conflict","conflicts":[paths],
-//! "merge_files":[paths]}`, the second list naming the merges with conflict
-//! markers written beside the files whose edits overlapped. Otherwise every
+//! `cmux link sync pull` itself ([`pull_per_file`], RFD 0066 piece 8) applies
+//! what merges: every file that merges cleanly is written, and a file that
+//! conflicts keeps this Mac's version, with the machine's (or the merge with
+//! conflict markers) beside it as `NAME.cmux-sync-conflict`. Its record entry
+//! stays the old base, so the next pull still names it. In git, the
+//! machine's commit first lands as a ref of ours, `refs/cmux/bring-back/NAME`
+//! (outside `refs/heads`, fetched from the quarantine repository with every
+//! object checked), so a branch that can't move loses none of its commits.
+//! The answer names each file: `written_files`, `deleted_files`,
+//! `conflicted_files`, `unchanged_files` (both sides alike), `merge_files`
+//! and `kept_refs`; with a conflict it is also
+//! `{"ok":false,"error_code":"sync_conflict","conflicts":[paths]}`.
+//!
+//! Every other pull (`cmux link access`, an agent move's, Transfer to This
+//! Mac) stays all or nothing: on any conflict none of this Mac's files
+//! change, and the answer is `{"ok":false,"error_code":"sync_conflict",
+//! "conflicts":[paths],"merge_files":[paths]}`, the second list naming the
+//! merges with conflict markers written beside the files whose edits
+//! overlapped. Otherwise every
 //! file the machine changed is first copied into a staging folder of this
 //! command (in the repository's git folder, else a hidden folder at the top
 //! of the folder) and the machine's commits are fetched; this Mac's files
@@ -137,6 +152,18 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
     pull_kept(socket, local, remote_root, &|_| true, true)
 }
 
+/// `cmux link sync pull`'s pull: what merges is applied, a conflicting file keeps this Mac's
+/// version with the machine's beside it, and the machine's commit is kept as a ref of ours
+/// (module docs). Always [`Pulled::Done`] unless it fails or this Mac's files change under the
+/// transaction; its line says `"ok":false` when anything conflicted.
+pub(super) fn pull_per_file(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+) -> anyhow::Result<Pulled> {
+    pull_based(socket, local, remote_root, &|_| true, true, None, true)
+}
+
 /// A pull that also leaves on the machine (and counts as skipped) every new
 /// file of the machine `keep_new` refuses, by its path relative to the
 /// folder: `cmux link access` never takes secret files back. Without
@@ -148,7 +175,7 @@ pub(super) fn pull_kept(
     keep_new: &dyn Fn(&str) -> bool,
     links_ok: bool,
 ) -> anyhow::Result<Pulled> {
-    pull_based(socket, local, remote_root, keep_new, links_ok, None)
+    pull_based(socket, local, remote_root, keep_new, links_ok, None, false)
 }
 
 /// A pull into a folder this Mac never pushed (Transfer to This Mac,
@@ -168,7 +195,7 @@ pub(super) fn pull_fresh(
     fresh: Manifest,
     adopt: bool,
 ) -> anyhow::Result<Pulled> {
-    pull_based(socket, local, remote_root, keep_new, true, Some((fresh, adopt)))
+    pull_based(socket, local, remote_root, keep_new, true, Some((fresh, adopt)), false)
 }
 
 fn pull_based(
@@ -178,6 +205,7 @@ fn pull_based(
     keep_new: &dyn Fn(&str) -> bool,
     links_ok: bool,
     fresh: Option<(Manifest, bool)>,
+    per_file: bool,
 ) -> anyhow::Result<Pulled> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
@@ -215,6 +243,9 @@ fn pull_based(
     let mut git_plans: Vec<(String, PathBuf, GitPlan)> = Vec::new();
     // The repositories inside, by folder: each one's conflicts are named under it.
     let mut repositories: Vec<String> = Vec::new();
+    // Each repository's machine commit to keep as a ref of ours: its folder name, its working
+    // copy, the quarantine holding it, and the commit.
+    let mut machine_commits: Vec<(String, PathBuf, PathBuf, String)> = Vec::new();
     let mut scopes = std::collections::VecDeque::from([Scope {
         prefix: String::new(),
         local: local.clone(),
@@ -236,7 +267,7 @@ fn pull_based(
         let prefix = scope.prefix.as_str();
         let full = |relative: &String| format!("{prefix}{relative}");
         let name = prefix.trim_end_matches('/').to_owned();
-        if !plan.conflicts.is_empty() && !name.is_empty() {
+        if !per_file && !plan.conflicts.is_empty() && !name.is_empty() {
             reasons.push(format!("{name}: this repository conflicts, so no repository changed"));
         }
         skipped += plan.skipped;
@@ -249,6 +280,9 @@ fn pull_based(
         planned.extend(
             plan.planned.into_iter().map(|step| Planned { relative: full(&step.relative), ..step }),
         );
+        if let Some((quarantine, commit)) = plan.machine_commit {
+            machine_commits.push((name.clone(), scope.local.clone(), quarantine, commit));
+        }
         if let Some(git_plan) = plan.git_plan {
             git_plans.push((name.clone(), scope.local.clone(), git_plan));
         }
@@ -272,45 +306,58 @@ fn pull_based(
         }
     }
 
-    if !conflicts.is_empty() {
-        conflicts.sort();
-        conflicts.dedup();
+    conflicts.sort();
+    conflicts.dedup();
+    if !conflicts.is_empty() && !per_file {
         // Only now, with nothing of this Mac's changed: each overlapping
         // merge goes beside its file.
-        let mut merge_files = Vec::new();
-        for (relative, bytes) in overlaps {
-            match merge::write_conflict(&root, &relative, &bytes) {
-                Ok(side) => {
-                    reasons.push(format!(
-                        "{relative}: both changed the same lines; the merge is in {side}"
-                    ));
-                    merge_files.push(side);
-                }
-                Err(error) => reasons.push(format!("{relative}: {error:#}")),
-            }
-        }
-        for (relative, staged) in beside {
-            let written = std::fs::read(&staged)
-                .map_err(anyhow::Error::from)
-                .and_then(|bytes| merge::write_conflict(&root, &relative, &bytes));
-            match written {
-                Ok(side) => {
-                    reasons.push(format!(
-                        "{relative}: changed on this Mac since it was projected, and the machine \
-                         changed it too; the machine's is in {side}"
-                    ));
-                    merge_files.push(side);
-                }
-                Err(error) => reasons.push(format!("{relative}: {error:#}")),
-            }
-        }
+        let merge_files = write_beside(&root, overlaps, beside, &mut reasons);
         return Ok(Pulled::Conflict(conflicts, reasons, merge_files));
     }
-    // This Mac's files are as planned, or nothing moves.
-    for step in &planned {
-        if local_side(&root, &step.relative)? != step.local {
-            return Ok(Pulled::Conflict(vec![step.relative.clone()], Vec::new(), Vec::new()));
+    // Per file: the machine's commits land as a ref of ours first, so a branch that can't move
+    // loses none of them; then what conflicts gets the machine's version beside it.
+    let mut kept_refs = Vec::new();
+    if per_file {
+        let workspace = workspace_name(remote_root);
+        for (name, folder, quarantine, commit) in machine_commits {
+            match git_back::keep(&folder, &quarantine, &commit, &workspace) {
+                Ok(kept) => kept_refs.push(json!({
+                    "repository": name,
+                    "ref": kept,
+                    "commit": commit,
+                })),
+                Err(error) => {
+                    let at = if name.is_empty() { ".git/HEAD".to_owned() } else { name };
+                    reasons.push(format!("{at}: {error:#}"));
+                }
+            }
         }
+    }
+    let merge_files = write_beside(&root, overlaps, beside, &mut reasons);
+    // This Mac's files are as planned, or nothing moves (per file: that file stays and is named).
+    let mut still = Vec::with_capacity(planned.len());
+    for step in planned {
+        if local_side(&root, &step.relative)? == step.local {
+            still.push(step);
+        } else if per_file {
+            reasons.push(format!("{}: changed here during the pull", step.relative));
+            conflicts.push(step.relative);
+        } else {
+            return Ok(Pulled::Conflict(vec![step.relative], Vec::new(), Vec::new()));
+        }
+    }
+    let planned = still;
+    conflicts.sort();
+    conflicts.dedup();
+    let (mut written_files, mut deleted_files, mut unchanged_files) =
+        (Vec::new(), Vec::new(), Vec::new());
+    for step in &planned {
+        let list = match step.step {
+            Step::Write { .. } | Step::Merged { .. } | Step::Link(_) => &mut written_files,
+            Step::Delete => &mut deleted_files,
+            Step::Settle(_) | Step::SettleLink(_) => &mut unchanged_files,
+        };
+        list.push(step.relative.clone());
     }
     // Only objects so far: the branches and indexes move last.
     for (_, folder, plan) in &git_plans {
@@ -434,7 +481,7 @@ fn pull_based(
             .and_then(|manifest| remote.write(&manifest_path, &mut manifest.as_slice(), 0o600).ok())
             .is_some()
         && base::save(&local, remote_root, &next).is_ok();
-    Ok(Pulled::Done(json!({
+    let mut answer = json!({
         "ok": true,
         "written": written,
         "deleted": deleted,
@@ -448,7 +495,80 @@ fn pull_based(
         "repositories": repositories,
         "fast_forwarded_repositories": fast_forwarded,
         "manifest_saved": saved,
-    })))
+    });
+    if per_file && let Some(fields) = answer.as_object_mut() {
+        fields.insert("written_files".into(), json!(written_files));
+        fields.insert("deleted_files".into(), json!(deleted_files));
+        fields.insert("unchanged_files".into(), json!(unchanged_files));
+        fields.insert("conflicted_files".into(), json!(conflicts));
+        fields.insert("merge_files".into(), json!(merge_files));
+        fields.insert("kept_refs".into(), json!(kept_refs));
+        if !conflicts.is_empty() {
+            let mut error = format!(
+                "{} changed both here and on the machine: each keeps this Mac's version, with \
+                 the machine's beside it; everything else was brought back",
+                conflicts.join(", ")
+            );
+            if !reasons.is_empty() {
+                error = format!("{error} ({})", reasons.join("; "));
+            }
+            fields.insert("ok".into(), json!(false));
+            fields.insert("error".into(), json!(error));
+            fields.insert("error_code".into(), json!("sync_conflict"));
+            fields.insert("conflicts".into(), json!(conflicts));
+        }
+    }
+    Ok(Pulled::Done(answer))
+}
+
+/// Writes each overlapping merge, and each projected file's machine version, beside this Mac's
+/// file ([`merge::write_conflict`]); returns the files written, each named in `reasons`.
+fn write_beside(
+    root: &Dir,
+    overlaps: Vec<(String, Vec<u8>)>,
+    beside: Vec<(String, PathBuf)>,
+    reasons: &mut Vec<String>,
+) -> Vec<String> {
+    let mut merge_files = Vec::new();
+    for (relative, bytes) in overlaps {
+        match merge::write_conflict(root, &relative, &bytes) {
+            Ok(side) => {
+                reasons.push(format!(
+                    "{relative}: both changed the same lines; the merge is in {side}"
+                ));
+                merge_files.push(side);
+            }
+            Err(error) => reasons.push(format!("{relative}: {error:#}")),
+        }
+    }
+    for (relative, staged) in beside {
+        let written = std::fs::read(&staged)
+            .map_err(anyhow::Error::from)
+            .and_then(|bytes| merge::write_conflict(root, &relative, &bytes));
+        match written {
+            Ok(side) => {
+                reasons.push(format!(
+                    "{relative}: changed on this Mac since it was projected, and the machine \
+                     changed it too; the machine's is in {side}"
+                ));
+                merge_files.push(side);
+            }
+            Err(error) => reasons.push(format!("{relative}: {error:#}")),
+        }
+    }
+    merge_files
+}
+
+/// The name [`git_back::keep`] keeps a workspace's machine commits under: the machine folder's
+/// last name, with anything but ASCII letters, digits, `-` and `_` as `-`.
+fn workspace_name(remote_root: &str) -> String {
+    let last = remote_root.trim_end_matches('/').rsplit('/').next().unwrap_or_default();
+    let name: String =
+        last.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '-' }).collect();
+    match name.trim_matches('-') {
+        "" => "workspace".to_owned(),
+        name => name.to_owned(),
+    }
 }
 
 /// One working copy a pull brings back: the folder, or a repository inside it.
@@ -472,6 +592,9 @@ struct ScopePlan {
     overlaps: Vec<(String, Vec<u8>)>,
     beside: Vec<(String, PathBuf)>,
     git_plan: Option<GitPlan>,
+    /// The machine's commit, when it differs from the record's and the git leg put it in the
+    /// quarantine (the quarantine repository, the commit): what a per-file pull keeps as a ref.
+    machine_commit: Option<(PathBuf, String)>,
     unchanged: u64,
     skipped: u64,
     /// The repositories inside it that come back each by its own pull ([`own_repository`]).
@@ -802,6 +925,7 @@ fn plan_scope(
     drop(folded_names);
 
     let mut git_plan: Option<GitPlan> = None;
+    let mut machine_commit = None;
     if let Some(dirs) = git.as_ref().filter(|_| !plain_in_git) {
         let at = git_back::Where { folder: local, common_dir: &dirs.common, staging: quarantine };
         match git_back::plan(remote, remote_root, &at, manifest, &hooks)? {
@@ -812,6 +936,15 @@ fn plan_scope(
                     conflicts.push(path);
                 }
             }
+        }
+        // The git leg made a quarantine only when the machine's git state moved.
+        let held = quarantine.join("quarantine.git");
+        if held.is_dir()
+            && let (_, Some(commit)) =
+                git_back::machine_head(remote, &format!("{remote_root}/.git"))?
+            && manifest.git.as_ref().and_then(|base| base.head.as_ref()) != Some(&commit)
+        {
+            machine_commit = Some((held, commit));
         }
     }
     let mut repositories = Vec::new();
@@ -827,6 +960,7 @@ fn plan_scope(
         overlaps,
         beside,
         git_plan,
+        machine_commit,
         unchanged,
         skipped,
         repositories,

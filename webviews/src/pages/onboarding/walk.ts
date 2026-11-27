@@ -33,6 +33,10 @@ export const WALK_PATHS = {
   archive: "agents.chats.archiveInactive",
   autoArchive: "workspaces.autoArchive.style",
   settle: "sidebar.settleFinished",
+  finishSound: "agentPane.display.finishSound",
+  computerUse: "computerUse.mode",
+  sendPop: "agentPane.display.sendPop",
+  sendScrollsToTop: "agentPane.display.sendScrollsToTop",
 } as const;
 const P = WALK_PATHS;
 
@@ -52,6 +56,10 @@ const SHIPPED: WalkValues = {
   [P.archive]: "never",
   [P.autoArchive]: "manual",
   [P.settle]: false,
+  [P.finishSound]: false,
+  [P.computerUse]: "fullAccess",
+  [P.sendPop]: false,
+  [P.sendScrollsToTop]: false,
 };
 
 /** The step's settings now, by dotted path: its own choices and the host's `walk` values. */
@@ -193,6 +201,39 @@ export function permissionWrites(value: WalkPermission, opened: WalkValues, curr
   return diff({ [P.permission]: resolve(opened, P.permission, value) }, current);
 }
 
+// MARK: Trust: Computer Use (cmux#56827)
+
+/** `computerUse.mode`'s values, Settings' order (most open first). */
+export type WalkComputerUse = "fullAccess" | "approvedApps" | "askEveryTime" | "lookOnly" | "off";
+export const COMPUTER_USE_MODES: readonly WalkComputerUse[] = [
+  "fullAccess",
+  "approvedApps",
+  "askEveryTime",
+  "lookOnly",
+  "off",
+];
+
+export function computerUse(current: WalkValues): WalkComputerUse {
+  const value = effective(current, P.computerUse);
+  return COMPUTER_USE_MODES.includes(value as WalkComputerUse) ? (value as WalkComputerUse) : "fullAccess";
+}
+
+export function computerUseWrites(value: WalkComputerUse, opened: WalkValues, current: WalkValues): WalkWrite[] {
+  return diff({ [P.computerUse]: resolve(opened, P.computerUse, value) }, current);
+}
+
+// MARK: Noise: the chime when an agent finishes (cmux#56827), a switch of its own
+
+export function finishSoundOn(current: WalkValues): boolean {
+  return effective(current, P.finishSound) === true;
+}
+
+/** On writes true; off puts back the opening value (unset when that was on too). */
+export function finishSoundWrites(on: boolean, opened: WalkValues, current: WalkValues): WalkWrite[] {
+  const target = on ? true : finishSoundOn(opened) ? null : (opened[P.finishSound] ?? null);
+  return diff({ [P.finishSound]: target }, current);
+}
+
 // MARK: Noise: banners and sound as one three-way row
 
 export type WalkNoise = "quiet" | "banners" | "bannersSound";
@@ -215,6 +256,26 @@ export function noiseWrites(value: WalkNoise, opened: WalkValues, current: WalkV
         ? { [P.desktop]: desktop, [P.sound]: "none" }
         : { [P.desktop]: desktop, [P.sound]: sound };
   return diff(targets, current);
+}
+
+// MARK: Chat feel: how a sent prompt arrives (design: "Send pop (chat feel)")
+
+/** Pinned (`top`): the sent prompt scrolls to the top with room below for the reply (cmux#56827, Leo:
+ * "sent message scrolls to top"), over agentPane.display.sendScrollsToTop; it keeps the pop as opened. */
+export type WalkChatFeel = "instant" | "pop" | "top";
+export const CHAT_FEELS: readonly WalkChatFeel[] = ["instant", "pop", "top"];
+
+export function chatFeel(current: WalkValues): WalkChatFeel {
+  if (effective(current, P.sendScrollsToTop) === true) return "top";
+  return effective(current, P.sendPop) === true ? "pop" : "instant";
+}
+
+export function chatFeelWrites(value: WalkChatFeel, opened: WalkValues, current: WalkValues): WalkWrite[] {
+  const pop = value === "top" ? (opened[P.sendPop] ?? null) : resolve(opened, P.sendPop, value === "pop");
+  return diff(
+    { [P.sendPop]: pop, [P.sendScrollsToTop]: resolve(opened, P.sendScrollsToTop, value === "top") },
+    current,
+  );
 }
 
 // MARK: The screens
