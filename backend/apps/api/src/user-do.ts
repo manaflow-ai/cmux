@@ -741,6 +741,22 @@ export class UserDO extends OwnerDO<UserState> {
   protected stackHeal: StackHealDeps | undefined
 
   /** One-time challenge + ES256 signature by the install key + revocation check. */
+  /**
+   * A VM install's sign-in through its machine's platform edge (MachineEdgeSignin): cmux-platform has verified the
+   * edge header Freestyle injects for `machine`, so no install-key signature is asked. Only a live `vm` install bound
+   * to that team and machine, under its own live vm-self grant, answers; the claims never carry `edge`.
+   */
+  async edgeRedeem(entity: string, install: string, grant: string, team: string, machine: string): Promise<RedeemResult> {
+    const engine = this.existing()
+    const refused = { ok: false as const, code: "auth.forbidden" as const, message: "machine install unknown, revoked or not bound to this machine" }
+    if (!engine || engine.stream !== `user:${entity}`) return refused
+    const state = engine.currentState, inst = state.installs[install], held = state.grants[grant]
+    if (!state.user || state.user.id !== entity || !inst || inst.revoked_at !== null || inst.kind !== "vm" || inst.grant !== grant || inst.bound_team !== team || inst.bound_machine !== machine) return refused
+    if (!held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("vm-self")) return refused
+    const emailDomain = emailDomainOf(state.user.email)
+    return { ok: true, user: entity, team, install, grant, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), vm: true as const }
+  }
+
   async redeem(entity: string, install: string, nonce: string, signature: string, agent?: string): Promise<RedeemResult> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false, code: "auth.forbidden", message: "challenge unknown, used or expired" }
