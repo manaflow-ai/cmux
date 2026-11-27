@@ -38,6 +38,7 @@ import type { AcpmuxSnapshot } from "../model";
 import { hasNativeHost } from "../native";
 import type { PaneNotices } from "../paneToasts";
 import { sessionReplay } from "../replay/replay.experiment";
+import { shareRefused } from "../share/shareNudgeModel";
 import { steerQueueExperiment } from "../steerQueue/steerQueue.experiment";
 
 /// What AcpmuxPane's `chatMenu` reads from the pane (App.tsx builds it each time the menu is drawn).
@@ -198,8 +199,10 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
         },
       ]
     : [];
+  // Share… only where the app can share the chat (shareRefused): another machine's chat would
+  // open a dialog the app refuses every step of.
   const share: ChatMenuItem | undefined =
-    snapshot.sessionId && hasNativeHost()
+    hasNativeHost() && !shareRefused(snapshot)
       ? { key: "share", label: t("share.menu"), icon: "action.share", onSelect: () => setShareOpen(true) }
       : undefined;
   // Fork immediately; destination choices are a separate action and Option-click shortcut.
