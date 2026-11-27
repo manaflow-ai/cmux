@@ -590,6 +590,9 @@ type Props = {
   /// stack's edge from it (App.tsx `data-focused` on `.acpmux-dock`, composerStates.css). Called on
   /// focus and shell changes only.
   onFocusEdge?(lit: boolean): void;
+  /// Whether the prompt holds anything (text, chips, pending tiles), on each change: Toggle
+  /// Terminal and Chat reads it without a page call (conversation/toggleDraft.ts).
+  onFilled?(filled: boolean): void;
 };
 
 /// What the prompt holds: its text and the chips placed in it.
@@ -866,6 +869,7 @@ function ComposerFrame({
   attachRefusal,
   relayed = false,
   onFocusEdge,
+  onFilled,
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
@@ -2619,6 +2623,7 @@ function ComposerFrame({
   const stopShown = !shell && stopPresence.shown;
   const stop = stopShown && facts.empty;
   const hasDraft = Boolean(!facts.empty || attachments.length || pending.length);
+  useEffect(() => onFilled?.(hasDraft), [hasDraft, onFilled]);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
