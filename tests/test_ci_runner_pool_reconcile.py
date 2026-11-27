@@ -100,7 +100,7 @@ class SecretRouteBoundary(unittest.TestCase):
                 text = (root / ".github/workflows" / name).read_text()
                 block = text.split(f"\n  {job}:\n", 1)[1]
                 route = next(line for line in block.splitlines() if line.startswith("    runs-on:"))
-                self.assertIsNone(secret_route_failure(route.split("runs-on:", 1)[1].strip()), route)
+                self.assertIsNone(secret_route_failure(route.split("runs-on:", 1)[1].split(" # ")[0].strip()), route)
 
     def test_backend_secret_jobs_use_only_the_ephemeral_linux_mirror(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"

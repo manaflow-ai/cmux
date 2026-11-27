@@ -202,10 +202,11 @@ _NON_RUNNING_FILES = frozenset({
     ".github/actionlint.yaml",
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
+    ".github/cloud-harness-matrix/request",
     ".github/cloud-machine-count-probe/request",
+    ".github/cloud-staging-test-sweep/request",
     ".github/cloud-surge-proof/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-    ".github/defaults-call-owners.json",
     ".github/design-surfaces.json",
     ".github/gateway-e2e/request",
     ".github/github-token-budget.json",
@@ -1118,6 +1119,12 @@ SHARED_WEB_WORKFLOW_EXACT = frozenset({
     "scripts/run-diff-sidecar-cargo.sh",
 })
 
+RELAY_PARAMS_RULE = frozenset({
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+})
+
 SHARED_WEB_WORKFLOW_PREFIXES = (
     "Native/DiffSidecar/",
     # The diff sidecar links this crate by path.
@@ -1286,6 +1293,11 @@ def is_web_change(path: str) -> bool:
     # these (web_subareas.UNIT_TESTS_EXACT); #38631 changed the catalog alone,
     # skipped Web tests and turned them red on base.
     if path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        return True
+    # webviews/test/agent-pane-relay-params-contract.test.ts checks every key the page sends
+    # against the relay's params rule and its Rust mirror (web_subareas.REACT_EXACT): a PR that
+    # changes only the rule runs it too (cmux#46563 refused every handshake).
+    if path in RELAY_PARAMS_RULE:
         return True
     if is_web_bundle_input(path):
         return True

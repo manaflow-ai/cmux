@@ -80,12 +80,12 @@ public final class SidebarView: NSView {
     let footerRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = OverlayScrollView()
     let belowScroll = OverlayScrollView()
-    /// Fade the bands' rows out at an edge while more are hidden there.
-    // Built in the sections setup (no IUOs).
+    /// Fade the bands' rows out at an edge while more are hidden there; built in the sections setup (no IUOs).
     lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
     lazy var belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
-    /// The hairline between the top band and the list (quiet look). The
-    /// footer has none (SIDEBAR-FOOTER-MINIMAL).
+    /// The theme's header picture (`appearance.sidebarHeader.*`, `SidebarView+HeaderArt`); nil makes no view.
+    var headerArt: BackdropPictureView?
+    /// The hairline between the top band and the list (quiet look). The footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(plus: Strings.newWorkspace)
     /// The +'s menu segment, right of the + as one split button (Lawrence 2026-10-30: "the dropdown
@@ -94,6 +94,17 @@ public final class SidebarView: NSView {
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
+    /// The footer's Live button, right after the profile avatar (Leo 2026-11-24: "an icon maybe toggle somewhere
+    /// omnipresent... say the bottom left of the sidebar area"): a click runs ``onLiveToggle``, a right-click lists who
+    /// is live (SidebarView+Live). `sidebar.showLiveToggle` hides it.
+    let liveButton = SidebarIconButton(symbol: "dot.radiowaves.left.and.right", pointSize: { Metrics.iconSize }, label: Strings.live)
+    let liveMenuTarget = SidebarLiveMenuTarget()
+    /// What the Live button shows and its menu lists; the App sets it from `presence.live` and the team.
+    public var live = SidebarLiveState() { didSet { if live != oldValue { applyLive() } } }
+    /// The Live button was pressed (or its menu's Turn Live On/Off): the App flips `presence.live`.
+    public var onLiveToggle: (() -> Void)?
+    /// A teammate was picked in the Live menu: the App opens their direct message.
+    public var onLiveOpenPerson: ((String) -> Void)?
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)
     /// The quiet Update Available button (``showUpdateAvailable(_:)``).
@@ -108,9 +119,16 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// The Restoring sessions card's Details (app health's popover). The sidebar draws no health line (Leo,
-    /// 2026-11-11: "slow indicator on the bottom left is uselsss"; 2026-11-22, ask-eacfb2ec1f: "we dont need it. ever.").
-    public var onHealthDetails: (() -> Void)?
+    /// The "Experiment on · #N" mark (CmuxNextPages `CustomizeExperimentsMarkView`), floating over the sidebar
+    /// just above the footer row (``SidebarFooterBand/placeExperimentsMark(above:)``); it shows and hides itself and asks for a layout.
+    /// It never fades with the footer.
+    public var experimentsMark: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            experimentsMark.map { addSubview($0) }
+            needsLayout = true
+        }
+    }
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -149,6 +167,8 @@ public final class SidebarView: NSView {
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     var lastState: RenderState?
+    /// The pull request badges the rows drew at the last render that saw them change (`RenderState.pullRequests`).
+    var drawnPullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     var selectionTreeReveal = SidebarSelectionTreeReveal()
     /// A `renderInFrame` draw is queued for this turn's frame.
     var renderQueued = false
@@ -231,6 +251,7 @@ public final class SidebarView: NSView {
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
             appSections?.onContentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
+            listReplacement = appSections?.workspaceList
             for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
@@ -238,6 +259,16 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
+
+    /// The person's own workspace list (`cmux.sidebar/1`, `sidebar.workspaceListApp`); the App
+    /// injects it. The built-in list draws while it is nil or its content is not drawn (SidebarListSwap).
+    public var listReplacement: (any SidebarListReplacement)? {
+        didSet {
+            listReplacement?.onContentChange = { [weak self] in self?.needsLayout = true }
+            needsLayout = true
+        }
+    }
+    let listSwap = SidebarListSwap()
 
     /// The React update surfaces (cx-urd.61.2): the staged card's highlights
     /// popover and the "cmux Updated!" card. Set by the App; without them the
@@ -255,6 +286,15 @@ public final class SidebarView: NSView {
     /// The footer's Search button was pressed: the App opens Search (`palette.open`, scope
     /// `search`), the same centered palette as Cmd-P. Nil leaves the button doing nothing.
     public var onSearch: ((NSView) -> Void)?
+    /// Keeps the Search button's tooltip key (the Command Palette's, "⇧⌘P") current through a rebind.
+    private var searchShortcutObservation: Task<Void, Never>?
+    public func followSearchShortcut(_ shortcut: @escaping @MainActor () -> String?) {
+        searchShortcutObservation?.cancel()
+        // task-owner: the sidebar view (cancelled on the next call); event-driven (Observation)
+        searchShortcutObservation = Task { [weak self] in
+            for await key in ObservationStream({ shortcut() }) { self?.searchButton.themedToolTipShortcut = key }
+        }
+    }
 
     /// The profile menu the footer's profile control opens
     /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
@@ -323,7 +363,7 @@ public final class SidebarView: NSView {
         scrollView.hasVerticalScroller = true
         // The shared thin scroller (the chat's): a 3 pt knob on no track, an
         // overlay that never narrows the list.
-        SystemScrollers.followThin(scrollView)
+        SystemScrollers.followThin(scrollView, scrollOnly: true)
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
@@ -351,6 +391,12 @@ public final class SidebarView: NSView {
             self.onSearch?(self.searchButton)
         }
         addSubview(searchButton)
+        liveButton.setAccessibilityIdentifier("cmux.sidebar.live")
+        liveButton.showsLabelToolTip = false
+        liveButton.onPress = { [weak self] in self?.onLiveToggle?() }
+        liveButton.menuProvider = { [weak self] in self?.liveMenu() }
+        addSubview(liveButton)
+        applyLive()
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
         buildPriority()
@@ -389,8 +435,8 @@ public final class SidebarView: NSView {
         super.layout()
         let b = bounds
         // Tokens are read here, never cached, so density changes apply live.
-        // The list starts right under the titlebar row: no search field.
-        let y = titlebarHeight
+        // The list starts right under the titlebar row (and a theme's header picture under it): no search field.
+        let y = titlebarHeight + layoutHeaderArt(top: titlebarHeight, width: b.width)
 
         // Titlebar row: buttons trail the traffic lights at a stable frame.
         // Every control in the row centers on the traffic lights' line (the
@@ -447,6 +493,7 @@ public final class SidebarView: NSView {
         SidebarHiddenState.apply(!showsProfiles, to: profileBar)
         SidebarHiddenState.apply(noFade, to: footerRegion)
         SidebarHiddenState.apply(noFade, to: searchButton)
+        SidebarHiddenState.apply(noFade || !design.sidebarSections.showLiveToggle, to: liveButton)
         if let liveModeBadge { SidebarHiddenState.apply(noFade, to: liveModeBadge) }
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
@@ -457,7 +504,7 @@ public final class SidebarView: NSView {
         // What the footer's space switcher shows changed (`render` sets `bandsDirty` for the spaces, the current space,
         // the sidebar's metrics, the switcher's own tokens and the app sections): a layout for a new size only does not
         // make the switcher again (a window resize step).
-        let spacesChanged = bandsDirty
+        let spacesChanged = bandsDirty, widthChanged = bandsSize.map { $0.width != b.width } ?? false
         if bandsDirty || bandsSize?.width != b.width || (bandsFollowHeight && bandsSize?.height != b.height) {
             (bandsDirty, bandsSize) = (false, b.size)
             updateBands()
@@ -468,12 +515,13 @@ public final class SidebarView: NSView {
         // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height(width: b.width)
         // The Updated card after a relaunch takes its room in the frame it shows (Leo 2026-11-04).
-        let landsAtOnce = cardSlot.updatedLandsAtOnce
+        // A resized sidebar rewraps the card: its room follows the drag at once, never on a spring that stretches it.
+        let landsAtOnce = cardSlot.updatedLandsAtOnce || widthChanged
         // The Updated card dragged to the top takes its room there; the bottom slot's closes (Leo 2026-11-07).
         let atTop = cardSlot.updatedAtTop
         let updateHeight = cardSlotMotion.height(toward: atTop ? 0 : slotHeight, in: self, snaps: landsAtOnce)
         let topCardHeight = topCardMotion.height(toward: atTop ? slotHeight : 0, in: self, snaps: landsAtOnce)
-        if landsAtOnce { updatedCardView.landed() }
+        if cardSlot.updatedLandsAtOnce { updatedCardView.landed() }
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
@@ -495,7 +543,11 @@ public final class SidebarView: NSView {
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
+        // The experiments mark over the sidebar, above the footer row and its cards: placed after the row,
+        // from nothing in it.
+        footerBand.placeExperimentsMark(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
+        listSwap.apply(listReplacement?.content, in: self, frame: listFrame, native: edgeFade)
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
         layoutNeedsYou(over: listFrame)

@@ -340,7 +340,14 @@ def payload(args):
         # The machine copy is the Cloud machine channel's own build: never a Linux release, and only
         # this run's build of it names its checksums.
         fail("--machine-path is for the cloud-machine payload of --binaries-dir")
-    args.targets = LINUX_RELEASE_TARGETS if release else TARGETS
+    if args.target and release:
+        fail("--target is for the cloud-machine payload: a Linux release names every target")
+    if args.target and set(args.target) - set(TARGETS):
+        fail(f"--target names {sorted(set(args.target) - set(TARGETS))}, not one of {list(TARGETS)}")
+    # --target: a payload of some targets only. point-machine-channel-early points the channel from
+    # the x86_64 build alone, and a second point of the same commit adds aarch64
+    # (web-ota-pointer.py newer's completes rule).
+    args.targets = LINUX_RELEASE_TARGETS if release else tuple(t for t in TARGETS if not args.target or t in args.target)
     args.names = LINUX_RELEASE_NAMES if release else NAMES
     binaries = expected_sha256(args)
     os.makedirs(args.download_dir, exist_ok=True)
@@ -423,6 +430,60 @@ def alias(args):
         out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
 
 
+def rollback(args):
+    """The Cloud machine channel payload that moves it back to an earlier, proven build: the proven build's
+    verified channel file, retold with committed_at one second past the build it replaces (`--over`, the
+    channel's verified current file). The channel and every machine's updater move forward only by
+    committed_at (web-ota-pointer.py newer, cmux-host updater decide()), so a plain re-point at the older
+    commit would be refused by both. Nothing is downloaded: the proven file's signature covers its targets,
+    and the commit and URLs stay the proven build's own (cmux-host updater/channel.rs takes only those)."""
+    def verified(path):
+        r = subprocess.run([sys.executable, POINTER, "verify", "--pointer", path, "--keys", args.keys,
+                            "--purpose", PURPOSE, "--channel", CHANNEL, "--allow-expired"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            fail(f"{path} does not verify: {r.stderr.strip()}")
+        return json.loads(r.stdout)
+    proven, over = verified(args.proven), verified(args.over)
+    if proven["commit"] == over["commit"] or proven.get("key") == over.get("key"):
+        fail(f"{args.proven} is the build it would replace ({over['commit'][:12]})")
+    now = int(time.time())
+    value = proven | {"committed_at": int(over["committed_at"]) + 1, "published_at": now, "expires_at": now + LIFETIME}
+    with open(args.out, "wb") as out:
+        out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+
+
+def repoint(args):
+    """The payload of another channel's pointer (linux-nightly, linux-stable) at a commit's published
+    cmux-tui/<commit>/release.json: its verified build (commit, commit time, tree, targets) re-signed for
+    --channel with a sequence above that channel's. The channel follows a build another channel already
+    shipped (the NEXT NIGHTLY's commit), so nothing is downloaded and no per-commit file is written."""
+    if args.channel not in LINUX_RELEASE_CHANNELS:
+        fail(f"--channel must be one of {', '.join(LINUX_RELEASE_CHANNELS)}")
+    verified = subprocess.run(
+        [sys.executable, POINTER, "verify", "--pointer", args.release, "--keys", args.keys,
+         "--purpose", LINUX_RELEASE_PURPOSE, "--allow-expired"],
+        capture_output=True, text=True)
+    if verified.returncode != 0:
+        fail(f"{args.release} does not verify: {verified.stderr.strip()}")
+    build = json.loads(verified.stdout)
+    if args.commit and build.get("commit") != args.commit:
+        fail(f"{args.release} is the release file of {build.get('commit')!r}, not {args.commit}")
+    now = int(time.time())
+    committed_at = int(build["committed_at"])
+    sequence = release_sequence(now, committed_at, args.min_sequence or 0)
+    value = {
+        "schema": SCHEMA, "purpose": LINUX_RELEASE_PURPOSE, "channel": args.channel,
+        "version": release_version(build["version"].split("+", 1)[0], build["commit"], sequence),
+        "sequence": sequence, "commit": build["commit"], "committed_at": committed_at,
+        "published_at": now, "expires_at": now + LIFETIME, "targets": build["targets"],
+    }
+    if build.get("tree_key"):
+        value["tree_key"] = build["tree_key"]
+    with open(args.out, "wb") as out:
+        out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -445,6 +506,8 @@ def main(argv):
     p.add_argument("--cargo-version", help="--purpose linux-release: default cmux-tui/Cargo.toml's version")
     p.add_argument("--min-sequence", type=int, default=0,
                    help="--purpose linux-release: the lowest sequence to sign (the channel's current one + 1)")
+    p.add_argument("--target", action="append", choices=TARGETS,
+                   help="--purpose cloud-machine: sign only this target (repeat for more); default every target")
     p.add_argument("--machine-path", action="store_true",
                    help="name the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>")
     p.add_argument("--tree-key", help="--purpose linux-release: name the tree's copies, cmux-tui/tree/<key>/")
@@ -453,9 +516,22 @@ def main(argv):
         a.add_argument(name, required=True)
     a.add_argument("--min-sequence", type=int, default=0,
                    help="the lowest sequence to sign (the channel's current one + 1)")
+    r = sub.add_parser("rollback", help="the Cloud machine payload that moves the channel back to a proven build")
+    for name in ("--proven", "--over", "--keys", "--out"):
+        r.add_argument(name, required=True)
+    rp = sub.add_parser("repoint", help="another channel's payload for a commit's published release.json")
+    for name in ("--release", "--keys", "--channel", "--out"):
+        rp.add_argument(name, required=True)
+    rp.add_argument("--commit", help="refuse a release file of any other commit")
+    rp.add_argument("--min-sequence", type=int, default=0,
+                    help="the lowest sequence to sign (the channel's current one + 1)")
     args = parser.parse_args(argv[1:])
     if args.command == "alias":
         alias(args)
+    elif args.command == "rollback":
+        rollback(args)
+    elif args.command == "repoint":
+        repoint(args)
     else:
         payload(args)
     return 0

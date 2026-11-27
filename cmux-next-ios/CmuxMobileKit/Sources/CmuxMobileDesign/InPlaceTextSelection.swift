@@ -32,6 +32,9 @@ public final class InPlaceTextSelection: NSObject {
     public var extraMenu: ((UILabel) -> [UIMenuElement])?
     /// Called when a selection starts and ends (a row can stop its own taps meanwhile).
     public var onChange: ((Bool) -> Void)?
+    /// Whether a hold at a point (in `host`) on a label may select: false leaves the hold to
+    /// another interaction there (a link's menu). nil: every label may.
+    public var shouldBegin: ((CGPoint) -> Bool)?
 
     private var overlay: StandInTextView?
     private weak var heldLabel: UILabel?
@@ -85,11 +88,19 @@ public final class InPlaceTextSelection: NSObject {
         overlay.onResign = nil
         overlay.delegate = nil
         if overlay.isFirstResponder { _ = overlay.resignFirstResponder() }
+        // A table cell caches its accessibility children: the removed stand-in stayed in that
+        // cache, so VoiceOver and UI tests still found a selection after it ended (Feed rows,
+        // 2026-11-24). Hidden first, a cached reference to it is skipped.
+        overlay.isAccessibilityElement = false
+        overlay.accessibilityElementsHidden = true
         overlay.removeFromSuperview()
         outsideTap.view?.removeGestureRecognizer(outsideTap)
         heldLabel?.alpha = 1
+        let shown = heldLabel
         heldLabel = nil
         if Self.current === self { Self.current = nil }
+        // The cell's elements changed: VoiceOver goes to the text that shows again.
+        UIAccessibility.post(notification: .layoutChanged, argument: shown)
         onChange?(false)
     }
 
@@ -127,7 +138,11 @@ public final class InPlaceTextSelection: NSObject {
         anchor = word
         view.selectedTextRange = word
         loupe = UITextLoupeSession.begin(at: point, fromSelectionWidgetView: nil, in: view)
-        UISelectionFeedbackGenerator().selectionChanged()
+        CmuxMobileHaptics().selectionChanged()
+        // A table cell caches its accessibility children: a reused Feed cell did not list the new
+        // stand-in, so VoiceOver (and UI tests) could not find the live selection (fleet step
+        // f0fe88a219ecf80750d04c72). VoiceOver moves to the selection.
+        UIAccessibility.post(notification: .layoutChanged, argument: view)
         onChange?(true)
     }
 
@@ -139,7 +154,7 @@ public final class InPlaceTextSelection: NSObject {
             let end = view.compare(word.end, to: anchor.end) == .orderedDescending ? word.end : anchor.end
             if let range = view.textRange(from: start, to: end), range != view.selectedTextRange {
                 view.selectedTextRange = range
-                UISelectionFeedbackGenerator().selectionChanged()
+                CmuxMobileHaptics().selectionChanged()
             }
         }
         let caret = view.selectedTextRange.map { view.caretRect(for: $0.end) } ?? .zero
@@ -187,7 +202,9 @@ extension InPlaceTextSelection: UIGestureRecognizerDelegate {
         guard recognizer === press, let host else { return true }
         // A hold inside the live selection is the text view's own (it moves a handle or the range).
         if let overlay, overlay.bounds.contains(recognizer.location(in: overlay)) { return false }
-        return label(at: recognizer.location(in: host)) != nil
+        let point = recognizer.location(in: host)
+        guard label(at: point) != nil else { return false }
+        return shouldBegin?(point) ?? true
     }
 
     public func gestureRecognizer(_ recognizer: UIGestureRecognizer,

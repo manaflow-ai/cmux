@@ -16,7 +16,7 @@
 //! whose insert text an earlier app already offers is dropped too, so the
 //! row never shows two chips that do the same thing.
 //!
-//! The person's saved prompts (`~/.config/cmux/commands/NAME.md`, written by `cmux agent-config
+//! The person's saved prompts (`~/.config/cmux-next/commands/NAME.md`, written by `cmux agent-config
 //! commands add --agent cmux` or Settings > Skills > New Command) come first in the commands, read
 //! from their folder on each call, so a new one is in the next chat's `/` menu with no restart.
 

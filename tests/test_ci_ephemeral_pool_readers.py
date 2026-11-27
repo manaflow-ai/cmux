@@ -166,7 +166,8 @@ class EphemeralPoolReaders(unittest.TestCase):
 
     def test_write_token_and_ephemeral_required_jobs_read_ephemeral_pools(self) -> None:
         reads = protected_job_reads()
-        self.assertGreater(len(reads), 10, "the scan found no write-token pool readers: it is reading nothing")
+        # cmux#54437 froze most write-token readers to literal labels; a few still read the pool.
+        self.assertGreater(len(reads), 3, "the scan found no write-token pool readers: it is reading nothing")
         ephemeral = ephemeral_pools()
         for workflow, job, why, read in reads:
             if (workflow, job) in NOT_YET_MOVED:

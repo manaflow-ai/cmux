@@ -17,7 +17,7 @@ import Foundation
     public var onChange: (() -> Void)?
     /// The row last pushed to the page, nil before the first.
     private(set) var offered: (height: CGFloat, trailingInset: CGFloat, soloTab: Bool, accessoryRoom: CGFloat?)?
-    /// The most the row's accessories (the rolling summary) may take, in points (`PaneTabRowSharing.setTabRowAccessoryRoom`):
+    /// The most the row's accessories (none today) may take, in points (`PaneTabRowSharing.setTabRowAccessoryRoom`):
     /// the room the pane's tabs leave at their full width (#53314); `.infinity` sets no limit.
     var accessoryRoom: CGFloat = .infinity
     /// The pane draws its tabs at the row's leading end; false while a lone tab hides (`PaneTabRowSharing.setTabRowTabs`).
@@ -44,15 +44,26 @@ import Foundation
     /// nothing, as in tests).
     private let defaults: UserDefaults?
     static let keptWidthKey = "agentPane.tabRowToolsWidth"
+    /// The shipped chat header's tools need in a pane's row at 100% zoom, CSS pixels, for a launch with no kept width:
+    /// the launch capture's strip gave up 137 pt for the tools and the pane bar's trailing gap together. A page that
+    /// reports another width moves the strip's edge by the difference once, never the chat's top by the row.
+    public static let firstLaunchWidth: CGFloat = 128
 
     /// A new chat view's row. With a width kept from an earlier launch, the row starts as a reloaded page's does
     /// (``sharedWidth(zoom:)``): the pane lays the chat under the strip from its first layout. A row that waited for
     /// the page's first report laid the chat below the strip, then under it once the page reported, after every
     /// launch: the header grew by 6 and the composer dropped by the row's 34 just after the chat drew (relaunch-shift
     /// bench; Leo, 2026-11-14: "too much render shift when the thing restarts to update").
-    init(defaults: UserDefaults? = nil) {
+    /// With none kept (a first launch, a fresh profile), `firstLaunchWidth` (CSS pixels; 0: none) stands in for it the
+    /// same way: the chat starts under the strip with its tools' room reserved, and the page's first report replaces it
+    /// and is kept. A row that waited laid the chat below the strip and the tabs full width, then, when the page reported,
+    /// grew the chat 40 pt up under the strip and narrowed the tabs by the tools' room, 120 ms after the chat showed
+    /// (NIGHTLY 4557245517201 launch capture, frame 320; Leo, 2026-11-24: "layout shifted things are bad tho, so those
+    /// all need to be prefetched/prerendered and all computed out properly").
+    init(defaults: UserDefaults? = nil, firstLaunchWidth: CGFloat = 0) {
         self.defaults = defaults
-        let kept = CGFloat(defaults?.double(forKey: Self.keptWidthKey) ?? 0)
+        let stored = CGFloat(defaults?.double(forKey: Self.keptWidthKey) ?? 0)
+        let kept = stored > 0 ? stored : firstLaunchWidth
         if kept > 0 {
             neededWidth = kept
             awaitingReport = true
@@ -60,8 +71,8 @@ import Foundation
     }
 
     /// The page reported its tools' width, and their `need`: the width less what takes only the row's leftover room
-    /// (the chat's rolling summary, header/tabRow.ts TAB_ROW_ACCESSORY). The need, not the width, is what decides
-    /// whether a pane offers the row: a summary measured in a wide pane made the tools need more than half of the row
+    /// (header/tabRow.ts TAB_ROW_ACCESSORY). The need, not the width, is what decides
+    /// whether a pane offers the row: an accessory measured in a wide pane made the tools need more than half of the row
     /// once the pane was split, and the chat's tools dropped to a second row under the tabs (Leo 2026-11-22: "the icons
     /// on the top right have gotten displaced due to putting things on a line"). A page that sends no need (older) has
     /// its width as the need.
@@ -147,7 +158,7 @@ import Foundation
         view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyTabRow?.(\(event.value.compactText));"])
     }
 
-    /// The widest the page's rolling summary is (header.css `.acpmux-chat-summary--inline`, 300px) plus its gap, and the
+    /// The widest a row accessory is (300px, the removed summary line's cap) plus its gap, and the
     /// narrowest it shows at (header/tabRow.ts TAB_ROW_ACCESSORY_MIN): the room is offered in whole CSS pixels within
     /// them, so a pane spring or a divider drag offers the row again only while the room is between the two.
     static let accessoryRoomMax: CGFloat = 320
@@ -193,7 +204,7 @@ private func nativeHoles(width: CGFloat, height: CGFloat, trailingInset: CGFloat
 extension AgentPageEvent {
     /// The tab row the chat header's tools may sit in (`tabRow`): `{height, trailingInset, nativeRowTools, soloTab}`;
     /// `soloTab`: the pane holds this one tab, and the page runs its transcript up under the row (header/tabRow.ts).
-    /// `accessoryRoom`: the most the row's accessories (the rolling summary) may take, CSS pixels; nil sends none (no limit).
+    /// `accessoryRoom`: the most the row's accessories (none today) may take, CSS pixels; nil sends none (no limit).
     static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool, soloTab: Bool = false, accessoryRoom: CGFloat? = nil) -> AgentPageEvent {
         var value: [String: JSONValue] = ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset)),
                                           "nativeRowTools": .bool(nativeRowTools), "soloTab": .bool(soloTab)]

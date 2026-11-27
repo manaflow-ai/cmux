@@ -97,6 +97,12 @@ public protocol TabsDataSource: AnyObject, Observable {
 
     /// A row above the toolbar for the active tab. Default: none.
     @ViewBuilder func accessory(for tab: TabsKitTab, context: TabsKitContentContext) -> Accessory
+    /// What fills the band behind a top bar over `tab`'s page (from the screen's top to the
+    /// bar's bottom edge), laid out at the page's whole size and cut to the band, so a page
+    /// that paints its own ground (a terminal over its Mac's theme and wallpaper) continues
+    /// under the bar. Nil (the default): black under a light status bar, else the page
+    /// background.
+    func topBarGround(for tab: TabsKitTab) -> AnyView?
     /// Shown over the page while the address field is focused. The default
     /// lists matching open tabs and a Search row.
     @ViewBuilder func editingBackground(_ editing: TabsKitAddressEditing) -> EditingBackground
@@ -163,6 +169,7 @@ extension TabsDataSource where EditingBackground == TabsKitAddressSuggestions {
 }
 
 extension TabsDataSource {
+    public func topBarGround(for tab: TabsKitTab) -> AnyView? { nil }
     public func thumbnail(for id: TabsKitTab.ID) -> UIImage? { nil }
     public func icon(for id: TabsKitTab.ID) -> UIImage? { nil }
     public func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat { 0 }
@@ -203,30 +210,50 @@ extension EnvironmentValues {
     /// Columns of the tab overview grid: two on a phone, more on an unfolded foldable's wider
     /// page (the host asks its shared layout rule, cmux-mobile-link-ffi `overview_columns`).
     @Entry public var tabsKitOverviewColumns: Int = 2
+    /// The host moves the whole screen in a navigation transition (a swipe back): the accessory
+    /// keeps the keyboard height it last rode until this goes false, so it slides with the page.
+    @Entry public var tabsKitHoldsKeyboard: Bool = false
 }
 
 /// Where and how a tab's live page is shown.
 public struct TabsKitContentContext {
     /// The full screen size the content is laid out at.
     public var pageSize: CGSize
-    /// Status bar (top) and toolbar (bottom) heights over the content.
+    /// Status bar and toolbar heights over the content, with the toolbar expanded. Steady
+    /// while the person scrolls: size fixed surfaces (a terminal grid, a streamed viewport)
+    /// from these.
     public var safeAreaInsets: EdgeInsets
+    /// Where the status bar and toolbar cover the content this frame: `safeAreaInsets`, less
+    /// the band a collapsed top bar gives back (it changes inside the collapse's animation).
+    /// Content that scrolls under the chrome (a scroll view's content inset, a scroll edge,
+    /// a scrim) follows these, so the page fills up to the pill instead of leaving a strip.
+    public var chromeInsets: EdgeInsets
     /// The page is settled full screen and takes input (no zoom, swipe or menu).
     public var isInteractive: Bool
+    /// The page is full screen, not zoomed out to the tab grid. Unlike
+    /// ``isInteractive`` it stays true while a menu is open, a swipe runs
+    /// or the address bar is edited (the page's orientation follows this).
+    public var isOnPage: Bool
     /// A pinch is driving the tab zoom: stop the content's own pinch zoom
     /// (for a web view, disable its pinch recognizer while this is true).
     public var isZoomGestureActive: Bool
     /// The toolbar is collapsed into the pill.
     public var isToolbarCollapsed: Bool
+    /// The screen edge the toolbar is on (`TabsKitTheme.Metrics.barEdge`).
+    public var toolbarEdge: TabsKitBarEdge
     let onScroll: @MainActor (CGFloat) -> Void
 
-    init(pageSize: CGSize, safeAreaInsets: EdgeInsets, isInteractive: Bool, isZoomGestureActive: Bool, isToolbarCollapsed: Bool,
+    init(pageSize: CGSize, safeAreaInsets: EdgeInsets, chromeInsets: EdgeInsets? = nil, isInteractive: Bool,
+         isOnPage: Bool, isZoomGestureActive: Bool, isToolbarCollapsed: Bool, toolbarEdge: TabsKitBarEdge = .bottom,
          onScroll: @escaping @MainActor (CGFloat) -> Void) {
         self.pageSize = pageSize
         self.safeAreaInsets = safeAreaInsets
+        self.chromeInsets = chromeInsets ?? safeAreaInsets
         self.isInteractive = isInteractive
+        self.isOnPage = isOnPage
         self.isZoomGestureActive = isZoomGestureActive
         self.isToolbarCollapsed = isToolbarCollapsed
+        self.toolbarEdge = toolbarEdge
         self.onScroll = onScroll
     }
 

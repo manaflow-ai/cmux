@@ -7,6 +7,7 @@ extension SidebarSectionsPreferences {
     func changesList(from previous: SidebarSectionsPreferences?) -> Bool {
         previous?.workspaceRow != workspaceRow
             || previous?.showProjects != showProjects || previous?.groupBy != groupBy
+            || previous?.folderlessUngrouped != folderlessUngrouped
             || previous?.groupsByComputer != groupsByComputer || previous?.density != density
             || previous?.detailedStatusIcons != detailedStatusIcons || previous?.showTimestamps != showTimestamps
             || previous?.showLocalMachine != showLocalMachine || previous?.showColors != showColors
@@ -14,6 +15,6 @@ extension SidebarSectionsPreferences {
             || previous?.groupHeaderMemberCount != groupHeaderMemberCount || previous?.groupHeaderUnreadCount != groupHeaderUnreadCount
             || previous?.groupHeaderBackground != groupHeaderBackground || previous?.groupPalette != groupPalette
             || previous?.groupGradient != groupGradient || previous?.settleFinished != settleFinished
-            || previous?.showAutomaticSessions != showAutomaticSessions
+            || previous?.showAgentSessions != showAgentSessions
     }
 }

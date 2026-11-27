@@ -12,11 +12,7 @@ import type { Composer as ComposerView, ComposerHandle } from "../src/agent-sess
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import {
-  DEFAULT_COMPOSER,
-  setComposerSettings,
-  type AttachmentView,
-} from "../src/agent-session/acpmux/composerSettings";
+import { setComposerSettings, type AttachmentView } from "../src/agent-session/acpmux/composerSettings";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -72,7 +68,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
-  showAttachments(DEFAULT_COMPOSER.attachmentView);
+  showAttachments("inline");
   // Each test's chat starts with no kept draft: an attachment brought is the person's edit, so the
   // prompt holding it is kept for the chat (Composer.tsx `place`).
   dom.window.localStorage.clear();
@@ -161,9 +157,9 @@ function slowScreenshot() {
   };
 }
 
-/// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
-async function until(ready: () => boolean, what: string) {
-  const deadline = performance.now() + 2_000;
+/// Yields to React until `ready()` holds; fails after `within` ms (2 s) with what it waited for.
+async function until(ready: () => boolean, what: string, within = 2_000) {
+  const deadline = performance.now() + within;
   while (!ready()) {
     if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     await act(async () => {
@@ -211,7 +207,7 @@ async function openComposer(
 const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
 /// Settings' attachment view: the default draws a paste's chip in the prompt where it went (at the
 /// caret); the strip view draws it in the strip (inlineAttachments.tsx).
-let view: AttachmentView = DEFAULT_COMPOSER.attachmentView;
+let view: AttachmentView = "inline";
 const showAttachments = (next: AttachmentView) => {
   view = next;
   act(() => setComposerSettings({ attachmentView: next }));
@@ -576,8 +572,9 @@ test("a loading tile's indicator waits 400 ms, by its own timer", async () => {
 // THEN to where they shuld be yet too?" A chip the host makes for the chat (a long dictation recording
 // it sends to the chat's machine, Composer.tsx `attachLater`) loads in the text at the caret, as a
 // paste's does, and the chip it becomes takes that same place: the strip above the text never draws
-// it, not while it loads, not when it fails, and not when Retry makes it again.
-test("a recording the host makes for the chat loads at the caret and stays there through a failure and Retry", async () => {
+// it, not while it loads, not when it fails, and not when it is made again on its own (no Retry since
+// 2026-11-22, composer/uploadRetry.ts).
+test("a recording the host makes for the chat loads at the caret and stays there through a failure made again on its own", async () => {
   const composer = await openComposer();
   showAttachments("inline");
   await act(async () => composer.current!.restore("hello world", []));
@@ -610,13 +607,17 @@ test("a recording the host makes for the chat loads at the caret and stays there
     expect(node()!.previousSibling?.textContent).toBe("hello ");
     expect(node()!.nextSibling?.textContent).toBe("world");
     const id = node()!.getAttribute("data-inline-attachment");
-    // It fails: the tile says so where it is, with Retry.
+    // It fails: the tile keeps loading where it is, with no Retry, and the host is asked to make it
+    // again on its own after the first backoff (0.5-1 s, autoRetry.ts).
     await act(async () => makes[0]!(undefined));
-    const retry = () => node()?.querySelector<HTMLElement>(".acpmux-attachment-retry");
-    await until(() => retry() != null, "Retry on the tile");
-    act(() => retry()!.click());
-    await until(() => makes.length === 2, "the second make");
+    let failedShown = false;
+    await until(() => {
+      if (node()?.querySelector(".acpmux-attachment-failed, .acpmux-attachment-retry")) failedShown = true;
+      return makes.length === 2;
+    }, "the second make");
+    expect(failedShown).toBe(false);
     expect(node()!.getAttribute("data-inline-attachment")).toBe(id);
+    expect(node()!.querySelector('[aria-busy="true"]')).not.toBeNull();
     // Made: the chip is the tile's, at the tile's place.
     await act(async () => makes[1]!(recording));
     await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the made chip");

@@ -11,8 +11,8 @@ import type { ReactNode } from "react";
 import { usePaneLanguage, useT } from "../i18n";
 import type { TurnTokenSplit } from "../model";
 import { uncachedTokens } from "../tokenSplit";
-import { formatDuration } from "./turns";
-import { Clock, clockSizerAcrossUnits } from "../../../ui/Typography";
+import { formatDuration, turnSpan } from "./turns";
+import { Clock, clockSizer, clockSizerAcrossUnits } from "../../../ui/Typography";
 import { compactTokens, workingTokens, hasTokens, tokenDetail } from "./turnTokensModel";
 import { WithFacts } from "../chips/FactsHoverCard";
 /// The tokens' span (no separator before it). `split` wins over `total` when both are known.
@@ -50,7 +50,7 @@ export function TimedLabel({
   /// a tick never moves what follows it on the line.
   ticking?: boolean;
 }): ReactNode {
-  const shown = formatDuration(time);
+  const shown = turnSpan(time);
   const marker = "\u0000";
   const [before, after] = text(marker).split(marker);
   if (after === undefined) return text(shown);
@@ -64,7 +64,8 @@ export function TimedLabel({
         <Clock
           text={shown}
           className="cv-worked__label-time"
-          size={after.trim() ? undefined : clockSizerAcrossUnits(shown)}
+          // "0s" holds the seconds' box, so its first tick to "1s" moves nothing either.
+          size={after.trim() ? clockSizer(formatDuration(time)) : clockSizerAcrossUnits(formatDuration(time))}
         />
       ) : (
         <span className="cv-worked__label-time">{shown}</span>

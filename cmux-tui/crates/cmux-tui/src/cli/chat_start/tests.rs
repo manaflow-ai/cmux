@@ -1757,6 +1757,61 @@ fn a_joined_machine_is_reached_by_the_name_it_joined_with_not_its_host_name() {
     }
 }
 
+/// own-machine-parity run 45367945285: two tagged builds signed in on one Mac (A and B, one host
+/// name), and the hub listing neither yet. A's Machines list shows B joined and connected; the
+/// account rows come from that list ([`joined::rows_from_app_list`]), so `--on B` (by its name or
+/// its `joined:ID`) starts on B by the name it joined with, never on the host name A shares.
+#[test]
+fn a_machine_the_apps_list_shows_joined_is_a_chat_target_by_the_name_it_joined_with() {
+    let row_of = |id: &str, name: &str, state: &str| {
+        json!({"id": format!("joined:{id}"), "kind": "joined", "name": name, "online": true,
+               "linkState": "connected",
+               "joined": {"id": id, "name": name, "hostname": "mac-1795", "state": state,
+                          "platform": "macos"}})
+    };
+    let app_list = json!({"machines": [
+        {"id": "local", "kind": "local", "name": "This Mac", "joined": null},
+        {"id": "vm_1", "kind": "cloud", "name": "cmux-vm", "joined": null},
+        row_of("m_a", "mac-1795-iospair-90001", "online"),
+        row_of("m_b", "mac-1795-iospair-90002", "online"),
+        row_of("m_old", "mac-0001-iospair-90002", "offline"),
+    ]});
+    let rows = joined::rows_from_app_list(&app_list);
+    assert_eq!(rows.len(), 3, "only the joined rows, as account rows: {rows:?}");
+    assert!(rows.iter().all(|row| row["kind"] == "joined"));
+    let on = |on: &str| {
+        route_or_joined(
+            Some(on),
+            || {
+                route(
+                    Some(on),
+                    Reads {
+                        catalog: || Ok(catalog()),
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                        peers: no_peers,
+                    },
+                )
+            },
+            Sources { hub: Vec::new, rows: || Ok(joined::rows_from_app_list(&app_list)) },
+        )
+    };
+    let b = joined_at(Some("m_b"), "mac-1795-iospair-90002", "mac-1795-iospair-90002");
+    assert_eq!(on("mac-1795-iospair-90002"), b);
+    assert_eq!(on("joined:m_b"), b);
+    // A host name only one live machine has is still what an older acpmux heartbeats with.
+    let single = || {
+        Ok(vec![json!({"kind": "joined", "id": "m_desk", "name": "Desk Mac",
+                       "hostname": "mini-2", "state": "online"})])
+    };
+    let desk = route_or_joined(
+        Some("Desk Mac"),
+        || Err(json!({"code": "chat_target.unknown_device"})),
+        Sources { hub: Vec::new, rows: single },
+    );
+    assert_eq!(desk, joined_at(Some("m_desk"), "Desk Mac", "mini-2"));
+}
+
 /// cmux#46701: `cmux chat --on cloud` takes what the composer's Cloud start picks: harness,
 /// model, effort, mode, and a folder (`--cwd`, `--from-folder`) or No folder (`--no-folder`).
 /// Each reaches `cloud start-chat`, which checks them again.

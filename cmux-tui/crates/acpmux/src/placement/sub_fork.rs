@@ -43,6 +43,17 @@ pub trait Machines: Send + Sync + 'static {
     ) -> impl Future<Output = Result<String, String>> + Send;
     /// Delete a fork this placement made. Deleting one that is already gone is not an error.
     fn delete(&self, machine: &str) -> impl Future<Output = Result<(), String>> + Send;
+    /// [`Machines::fork`] at a ladder size (`sm` .. `2xl`), never smaller than `machine`: a run VM
+    /// at its predicted shape (RFD 0144 piece 8). A backend without sizes forks at the source's.
+    fn fork_sized(
+        &self,
+        machine: &str,
+        client_key: &str,
+        size: Option<&str>,
+    ) -> impl Future<Output = Result<String, String>> + Send {
+        let _ = size;
+        self.fork(machine, client_key)
+    }
 }
 
 /// Runs the sub-agent on a fork and brings its result back.
@@ -61,6 +72,11 @@ pub struct Task {
     pub checkout: PathBuf,
     /// The snapshot tree the fork starts from ([`snapshot`]).
     pub base_tree: String,
+    /// The sub-agent's model or harness, as `start_session` was given it.
+    pub model: Option<String>,
+    /// For a warm fork (taken earlier, at another snapshot): the patch that brings its files to
+    /// `base_tree` ([`capture`] against its own snapshot); empty for a fork taken for this task.
+    pub sync_patch: Vec<u8>,
 }
 
 /// What came back from a sub-agent on a fork.
@@ -70,8 +86,11 @@ pub struct Ran {
     pub report: String,
     /// The fork's changes inside the checkout (`git diff --binary`), empty when it changed none.
     pub patch: Vec<u8>,
-    /// Milliseconds from the fork call to the sub-agent's first output, when the runner saw it.
+    /// Milliseconds from the run's start (the fork ready, its wake call included) to the
+    /// sub-agent's first output, when the runner saw it.
     pub first_output_ms: Option<u64>,
+    /// Milliseconds from the fork's last frame to its patch in hand, when the runner timed it.
+    pub files_back_ms: Option<u64>,
 }
 
 /// The step a fallback came from.
@@ -106,6 +125,12 @@ pub enum Outcome {
         first_output_ms: Option<u64>,
         /// Whether the fork's delete call succeeded (a failed delete is logged, never fatal).
         fork_deleted: bool,
+        /// The fork call's time, for a warm fork the time it took when it was made.
+        fork_ms: u64,
+        /// Whether the fork was a warm one, made ahead of this sub-agent.
+        warm: bool,
+        /// The patch's way back and its apply to the parent's checkout.
+        files_back_ms: u64,
     },
     /// Something failed: the sub-agent runs on the parent's machine, as today.
     #[serde(rename_all = "camelCase")]
@@ -152,8 +177,9 @@ pub fn this_machine() -> Option<String> {
 /// (`CMUX_CLOUD_API_URL`, `CMUX_CLOUD_ACCESS_TOKEN`, `CMUX_CLOUD_TEAM`, as `acpmux fork-run`
 /// reads them). A build whose cmux-cloud-api has no `machine.fork` yet refuses at the fork, and
 /// the placement falls back with that refusal as its cause.
+#[cfg(unix)]
 pub struct CloudMachines {
-    request: cmux_cloud_api::Request,
+    pub(crate) request: cmux_cloud_api::Request,
 }
 
 /// The variables [`CloudMachines::from_env`] reads.
@@ -161,6 +187,7 @@ pub const API_ENV: &str = "CMUX_CLOUD_API_URL";
 pub const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 pub const TEAM_ENV: &str = "CMUX_CLOUD_TEAM";
 
+#[cfg(unix)]
 impl CloudMachines {
     /// The backend from `env` (a lookup, `std::env::var` in the daemon), or which value is missing.
     pub fn from_env(env: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
@@ -187,14 +214,28 @@ impl CloudMachines {
     }
 }
 
+#[cfg(unix)]
 impl Machines for CloudMachines {
     async fn fork(&self, machine: &str, client_key: &str) -> Result<String, String> {
+        self.fork_sized(machine, client_key, None).await
+    }
+
+    async fn fork_sized(
+        &self,
+        machine: &str,
+        client_key: &str,
+        size: Option<&str>,
+    ) -> Result<String, String> {
         let mut request = self.request.clone();
         request.call = "machine.fork".into();
-        request.args = serde_json::json!({"machine": machine, "clientKey": client_key, "visibility": "private"})
+        let mut args = serde_json::json!({"machine": machine, "clientKey": client_key, "visibility": "private"})
             .as_object()
             .cloned()
             .unwrap_or_default();
+        if let Some(size) = size {
+            args.insert("size".into(), Value::from(size));
+        }
+        request.args = args;
         let answer = cmux_cloud_api::perform(&request, zeroize::Zeroizing::new(Vec::new()))
             .await
             .map_err(|f| Self::failure(&f, &request))?;
@@ -227,17 +268,131 @@ impl SubRun for NoForkRunner {
 
 /// `start_session`'s hook: with [`StartPlan::Fork`], try the placement; answers the outcome to
 /// put on the reply, `None` when the plan is today's (the key off: nothing ran, nothing changes).
-pub async fn on_start(plan: &StartPlan, prompt: &str, checkout: &Path) -> Option<Outcome> {
+pub async fn on_start(
+    plan: &StartPlan,
+    prompt: &str,
+    model: Option<&str>,
+    checkout: &Path,
+) -> Option<Outcome> {
     let StartPlan::Fork { machine } = plan else { return None };
-    let machines = match CloudMachines::from_env(|k| std::env::var(k).ok()) {
-        Ok(m) => Arc::new(m),
-        Err(detail) => {
-            let out = Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None };
-            tracing::warn!(?out, "sub_fork: fell back to the parent's machine");
-            return Some(out);
+    // cmux-cloud-api is a unix-only crate: elsewhere there is no fork backend to try.
+    #[cfg(not(unix))]
+    {
+        let _ = (machine, prompt, model, checkout);
+        let detail = "Cloud forks need a unix build of acpmux".to_owned();
+        Some(Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None })
+    }
+    #[cfg(unix)]
+    {
+        let machines = match CloudMachines::from_env(|k| std::env::var(k).ok()) {
+            Ok(m) => Arc::new(m),
+            Err(detail) => {
+                let out = Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None };
+                tracing::warn!(?out, "sub_fork: fell back to the parent's machine");
+                return Some(out);
+            }
+        };
+        let runner = super::sub_fork_run::ForkRunner::new(super::sub_fork_run::CloudLink::new(
+            machines.request.clone(),
+        ));
+        let warm = CLOUD_WARM.get_or_init(|| Arc::new(WarmSlot::default())).clone();
+        let opts = Placing { budget: FORK_BUDGET, warm, model: model.map(str::to_owned) };
+        Some(place_with(true, Some(machine), machines, &runner, &opts, prompt, checkout).await)
+    }
+}
+
+/// The longest a placement waits for a new fork before the sub-agent starts here instead:
+/// RFD 0144's fork-to-first-command gate. Staging's fork call is p50 37 s (cmux#54532, run
+/// 45439689156, n=5), so a new fork almost never makes it; it is kept warm for the next one.
+pub const FORK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+/// How long a warm fork waits for a sub-agent before it is deleted.
+pub const WARM_TTL: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// The one warm fork of this daemon's Cloud backend.
+// test-hook-allow: not a test hook; the `fn() -> M` is WarmSlot's PhantomData variance marker,
+// and no test sets this daemon-wide slot
+#[cfg(unix)]
+static CLOUD_WARM: std::sync::OnceLock<Arc<WarmSlot<CloudMachines>>> = std::sync::OnceLock::new();
+
+/// A fork made ahead of need: of `source`, at the snapshot `base_tree`.
+#[derive(Debug, Clone)]
+pub struct WarmFork {
+    pub id: String,
+    pub source: String,
+    pub base_tree: String,
+    pub fork_ms: u64,
+    pub at: Instant,
+}
+
+/// At most one warm fork; a newer one replaces (and deletes) the older, and one unused for
+/// [`WARM_TTL`] is deleted.
+pub struct WarmSlot<M: Machines> {
+    held: std::sync::Mutex<Option<WarmFork>>,
+    ttl: std::time::Duration,
+    _m: std::marker::PhantomData<fn() -> M>,
+}
+
+impl<M: Machines> Default for WarmSlot<M> {
+    fn default() -> Self {
+        Self::with_ttl(WARM_TTL)
+    }
+}
+
+impl<M: Machines> WarmSlot<M> {
+    pub fn with_ttl(ttl: std::time::Duration) -> Self {
+        Self { held: std::sync::Mutex::new(None), ttl, _m: std::marker::PhantomData }
+    }
+
+    /// The warm fork of `source`, if one is ready and fresh; it is the caller's from here.
+    pub fn take(&self, source: &str) -> Option<WarmFork> {
+        let mut held = self.held.lock().ok()?;
+        match held.as_ref() {
+            Some(w) if w.source == source && w.at.elapsed() < self.ttl => held.take(),
+            _ => None,
         }
-    };
-    Some(place(true, Some(machine), machines, &NoForkRunner, prompt, checkout).await)
+    }
+
+    pub fn peek(&self) -> Option<WarmFork> {
+        self.held.lock().ok()?.clone()
+    }
+
+    /// Keep `fork` warm; an older one is deleted, and this one is deleted after the TTL unless a
+    /// placement took it.
+    pub fn park(self: &Arc<Self>, machines: Arc<M>, fork: WarmFork) {
+        let old = self.held.lock().ok().and_then(|mut h| h.replace(fork.clone()));
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        if let Some(old) = old {
+            let m = machines.clone();
+            scope().spawn_named("sub_fork: delete a replaced warm fork", async move {
+                let _ = m.delete(&old.id).await;
+            });
+        }
+        let slot = self.clone();
+        scope().spawn_named("sub_fork: warm fork expiry", async move {
+            tokio::time::sleep(slot.ttl).await;
+            let expired = slot
+                .held
+                .lock()
+                .ok()
+                .and_then(|mut h| if h.as_ref().is_some_and(|w| w.id == fork.id) { h.take() } else { None });
+            if let Some(w) = expired {
+                tracing::info!(fork = %w.id, "sub_fork: an unused warm fork expired; deleting it");
+                if let Err(e) = machines.delete(&w.id).await {
+                    tracing::warn!(fork = %w.id, error = %e, "sub_fork: deleting an expired warm fork failed");
+                }
+            }
+        });
+    }
+}
+
+/// How a placement gets its fork: wait at most `budget` for a new one, else keep it warm in
+/// `warm` for the next sub-agent.
+pub struct Placing<M: Machines> {
+    pub budget: std::time::Duration,
+    pub warm: Arc<WarmSlot<M>>,
+    pub model: Option<String>,
 }
 
 /// Owns a fork from the moment it exists: [`ForkGuard::delete`] deletes it, and a guard dropped
@@ -275,8 +430,8 @@ impl<M: Machines> Drop for ForkGuard<M> {
         let Some(id) = self.id.take() else { return };
         let machines = self.machines.clone();
         match tokio::runtime::Handle::try_current() {
-            Ok(rt) => {
-                rt.spawn(async move {
+            Ok(_) => {
+                scope().spawn_named("sub_fork: delete a cancelled fork", async move {
                     if let Err(e) = machines.delete(&id).await {
                         tracing::warn!(fork = %id, error = %e, "sub_fork: deleting a cancelled fork failed");
                     }
@@ -298,10 +453,24 @@ pub async fn place<M: Machines, R: SubRun>(
     prompt: &str,
     checkout: &Path,
 ) -> Outcome {
+    let opts = Placing { budget: FORK_BUDGET, warm: Arc::new(WarmSlot::default()), model: None };
+    place_with(on, machine, machines, runner, &opts, prompt, checkout).await
+}
+
+/// [`place`] with its fork budget, warm slot and model.
+pub async fn place_with<M: Machines, R: SubRun>(
+    on: bool,
+    machine: Option<&str>,
+    machines: Arc<M>,
+    runner: &R,
+    opts: &Placing<M>,
+    prompt: &str,
+    checkout: &Path,
+) -> Outcome {
     if !on {
         return Outcome::Off;
     }
-    let outcome = place_on(machine, machines, runner, prompt, checkout).await;
+    let outcome = place_on(machine, machines, runner, opts, prompt, checkout).await;
     if let Outcome::Fallback { cause, detail, fork_deleted } = &outcome {
         tracing::warn!(?cause, %detail, ?fork_deleted, "sub_fork: fell back to the parent's machine");
     }
@@ -312,6 +481,7 @@ async fn place_on<M: Machines, R: SubRun>(
     machine: Option<&str>,
     machines: Arc<M>,
     runner: &R,
+    opts: &Placing<M>,
     prompt: &str,
     checkout: &Path,
 ) -> Outcome {
@@ -325,12 +495,81 @@ async fn place_on<M: Machines, R: SubRun>(
         Err(e) => return fallback(Cause::Snapshot, e, None),
     };
     let started = Instant::now();
-    let client_key = format!("sub-fork-{}", uuid::Uuid::now_v7());
-    let fork = match machines.fork(machine, &client_key).await {
-        Ok(id) => ForkGuard::new(machines.clone(), id),
-        Err(e) => return fallback(Cause::Fork, e, None),
+    let (fork, fork_ms, warm, sync_patch) = match opts.warm.take(machine) {
+        Some(w) => {
+            let guard = ForkGuard::new(machines.clone(), w.id.clone());
+            // The warm fork holds the files of its own snapshot: bring them to now.
+            match capture(checkout, &w.base_tree) {
+                Ok(sync) => (guard, w.fork_ms, true, sync),
+                Err(e) => {
+                    let deleted = guard.delete().await;
+                    return fallback(
+                        Cause::Snapshot,
+                        format!("syncing the warm fork: {e}"),
+                        Some(deleted),
+                    );
+                }
+            }
+        }
+        None => {
+            let client_key = format!("sub-fork-{}", uuid::Uuid::now_v7());
+            let forking = {
+                let machines = machines.clone();
+                let machine = machine.to_owned();
+                async move { machines.fork(&machine, &client_key).await }
+            };
+            let mut forking = Box::pin(forking);
+            match tokio::time::timeout(opts.budget, &mut forking).await {
+                Ok(Ok(id)) => (
+                    ForkGuard::new(machines.clone(), id),
+                    started.elapsed().as_millis() as u64,
+                    false,
+                    Vec::new(),
+                ),
+                Ok(Err(e)) => return fallback(Cause::Fork, e, None),
+                Err(_) => {
+                    // Never block the turn on the fork: this sub-agent starts here, and the fork,
+                    // when it is ready, waits warm for the next one.
+                    let budget_ms = opts.budget.as_millis() as u64;
+                    let slot = opts.warm.clone();
+                    let source = machine.to_owned();
+                    let tree = base_tree.clone();
+                    let m = machines.clone();
+                    scope().spawn_named("sub_fork: finish a fork past the budget", async move {
+                        match forking.await {
+                            Ok(id) => {
+                                let fork_ms = started.elapsed().as_millis() as u64;
+                                tracing::info!(fork = %id, fork_ms, "sub_fork: a fork past the budget is warm for the next sub-agent");
+                                let w = WarmFork {
+                                    id,
+                                    source,
+                                    base_tree: tree,
+                                    fork_ms,
+                                    at: Instant::now(),
+                                };
+                                slot.park(m, w);
+                            }
+                            Err(e) => tracing::warn!(error = %e, "sub_fork: the warm fork failed"),
+                        }
+                    });
+                    return fallback(
+                        Cause::Fork,
+                        format!(
+                            "no fork ready in {budget_ms} ms; one is being made warm for the next sub-agent"
+                        ),
+                        None,
+                    );
+                }
+            }
+        }
     };
-    let task = Task { prompt: prompt.to_owned(), checkout: checkout.to_owned(), base_tree };
+    let task = Task {
+        prompt: prompt.to_owned(),
+        checkout: checkout.to_owned(),
+        base_tree,
+        model: opts.model.clone(),
+        sync_patch,
+    };
     let ran = runner.run(fork.id(), &task).await;
     let fork_id = fork.id().to_owned();
     let ran = match ran {
@@ -340,12 +579,15 @@ async fn place_on<M: Machines, R: SubRun>(
             return fallback(Cause::Run, e, Some(deleted));
         }
     };
+    let applying = Instant::now();
     let applied = apply(checkout, &ran.patch);
+    let files_back_ms = ran.files_back_ms.unwrap_or(0) + applying.elapsed().as_millis() as u64;
     let deleted = fork.delete().await;
     match applied {
         Ok(files) => {
             tracing::info!(
-                fork = %fork_id, files, first_output_ms = ?ran.first_output_ms,
+                fork = %fork_id, files, fork_ms, warm, files_back_ms,
+                first_output_ms = ?ran.first_output_ms,
                 total_ms = started.elapsed().as_millis() as u64,
                 "sub_fork: the sub-agent ran on a fork and its patch is applied"
             );
@@ -355,6 +597,9 @@ async fn place_on<M: Machines, R: SubRun>(
                 files,
                 first_output_ms: ran.first_output_ms,
                 fork_deleted: deleted,
+                fork_ms,
+                warm,
+                files_back_ms,
             }
         }
         Err(e) => fallback(Cause::Apply, e, Some(deleted)),
@@ -410,7 +655,7 @@ fn scratch_index(checkout: &Path, base: Option<&str>) -> Result<tempfile::TempPa
         .map_err(|e| format!("scratch index: {e}"))?
         .into_temp_path();
     // git refuses an empty file as an index; it creates one where none exists.
-    std::fs::remove_file(&file).map_err(|e| format!("scratch index: {e}"))?;
+    crate::home_fs::remove_file(&file).map_err(|e| format!("scratch index: {e}"))?;
     match base {
         Some(tree) => {
             git(checkout, Some(&file), &["read-tree", tree], None)?;
@@ -468,6 +713,14 @@ pub fn apply(checkout: &Path, patch: &[u8]) -> Result<usize, String> {
     Ok(patch.split(|b| *b == b'\n').filter(|l| l.starts_with(b"diff --git ")).count())
 }
 
-#[cfg(test)]
+/// The owner of the runner's background work: deleting a replaced, expired or cancelled fork,
+/// and finishing a fork past the budget so it waits warm. Each task ends on its own.
+fn scope() -> &'static cmux_scope::Scope {
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    SCOPE.get_or_init(|| cmux_scope::Scope::new("sub_fork runner"))
+}
+
+// Forks are git checkouts whose executable bits the tests compare: unix only.
+#[cfg(all(test, unix))]
 #[path = "sub_fork_tests.rs"]
-mod tests;
+pub(crate) mod tests;

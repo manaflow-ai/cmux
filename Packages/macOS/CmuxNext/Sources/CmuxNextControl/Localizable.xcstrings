@@ -15085,6 +15085,138 @@
         }
       }
     },
+    "control.authToken.refusedCode": {
+      "comment": "auth.token refusal that is not about membership: cmux Cloud would not mint a token for the team for another reason. The first %@ is the team id, the second the service's refusal code (for example owner.state_full).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud refused a token for team %1$@ (%2$@). Run cmux auth token again; if it keeps happening, this account needs a fix on the cmux side."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud hat ein Token für das Team %1$@ abgelehnt (%2$@). Führe cmux auth token erneut aus; passiert es weiter, muss dieses Konto auf Seiten von cmux korrigiert werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud a refusé un jeton pour l’équipe %1$@ (%2$@). Relancez cmux auth token ; si cela continue, ce compte doit être corrigé du côté de cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض cmux Cloud إصدار رمز للفريق %1$@ (%2$@). شغّل cmux auth token مرة أخرى؛ وإذا تكرر ذلك، فهذا الحساب يحتاج إلى إصلاح من جهة cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud rechazó un token para el equipo %1$@ (%2$@). Vuelve a ejecutar cmux auth token; si sigue pasando, esta cuenta necesita un arreglo por parte de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 拒絕為團隊 %1$@ 簽發權杖（%2$@）。請再次執行 cmux auth token；如果仍然發生，此帳號需要由 cmux 方面修正。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 拒绝为团队 %1$@ 签发令牌（%2$@）。请再次运行 cmux auth token；如果仍然出现，此账户需要由 cmux 方面修复。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud가 팀 %1$@의 토큰 발급을 거부했습니다(%2$@). cmux auth token을 다시 실행하세요. 계속 발생하면 cmux 쪽에서 이 계정을 수정해야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud がチーム %1$@ のトークンを拒否しました（%2$@）。cmux auth token をもう一度実行してください。繰り返し起きる場合は、cmux 側でこのアカウントの修正が必要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud je odbio token za tim %1$@ (%2$@). Ponovo pokreni cmux auth token; ako se nastavi dešavati, ovaj račun treba popravku na strani cmux-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud afviste et token til team %1$@ (%2$@). Kør cmux auth token igen; hvis det bliver ved, skal kontoen rettes hos cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud ha rifiutato un token per il team %1$@ (%2$@). Esegui di nuovo cmux auth token; se continua, questo account va corretto da parte di cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud បានបដិសេធ token សម្រាប់ក្រុម %1$@ (%2$@)។ ដំណើរការ cmux auth token ម្តងទៀត។ ប្រសិនបើវានៅតែកើតឡើង គណនីនេះត្រូវការការជួសជុលពីខាង cmux។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud avviste et token for teamet %1$@ (%2$@). Kjør cmux auth token igjen; hvis det fortsetter, må kontoen rettes hos cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud odmówił tokenu dla zespołu %1$@ (%2$@). Uruchom ponownie cmux auth token; jeśli to się powtarza, to konto wymaga poprawki po stronie cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux Cloud recusou um token para a equipe %1$@ (%2$@). Execute cmux auth token novamente; se continuar acontecendo, esta conta precisa de uma correção do lado do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud отказал в токене для команды %1$@ (%2$@). Снова запустите cmux auth token; если это повторяется, учётную запись нужно исправить на стороне cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud ปฏิเสธโทเค็นสำหรับทีม %1$@ (%2$@) เรียกใช้ cmux auth token อีกครั้ง หากยังเกิดขึ้นอยู่ บัญชีนี้ต้องได้รับการแก้ไขจากฝั่ง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud, %1$@ ekibi için token vermeyi reddetti (%2$@). cmux auth token komutunu yeniden çalıştırın; devam ederse bu hesabın cmux tarafında düzeltilmesi gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud відмовив у токені для команди %1$@ (%2$@). Знову запустіть cmux auth token; якщо це повторюється, обліковий запис треба виправити на боці cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud đã từ chối token cho nhóm %1$@ (%2$@). Chạy lại cmux auth token; nếu vẫn xảy ra, tài khoản này cần được sửa từ phía cmux."
+          }
+        }
+      }
+    },
     "control.authToken.unreachable": {
       "comment": "auth.token refusal: cmux Cloud did not answer.",
       "extractionState": "manual",

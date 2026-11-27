@@ -150,6 +150,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
     /// When ``pendingFocus`` last became true.
     @ObservationIgnored private var pendingFocusSince: ContinuousClock.Instant?
+    /// Re-asks of a grant kept while the window was not on screen (`grantFocus`).
+    @ObservationIgnored var offscreenGrantRetries = 0
     /// The page's view became shown in this main-thread turn (``pageDidAppear()``): it takes no key focus before the turn's frame commits.
     @ObservationIgnored var appearedThisTurn = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
@@ -259,6 +261,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
+    @ObservationIgnored var firstCommittedURL: URL?
+    /// The first address the tab was asked to load, before any redirect: the page the app opened it for
+    /// (``BrowserExternalApps/noteFlowPage(_:)``), which a redirect may never commit.
+    @ObservationIgnored var firstRequestedURL: URL?
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -294,6 +300,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The read of a document's icon list when Chromium reported none for it (#42435).
     @ObservationIgnored var documentFaviconRead: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The flow this tab was opened for (a sign-in, GitHub's install) handed back to the app and asked for the tab's
+    /// close (``closeAfterHandoff()``): nobody's close for the page to decide (`CEFTab+UserClose`).
+    @ObservationIgnored var handedOff = false
     /// The browser went with the engine's stop for quit (``browserDidClose(closesTab:)`` false), not by
     /// itself: a cmux page on it is not reopened elsewhere and reports no crash (`PageChromiumEvent.engineStopped`).
     @ObservationIgnored public private(set) var browserEndedForQuit = false
@@ -362,6 +371,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// had not run, or a document the next navigation of the same load replaced. Once per browser, and again each time
     /// a focus ask that waited for the page to show is granted (``grantPendingFocusIfShown()``).
     @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
+    /// A real page's document loaded and painted (not a blank target or an error page), each time one does: its own
+    /// timeline (navigation start, DOMContentLoaded, first contentful paint) is all in. ``onReadyForKeys`` is not that
+    /// moment for a page made with no URL: it fires on the empty document at attach, before the page loads its own.
+    @ObservationIgnored public var onRealDocumentLoaded: (@MainActor () -> Void)?
+    /// Takes this tab's launch marks (``CEFLaunchMarks``); the App points it at its launch-mark log.
+    @ObservationIgnored public var onLaunchMark: (@MainActor (String) -> Void)?
     /// ``onReadyForKeys`` was reported for this browser.
     @ObservationIgnored var hasDocument = false
     /// The current document is a real page that finished loading, or an error page (not an aborted load).
@@ -369,7 +384,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The current document presented its first frame, with or without content (Chromium's `firstPaint` or
     /// `firstContentfulPaint`, `CEFFirstPaintBridge`, or the page's own answer). Chromium drops input to a new document
     /// before its first paint (lead on STATUS 8055: 11 keys sent 4 ms after loading stopped were lost).
-    @ObservationIgnored var documentPainted = false
+    /// The first such frame of a page a person sees is the launch mark `browser_pane.first_paint` (``CEFLaunchMarks``).
+    @ObservationIgnored var documentPainted = false {
+        didSet { if documentPainted, !oldValue { reportLaunchMark(CEFLaunchMarks.firstPaint) } }
+    }
     /// Chromium stopped loading (its last `.loadingState`).
     @ObservationIgnored var loadingStopped = false
     /// The current document is Chromium's error page for a failed load.
@@ -428,6 +446,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     func attach(browser: Int32) {
         browserID = browser
+        runtime.ownChatRenderer.attached(ObjectIdentifier(self), browser: browser)
         // A page asked to show something (an address, a saved navigation, an agent's load) waits for that document; a
         // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
         let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil || loadSinceCreation != nil
@@ -503,6 +522,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // seconds after the page shows and takes clicks, review 6594624994). A blank target or an error page paints
         // nothing of its own.
         guard documentLoaded, documentPainted || blankIsDocument || committedIsErrorPage else { return }
+        if documentPainted, !committedIsErrorPage, PageBackground.isRealPage(committedURL) { onRealDocumentLoaded?() }
         documentArrived()
     }
 
@@ -512,6 +532,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         hasDocument = true
         runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
+        reportLaunchMark(CEFLaunchMarks.inputReady)
         onReadyForKeys?()
     }
 
@@ -528,6 +549,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let id = makeNavigationID()
         navigation = id
         machine.apply(.started(id, url: url))
+    }
+
+    /// The placeholder hands its browser to the page that takes it (`CEFPaneHost.adoptPlaceholder`): this tab
+    /// forgets it, so its close never closes that browser.
+    func handBrowserOver() {
+        browserID = nil
     }
 
     func creationFailed() {
@@ -655,6 +682,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func load(_ url: URL) {
         guard !isClosed else { return }
+        if firstRequestedURL == nil { firstRequestedURL = url }
         automaticDownloads.userGesture()
         refusesDownloadsUntilGesture = false
         guard browserID != nil || isCreationPending else {
@@ -751,6 +779,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func setFocused(_ focused: Bool) {
         let shown = isShown
         host.lifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
+        if focused { runtime.ownChatRenderer.focused(ObjectIdentifier(self), url: state.url ?? pendingURL, browser: browserID) }
         // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
         let canTake = shown && pageWindowHostHasArea && !appearedThisTurn
         pendingFocus = focused && (!canTake || browserID == nil)
