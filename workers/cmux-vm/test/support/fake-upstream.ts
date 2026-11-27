@@ -124,7 +124,11 @@ export function makeFakeUpstream(apiKey: string) {
    * Private networks belong to mesh-fakes.ts, which sets this: a create that names a network joins it here. Answers the
    * VM's attachments, or null when the account has no such network (the create is then refused, as the provider's).
    */
-  const hooks: { attachOnCreate: ((vmId: string, vpc: string) => NonNullable<FakeVm["vpcs"]> | null) | null } = { attachOnCreate: null };
+  const hooks: {
+    attachOnCreate: ((vmId: string, vpc: string) => NonNullable<FakeVm["vpcs"]> | null) | null;
+    /** Runs before each create is handled (a provider that is slow, or hangs under load); an answer replaces the create's. */
+    beforeCreate: (() => Promise<Response | null>) | null;
+  } = { attachOnCreate: null, beforeCreate: null };
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
   const tlsRules = new Map<string, Record<string, unknown>>();
@@ -192,6 +196,8 @@ export function makeFakeUpstream(apiKey: string) {
       case "list":
         return Response.json({ vms: [...vms.values()].map(vmBody) });
       case "create": {
+        const gated = hooks.beforeCreate === null ? null : await hooks.beforeCreate();
+        if (gated !== null) return gated;
         const body: unknown = await request.clone().json();
         const record = typeof body === "object" && body !== null ? body : {};
         const read = (key: string): unknown => (key in record ? Reflect.get(record, key) : undefined);

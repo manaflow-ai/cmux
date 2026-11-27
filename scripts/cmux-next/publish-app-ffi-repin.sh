@@ -457,11 +457,26 @@ held_pr() {
   fi
   echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
 }
+# The labels (why: at label_open_repin's call before the pin push below) go on a kept PR too: the hold exits before
+# that push, and cmux#60965 was kept from 06:59Z with neither label, so its compile sat in the background tier.
+stack_blocker_label() {
+  gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$1/labels" -f 'labels[]=stack-blocker' -f 'labels[]=ready-to-land' \
+    >/dev/null 2>&1 && return 0
+  echo "::warning title=Re-pin label::could not add stack-blocker and ready-to-land to #$1; its compile waits as an ordinary PR's"
+}
+label_open_repin() {
+  local open_pr
+  open_pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" \
+    --jq '.[0] | select(. != null) | select([.labels[].name] | (index("stack-blocker") and index("ready-to-land")) | not) | .number' 2>/dev/null || true)"
+  [[ "$open_pr" =~ ^[0-9]+$ ]] && stack_blocker_label "$open_pr"
+  return 0
+}
 if [[ -n "$previous" && -n "${GH_TOKEN:-}" ]]; then
   held=0
   held_pr || held=$?
   rate_limit_gate
   if (( held == 0 )); then
+    label_open_repin
     exit 0
   elif (( held == 2 )); then
     echo "::warning title=Re-pin::could not read the re-pin pull request's state at ${previous:0:12}; left $branch alone, and the next re-pin run decides"
@@ -510,6 +525,15 @@ for file in "$pin_file" "$manifest"; do
 done
 [[ "$pin_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no signed pin commit" >&2; exit 1; }
 git fetch --no-tags origin "$pin_commit"
+# The re-pin PR is a stack blocker: every PR that needs the new FFI, and every app build, waits on it landing. The
+# `stack-blocker` label puts its Mac jobs on the nightly slot (scripts/ci/side_lane_placement.py STACK_SLOT) and ranks
+# them right after nightly in glaeda's runner hook, which reads labels from the event payload, so the label goes on an
+# open PR before the push that makes its next run. cmux#60275's compile waited 69 min for ~4 min of work (03:54Z push,
+# 05:03Z pass) behind ordinary PR CI. A label call is plain gh, never gh_retry: a rate-limited label must not set
+# rate_limit_failed and stop the pin itself. Its failure is a warning. `ready-to-land` goes on with it: the build
+# fleet's PR-head compile (cmux-next/compile, the last required check) does not start without it, and the cheap tier
+# skips it (land-judge on cmux#60965).
+[[ -n "${GH_TOKEN:-}" ]] && label_open_repin
 if ! git push --force-with-lease="refs/heads/$branch:$previous" origin "$pin_commit:refs/heads/$branch"; then
   # A lost push response is harmless only if the intended commit is published.
   [[ "$(remote_head "$branch")" == "$pin_commit" ]] || exit 1
@@ -539,6 +563,8 @@ if [[ -n "$pr_number" ]]; then
 else
   url="$(gh_retry gh pr create --base feat-cmux-next --head "$branch" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body")"
   pr_number="${url##*/}"
+  # A new PR is labelled right after create (the next push's run, and the lander's update-branch, carry it).
+  [[ "$pr_number" =~ ^[0-9]+$ ]] && stack_blocker_label "$pr_number"
 fi
 [[ "$pr_number" =~ ^[0-9]+$ ]] || { echo "::error::no re-pin PR number" >&2; exit 1; }
 # GitHub syncs a pull request's head some time after a push: on 2026-11-25 the PR still read 4910b844 after the

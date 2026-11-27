@@ -120,13 +120,36 @@ pub enum Env {
 }
 
 impl Env {
-    /// The only API origin each environment may bind to.
+    /// Each environment's default API origin (the one its images were baked against).
+    /// `bind.json` may name another of the environment's own ([`Env::allows_api_origin`]).
     pub fn api_origin(self) -> &'static str {
         match self {
             Env::Dev => cmux_cloud_environment::DEVELOPMENT_API,
             Env::Stg => cmux_cloud_environment::STAGING_API,
             Env::Prod => cmux_cloud_environment::PRODUCTION_API,
         }
+    }
+
+    /// Whether `origin` may be this environment's API base as the platform writes it in
+    /// `bind.json` (C11, plans/cloud/ARCHITECTURE-2026-11.md): the environment's API origin, its
+    /// own platform Worker ([`Env::platform_origin`]), and in dev only a numbered API preview
+    /// (`https://cmux-api-preview-N.debussy.workers.dev`, N from 1, no leading zero). Exact
+    /// strings only: https, no path, port, credentials, query or trailing slash. The machine's
+    /// bearer and install-key signatures go to this origin, so it never names another
+    /// environment's deployment or a host outside these.
+    pub fn allows_api_origin(self, origin: &str) -> bool {
+        if origin == self.api_origin() || origin == self.platform_origin() {
+            return true;
+        }
+        self == Env::Dev
+            && origin
+                .strip_prefix("https://cmux-api-preview-")
+                .and_then(|rest| rest.strip_suffix(".debussy.workers.dev"))
+                .is_some_and(|n| {
+                    (1..=9).contains(&n.len())
+                        && !n.starts_with('0')
+                        && n.bytes().all(|b| b.is_ascii_digit())
+                })
     }
 
     /// The connector owner for this environment. Socket callers cannot
@@ -201,7 +224,7 @@ fn bind_token_ok(raw: &str) -> bool {
 }
 
 /// `bind.json`, refused unless every field has its shape and the origin is
-/// the environment's own.
+/// one the environment allows ([`Env::allows_api_origin`]).
 pub fn parse_bind_file(text: &str) -> Result<BindFile, String> {
     let raw: Value = serde_json::from_str(text).map_err(|_| "bind.json is not JSON".to_owned())?;
     let field = |key: &str| raw.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
@@ -219,8 +242,8 @@ pub fn parse_bind_file(text: &str) -> Result<BindFile, String> {
         return Err("bind.json: unknown env".to_owned());
     };
     let api_origin = field("api_origin");
-    if api_origin != env.api_origin() {
-        return Err(format!("bind.json: api_origin is not the {} origin", field("env")));
+    if !env.allows_api_origin(&api_origin) {
+        return Err(format!("bind.json: api_origin is not a {} origin", field("env")));
     }
     let carrier = match raw.get("carrier") {
         None => None,
