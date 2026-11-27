@@ -93,10 +93,12 @@ Process {
   reason?       // why it stopped: "person", "agent", "harness_exit";
                 // later "budget_memory", "harness_time_limit"
   detail?       // the harness's own words on its end (Claude's summary)
-  origin        // background | auto_backgrounded | user_backgrounded
+  origin        // background | auto_backgrounded | user_backgrounded | daemon
                 // (auto_backgrounded: Claude Code moved it at its timeout,
                 // or acpmux did after five minutes in the foreground,
-                // or two when the person's message waits)
+                // or two when the person's message waits; daemon: a task
+                // the daemon runs, below)
+  daemonTask?   // true for a task the daemon runs (`hub/bg_registry.rs`)
   outputBytes   // the output file's length when listed; null with no file
   outputFile?   // the file the harness writes its output to
   preview?      // {url, port}: the dev server it runs, while it runs
@@ -186,6 +188,26 @@ harness itself exited. Its last output is kept and its command is shown with
   it is refused with invalid params "tail is Claude Code only for now".
 - Codex caps a session at 64 unified-exec processes; that cap is compiled
   in.
+
+**The daemon's own tasks** (`hub/bg_registry.rs`). acpmux's Bash hook rewrites
+a Claude Code background shell, or a known-slow foreground command, into a
+task the daemon runs (`bg_hook.rs`, `hub/bg_tasks.rs`), so Claude Code reports
+no background shell for it. Such a task, and one an agent starts with
+`bg_start`, is a row with `daemonTask: true` and origin `daemon`:
+- `toolCallId` is the Bash call the hook rewrote (`--tool-call`, from the
+  hook's `tool_use_id`); none for an MCP `bg_start`.
+- Its folder (`bg/<sessionId>/`) is the truth. A start logs the running row;
+  every task is watched, and its end (exit, stop, signal, a runner that died:
+  `lost`) logs the ended row; a daemon start watches every task still
+  running and logs its row; each `process/list` first checks every row it
+  holds as running against the folder, so an end while no daemon ran never
+  stays `running`. A row is logged only when it changed.
+- It outlives the harness and never keeps a chat awake: a harness exit loses
+  none, and the idle checks count none.
+- `process/kill` stops it through its runner (`bg_stop`); `process/tail`
+  reads its spool (`bg_output`).
+- A workflow's machine task (a stable id with its claim) is no row: its
+  workflow shows it.
 
 **Fallback for any harness:** when the harness is gone, its holder signals
 the harness's process group; nothing walks the process tree (cx-t2sqm.3
