@@ -2,13 +2,11 @@
 // Every status the live spot can show, each under the one shimmer (scenarios ST-03 and ST-04; Leo,
 // 2026-11-22: "you sending messages or whatever aren't being accounted properly a la the "thinking"
 // thing", "the "waiting" also shouldnt be special cased as white. all in the "thinking" spot should
-// glimmer like that"). The real Thinking line (Thinking.tsx) for each label it can say, then the
-// activity line (ActivityLine.tsx) for each of its kinds. Light and dark from the gallery's shared
+// glimmer like that"). The real Thinking line (Thinking.tsx) for each label it can say. Light and dark from the gallery's shared
 // controls; `glass` draws them on a glass card as a glass theme does.
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { AcpmuxRow } from "../model";
-import { ActivityLine } from "./ActivityLine";
+
 import type { LiveWait } from "./liveWait";
 import { Thinking } from "./Thinking";
 import { type WaitingOn, WaitingOnContext } from "./waitingOn";
@@ -17,7 +15,6 @@ type Props = { surface?: "plain" | "glass" };
 
 const NOW = 64_000;
 const now = () => NOW;
-const line: AcpmuxRow = { id: "activityLine-p", version: 1, at: 0, kind: "activityLine", below: true };
 
 const wait = (waiting: WaitingOn, node: ReactNode) => <WaitingOnContext value={waiting}>{node}</WaitingOnContext>;
 
@@ -88,13 +85,6 @@ const STATUSES: [string, ReactNode][] = [
   ["Needs you", wait("permission", <Thinking since={0} now={now} />)],
   ["Trust", wait("trust", <Thinking since={0} now={now} />)],
   ["Secret", wait("secret", <Thinking since={0} now={now} />)],
-  ["Activity: step", <ActivityLine key="k78" row={{ ...line, text: "Edit ProductGrid.module.css" }} now={now} />],
-  ["Activity: thinking", <ActivityLine key="k79" row={line} now={now} />],
-  [
-    "Activity: sending",
-    <ActivityLine key="k82" row={{ ...line, text: "SendMessage", doingSendTo: "Prioritize visible cmux" }} now={now} />,
-  ],
-  ["Activity: waiting", wait("permission", <ActivityLine row={line} now={now} />)],
 ];
 
 function Fixture({ surface = "plain" }: Props) {
@@ -130,11 +120,7 @@ export default componentEntry<Props>({
   widths: { narrow: 420, normal: 640 },
   styles: () =>
     Promise.all([import("../styles.css"), import("./conversation.css"), import("../../../ui/glass/glass.css")]),
-  covers: [
-    "agent-session/acpmux/conversation/Thinking.tsx",
-    "agent-session/acpmux/conversation/ActivityLine.tsx",
-    "agent-session/acpmux/conversation/LiveShimmer.tsx",
-  ],
+  covers: ["agent-session/acpmux/conversation/Thinking.tsx", "agent-session/acpmux/conversation/LiveShimmer.tsx"],
   keywords: ["thinking", "shimmer", "glimmer", "waiting", "sending", "status", "live", "ST-03", "ST-04"],
   options: [
     {

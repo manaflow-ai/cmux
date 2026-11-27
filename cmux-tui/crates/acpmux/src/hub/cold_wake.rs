@@ -132,10 +132,10 @@ pub(crate) const fn plain_wake_cost(context: u64) -> u64 {
 pub(crate) const DEFAULT_COMPACT_ABOVE_TOKENS: u64 = 100_000;
 /// The range the compaction line is clamped to.
 pub(crate) const COMPACT_ABOVE_RANGE: (u64, u64) = (10_000, 500_000);
-/// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (on by default).
+/// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (off by default).
 pub const SETTING_ENABLED: &str = "agents.coldWake.enabled";
-/// And compact a large cold chat before its batch goes in (on by default; Leo, 2026-11-24: "this
-/// can be toggled but... this as a default seems decent").
+/// And compact a large cold chat before its batch goes in (off by default, like batching; Leo,
+/// 2026-11-26: "only do it for our personal fleet situation").
 pub const SETTING_COMPACT: &str = "agents.coldWake.compact";
 /// The context (tokens) from which a cold batch compacts first ([`DEFAULT_COMPACT_ABOVE_TOKENS`]).
 pub const SETTING_COMPACT_ABOVE: &str = "agents.coldWake.compactAboveTokens";
@@ -168,13 +168,17 @@ pub(crate) fn env_flag(value: Option<&str>) -> Option<bool> {
 }
 
 /// The knobs as `doc` (the settings file) and `env` (the daemon's environment) have them, the
-/// environment winning. A missing key, file or an unreadable file is the default: on, at
+/// environment winning. A missing key, file or an unreadable file is the default: off (Leo,
+/// 2026-11-26: "we ought to not make jcmux/acpmux so opinionated with compacition. only do it for
+/// our personal fleet situation"; our fleet turns both on in its own settings), at
 /// [`DEFAULT_COMPACT_ABOVE_TOKENS`]; compacting first needs batching on; a line out of
 /// [`COMPACT_ABOVE_RANGE`] is clamped to it, and a non-number is the default.
 pub(crate) fn settings_with(doc: Option<&Value>, env: impl Fn(&str) -> Option<String>) -> Knobs {
     let get = |key: &str| doc.and_then(|d| crate::user_settings::value(d, key));
     let flag = |key: &str, var: &str| {
-        env_flag(env(var).as_deref()).or_else(|| get(key).and_then(|v| v.as_bool())).unwrap_or(true)
+        env_flag(env(var).as_deref())
+            .or_else(|| get(key).and_then(|v| v.as_bool()))
+            .unwrap_or(false)
     };
     let enabled = flag(SETTING_ENABLED, ENV_ENABLED);
     let compact = enabled && flag(SETTING_COMPACT, ENV_COMPACT);
@@ -194,7 +198,19 @@ pub(crate) fn settings(doc: Option<&Value>) -> Knobs {
     settings_with(doc, |_| None)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The knobs a test thread runs with, whatever the settings file says (batching is off by
+    /// default; a `#[tokio::test]` runs on one thread).
+    pub(crate) static KNOBS_FOR_TEST: std::cell::Cell<Option<Knobs>> =
+        const { std::cell::Cell::new(None) };
+}
+
 fn read_settings() -> Knobs {
+    #[cfg(test)]
+    if let Some(knobs) = KNOBS_FOR_TEST.with(std::cell::Cell::get) {
+        return knobs;
+    }
     let env = |var: &str| std::env::var(var).ok();
     match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => settings_with(Some(&doc), env),
@@ -211,18 +227,28 @@ pub(crate) const NO_EXPIRY_TTL_MS: u64 = 5 * 60_000;
 /// under [`MIN_BATCH_TOKENS`].
 pub(crate) fn coldness(meta: &SessionMeta, now: u64) -> Option<(u64, u64)> {
     let usage = meta.usage.as_ref();
-    let expires =
-        usage.and_then(|u| u.pointer("/_meta/acpmux/cacheExpiresAt")).and_then(Value::as_u64);
-    let ended = meta.last_turn.as_ref().and_then(|t| t.get("endedAt")).and_then(Value::as_u64);
-    // The later of the two: a turn that ended after the usage that named the expiry (one that
-    // reported none) still warmed the cache.
-    let expires = match (expires, ended.map(|e| e.saturating_add(NO_EXPIRY_TTL_MS))) {
-        (Some(a), Some(b)) => a.max(b),
-        (a, b) => a.or(b)?,
-    };
+    let expires = cache_expires_at(meta)?;
     let cold = now.checked_sub(expires).filter(|c| *c > 0)?;
     let tokens = usage.and_then(|u| u.get("used")).and_then(Value::as_u64).unwrap_or(0);
     (tokens >= MIN_BATCH_TOKENS).then_some((cold, tokens))
+}
+
+/// When the chat's prompt cache lapses: its last `usage_update`'s `cacheExpiresAt`, or
+/// [`NO_EXPIRY_TTL_MS`] after its last turn ended, the later of the two; None when neither is
+/// known. The inbox's warm hold (`inbox.rs` `WARM_HOLD_MS`) ends by it.
+pub(crate) fn cache_expires_at(meta: &SessionMeta) -> Option<u64> {
+    let expires = meta
+        .usage
+        .as_ref()
+        .and_then(|u| u.pointer("/_meta/acpmux/cacheExpiresAt"))
+        .and_then(Value::as_u64);
+    let ended = meta.last_turn.as_ref().and_then(|t| t.get("endedAt")).and_then(Value::as_u64);
+    // The later of the two: a turn that ended after the usage that named the expiry (one that
+    // reported none) still warmed the cache.
+    match (expires, ended.map(|e| e.saturating_add(NO_EXPIRY_TTL_MS))) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, b) => a.or(b),
+    }
 }
 
 /// The batch window of a chat `cold_ms` cold with `tokens` of context (module docs).
@@ -355,7 +381,7 @@ impl Hub {
             ..PromptOptions::default()
         };
         // Surgery first (`surgery.rs`): it masks old tool output with no model call; `/compact`
-        // only when it says no (off, not a stored Claude conversation, nothing to mask, too
+        // only when it says no (off, not a stored Claude or Codex conversation, nothing to mask, too
         // little to mask) or fails.
         if self.cold_wake_surgery(session, tokens, line).await {
             self.inbox_review(session);
@@ -380,15 +406,8 @@ impl Hub {
         tokens: u64,
         line: u64,
     ) -> bool {
-        let dry = self.surgery(session, None, true).await;
-        if !surgery_suffices(&dry, line) {
-            tracing::info!(session = %session.id, tokens, outcome = ?dry.as_ref().map_err(|e| &e.message), "cold wake surgery skipped");
-            return false;
-        }
-        let answer = self.surgery(session, None, false).await;
-        let applied = surgery_applied(&answer);
-        tracing::info!(session = %session.id, tokens, applied, outcome = ?answer.as_ref().map_err(|e| &e.message), "cold wake surgery");
-        applied
+        tracing::debug!(session = %session.id, tokens, "cold wake surgery");
+        self.surgery_before_compact(session, line, "cold_wake").await
     }
 
     /// `cache_compact.rs`'s check but for the queue: no turn holds the lock, no Web or phone turn

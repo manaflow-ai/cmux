@@ -189,6 +189,9 @@ final class PromptBarView: NSView {
             alwaysCheck.isHidden = prompt.origin.isEmpty
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.externalAppOpen, prominent: true, response: nil)
+        case .noAppForScheme(let scheme):
+            messageLabel.stringValue = Strings.externalAppNone(origin: prompt.origin, scheme: scheme)
+            addButton(Strings.ok, prominent: true, response: .accept)
         case .savePassword(let username, let update):
             let question = update ? Strings.passwordUpdatePrompt(prompt.origin) : Strings.passwordSavePrompt(prompt.origin)
             messageLabel.stringValue = username.isEmpty ? question : "\(question)\n\(username)"

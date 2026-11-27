@@ -113,3 +113,29 @@ export function transition(
 
 /// The transition playing on `list`, if any.
 export const runningTransition = (list: MotionList): Transition | undefined => running.get(list);
+
+/// The scroll writers of the lists the owner drives, by scroller. A row's own fold keeps its line in
+/// view by asking the owner to move its scroller (`scrollListTo`), never by writing `scrollTop`
+/// itself (docs/design/transcript-motion-model.md, "The owner, and what a row may no longer do").
+const listScrolls = new WeakMap<Element, (top: number) => void>();
+
+/// Registers the scroll writer of the list drawn in `scroller`; returns its unregister.
+export function registerListScroll(scroller: Element, write: (top: number) => void): () => void {
+  listScrolls.set(scroller, write);
+  return () => {
+    if (listScrolls.get(scroller) === write) listScrolls.delete(scroller);
+  };
+}
+
+/// Moves `scroller` to `top` through the list's owner; a scroller no list drives (a gallery, a test)
+/// is written as before.
+export function scrollListTo(scroller: Element, top: number): void {
+  const write = listScrolls.get(scroller);
+  if (write) write(top);
+  else scroller.scrollTop = top;
+}
+
+/// Moves `scroller` by `deltaPx` through the list's owner (`scrollListTo`).
+export function scrollListBy(scroller: Element, deltaPx: number): void {
+  scrollListTo(scroller, scroller.scrollTop + deltaPx);
+}

@@ -123,6 +123,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Its words, cut with an ellipsis where the line ends (DisclosureRow.tsx statusText). */
+.cv-disclosure__status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cv-disclosure__status [data-state="failed"],
 .cv-disclosure[data-state="failed"] .cv-disclosure__status {
   color: var(--agent-status-failure);

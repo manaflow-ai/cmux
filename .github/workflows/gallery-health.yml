@@ -48,6 +48,10 @@ on:
         description: "The one job id to run (a bisect probe): health. Empty: every job."
         type: string
         default: ""
+      base:
+        description: "The commit the red states are judged against (the post-merge batch's last judged batch head, or a bisect probe's known-good commit): a state red there too is a standing red, listed by name and not failed. Empty: no base, every red state fails."
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       screenshots:
@@ -78,11 +82,11 @@ jobs:
   base-gallery:
     name: base gallery
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
@@ -103,6 +107,7 @@ jobs:
             /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
             /examples/gallery/
             /examples/looks/
+            /examples/setups/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -116,6 +121,7 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
             /first-party-apps/*/preview/scenes.json
@@ -127,6 +133,7 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -184,7 +191,7 @@ jobs:
   plan:
     name: plan
     if: ${{ (inputs.only == '' || inputs.only == 'health') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     outputs:
       all: ${{ steps.entries.outputs.all }}
@@ -194,7 +201,7 @@ jobs:
       split: ${{ steps.size.outputs.split }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
@@ -215,6 +222,7 @@ jobs:
             /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
             /examples/gallery/
             /examples/looks/
+            /examples/setups/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -228,6 +236,7 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
             /first-party-apps/*/preview/scenes.json
@@ -239,6 +248,7 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -373,7 +383,7 @@ jobs:
     # Blacksmith org vCPU cap starved every pool, and 16 shards of 16 vCPU asked 256 vCPU of it per push.
     # From the numbers above, 8 vCPU renders the 73 cases in 17.3 s against 13.4 s, at 138 vCPU-seconds
     # against 214: a shard takes about a third longer and the run 35% fewer vCPU-seconds, at half the peak.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     # As many shards as the run's cases need (the plan job): at most MAX_CASES_PER_SHARD each, so a shard runs in
     # under 10 minutes as the gallery grows. At eight fixed shards, with three cases at once, a shard's render took
@@ -387,7 +397,7 @@ jobs:
       # a branch cut before a base fix must not keep failing on what base already fixed. A push
       # renders the pushed commit.
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
@@ -408,6 +418,7 @@ jobs:
             /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
             /examples/gallery/
             /examples/looks/
+            /examples/setups/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -421,6 +432,7 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
             /first-party-apps/*/preview/scenes.json
@@ -432,16 +444,19 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Resolve the head and the merge
         id: resolve
         env:
-          # A post-merge batch run (inputs.sha set) is a full render with no base, as the nightly dispatch is,
-          # whatever event started the batch.
+          # A post-merge batch run (inputs.sha set) is a full render, whatever event started the batch. It is
+          # judged against inputs.base (the last judged batch's head, or a probe's known-good commit) when the
+          # caller passes one; with none it has no base, as the nightly dispatch has.
           EVENT: ${{ inputs.sha != '' && 'workflow_dispatch' || github.event_name }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           BEFORE: ${{ github.event.before }}
+          BATCH_BASE: ${{ inputs.sha != '' && inputs.base || '' }}
         run: |
           set -euo pipefail
           merge=$(git rev-parse HEAD)
@@ -456,6 +471,16 @@ jobs:
             # fails it, so the red names the push that caused it.
             head=$merge
             base=$BEFORE
+          elif [ -n "$BATCH_BASE" ]; then
+            # A post-merge batch (or bisect probe) is judged against the commit its caller named: a state
+            # red there too is a standing red, listed by name in the summary, and only a state red since
+            # then fails, so the batch's bisect hunts the merge that made a new red, not an old one.
+            [[ "$BATCH_BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::inputs.base is not a commit sha: $BATCH_BASE"; exit 1; }
+            git cat-file -e "$BATCH_BASE^{commit}" 2>/dev/null \
+              || timeout 120 git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "$BATCH_BASE" \
+              || { echo "::error::could not fetch the batch base $BATCH_BASE"; exit 1; }
+            head=$merge
+            base=$BATCH_BASE
           else
             # The nightly dispatch, or a new branch tip with no previous commit: no base, so every
             # red state fails. The dispatch's full render is what keeps an old red from hiding.
@@ -535,6 +560,10 @@ jobs:
           set -euo pipefail
           bun install --frozen-lockfile
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+          # The UI font is the macOS system font (SF Pro), which Linux lacks: without the pin the stack
+          # falls to DejaVu Sans, a much wider face, so every stage wraps and sizes text unlike the Mac.
+          # Inter, as the browser tests draw it (B7 webviews-linux-parity, scripts/gallery-matrix/parity.py).
+          "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       # A red here is judged state by state against the base in the next step, so the step goes on.
       - name: Render the gallery and judge it
@@ -686,6 +715,12 @@ jobs:
           python3 "$classify" gallery --head "$head" "${bases[@]}" \
             --base-name "base ${BASE_SHA:0:12}" --annotate | tee "$RUNNER_TEMP/verdict.txt" || rc=$?
           grep -v '^::' "$RUNNER_TEMP/verdict.txt" >> "$GITHUB_STEP_SUMMARY" || true
+          # Every standing red (red on the base too) by name, so a red this run excuses is never hidden.
+          standing=$(python3 "$classify" gallery --head "$head" "${bases[@]}" --json | jq -r '.shared[]' 2>/dev/null) || true
+          if [ -n "$standing" ]; then
+            { echo; echo "Standing reds (red on base ${BASE_SHA:0:12} too, not failed here): $(grep -c . <<<"$standing")"
+              sed 's/^/- /' <<<"$standing"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
           exit "$rc"
 
       - name: Fail past the case budget

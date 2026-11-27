@@ -14,10 +14,11 @@
 
 mod ask;
 mod dir;
+mod docs;
 mod doctor;
 mod expire;
 mod library;
-mod pr;
+pub(super) mod pr;
 mod rebuild;
 mod render;
 mod source;
@@ -42,6 +43,8 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize generations                  Every generation, newest first (`ls`)
   cmux customize show N                       What generation N changed
   cmux customize save NAME [NOTE]             Save what is live as a profile: one file to keep or share
+  cmux customize pack NAME --css FILE         A chat stylesheet or default-off settings as a pack, not applied; then
+  cmux customize pack NAME --set KEY=VALUE    `try NAME` (the yolo path: docs/design/yolo-path.md)
   cmux customize use NAME|FILE                Preview a profile (or a recipe, by name), then apply or discard it
   cmux customize try [NAME|FILE] [--minutes N] Try it on: applied now, back by itself in N minutes (10)
   cmux customize keep                         Keep what you are trying on
@@ -82,6 +85,12 @@ For an agent (the customize_* MCP tools are these verbs):
   cmux customize brief 'WISH'                 Open the draft and print what to edit and how; starts no chat
   cmux customize check                        Validate what is live, and mark your turn done
   cmux customize schema [PART]                Every key you can change (settings, theme, views, extensions); --typescript, --rust
+  cmux customize docs [SURFACE]               The reference for each surface (sidebar, theme, section, pane, ...),
+                                              written from this build, each with a working example
+  cmux customize prompts [NAME]               Copy-paste prompts for common goals: paste one into an agent, it
+                                              ends with `cmux ext dev --once --json` exit 0
+  cmux customize tokens [list|show|test]      The design tokens and scales: list [GROUP], show NAME, test 14 [--as spacing]
+  cmux customize components [list|show|test] The web kit's components: list [TIER], show NAME, test NAME '{\"prop\":1}'
 
 Ask options:
   --harness HARNESS   The agent that does it: claude (default), codex, ...
@@ -109,6 +118,7 @@ const VERBS: &[&str] = &[
     "generations",
     "show",
     "save",
+    "pack",
     "use",
     "profiles",
     "recipes",
@@ -123,6 +133,10 @@ const VERBS: &[&str] = &[
     "check",
     "ask",
     "schema",
+    "docs",
+    "prompts",
+    "tokens",
+    "components",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -160,6 +174,13 @@ pub(super) enum Request {
     },
     Save {
         name: String,
+        note: String,
+    },
+    /// A pack made from a stylesheet and settings, written as a profile and not applied.
+    Pack {
+        name: String,
+        css: Option<String>,
+        sets: Vec<(String, String)>,
         note: String,
     },
     Use {
@@ -200,6 +221,18 @@ pub(super) enum Request {
         section: Option<Section>,
         format: SchemaFormat,
     },
+    /// `docs [SURFACE]`: one surface's reference, or the list.
+    Docs {
+        surface: Option<String>,
+    },
+    /// `prompts [NAME]`: one copy-paste prompt, or the list.
+    Prompts {
+        name: Option<String>,
+    },
+    /// `tokens …`: the design tokens and scales (cmux_customize::kit).
+    Tokens(cmux_customize::kit::Request),
+    /// `components …`: the web kit's components, from its manifest.
+    Components(cmux_customize::kit::Request),
 }
 
 /// How `customize schema` answers: the schema, or the SDK types written from it.
@@ -252,6 +285,10 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "try" | "try-on" => try_of(rest),
         "library" | "lib" => library::parse(rest).map(Request::Library),
+        "tokens" | "token" => cmux_customize::kit::parse("tokens", rest).map(Request::Tokens),
+        "components" | "component" => {
+            cmux_customize::kit::parse("components", rest).map(Request::Components)
+        }
         "checklist" => checklist_of(rest),
         "doctor" | "dr" => doctor::parse(rest).map(Request::Doctor),
         "paths" => none(Request::Paths),
@@ -274,6 +311,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     .to_owned()),
             }
         }
+        "pack" => pack_of(rest),
         "use" => {
             let watch = rest.iter().any(|word| word == "--watch");
             let words: Vec<&String> = rest.iter().filter(|word| *word != "--watch").collect();
@@ -293,6 +331,28 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "ask" => wish_of(rest).map(|(wish, options)| Request::Ask { wish, options }),
         "schema" => schema_of(rest),
+        "docs" | "doc" | "reference" => match rest {
+            [] => Ok(Request::Docs { surface: None }),
+            [name] if docs::surface_names().contains(&name.as_str()) => {
+                Ok(Request::Docs { surface: Some(name.clone()) })
+            }
+            [name] => Err(format!(
+                "{name:?} is not a surface; the surfaces are {}",
+                docs::surface_names().join(", ")
+            )),
+            [_, extra, ..] => Err(format!("customize docs takes one surface, got {extra:?} too")),
+        },
+        "prompts" | "prompt" => match rest {
+            [] => Ok(Request::Prompts { name: None }),
+            [name] if docs::prompt_names().contains(&name.as_str()) => {
+                Ok(Request::Prompts { name: Some(name.clone()) })
+            }
+            [name] => Err(format!(
+                "{name:?} is not a prompt; the prompts are {}",
+                docs::prompt_names().join(", ")
+            )),
+            [_, extra, ..] => Err(format!("customize prompts takes one name, got {extra:?} too")),
+        },
         // A wish is said in words: one quoted argument with a space in it, or
         // several words. One bare word is a verb, so a typo gets a suggestion
         // instead of an agent.
@@ -317,6 +377,38 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
 }
 
 /// `try [NAME|FILE] [--minutes N]`.
+/// `pack NAME [--css FILE] [--set KEY=VALUE]... [NOTE...]`.
+fn pack_of(words: &[String]) -> Result<Request, String> {
+    let usage = "customize pack needs a NAME and --css FILE or --set KEY=VALUE, like `cmux customize pack calmer-composer --css /tmp/calmer.css`";
+    let (name, rest) = match words.split_first() {
+        Some((name, rest)) if !name.starts_with('-') => (name.clone(), rest),
+        _ => return Err(usage.to_owned()),
+    };
+    let (mut css, mut sets, mut note) = (None, Vec::new(), Vec::new());
+    let mut iter = rest.iter();
+    while let Some(word) = iter.next() {
+        match word.as_str() {
+            "--css" => css = Some(value_of(&mut iter, word)?),
+            "--set" => {
+                let pair = value_of(&mut iter, word)?;
+                let (key, value) = pair
+                    .split_once('=')
+                    .filter(|(key, _)| !key.is_empty())
+                    .ok_or_else(|| format!("--set takes KEY=VALUE, got {pair:?}"))?;
+                sets.push((key.to_owned(), value.to_owned()));
+            }
+            flag if flag.starts_with('-') => {
+                return Err(format!("customize pack does not take {flag:?}"));
+            }
+            _ => note.push(word.clone()),
+        }
+    }
+    if css.is_none() && sets.is_empty() {
+        return Err(usage.to_owned());
+    }
+    Ok(Request::Pack { name, css, sets, note: note.join(" ") })
+}
+
 fn try_of(words: &[String]) -> Result<Request, String> {
     let mut source = None;
     let mut minutes = f64::from(cmux_customize::DEFAULT_TRY_ON_MINUTES);
@@ -517,6 +609,32 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         }
         return Some(0);
     }
+    // The references and prompts are this build's embedded pages: no store either.
+    if let Some((text, answer)) = docs::answer(&request) {
+        if json_out {
+            println!("{answer}");
+        } else if global.output != OutputMode::Quiet {
+            print!("{}", text.trim_end());
+            println!();
+        }
+        return Some(0);
+    }
+    // The kit reads built-in tables and the kit's manifest: no store either.
+    if let Some(answer) = kit_answer(&request) {
+        return Some(match answer {
+            Ok(answer) => {
+                if json_out {
+                    println!("{}", answer.json());
+                } else if global.output != OutputMode::Quiet {
+                    print!("{}", answer.human(now_ms()));
+                }
+                0
+            }
+            Err(failure) => {
+                super::scope_usage_failure(global.output, "customize", &failure.message, HELP)
+            }
+        });
+    }
     let chat = ask::Child { globals: child_globals(&global) };
     let result = Customize::from_env().map_err(Failure::from).and_then(|customize| {
         let answer = execute(&customize, request, "cli", now_ms(), &chat)?;
@@ -570,6 +688,12 @@ pub(super) fn run_json(
     }
     if let Request::Schema { section, format } = request {
         return Ok(render::Answer::Schema(Schema::current(), section, format).json());
+    }
+    if let Some((_, answer)) = docs::answer(&request) {
+        return Ok(answer);
+    }
+    if let Some(answer) = kit_answer(&request) {
+        return answer.map(|answer| answer.json()).map_err(|failure| failure.envelope());
     }
     let customize = Customize::from_env().map_err(|error| Failure::from(error).envelope())?;
     let answer = execute(&customize, request, origin, now_ms(), &ask::NoChat)
@@ -719,6 +843,22 @@ pub(super) fn execute(
         Request::Save { name, note } => {
             Answer::Saved(customize.save_profile(&name, &note, now_ms)?)
         }
+        Request::Pack { name, css, sets, note } => {
+            let mut files = std::collections::BTreeMap::new();
+            if let Some(path) = css {
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|error| Error::Profile(format!("{path}: {error}")))?;
+                files.insert("agent-pane/theme.css".to_owned(), text);
+            }
+            let settings = sets
+                .into_iter()
+                .map(|(key, value)| {
+                    let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
+                    (key, value)
+                })
+                .collect();
+            Answer::Saved(customize.write_pack(&name, &note, settings, files, now_ms)?)
+        }
         Request::Use { source, watch } => match source::parse(&source) {
             Some(source::Source::Dir(path)) => {
                 dir::use_dir(customize, &path, watch, origin, now_ms)?
@@ -761,7 +901,32 @@ pub(super) fn execute(
         Request::Doctor(request) => doctor::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
+        Request::Docs { .. } | Request::Prompts { .. } => {
+            return Err(Failure::usage(
+                "docs and prompts are answered before the store".to_owned(),
+            ));
+        }
+        request @ (Request::Tokens(_) | Request::Components(_)) => kit_answer(&request)
+            .unwrap_or_else(|| Err(Failure::usage("not a kit verb".to_owned())))?,
     })
+}
+
+/// `tokens` and `components`, answered with no store (None: another verb).
+fn kit_answer(request: &Request) -> Option<Result<render::Answer, Failure>> {
+    use cmux_customize::kit;
+    let answer = match request {
+        Request::Tokens(request) => kit::tokens(request),
+        Request::Components(request) => {
+            let start = std::env::current_dir().unwrap_or_default();
+            kit::components(request, kit::manifest_path(&start).as_deref())
+        }
+        _ => return None,
+    };
+    Some(
+        answer
+            .map(|kit::Answer { json, human }| render::Answer::Library { json, human })
+            .map_err(Failure::usage),
+    )
 }
 
 /// Writes the recipes (cmux-customize-recipes) where `use` reads them, and

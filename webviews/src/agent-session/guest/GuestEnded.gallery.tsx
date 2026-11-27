@@ -5,7 +5,7 @@ import { componentEntry } from "../../gallery/format";
 import { memoryStorage } from "./fixtures/liveChat";
 import type { GuestEnded, GuestPageProps } from "./GuestPage";
 
-const ended = (reason: GuestEnded): { props: GuestPageProps } => ({
+const ended = (reason: GuestEnded, invite = false): { props: GuestPageProps } => ({
   props: {
     shareId: "c2hhcmUtZ2FsbGVyeQ",
     storage: memoryStorage(),
@@ -13,6 +13,7 @@ const ended = (reason: GuestEnded): { props: GuestPageProps } => ({
     attempt: () => "0".repeat(32),
     socketUrl: "",
     ended: reason,
+    ...(invite ? { invite: true } : {}),
   },
 });
 
@@ -23,8 +24,8 @@ export default componentEntry<GuestPageProps>({
   keywords: ["multiplayer", "share", "guest", "expired", "revoked", "removed"],
   covers: ["agent-session/guest/GuestPage.tsx"],
   height: 420,
-  // A phone browser at narrow.
-  widths: { narrow: 390 },
+  // A phone browser at narrow; the smallest phones (280, 320) at normal and wide.
+  widths: { narrow: 390, normal: 280, wide: 320 },
   pane: true,
   load: () => import("./GuestPage").then((module) => module.GuestPage),
   variants: {
@@ -32,5 +33,7 @@ export default componentEntry<GuestPageProps>({
     revoked: ended("revoked"),
     removed: ended("kicked"),
     used: ended("used"),
+    left: ended("left"),
+    "invite-expired": ended("expired", true),
   },
 });

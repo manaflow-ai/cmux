@@ -472,11 +472,11 @@ fn a_dev_builds_audit_is_its_own() {
     );
     assert_eq!(
         Paths::from_env(env(dev), true).unwrap().audit,
-        PathBuf::from("/h/.config/cmux/keys.json")
+        PathBuf::from("/h/.config").join(cmux_config::NEXT_DIR).join("keys.json")
     );
     assert_eq!(
         Paths::from_env(env(&[("HOME", "/h")]), false).unwrap().audit,
-        PathBuf::from("/h/.config/cmux/keys.json")
+        PathBuf::from("/h/.config").join(cmux_config::NEXT_DIR).join("keys.json")
     );
 }
 

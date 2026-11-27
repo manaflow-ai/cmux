@@ -12,7 +12,7 @@ mod common;
 use std::sync::{Arc, Mutex};
 
 use common::*;
-use optchat_chief::brain::Settings;
+use optchat_chief::brain::{EngineRequest, Input, ReactionFields, Settings};
 use optchat_core::Kind;
 use serde_json::Value;
 
@@ -47,7 +47,8 @@ fn kept(dir: &std::path::Path) -> Settings {
 
 fn harness() -> Harness {
     let dir = tempfile::tempdir().unwrap();
-    let s = kept(dir.path());
+    let mut s = kept(dir.path());
+    s.engine_file = Some(dir.path().join("engine.json"));
     let owner = Arc::new(Mutex::new(Owner {
         summary: Some(summary()),
         ..Owner::default()
@@ -55,6 +56,25 @@ fn harness() -> Harness {
     let h = Harness::configured(dir, default_script(), owner, s, Arc::new(|_: &str| {}));
     h.agents.inner.lock().unwrap().system_prompts = true;
     h
+}
+
+fn set_engine_model(h: &mut Harness, model: &str) {
+    let (reply, result) = std::sync::mpsc::channel();
+    h.brain.step(Input::Engine {
+        request: EngineRequest::Set {
+            harness: None,
+            model: Some(model.to_owned()),
+            effort: None,
+            speed: None,
+            compactor_speed: None,
+            compactor_harness: None,
+            compactor_model: None,
+            turn_routing: None,
+            reactions: Box::new(ReactionFields::default()),
+        },
+        reply,
+    });
+    assert!(result.recv().unwrap()["error"].is_null());
 }
 
 fn logged(h: &Harness, kind: &str, text: &str) -> Vec<u64> {
@@ -111,6 +131,46 @@ fn consecutive_turns_reuse_one_claude_code_session_and_send_only_the_new_message
     // Each turn folded only its own events: one reply each, none twice.
     assert_eq!(logged(&h, "talk", "answer 0").len(), 1);
     assert_eq!(logged(&h, "talk", "answer 1").len(), 1);
+}
+
+#[test]
+fn a_rebuilt_view_with_only_tail_growth_reuses_the_kept_session() {
+    let mut h = harness();
+    fill(&h.chat, 120);
+    h.brain
+        .set_trace(optchat_chief::trace::Trace::open(&h.dir.path().join("traces"), false).unwrap());
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    // Force the next frozen view to rebuild past the delta threshold while
+    // leaving the first turn's parts as its stable prefix.
+    fill(&h.chat, 500);
+    h.say("user_local", "two");
+    h.settle();
+    let starts: Vec<Value> = traces(&h)
+        .into_iter()
+        .filter(|e| e["ev"] == "turn.start")
+        .collect();
+    assert_eq!(starts.len(), 2);
+    assert_eq!(starts[1]["layout"]["delta"]["rendered"], true);
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompt_sessions, vec!["s1", "s1"]);
+    assert!(!inner.ended.contains(&"s1".to_owned()));
+}
+
+#[test]
+fn a_model_change_retires_the_kept_session() {
+    let mut h = harness();
+    fill(&h.chat, 120);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    set_engine_model(&mut h, "changed-model");
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompt_sessions, vec!["s1", "s2"]);
+    assert!(inner.ended.contains(&"s1".to_owned()));
 }
 
 #[test]

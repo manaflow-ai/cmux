@@ -36,3 +36,12 @@ function trackerScript(): Promise<string> {
 export async function installBoxTracker(page: Page): Promise<void> {
   await page.addScriptTag({ content: await trackerScript() });
 }
+
+/**
+ * Adds the tracker to every later document of `page` and starts it as each one's DOM is parsed, so a
+ * reload is tracked from its first painted frame (a box that arrives is not judged; one that then moves is).
+ */
+export async function installBoxTrackerOnLoad(page: Page): Promise<void> {
+  const start = `document.addEventListener("DOMContentLoaded", () => window.cmuxBoxTracker.start(), { once: true });`;
+  await page.addInitScript({ content: `${await trackerScript()}\n${start}` });
+}

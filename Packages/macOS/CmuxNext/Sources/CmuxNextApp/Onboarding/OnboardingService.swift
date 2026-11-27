@@ -54,6 +54,8 @@ final class OnboardingService {
     /// Answers the migration preview; nil presents the native cmux dialog.
     /// Tests inject an answer without creating UI.
     var classicMigrationConfirmation: (@MainActor (ClassicImportPreview) async -> ClassicImportAnswer)?
+    /// The app installs the import of its settings and palette history alongside the settings controller.
+    var importClassicSettings: (@MainActor () async throws -> Void)?
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
@@ -67,7 +69,7 @@ final class OnboardingService {
 
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-        openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false }, openSignInPage: { [weak services] url in services?.linkOpener.openSignInPage(url, beside: nil) })
+        openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false }, openSignInPage: { [weak self] url, hosts in self?.openSignInPage(url, hosts) })
     /// Settings > Agents' cmux Tools card: `agents.cmuxMcp` and `cmux setup mcp`'s report.
     private(set) lazy var agentTools = AgentToolsCLISource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
     /// Make cmux Yours' choices over the settings owner (each pick one publish; the reload applies density's tokens); unset Opacity reads the window's.
@@ -94,21 +96,35 @@ final class OnboardingService {
                 return scan.run().map(\.id)
             }.value
             guard let self else { return }
-            // Classic's saved folders, read by the daemon (`classic_import.plan`) once it is up.
-            let classic = await classicProjectFolders()
-            var seen = Set<String>()
-            projectFolders = (agent + classic).compactMap { path in
-                let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
-                return seen.insert(normalized).inserted ? normalized : nil
-            }
+            addProjectFolders(agent + (classicFolderDefaults?.stringArray(forKey: Self.classicFoldersKey) ?? []))
         }
         presenter.makeModel = { [weak self] step in
             self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, choices: $0.firstRunChoices) }
         }
-        presenter.onWindowClose = { [weak self] in
-            guard let self, let page = pageLeftForSignIn else { return }
-            pageLeftForSignIn = nil
-            _ = TopPages.show(page, services: services)
+        presenter.onWindowClose = { [weak self] in if let self, let page = pageLeftForSignIn { pageLeftForSignIn = nil; _ = TopPages.show(page, services: services) } }
+    }
+
+    var classicFolderDefaults: UserDefaults?
+    private static let classicFoldersKey = "classicImportedProjectFolders"
+
+    /// Remember local project suggestions from the accepted plan in NEXT's defaults.
+    func rememberClassicFolders(in plan: ClassicMigrationPlan) {
+        let folders = plan.workspaces.filter { $0.remote == nil && $0.cloudVM == nil }.flatMap { workspace in
+            [workspace.workingDirectory] + workspace.layout.tabs.compactMap(\.workingDirectory)
+        }
+        guard !folders.isEmpty else { return }
+        var seen = Set<String>()
+        let saved = classicFolderDefaults?.stringArray(forKey: Self.classicFoldersKey) ?? []
+        let combined = (saved + folders).filter { seen.insert($0).inserted }
+        classicFolderDefaults?.set(combined, forKey: Self.classicFoldersKey)
+        addProjectFolders(combined)
+    }
+
+    private func addProjectFolders(_ folders: [String]) {
+        var seen = Set(projectFolders)
+        projectFolders += folders.compactMap { path in
+            let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+            return seen.insert(normalized).inserted ? normalized : nil
         }
     }
 
@@ -163,11 +179,13 @@ final class OnboardingService {
         }
     }
 
-    /// A Sign In's login in a local terminal tab (false: none opened). A top page covers it, so it shows once the page is left.
-    private func openSignIn(_ line: String) async -> Bool {
-        if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page }
-        return await services.openLocalProviderLogin(line)
+    /// A Sign In's login in a local terminal tab (false: none opened), or its provider's page in the front window beside this tool window, which slides off the page's pane and back once the sign-in ends (``WindowPlacement/sideBySide(_:besidePane:)``). A top page covers either, so it shows once the page is left.
+    private func openSignIn(_ line: String) async -> Bool { leaveTopPageForSignIn(); return await services.openLocalProviderLogin(line) }
+    private func openSignInPage(_ url: URL, _ hosts: [String]) -> @MainActor () -> Void {
+        leaveTopPageForSignIn(); var putBack: @MainActor () -> Void = {}
+        let back = services.linkOpener.openSignInPage(url, beside: nil, stillOn: hosts) { [weak self] pane in if let tool = self?.controller?.window { putBack = WindowPlacement.sideBySide(tool, besidePane: pane.view) } }; return { back(); putBack() }
     }
+    private func leaveTopPageForSignIn() { if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page } }
 
     /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
     private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.launchSteps == .none)
@@ -176,15 +194,15 @@ final class OnboardingService {
     private(set) lazy var chief = ChiefOnboarding(defaults: .standard, settings: HomeChiefOnboardingSettings { [weak services] in services?.settings },
                                                   skipsOnboarding: services.environment.launchSteps == .none)
 
-    /// The launch's steps (``AppEnvironment/launchSteps``): with onboarding on, a first run starts Home's Set Up cmux card
-    /// (the Agents window and the CLI toast count as shown), else the first-run windows
-    /// (``OnboardingWindowPresenter/showFirstRunSteps``), after which this Mac's first launch is finished
-    /// (``OnboardingWindowPresenter/historyShownKey``).
-    func showFirstRunSteps(isFirstRun: Bool) async {
-        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun) else { return }
+    /// Before the migration, onboarding on: a first run's Set Up cmux card, whose cmux Classic row asks the import. Nil when off.
+    func firstRunRoute(isFirstRun: Bool) -> FirstRunSetup.Route? {
+        guard services.environment.launchSteps == .firstRun else { return nil }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
-        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
-        guard route == .windows else { return }
+        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }; return route
+    }
+    /// After it (``AppEnvironment/launchSteps``): for `.windows` the first-run windows, then this Mac's first launch is finished.
+    func showFirstRunSteps(_ route: FirstRunSetup.Route?, isFirstRun: Bool) async {
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun), route == .windows else { return }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) {
             UserDefaults.standard.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
         }

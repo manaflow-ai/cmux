@@ -10,6 +10,8 @@ drops and the spring.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -186,8 +188,12 @@ class CutTests(unittest.TestCase):
 
 
 class CompareTests(unittest.TestCase):
-    def run_compare(self, *args):
-        return subprocess.run([sys.executable, str(HERE / "compare-mobile"), *args], capture_output=True, text=True)
+    def run_compare(self, *args, env=None):
+        command_env = os.environ.copy()
+        if env:
+            command_env.update(env)
+        return subprocess.run([sys.executable, str(HERE / "compare-mobile"), *args],
+                              capture_output=True, text=True, env=command_env)
 
     def test_missing_ours_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -217,6 +223,70 @@ class CompareTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             again = json.loads((d / "result.json").read_text())["response_ms"]
             self.assertAlmostEqual(again - first, 50, delta=1)
+
+    def test_no_reference_clip_withholds_comparative_verdict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            d = root / "ours" / "keyboard-show"
+            d.mkdir(parents=True)
+            write_clip(d, delay_s=0.05, response=0.35, damping=0.86, drop=set())
+            r = self.run_compare("keyboard-show", "--ours", str(root / "ours"),
+                                 "--refs", str(root / "refs"), "--out", str(root / "out"))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("No comparative verdict: no paired measurements", r.stdout)
+            self.assertNotIn("We are slower in", r.stdout)
+            self.assertIn("no competitor clips", r.stderr)
+            table = (root / "out" / "table.md").read_text()
+            self.assertIn("no measured reference clip", table)
+
+    def test_partial_reference_coverage_is_labelled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ours = root / "ours"
+            measured = ours / "keyboard-show"
+            measured.mkdir(parents=True)
+            write_clip(measured, delay_s=0.05, response=0.35, damping=0.86, drop=set())
+            own_meta = json.loads((measured / "meta.json").read_text())
+            own_meta["app"] = "cmux"
+            (measured / "meta.json").write_text(json.dumps(own_meta))
+            for flow in json.loads((HERE / "flows.json").read_text())["flows"]:
+                fid = flow["id"]
+                if fid == "keyboard-show":
+                    continue
+                d = ours / fid
+                d.mkdir()
+                (d / "meta.json").write_text(json.dumps({"app": "cmux", "flow": fid,
+                                                             "unsupported": "fixture omits this flow"}))
+
+            ref = root / "refs" / "apps" / "claude-mobile" / "bench" / "keyboard-show"
+            ref.mkdir(parents=True)
+            shutil.copy2(measured / "clip.mp4", ref / "clip.mp4")
+            ref_meta = dict(own_meta)
+            ref_meta["app"] = "Claude"
+            ref_meta["source"] = "test-reference"
+            (ref / "meta.json").write_text(json.dumps(ref_meta))
+            r = self.run_compare("all", "--ours", str(ours), "--refs", str(root / "refs"),
+                                 "--out", str(root / "out"))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("none (1/16 flows compared", r.stdout)
+            table = (root / "out" / "table.md").read_text()
+            self.assertIn("Comparison coverage gaps", table)
+            self.assertIn("`new-chat`: our app has no measured clip", table)
+
+    def test_failed_fleet_capture_is_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake = fake_bin / "cmux-ci"
+            fake.write_text("#!/bin/sh\necho 0123456789abcdef01234567\nexit 7\n")
+            fake.chmod(0o755)
+            env = {"PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"}
+            r = self.run_compare("keyboard-show", "--ref", "0" * 40, "--refs", str(root / "refs"),
+                                 "--out", str(root / "out"), env=env)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("fleet step 0123456789abcdef01234567 failed with exit 7", r.stderr)
+            self.assertIn("fleet/step.log", r.stderr)
 
 
 if __name__ == "__main__":

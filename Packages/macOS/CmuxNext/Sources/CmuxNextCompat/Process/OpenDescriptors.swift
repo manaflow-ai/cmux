@@ -1,6 +1,12 @@
+#if canImport(Darwin)
 package import Darwin
+#else
+package import Glibc
+#endif
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// How many file descriptors this process holds open, and how many of them are pipes: its own
 /// `/dev/fd` listed once, a few microseconds for a few hundred descriptors.
@@ -29,12 +35,20 @@ package struct OpenDescriptors: Sendable, Equatable {
         let own = dirfd(directory)
         var total = 0, pipes = 0
         while let entry = readdir(directory) {
+            #if canImport(Darwin)
             let name = withUnsafeBytes(of: entry.pointee.d_name) { String(decoding: $0.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self) }
+            #else
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+            #endif
             guard let fd = Int32(name), fd != own else { continue }
             var info = stat()
             guard fstat(fd, &info) == 0 else { continue }
             total += 1
+            #if canImport(Darwin)
             if info.st_mode & S_IFMT == S_IFIFO { pipes += 1 }
+            #else
+            if info.st_mode & 0o170000 == 0o010000 { pipes += 1 } // S_IFMT, S_IFIFO
+            #endif
         }
         return OpenDescriptors(total: total, pipes: pipes)
     }
@@ -45,7 +59,9 @@ package struct OpenDescriptors: Sendable, Equatable {
     /// The descriptor count past which ``noteBudget(_:)`` logs a fault.
     package static let totalBudget = 4_000
 
+    #if canImport(os)
     private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "descriptors")
+    #endif
 
     /// Logs a fault when `count` (``current()`` by default) passes a budget. Returns whether it is
     /// over. Never refuses anything: the count is what a leak hunt needs. No state of its own (no
@@ -56,7 +72,11 @@ package struct OpenDescriptors: Sendable, Equatable {
         guard let count else { return false }
         let isOver = count.pipes > pipeBudget || count.total > totalBudget
         if isOver {
+            #if canImport(os)
             log.fault("open descriptors over budget: \(count.total) open, \(count.pipes) pipes (budget \(totalBudget) and \(pipeBudget) pipes)")
+            #else
+            FileHandle.standardError.write(Data("open descriptors over budget: \(count.total) open, \(count.pipes) pipes\n".utf8))
+            #endif
         }
         return isOver
     }

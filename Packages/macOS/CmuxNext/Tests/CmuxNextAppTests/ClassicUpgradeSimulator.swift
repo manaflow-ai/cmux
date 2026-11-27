@@ -515,7 +515,7 @@ final class ClassicUpgradeSimulator {
     /// as already here.
     func classicWindows() async throws -> [ClassicMigrationPlan.Window] {
         let connection = try #require(services.daemon.connection, "the daemon is not connected")
-        let reply = try await ClassicImportClient(connection: connection, bundleID: "com.cmuxterm.test.classic-verify").plan(.manual)
+        let reply = try await ClassicImportClient(connection: connection, bundleID: "com.cmuxterm.test.classic-verify").planAfterConsent(.manual)
         let plan = try #require(reply.plan, "the daemon read no classic save: \(reply.error ?? "none")")
         return plan.windows
     }

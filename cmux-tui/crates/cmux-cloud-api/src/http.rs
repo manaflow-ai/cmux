@@ -250,7 +250,8 @@ impl Http {
                 }
             }
             // RULE (cx-kvmz, hq-84): Authorization, Content-Type, Content-Length and x-cmux-team
-            // only, plus the client's x-cmux-build-space (a dev build's tag, no secret). The
+            // only, plus the client's x-cmux-build-space (a dev build's tag, no secret) and
+            // `owner.op`'s x-cmux-client-version (the app's version, no secret). The
             // Worker's invocation log records every other header and the URL, so no other
             // header, no query and no path part that could hold a key is ever added.
             Auth::Owner | Auth::Worker => {

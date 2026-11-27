@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.history.closed.maxAgeDays.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each machine deletes closed items that are older. 0 keeps them however old they are."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يحذف كل جهاز العناصر المغلقة الأقدم من ذلك. القيمة 0 تحتفظ بها مهما كان عمرها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Svaka mašina briše zatvorene stavke koje su starije. 0 ih čuva bez obzira na starost."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hver maskine sletter lukkede elementer, der er ældre. 0 beholder dem, uanset hvor gamle de er."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jeder Rechner löscht geschlossene Elemente, die älter sind. 0 behält sie unabhängig vom Alter."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cada máquina elimina los elementos cerrados más antiguos. 0 los conserva sin importar su antigüedad."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chaque machine supprime les éléments fermés plus anciens. 0 les conserve quel que soit leur âge."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ogni macchina elimina gli elementi chiusi più vecchi. 0 li conserva a prescindere dall'età."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "各マシンはこれより古い閉じた項目を削除します。0 では古さに関係なく保持します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ាស៊ីននីមួយៗលុបធាតុដែលបានបិទដែលចាស់ជាងនេះ។ 0 រក្សាទុកវាមិនថាចាស់ប៉ុណ្ណាទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "각 기기는 이보다 오래된 닫은 항목을 삭제합니다. 0이면 기간과 관계없이 보관합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hver maskin sletter lukkede elementer som er eldre. 0 beholder dem uansett alder."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Każda maszyna usuwa starsze zamknięte elementy. 0 zachowuje je niezależnie od wieku."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cada máquina apaga os itens fechados mais antigos. 0 os mantém independentemente da idade."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Каждая машина удаляет закрытые элементы старше этого срока. 0 — хранить независимо от возраста."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แต่ละเครื่องจะลบรายการที่ปิดแล้วที่เก่ากว่านี้ 0 คือเก็บไว้ไม่ว่าจะเก่าเพียงใด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Her makine daha eski kapatılmış öğeleri siler. 0 yaşlarından bağımsız olarak tutar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кожна машина видаляє закриті елементи, старші за цей строк. 0 — зберігати незалежно від віку."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mỗi máy xóa các mục đã đóng cũ hơn. 0 giữ lại bất kể chúng cũ đến đâu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每台机器会删除更早的已关闭项目。0 表示无论多久都保留。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每台機器會刪除更早的已關閉項目。0 表示無論多久都保留。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

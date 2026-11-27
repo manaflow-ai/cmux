@@ -23,6 +23,7 @@ function deps(answer: (argv: string[]) => Exec) {
 const portOf = (argv: string[]) => /--port|http\.server (\d+)|\('127\.0\.0\.1',(\d+)\)/.exec(argv.join(" "))
 const allBuilt = (argv: string[]): Exec => {
   const line = argv.join(" ")
+  if (line.includes("mktemp -d ")) return ok("/tmp/owp-1-a1B2c3\n")
   if (line.includes("app machines")) return ok(JSON.stringify([{ name: "mac-b", state: "connected" }]))
   if (line.includes(" chat ")) return ok(JSON.stringify({ session_id: "mac-b/x", cwd: "/Users/b/proj" }))
   if (line.includes("machine ports")) return ok(JSON.stringify({ ports: [5173, 5174, 5175] }))
