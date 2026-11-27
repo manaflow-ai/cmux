@@ -229,6 +229,10 @@ extension FFIMacLink: BrowserStreamOpening {
         return try await openChannel(service: "localhost", args: args)
     }
 
+    func openLocalhost(port: UInt16) async throws -> any LinkChannel {
+        try await openLocalhost(port: port, host: nil)
+    }
+
     func openSurface(tab: String, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection {
         let json = String(decoding: try JSONSerialization.data(withJSONObject: ["tab": tab]), as: UTF8.self)
         do {

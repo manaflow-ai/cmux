@@ -127,7 +127,6 @@ public final class LocalhostForwarder {
     /// Listeners of a port still closing: a cancelled listener holds its address until
     /// it reports `cancelled`, so the next bind of the port waits for it.
     private var closing: [UInt16: Task<Void, Never>] = [:]
-    private var proxyClosing: [ProxyKey: Task<Void, Never>] = [:]
     /// Longer than TIME_WAIT on the loopback (2 × MSL).
     static let heldFor: Duration = .seconds(60)
     /// Why the Mac last refused a connection to a port ("Nothing is listening on
@@ -143,7 +142,12 @@ public final class LocalhostForwarder {
     private(set) var counts = Counts()
 
     public init(open: @escaping Open) {
-        self.openHost = { macID, _, port in try await open(macID, port) }
+        self.openHost = { macID, host, port in
+            guard host == nil else {
+                throw LinkError(code: "unknown_service", message: "This Mac does not forward named hosts")
+            }
+            return try await open(macID, port)
+        }
     }
 
     public init(openHost: @escaping OpenHost) {
@@ -239,7 +243,7 @@ public final class LocalhostForwarder {
             }
             route.binding = task
             let result = await task.value
-            if route.binding == task { route.binding = nil }
+            route.binding = nil
             localPort = try result.get()
         }
         return ProxyRoute(target: target, localPort: localPort, username: route.username, password: route.password)
@@ -285,7 +289,7 @@ public final class LocalhostForwarder {
             throw .superseded
         }
         route.listener = listener
-        log.notice("private host proxy (route.target.host ?? "?", privacy: .public):(route.target.port, privacy: .public) on (port, privacy: .public)")
+        log.notice("private host proxy \(route.target.host ?? "?", privacy: .public):\(route.target.port, privacy: .public) on \(port, privacy: .public)")
         return port
     }
 
@@ -345,6 +349,12 @@ public final class LocalhostForwarder {
         suspended = true
         for (port, forward) in forwards where forward.isUp { held[port] = .now }
         for (port, forward) in forwards { close(forward.take(), port: port) }
+        for route in proxies.values {
+            route.binding?.cancel()
+            route.binding = nil
+            route.listener?.cancel()
+            route.listener = nil
+        }
     }
 
     /// The app is active and linked again: the same ports listen again.
@@ -353,6 +363,9 @@ public final class LocalhostForwarder {
         for (port, forward) in forwards where !forward.isUp && forward.binding == nil {
             // task-owner: one port's listener coming back; a later stop() cancels it
             Task { _ = await self.bind(forward, port: port) }
+        }
+        for (key, route) in proxies where route.listener == nil && route.binding == nil {
+            Task { _ = try? await self.bindProxy(route, key: key) }
         }
     }
 
@@ -382,7 +395,7 @@ public final class LocalhostForwarder {
         }
         forward.binding = task
         let result = await task.value
-        if forward.binding == task { forward.binding = nil }
+        forward.binding = nil
         if case .failure(.portInUse) = result, forwards[port] === forward { forwards[port] = nil }
         return result
     }
@@ -474,25 +487,40 @@ public final class LocalhostForwarder {
             connection.cancel()
             return
         }
-        guard request.authority == Self.authority(host: route.target.host!, port: route.target.port),
-              request.authorization == Self.authorization(username: route.username, password: route.password) else {
+        guard request.authority.lowercased() == Self.authority(host: route.target.host!, port: route.target.port).lowercased() else {
             _ = await Self.send(connection, Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
             connection.cancel()
             return
         }
-        guard await Self.send(connection, Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8)) else {
-            connection.cancel(); return
+        guard request.authorization == Self.authorization(username: route.username, password: route.password) else {
+            _ = await Self.send(connection, Data("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"cmux\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
+            connection.cancel()
+            return
         }
         let channel: any LinkChannel
         do {
             await MainActor.run { self.counts.opened += 1 }
             channel = try await openHost(route.macID, route.target.host, route.target.port)
         } catch {
-            if let error = error as? LinkError, Self.refusalCodes.contains(error.code) {
-                await MainActor.run { self.targetRefusals[route.target] = error.message }
+            let linkError = error as? LinkError
+            let status = linkError?.code == "forbidden" ? "403 Forbidden" : "502 Bad Gateway"
+            let body = linkError?.message ?? "The Mac refused this private host."
+            let response = "HTTP/1.1 \(status)\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+            _ = await Self.send(connection, Data(response.utf8))
+            if let linkError, Self.refusalCodes.contains(linkError.code) {
+                await MainActor.run { self.targetRefusals[route.target] = linkError.message }
             }
             connection.cancel()
             return
+        }
+        guard proxies[key] === route, !suspended else {
+            await channel.close(code: "superseded", reason: "")
+            connection.cancel()
+            return
+        }
+        guard await Self.send(connection, Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8)) else {
+            await channel.close(code: "eof", reason: "")
+            connection.cancel(); return
         }
         await Self.pumpRaw(connection, channel: channel, initial: remainder)
         connection.cancel()

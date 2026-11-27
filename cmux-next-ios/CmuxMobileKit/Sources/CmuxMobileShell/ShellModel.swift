@@ -562,12 +562,16 @@ final class ShellModel {
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
                 macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.forwardCapability) ?? false
             }
+            NativeBrowserTabs.shared.macForwardsPrivateHost = { [store] macID in
+                macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.privateHostForwardCapability) ?? false
+            }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
             PhonePageChannel.answer = nil
             StreamedBrowserDirectory.shared.browserTabsListed = nil
             NativeBrowserTabs.shared.readMacHTML = nil
+            NativeBrowserTabs.shared.macForwardsPrivateHost = { _ in false }
             ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
