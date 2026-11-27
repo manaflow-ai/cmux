@@ -178,14 +178,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markReveal(services.launchReveal)
         services.launchReveal.firstFrame = firstFrame // the views' own launch work waits on it (FirstFrameHold)
         // This launch's times and stages (LaunchStages), in every build, for `cmux app launch-times` (CMUX-571): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
+        let binderLaps = LaunchBinderLaps()
         if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
-            let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:], listen: AgentPaneLaunchTimings.shared.listen, marks: DebugTimings.launchMarkTimes) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }
+            let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:], listen: AgentPaneLaunchTimings.shared.listen, marks: DebugTimings.launchMarkTimes, binders: binderLaps.times) { StagedUpdatePrewarm.consumeLaunchVerdict(build: $0, bundleIdentifier: bundleID).record }
             firstFrame.whenOpen { [launchReveal = services.launchReveal, weak services] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { recorder.write(marks: DebugTimings.launchMarkTimes(), workspaces: services?.daemon.store.workspaces.count) } }
         }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
-        AppActions.bind(services)
+        AppActions.bind(services, laps: binderLaps)
+        DebugTimings.markLaunch("dfl.app_actions") // AppActions.bind alone; dfl.bind adds the palette, Ghostty keybinds and terminal hooks
         services.palette.bindRegistryActions()
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
         self.ghosttyKeybinds = ghosttyKeybinds
@@ -202,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.menu")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon); launchHold.install(settled: launchSettle.whenSettled, firstFrame: firstFrame)
-        daemonPrompts = DaemonPrompts.start(services)
+        daemonPrompts = DaemonPrompts.start(services, afterFrame: firstFrame.whenOpen)
         services.healthFeeds.start() // app health: before the daemon's first ensure
         let daemonPrestart = await withTaskCancellationHandler { await preparedDaemon.value } onCancel: { preparedDaemon.cancel() }
         guard !Task.isCancelled else { daemonPrestart?.cancel(); throw CancellationError() }
@@ -216,6 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.startNonPaintServices()
             services.liveCode.labsSwitch(services.settings?.snapshot.liveCode == true)
             HandlerCoverage.verify(services.registry)
+            services.registry.logBindingProblems()
             logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         }
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
@@ -288,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.layoutCache = launchReads.shell.layoutCache // the last run's layout, read before stage 0's commit
-        services.windows.restoreWhenLoaded(); if services.windows.controllers.first?.window?.commitFirstFrameNow() == true { DebugTimings.markLaunch("first_window_flushed") } // CMUX-629: the frame now, not after the queued launch work
+        services.windows.restoreWhenLoaded(); if services.windows.controllers.first?.window?.commitFirstFrameNow(mark: { DebugTimings.markLaunch($0) }) == true { DebugTimings.markLaunch("first_window_flushed") } // CMUX-629: the frame now, not after the queued launch work
         firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule(); services?.windows.recordSaver.layoutCache.note() }
         DebugTimings.markLaunch("dfl.windows")
         // The runtime pack check wires the engine reason at once; its download waits until asked.
@@ -395,7 +398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
         AnonymousTelemetryConsent.install(on: settings) // after hang reports: `app.sendAnonymousTelemetry` writes reach the app's preference
-        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
+        firstFrame.whenOpen { [weak services] in services.map { KeepAwakeService.shared.start(settings: settings, store: $0.daemon.store, menuBar: $0.menuBarExtra) } } // its per-workspace feed: after the first frame
         let acpmux = QuitAgents.environment(services)
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         AgentPageChats.wireSandbox(services.agentTabs, services: services)
@@ -427,7 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.cache.browserTabs.preference.follow(settings)
         if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(launchReads.chromium.initializeGate(firstFrame)); services.cache.cef.preload() } // map the framework now, off main, on every launch: a restored chat's page starts Chromium as the window builds, and a bare launch (piece 8) shows Home, whose Chief page is a Chromium page too (skipping the map there left Home's pane blank about 270 ms longer, mapping after the first frame: NIGHTLY 4557245517201, cef.step.start_called 4112 ms, map_done 4381 ms, first page pixels 5281 ms). CefInitialize still waits for the first frame unless the last quit left a page on screen (CMUX-571)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
-        WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
+        firstFrame.whenOpen { [weak services] in services.map { WorkspaceAutoNameWiring(services: $0).start(settings: settings) } } // hq#1957; its per-workspace watches: after the first frame
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.cache.localEcho.follow { [weak settings] in settings?.snapshot.terminalPredictiveLocalEcho ?? true }
         services.notifications.follow(settings)

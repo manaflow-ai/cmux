@@ -991,6 +991,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // The fan-out note runs beside the send and is never waited on (`send_fanout.rs`).
             let fanout = Arc::new(std::sync::Mutex::new(None));
             let fanout_slot = fanout.clone();
+            // Set when the name resolved to a chat only the mesh hub reaches: the send goes
+            // through the hub even when a send relay is configured, as `last`, `info` and
+            // `look` reach it, never to the relay as mail for a name nothing resolves.
+            let hub_reached = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let hub_reached_slot = hub_reached.clone();
             let sent = async move {
                 let client = before_deadline(deadline, &session, connect(true)).await?;
                 let note = note_fanout(&client, &session, &text, prompt_id.from_agent.as_deref());
@@ -1047,6 +1052,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 // (`server/mesh_read.rs`), with no turn to follow here: the send goes through
                 // the hub as one to a name nobody here runs (below).
                 if read_through_hub(&info) {
+                    hub_reached_slot.store(true, std::sync::atomic::Ordering::SeqCst);
                     return Err(errors::AppError::no_session(&session).into());
                 }
                 announce_machine_wake_value(&info);
@@ -1113,8 +1119,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(line) = note.and_then(fanout_warning_if_known) {
                 eprintln!("{line}");
             }
+            let through_hub = hub_reached.load(std::sync::atomic::Ordering::SeqCst);
             match (sent, relay) {
-                (Err(e), Some(relay)) if crate::cli::send_relay::no_such_session(&e) => {
+                (Err(e), Some(relay))
+                    if crate::cli::send_relay::no_such_session(&e)
+                        && !hub_send_first(through_hub, no_wait, attaching) =>
+                {
                     crate::cli::send_relay::send_with_deadline(
                         &relay,
                         &relay_session,
@@ -1125,10 +1135,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         deadline,
                     )
                 }
-                (Err(e), None)
+                (Err(e), relay)
                     if !no_wait
                         && !attaching
                         && crate::cli::send_relay::no_such_session(&e)
+                        && (relay.is_none() || hub_send_first(through_hub, no_wait, attaching))
                         && crate::mesh_http::configured() =>
                 {
                     let client = before_deadline(deadline, &relay_session, connect(true)).await?;
@@ -1673,15 +1684,23 @@ struct SendWait {
     agent: bool,
 }
 
-/// Whether the send goes to this daemon's outbox and returns once the message is on disk there,
-/// in milliseconds whatever the load or the peer (`send_async.rs`). An agent's message and a
-/// classed one do unless the caller waits for the reply; the person's own send streams the
-/// reply as before. Leo, 2026-11-02: "sends shouldn't time out just bc of load".
+/// Whether a send that failed as "no such session" goes through the mesh hub ahead of a
+/// configured send relay: only when the name resolved to a chat the hub reaches
+/// (`read_through_hub`), so a moved chat's `HOST/NAME` gets the prompt in its own chat, not as
+/// relay mail. `--no-wait` and `--attach` sends never reach the hub check.
+fn hub_send_first(through_hub: bool, no_wait: bool, attaching: bool) -> bool {
+    through_hub && !no_wait && !attaching
+}
+
 /// Whether `info` is a session this daemon read through the mesh hub (`server/mesh_read.rs`).
 fn read_through_hub(info: &Value) -> bool {
     info.get("via").and_then(Value::as_str) == Some("hub")
 }
 
+/// Whether the send goes to this daemon's outbox and returns once the message is on disk there,
+/// in milliseconds whatever the load or the peer (`send_async.rs`). An agent's message and a
+/// classed one do unless the caller waits for the reply; the person's own send streams the
+/// reply as before. Leo, 2026-11-02: "sends shouldn't time out just bc of load".
 fn send_queues(w: SendWait) -> bool {
     w.no_wait || (!w.wait && (w.classed || w.agent))
 }
@@ -2081,6 +2100,18 @@ mod tests {
         assert!(read_through_hub(&json!({"sessionId": "s", "peer": "machine-b", "via": "hub"})));
         assert!(!read_through_hub(&json!({"sessionId": "s", "peer": "machine-b"})));
         assert!(!read_through_hub(&json!({"sessionId": "s"})));
+    }
+
+    /// A waiting send to a chat the hub reaches goes through the hub even where a send relay is
+    /// configured (a lane VM's lane-gh): the prompt runs in that chat, as `last` reads it, not
+    /// as relay mail for a name nothing resolves (session-move-gcp, 2026-11-26).
+    #[test]
+    fn a_hub_reached_send_goes_through_the_hub_ahead_of_the_send_relay() {
+        use super::hub_send_first as first;
+        assert!(first(true, false, false));
+        assert!(!first(false, false, false), "a name nothing resolves keeps the relay");
+        assert!(!first(true, true, false), "--no-wait queues before the hub check");
+        assert!(!first(true, false, true), "--attach goes to the relay as before");
     }
 
     #[test]
