@@ -205,6 +205,9 @@ DEAD_MAX_RESCUES = 10
 DEAD_NON_PUSH_LISTINGS = 20
 # A run with one of these jobs in progress is mid-publish or mid-sign: a force-cancel would cut it.
 DEAD_BUSY_JOB = re.compile(r"publish|upload|sign|notar|deploy|promot|release", re.IGNORECASE)
+# Pages of 100 GitHub.jobs() reads. A run with more jobs than these hold is an incomplete listing: it raises, so a
+# rescue leaves the run alone rather than cancel it past a running job it never saw.
+MAX_JOB_PAGES = 5
 DEAD_CANCEL_WAIT_SECONDS = 120
 # A label some pool named and none names now, with no dead mark: linux_pool_spill.py moved a pool off a backed-up
 # size and back, or a pool was moved by hand. GitHub never re-routes a queued job, so a job bound there while a pool
@@ -724,8 +727,25 @@ class GitHub:
             raise GitHubError(f"{where} failed ({type(error).__name__})") from error
 
     def jobs(self, run_id: int, attempt: int | None = None) -> list[dict[str, Any]]:
+        """Every job of the run (its latest attempt, or `attempt`), or GitHubError when the listing is not complete.
+
+        One page of 100 hid the rest of a bigger run, so a rescue could force-cancel it while a job it never saw was
+        running. Only a listing that ends on a short page, with no total_count above what it holds, is complete.
+        """
         where = f"/actions/runs/{run_id}/attempts/{attempt}/jobs" if attempt else f"/actions/runs/{run_id}/jobs"
-        return list(self.request("GET", f"{where}?per_page=100").get("jobs") or [])
+        found: list[dict[str, Any]] = []
+        total = 0
+        for page in range(1, MAX_JOB_PAGES + 1):
+            payload = self.request("GET", f"{where}?per_page=100&page={page}") or {}
+            batch = list(payload.get("jobs") or [])
+            found.extend(batch)
+            if isinstance(payload.get("total_count"), int):
+                total = max(total, payload["total_count"])
+            if len(batch) < 100:
+                if total > len(found):
+                    raise GitHubError(f"GET {where} incomplete ({len(found)} of {total} jobs)")
+                return found
+        raise GitHubError(f"GET {where} incomplete (more than {MAX_JOB_PAGES * 100} jobs)")
 
     def runs(self, status: str, event: str | None = None, *,
              created_before: dt.datetime | None = None) -> list[dict[str, Any]]:
@@ -894,7 +914,7 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
         job = stuck_job(jobs, now(), minutes, failovers, linux_moves, only)
         if job is None:
             continue
-        why = protected_reason(run, dead) or (dead and busy_reason(jobs))
+        why = protected_reason(run, dead) or busy_reason(jobs)
         label = ",".join(str(label) for label in job.get("labels") or ())
         if why:
             lines.append(f"run {run['id']} ({run.get('name')}): `{job.get('name')}` stuck on {label}; left "
@@ -946,10 +966,15 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
 
 
 def busy_reason(jobs: Iterable[Mapping[str, Any]]) -> str:
-    """Why a run must not be cut now: a publish, upload, signing or deploy job of it is running."""
-    for job in jobs:
-        if job.get("status") == "in_progress" and DEAD_BUSY_JOB.search(str(job.get("name") or "")):
-            return f"`{job.get('name')}` is running"
+    """Why a run must not be cut now: a job of it is running (a runner took it and it has not finished).
+
+    A force-cancel ends every job of the run, so a running one would lose its work and its re-run would start it
+    over: the run waits for a later pass. A publish, upload, signing or deploy job is named first.
+    """
+    running = [job for job in jobs if job.get("status") == "in_progress"
+               or (job.get("runner_name") and job.get("status") not in {"completed", "queued"})]
+    for job in sorted(running, key=lambda job: not DEAD_BUSY_JOB.search(str(job.get("name") or ""))):
+        return f"`{job.get('name')}` is running"
     return ""
 
 
@@ -976,9 +1001,10 @@ def _cancel_and_rerun_once(api: GitHub, chosen: Sequence[tuple[Mapping[str, Any]
         run_id = int(run["id"])
         try:
             current = api.run(run_id)
+            jobs = api.jobs(run_id)
             still = (current.get("status") != "completed"
                      and int(current.get("run_attempt") or 1) == int(run.get("run_attempt") or 1)
-                     and stuck_job(api.jobs(run_id), now(), minutes, only=only) is not None)
+                     and stuck_job(jobs, now(), minutes, only=only) is not None and not busy_reason(jobs))
         except RuntimeError as error:
             lines.append(f"run {run_id}: could not read it again ({error}); left alone")
             continue
