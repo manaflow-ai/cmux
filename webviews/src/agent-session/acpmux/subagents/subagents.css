@@ -2966,8 +2966,8 @@ button.cv-subagent > :last-child {
   padding: calc(var(--grid-half-step) / 2) calc(var(--ds-space-1) + var(--grid-half-step));
   border-radius: var(--ds-radius-control, 6px);
   color: var(--agent-muted);
-  font-size: var(--text-content, var(--cv-font-size, 14px));
-  line-height: var(--text-content--line-height, var(--cv-line-height, 22.75px));
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
   transition: color var(--cv-actions-out) var(--cv-actions-out-ease),
     background-color var(--cv-actions-out) var(--cv-actions-out-ease);
 }

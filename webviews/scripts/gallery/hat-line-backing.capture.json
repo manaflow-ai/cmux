@@ -1,0 +1,47 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"],
+    ["dark", "busy"],
+    ["light", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "hat-line-burst",
+      "entry": "agent-pane.composer-hat-line",
+      "variant": "burst",
+      "width": 640,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "A-card-row": "",
+        "B-solid-row": ".acpmux-running-tray[data-line][data-card]{--glass-tint:var(--acpmux-composer-solid) !important;--glass-backdrop:none !important;--acpmux-tray-frost:none !important;background:var(--acpmux-composer-solid) !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}",
+        "C-card-roomy": ".acpmux-running-tray[data-line]{--acpmux-tray-head-height:calc(8.5 * var(--grid-base)) !important}",
+        "D-card-row-13px": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{font-size:var(--text-body,13px) !important;line-height:var(--text-body--line-height,18px) !important}"
+      }
+    },
+    {
+      "name": "hat-line-mixed",
+      "entry": "agent-pane.composer-hat-line",
+      "variant": "mixed",
+      "width": 640,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "A-card-row": "",
+        "B-solid-row": ".acpmux-running-tray[data-line][data-card]{--glass-tint:var(--acpmux-composer-solid) !important;--glass-backdrop:none !important;--acpmux-tray-frost:none !important;background:var(--acpmux-composer-solid) !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}",
+        "C-card-roomy": ".acpmux-running-tray[data-line]{--acpmux-tray-head-height:calc(8.5 * var(--grid-base)) !important}",
+        "D-card-row-13px": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{font-size:var(--text-body,13px) !important;line-height:var(--text-body--line-height,18px) !important}"
+      }
+    },
+    {
+      "name": "hat-line-deck-trail",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "trail-three",
+      "width": 640,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": { "A-card-row": "" }
+    }
+  ]
+}
