@@ -2531,7 +2531,7 @@ if [[ "$mode" == pair-e2e ]]; then
   set -e
   cp "$work/mac-build.log" "$out/mac-build.log"
   mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
-  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  [[ $status -eq 0 && -d "$mac_app" ]] || { grep -E "(^|[^a-z])error:" "$work/mac-build.log" | grep -v "^error: tagged" | sort -u | head -40; tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
