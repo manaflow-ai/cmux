@@ -596,6 +596,24 @@ def fixit_lint(repo: Path, base: str, merge: str, deadline: float | None) -> Non
     print("::endgroup::", flush=True)
 
 
+def ensure_bun_tmpdir(env: dict) -> Path | None:
+    """Give every gate a writable BUN_TMPDIR (set in ENV, which the gates inherit); the directory made, or None when
+    the caller already set one or none could be made. bun unpacks into a temporary directory and fails `error: EACCES
+    accessing temporary directory. set $BUN_TMPDIR or $BUN_INSTALL` when it cannot write its default: fast gates run
+    46034085535 (cmux#59800, 2026-11-27 16:29Z), 46038329362 and 46050092532 failed web lint so, on bases nobody had
+    changed. The directory is made under the runner's own $RUNNER_TEMP, which the job owns."""
+    if env.get("BUN_TMPDIR"):
+        return None
+    for parent in (env.get("RUNNER_TEMP"), None):
+        try:
+            made = Path(tempfile.mkdtemp(prefix="fast-gates-bun-tmp-", dir=parent or None))
+        except OSError:
+            continue
+        env["BUN_TMPDIR"] = str(made)
+        return made
+    return None
+
+
 def run(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
     if not SHA.match(args.base) or not rev(repo, args.base):
@@ -608,6 +626,7 @@ def run(args: argparse.Namespace) -> int:
     sweep_dead_holders("fast-gates-base-")
     holder = Path(tempfile.mkdtemp(prefix="fast-gates-base-"))
     (holder / ".owner-pid").write_text(str(os.getpid()))
+    bun_tmp = ensure_bun_tmpdir(os.environ)
     rows: list[tuple[str, str, float]] = []
     deadline = None if args.budget_seconds is None else time.monotonic() + args.budget_seconds
     try:
@@ -651,11 +670,14 @@ def run(args: argparse.Namespace) -> int:
             if code not in (0, None):
                 print(f"::error title=fast gates: {name}::{name} failed on the merge with base {args.base}")
             rows.append((name, outcome, seconds))
+        # Inside the try: its --fix runs bun too, under the BUN_TMPDIR the finally removes.
+        if any(name == "web lint" and outcome.startswith("failed (exit") for name, outcome, _ in rows):
+            fixit_lint(repo, args.base, merge, deadline)
     finally:
         shutil.rmtree(holder, ignore_errors=True)
+        if bun_tmp:
+            shutil.rmtree(bun_tmp, ignore_errors=True)
     failed = [name for name, outcome, _ in rows if outcome.startswith("failed")]
-    if any(name == "web lint" and outcome.startswith("failed (exit") for name, outcome, _ in rows):
-        fixit_lint(repo, args.base, merge, deadline)
     timed = [(name, seconds) for name, outcome, seconds in rows
              if outcome not in {"skipped", "failed (no time left)"}]
     slowest, critical = "no gate ran", 0.0

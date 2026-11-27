@@ -2550,5 +2550,38 @@ class FetchesSkipSubmodules(unittest.TestCase):
             self.assertIn('"--no-recurse-submodules"', call)
 
 
+class BunTmpdir(unittest.TestCase):
+    """Every gate gets a writable BUN_TMPDIR (cmux#59800: web lint failed `EACCES accessing temporary directory`)."""
+
+    @staticmethod
+    def module():
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates_under_test", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_one_is_made_under_the_runner_temp_and_exported(self):
+        with tempfile.TemporaryDirectory() as runner:
+            env = {"RUNNER_TEMP": runner}
+            made = self.module().ensure_bun_tmpdir(env)
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+            self.assertEqual(made.parent, Path(runner))
+            self.assertTrue(os.access(made, os.W_OK))
+
+    def test_a_caller_set_one_is_kept(self):
+        env = {"BUN_TMPDIR": "/somewhere", "RUNNER_TEMP": "/nonexistent"}
+        self.assertIsNone(self.module().ensure_bun_tmpdir(env))
+        self.assertEqual(env["BUN_TMPDIR"], "/somewhere")
+
+    def test_an_unusable_runner_temp_falls_back_to_the_system_temp(self):
+        env = {"RUNNER_TEMP": "/nonexistent/runner-temp"}
+        made = self.module().ensure_bun_tmpdir(env)
+        try:
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+        finally:
+            if made:
+                made.rmdir()
+
+
 if __name__ == "__main__":
     unittest.main()
