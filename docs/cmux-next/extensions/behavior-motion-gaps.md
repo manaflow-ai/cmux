@@ -40,6 +40,10 @@ the profiles lane goes here first, then into a PR.
 
 ## Gaps from the profiles lane
 
+Found by the profile helpers on 2026-11-25 (ask-aad661801e). Docs-only gaps from the same pass were fixed in
+`cmux customize docs`, which now prints `actions` (every public action id, no cmux needed), `keybindings` (`when`
+clauses and chords) and, under its index, how to combine looks and how to install with a pinned config file.
+
 The codex profile (`examples/looks/codex/profile`, built from these docs only) found these:
 
 | Surface | Expressible today? | Missing piece |

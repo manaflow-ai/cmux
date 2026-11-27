@@ -499,6 +499,7 @@ experiments.chatInstantUnderLoad
 experiments.chatWidgets
 experiments.cloudDiskBar
 experiments.cloudToggle
+experiments.compactionThresholdInsight
 experiments.composerButtonsVisible
 experiments.composerCustomizer
 experiments.composerHatGroups
