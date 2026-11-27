@@ -2707,7 +2707,7 @@ pub struct Tab {
     pub dead: bool,
     /// terminal-state-v1: why a dead terminal ended.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub end: Optional<JsonValue>,
+    pub end: Optional<TerminalTabEnd>,
     /// A frontend browser's favicon.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub favicon_url: Optional<String>,
@@ -2993,6 +2993,19 @@ pub struct TerminalCommandRecord {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalEndKind {
+    #[serde(rename = "exited")]
+    Exited,
+    #[serde(rename = "signaled")]
+    Signaled,
+    #[serde(rename = "host_lost")]
+    HostLost,
+    #[serde(rename = "launch_failed")]
+    LaunchFailed,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalEventsResult {
     pub events: Vec<TerminalRegistryEvent>,
@@ -3045,6 +3058,35 @@ pub struct TerminalHistoryPagesResult {
     pub pages: Vec<TerminalHistoryPage>,
     pub snapshot_version: u16,
     pub surface: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalHostLostReason {
+    #[serde(rename = "missing_record")]
+    MissingRecord,
+    #[serde(rename = "incarnation_mismatch")]
+    IncarnationMismatch,
+    #[serde(rename = "dead_before_adoption")]
+    DeadBeforeAdoption,
+    #[serde(rename = "died_during_adoption")]
+    DiedDuringAdoption,
+    #[serde(rename = "died_without_exit_status")]
+    DiedWithoutExitStatus,
+    #[serde(rename = "missing_exit_receipt")]
+    MissingExitReceipt,
+    #[serde(rename = "unadoptable_host_ended")]
+    UnadoptableHostEnded,
+    #[serde(rename = "owner_gone")]
+    OwnerGone,
+    #[serde(rename = "session_shutdown")]
+    SessionShutdown,
+    #[serde(rename = "restart_exhausted")]
+    RestartExhausted,
+    #[serde(rename = "restart_failed")]
+    RestartFailed,
+    #[serde(rename = "other")]
+    Other,
 }
 
 #[rustfmt::skip]
@@ -3327,6 +3369,13 @@ pub struct TerminalLastCommandResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalLaunchFailure {
+    #[serde(rename = "pty_capacity_exhausted")]
+    PtyCapacityExhausted,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TerminalLifecycle {
     #[serde(rename = "launching")]
     Launching,
@@ -3338,6 +3387,24 @@ pub enum TerminalLifecycle {
     Exited,
     #[serde(rename = "tombstoned")]
     Tombstoned,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalLossCause {
+    /// Whether the host had panicked.
+    pub panicked: bool,
+    /// The sender's process name, when it still ran when recorded and its pid was not reused.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub sender_name: Option<String>,
+    /// The pid that sent \`signal\`; null when the host could not tell.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sender_pid: Optional<i64>,
+    /// Conventional name of the first signal the host recorded (\`SIGTERM\`).
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub signal: Option<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
 }
 
 #[rustfmt::skip]
@@ -3475,6 +3542,35 @@ pub struct TerminalResourcesResult {
 pub struct TerminalResumeCommandResult {
     pub command: Nullable<String>,
     pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalTabEnd {
+    /// \`host_lost\`: the evidence the host left (cx-0tgl), when it recorded any.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<TerminalLossCause>,
+    /// \`exited\`: the exit code, when the host recorded one.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub code: Option<i32>,
+    /// \`signaled\`: whether the process dumped core.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub core_dumped: Option<bool>,
+    /// \`host_lost\` and \`launch_failed\`, and an \`exited\` end with no status: free-form text.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    pub kind: TerminalEndKind,
+    /// A \`restart_failed\` host loss: why the restart launch failed, when the detail names it.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub launch_failure: Option<TerminalLaunchFailure>,
+    /// \`host_lost\`: a stable code for how the host was lost; the raw text stays in \`detail\`.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub reason: Option<TerminalHostLostReason>,
+    /// \`signaled\`: the signal that killed the process.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub signal: Option<i32>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
 }
 
 #[rustfmt::skip]

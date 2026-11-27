@@ -35,7 +35,7 @@ public final class Tab implements WireValue {
     private final Field<String> cwd;
     private final boolean dead;
     /** terminal-state-v1: why a dead terminal ended. */
-    private final Field<Object> end;
+    private final Field<TerminalTabEnd> end;
     /** A frontend browser's favicon. */
     private final Field<String> faviconUrl;
     /** The git branch of cwd. */
@@ -94,7 +94,7 @@ public final class Tab implements WireValue {
         this.cwd = builder.cwd;
         if (!builder.deadSet) throw new IllegalArgumentException("dead is required");
         this.dead = builder.dead;
-        this.end = builder.end.map(value -> Wire.immutableJson(value));
+        this.end = builder.end;
         this.faviconUrl = builder.faviconUrl;
         this.gitBranch = builder.gitBranch;
         this.gitDetached = builder.gitDetached;
@@ -145,7 +145,7 @@ public final class Tab implements WireValue {
     public Field<ConversationTabRecord> conversation() { return conversation; }
     public Field<String> cwd() { return cwd; }
     public boolean dead() { return dead; }
-    public Field<Object> end() { return end; }
+    public Field<TerminalTabEnd> end() { return end; }
     public Field<String> faviconUrl() { return faviconUrl; }
     public Field<String> gitBranch() { return gitBranch; }
     public Field<Boolean> gitDetached() { return gitDetached; }
@@ -231,7 +231,7 @@ public final class Tab implements WireValue {
         builder.dead(Wire.bool(rawDead, "Tab.dead"));
         Object rawEnd = Wire.optional(object, "end");
         if (!Wire.isMissing(rawEnd)) {
-            builder.end(rawEnd == null ? null : Wire.immutableJson(rawEnd));
+            builder.end(rawEnd == null ? null : TerminalTabEnd.fromWire(rawEnd));
         }
         Object rawFaviconUrl = Wire.optional(object, "favicon_url");
         if (!Wire.isMissing(rawFaviconUrl)) {
@@ -411,7 +411,7 @@ public final class Tab implements WireValue {
         private Field<String> cwd = Field.omitted();
         private Boolean dead;
         private boolean deadSet;
-        private Field<Object> end = Field.omitted();
+        private Field<TerminalTabEnd> end = Field.omitted();
         private Field<String> faviconUrl = Field.omitted();
         private Field<String> gitBranch = Field.omitted();
         private Field<Boolean> gitDetached = Field.omitted();
@@ -503,7 +503,7 @@ public final class Tab implements WireValue {
             this.deadSet = true;
             return this;
         }
-        public Builder end(Object value) {
+        public Builder end(TerminalTabEnd value) {
             this.end = Field.ofNullable(value);
             return this;
         }

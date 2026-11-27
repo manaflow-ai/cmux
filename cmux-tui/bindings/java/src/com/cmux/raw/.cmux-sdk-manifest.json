@@ -2342,7 +2342,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "cf4189084f5496e42248847a6d3742efa8561323a0cdba26aa7778798d56a30f",
+      "sha256": "1eaa8721733cd7c29b48ce10eef505f484a98af62342f2384d10ddf9349df6be",
       "size": 8753
     },
     {
@@ -3322,8 +3322,8 @@
     },
     {
       "path": "Tab.java",
-      "sha256": "22f08fd45fe85d7e7466049bf2e84b2dc229acda67ef6cfd1bb72b47ebaeb37f",
-      "size": 33013
+      "sha256": "e72f530892b511f02d765a5ff49e2f8476d7daa995b384b55a5921cb66d5b370",
+      "size": 33010
     },
     {
       "path": "TabAddedEvent.java",
@@ -3491,6 +3491,11 @@
       "size": 6273
     },
     {
+      "path": "TerminalEndKind.java",
+      "sha256": "4639608634b99521770d5d491ea3649e49c91eea67389d01e3666d073c22dc99",
+      "size": 967
+    },
+    {
       "path": "TerminalEventsRequest.java",
       "sha256": "fab5652a4208b0ddb891c9f4c9f95a77944f32aa04420c444114b6ff5161778b",
       "size": 2100
@@ -3546,6 +3551,11 @@
       "size": 4186
     },
     {
+      "path": "TerminalHostLostReason.java",
+      "sha256": "1005c42e7dcf57ff5970b5b5faf9e12fd5151ce4176a0fa2190da798d2352a50",
+      "size": 1414
+    },
+    {
       "path": "TerminalInputUnclaimedEvent.java",
       "sha256": "e9a47694ed2b7858b758f2406bb74da67a7ae724ee2944cb034503d785654f2d",
       "size": 3958
@@ -3581,9 +3591,19 @@
       "size": 2931
     },
     {
+      "path": "TerminalLaunchFailure.java",
+      "sha256": "a84f3062a3e5a76aa96e3c726f881c4b724f58b120d2d168f385d424fc198ce3",
+      "size": 939
+    },
+    {
       "path": "TerminalLifecycle.java",
       "sha256": "96a416b9f56b3e6cd7a0a1505083485f1bc10a2c6a42639e79d1ed308514fd9f",
       "size": 995
+    },
+    {
+      "path": "TerminalLossCause.java",
+      "sha256": "61b01ba2af55d8db933c46f41af1b8b7bde2bbc91518ada4b12507d3b00f98c0",
+      "size": 5151
     },
     {
       "path": "TerminalModifiers.java",
@@ -3674,6 +3694,11 @@
       "path": "TerminalResumeCommandResult.java",
       "sha256": "9aa6e24e9ba25329bdf63e1a365ed0ad2786baa7d568881b296d93e94560460f",
       "size": 2828
+    },
+    {
+      "path": "TerminalTabEnd.java",
+      "sha256": "b7f597284d8faf341f7fb87ccb0b2685f1a114fa1b55d4e382fc55ff05d883f7",
+      "size": 7872
     },
     {
       "path": "TitleChangedEvent.java",
@@ -3937,7 +3962,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c",
+  "ir_sha256": "280c11fb74e120806478326ab815ead33ba9f1da8a96d7fa2bc0b69324457231",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

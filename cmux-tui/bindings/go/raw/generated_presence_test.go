@@ -8307,13 +8307,13 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, nullValue, "end", true, "null")
 		var presentValue Tab
-		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\",\"end\":{\"value\":true}}"), &presentValue); err != nil {
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\",\"end\":{\"kind\":\"exited\"}}"), &presentValue); err != nil {
 			t.Fatal(err)
 		}
 		if _, ok := presentValue.End.Get(); !ok {
 			t.Fatal("End did not preserve a value")
 		}
-		assertGeneratedFieldJSON(t, presentValue, "end", true, "{\"value\":true}")
+		assertGeneratedFieldJSON(t, presentValue, "end", true, "{\"kind\":\"exited\"}")
 	})
 	t.Run("Tab.FaviconURL", func(t *testing.T) {
 		var missing Tab
@@ -9865,6 +9865,76 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "last_command", true, "{\"command\":\"value\",\"ended_at_ms\":\"value\",\"exit_code\":null,\"started_at_ms\":\"value\"}")
 	})
+	t.Run("TerminalLossCause.SenderName", func(t *testing.T) {
+		var missing TerminalLossCause
+		if err := json.Unmarshal([]byte("{\"panicked\":true}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.SenderName != nil {
+			t.Fatal("SenderName did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "sender_name", false, "")
+		var nullValue TerminalLossCause
+		if err := json.Unmarshal([]byte("{\"panicked\":true,\"sender_name\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field sender_name accepted null")
+		}
+		var presentValue TerminalLossCause
+		if err := json.Unmarshal([]byte("{\"panicked\":true,\"sender_name\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.SenderName == nil {
+			t.Fatal("SenderName lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "sender_name", true, "\"value\"")
+	})
+	t.Run("TerminalLossCause.SenderPID", func(t *testing.T) {
+		var missing TerminalLossCause
+		if err := json.Unmarshal([]byte("{\"panicked\":true}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.SenderPID.IsAbsent() {
+			t.Fatal("SenderPID did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "sender_pid", false, "")
+		var nullValue TerminalLossCause
+		if err := json.Unmarshal([]byte("{\"panicked\":true,\"sender_pid\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.SenderPID.IsNull() {
+			t.Fatal("SenderPID did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "sender_pid", true, "null")
+		var presentValue TerminalLossCause
+		if err := json.Unmarshal([]byte("{\"panicked\":true,\"sender_pid\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.SenderPID.Get(); !ok {
+			t.Fatal("SenderPID did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "sender_pid", true, "1")
+	})
+	t.Run("TerminalLossCause.Signal", func(t *testing.T) {
+		var missing TerminalLossCause
+		if err := json.Unmarshal([]byte("{\"panicked\":true}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Signal != nil {
+			t.Fatal("Signal did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "signal", false, "")
+		var nullValue TerminalLossCause
+		if err := json.Unmarshal([]byte("{\"panicked\":true,\"signal\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field signal accepted null")
+		}
+		var presentValue TerminalLossCause
+		if err := json.Unmarshal([]byte("{\"panicked\":true,\"signal\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Signal == nil {
+			t.Fatal("Signal lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "signal", true, "\"value\"")
+	})
 	t.Run("TerminalPlacement.Exit", func(t *testing.T) {
 		var missing TerminalPlacement
 		if err := json.Unmarshal([]byte("{\"already_exited\":true,\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null}"), &missing); err == nil {
@@ -10238,6 +10308,160 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("Command did not preserve a required value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "command", true, "\"value\"")
+	})
+	t.Run("TerminalTabEnd.Cause", func(t *testing.T) {
+		var missing TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Cause != nil {
+			t.Fatal("Cause did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "cause", false, "")
+		var nullValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"cause\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field cause accepted null")
+		}
+		var presentValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"cause\":{\"panicked\":true}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Cause == nil {
+			t.Fatal("Cause lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "cause", true, "{\"panicked\":true}")
+	})
+	t.Run("TerminalTabEnd.Code", func(t *testing.T) {
+		var missing TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Code != nil {
+			t.Fatal("Code did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "code", false, "")
+		var nullValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"code\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field code accepted null")
+		}
+		var presentValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"code\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Code == nil {
+			t.Fatal("Code lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "code", true, "1")
+	})
+	t.Run("TerminalTabEnd.CoreDumped", func(t *testing.T) {
+		var missing TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.CoreDumped != nil {
+			t.Fatal("CoreDumped did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "core_dumped", false, "")
+		var nullValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"core_dumped\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field core_dumped accepted null")
+		}
+		var presentValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"core_dumped\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.CoreDumped == nil {
+			t.Fatal("CoreDumped lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "core_dumped", true, "true")
+	})
+	t.Run("TerminalTabEnd.Detail", func(t *testing.T) {
+		var missing TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Detail != nil {
+			t.Fatal("Detail did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "detail", false, "")
+		var nullValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"detail\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field detail accepted null")
+		}
+		var presentValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"detail\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Detail == nil {
+			t.Fatal("Detail lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "detail", true, "\"value\"")
+	})
+	t.Run("TerminalTabEnd.LaunchFailure", func(t *testing.T) {
+		var missing TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.LaunchFailure != nil {
+			t.Fatal("LaunchFailure did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "launch_failure", false, "")
+		var nullValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"launch_failure\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field launch_failure accepted null")
+		}
+		var presentValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"launch_failure\":\"pty_capacity_exhausted\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.LaunchFailure == nil {
+			t.Fatal("LaunchFailure lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "launch_failure", true, "\"pty_capacity_exhausted\"")
+	})
+	t.Run("TerminalTabEnd.Reason", func(t *testing.T) {
+		var missing TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Reason != nil {
+			t.Fatal("Reason did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "reason", false, "")
+		var nullValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"reason\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field reason accepted null")
+		}
+		var presentValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"reason\":\"missing_record\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Reason == nil {
+			t.Fatal("Reason lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "reason", true, "\"missing_record\"")
+	})
+	t.Run("TerminalTabEnd.Signal", func(t *testing.T) {
+		var missing TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Signal != nil {
+			t.Fatal("Signal did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "signal", false, "")
+		var nullValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"signal\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field signal accepted null")
+		}
+		var presentValue TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"signal\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Signal == nil {
+			t.Fatal("Signal lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "signal", true, "1")
 	})
 	t.Run("Tree.Changed", func(t *testing.T) {
 		var missing Tree
@@ -53358,6 +53582,12 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field terminal_id decoded successfully")
 		}
 	})
+	t.Run("TerminalLossCause.Panicked", func(t *testing.T) {
+		var decoded TerminalLossCause
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field panicked decoded successfully")
+		}
+	})
 	t.Run("TerminalModifiers.Alt", func(t *testing.T) {
 		var decoded TerminalModifiers
 		if err := json.Unmarshal([]byte("{\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true}"), &decoded); err == nil {
@@ -53728,6 +53958,12 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 		var decoded TerminalResumeCommandResult
 		if err := json.Unmarshal([]byte("{\"command\":null}"), &decoded); err == nil {
 			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("TerminalTabEnd.Kind", func(t *testing.T) {
+		var decoded TerminalTabEnd
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field kind decoded successfully")
 		}
 	})
 	t.Run("Tree.Workspaces", func(t *testing.T) {
@@ -62721,6 +62957,12 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 			t.Fatal("required non-nullable field terminal_id accepted null")
 		}
 	})
+	t.Run("TerminalLossCause.Panicked", func(t *testing.T) {
+		var decoded TerminalLossCause
+		if err := json.Unmarshal([]byte("{\"panicked\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field panicked accepted null")
+		}
+	})
 	t.Run("TerminalModifiers.Alt", func(t *testing.T) {
 		var decoded TerminalModifiers
 		if err := json.Unmarshal([]byte("{\"alt\":null,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true}"), &decoded); err == nil {
@@ -63019,6 +63261,12 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded TerminalResumeCommandResult
 		if err := json.Unmarshal([]byte("{\"command\":null,\"terminal_id\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("TerminalTabEnd.Kind", func(t *testing.T) {
+		var decoded TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field kind accepted null")
 		}
 	})
 	t.Run("Tree.Workspaces", func(t *testing.T) {
@@ -68169,6 +68417,24 @@ func TestGeneratedConstrainedFieldsRejectUnknownValues(t *testing.T) {
 			t.Fatal("invalid constrained field lifecycle decoded successfully")
 		}
 	})
+	t.Run("TerminalTabEnd.Kind", func(t *testing.T) {
+		var decoded TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field kind decoded successfully")
+		}
+	})
+	t.Run("TerminalTabEnd.LaunchFailure", func(t *testing.T) {
+		var decoded TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"launch_failure\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field launch_failure decoded successfully")
+		}
+	})
+	t.Run("TerminalTabEnd.Reason", func(t *testing.T) {
+		var decoded TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\",\"reason\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field reason decoded successfully")
+		}
+	})
 	t.Run("WaitForResult.Matched", func(t *testing.T) {
 		var decoded WaitForResult
 		if err := json.Unmarshal([]byte("{\"elapsed_ms\":1,\"matched\":false,\"text\":\"value\"}"), &decoded); err == nil {
@@ -69290,6 +69556,38 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 			t.Fatal("invalid constrained field lifecycle encoded successfully")
 		}
 	})
+	t.Run("TerminalTabEnd.Kind", func(t *testing.T) {
+		var decoded TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Kind = TerminalEndKind("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field kind encoded successfully")
+		}
+	})
+	t.Run("TerminalTabEnd.LaunchFailure", func(t *testing.T) {
+		var decoded TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		invalidValue := TerminalLaunchFailure("__cmux_invalid__")
+		decoded.LaunchFailure = &invalidValue
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field launch_failure encoded successfully")
+		}
+	})
+	t.Run("TerminalTabEnd.Reason", func(t *testing.T) {
+		var decoded TerminalTabEnd
+		if err := json.Unmarshal([]byte("{\"kind\":\"exited\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		invalidValue := TerminalHostLostReason("__cmux_invalid__")
+		decoded.Reason = &invalidValue
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field reason encoded successfully")
+		}
+	})
 	t.Run("WaitForResult.Matched", func(t *testing.T) {
 		var decoded WaitForResult
 		if err := json.Unmarshal([]byte("{\"elapsed_ms\":1,\"matched\":true,\"text\":\"value\"}"), &decoded); err != nil {
@@ -70000,12 +70298,12 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1971
-	generatedOptionalNullableFieldCount    = 1365
+	generatedFieldShapeCount               = 1981
+	generatedOptionalNullableFieldCount    = 1366
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 428
-	generatedRequiredFieldCount            = 1662
-	generatedRequiredNonnullableFieldCount = 1484
-	generatedConstrainedFieldCount         = 139
-	generatedEncodedConstrainedFieldCount  = 139
+	generatedOptionalNonnullableFieldCount = 437
+	generatedRequiredFieldCount            = 1664
+	generatedRequiredNonnullableFieldCount = 1486
+	generatedConstrainedFieldCount         = 142
+	generatedEncodedConstrainedFieldCount  = 142
 )

@@ -206,6 +206,35 @@ class RenderTests(unittest.TestCase):
         self.assertIn("/// A neighbor direction.\npublic enum PaneDirection: String, Sendable, Hashable, Codable {", source)
         self.assertIn("    case left\n    case right\n    case up\n    case down\n", source)
 
+    def test_an_enum_documents_its_cases(self) -> None:
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["enums"]["PaneDirection"]["cases"] = {"up": ["Toward the top."]}
+        source = rendered(bindings=bindings)["Layout/PaneDirection.generated.swift"]
+        self.assertIn("    case right\n    /// Toward the top.\n    case up\n", source)
+
+    def test_an_unknown_case_reads_values_the_app_does_not_know(self) -> None:
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["enums"]["PaneDirection"]["unknown"] = "down"
+        source = rendered(bindings=bindings)["Layout/PaneDirection.generated.swift"]
+        self.assertEqual(source.count("    case down\n"), 1)
+        self.assertIn(
+            "    public init(from decoder: any Decoder) throws {\n"
+            "        let raw = try decoder.singleValueContainer().decode(String.self)\n"
+            "        self = PaneDirection(rawValue: raw) ?? .down\n"
+            "    }\n",
+            source,
+        )
+
+    def test_an_unknown_case_the_schema_lacks_is_an_app_only_case(self) -> None:
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["enums"]["PaneDirection"]["unknown"] = "other"
+        source = rendered(bindings=bindings)["Layout/PaneDirection.generated.swift"]
+        self.assertIn("    case down\n    case other\n", source)
+        self.assertIn("?? .other\n", source)
+
+    def test_an_enum_without_unknown_keeps_the_synthesized_decode(self) -> None:
+        self.assertNotIn("init(from", rendered()["Layout/PaneDirection.generated.swift"])
+
     def test_an_inline_enum_is_nested_and_named_after_its_field(self) -> None:
         source = rendered()["Layout/ZoomPaneRequest.generated.swift"]
         self.assertIn("    public enum Mode: String, Sendable, Hashable, Codable {\n", source)
@@ -277,6 +306,16 @@ class BindingErrorTests(unittest.TestCase):
         bindings = layout_bindings()
         del bindings["families"]["Layout"]["enums"]["PaneDirection"]
         self.assert_refused("PaneDirection", bindings=bindings)
+
+    def test_case_docs_for_a_value_the_enum_lacks_are_refused(self) -> None:
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["enums"]["PaneDirection"]["cases"] = {"sideways": ["No."]}
+        self.assert_refused("cases documents 'sideways'", bindings=bindings)
+
+    def test_an_unknown_that_is_not_a_string_is_refused(self) -> None:
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["enums"]["PaneDirection"]["unknown"] = True
+        self.assert_refused("PaneDirection.unknown", bindings=bindings)
 
     def test_a_result_other_than_empty_needs_a_response_binding(self) -> None:
         bindings = layout_bindings()

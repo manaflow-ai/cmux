@@ -14956,7 +14956,7 @@ type Tab struct {
 	Cwd  Presence[string] `json:"-"`
 	Dead bool             `json:"dead"`
 	// terminal-state-v1: why a dead terminal ended.
-	End Presence[JSONValue] `json:"-"`
+	End Presence[TerminalTabEnd] `json:"-"`
 	// A frontend browser's favicon.
 	FaviconURL Presence[string] `json:"-"`
 	// The git branch of cwd.
@@ -15432,7 +15432,7 @@ func (value *Tab) UnmarshalJSON(data []byte) error {
 		Conversation                    Presence[ConversationTabRecord]    `json:"conversation"`
 		Cwd                             Presence[string]                   `json:"cwd"`
 		Dead                            *bool                              `json:"dead"`
-		End                             Presence[JSONValue]                `json:"end"`
+		End                             Presence[TerminalTabEnd]           `json:"end"`
 		FaviconURL                      Presence[string]                   `json:"favicon_url"`
 		GitBranch                       Presence[string]                   `json:"git_branch"`
 		GitDetached                     optionalNonNullJSON[bool]          `json:"git_detached"`
@@ -16984,6 +16984,44 @@ func (value *TerminalCommandRecord) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type TerminalEndKind string
+
+const (
+	TerminalEndKindExited       TerminalEndKind = "exited"
+	TerminalEndKindSignaled     TerminalEndKind = "signaled"
+	TerminalEndKindHostLost     TerminalEndKind = "host_lost"
+	TerminalEndKindLaunchFailed TerminalEndKind = "launch_failed"
+)
+
+func (value TerminalEndKind) valid() bool {
+	switch value {
+	case TerminalEndKindExited, TerminalEndKindSignaled, TerminalEndKindHostLost, TerminalEndKindLaunchFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TerminalEndKind) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TerminalEndKind", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TerminalEndKind) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TerminalEndKind(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TerminalEndKind", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type TerminalEventsResult struct {
 	Events           []TerminalRegistryEvent `json:"events"`
 	Generation       string                  `json:"generation"`
@@ -17516,6 +17554,52 @@ func (value *TerminalHistoryPagesResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type TerminalHostLostReason string
+
+const (
+	TerminalHostLostReasonMissingRecord         TerminalHostLostReason = "missing_record"
+	TerminalHostLostReasonIncarnationMismatch   TerminalHostLostReason = "incarnation_mismatch"
+	TerminalHostLostReasonDeadBeforeAdoption    TerminalHostLostReason = "dead_before_adoption"
+	TerminalHostLostReasonDiedDuringAdoption    TerminalHostLostReason = "died_during_adoption"
+	TerminalHostLostReasonDiedWithoutExitStatus TerminalHostLostReason = "died_without_exit_status"
+	TerminalHostLostReasonMissingExitReceipt    TerminalHostLostReason = "missing_exit_receipt"
+	TerminalHostLostReasonUnadoptableHostEnded  TerminalHostLostReason = "unadoptable_host_ended"
+	TerminalHostLostReasonOwnerGone             TerminalHostLostReason = "owner_gone"
+	TerminalHostLostReasonSessionShutdown       TerminalHostLostReason = "session_shutdown"
+	TerminalHostLostReasonRestartExhausted      TerminalHostLostReason = "restart_exhausted"
+	TerminalHostLostReasonRestartFailed         TerminalHostLostReason = "restart_failed"
+	TerminalHostLostReasonOther                 TerminalHostLostReason = "other"
+)
+
+func (value TerminalHostLostReason) valid() bool {
+	switch value {
+	case TerminalHostLostReasonMissingRecord, TerminalHostLostReasonIncarnationMismatch, TerminalHostLostReasonDeadBeforeAdoption, TerminalHostLostReasonDiedDuringAdoption, TerminalHostLostReasonDiedWithoutExitStatus, TerminalHostLostReasonMissingExitReceipt, TerminalHostLostReasonUnadoptableHostEnded, TerminalHostLostReasonOwnerGone, TerminalHostLostReasonSessionShutdown, TerminalHostLostReasonRestartExhausted, TerminalHostLostReasonRestartFailed, TerminalHostLostReasonOther:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TerminalHostLostReason) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TerminalHostLostReason", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TerminalHostLostReason) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TerminalHostLostReason(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TerminalHostLostReason", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type TerminalKey string
 
 const (
@@ -17953,6 +18037,41 @@ func (value *TerminalLastCommandResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type TerminalLaunchFailure string
+
+const (
+	TerminalLaunchFailurePTYCapacityExhausted TerminalLaunchFailure = "pty_capacity_exhausted"
+)
+
+func (value TerminalLaunchFailure) valid() bool {
+	switch value {
+	case TerminalLaunchFailurePTYCapacityExhausted:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TerminalLaunchFailure) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TerminalLaunchFailure", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TerminalLaunchFailure) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TerminalLaunchFailure(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TerminalLaunchFailure", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type TerminalLifecycle string
 
 const (
@@ -17989,6 +18108,102 @@ func (value *TerminalLifecycle) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%s has invalid value %v", "TerminalLifecycle", decoded)
 	}
 	*value = candidate
+	return nil
+}
+
+type TerminalLossCause struct {
+	// Whether the host had panicked.
+	Panicked bool `json:"panicked"`
+	// The sender's process name, when it still ran when recorded and its pid was not reused.
+	SenderName *string `json:"sender_name,omitempty"`
+	// The pid that sent `signal`; null when the host could not tell.
+	SenderPID Presence[int64] `json:"-"`
+	// Conventional name of the first signal the host recorded (`SIGTERM`).
+	Signal     *string                    `json:"signal,omitempty"`
+	Additional map[string]json.RawMessage `json:"-"`
+}
+
+func (value TerminalLossCause) MarshalJSON() ([]byte, error) {
+	type wire TerminalLossCause
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	for key, fieldValue := range value.Additional {
+		switch key {
+		case "panicked", "sender_name", "sender_pid", "signal":
+			continue
+		}
+		object[key] = append(json.RawMessage(nil), fieldValue...)
+	}
+	if value.SenderPID.IsAbsent() {
+		delete(object, "sender_pid")
+	} else if value.SenderPID.IsNull() {
+		object["sender_pid"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.SenderPID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode TerminalLossCause.SenderPID: %w", err)
+		}
+		object["sender_pid"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *TerminalLossCause) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalLossCause: expected object")
+	}
+	var fields struct {
+		Panicked   *bool                       `json:"panicked"`
+		SenderName optionalNonNullJSON[string] `json:"sender_name"`
+		SenderPID  Presence[int64]             `json:"sender_pid"`
+		Signal     optionalNonNullJSON[string] `json:"signal"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalLossCause: %w", err)
+	}
+	type wire TerminalLossCause
+	var decoded wire
+	if fields.Panicked == nil {
+		return fmt.Errorf("decode TerminalLossCause: required field panicked is missing or null")
+	}
+	decoded.Panicked = *fields.Panicked
+	if fields.SenderName.null {
+		return fmt.Errorf("decode TerminalLossCause: non-nullable field sender_name is null")
+	}
+	if fields.SenderName.set {
+		decoded.SenderName = &fields.SenderName.value
+	}
+	decoded.SenderPID = fields.SenderPID
+	if fields.Signal.null {
+		return fmt.Errorf("decode TerminalLossCause: non-nullable field signal is null")
+	}
+	if fields.Signal.set {
+		decoded.Signal = &fields.Signal.value
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return fmt.Errorf("decode TerminalLossCause: %w", err)
+	}
+	for key, fieldValue := range object {
+		switch key {
+		case "panicked", "sender_name", "sender_pid", "signal":
+			continue
+		}
+		if decoded.Additional == nil {
+			decoded.Additional = make(map[string]json.RawMessage)
+		}
+		decoded.Additional[key] = append(
+			json.RawMessage(nil), fieldValue...,
+		)
+	}
+	*value = TerminalLossCause(decoded)
 	return nil
 }
 
@@ -18829,6 +19044,130 @@ func (value *TerminalResumeCommandResult) UnmarshalJSON(data []byte) error {
 	}
 	decoded.TerminalID = *fields.TerminalID
 	*value = TerminalResumeCommandResult(decoded)
+	return nil
+}
+
+type TerminalTabEnd struct {
+	// `host_lost`: the evidence the host left (cx-0tgl), when it recorded any.
+	Cause *TerminalLossCause `json:"cause,omitempty"`
+	// `exited`: the exit code, when the host recorded one.
+	Code *int32 `json:"code,omitempty"`
+	// `signaled`: whether the process dumped core.
+	CoreDumped *bool `json:"core_dumped,omitempty"`
+	// `host_lost` and `launch_failed`, and an `exited` end with no status: free-form text.
+	Detail *string         `json:"detail,omitempty"`
+	Kind   TerminalEndKind `json:"kind"`
+	// A `restart_failed` host loss: why the restart launch failed, when the detail names it.
+	LaunchFailure *TerminalLaunchFailure `json:"launch_failure,omitempty"`
+	// `host_lost`: a stable code for how the host was lost; the raw text stays in `detail`.
+	Reason *TerminalHostLostReason `json:"reason,omitempty"`
+	// `signaled`: the signal that killed the process.
+	Signal     *int32                     `json:"signal,omitempty"`
+	Additional map[string]json.RawMessage `json:"-"`
+}
+
+func (value TerminalTabEnd) MarshalJSON() ([]byte, error) {
+	type wire TerminalTabEnd
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	for key, fieldValue := range value.Additional {
+		switch key {
+		case "cause", "code", "core_dumped", "detail", "kind", "launch_failure", "reason", "signal":
+			continue
+		}
+		object[key] = append(json.RawMessage(nil), fieldValue...)
+	}
+	return json.Marshal(object)
+}
+
+func (value *TerminalTabEnd) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalTabEnd: expected object")
+	}
+	var fields struct {
+		Cause         optionalNonNullJSON[TerminalLossCause]      `json:"cause"`
+		Code          optionalNonNullJSON[int32]                  `json:"code"`
+		CoreDumped    optionalNonNullJSON[bool]                   `json:"core_dumped"`
+		Detail        optionalNonNullJSON[string]                 `json:"detail"`
+		Kind          *TerminalEndKind                            `json:"kind"`
+		LaunchFailure optionalNonNullJSON[TerminalLaunchFailure]  `json:"launch_failure"`
+		Reason        optionalNonNullJSON[TerminalHostLostReason] `json:"reason"`
+		Signal        optionalNonNullJSON[int32]                  `json:"signal"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalTabEnd: %w", err)
+	}
+	type wire TerminalTabEnd
+	var decoded wire
+	if fields.Cause.null {
+		return fmt.Errorf("decode TerminalTabEnd: non-nullable field cause is null")
+	}
+	if fields.Cause.set {
+		decoded.Cause = &fields.Cause.value
+	}
+	if fields.Code.null {
+		return fmt.Errorf("decode TerminalTabEnd: non-nullable field code is null")
+	}
+	if fields.Code.set {
+		decoded.Code = &fields.Code.value
+	}
+	if fields.CoreDumped.null {
+		return fmt.Errorf("decode TerminalTabEnd: non-nullable field core_dumped is null")
+	}
+	if fields.CoreDumped.set {
+		decoded.CoreDumped = &fields.CoreDumped.value
+	}
+	if fields.Detail.null {
+		return fmt.Errorf("decode TerminalTabEnd: non-nullable field detail is null")
+	}
+	if fields.Detail.set {
+		decoded.Detail = &fields.Detail.value
+	}
+	if fields.Kind == nil {
+		return fmt.Errorf("decode TerminalTabEnd: required field kind is missing or null")
+	}
+	decoded.Kind = *fields.Kind
+	if fields.LaunchFailure.null {
+		return fmt.Errorf("decode TerminalTabEnd: non-nullable field launch_failure is null")
+	}
+	if fields.LaunchFailure.set {
+		decoded.LaunchFailure = &fields.LaunchFailure.value
+	}
+	if fields.Reason.null {
+		return fmt.Errorf("decode TerminalTabEnd: non-nullable field reason is null")
+	}
+	if fields.Reason.set {
+		decoded.Reason = &fields.Reason.value
+	}
+	if fields.Signal.null {
+		return fmt.Errorf("decode TerminalTabEnd: non-nullable field signal is null")
+	}
+	if fields.Signal.set {
+		decoded.Signal = &fields.Signal.value
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return fmt.Errorf("decode TerminalTabEnd: %w", err)
+	}
+	for key, fieldValue := range object {
+		switch key {
+		case "cause", "code", "core_dumped", "detail", "kind", "launch_failure", "reason", "signal":
+			continue
+		}
+		if decoded.Additional == nil {
+			decoded.Additional = make(map[string]json.RawMessage)
+		}
+		decoded.Additional[key] = append(
+			json.RawMessage(nil), fieldValue...,
+		)
+	}
+	*value = TerminalTabEnd(decoded)
 	return nil
 }
 

@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c" as const;
+export const SDK_IR_SHA256 = "280c11fb74e120806478326ab815ead33ba9f1da8a96d7fa2bc0b69324457231" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -14676,7 +14676,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "since": 12,
         "type": {
           "kind": "ref",
-          "name": "JsonValue"
+          "name": "TerminalTabEnd"
         }
       },
       "favicon_url": {
@@ -15658,6 +15658,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalEndKind": {
+    "kind": "enum",
+    "values": [
+      "exited",
+      "signaled",
+      "host_lost",
+      "launch_failed"
+    ]
+  },
   "TerminalEventsResult": {
     "additional_properties": false,
     "fields": {
@@ -15904,6 +15913,23 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "TerminalHostLostReason": {
+    "kind": "enum",
+    "values": [
+      "missing_record",
+      "incarnation_mismatch",
+      "dead_before_adoption",
+      "died_during_adoption",
+      "died_without_exit_status",
+      "missing_exit_receipt",
+      "unadoptable_host_ended",
+      "owner_gone",
+      "session_shutdown",
+      "restart_exhausted",
+      "restart_failed",
+      "other"
+    ]
   },
   "TerminalKey": {
     "kind": "enum",
@@ -16193,6 +16219,12 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalLaunchFailure": {
+    "kind": "enum",
+    "values": [
+      "pty_capacity_exhausted"
+    ]
+  },
   "TerminalLifecycle": {
     "kind": "enum",
     "values": [
@@ -16202,6 +16234,48 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "exited",
       "tombstoned"
     ]
+  },
+  "TerminalLossCause": {
+    "additional_properties": true,
+    "fields": {
+      "panicked": {
+        "description": "Whether the host had panicked.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "sender_name": {
+        "description": "The sender's process name, when it still ran when recorded and its pid was not reused.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "sender_pid": {
+        "description": "The pid that sent `signal`; null when the host could not tell.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "int64"
+        }
+      },
+      "signal": {
+        "description": "Conventional name of the first signal the host recorded (`SIGTERM`).",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
   },
   "TerminalModifiers": {
     "additional_properties": false,
@@ -16860,6 +16934,83 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalTabEnd": {
+    "additional_properties": true,
+    "fields": {
+      "cause": {
+        "description": "`host_lost`: the evidence the host left (cx-0tgl), when it recorded any.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalLossCause"
+        }
+      },
+      "code": {
+        "description": "`exited`: the exit code, when the host recorded one.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "core_dumped": {
+        "description": "`signaled`: whether the process dumped core.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "detail": {
+        "description": "`host_lost` and `launch_failed`, and an `exited` end with no status: free-form text.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalEndKind"
+        }
+      },
+      "launch_failure": {
+        "description": "A `restart_failed` host loss: why the restart launch failed, when the detail names it.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalLaunchFailure"
+        }
+      },
+      "reason": {
+        "description": "`host_lost`: a stable code for how the host was lost; the raw text stays in `detail`.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalHostLostReason"
+        }
+      },
+      "signal": {
+        "description": "`signaled`: the signal that killed the process.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
         }
       }
     },

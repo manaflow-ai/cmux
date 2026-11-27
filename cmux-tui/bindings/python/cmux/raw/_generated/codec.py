@@ -221,6 +221,7 @@ MODEL_BY_PATH = {
     'types/TerminalKeyInput': models.TerminalKeyInput,
     'types/TerminalLastCommand': models.TerminalLastCommand,
     'types/TerminalLastCommandResult': models.TerminalLastCommandResult,
+    'types/TerminalLossCause': models.TerminalLossCause,
     'types/TerminalModifiers': models.TerminalModifiers,
     'types/TerminalPlacement': models.TerminalPlacement,
     'types/TerminalPortsListener': models.TerminalPortsListener,
@@ -233,6 +234,7 @@ MODEL_BY_PATH = {
     'types/TerminalResources': models.TerminalResources,
     'types/TerminalResourcesResult': models.TerminalResourcesResult,
     'types/TerminalResumeCommandResult': models.TerminalResumeCommandResult,
+    'types/TerminalTabEnd': models.TerminalTabEnd,
     'types/Tree': models.Tree,
     'types/ViewportPaneWidthResult': models.ViewportPaneWidthResult,
     'types/ViewportSplitWidth': models.ViewportSplitWidth,
@@ -752,8 +754,11 @@ ENUM_BY_PATH = {
     'types/TerminalClipboardHostKind': models.TerminalClipboardHostKind,
     'types/TerminalClipboardLocation': models.TerminalClipboardLocation,
     'types/TerminalCommandContextIntent': models.TerminalCommandContextIntent,
+    'types/TerminalEndKind': models.TerminalEndKind,
+    'types/TerminalHostLostReason': models.TerminalHostLostReason,
     'types/TerminalKey': models.TerminalKey,
     'types/TerminalKeyAction': models.TerminalKeyAction,
+    'types/TerminalLaunchFailure': models.TerminalLaunchFailure,
     'types/TerminalLifecycle': models.TerminalLifecycle,
     'types/ViewAttachmentOutcome': models.ViewAttachmentOutcome
 }

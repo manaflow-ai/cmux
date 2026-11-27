@@ -3087,6 +3087,119 @@
               ]
             }
           }
+        },
+        "TerminalTabEnd": {
+          "type": "TerminalTabEnd",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "How a dead terminal ended. Wire `end` on the tab."
+          ],
+          "order": [
+            "kind",
+            "code",
+            "signal",
+            "core_dumped",
+            "reason",
+            "detail",
+            "cause",
+            "launch_failure"
+          ],
+          "fields": {
+            "cause": {
+              "doc": [
+                "For a host loss, the evidence its host left (cx-0tgl): the first",
+                "signal it recorded and who sent it, and whether it had panicked."
+              ]
+            },
+            "launch_failure": {
+              "doc": [
+                "For a `restart_failed` host loss, why the launch failed, when the daemon",
+                "names it (wire `end.launch_failure`; older daemons and ends omit it)."
+              ]
+            }
+          }
+        },
+        "TerminalLossCause": {
+          "type": "TerminalLossCause",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Wire `end.cause`. Every field is optional; older daemons omit it."
+          ],
+          "order": [
+            "signal",
+            "sender_pid",
+            "sender_name",
+            "panicked"
+          ],
+          "fields": {
+            "panicked": {
+              "default": "false"
+            }
+          }
+        }
+      },
+      "enums": {
+        "TerminalEndKind": {
+          "doc": [
+            "How a dead terminal ended: wire `end.kind` on a tab."
+          ],
+          "cases": {
+            "exited": [
+              "The process exited with `code`."
+            ],
+            "signaled": [
+              "The process was killed by `signal`."
+            ],
+            "host_lost": [
+              "The terminal host was lost (crash, kill, logout); `reason` says how."
+            ],
+            "launch_failed": [
+              "The terminal never started."
+            ]
+          }
+        },
+        "TerminalHostLostReason": {
+          "doc": [
+            "Stable host-loss reasons (wire `end.reason`); unknown future values decode as `.other`."
+          ],
+          "cases": {
+            "unadoptable_host_ended": [
+              "A host this daemon could not adopt ended (by itself or on close)."
+            ],
+            "owner_gone": [
+              "The host ended its terminal because its owner daemon was gone for the orphan grace, or a",
+              "`SIGTERM` reached it while orphaned (cx-3ryj)."
+            ],
+            "restart_exhausted": [
+              "The daemon restarted the terminal after host losses until its",
+              "restart budget ran out (cx-6so.49); it stays ended."
+            ],
+            "restart_failed": [
+              "The daemon tried to restart the terminal after a host loss and the",
+              "launch failed (cx-6so.49); it stays ended."
+            ]
+          },
+          "unknown": "other"
+        },
+        "TerminalLaunchFailure": {
+          "doc": [
+            "Why the launch of a restart failed (wire `end.launch_failure`); unknown future values decode as",
+            "`.other`."
+          ],
+          "cases": {
+            "pty_capacity_exhausted": [
+              "The launch found no free PTY: closing terminals frees one."
+            ]
+          },
+          "unknown": "other"
         }
       }
     }

@@ -14502,11 +14502,11 @@ Result<Tab> Codec<Tab>::decode(const Json& value) {
     const Json* field_end = value.find("end");
     if (field_end) {
         if (field_end->is_null()) {
-            result.end = Field<JsonValue>::null();
+            result.end = Field<TerminalTabEnd>::null();
         } else {
-            auto decoded = decode_value<JsonValue>(*field_end);
+            auto decoded = decode_value<TerminalTabEnd>(*field_end);
             if (!decoded) return std::move(decoded).error();
-            result.end = Field<JsonValue>(std::move(decoded).value());
+            result.end = Field<TerminalTabEnd>(std::move(decoded).value());
         }
     }
     const Json* field_favicon_url = value.find("favicon_url");
@@ -16052,6 +16052,24 @@ Result<TerminalCommandRecord> Codec<TerminalCommandRecord>::decode(const Json& v
     return result;
 }
 
+Result<Json> Codec<TerminalEndKind>::encode(const TerminalEndKind& value) {
+    switch (value) {
+        case TerminalEndKind::exited: return Json(std::string("exited"));
+        case TerminalEndKind::signaled: return Json(std::string("signaled"));
+        case TerminalEndKind::host_lost: return Json(std::string("host_lost"));
+        case TerminalEndKind::launch_failed: return Json(std::string("launch_failed"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<TerminalEndKind> Codec<TerminalEndKind>::decode(const Json& value) {
+    if (value == Json(std::string("exited"))) return TerminalEndKind::exited;
+    if (value == Json(std::string("signaled"))) return TerminalEndKind::signaled;
+    if (value == Json(std::string("host_lost"))) return TerminalEndKind::host_lost;
+    if (value == Json(std::string("launch_failed"))) return TerminalEndKind::launch_failed;
+    return make_error(ErrorCode::decode, "unknown TerminalEndKind value");
+}
+
 Result<Json> Codec<TerminalEventsResult>::encode(const TerminalEventsResult& value) {
     (void)value;
     Json::Object object;
@@ -16310,6 +16328,40 @@ Result<TerminalHistoryPagesResult> Codec<TerminalHistoryPagesResult>::decode(con
         result.surface = std::move(decoded).value();
     }
     return result;
+}
+
+Result<Json> Codec<TerminalHostLostReason>::encode(const TerminalHostLostReason& value) {
+    switch (value) {
+        case TerminalHostLostReason::missing_record: return Json(std::string("missing_record"));
+        case TerminalHostLostReason::incarnation_mismatch: return Json(std::string("incarnation_mismatch"));
+        case TerminalHostLostReason::dead_before_adoption: return Json(std::string("dead_before_adoption"));
+        case TerminalHostLostReason::died_during_adoption: return Json(std::string("died_during_adoption"));
+        case TerminalHostLostReason::died_without_exit_status: return Json(std::string("died_without_exit_status"));
+        case TerminalHostLostReason::missing_exit_receipt: return Json(std::string("missing_exit_receipt"));
+        case TerminalHostLostReason::unadoptable_host_ended: return Json(std::string("unadoptable_host_ended"));
+        case TerminalHostLostReason::owner_gone: return Json(std::string("owner_gone"));
+        case TerminalHostLostReason::session_shutdown: return Json(std::string("session_shutdown"));
+        case TerminalHostLostReason::restart_exhausted: return Json(std::string("restart_exhausted"));
+        case TerminalHostLostReason::restart_failed: return Json(std::string("restart_failed"));
+        case TerminalHostLostReason::other: return Json(std::string("other"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<TerminalHostLostReason> Codec<TerminalHostLostReason>::decode(const Json& value) {
+    if (value == Json(std::string("missing_record"))) return TerminalHostLostReason::missing_record;
+    if (value == Json(std::string("incarnation_mismatch"))) return TerminalHostLostReason::incarnation_mismatch;
+    if (value == Json(std::string("dead_before_adoption"))) return TerminalHostLostReason::dead_before_adoption;
+    if (value == Json(std::string("died_during_adoption"))) return TerminalHostLostReason::died_during_adoption;
+    if (value == Json(std::string("died_without_exit_status"))) return TerminalHostLostReason::died_without_exit_status;
+    if (value == Json(std::string("missing_exit_receipt"))) return TerminalHostLostReason::missing_exit_receipt;
+    if (value == Json(std::string("unadoptable_host_ended"))) return TerminalHostLostReason::unadoptable_host_ended;
+    if (value == Json(std::string("owner_gone"))) return TerminalHostLostReason::owner_gone;
+    if (value == Json(std::string("session_shutdown"))) return TerminalHostLostReason::session_shutdown;
+    if (value == Json(std::string("restart_exhausted"))) return TerminalHostLostReason::restart_exhausted;
+    if (value == Json(std::string("restart_failed"))) return TerminalHostLostReason::restart_failed;
+    if (value == Json(std::string("other"))) return TerminalHostLostReason::other;
+    return make_error(ErrorCode::decode, "unknown TerminalHostLostReason value");
 }
 
 Result<Json> Codec<TerminalKey>::encode(const TerminalKey& value) {
@@ -16822,6 +16874,18 @@ Result<TerminalLastCommandResult> Codec<TerminalLastCommandResult>::decode(const
     return result;
 }
 
+Result<Json> Codec<TerminalLaunchFailure>::encode(const TerminalLaunchFailure& value) {
+    switch (value) {
+        case TerminalLaunchFailure::pty_capacity_exhausted: return Json(std::string("pty_capacity_exhausted"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<TerminalLaunchFailure> Codec<TerminalLaunchFailure>::decode(const Json& value) {
+    if (value == Json(std::string("pty_capacity_exhausted"))) return TerminalLaunchFailure::pty_capacity_exhausted;
+    return make_error(ErrorCode::decode, "unknown TerminalLaunchFailure value");
+}
+
 Result<Json> Codec<TerminalLifecycle>::encode(const TerminalLifecycle& value) {
     switch (value) {
         case TerminalLifecycle::launching: return Json(std::string("launching"));
@@ -16840,6 +16904,74 @@ Result<TerminalLifecycle> Codec<TerminalLifecycle>::decode(const Json& value) {
     if (value == Json(std::string("exited"))) return TerminalLifecycle::exited;
     if (value == Json(std::string("tombstoned"))) return TerminalLifecycle::tombstoned;
     return make_error(ErrorCode::decode, "unknown TerminalLifecycle value");
+}
+
+Result<Json> Codec<TerminalLossCause>::encode(const TerminalLossCause& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_panicked = encode_value(value.panicked);
+    if (!encoded_panicked) return std::move(encoded_panicked).error();
+    object.emplace("panicked", std::move(encoded_panicked).value());
+    if (value.sender_name) {
+        auto encoded = encode_value(*value.sender_name);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("sender_name", std::move(encoded).value());
+    }
+    if (!value.sender_pid.is_absent()) {
+        auto encoded = encode_value(value.sender_pid);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("sender_pid", std::move(encoded).value());
+    }
+    if (value.signal) {
+        auto encoded = encode_value(*value.signal);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("signal", std::move(encoded).value());
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<TerminalLossCause> Codec<TerminalLossCause>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalLossCause result{};
+    const Json* field_panicked = value.find("panicked");
+    if (!field_panicked) {
+        return make_error(ErrorCode::decode, "missing required field 'panicked'");
+    }
+    if (field_panicked) {
+        auto decoded = decode_value<bool>(*field_panicked);
+        if (!decoded) return std::move(decoded).error();
+        result.panicked = std::move(decoded).value();
+    }
+    const Json* field_sender_name = value.find("sender_name");
+    if (field_sender_name) {
+        auto decoded = decode_value<std::string>(*field_sender_name);
+        if (!decoded) return std::move(decoded).error();
+        result.sender_name = std::move(decoded).value();
+    }
+    const Json* field_sender_pid = value.find("sender_pid");
+    if (field_sender_pid) {
+        if (field_sender_pid->is_null()) {
+            result.sender_pid = Field<std::int64_t>::null();
+        } else {
+            auto decoded = decode_value<std::int64_t>(*field_sender_pid);
+            if (!decoded) return std::move(decoded).error();
+            result.sender_pid = Field<std::int64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_signal = value.find("signal");
+    if (field_signal) {
+        auto decoded = decode_value<std::string>(*field_signal);
+        if (!decoded) return std::move(decoded).error();
+        result.signal = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "panicked" && key != "sender_name" && key != "sender_pid" && key != "signal") result.additional_properties.emplace(key, item);
+    }
+    return result;
 }
 
 Result<Json> Codec<TerminalModifiers>::encode(const TerminalModifiers& value) {
@@ -17895,6 +18027,114 @@ Result<TerminalResumeCommandResult> Codec<TerminalResumeCommandResult>::decode(c
         auto decoded = decode_value<std::string>(*field_terminal_id);
         if (!decoded) return std::move(decoded).error();
         result.terminal_id = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<TerminalTabEnd>::encode(const TerminalTabEnd& value) {
+    (void)value;
+    Json::Object object;
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
+    if (value.code) {
+        auto encoded = encode_value(*value.code);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("code", std::move(encoded).value());
+    }
+    if (value.core_dumped) {
+        auto encoded = encode_value(*value.core_dumped);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("core_dumped", std::move(encoded).value());
+    }
+    if (value.detail) {
+        auto encoded = encode_value(*value.detail);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("detail", std::move(encoded).value());
+    }
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    if (value.launch_failure) {
+        auto encoded = encode_value(*value.launch_failure);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("launch_failure", std::move(encoded).value());
+    }
+    if (value.reason) {
+        auto encoded = encode_value(*value.reason);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("reason", std::move(encoded).value());
+    }
+    if (value.signal) {
+        auto encoded = encode_value(*value.signal);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("signal", std::move(encoded).value());
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<TerminalTabEnd> Codec<TerminalTabEnd>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalTabEnd result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<TerminalLossCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
+    const Json* field_code = value.find("code");
+    if (field_code) {
+        auto decoded = decode_value<std::int32_t>(*field_code);
+        if (!decoded) return std::move(decoded).error();
+        result.code = std::move(decoded).value();
+    }
+    const Json* field_core_dumped = value.find("core_dumped");
+    if (field_core_dumped) {
+        auto decoded = decode_value<bool>(*field_core_dumped);
+        if (!decoded) return std::move(decoded).error();
+        result.core_dumped = std::move(decoded).value();
+    }
+    const Json* field_detail = value.find("detail");
+    if (field_detail) {
+        auto decoded = decode_value<std::string>(*field_detail);
+        if (!decoded) return std::move(decoded).error();
+        result.detail = std::move(decoded).value();
+    }
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<TerminalEndKind>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_launch_failure = value.find("launch_failure");
+    if (field_launch_failure) {
+        auto decoded = decode_value<TerminalLaunchFailure>(*field_launch_failure);
+        if (!decoded) return std::move(decoded).error();
+        result.launch_failure = std::move(decoded).value();
+    }
+    const Json* field_reason = value.find("reason");
+    if (field_reason) {
+        auto decoded = decode_value<TerminalHostLostReason>(*field_reason);
+        if (!decoded) return std::move(decoded).error();
+        result.reason = std::move(decoded).value();
+    }
+    const Json* field_signal = value.find("signal");
+    if (field_signal) {
+        auto decoded = decode_value<std::int32_t>(*field_signal);
+        if (!decoded) return std::move(decoded).error();
+        result.signal = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "cause" && key != "code" && key != "core_dumped" && key != "detail" && key != "kind" && key != "launch_failure" && key != "reason" && key != "signal") result.additional_properties.emplace(key, item);
     }
     return result;
 }

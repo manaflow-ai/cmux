@@ -217,6 +217,26 @@ class TerminalCommandContextIntent(str, Enum):
     CONTEXT = 'context'
     FIX = 'fix'
 
+class TerminalEndKind(str, Enum):
+    EXITED = 'exited'
+    SIGNALED = 'signaled'
+    HOST_LOST = 'host_lost'
+    LAUNCH_FAILED = 'launch_failed'
+
+class TerminalHostLostReason(str, Enum):
+    MISSING_RECORD = 'missing_record'
+    INCARNATION_MISMATCH = 'incarnation_mismatch'
+    DEAD_BEFORE_ADOPTION = 'dead_before_adoption'
+    DIED_DURING_ADOPTION = 'died_during_adoption'
+    DIED_WITHOUT_EXIT_STATUS = 'died_without_exit_status'
+    MISSING_EXIT_RECEIPT = 'missing_exit_receipt'
+    UNADOPTABLE_HOST_ENDED = 'unadoptable_host_ended'
+    OWNER_GONE = 'owner_gone'
+    SESSION_SHUTDOWN = 'session_shutdown'
+    RESTART_EXHAUSTED = 'restart_exhausted'
+    RESTART_FAILED = 'restart_failed'
+    OTHER = 'other'
+
 class TerminalKey(str, Enum):
     UNIDENTIFIED = 'unidentified'
     BACKQUOTE = 'backquote'
@@ -336,6 +356,9 @@ class TerminalKeyAction(str, Enum):
     PRESS = 'press'
     RELEASE = 'release'
     REPEAT = 'repeat'
+
+class TerminalLaunchFailure(str, Enum):
+    PTY_CAPACITY_EXHAUSTED = 'pty_capacity_exhausted'
 
 class TerminalLifecycle(str, Enum):
     LAUNCHING = 'launching'
@@ -2188,7 +2211,7 @@ class Tab:
     content_resource_id: Union[str, None, MissingType] = field(default=MISSING)
     conversation: Union[ConversationTabRecord, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
-    end: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    end: Union[TerminalTabEnd, None, MissingType] = field(default=MISSING)
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
     git_branch: Union[str, None, MissingType] = field(default=MISSING)
     git_detached: Union[bool, MissingType] = field(default=MISSING)
@@ -2457,6 +2480,16 @@ class TerminalLastCommandResult:
 
 
 @dataclass(frozen=True)
+class TerminalLossCause:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalLossCause'
+    panicked: bool
+    sender_name: Union[str, MissingType] = field(default=MISSING)
+    sender_pid: Union[int, None, MissingType] = field(default=MISSING)
+    signal: Union[str, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class TerminalModifiers:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalModifiers'
     alt: bool
@@ -2581,6 +2614,20 @@ class TerminalResumeCommandResult:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalResumeCommandResult'
     terminal_id: str
     command: Union[str, None]
+
+
+@dataclass(frozen=True)
+class TerminalTabEnd:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalTabEnd'
+    kind: TerminalEndKind
+    cause: Union[TerminalLossCause, MissingType] = field(default=MISSING)
+    code: Union[int, MissingType] = field(default=MISSING)
+    core_dumped: Union[bool, MissingType] = field(default=MISSING)
+    detail: Union[str, MissingType] = field(default=MISSING)
+    launch_failure: Union[TerminalLaunchFailure, MissingType] = field(default=MISSING)
+    reason: Union[TerminalHostLostReason, MissingType] = field(default=MISSING)
+    signal: Union[int, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -7022,8 +7069,11 @@ __all__ = [
     'TerminalClipboardHostKind',
     'TerminalClipboardLocation',
     'TerminalCommandContextIntent',
+    'TerminalEndKind',
+    'TerminalHostLostReason',
     'TerminalKey',
     'TerminalKeyAction',
+    'TerminalLaunchFailure',
     'TerminalLifecycle',
     'ViewAttachmentOutcome',
     'ActivitySnapshot',
@@ -7232,6 +7282,7 @@ __all__ = [
     'TerminalKeyInput',
     'TerminalLastCommand',
     'TerminalLastCommandResult',
+    'TerminalLossCause',
     'TerminalModifiers',
     'TerminalPlacement',
     'TerminalPortsListener',
@@ -7244,6 +7295,7 @@ __all__ = [
     'TerminalResources',
     'TerminalResourcesResult',
     'TerminalResumeCommandResult',
+    'TerminalTabEnd',
     'Tree',
     'ViewportPaneWidthResult',
     'ViewportSplitWidth',

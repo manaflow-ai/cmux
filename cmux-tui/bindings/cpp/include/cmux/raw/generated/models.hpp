@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c";
+inline constexpr std::string_view kProtocolIrSha256 = "280c11fb74e120806478326ab815ead33ba9f1da8a96d7fa2bc0b69324457231";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -249,17 +249,21 @@ struct TerminalCommandDeleteResult;
 struct TerminalCommandHistoryResult;
 struct TerminalCommandList;
 struct TerminalCommandRecord;
+enum class TerminalEndKind;
 struct TerminalEventsResult;
 struct TerminalExit;
 struct TerminalExitOutcome;
 struct TerminalHistoryPage;
 struct TerminalHistoryPagesResult;
+enum class TerminalHostLostReason;
 enum class TerminalKey;
 enum class TerminalKeyAction;
 struct TerminalKeyInput;
 struct TerminalLastCommand;
 struct TerminalLastCommandResult;
+enum class TerminalLaunchFailure;
 enum class TerminalLifecycle;
+struct TerminalLossCause;
 struct TerminalModifiers;
 struct TerminalPlacement;
 struct TerminalPortsListener;
@@ -272,6 +276,7 @@ struct TerminalResourceProcess;
 struct TerminalResources;
 struct TerminalResourcesResult;
 struct TerminalResumeCommandResult;
+struct TerminalTabEnd;
 struct Tree;
 enum class ViewAttachmentOutcome;
 struct ViewportPaneWidthResult;
@@ -4062,6 +4067,54 @@ enum class TabKind {
     remote_terminal,
 };
 
+enum class TerminalEndKind {
+    exited,
+    signaled,
+    host_lost,
+    launch_failed,
+};
+
+enum class TerminalHostLostReason {
+    missing_record,
+    incarnation_mismatch,
+    dead_before_adoption,
+    died_during_adoption,
+    died_without_exit_status,
+    missing_exit_receipt,
+    unadoptable_host_ended,
+    owner_gone,
+    session_shutdown,
+    restart_exhausted,
+    restart_failed,
+    other,
+};
+
+enum class TerminalLaunchFailure {
+    pty_capacity_exhausted,
+};
+
+struct TerminalLossCause {
+    bool panicked{};
+    std::optional<std::string> sender_name{};
+    Field<std::int64_t> sender_pid{};
+    std::optional<std::string> signal{};
+    Json::Object additional_properties{};
+    friend bool operator==(const TerminalLossCause&, const TerminalLossCause&) = default;
+};
+
+struct TerminalTabEnd {
+    std::optional<TerminalLossCause> cause{};
+    std::optional<std::int32_t> code{};
+    std::optional<bool> core_dumped{};
+    std::optional<std::string> detail{};
+    TerminalEndKind kind{};
+    std::optional<TerminalLaunchFailure> launch_failure{};
+    std::optional<TerminalHostLostReason> reason{};
+    std::optional<std::int32_t> signal{};
+    Json::Object additional_properties{};
+    friend bool operator==(const TerminalTabEnd&, const TerminalTabEnd&) = default;
+};
+
 struct Tab {
     std::optional<JsonValue> app{};
     Field<TabAttention> attention{};
@@ -4077,7 +4130,7 @@ struct Tab {
     Field<ConversationTabRecord> conversation{};
     Field<std::string> cwd{};
     bool dead{};
-    Field<JsonValue> end{};
+    Field<TerminalTabEnd> end{};
     Field<std::string> favicon_url{};
     Field<std::string> git_branch{};
     std::optional<bool> git_detached{};
@@ -8436,6 +8489,12 @@ struct Codec<TerminalCommandRecord> {
 };
 
 template <>
+struct Codec<TerminalEndKind> {
+    static Result<Json> encode(const TerminalEndKind& value);
+    static Result<TerminalEndKind> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalEventsResult> {
     static Result<Json> encode(const TerminalEventsResult& value);
     static Result<TerminalEventsResult> decode(const Json& value);
@@ -8463,6 +8522,12 @@ template <>
 struct Codec<TerminalHistoryPagesResult> {
     static Result<Json> encode(const TerminalHistoryPagesResult& value);
     static Result<TerminalHistoryPagesResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalHostLostReason> {
+    static Result<Json> encode(const TerminalHostLostReason& value);
+    static Result<TerminalHostLostReason> decode(const Json& value);
 };
 
 template <>
@@ -8496,9 +8561,21 @@ struct Codec<TerminalLastCommandResult> {
 };
 
 template <>
+struct Codec<TerminalLaunchFailure> {
+    static Result<Json> encode(const TerminalLaunchFailure& value);
+    static Result<TerminalLaunchFailure> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalLifecycle> {
     static Result<Json> encode(const TerminalLifecycle& value);
     static Result<TerminalLifecycle> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLossCause> {
+    static Result<Json> encode(const TerminalLossCause& value);
+    static Result<TerminalLossCause> decode(const Json& value);
 };
 
 template <>
@@ -8571,6 +8648,12 @@ template <>
 struct Codec<TerminalResumeCommandResult> {
     static Result<Json> encode(const TerminalResumeCommandResult& value);
     static Result<TerminalResumeCommandResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalTabEnd> {
+    static Result<Json> encode(const TerminalTabEnd& value);
+    static Result<TerminalTabEnd> decode(const Json& value);
 };
 
 template <>

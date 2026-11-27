@@ -132,3 +132,123 @@ fn a_host_loss_never_yields_a_detach_proof() {
     // The owner abandoning its own launch detaches like a close.
     assert!(TerminalEnd::launch_failed("spawn").detach_proof().is_some());
 }
+
+/// Every key of `value` is a field of the schema object `name`, every required field is there,
+/// a null only where the schema allows it, and an enum or object field holds what its schema
+/// type declares: `end` on a tab is typed as `TerminalTabEnd` in `sdk-schema.json`, which the
+/// generated Swift mirror reads.
+fn schema_problems(
+    types: &serde_json::Map<String, Value>,
+    name: &str,
+    value: &Value,
+) -> Vec<String> {
+    let ty = &types[name];
+    let fields = ty["fields"].as_object().unwrap();
+    let mut problems = Vec::new();
+    let object = value.as_object().unwrap();
+    for (key, item) in object {
+        let Some(field) = fields.get(key) else {
+            problems.push(format!("{name}.{key}: not in the schema"));
+            continue;
+        };
+        if item.is_null() {
+            if field["nullable"] != true {
+                problems.push(format!("{name}.{key}: null but not nullable"));
+            }
+            continue;
+        }
+        let field_type = &field["type"];
+        match field_type["kind"].as_str().unwrap() {
+            "ref" => {
+                let target = field_type["name"].as_str().unwrap();
+                match types[target]["kind"].as_str().unwrap() {
+                    "enum" if !types[target]["values"].as_array().unwrap().contains(item) => {
+                        problems.push(format!("{name}.{key}: {item} is not a {target}"));
+                    }
+                    "object" => problems.extend(schema_problems(types, target, item)),
+                    _ => {}
+                }
+            }
+            "scalar" => {
+                let ok = match field_type["name"].as_str().unwrap() {
+                    "string" => item.is_string(),
+                    "boolean" => item.is_boolean(),
+                    _ => item.is_i64(),
+                };
+                if !ok {
+                    problems.push(format!("{name}.{key}: {item} is not a {}", field_type["name"]));
+                }
+            }
+            kind => problems.push(format!("{name}.{key}: schema kind {kind} is not checked here")),
+        }
+    }
+    for (key, field) in fields {
+        if field["presence"] == "required" && !object.contains_key(key) {
+            problems.push(format!("{name}.{key}: required but missing"));
+        }
+    }
+    problems
+}
+
+#[test]
+fn every_end_and_its_cause_is_what_the_sdk_schema_declares() {
+    let schema: Value =
+        serde_json::from_str(include_str!("../../../spec/sdk-schema.json")).unwrap();
+    let types = schema["types"].as_object().unwrap();
+    let exit = |outcome| TerminalExit { outcome, exited_at_ms: 1 };
+    let no_pty = anyhow::anyhow!("no free pty");
+    let mut ends = vec![
+        TerminalEnd::ProcessEnded(exit(TerminalExitOutcome::Exit { code: -1 })),
+        TerminalEnd::ProcessEnded(exit(TerminalExitOutcome::Signal {
+            signal: 9,
+            core_dumped: true,
+        })),
+        TerminalEnd::ProcessEnded(exit(TerminalExitOutcome::Unknown { reason: "gone".into() })),
+        TerminalEnd::launch_failed("no pty"),
+        TerminalEnd::host_lost(respawn_failed_detail(&no_pty, true)),
+        TerminalEnd::host_lost(respawn_failed_detail(&no_pty, false)),
+        TerminalEnd::host_lost(format!("{RESPAWN_EXHAUSTED_DETAIL}: 3 in 60s")),
+    ];
+    for detail in [
+        "missing-host-record",
+        "host-incarnation-mismatch",
+        "host-process-ended-before-adoption",
+        "host-exited-during-adoption",
+        "terminal host ended without a durable exit sidecar",
+        "terminal exit receipt is missing",
+        "unadoptable-host-ended",
+        EXIT_OWNER_GONE,
+        "session-shutdown: signal 15",
+        "something new",
+    ] {
+        ends.push(TerminalEnd::host_lost(detail));
+    }
+    let signal = serde_json::json!({"signal": 15, "sender_pid": 84954, "sender": {"name": "bash"}});
+    let unknown_sender = serde_json::json!({"signal": 1, "sender_pid": null});
+    let crash = serde_json::json!({"message": "boom"});
+    let causes = [
+        crate::terminal_loss_cause::cause_summary(std::slice::from_ref(&signal), None),
+        crate::terminal_loss_cause::cause_summary(&[unknown_sender], Some(&crash)),
+        crate::terminal_loss_cause::cause_summary(&[], Some(&crash)),
+    ];
+    let mut problems = Vec::new();
+    for end in &ends {
+        for cause in &causes {
+            let mut json = end.wire_json();
+            if json["kind"] == "host_lost" {
+                json.as_object_mut().unwrap().insert("cause".into(), cause.clone().unwrap());
+            }
+            problems.extend(
+                schema_problems(types, "TerminalTabEnd", &json)
+                    .into_iter()
+                    .map(|p| format!("{json}: {p}")),
+            );
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "a tab's end is not what cmux-tui/spec/sdk-schema.json declares (`TerminalTabEnd`); change \
+         the schema with the serializer (the Swift mirror is generated from it):\n{}",
+        problems.join("\n")
+    );
+}

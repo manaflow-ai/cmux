@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c";
+pub const ir_sha256 = "280c11fb74e120806478326ab815ead33ba9f1da8a96d7fa2bc0b69324457231";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2867,7 +2867,7 @@ pub const Tab = struct {
     cwd: wire.Field([]const u8) = .absent,
     dead: bool,
     /// terminal-state-v1: why a dead terminal ended.
-    end: wire.Field(JsonValue) = .absent,
+    end: wire.Field(TerminalTabEnd) = .absent,
     /// A frontend browser's favicon.
     favicon_url: wire.Field([]const u8) = .absent,
     /// The git branch of cwd.
@@ -3130,6 +3130,30 @@ pub const TerminalCommandRecord = struct {
     terminal_id: []const u8,
 };
 
+pub const TerminalEndKind = enum {
+    exited,
+    signaled,
+    host_lost,
+    launch_failed,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "exited")) return .exited;
+        if (std.mem.eql(u8, value, "signaled")) return .signaled;
+        if (std.mem.eql(u8, value, "host_lost")) return .host_lost;
+        if (std.mem.eql(u8, value, "launch_failed")) return .launch_failed;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .exited => "exited",
+            .signaled => "signaled",
+            .host_lost => "host_lost",
+            .launch_failed => "launch_failed",
+        };
+    }
+};
+
 pub const TerminalEventsResult = struct {
     events: []const TerminalRegistryEvent,
     generation: []const u8,
@@ -3198,6 +3222,54 @@ pub const TerminalHistoryPagesResult = struct {
     pages: []const TerminalHistoryPage,
     snapshot_version: u16,
     surface: Id,
+};
+
+pub const TerminalHostLostReason = enum {
+    missing_record,
+    incarnation_mismatch,
+    dead_before_adoption,
+    died_during_adoption,
+    died_without_exit_status,
+    missing_exit_receipt,
+    unadoptable_host_ended,
+    owner_gone,
+    session_shutdown,
+    restart_exhausted,
+    restart_failed,
+    other,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "missing_record")) return .missing_record;
+        if (std.mem.eql(u8, value, "incarnation_mismatch")) return .incarnation_mismatch;
+        if (std.mem.eql(u8, value, "dead_before_adoption")) return .dead_before_adoption;
+        if (std.mem.eql(u8, value, "died_during_adoption")) return .died_during_adoption;
+        if (std.mem.eql(u8, value, "died_without_exit_status")) return .died_without_exit_status;
+        if (std.mem.eql(u8, value, "missing_exit_receipt")) return .missing_exit_receipt;
+        if (std.mem.eql(u8, value, "unadoptable_host_ended")) return .unadoptable_host_ended;
+        if (std.mem.eql(u8, value, "owner_gone")) return .owner_gone;
+        if (std.mem.eql(u8, value, "session_shutdown")) return .session_shutdown;
+        if (std.mem.eql(u8, value, "restart_exhausted")) return .restart_exhausted;
+        if (std.mem.eql(u8, value, "restart_failed")) return .restart_failed;
+        if (std.mem.eql(u8, value, "other")) return .other;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .missing_record => "missing_record",
+            .incarnation_mismatch => "incarnation_mismatch",
+            .dead_before_adoption => "dead_before_adoption",
+            .died_during_adoption => "died_during_adoption",
+            .died_without_exit_status => "died_without_exit_status",
+            .missing_exit_receipt => "missing_exit_receipt",
+            .unadoptable_host_ended => "unadoptable_host_ended",
+            .owner_gone => "owner_gone",
+            .session_shutdown => "session_shutdown",
+            .restart_exhausted => "restart_exhausted",
+            .restart_failed => "restart_failed",
+            .other => "other",
+        };
+    }
 };
 
 pub const TerminalKey = enum {
@@ -3601,6 +3673,21 @@ pub const TerminalLastCommandResult = struct {
     terminal_id: []const u8,
 };
 
+pub const TerminalLaunchFailure = enum {
+    pty_capacity_exhausted,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "pty_capacity_exhausted")) return .pty_capacity_exhausted;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .pty_capacity_exhausted => "pty_capacity_exhausted",
+        };
+    }
+};
+
 pub const TerminalLifecycle = enum {
     launching,
     adopting,
@@ -3626,6 +3713,22 @@ pub const TerminalLifecycle = enum {
             .tombstoned => "tombstoned",
         };
     }
+};
+
+pub const TerminalLossCause = struct {
+    /// Whether the host had panicked.
+    panicked: bool,
+    /// The sender's process name, when it still ran when recorded and its pid was not reused.
+    sender_name: ?[]const u8 = null,
+    /// The pid that sent `signal`; null when the host could not tell.
+    sender_pid: wire.Field(i64) = .absent,
+    /// Conventional name of the first signal the host recorded (`SIGTERM`).
+    signal: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "sender_name",
+        "signal",
+    };
 };
 
 pub const TerminalModifiers = struct {
@@ -3741,6 +3844,34 @@ pub const TerminalResourcesResult = struct {
 pub const TerminalResumeCommandResult = struct {
     command: wire.Nullable([]const u8),
     terminal_id: []const u8,
+};
+
+pub const TerminalTabEnd = struct {
+    /// `host_lost`: the evidence the host left (cx-0tgl), when it recorded any.
+    cause: ?TerminalLossCause = null,
+    /// `exited`: the exit code, when the host recorded one.
+    code: ?i32 = null,
+    /// `signaled`: whether the process dumped core.
+    core_dumped: ?bool = null,
+    /// `host_lost` and `launch_failed`, and an `exited` end with no status: free-form text.
+    detail: ?[]const u8 = null,
+    kind: TerminalEndKind,
+    /// A `restart_failed` host loss: why the restart launch failed, when the detail names it.
+    launch_failure: ?TerminalLaunchFailure = null,
+    /// `host_lost`: a stable code for how the host was lost; the raw text stays in `detail`.
+    reason: ?TerminalHostLostReason = null,
+    /// `signaled`: the signal that killed the process.
+    signal: ?i32 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+        "code",
+        "core_dumped",
+        "detail",
+        "launch_failure",
+        "reason",
+        "signal",
+    };
 };
 
 pub const Tree = struct {

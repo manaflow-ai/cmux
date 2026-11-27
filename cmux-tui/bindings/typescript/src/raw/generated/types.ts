@@ -1631,7 +1631,7 @@ export type Tab = {
   "cwd"?: (string) | null;
   "dead": boolean;
   /** terminal-state-v1: why a dead terminal ended. */
-  "end"?: (JsonValue) | null;
+  "end"?: (TerminalTabEnd) | null;
   /** A frontend browser's favicon. */
   "favicon_url"?: (string) | null;
   /** The git branch of cwd. */
@@ -1821,6 +1821,8 @@ export type TerminalCommandRecord = {
   "terminal_id": string;
 };
 
+export type TerminalEndKind = "exited" | "signaled" | "host_lost" | "launch_failed";
+
 export type TerminalEventsResult = {
   "events": Array<TerminalRegistryEvent>;
   "generation": string;
@@ -1860,6 +1862,8 @@ export type TerminalHistoryPagesResult = {
   "surface": Id;
 };
 
+export type TerminalHostLostReason = "missing_record" | "incarnation_mismatch" | "dead_before_adoption" | "died_during_adoption" | "died_without_exit_status" | "missing_exit_receipt" | "unadoptable_host_ended" | "owner_gone" | "session_shutdown" | "restart_exhausted" | "restart_failed" | "other";
+
 export type TerminalKey = "unidentified" | "backquote" | "backslash" | "bracket-left" | "bracket-right" | "comma" | "digit0" | "digit1" | "digit2" | "digit3" | "digit4" | "digit5" | "digit6" | "digit7" | "digit8" | "digit9" | "equal" | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" | "minus" | "period" | "quote" | "semicolon" | "slash" | "backspace" | "enter" | "space" | "tab" | "delete" | "end" | "home" | "insert" | "page-down" | "page-up" | "arrow-down" | "arrow-left" | "arrow-right" | "arrow-up" | "numpad0" | "numpad1" | "numpad2" | "numpad3" | "numpad4" | "numpad5" | "numpad6" | "numpad7" | "numpad8" | "numpad9" | "numpad-add" | "numpad-backspace" | "numpad-comma" | "numpad-decimal" | "numpad-divide" | "numpad-enter" | "numpad-equal" | "numpad-multiply" | "numpad-subtract" | "numpad-up" | "numpad-down" | "numpad-right" | "numpad-left" | "numpad-begin" | "numpad-home" | "numpad-end" | "numpad-insert" | "numpad-delete" | "numpad-page-up" | "numpad-page-down" | "escape" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" | "f13" | "f14" | "f15" | "f16" | "f17" | "f18" | "f19" | "f20";
 
 export type TerminalKeyAction = "press" | "release" | "repeat";
@@ -1889,7 +1893,21 @@ export type TerminalLastCommandResult = {
   "terminal_id": string;
 };
 
+export type TerminalLaunchFailure = "pty_capacity_exhausted";
+
 export type TerminalLifecycle = "launching" | "adopting" | "running" | "exited" | "tombstoned";
+
+export type TerminalLossCause = {
+  /** Whether the host had panicked. */
+  "panicked": boolean;
+  /** The sender's process name, when it still ran when recorded and its pid was not reused. */
+  "sender_name"?: string;
+  /** The pid that sent `signal`; null when the host could not tell. */
+  "sender_pid"?: (bigint) | null;
+  /** Conventional name of the first signal the host recorded (`SIGTERM`). */
+  "signal"?: string;
+  [key: string]: unknown;
+};
 
 export type TerminalModifiers = {
   "alt": boolean;
@@ -1996,6 +2014,25 @@ export type TerminalResourcesResult = {
 export type TerminalResumeCommandResult = {
   "command": (string) | null;
   "terminal_id": string;
+};
+
+export type TerminalTabEnd = {
+  /** `host_lost`: the evidence the host left (cx-0tgl), when it recorded any. */
+  "cause"?: TerminalLossCause;
+  /** `exited`: the exit code, when the host recorded one. */
+  "code"?: number;
+  /** `signaled`: whether the process dumped core. */
+  "core_dumped"?: boolean;
+  /** `host_lost` and `launch_failed`, and an `exited` end with no status: free-form text. */
+  "detail"?: string;
+  "kind": TerminalEndKind;
+  /** A `restart_failed` host loss: why the restart launch failed, when the detail names it. */
+  "launch_failure"?: TerminalLaunchFailure;
+  /** `host_lost`: a stable code for how the host was lost; the raw text stays in `detail`. */
+  "reason"?: TerminalHostLostReason;
+  /** `signaled`: the signal that killed the process. */
+  "signal"?: number;
+  [key: string]: unknown;
 };
 
 export type Tree = {
