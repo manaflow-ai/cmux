@@ -62,6 +62,8 @@ pub use connect::{
 mod handover;
 mod home_watch;
 #[cfg(unix)]
+pub(crate) mod hung_holder;
+#[cfg(unix)]
 pub(crate) mod listener_handover;
 mod managed_unit;
 // A launchd job's start stands by while another daemon holds its home (`daemon/launchd_standby.rs`).
@@ -347,6 +349,26 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                 if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
                     // The app launches `daemon run` directly, without `start_and_connect`.
                     // Its losing launch must report the winner's endpoint once it answers.
+                    // One waiter a home (`daemon/hung_holder.rs`): it replaces a hung holder;
+                    // more only pile up behind it. This one answers and exits 0.
+                    #[cfg(unix)]
+                    let _standing = match hung_holder::stand(&home()) {
+                        Ok(standing) => standing,
+                        Err(waiter) => {
+                            tracing::info!(
+                                "another daemon holds the lock and start {waiter} already waits \
+                                 for it; this start exits (exit 0) and leaves the wait to that one"
+                            );
+                            write_ready(
+                                fd,
+                                &serde_json::json!({
+                                    "ready": false, "lockHeld": true, "waiterStands": true,
+                                    "waiter": waiter,
+                                }),
+                            );
+                            return Ok(None);
+                        }
+                    };
                     tracing::info!("another daemon holds the lock; waiting for its socket or exit");
                     match handover::wait(&home(), &socket_path()).await {
                         Some(handover::Started::Acquired(lock)) => Ok(Some(lock)),
@@ -424,6 +446,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // start has not bound yet reads a live owner and waits for it (`connect_when_ready`), and the
     // previous owner's end is settled (a death counted) once.
     supervision::start(&home());
+    // Its progress for a waiter to read: a holder that stops beating and accepting is replaced.
+    #[cfg(unix)]
+    hung_holder::arm(&home());
     // The update watch's baseline (F9, `daemon/exe_swap.rs`), taken now: an update that lands
     // between ready and the later startup is then a change it sees, never its baseline.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -488,6 +513,16 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // before this boundary. Requests still wait for the hub and this launch's auth tokens.
     let _socket_cleanup = BoundSocketCleanup(bound_socket.clone());
     gauges.mark("socket ready");
+    #[cfg(unix)]
+    hung_holder::beat(hung_holder::Phase::Starting);
+    // Debug builds only: a holder whose socket is bound and never accepted, as the hung holder
+    // of 2026-11-27 (`daemon/hung_holder.rs`), for the replace tests.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("ACPMUX_TEST_HANG_AFTER_BIND").is_some() {
+        tracing::warn!("test: holding the lock and the bound socket without accepting");
+        println!("acpmux-test-hung");
+        std::future::pending::<()>().await;
+    }
     // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
     #[cfg(target_os = "linux")]
     watchdog::start(socket_path());

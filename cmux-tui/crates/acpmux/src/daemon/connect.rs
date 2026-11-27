@@ -134,6 +134,19 @@ where
         if !lock_held(&ready) {
             return Err(not_ready(path, &ready, &error));
         }
+        // Another start already waits for the holder and replaces it if it hung
+        // (`daemon/hung_holder.rs`): wait with it rather than start one more every retry.
+        #[cfg(unix)]
+        if hung_holder::says_waiter_stands(&ready) {
+            while hung_holder::waiter_stands(&home()) {
+                tokio::time::sleep(HANDOVER_RETRY).await;
+                // Bounded: the holder may be the hung one, whose queue nobody accepts from.
+                if let Ok(Ok(c)) = tokio::time::timeout(hung_holder::PROBE_BOUND, connect()).await {
+                    return Ok(c);
+                }
+            }
+            continue;
+        }
         // The lock's holder serves this home at another socket: no wait makes it serve this one.
         if let Some(other) = holder_elsewhere(path).await {
             return Err(serves_elsewhere(path, &other));
