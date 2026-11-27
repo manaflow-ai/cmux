@@ -226,7 +226,10 @@ async fn steps(
     if info.get("peer").is_some_and(|p| !p.is_null()) {
         bail!("it runs on {}, not here: move it from there", field(&info, "peer"));
     }
-    if let Some(why) = plan::refusal(&info, args.interrupt || args.after_turn) {
+    // Neither flag: a running turn moves with the chat between its tool calls, as over ssh
+    // (`session_move.rs` `begin_waiting`); a dry run still names it.
+    let running_ok = args.interrupt || args.after_turn || !args.dry_run;
+    if let Some(why) = plan::refusal(&info, running_ok) {
         bail!("{why}");
     }
     let cwd = PathBuf::from(info.get("cwd").and_then(Value::as_str).unwrap_or_default());
@@ -322,6 +325,9 @@ struct Timing {
     begin_ms: u64,
     answer_ms: u64,
     target: Value,
+    /// The begin stopped a running turn and its continuation went in the bundle (`continues`,
+    /// `hub/transfer_out.rs`): the turn goes on where the chat lands.
+    carried_running_turn: bool,
 }
 
 impl Timing {
@@ -331,6 +337,7 @@ impl Timing {
             "answerMs": self.answer_ms,
             "commitMs": commit_ms,
             "freezeMs": commit_ms.saturating_sub(self.begin_ms),
+            "carriedRunningTurn": self.carried_running_turn,
         });
         if let (Some(out), Some(target)) = (value.as_object_mut(), self.target.as_object()) {
             for key in ["dialMs", "pages", "pageBytes", "pagesMs", "finishMs", "via"] {
@@ -382,7 +389,14 @@ impl Moving<'_> {
         // (`begin_staged`).
         let turn_bound = args.after_turn.then_some(args.turn_timeout);
         let src_end = &mut MoveEnd::new("source", src, None);
-        let begun = t::begin_staged(src_end, &id, Some(to), running, staged, turn_bound).await?;
+        // Neither flag: the running turn comes along, cut at its next tool boundary (Leo,
+        // 2026-11-21: "you're supposed to be able to move shit while it's running").
+        let begun = if args.interrupt || args.after_turn {
+            t::begin_staged(src_end, &id, Some(to), running, staged, turn_bound).await?
+        } else {
+            t::begin_move_live(src_end, &id, Some(to), t::TOOL_WAIT, staged).await?
+        };
+        let carried_running_turn = begun.begin.get("continues").is_some_and(|c| !c.is_null());
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -439,7 +453,14 @@ impl Moving<'_> {
                     // beginning is the only honest lower bound in that case. Do not report the
                     // target answer as the freeze boundary.
                     .unwrap_or(0);
-                Ok((sent, answer, Timing { started, begin_ms, answer_ms, target: target_timings }))
+                let timing = Timing {
+                    started,
+                    begin_ms,
+                    answer_ms,
+                    target: target_timings,
+                    carried_running_turn,
+                };
+                Ok((sent, answer, timing))
             }
             Err(e) => {
                 let data =
@@ -464,6 +485,19 @@ fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hub_move_receipt_says_whether_it_carried_a_running_turn() {
+        let timing = |carried| Timing {
+            started: std::time::Instant::now(),
+            begin_ms: 5,
+            answer_ms: 9,
+            target: json!({}),
+            carried_running_turn: carried,
+        };
+        assert_eq!(timing(true).value(12)["carriedRunningTurn"], json!(true));
+        assert_eq!(timing(false).value(12)["carriedRunningTurn"], json!(false));
+    }
 
     #[test]
     fn a_hub_move_names_its_folder_as_the_target_can_make_it() {
