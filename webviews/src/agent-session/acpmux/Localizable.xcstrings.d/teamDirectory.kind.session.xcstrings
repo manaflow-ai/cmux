@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "prCard.checksRunningNames" : {
-      "comment" : "Agent pane: a pull request's hover card, the title over the names of its CI checks still running",
+    "teamDirectory.kind.session" : {
+      "comment" : "Agent pane: team directory kind label for an agent session",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "قيد التشغيل"
+            "value" : "جلسة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "U toku"
+            "value" : "Sesija"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kører"
+            "value" : "Session"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Laufend"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Running"
+            "value" : "Sitzung"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En curso"
+            "value" : "Sesión"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En cours"
+            "value" : "Session"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "In esecuzione"
+            "value" : "Sessione"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "実行中"
+            "value" : "セッション"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "កំពុងដំណើរការ"
+            "value" : "វគ្គ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "실행 중"
+            "value" : "세션"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kjører"
+            "value" : "Økt"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "W toku"
+            "value" : "Sesja"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Em execução"
+            "value" : "Sessão"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Выполняются"
+            "value" : "Сеанс"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "กำลังทำงาน"
+            "value" : "เซสชัน"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Çalışanlar"
+            "value" : "Oturum"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Виконуються"
+            "value" : "Сеанс"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Đang chạy"
+            "value" : "Phiên"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "运行中"
+            "value" : "会话"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "執行中"
+            "value" : "工作階段"
           }
         }
       }
