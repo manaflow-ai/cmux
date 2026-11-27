@@ -104,6 +104,7 @@ impl Gauges {
             "links": links().status(),
             "workerLag": worker_lag().status(),
             "carrier": carrier::global().status(),
+            "hookAnswers": hook_answers().status(),
         })
     }
 }
@@ -238,6 +239,9 @@ pub struct PeerLists {
     bytes: AtomicU64,
     peak_lists: AtomicU64,
     peak_bytes: AtomicU64,
+    /// Whole lists a newer list of the same peer replaced before the hub applied them
+    /// (`peer_notice_outbox.rs`), since the daemon started.
+    superseded: AtomicU64,
 }
 
 impl PeerLists {
@@ -256,8 +260,16 @@ impl PeerLists {
         let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(bytes));
     }
 
+    /// A waiting list of `bytes` was replaced by a newer one of its peer: it is no longer
+    /// waiting, and is never applied.
+    pub fn superseded(&self, bytes: u64) {
+        self.taken(bytes);
+        self.superseded.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn status(&self) -> Value {
         json!({
+            "superseded": self.superseded.load(Ordering::Relaxed),
             "lists": self.lists.load(Ordering::Relaxed),
             "bytes": self.bytes.load(Ordering::Relaxed),
             "peakLists": self.peak_lists.load(Ordering::Relaxed),
@@ -377,7 +389,7 @@ impl Latencies {
         }
     }
 
-    /// `{count, window, p50Ms, p95Ms, maxMs}`: `count` is every sample taken, `window` how many
+    /// `{count, window, p50Ms, p95Ms, p99Ms, maxMs}`: `count` is every sample taken, `window` how many
     /// of the latest the quantiles cover (at most [`LATENCY_RING`]); the quantiles are
     /// nearest-rank over that window, null before the first sample.
     pub fn status(&self) -> Value {
@@ -400,8 +412,46 @@ impl Latencies {
             "window": window,
             "p50Ms": rank(0.50),
             "p95Ms": rank(0.95),
+            "p99Ms": rank(0.99),
             "maxMs": sorted.last().map(|&m| ms(m)),
         })
+    }
+}
+
+/// `gauges.hookAnswers`: the hook callbacks Claude Code asks acpmux itself to answer
+/// (`claude_stdio/hook_callback.rs`): each answer's wall time, and `misses`, the answers that hit
+/// their deadline and went out as the hook's safe default instead. A miss is a "hook didn't
+/// answer in time" notice acpmux kept from the person.
+pub fn hook_answers() -> &'static HookAnswers {
+    static ANSWERS: OnceLock<HookAnswers> = OnceLock::new();
+    ANSWERS.get_or_init(HookAnswers::default)
+}
+
+#[derive(Default)]
+pub struct HookAnswers {
+    latency: Latencies,
+    misses: AtomicU64,
+}
+
+impl HookAnswers {
+    pub fn answered(&self, took: Duration) {
+        self.latency.record(took);
+    }
+
+    pub fn missed(&self) {
+        self.misses.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn misses(&self) -> u64 {
+        self.misses.load(Ordering::Relaxed)
+    }
+
+    fn status(&self) -> Value {
+        let mut status = self.latency.status();
+        if let Some(fields) = status.as_object_mut() {
+            fields.insert("misses".into(), json!(self.misses()));
+        }
+        status
     }
 }
 
