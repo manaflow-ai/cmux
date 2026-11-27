@@ -2114,6 +2114,10 @@ path = "tests/test_ci_cron_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_namespace_autofix_rate_limit_wait.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_publication_guard_release_read.py"
 lane = "linux-guard"
 
