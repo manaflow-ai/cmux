@@ -190,6 +190,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.composerFilled":
+            if let filled = params?["filled"] as? Bool {
+                self = .composerFilled(filled)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.commandAvailability":
             if let commands = params?["commands"] as? [String] {
                 self = .commandAvailability(commands)

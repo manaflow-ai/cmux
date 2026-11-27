@@ -62,6 +62,7 @@ agentPane.display.sessionInfo.sections.tasks
 agentPane.display.sessionInfo.sections.usage
 agentPane.display.statusVerbs.custom
 agentPane.display.statusVerbs.mode
+agentPane.display.streaming
 agentPane.display.subagentOf
 agentPane.display.thinking.glyph
 agentPane.display.thinking.glyphSize
@@ -513,6 +514,7 @@ experiments.chatInstantUnderLoad
 experiments.chatWidgets
 experiments.cloudDiskBar
 experiments.cloudToggle
+experiments.compactionThresholdInsight
 experiments.composerButtonsVisible
 experiments.composerCustomizer
 experiments.composerHatGroups
