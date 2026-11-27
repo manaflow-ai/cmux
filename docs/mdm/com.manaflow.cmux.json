@@ -5602,7 +5602,7 @@
       "type" : "array"
     },
     "models.spreadUsage" : {
-      "default" : true,
+      "default" : false,
       "description" : "When one subscription runs out, a chat moves to another with the same model.",
       "title" : "Spread Usage Across My Subscriptions",
       "type" : "boolean"
