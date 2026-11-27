@@ -815,6 +815,8 @@ impl Viewer {
                 let left = until.saturating_duration_since(Instant::now()).as_secs_f32();
                 format!("{reason} · reconnecting in {left:.1}s")
             }
+            // retry-prompt-ok: automatic reconnects already ran or cannot pass (wrong password,
+            // repeated protocol errors, --no-reconnect); the key is the person's own call after fixing it
             State::Stopped(reason) => format!("{reason} · Ctrl-] r to retry"),
         };
         format!("{state}{mode} · Ctrl-] q quit")
