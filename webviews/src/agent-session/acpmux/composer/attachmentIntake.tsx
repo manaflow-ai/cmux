@@ -19,6 +19,7 @@ import { keptThumb, localImagePreview } from "./imagePool";
 import { localDraftShape, useDraftRatio } from "./draftMediaShape";
 import type { Thumb } from "./imageWork";
 import { useStripReorder } from "./stripReorder";
+import { copiesAsImage, copyAttachmentImage, dragAttachmentImage, isCopyKey } from "./attachmentImageCopy";
 
 import { SourceBadge } from "./SourceBadge";
 import { useSourceLabel, withSourceLabel } from "./sourceBadgeModel";
@@ -106,16 +107,43 @@ export function AttachmentStrip({
   });
   const reorderTo = useRef(onReorder);
   reorderTo.current = onReorder;
+  // A picture dragged out of the strip goes to the host, which drags its file to another app
+  // (attachmentImageCopy.ts); any other chip stays the strip's to reorder.
+  const [dragOut] = useState(() => (id: string) => {
+    const { attachments: chips, t: translate } = live.current;
+    const chip = chips.find((attachment) => attachment.id === id);
+    if (!chip || !copiesAsImage(chip)) return false;
+    void dragAttachmentImage(chip, imageLabel(translate, { name: chip.name })).catch(() => {});
+    return true;
+  });
   const reorder = useStripReorder(
     attachments.map((attachment) => attachment.id),
     onReorder ? move : undefined,
+    dragOut,
   );
   const hint = useId();
   const reorderRef = reorder.ref;
+  // Cmd-C on a focused picture chip (any of its buttons) copies it, as its menu's Copy does.
+  const [stripNode, setStripNode] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!stripNode) return;
+    const key = (event: KeyboardEvent) => {
+      if (!isCopyKey(event) || !(event.target instanceof Element)) return;
+      const slot = event.target.closest<HTMLElement>(".acpmux-attachment-slot");
+      const chip = live.current.attachments[Number(slot?.dataset.attachmentIndex ?? -1)];
+      if (!chip || !copiesAsImage(chip)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void copyAttachmentImage(chip, imageLabel(live.current.t, { name: chip.name })).catch(() => {});
+    };
+    stripNode.addEventListener("keydown", key);
+    return () => stripNode.removeEventListener("keydown", key);
+  }, [stripNode]);
   const stripRef = useCallback(
     (node: HTMLElement | null) => {
       edges(node);
       reorderRef(node);
+      setStripNode(node);
     },
     [edges, reorderRef],
   );
@@ -480,7 +508,14 @@ function AttachmentChipPreview({
       {removeButton}
     </>
   );
-  // Its right-click menu: Open (or what a click does) where a click opens it, and Remove (cx-2lm4).
+  // A picture's Copy (Leo, 2026-11-27: "i need to be able to copy images that i pasted"): its whole
+  // image onto the pasteboard through the host (attachmentImageCopy.ts), the menu's first row.
+  const copy =
+    copiesAsImage(attachment) && !broken
+      ? () => void copyAttachmentImage(attachment, imageLabel(t, { name: attachment.name })).catch(() => {})
+      : undefined;
+  // Its right-click menu: Copy for a picture, Open (or what a click does) where a click opens it,
+  // and Remove (cx-2lm4).
   const menu = (
     open: (() => void) | undefined,
     chip: React.ReactNode,
@@ -490,12 +525,13 @@ function AttachmentChipPreview({
     <ContextMenu
       className="acpmux-attachment-menu"
       items={[
+        ...(copy ? [{ id: "copy", label: t("composer.menu.copy"), shortcut: "⌘C", onSelect: copy }] : []),
         ...(open ? [{ id: "open", label: openLabel, onSelect: open }] : []),
         ...(keep ? [{ id: "keep", label: t(ATTACHMENT_LABELS.keepPasted), onSelect: keep }] : []),
         {
           id: "remove",
           label: t(ATTACHMENT_LABELS.removeAttachment, { name }),
-          separatorBefore: Boolean(open || keep),
+          separatorBefore: Boolean(copy || open || keep),
           onSelect: () => onRemove(attachment.id),
         },
       ]}

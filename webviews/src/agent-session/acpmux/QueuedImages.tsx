@@ -21,6 +21,9 @@ import { QUEUED_TILES_SHOWN, type QueuedTile, type QueuedVideo, queuedTiles } fr
 import { RemoveGlyph } from "./composer/RemoveGlyph";
 import { useVideoLengthFit } from "./composer/videoLengthFit";
 import { signed } from "../../ui/Typography";
+import { ContextMenu } from "../../ui/ContextMenu";
+import { dataUrl } from "./conversation/imageViewerModel";
+import { postNative } from "./native";
 
 export function QueuedImages({
   images,
@@ -168,7 +171,27 @@ function QueuedImage({
   const tile = useRef<HTMLButtonElement>(null);
   useVideoLengthFit(tile, length);
   const label = video ? [video.name, length].filter(Boolean).join(", ") : imageLabel(t, { name: image.name });
-  return (
+  // Its right-click menu: Copy for a picture (the host puts its file and bytes on the pasteboard,
+  // conversation/imageMenuActions.ts; Leo, 2026-11-27: "i need to be able to copy images that i
+  // pasted"), then Open.
+  const items = src
+    ? [
+        ...(video
+          ? []
+          : [
+              {
+                id: "copy",
+                label: t("composer.menu.copy"),
+                onSelect: () =>
+                  void dataUrl(src)
+                    .then((url) => postNative("image.copy", { src: url, name: label }))
+                    .catch(() => {}),
+              },
+            ]),
+        { id: "open", label: video ? t("media.play") : t("image.open"), onSelect: () => openImage?.(src, label) },
+      ]
+    : [];
+  const slot = (
     <span
       className="acpmux-queued-image-slot"
       data-image-id={image.id}
@@ -230,5 +253,12 @@ function QueuedImage({
         </button>
       )}
     </span>
+  );
+  return items.length ? (
+    <ContextMenu asChild items={items}>
+      {slot}
+    </ContextMenu>
+  ) : (
+    slot
   );
 }
