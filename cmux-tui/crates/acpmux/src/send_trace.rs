@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 /// The machine's platform edge (cmux-platform `PLATFORM_EDGE_DOMAIN`).
 pub const EDGE_ORIGIN: &str = "https://platform.cmux.internal";
 /// One post's whole bound.
+// timeout: a best-effort trace post; past it the trace is dropped and the send goes on.
 const POST_TIMEOUT: Duration = Duration::from_secs(5);
 /// The most prompts waiting on their first update at once; a fuller map drops the oldest.
 const MAX_PENDING: usize = 256;

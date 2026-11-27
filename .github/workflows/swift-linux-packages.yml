@@ -138,7 +138,7 @@ jobs:
           # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
-          # Whole packages that pass on Linux; CmuxIrohTransport's IrohLib and dnssd suites run on a Mac in relay-tls.yml.
+          # Whole packages that pass on Linux.
           - group: CmuxAgentBrands
             packages: Packages/Shared/CmuxAgentBrands
           - group: CmuxChiefList
@@ -149,8 +149,6 @@ jobs:
             packages: Packages/Shared/CmuxDeviceHub
           - group: CmuxEgress
             packages: Packages/Shared/CmuxEgress
-          - group: CmuxIrohTransport
-            packages: Packages/Shared/CmuxIrohTransport
           - group: CmuxVisibleRows
             packages: Packages/Shared/CmuxVisibleRows
     steps:

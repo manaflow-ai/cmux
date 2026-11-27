@@ -174,7 +174,7 @@ class Rules(unittest.TestCase):
         self.assertTrue(any("metadata" in b for b in s.blockers(WORKFLOW, "body")))
         # A label read in the job's own if: (run unless labeled) decides only whether it runs, not its verdict.
         labeled = {"on": {"pull_request": {}}, "jobs": {"j": {
-            "if": "${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}", "steps": []}}}
+            "if": "${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}", "steps": []}}}
         self.assertFalse(any("metadata" in b for b in s.blockers(labeled, "j")))
         self.assertTrue(any("live" in b for b in s.blockers(WORKFLOW, "deploy-staging")))
         self.assertTrue(any("secrets" in b for b in s.blockers(WORKFLOW, "secret")))
