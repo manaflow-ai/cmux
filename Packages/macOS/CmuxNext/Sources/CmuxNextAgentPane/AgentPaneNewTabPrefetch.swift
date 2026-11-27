@@ -58,16 +58,16 @@ public final class AgentPaneNewTabPrefetch {
         guard !active, !plan.isEmpty else { return }
         let current = UUID()
         token = current
-        func invalidate() {
+        @MainActor @Sendable func invalidate() {
             guard self.token == current else { return }
             self.cancel()
             if owns() { resize(full) }
             invalidated()
         }
-        func isCurrent() -> Bool { self.token == current && owns() && valid() }
+        @MainActor @Sendable func isCurrent() -> Bool { self.token == current && owns() && valid() }
         deadline.schedule(after: .seconds(3)) { @MainActor in invalidate() }
 
-        func render(_ index: Int) {
+        @MainActor @Sendable func render(_ index: Int) {
             guard self.token == current else { return }
             guard isCurrent() else { return invalidate() }
             guard index < plan.count else {
