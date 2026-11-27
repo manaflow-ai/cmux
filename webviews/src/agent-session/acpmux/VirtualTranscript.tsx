@@ -7393,6 +7393,16 @@ function TranscriptView({
   // still held the last render's rows and layout there (a row of the chat switched away from, or none on a first
   // open) when the client was told the row to keep from.
   keepFromNow.current = () => keepFromInView(ref.current);
+  // The recheck belongs to the ask still pending: once the request moves on (a page landed and the next check asked or
+  // stood down), its timer would only wake an idle page to find nothing to do (goal idle-cpu-wakeups: the god chat's
+  // one wakeup at rest was this timer, 500 ms after the open's read ahead).
+  const setOlderRequested = (key: string | undefined) => {
+    if (olderLoadRequested.current !== key) {
+      clearTimeout(olderRecheck.current);
+      olderRecheck.current = undefined;
+    }
+    olderLoadRequested.current = key;
+  };
   const checkOlder = () => {
     const node = ref.current;
     keepFromInView(node);
@@ -7401,7 +7411,7 @@ function TranscriptView({
       olderRecheck.current = undefined;
       olderAsk.current++;
       olderAsking.current = false;
-      olderLoadRequested.current = undefined;
+      setOlderRequested(undefined);
       return;
     }
     // A chat's open reads ahead only after its newest rows have painted (`olderPaintedFor`): the older page's fold is
@@ -7416,12 +7426,12 @@ function TranscriptView({
     if (node.scrollTop - (layout.origin ?? 0) >= ahead) {
       // Allow the next visit to the threshold to request the next page, even when the first row
       // did not change while the reader was away from the top.
-      olderLoadRequested.current = undefined;
+      setOlderRequested(undefined);
       return;
     }
     if (olderLoadRequested.current === olderLoadKey) return;
     const asked = olderLoadKey;
-    olderLoadRequested.current = asked;
+    setOlderRequested(asked);
     olderAsking.current = true;
     const ask = ++olderAsk.current;
     const askedAt = performance.now();
@@ -7436,6 +7446,8 @@ function TranscriptView({
       if (ask !== olderAsk.current) return;
       olderAsking.current = false;
       clearTimeout(olderRecheck.current);
+      olderRecheck.current = undefined;
+      if (olderLoadRequested.current !== asked) return;
       olderRecheck.current = setTimeout(() => {
         if (olderLoadRequested.current !== asked) return;
         olderLoadRequested.current = undefined;
@@ -7487,23 +7499,33 @@ function TranscriptView({
   const newerLoadKey = `${sessionKey}\u0000${rows.at(-1)?.id ?? ""}\u0000${historyThrough ?? ""}`;
   const newerLoadRequested = useRef<string | undefined>(undefined);
   const newerRecheck = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // As `setOlderRequested`: a recheck lives only while its ask is the one pending.
+  const setNewerRequested = (key: string | undefined) => {
+    if (newerLoadRequested.current !== key) {
+      clearTimeout(newerRecheck.current);
+      newerRecheck.current = undefined;
+    }
+    newerLoadRequested.current = key;
+  };
   const checkNewer = () => {
     const node = ref.current;
     if (!canLoadNewer || !onLoadNewer || !node || node.clientHeight === 0) {
-      newerLoadRequested.current = undefined;
+      setNewerRequested(undefined);
       return;
     }
     // The rows' end, under the room the newer history left (conversation/newerReserve.ts).
     const rowsEnd = measured.layout.totalHeight + THREAD_TOP + topInset;
     if (rowsEnd - (layoutScrollTop(node) + node.clientHeight) >= node.clientHeight * OLDER_AHEAD_VIEWPORTS) {
-      newerLoadRequested.current = undefined;
+      setNewerRequested(undefined);
       return;
     }
     if (newerLoadRequested.current === newerLoadKey) return;
     const asked = newerLoadKey;
-    newerLoadRequested.current = asked;
+    setNewerRequested(asked);
     const settled = () => {
       clearTimeout(newerRecheck.current);
+      newerRecheck.current = undefined;
+      if (newerLoadRequested.current !== asked) return;
       newerRecheck.current = setTimeout(() => {
         if (newerLoadRequested.current !== asked) return;
         newerLoadRequested.current = undefined;
@@ -7559,7 +7581,7 @@ function TranscriptView({
       checkOlderNow.current();
       return;
     }
-    olderLoadRequested.current = undefined;
+    setOlderRequested(undefined);
     checkOlderNow.current();
   };
   const pointAt = (target: EventTarget | null) => {
