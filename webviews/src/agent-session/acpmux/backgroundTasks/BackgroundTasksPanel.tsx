@@ -18,8 +18,8 @@
 //
 // A Claude workflow's agent is the one transcript that is not in the snapshot: it is read from the
 // run's folder through acpmux (summary/useWorkflowTranscript.ts, the reader the app's workflow pane
-// uses). Its drill-in draws on the click as well, with the transcript's Loading line until the first
-// page lands, then the agent's rows; its progress refreshes it while it is open, and closing it
+// uses). Its drill-in draws on the click as well, empty until the first page lands (no loading words,
+// Leo, 2026-11-27), then the agent's rows; its progress refreshes it while it is open, and closing it
 // disposes the reader. Workflow agents open only where the app reads workflows (Labs), as elsewhere.
 //
 // What runs draws no running symbol (no spinner, no pulsing dot), only its ticking time and its
@@ -349,8 +349,8 @@ function agentOf(groups: readonly BackgroundGroup[], agentId: string) {
 }
 
 /// A workflow agent's transcript, read through acpmux as the app's workflow pane reads it. Its rows
-/// draw in the same transcript as a subagent's; the Loading line shows from the click until the
-/// first page lands, so the pane is never blank.
+/// draw in the same transcript as a subagent's, from the click; nothing shows until the first page
+/// lands (no loading words, Leo, 2026-11-27: "unnecesssary message").
 function WorkflowAgentTranscript({
   pane,
   agent,
