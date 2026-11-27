@@ -134,6 +134,7 @@ fn live_turn(id: &str) -> Turn {
         debounce: 0,
         kinds: HashMap::new(),
         chrome: false,
+        simulator: false,
     }
 }
 
