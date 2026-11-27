@@ -95,7 +95,16 @@ const holdPastClick = () =>
 /** A mouse pointer event as WebKit sends it (jsdom has no PointerEvent). */
 function pointer(target: EventTarget, type: string, x: number, y: number) {
   const View = (target as Node).ownerDocument?.defaultView ?? dom!.window;
-  const event = new View.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
+  // A held button while it moves, as WebKit reports it (a move with none is a release the page never heard).
+  const buttons = type === "pointerup" ? 0 : 1;
+  const event = new View.MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    buttons,
+    clientX: x,
+    clientY: y,
+  });
   Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: "mouse" } });
   act(() => {
     target.dispatchEvent(event);
