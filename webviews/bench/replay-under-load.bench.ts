@@ -300,6 +300,9 @@ async function run(): Promise<Reading> {
     const consoleTail: string[] = [];
     page.on("console", (m) => consoleTail.push(`${m.type()}: ${m.text()} @${m.location().url}`.slice(0, 300)));
     page.on("pageerror", (e) => consoleTail.push(`pageerror: ${e.message}`.slice(0, 300)));
+    page.on("response", (r) => {
+      if (r.status() >= 400) consoleTail.push(`http ${r.status()}: ${r.url()}`.slice(0, 300));
+    });
     page.on("websocket", (ws) => {
       consoleTail.push(`ws open: ${ws.url()}`.slice(0, 200));
       ws.on("close", () => consoleTail.push(`ws close: ${ws.url()}`.slice(0, 200)));
