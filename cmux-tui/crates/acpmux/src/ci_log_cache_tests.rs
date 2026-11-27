@@ -43,12 +43,9 @@ fn anything_but_a_log_read_at_a_command_start_is_left_alone() {
 #[test]
 fn only_a_named_run_or_job_in_a_plain_repo_with_known_flags_is_asked() {
     let a = ask_of(&w("run view 7 -R o/r --log-failed"), None).unwrap();
-    assert_eq!(
-        a,
-        Ask { repo: "o/r".into(), run: Some(7), job: None, attempt: None, failed_only: true }
-    );
+    assert_eq!(a, Ask { repo: "o/r".into(), of: LogOf::Run(7), attempt: None, failed_only: true });
     let a = ask_of(&w("run view --job=9 --log"), Some("o/r")).unwrap();
-    assert_eq!((a.job, a.failed_only, a.repo.as_str()), (Some(9), false, "o/r"));
+    assert_eq!((a.of, a.failed_only, a.repo.as_str()), (LogOf::Job(9), false, "o/r"));
     let a = ask_of(&w("run view 7 --repo o/r --attempt 2 --log"), None).unwrap();
     assert_eq!(a.attempt, Some(2));
     for no in [
