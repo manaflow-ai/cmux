@@ -113,6 +113,10 @@ public final class AcpmuxHub {
     /// Every chat of the Mac is in `sessions` (the whole list was read on this connection). A
     /// chat not in `sessions` before then may be one of the older ones still being read.
     public internal(set) var listWhole = false
+    /// The list position the hub's rows are current to, across its connections
+    /// (`AcpmuxHub+ListFollow.swift`): a reconnect with the whole list held reads only the rows
+    /// changed since it.
+    @ObservationIgnored var listCursor = AcpmuxListCursor()
     /// Where each chat keeps its newest records on this phone (nil: none kept, as in tests and
     /// Cloud chats). Set by the live coordinator before any chat opens.
     @ObservationIgnored public var transcriptCache: AgentTranscriptCache?
@@ -193,6 +197,9 @@ public final class AcpmuxHub {
         case permissionResolved(sessionID: String)
         /// Every session, as the watch reported them on (re)connecting.
         case sessionsLoaded([AcpmuxSession])
+        /// The sessions a follow from the list cursor changed (a reconnect, a refresh, a watch that
+        /// dropped notices); every other session stands.
+        case sessionsChanged(AcpmuxFollowed)
     }
 
     private struct WeakSource { weak var source: AcpmuxSessionSource? }
@@ -219,6 +226,8 @@ public final class AcpmuxHub {
         pumpTask?.cancel()
         restOfList?.cancel()
         restOfList = nil
+        // The whole list held at a cursor: the next watch follows from it.
+        let following = listWhole ? listCursor.position : nil
         toldSinceWatch = []
         purgedSinceWatch = []
         droppedSinceWatch = false
@@ -267,7 +276,7 @@ public final class AcpmuxHub {
                 // sends that part whole, as before.
                 "_meta": .object(["acpmux": .object(AcpmuxDeltas.initializeMeta.merging(["omitTimeBreakdown": .bool(true)]) { $1 })]),
             ]), timeout: requestTimeout)
-            let pageID = try await connection.submit("_acpmux/watch", Self.firstPageParams, timeout: requestTimeout)
+            let pageID = try await connection.submit("_acpmux/watch", watchParams(following: following), timeout: requestTimeout)
             // Each open chat's catch-up attach goes in the same burst (acpmux answers in order,
             // after `initialize`), so a resumed chat is one round trip from its page, not two.
             await pipelineAttaches(connection, timeout: requestTimeout)
@@ -286,10 +295,16 @@ public final class AcpmuxHub {
             capabilitiesKnown = true
             features = Set((initialized["_meta"]?["acpmux"]?["features"]?.arrayValue ?? []).compactMap(\.stringValue))
             let page = try await Self.reply(connection, pageID, "_acpmux/watch", timeout: requestTimeout)
+            if let follow = AcpmuxListFollow(page) {
+                guard !(await connection.isClosed), self.connection === connection else { return }
+                try await followed(follow, on: connection, requestTimeout: requestTimeout)
+                return
+            }
             let first = (rows: try AcpmuxConnection.pageRows(page), cursor: try AcpmuxConnection.nextCursor(page))
             guard !(await connection.isClosed), self.connection === connection else { return }
             let firstPage = applyFirstPage(first.rows, whole: first.cursor == nil)
             let firstIDs = firstPage.ids
+            listCursor.listed(seq: AcpmuxListCursor.seq(page["listSeq"]), epoch: page["listEpoch"]?.stringValue)
             let next = sessions
             isReady = true
             lastError = nil
@@ -352,6 +367,42 @@ public final class AcpmuxHub {
             else { continue }
             source.notePipelined(.init(connection: connection, id: id, params: params))
         }
+    }
+
+    /// The watch followed the cursor (``bind(_:requestTimeout:until:)``): the hub held the whole list
+    /// at it, so it lays the changed rows over it and is ready, whole, with no page read. Asks are
+    /// seeded only in the chats that changed: the others' are known already (seeded or notified).
+    private func followed(_ follow: AcpmuxListFollow, on connection: AcpmuxConnection, requestTimeout: Duration) async throws {
+        var changed = AcpmuxFollowed()
+        lay(follow, into: &changed)
+        var more = follow.more
+        var tries = 1
+        while more, tries < Self.followTries, let cursor = listCursor.position {
+            tries += 1
+            let reply = try await connection.request("_acpmux/watch", watchParams(following: cursor), timeout: requestTimeout)
+            guard self.connection === connection else { return }
+            guard let next = AcpmuxListFollow(reply) else { break }
+            lay(next, into: &changed)
+            more = next.more
+        }
+        // Cut short, the list is not known whole: the next connection reads it from its first page.
+        listWhole = !more
+        isReady = true
+        lastError = nil
+        let waiters = readyWaiters
+        readyWaiters = [:]
+        for waiter in waiters.values { waiter.resume(returning: true) }
+        log.info("acpmux ready, followed \(changed.changed.count, privacy: .public) of \(self.sessions.count, privacy: .public) sessions")
+        ConnectivityTelemetry.shared.record(.hub, "ready", outcome: .success, fields: [
+            "sessions": .number(Double(sessions.count)),
+            "followed": .number(Double(changed.changed.count)),
+            "full_access": .flag(fullAccess),
+            "capabilities": .number(Double(capabilities.count)),
+        ], detail: capabilities.sorted().joined(separator: ","))
+        for source in liveSources { source.linkUp() }
+        onWatchEvent?(.sessionsChanged(changed))
+        await seedPending(connection, requestTimeout: requestTimeout, among: Set(changed.changed.keys))
+        try Task.checkCancellation()
     }
 
     /// Asks that were already open before this connection watched: acpmux
@@ -663,7 +714,10 @@ public final class AcpmuxHub {
             guard let sessionID, let permissionID = params["permissionId"]?.stringValue, let request = params["request"] else { return }
             onWatchEvent?(.permissionPending(sessionID: sessionID, permissionID: permissionID, request: request))
         case "_acpmux/lagged":
-            if (params["dropped"]?.numberValue ?? 0) > 0 { droppedSinceWatch = true }
+            if (params["dropped"]?.numberValue ?? 0) > 0 {
+                droppedSinceWatch = true
+                listCursor.dropped()
+            }
             // A list reply that went out after a `session_changed` (acpmux `send_serialized`,
             // `list_changed`) dropped nothing: that notice came before it and is applied above,
             // so nothing is read again, neither the list nor an open chat's history. Asking
@@ -675,9 +729,15 @@ public final class AcpmuxHub {
             // chats first, before the next notification: a record after the dropped ones must
             // be held for the refill, not applied ahead of it.
             for source in liveSources { source.refill() }
-            // The watch runs again; its reply is not read, so one row is asked for, not the list.
+            // The watch runs again. With the whole list held at a cursor it follows from the last
+            // reply's position, so the rows whose notices were dropped are read, and only those;
+            // else its reply is not read, so one row is asked for, not the list.
             Task { [weak self] in
                 guard let self, let connection = self.connection else { return }
+                if let followed = try? await self.followList(on: connection, timeout: .seconds(20)) {
+                    self.onWatchEvent?(.sessionsChanged(followed))
+                    return
+                }
                 _ = try? await connection.request("_acpmux/watch", .object(["enabled": .bool(true), "limit": .number(1)]))
             }
         default:
@@ -688,6 +748,8 @@ public final class AcpmuxHub {
     /// A chat's row, whole (`session_changed`, or a patch applied to the row held).
     private func sessionChanged(_ params: JSONValue) {
         guard let value = params["session"], let session = AcpmuxSession(value) else { return }
+        // A notice older than the row held (a reply built after it went out first) is dropped.
+        guard listCursor.admits(session.id, listSeq: AcpmuxListCursor.seq(params["listSeq"])) else { return }
         let kind = params["recordKind"]?.stringValue ?? params["kind"]?.stringValue ?? ""
         let changed = kind == "purged" || sessions[session.id] != session
         sessions[session.id] = session
