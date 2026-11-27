@@ -57,8 +57,7 @@ extension WorkspaceRowView {
     /// where the controls left of the column end; nil when the row shows no mark.
     ///
     /// The mark is the badge (one glyph or the stack, its last glyph on the column), else the agent
-    /// mark that stands in for the status, else the status glyph (the `trailing` badge style), else a usage warning's
-    /// triangle.
+    /// mark that stands in for the status, else the status glyph (the `trailing` badge style).
     /// Lawrence 2026-10-20: every row's dot and spinner share one line; msg 11914: whatever else the
     /// row shows (a count, the keycap, the hover close and more) sits left of it,
     /// so a selected row's dot does not move. Never on the leading icon.
@@ -81,10 +80,6 @@ extension WorkspaceRowView {
         } else if !statusLeads, activity.showsGlyph {
             activity.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
             view = activity
-        } else if !usageWarningMark.isHidden {
-            // A usage warning with no status: the triangle takes the status's place, in its box (Lawrence 2026-10-30).
-            usageWarningMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
-            view = usageWarningMark
         } else if badge.state == .dot {
             // The legacy unread style shares Search's center too. Reserve the column before
             // laying out counts or other marks, so none can occupy the dot's slot at rest.

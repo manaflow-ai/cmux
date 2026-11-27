@@ -1,5 +1,5 @@
 import React from "react";
-import { Keycap } from "./Keycap";
+import { KeyHint } from "../../ui/KeyHint";
 import { useT } from "./i18n";
 
 /// Start Agent's keys, always in view: Return starts the chat in the background, ⌘Return starts it
@@ -31,7 +31,7 @@ export function QuickKeyHints({ floating = false }: { floating?: boolean }) {
             </span>
           )}
           <span className="acpmux-quick-key">
-            <Keycap>{key}</Keycap>
+            <KeyHint keys={key} aria-hidden="true" />
             {label}
           </span>
         </React.Fragment>

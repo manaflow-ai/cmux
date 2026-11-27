@@ -3,6 +3,7 @@ import { HELP_SECTIONS, helpRows, searchHelp, type HelpRow } from "./composerHel
 import { focusRoute } from "../../ui/focusRoute";
 import { useT } from "./i18n";
 import { ShortcutsContext } from "./shortcuts";
+import { KeyHint } from "../../ui/KeyHint";
 import { Listbox } from "../../ui/Listbox";
 import { usePopupSettle } from "../../ui/popupSettle";
 import type { SlashCommand } from "./slashCommands";
@@ -123,7 +124,7 @@ export function HelpSheet({
               ) : (
                 <span className="acpmux-help-keys">
                   {row.keys.split(" ").map((key, n) => (
-                    <kbd key={`${n}:${key}`}>{key}</kbd>
+                    <KeyHint key={`${n}:${key}`} keys={key} />
                   ))}
                 </span>
               )}

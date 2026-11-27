@@ -10,7 +10,7 @@
 /// BlockingControl(detector: blocking).method        // debug.blocking
 /// ```
 public struct BlockingDetector: Sendable {
-    #if DEBUG || CMUX_BLOCKING_CHECKS
+    #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
     let table: BlockingViolationTable
 
     /// A detector over `table` (tests: the checks report to it inside its task-local scope).
@@ -26,7 +26,7 @@ public struct BlockingDetector: Sendable {
     ///
     /// - Returns: The handle to this process's detector.
     public static func forProcess() -> BlockingDetector {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
+        #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
         BlockingDetector(table: .shared)
         #else
         BlockingDetector()
@@ -35,7 +35,7 @@ public struct BlockingDetector: Sendable {
 
     /// Whether this build has the detector (Debug, bench and Nightly builds).
     public var isCompiledIn: Bool {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
+        #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
         true
         #else
         false
@@ -45,7 +45,7 @@ public struct BlockingDetector: Sendable {
     /// What a violation does (``BlockingMode/record`` in every build but a Debug build started with
     /// `CMUX_BLOCKING_TRAP=1`).
     public var mode: BlockingMode {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
+        #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
         table.mode
         #else
         .record
@@ -55,7 +55,7 @@ public struct BlockingDetector: Sendable {
     /// Installs the sink that receives each new call site once, on the drain queue (the last call
     /// wins; nil removes it).
     public func install(sink: (any BlockingViolationSink)?) {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
+        #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
         table.install(sink: sink)
         #endif
     }
@@ -63,7 +63,7 @@ public struct BlockingDetector: Sendable {
     /// The call sites that blocked the main thread and reached the drain queue, in the order they
     /// first did, with their current counts.
     public var sites: [BlockingSite] {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
+        #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
         table.sites
         #else
         []
@@ -73,7 +73,7 @@ public struct BlockingDetector: Sendable {
     /// Main-thread blocking calls not recorded as a site: the table was full (128 sites per launch), or 64
     /// new sites were already waiting for the drain (such a site is recorded on a later call).
     public var overflow: Int {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
+        #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
         table.overflow
         #else
         0
@@ -83,7 +83,7 @@ public struct BlockingDetector: Sendable {
     /// Zeroes every site's count (between sweep steps); the sites stay known, so a site that blocks again
     /// is counted, not sent to the sink again.
     public func resetCounts() {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
+        #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
         table.resetCounts()
         #endif
     }

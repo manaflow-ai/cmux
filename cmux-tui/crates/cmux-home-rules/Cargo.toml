@@ -1,0 +1,15 @@
+[package]
+name = "cmux-home-rules"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The rules and projection behind the Mac Home, chat list and Chief (inbox order, compose, Chief homes, brain host, cloud link, dock, welcome) as JSON ops the app asks through cmux_home_call"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

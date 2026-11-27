@@ -215,13 +215,22 @@ class JobLogTests(unittest.TestCase):
 
 
 class OverlayTests(unittest.TestCase):
-    def test_drops_only_the_package_job_lint_gate(self):
+    def test_linux_package_job_has_no_lint_gate_so_the_workflow_is_unchanged(self):
         workflow = (ROOT / MODULE.WORKFLOW_PATH).read_text()
+        self.assertIn(f"\n  {MODULE.PACKAGE_JOB}:", workflow)
+        self.assertEqual(MODULE.drop_lint_gate(workflow), workflow)
+
+    def test_drops_only_the_package_job_lint_gate(self):
+        gate = MODULE.LINT_GATE
+        workflow = (
+            f"jobs:\n  {MODULE.PACKAGE_JOB}:\n    if: a {gate} == x)\n"
+            f"  ios-simulator-build:\n    if: b {gate} == y)\n"
+        )
         patched = MODULE.drop_lint_gate(workflow)
-        head, _, package = patched.partition(f"\n  {MODULE.PACKAGE_JOB}:")
-        self.assertEqual(head, workflow.partition(f"\n  {MODULE.PACKAGE_JOB}:")[0])
-        self.assertNotIn(MODULE.LINT_GATE, package.split("\n  ios-simulator")[0])
-        self.assertEqual(len(workflow) - len(patched), len(MODULE.LINT_GATE) - len("&& (true"))
+        package, _, rest = patched.partition("\n  ios-simulator-build:")
+        self.assertNotIn(gate, package)
+        self.assertIn(gate, rest)
+        self.assertEqual(len(workflow) - len(patched), len(gate) - len("&& (true"))
 
     def test_missing_package_job_is_a_clear_error(self):
         with self.assertRaises(SystemExit):

@@ -1,8 +1,13 @@
 //! Catch-up time over a shaped link: today's separate calls (a `daemon` channel for
 //! `set-client-info` + `list-workspaces`, an `acpmux` channel for `_acpmux/watch` and one
 //! `_acpmux/attach` per chat, both channels at once: the old path's best case) against one
-//! `catch-up` request. Each sample is a fresh phone link through a `cmux-fault` shaper to a
-//! real `services::serve`, with a fake daemon socket and a fake acpmux behind it.
+//! `catch-up` request, against the same catch-up from the relay cache with the Mac asleep
+//! (RFD 0142 R9: sealed deltas, `POST /v1/relay-cache/<src>/catch-up`, read by the phone's
+//! `cmux_mobile_core::catch_up::relay`, unsealing included). Each sample is a fresh phone link
+//! through a `cmux-fault` shaper to a real `services::serve`, with a fake daemon socket and a fake
+//! acpmux behind it; the relay is a plain HTTP/1.1 server over the relay's own `DeltaLog`, through
+//! a shaper of the same profile. No TLS on either: the relay rows leave out the TLS handshake a
+//! cold HTTPS connection adds (`relay_cold_ms` is TCP connect + one request).
 //!
 //! `#[ignore]`: a bench. Run it with
 //! `cargo test -p cmux-mobile-host --test catch_up_conditions -- --ignored --nocapture`.
@@ -242,6 +247,201 @@ async fn one_catch_up(link: &Link, chats: usize) -> (f64, usize) {
     (start.elapsed().as_secs_f64() * 1000.0, bytes)
 }
 
+/// The Mac's relay deltas for the same state the fakes answer: one for the workspaces, one for
+/// the chat list, one per transcript event of each chat (the Mac seals one per change).
+struct RelayFixture {
+    mac: p256::ecdsa::SigningKey,
+    phone: p256::SecretKey,
+    logs: Arc<Mutex<std::collections::BTreeMap<String, cmux_relay_snapshot::delta::DeltaLog>>>,
+    surfaces: Vec<String>,
+    deltas: usize,
+}
+
+const RELAY_EPOCH: u64 = 7;
+
+fn relay_fixture(chats: usize, tabs: usize, events: u64) -> RelayFixture {
+    use cmux_mobile_core::catch_up::relay::chat_surface;
+    use cmux_relay_snapshot::{Position, delta};
+    let mac = p256::ecdsa::SigningKey::random(&mut rand_core::OsRng);
+    let phone = p256::SecretKey::random(&mut rand_core::OsRng);
+    let mut plain: Vec<(String, Vec<Value>)> = Vec::new();
+    let tabs: Vec<Value> = (0..tabs)
+        .map(|i| json!({"id": i, "title": format!("tab {i} ~/src/project-{i}"), "cwd": format!("/Users/me/src/project-{i}")}))
+        .collect();
+    plain.push((
+        "workspaces".into(),
+        vec![json!({"tree_revision": "r2",
+        "workspaces": [{"id": "w1", "screens": [{"panes": [{"tabs": tabs}]}]}]})],
+    ));
+    let sessions: Vec<Value> = (0..chats)
+        .map(|i| json!({"sessionId": chat_id(i), "title": format!("chat {i}"), "status": "idle"}))
+        .collect();
+    plain.push((
+        "chat-list".into(),
+        vec![json!({"listEpoch": "E", "listSeq": 91, "follow": true, "sessions": sessions})],
+    ));
+    for i in 0..chats {
+        let session = chat_id(i);
+        let pages = (11..=10 + events)
+            .map(|seq| {
+                json!({"sessionId": session, "events": [{"seq": seq, "kind": "transcript",
+                "sessionId": session, "msg": {"text": "a".repeat(240)}}], "hasMore": false,
+                "lastSeq": seq, "pageThrough": seq})
+            })
+            .collect();
+        plain.push((chat_surface(&session), pages));
+    }
+    let mut logs = std::collections::BTreeMap::new();
+    let mut deltas = 0;
+    for (surface, pages) in &plain {
+        let mut log = delta::DeltaLog::new();
+        for (k, page) in pages.iter().enumerate() {
+            let position = Position { epoch: RELAY_EPOCH, seq: 11 + k as u64 };
+            let sealed = cmux_relay_snapshot::seal(
+                &mac,
+                &phone.public_key(),
+                &delta::delta_stream(surface),
+                position,
+                page.to_string().as_bytes(),
+            )
+            .unwrap();
+            log.append(sealed, 0).unwrap();
+            deltas += 1;
+        }
+        logs.insert(surface.clone(), log);
+    }
+    RelayFixture {
+        mac,
+        phone,
+        logs: Arc::new(Mutex::new(logs)),
+        surfaces: plain.into_iter().map(|(surface, _)| surface).collect(),
+        deltas,
+    }
+}
+
+/// A relay serving `catch-up` from the fixture's logs over keep-alive HTTP/1.1, as the Worker's
+/// route answers it (PROTOCOL.md "Relay cache routes").
+async fn fake_relay(
+    logs: Arc<Mutex<std::collections::BTreeMap<String, cmux_relay_snapshot::delta::DeltaLog>>>,
+) -> std::net::SocketAddr {
+    use base64::Engine as _;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            stream.set_nodelay(true).unwrap();
+            let logs = Arc::clone(&logs);
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut read = BufReader::new(read);
+                while let Some(body) = read_http(&mut read, "POST /v1/relay-cache/").await {
+                    let ask: Value = serde_json::from_slice(&body).unwrap();
+                    let reply = {
+                        let (mut surfaces, mut cut) = (Vec::new(), Vec::new());
+                        let mut logs = logs.lock().unwrap();
+                        for entry in ask["surfaces"].as_array().unwrap() {
+                            let stream = entry["surface"].as_str().unwrap().to_string();
+                            let after = cmux_relay_snapshot::Position {
+                                epoch: entry["after"]["epoch"].as_u64().unwrap(),
+                                seq: entry["after"]["seq"].as_u64().unwrap(),
+                            };
+                            match logs.get_mut(&stream).map(|log| (log.catch_up(after, 0), log.head())) {
+                                Some((cmux_relay_snapshot::delta::CatchUp::Deltas(sealed), Some(head))) => {
+                                    let sealed: Vec<String> = sealed
+                                        .iter()
+                                        .map(|e| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(e))
+                                        .collect();
+                                    surfaces.push(json!({"surface": stream, "sealed": sealed,
+                                    "head": {"epoch": head.epoch, "seq": head.seq}}));
+                                }
+                                _ => cut.push(stream),
+                            }
+                        }
+                        json!({"fromRelay": true, "surfaces": surfaces, "cut": cut}).to_string()
+                    };
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
+                        reply.len()
+                    );
+                    if write.write_all(format!("{head}{reply}").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    addr
+}
+
+/// One HTTP/1.1 message's body (by `content-length`), after a start line beginning `start`
+/// (empty: any). None at EOF.
+async fn read_http<R: tokio::io::AsyncBufRead + Unpin>(read: &mut R, start: &str) -> Option<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut line = String::new();
+    if read.read_line(&mut line).await.ok()? == 0 {
+        return None;
+    }
+    assert!(line.starts_with(start), "{line:?}");
+    let mut length = 0;
+    loop {
+        line.clear();
+        read.read_line(&mut line).await.ok()?;
+        if line == "\r\n" {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("content-length")
+        {
+            length = value.trim().parse().unwrap();
+        }
+    }
+    let mut body = vec![0; length];
+    read.read_exact(&mut body).await.ok()?;
+    Some(body)
+}
+
+/// The phone's relay catch-up: request every surface after the Mac's last relay head, read and
+/// unseal the reply into `catch-up` answers. Returns (ms, bytes received).
+async fn relay_catch_up<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+    stream: &mut BufReader<S>,
+    fixture: &RelayFixture,
+    start: Instant,
+) -> (f64, usize) {
+    use cmux_mobile_core::catch_up::relay;
+    let mut floors = relay::Floors::default();
+    floors.set_from_mac(&fixture.surfaces.iter().map(|s| (s.clone(), (RELAY_EPOCH, 10))).collect());
+    // The phone's steps (cmux-mobile-link-ffi `relay_request` / `relay_apply`): core picks the
+    // streams, the one relay cache client builds the call and opens the reply.
+    use cmux_mobile_link::relay_cache;
+    let mut wanted = relay::wanted(&floors, &fixture.surfaces);
+    let asks = relay_cache::resume_asks(&wanted);
+    let body = relay_cache::catch_up_body(&asks, relay_cache::MAX_BUDGET_BYTES).unwrap().to_string();
+    let path = relay_cache::path("phone-1", "mac-1", "catch-up", &[]);
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nhost: relay\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    stream.get_mut().write_all(request.as_bytes()).await.unwrap();
+    let reply = read_http(stream, "HTTP/1.1 200").await.unwrap();
+    let source = p256::PublicKey::from(fixture.mac.verifying_key());
+    let reply_json = relay_cache::read_catch_up(&reply).unwrap();
+    let resume = relay_cache::apply_catch_up(reply_json, &source, &fixture.phone, &mut wanted).unwrap();
+    let opened: Vec<relay::Opened<'_>> = resume
+        .surfaces
+        .iter()
+        .map(|s| relay::Opened {
+            surface: &s.surface,
+            applied: &s.applied,
+            stopped: s.stopped.as_ref(),
+            head: s.head,
+        })
+        .collect();
+    let got = relay::take(&mut floors, &resume.cut, &opened);
+    assert!(got.cut.is_empty(), "{:?}", got.cut_why);
+    assert_eq!(got.answers.len(), fixture.deltas);
+    (start.elapsed().as_secs_f64() * 1000.0, reply.len())
+}
+
 fn stats(mut samples: Vec<f64>) -> Value {
     samples.sort_by(f64::total_cmp);
     let pick = |q: f64| samples[((samples.len() - 1) as f64 * q).round() as usize];
@@ -287,10 +487,13 @@ async fn catch_up_rows_under_conditions() {
     fake_daemon(dir.path(), 24);
     let url = fake_acpmux(chats, 8).await;
     let config = config(dir.path(), url);
+    let fixture = relay_fixture(chats, 24, 8);
+    let relay = fake_relay(Arc::clone(&fixture.logs)).await;
     let loads = Mutex::new(Vec::new());
     for profile in profiles.split(',') {
         let (mut before, mut after) = (Vec::new(), Vec::new());
         let (mut before_bytes, mut after_bytes) = (0, 0);
+        let (mut warm, mut cold, mut relay_bytes) = (Vec::new(), Vec::new(), 0);
         for run in 0..runs {
             // Alternate the order so neither path always goes first on a fresh link.
             let (link, _shaper) = shaped_link(Arc::clone(&config), profile, 7 + run as u64).await;
@@ -308,13 +511,29 @@ async fn catch_up_rows_under_conditions() {
             after.push(a);
             before_bytes = bb;
             after_bytes = ab;
+            // The relay, through its own shaper of the same profile: a cold connection (TCP
+            // connect + the request), then the same request on the kept-alive connection.
+            let relay_profile = ProfileFile::builtin().get(profile).cloned().unwrap();
+            let relay_shaper =
+                Shaper::start(relay, relay_profile, 11 + run as u64, &Trace::new()).await.unwrap();
+            let start = Instant::now();
+            let tcp = TcpStream::connect(relay_shaper.addr()).await.unwrap();
+            tcp.set_nodelay(true).unwrap();
+            let mut tcp = BufReader::new(tcp);
+            let (c, _) = relay_catch_up(&mut tcp, &fixture, start).await;
+            let (w, rb) = relay_catch_up(&mut tcp, &fixture, Instant::now()).await;
+            cold.push(c);
+            warm.push(w);
+            relay_bytes = rb;
             loads.lock().unwrap().push(loadavg());
         }
         let row = json!({"row": "catch-up", "profile": profile, "chats": chats,
             "load": if duress > 0 { format!("duress: {duress} busy threads + host") } else { "idle: no added load".into() },
             "loadavg": loads.lock().unwrap().last().cloned(), "nproc": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
             "separate_ms": stats(before), "one_request_ms": stats(after),
-            "separate_bytes": before_bytes, "one_request_bytes": after_bytes});
+            "separate_bytes": before_bytes, "one_request_bytes": after_bytes,
+            "relay_warm_ms": stats(warm), "relay_cold_ms": stats(cold), "relay_bytes": relay_bytes,
+            "relay_deltas": fixture.deltas, "relay_tls": false});
         println!("CATCHUP-ROW {row}");
     }
     stop.store(true, Ordering::Relaxed);

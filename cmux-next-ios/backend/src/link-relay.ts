@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
+import { TaggedQueue, COALESCE_FLUSH_BYTES } from "./relay-coalesce.ts"
 import { FIRST_GRANT, MIB, RELAY_CLOSE } from "./relay-access.ts"
-import { checkFrame, RELAY_FRAME_MAX, withPeer } from "./relay-frame.ts"
+import { checkFrame, RELAY_FRAME_HEADER_LEN, RELAY_FRAME_MAX, splitTagged, withPeer } from "./relay-frame.ts"
 import { CACHE_PATH_PREFIX, cacheFetch, RelayCache } from "./relay-cache.ts"
 import { HoldQueue, parseHoldFrame } from "./relay-hold.ts"
 import { APP_PING, APP_PONG, userHubName, uuidToBytes } from "./team-hub.ts"
@@ -63,6 +64,30 @@ interface RelayAttachment {
 
 type Bucket = { t: number; at: number }
 
+/** Per leg (one socket), in memory only like the buckets: what this object saw. A wake forgets. */
+export interface LegCounters {
+  framesIn: number
+  bytesIn: number
+  framesOut: number
+  bytesOut: number
+  /** Tagged records received, and the ones latest-wins dropped. */
+  recordsIn: number
+  recordsSuperseded: number
+  /** Frames refused (bad frame, over the limit, rate limit) and notices sent. */
+  refused: number
+  notices: number
+}
+
+const newCounters = (): LegCounters => ({ framesIn: 0, bytesIn: 0, framesOut: 0, bytesOut: 0, recordsIn: 0, recordsSuperseded: 0, refused: 0, notices: 0 })
+
+/** Tagged records waiting for the end of this turn, for one target socket. */
+interface Pending {
+  readonly queue: TaggedQueue
+  readonly peer: Uint8Array
+  from: WebSocket
+  scheduled: boolean
+}
+
 /**
  * The link's WebSocket relay (PROTOCOL.md "WebSocket relay", API 0.17.0): the last way a WireGuard link reaches
  * its peer when neither plain UDP nor a TURN server gets through, as on a network that lets only cmux's own
@@ -92,6 +117,12 @@ type Bucket = { t: number; at: number }
  * the ones that did arrive die in WireGuard's replay window. The relay sees nothing it did not already see, and
  * nothing is ever written to storage.
  *
+ * Latest-wins (RFD 0142 R5): it also carries `tagged-datagrams` (hop/1 DATA records). Tagged records are coalesced
+ * per target socket within one event-loop turn, and a class-1 record is dropped when a newer one of the same key is
+ * queued with it (`relay-coalesce.ts`). Workers' WebSocket has no `bufferedAmount` or drain event
+ * (developers.cloudflare.com/workers/runtime-apis/websockets, checked 2026-11-24), so the object cannot see a send
+ * backlog: it coalesces only what it already holds. A client's text `stats` is answered with per-leg counters.
+ *
  * Prewarmed (RFD 0142 C4, PROTOCOL.md "Relay placement"): the hub creates and places this object when it forwards
  * the session's first `wg-init` (`/prewarm`, no socket), so a later join finds it made and placed instead of
  * paying for creation and a cold start while a link waits on its last path.
@@ -100,6 +131,8 @@ export class LinkRelay extends DurableObject<Env> {
   private readonly buckets = new WeakMap<WebSocket, { frames: Bucket; bytes: Bucket }>()
   private readonly notices = new WeakMap<WebSocket, Map<string, number>>()
   private readonly attachments = new WeakMap<WebSocket, RelayAttachment>()
+  private readonly counters = new WeakMap<WebSocket, LegCounters>()
+  private readonly pending = new WeakMap<WebSocket, Pending>()
   /**
    * This session's lease on the owner's budget (memory only; a wake starts with none and asks again): bytes it may
    * still relay, the size of its next grant ([`FIRST_GRANT`], doubling up to a MiB), until when the hub's last
@@ -197,31 +230,110 @@ export class LinkRelay extends DurableObject<Env> {
       } catch {}
       return
     }
-    // Text frames carry nothing (the ping is answered before it reaches here), except the relay-held send queue's.
-    if (typeof message === "string") return this.holdText(ws, message)
-    if (message.byteLength > RELAY_FRAME_MAX) return this.notice(ws, "error", { type: "error", code: "too_large" })
-    if (!this.take(ws, message.byteLength)) return
+    // Text frames: `stats` (this leg's counters and its peer's, as one text frame) or the relay-held send queue's.
+    // The ping is answered before it reaches here.
+    if (typeof message === "string") {
+      if (message === "stats") return this.sendStats(ws)
+      return this.holdText(ws, message)
+    }
+    const c = this.legOf(ws)
+    c.framesIn += 1
+    c.bytesIn += message.byteLength
+    if (message.byteLength > RELAY_FRAME_MAX) return this.refuse(ws, { type: "error", code: "too_large" })
+    if (!this.take(ws, message.byteLength)) {
+      c.refused += 1
+      return
+    }
     const bytes = new Uint8Array(message)
     const checked = checkFrame(bytes)
-    if (!checked.ok) return this.notice(ws, "error", { type: "error", code: `bad_frame:${checked.error}` })
+    if (!checked.ok) return this.refuse(ws, { type: "error", code: `bad_frame:${checked.error}` })
     // Only datagrams cross: the other kinds belong to the host relay, not to a two-party link.
-    if (checked.kind !== "datagrams") return this.notice(ws, "error", { type: "error", code: "bad_frame:kind" })
+    if (checked.kind !== "datagrams" && checked.kind !== "tagged-datagrams") return this.refuse(ws, { type: "error", code: "bad_frame:kind" })
     const att = this.attachment(ws)
     if (!att) return
     const target = this.socketOf(att.peer)
-    const stamped = withPeer(bytes, uuidToBytes(att.device))
+    const peer = uuidToBytes(att.device)
+    const stamped = withPeer(bytes, peer)
     if (!target) {
       // Held for the peer's rejoin (it may be between two sockets), unspent until it goes.
       this.keep(att.peer, stamped, false, att)
       return this.notice(ws, "peer", { type: "peer", online: false })
     }
-    if (!(await this.spend(att, bytes.length))) return this.notice(ws, "rate_limited", { type: "error", code: "rate_limited" })
-    this.keep(att.peer, stamped, true, att)
-    try {
-      target.send(stamped)
-    } catch {
-      this.notice(ws, "peer", { type: "peer", online: false })
+    // Tagged frames spend the owner's budget as they arrive, as plain ones do (a superseded record was still relayed in).
+    if (!(await this.spend(att, bytes.length))) {
+      c.refused += 1
+      return this.notice(ws, "rate_limited", { type: "error", code: "rate_limited" })
     }
+    this.keep(att.peer, stamped, true, att)
+    if (checked.kind === "tagged-datagrams") {
+      this.enqueue(ws, target, peer, bytes, c)
+      return
+    }
+    // A plain frame never overtakes records queued before it.
+    this.flush(target)
+    this.forward(ws, target, stamped)
+  }
+
+  /** Sends one frame to `target`; `from` hears the peer is gone when the send fails. */
+  private forward(from: WebSocket, target: WebSocket, frame: Uint8Array) {
+    try {
+      target.send(frame)
+      const t = this.legOf(target)
+      t.framesOut += 1
+      t.bytesOut += frame.length
+    } catch {
+      this.notice(from, "peer", { type: "peer", online: false })
+    }
+  }
+
+  private enqueue(from: WebSocket, target: WebSocket, peer: Uint8Array, bytes: Uint8Array, c: LegCounters) {
+    const records = splitTagged(bytes.subarray(RELAY_FRAME_HEADER_LEN))
+    if (!records) return
+    let p = this.pending.get(target)
+    if (!p) {
+      p = { queue: new TaggedQueue(), peer, from, scheduled: false }
+      this.pending.set(target, p)
+    }
+    p.from = from
+    for (const r of records) {
+      c.recordsIn += 1
+      c.recordsSuperseded += p.queue.add(r)
+    }
+    if (p.queue.bytes >= COALESCE_FLUSH_BYTES) return this.flush(target)
+    if (!p.scheduled) {
+      p.scheduled = true
+      // The end of this turn: frames that arrive before it share one send.
+      setTimeout(() => this.flush(target), 0)
+    }
+  }
+
+  /** Sends what is queued for `target`, in order, as the fewest frames. */
+  private flush(target: WebSocket) {
+    const p = this.pending.get(target)
+    if (!p || p.queue.length === 0) return
+    for (const frame of p.queue.drain(p.peer, 4)) this.forward(p.from, target, frame)
+  }
+
+  private legOf(ws: WebSocket): LegCounters {
+    let c = this.counters.get(ws)
+    if (!c) {
+      c = newCounters()
+      this.counters.set(ws, c)
+    }
+    return c
+  }
+
+  private sendStats(ws: WebSocket) {
+    const att = this.attachment(ws)
+    const other = att ? this.socketOf(att.peer) : undefined
+    try {
+      ws.send(JSON.stringify({ type: "stats", leg: this.legOf(ws), peer: other ? this.legOf(other) : null }))
+    } catch {}
+  }
+
+  private refuse(ws: WebSocket, frame: unknown) {
+    this.legOf(ws).refused += 1
+    this.notice(ws, "error", frame)
   }
 
   /** Add a frame to the tail, dropping what is older than [`RELAY_TAIL_MS`] or past [`RELAY_TAIL_BYTES`]. */
@@ -416,6 +528,7 @@ export class LinkRelay extends DurableObject<Env> {
     const last = sent.get(kind)
     if (last !== undefined && now - last < RELAY_NOTICE_INTERVAL_MS) return
     sent.set(kind, now)
+    this.legOf(ws).notices += 1
     try {
       ws.send(JSON.stringify(frame))
     } catch {}

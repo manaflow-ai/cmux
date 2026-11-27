@@ -57,7 +57,8 @@ afterAll(async () => {
 
 const MINUTE = 60_000;
 // A fresh object per item each read, as acpmux's JSON is.
-const items = (n: number, ask = (index: number) => `Run step ${index}`) =>
+// `score` moves on every read, as acpmux works it out from the item's age at read time.
+const items = (n: number, ask = (index: number) => `Run step ${index}`, read = 0) =>
   Array.from({ length: n }, (_, index) => ({
     id: `acpmux:p${index}`,
     kind: "approval",
@@ -65,7 +66,7 @@ const items = (n: number, ask = (index: number) => `Run step ${index}`) =>
     title: `Chat ${index}`,
     ask: ask(index),
     at: index * MINUTE,
-    score: n - index,
+    score: n - index + read / 1000,
     permissionId: `p${index}`,
     options: [
       { optionId: "allow", name: "Allow", kind: "allow_once" },
@@ -125,12 +126,19 @@ for (const n of [100, 1_000]) {
     const page = await mount(n);
     rowRenders.reset();
     await page.read({
-      items: items(n, (index) => (index === 4 ? "Run the release" : `Run step ${index}`)),
+      items: items(n, (index) => (index === 4 ? "Run the release" : `Run step ${index}`), 1),
       now: n * MINUTE + MINUTE,
       total: n,
     });
     expect(host.textContent).toContain("Run the release");
     expect(rowRenders.count("Row")).toBe(1);
+  });
+
+  test(`a read whose only change is every score (time passed) draws none of ${n} rows`, async () => {
+    const page = await mount(n);
+    rowRenders.reset();
+    await page.read({ items: items(n, undefined, 2), now: n * MINUTE + 2 * MINUTE, total: n });
+    expect(rowRenders.count("Row")).toBe(0);
   });
 
   test(`moving the cursor among ${n} rows draws the two it moved between`, async () => {

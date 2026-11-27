@@ -10,6 +10,8 @@ deltas to one "Connection reset by peer").
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -178,18 +180,65 @@ except FileNotFoundError:
 mod.fetch = lambda url: feed(TWO).encode()
 expect(mod.main(["newest", "--feed-url", "x", "--build", "300"]) == 0 and mod.main(["newest", "--feed-url", "x", "--build", "200"]) == 1,
        "newest passes only for the feed's newest build")
+# published-build's read-back (run 45607031207: a refused publication said it published; the feed stayed put).
+expect(mod.main(["published", "--feed-url", "x", "--build", "300"]) == 0, "published passes for the feed's newest build")
+expect(mod.main(["published", "--feed-url", "x", "--build", "200"]) == 0,
+       "published passes for a build on the feed under a newer one that already went out")
+expect(mod.main(["published", "--feed-url", "x", "--build", "400"]) == 1,
+       "published fails a build the feed does not list (the feed did not move)")
+expect(mod.published(feed(TWO).encode(), 250)[0] == 1, "published fails a build missing between the feed's builds")
+expect(mod.published(b"<rss><channel></channel></rss>", 300)[0] == 1, "published fails an empty feed")
 merged_file = tmp / "merged.xml"
 merged_file.write_text(feed(TWO), encoding="utf-8")
 expect(mod.main(["newest", "--feed-file", str(merged_file), "--build", "300"]) == 0
        and mod.main(["newest", "--feed-file", str(merged_file), "--build", "200"]) == 1,
        "newest --feed-file checks the feed about to be written")
 upload = (ROOT / "scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh").read_text(encoding="utf-8")
-expect(upload.index('newest --feed-file "$feed"') < upload.index("write-feed --feed"),
-       "the after-feed write checks this build is still the newest before write-feed")
+expect(upload.index('newest --feed-file "$live"') < upload.index('"$check" merge'),
+       "the after-feed write checks the live snapshot before merge")
+expect(upload.index('"$check" merge') < upload.index("write-feed --feed"),
+       "the after-feed write merges before write-feed")
 expect('DELTAS_ONLY_WHILE_NEWEST: "1"' in (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"),
        "nightly-next-one's post-feed upload asks for the still-newest check")
 expect(previous.main(["--save", str(tmp / "missing.dmg"), "--cache-dir", str(cache), "--prefix", "cmux-x", "--variant", "arm64"]) == 0,
        "a failed cache save never fails the build")
+
+# If a newer publication already pruned this build, newest must run on the live
+# snapshot before merge, whose input requires the build item to exist.
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    tools = root / ".publish-tooling/scripts/ci"
+    tools.mkdir(parents=True)
+    inputs = root / "nightly-deltas"
+    inputs.mkdir()
+    (inputs / "appcast-arm64.xml").write_text(feed(""), encoding="utf-8")
+    (inputs / "cmux-nightly-next-macos-arm64-200-100.delta").touch()
+    (root / "remote.xml").write_text(
+        '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>'
+        '<item><sparkle:version>300</sparkle:version></item></channel></rss>', encoding="utf-8")
+    (root / "curl").write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib, sys\n"
+        "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_bytes(pathlib.Path('remote.xml').read_bytes())\n",
+        encoding="utf-8")
+    (root / "curl").chmod(0o755)
+    (tools / "publish-nightly-next-r2.py").write_text(
+        "import sys\n"
+        "sys.exit(0)\n", encoding="utf-8")
+    (tools / "nightly_next_delta_check.py").write_text(
+        "import pathlib, sys\n"
+        "pathlib.Path('calls').open('a', encoding='utf-8').write(' '.join(sys.argv[1:]) + '\\n')\n"
+        "sys.exit(1 if sys.argv[1] == 'newest' else (99 if sys.argv[1] == 'merge' else 0))\n",
+        encoding="utf-8")
+    (tools / "nightly-next-guard.py").write_text("", encoding="utf-8")
+    step = ROOT / "scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh"
+    env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+           "CHANNEL_FEED_BASE": "https://feed.example", "NIGHTLY_BUILD": "200",
+           "DELTAS_ONLY_WHILE_NEWEST": "1", "GITHUB_STEP_SUMMARY": str(root / "summary")}
+    subprocess.run(["bash", str(step)], cwd=root, env=env, check=True, capture_output=True)
+    calls = (root / "calls").read_text(encoding="utf-8")
+    expect("newest --feed-file" in calls and "merge" not in calls,
+           "a superseded target is skipped before merge when it is absent from the live feed")
 
 upload = UPLOAD.read_text(encoding="utf-8")
 expect('if ! python3 "$r2" upload' in upload, "one failed R2 upload must not drop every delta")

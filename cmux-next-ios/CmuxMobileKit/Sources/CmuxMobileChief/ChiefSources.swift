@@ -38,7 +38,8 @@ public final class ChiefSources {
         case create
         /// The chief's Cloud brain is off: turn it on (``turnOn(_:)``).
         case turnOn(CloudChief)
-        /// The service failed or could not be reached: look again (``refresh()``).
+        /// The service failed or could not be reached: Home looks again on its own (``retryLookup()``
+        /// under an ``AutoRetry``), with no button.
         case retry
     }
 
@@ -306,7 +307,20 @@ public final class ChiefSources {
 
     /// Reads `chief.list` (and the chief's brain state) and points the
     /// Cloud session at the preferred chief's main conversation.
-    public func refresh() {
+    public func refresh() { startLookup(showingLooking: true) }
+
+    /// One automatic look after a failed one (``CloudAction/retry``), for Home's ``AutoRetry``:
+    /// the failure stays as it is while it runs (no flicker to "looking" on each attempt), and
+    /// this returns once the look has answered. A failed look was only looked at again on a
+    /// return to the foreground or a network change before.
+    public func retryLookup() async {
+        guard case .unavailable(_, .retry?) = cloudState else { return }
+        startLookup(showingLooking: false)
+        let running = lookup
+        await running?.value
+    }
+
+    private func startLookup(showingLooking: Bool) {
         guard let http, let userID else {
             // No read follows to replace the new Chief's row.
             creatingChief = nil
@@ -315,7 +329,7 @@ public final class ChiefSources {
         generation += 1
         let current = generation
         lookup?.cancel()
-        if !isCloudReady { cloudState = .looking }
+        if showingLooking, !isCloudReady { cloudState = .looking }
         let selected = selectedChiefID
         lookup = Task { [weak self] in
             let found = await Self.lookUp(http, selected: selected)
@@ -475,6 +489,7 @@ public final class ChiefSources {
                 record = fresh
             }
         }
+        // retry-prompt-ok: a write conflict on the person's own change; they choose whether it still applies
         throw ChiefCloudError.badReply(String(localized: "This Chief changed on another device. Try again."))
     }
 
@@ -603,8 +618,9 @@ public final class ChiefSources {
     }
 
     nonisolated static let notOnThisServer = String(localized: "Cloud Chief is not available on this server.")
-    /// The service failed (a 5xx, an unexpected status, a refused read): no status code, and a Try Again.
-    nonisolated static let unavailableNow = String(localized: "Cloud Chief isn't available right now. Try again in a moment.")
+    /// The service failed (a 5xx, an unexpected status, a refused read): no status code; Home looks
+    /// again on its own and says this only past the quiet bound.
+    nonisolated static let unavailableNow = String(localized: "Cloud Chief isn't available right now.")
 
     /// A well-formed agent id no account owns: the brain route answers it
     /// 403 (forbidden) where Chief brains run, and 404 where they do not.

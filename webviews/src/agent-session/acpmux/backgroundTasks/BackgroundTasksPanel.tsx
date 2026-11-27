@@ -29,6 +29,7 @@
 // with the panel.
 import { Button } from "../../../ui/Button";
 import { LiveCount } from "../summary/LiveCount";
+import { useSplitOpenResize } from "../../../ui/SplitEdge";
 import {
   createContext,
   Fragment,
@@ -146,6 +147,10 @@ export function BackgroundTasksPanel({
   onOpenCommand?(task: BackgroundTask): void;
 }) {
   const t = useT();
+  // Docked in the chat's right column (it can be closed), opening narrows the chat and its composer,
+  // and closing widens them again: a split's resize (schemas/layout-motion/contract.json `resize`), one
+  // move of each box, as the side panel's (ArtifactPanel.tsx). Its own tab narrows nothing.
+  useSplitOpenResize(onClose ? "background tasks" : undefined);
   const live = anyRunning(groups);
   const now = useNow(live);
   // The drill-ins, deepest last: an agent opened from another's transcript stacks on it, and Back
@@ -756,6 +761,7 @@ function StopSlot({
   if (!target && state !== "idle") setState("idle");
   if (!target || !onStop || (target.kind === "agent" && !stopsAgents))
     return <span className="acpmux-bg__stop-slot" aria-hidden="true" />;
+  // retry-prompt-ok: stopping a task is a destructive action the person chooses, so a failed stop is theirs to try again.
   const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", { name });
   return (
     <span className="acpmux-bg__stop-slot">

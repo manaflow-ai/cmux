@@ -1,0 +1,121 @@
+name: iOS link FFI on Linux
+
+# RFD 0051 route 2: Swift calls the Rust FFI through the checked-in uniffi binding on Linux.
+# rust/scripts/build-linux-ffi.sh builds libcmux_mobile_link_ffi.a, checks that bindgen on it
+# reproduces CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift, generates the C header
+# into the kit's Linux system-library module, and runs CmuxMobileLinkFFILinuxTests (strings,
+# records, enums, a Rust error, a Swift callback Rust calls, an async call). The reliability
+# projection's scripted transports prove the controller only; this is the linkage receipt.
+# The Mac kit job keeps its own coverage of the binding through the xcframework.
+
+on:
+  # A feat-cmux-next pull request starts this only through pr-router.yml (scripts/ci/pr_router.json
+  # `affects`: the FFI crate, the binding, the kit manifest, these tests, the script, this file).
+  workflow_call:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-next-ios/rust/**
+      - cmux-tui/crates/**
+      - cmux-next-ios/CmuxMobileKit/Package.swift
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFIFFILinux/**
+      - cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLinkFFILinuxTests/**
+      - .github/workflows/ios-link-ffi-linux.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-link-ffi-linux-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  linkage:
+    name: Swift to Rust FFI on Linux
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 40
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install build tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates curl build-essential pkg-config libssl-dev python3
+          # rust-toolchain.toml pins the version; rustup installs it on first cargo call.
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Build the library and run the Linux linkage tests
+        working-directory: cmux-next-ios/rust
+        run: ./scripts/build-linux-ffi.sh
+
+  # Phone vs Mac skew (scripts/ci/mobile-pair-skew.sh): this head's iPhone link dials the Mac
+  # host the published NEXT nightly was built from, over every transport, and the daemon
+  # channel must answer. Leo, 11-27: "i mean we cant connect to phone anyways right now lol".
+  pair-skew:
+    name: iPhone link vs NIGHTLY Mac host
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 40
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install build tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates curl build-essential pkg-config libssl-dev python3 git
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: The commit the NEXT nightly was built from
+        id: nightly
+        run: |
+          # The feed scripts/ci/protocol_skew_check.py reads (NIGHTLY_FEED there).
+          sha=$(curl -fsSL --retry 3 https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+            | grep -oE '<cmux:sourceCommit[^>]*>[[:space:]]*[0-9a-f]{40}' | grep -oE '[0-9a-f]{40}' | head -1)
+          [[ -n "$sha" ]] || { echo "::error::no sourceCommit in the nightly feed"; exit 1; }
+          echo "NIGHTLY sourceCommit $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the nightly's tree
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ steps.nightly.outputs.sha }}
+          path: .nightly-tree
+          persist-credentials: false
+
+      - name: Dial the nightly's Mac host with this head's link
+        env:
+          SKEW_LOG_DIR: ${{ runner.temp }}/pair-skew-logs
+        run: |
+          git config --global --add safe.directory '*'
+          scripts/ci/mobile-pair-skew.sh .nightly-tree .
+
+      - name: Upload the pair logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pair-skew-logs
+          path: ${{ runner.temp }}/pair-skew-logs
+          if-no-files-found: ignore
