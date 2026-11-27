@@ -28,6 +28,17 @@ for path in Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.swift 
   [[ "$(area "$path")" == true ]] || fail "a change to $path must regenerate the action exports"
 done
 [[ "$(area webviews/src/main.tsx)" == false ]] || fail "a webviews change must not start the Mac export job"
+# Every daemon ABI checker input must request the SDK repair, for base and PR callers.
+sdk() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^sdk=//p'; }
+for path in cmux-tui/spec/sdk-schema.json cmux-tui/spec/api-compat.json \
+  cmux-tui/spec/api-compat-fixtures.json cmux-tui/spec/api-compat.surface.json \
+  cmux-tui/crates/cmux-api-compat/src/bin/api-compat-check.rs \
+  cmux-tui/crates/cmux-api-compat/src/coverage.rs cmux-tui/crates/cmux-api-compat/Cargo.toml \
+  cmux-tui/Cargo.toml cmux-tui/Cargo.lock cmux-tui/rust-toolchain.toml \
+  cmux-tui/bindings/codegen/generate.py; do
+  [[ "$(sdk "$path")" == true ]] || fail "a change to $path must refresh the daemon ABI surface"
+done
+[[ "$(sdk webviews/src/main.tsx)" == false ]] || fail "an unrelated change must not request SDK repair"
 settings() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^settings=//p'; }
 for path in schemas/settings/source/sidebar.json schemas/settings/generator/sidebar.json schemas/settings/retired-keys.json \
   scripts/cmux-next/autofix-areas.sh; do

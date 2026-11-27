@@ -237,4 +237,44 @@ for f in acpmux-protocol.json acpmux-abi.surface.json; do
   [[ "$(cat "$ir/$spec/$f")" == new ]] || fail "$f must be blessed"
   grep -q "^fixed: blessed $spec/$f" "$tmp/out" || fail "a blessed $f must be reported"
 done
+# --sdk also refreshes the daemon surface, independently of whether bindings need a write.
+abi="$tmp/daemon-abi"; surface=cmux-tui/spec/api-compat.surface.json
+mkdir -p "$abi/cmux-tui/crates/cmux-api-compat" "$abi/cmux-tui/spec" "$tmp/abibin"
+echo '[package]' > "$abi/cmux-tui/crates/cmux-api-compat/Cargo.toml"
+echo old > "$abi/$surface"
+cat > "$tmp/abibin/cargo" <<'SH'
+#!/bin/sh
+printf '%s\n' "$PWD $*" >> "$CARGO_ARGS"
+# Even a failed generator that wrote first must preserve the incoming surface.
+echo new > spec/api-compat.surface.json
+if [ -n "$ABI_BREAK" ]; then
+  echo 'api-compat-check: breaking protocol change without a compat rule' >&2
+  exit 1
+fi
+SH
+chmod +x "$tmp/abibin/cargo"
+git -C "$abi" init -q && git -C "$abi" add -A && git -C "$abi" -c user.name=t -c user.email=t@t commit -qm fixture
+abi_run() { CARGO_ARGS="$tmp/abi-args" PATH="$tmp/abibin:$PATH" bash "$FIX" --no-fmt "$@" "$abi" > "$tmp/out" 2>&1; }
+abi_run || fail "repair without --sdk failed"
+[[ ! -e "$tmp/abi-args" ]] || fail "daemon refresh ran without --sdk"
+echo incoming-edit > "$abi/$surface"
+ABI_BREAK=1 abi_run --sdk || fail "an uncovered daemon ABI break must be reported, not abort other repairs"
+[[ "$(cat "$abi/$surface")" == incoming-edit ]] || fail "a failed refresh lost the incoming surface"
+grep -q '^left: daemon ABI surface not refreshed .*api-compat-check: breaking' "$tmp/out" || fail "daemon refusal diagnostic missing"
+abi_run --sdk || fail "daemon refresh failed"
+grep -qx "$abi/cmux-tui run --locked -p cmux-api-compat --bin api-compat-check -- --write" "$tmp/abi-args" || fail "daemon refresh must use the locked checker in cmux-tui"
+[[ "$(cat "$abi/$surface")" == new ]] || fail "daemon surface was not refreshed"
+grep -q "^fixed: refreshed $surface" "$tmp/out" || fail "daemon refresh was not reported"
+abi_run --sdk || fail "current daemon surface failed"
+if grep -q '^fixed: refreshed' "$tmp/out"; then fail "an unchanged surface must not report a repair"; fi
+# Copy the script beside a fixture freeze list, without modifying the repository's policy.
+mkdir -p "$tmp/frozen-fixer"
+cp "$FIX" "$tmp/frozen-fixer/base-autofix.sh"
+printf '%s\n' "$surface" > "$tmp/frozen-fixer/base-autofix-frozen.txt"
+calls="$(wc -l < "$tmp/abi-args")"
+echo frozen-edit > "$abi/$surface"
+CARGO_ARGS="$tmp/abi-args" PATH="$tmp/abibin:$PATH" bash "$tmp/frozen-fixer/base-autofix.sh" --no-fmt --sdk "$abi" > "$tmp/out" 2>&1 || fail "frozen daemon refresh failed"
+[[ "$(cat "$abi/$surface")" == frozen-edit ]] || fail "a frozen surface was changed"
+[[ "$(wc -l < "$tmp/abi-args")" == "$calls" ]] || fail "a frozen surface ran the checker"
+grep -q "^skipped (frozen): $surface" "$tmp/out" || fail "frozen daemon surface was not reported"
 echo "base autofix: ok"
