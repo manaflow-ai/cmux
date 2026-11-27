@@ -12,9 +12,12 @@
 #     --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz (no console needed).
 # Output: SCREEN-STREAM-EVAL lines, the summary table, artifacts/screen-stream-eval/results.json,
 # and probe.json (schema cmux.screen-share-fast/1) for the screen-share-fast goal board.
-# (also each target's raw files and the host and viewer frames under that folder). No gate: it
-# reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
-# 5: no target measured a window).
+# (also each target's raw files and the host and viewer frames under that folder). No budget gate:
+# it reports, and exits non-zero when it could not measure at all (3: no grant; 4: no target ran;
+# 5: no target measured a window) or when a requested target did not bring a number it owes (6:
+# its scene did not start, its OCR calibration did not hold, its encoder skips or budget bits per
+# pixel are missing; eval.py OWED). Then the last line names each such target and field, and
+# results.json is still written.
 set -uo pipefail
 targets="rd,webrtc" samples=200 repeats=3 rig="" lan="" viewer_of="" peer_token="" input_frame_now=0 ltr=0 prebuilt="" tools_only=0 scene_marker=0
 presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
@@ -286,11 +289,30 @@ echo "SCREEN-STREAM-EVAL-MACHINE $run"
 
 pids=()
 cleanup() {
+  local rc=$?
   for pid in ${pids[@]+"${pids[@]}"}; do kill "$pid" 2>/dev/null || true; done
   # A run cut short leaves the current target's host (and iphone-sim's simulator) running: its
   # host-stop ends them. host-stop is a no-op for a host that already stopped.
   if [[ -n "${script:-}" && -f "${script:-}" && -n "${EVAL_STATE:-}" ]]; then
     bash "$script" host-stop >/dev/null 2>&1 || true
+  fi
+  # A stage-table viewer that ends before its ledger (no grants, a failed build, a signal) still ends the host
+  # half, which otherwise holds its Mac until the 45 min silence stop (2026-11-27: viewer exit 3 at the grant
+  # check, host served 45 min). The ledger's own /done comes first; a second one finds the server gone.
+  if [[ -n "${stage_table:-}" && -n "${viewer_of:-}" ]]; then
+    printf '%s' "$peer_token" | python3 -I -c 'import sys, urllib.request
+t = sys.stdin.read().strip()
+urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",
+                                              headers={"X-Eval-Token": t}), timeout=5).close()' \
+      "http://$viewer_of:4181" >/dev/null 2>&1 || true
+  elif [[ -n "${viewer_of:-}" ]]; then
+    # The same for a targets viewer: /bye lets the host's wait for agent.json (30 min) and each call (15 min) end
+    # now. After the agent's own done the host is past both, so this one changes nothing.
+    printf '%s' "$peer_token" | python3 -I -c 'import json, sys, urllib.request
+t = sys.stdin.read().strip()
+urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/bye/0", data=json.dumps({"exit": int(sys.argv[2])}).encode(),
+                                              method="POST", headers={"X-Eval-Token": t}), timeout=5).close()' \
+      "http://$viewer_of:$peer_port" "$rc" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -500,6 +522,10 @@ except OSError as e:
     print(f"no answer: {e!r}")' "$lan" "$peer_port")"
   for _ in $(seq 1 360); do
     [[ -s "$work/peer/agent.json" ]] && break
+    if [[ -s "$work/peer/bye.json" ]]; then
+      finish "two Macs: the viewer Mac's step ended before it connected ($(cat "$work/peer/bye.json"); its own log says why)"
+      exit 4
+    fi
     # A server that could not bind (an address this Mac lacks, a port in use) ends at once: say so.
     if ! kill -0 "$server" 2>/dev/null; then
       finish "two Macs: the peer server on $lan:$peer_port stopped ($(tail -1 "$work/peer.log" 2>/dev/null))"
@@ -587,6 +613,11 @@ PY
     continue
   fi
 
+  # What the target owes every run (its `caps` owes-* lines; eval.py OWED), written before the build
+  # so a target whose build, host or scene fails still owes them and the run ends red, naming them.
+  caps=$(bash "$script" caps 2>/dev/null || true)
+  sed -n 's/^owes-//p' <<<"$caps" >"$dir/owes"
+
   echo "SCREEN-STREAM-EVAL-STAGE $name build"
   if ! bash "$script" build >"$dir/build.log" 2>&1; then
     tail -40 "$dir/build.log"
@@ -601,7 +632,6 @@ PY
   # answers `caps` with nothing or an error and runs both stages. latency-only (iphone-sim: its
   # viewer has no passive window yet) is the other way round: latency, and no window or OCR repeats.
   window_only=0 latency_only=0
-  caps=$(bash "$script" caps 2>/dev/null || true)
   if grep -qx window-only <<<"$caps"; then
     window_only=1
     : >"$dir/window-only"
@@ -804,8 +834,12 @@ PY
 done
 
 [[ -n "$lan" ]] && python3 -I "$here/peer.py" done "$work/peer"
+# owed: each requested target's owed numbers (eval.py OWED) that did not come back, one line each
+# and a last line naming every target and field; results.json stays written either way.
+owed() { python3 -I "$here/eval.py" owed "$out/results.json"; }
 if [[ $ran == 0 ]]; then
   finish "no target built"
+  owed
   exit 4
 fi
 finish
@@ -813,5 +847,10 @@ finish
 # diff against. Apple transport kbps, decoded FPS and first-frame latency can be
 # unavailable; its OCR or sampled-change evidence still counts when the target
 # itself completed successfully. A latency-only target (iphone-sim) counts by its latency.
-python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None or any(((x.get("latency") or {}).get(k) or {}).get("p50_ms") is not None for k in ("key", "pointer"))); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json" || exit 5
+python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None or any(((x.get("latency") or {}).get(k) or {}).get("p50_ms") is not None for k in ("key", "pointer"))); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json"
+measured=$?
+owed
+owed_rc=$?
+[[ $measured == 0 ]] || exit 5
+[[ $owed_rc == 0 ]] || exit 6
 exit 0
