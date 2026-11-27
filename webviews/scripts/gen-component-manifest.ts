@@ -66,7 +66,16 @@ const clean = (s: string) =>
     .replace(/import\("[^"]*"\)\./g, "")
     .replace(/\s+/g, " ")
     .trim();
-const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
+// The manifest ships in the cmux binary to every user, so it drops the fleet's own spec paths
+// (leo-workspace design/*.md) that source comments cite; land-judge refuses fleet text on user paths.
+const SPEC = String.raw`leo-workspace design/[\w./-]+?\.md`;
+const dropFleetRefs = (s: string) =>
+  s
+    .replace(new RegExp(String.raw`\s*\(${SPEC}\)`, "g"), "")
+    .replace(new RegExp(String.raw`[;,]\s*${SPEC}(?=\))`, "g"), "")
+    .replace(new RegExp(String.raw`\(${SPEC}[;,]\s*`, "g"), "(")
+    .replace(new RegExp(String.raw`[;,]?\s*${SPEC}`, "g"), "");
+const oneLine = (s: string) => dropFleetRefs(s.replace(/\s+/g, " ")).trim();
 const firstSentence = (s: string) => {
   const t = oneLine(s);
   const m = t.match(/^(.+?[.!?])(\s|$)/);
