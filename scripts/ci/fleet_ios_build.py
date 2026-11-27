@@ -203,10 +203,17 @@ def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen,
     with tempfile.TemporaryDirectory() as scratch:
         archive = Path(scratch) / "out.tgz"
         try:
-            with opener(urllib.request.Request(ans["get_url"]), timeout=600) as resp, open(archive, "wb") as f:
+            # The store's presigned GET sits behind the same CDN as the route: urllib's default agent got HTTP 403
+            # there for every passed build (run 45932893553, both kit fleet jobs), so it names the client too. No
+            # bearer: the URL is its own credential.
+            get = urllib.request.Request(ans["get_url"], headers={"User-Agent": USER_AGENT})
+            with opener(get, timeout=600) as resp, open(archive, "wb") as f:
                 while chunk := resp.read(1 << 20):
                     f.write(chunk)
             complete = extract(archive, out, what)
+        except urllib.error.HTTPError as exc:
+            log(f"job {job}: output unreadable: HTTP {exc.code} {store_reason(exc)}".rstrip())
+            return 2
         except (urllib.error.URLError, OSError, ValueError, tarfile.TarError) as exc:
             log(f"job {job}: output unreadable: {exc}")
             return 2
@@ -215,6 +222,16 @@ def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen,
         return 2
     log(f"job {job}: pass in {int(clock() - start)} s")
     return 0
+
+
+def store_reason(exc):
+    """The first line of a refused download's body, short: "error code: 1010" (the CDN) or the store's S3 <Code>."""
+    try:
+        text = exc.read(2048).decode("utf-8", "replace")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    code = re.search(r"<Code>([^<]{1,80})</Code>", text)
+    return code.group(1) if code else " ".join(text.split())[:120]
 
 
 def main(argv=None):

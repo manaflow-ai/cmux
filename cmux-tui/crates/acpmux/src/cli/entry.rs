@@ -692,8 +692,17 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         // A CI log through the shared cache (`ci_log_cache.rs`): no daemon.
         Some(cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. })) => {
             let code = match cmd {
-                Command::RunVm { command } => {
-                    match crate::placement::run_vm::main(&command.join(" ")).await {
+                Command::RunVm { shim, command } => {
+                    let ran = match shim {
+                        Some(program) => {
+                            crate::placement::exec_router::shim_main(&program, &command).await
+                        }
+                        None if command.is_empty() => {
+                            Err(anyhow::anyhow!("run-vm: no command after --"))
+                        }
+                        None => crate::placement::run_vm::main(&command.join(" ")).await,
+                    };
+                    match ran {
                         Ok(code) => code,
                         Err(e) => errors::exit_with(&e, cli.json),
                     }
@@ -703,6 +712,12 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             };
             // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
             std::process::exit(code)
+        }
+        Some(Command::Exec(crate::cli::command::ExecCmd::Trace { last })) => {
+            match crate::placement::exec_router::trace_main(last, cli.json) {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
         }
         // No daemon: what this binary serves (`capabilities.rs`).
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {

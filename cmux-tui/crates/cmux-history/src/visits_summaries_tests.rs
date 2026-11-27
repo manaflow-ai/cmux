@@ -1,6 +1,6 @@
 //! `VisitStore::summaries` (the omnibox seed) sums every URL in one newest-first scan. The
 //! `GROUP BY` with a title subquery per URL it replaced is the oracle: on random logs (repeat
-//! URLs, null and empty titles, titles that change) both answer the same rows in the same order
+//! URLs, null and empty titles, titles that change, agent visits) both answer the same rows in the same order
 //! at every limit.
 
 use std::time::Instant;
@@ -9,14 +9,16 @@ use proptest::prelude::*;
 
 use super::*;
 
-/// The query `summaries` ran before: one group per URL, its newest non-null title by subquery.
+/// The query `summaries` ran before: one group per URL the person visited, its newest non-null
+/// title by subquery.
 fn summaries_oracle(store: &VisitStore, limit: usize) -> Vec<VisitSummary> {
     let mut statement = store
         .connection
         .prepare(
             "SELECT url, (SELECT title FROM visits v2 WHERE v2.url = v.url AND v2.title IS NOT NULL \
-             ORDER BY visit_time_ms DESC LIMIT 1), COUNT(*), MAX(visit_time_ms) \
-             FROM visits v GROUP BY url ORDER BY MAX(visit_time_ms) DESC LIMIT ?1",
+             AND v2.actor = 'person' ORDER BY visit_time_ms DESC LIMIT 1), COUNT(*), \
+             MAX(visit_time_ms) FROM visits v WHERE v.actor = 'person' GROUP BY url \
+             ORDER BY MAX(visit_time_ms) DESC LIMIT ?1",
         )
         .unwrap();
     statement
@@ -36,21 +38,24 @@ fn summaries_oracle(store: &VisitStore, limit: usize) -> Vec<VisitSummary> {
 /// Inserts `visits` (url, title) in one transaction, one second apart in a shuffled order, so
 /// every visit time is distinct (the oracle's order among equal times is SQLite's choice) and
 /// ids do not follow time.
-fn fill(store: &VisitStore, visits: &[(String, Option<String>)], order: &[usize]) {
+fn fill(store: &VisitStore, visits: &[(String, Option<String>, bool)], order: &[usize]) {
     let transaction = store.connection.unchecked_transaction().unwrap();
     {
         let mut insert = transaction
-            .prepare("INSERT INTO visits(url, title, visit_time_ms) VALUES (?1, ?2, ?3)")
+            .prepare("INSERT INTO visits(url, title, visit_time_ms, actor) VALUES (?1, ?2, ?3, ?4)")
             .unwrap();
         for (slot, &at) in order.iter().enumerate() {
-            let (url, title) = &visits[slot];
-            insert.execute(params![url, title, 1_700_000_000_000_i64 + at as i64 * 1_000]).unwrap();
+            let (url, title, agent) = &visits[slot];
+            let actor = if *agent { "agent" } else { "person" };
+            insert
+                .execute(params![url, title, 1_700_000_000_000_i64 + at as i64 * 1_000, actor])
+                .unwrap();
         }
     }
     transaction.commit().unwrap();
 }
 
-fn visit() -> impl Strategy<Value = (String, Option<String>)> {
+fn visit() -> impl Strategy<Value = (String, Option<String>, bool)> {
     (
         0..12_u8,
         prop_oneof![
@@ -58,8 +63,10 @@ fn visit() -> impl Strategy<Value = (String, Option<String>)> {
             Just(Some(String::new())),
             (0..4_u8).prop_map(|n| Some(format!("Title {n}")))
         ],
+        // About one visit in four is an agent's, which summaries leave out.
+        prop::bool::weighted(0.25),
     )
-        .prop_map(|(page, title)| (format!("https://example.com/{page}"), title))
+        .prop_map(|(page, title, agent)| (format!("https://example.com/{page}"), title, agent))
 }
 
 proptest! {
@@ -97,12 +104,13 @@ fn summaries_bench() {
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("bench.sqlite");
         let store = VisitStore::open(&path).unwrap();
-        let visits: Vec<(String, Option<String>)> = (0..count)
+        let visits: Vec<(String, Option<String>, bool)> = (0..count)
             .map(|index| {
                 let page = (index * 7_919) % (count / 10);
                 let host = hosts[page % hosts.len()];
                 let title = (index % 7 != 0).then(|| format!("Page {page} on {host}"));
-                (format!("https://{host}/path/{page}/item"), title)
+                // One visit in ten is an agent's.
+                (format!("https://{host}/path/{page}/item"), title, index % 10 == 0)
             })
             .collect();
         let order: Vec<usize> = (0..count).collect();
