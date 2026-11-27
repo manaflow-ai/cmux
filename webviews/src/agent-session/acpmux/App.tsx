@@ -698,7 +698,7 @@ import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHin
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { evacuateActions } from "./place/usePlace";
-import { PlaceChip } from "./place/PlaceMounts";
+import { ComputerStatusLine, PlaceChip } from "./place/PlaceMounts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import {
   copyShowsRunningTurn,
@@ -10542,6 +10542,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       <>
         <PlaceChip session={placeSession} say={notices.transient} claims={claims} />
         <HybridChip session={placeSession} say={notices.transient} claims={claims} />
+        <ComputerStatusLine session={placeSession} say={notices.transient} claims={claims} />
       </>
     );
   }, [placeSession, notices.transient]);
