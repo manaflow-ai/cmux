@@ -521,9 +521,9 @@ extension VNCPeerLink {
                         if let codec = values["codecId"] as? String { stats.codec = codecs[codec] }
                         stats.decoder = values["decoderImplementation"] as? String
                     }
-                    if entry.type == "candidate-pair", (values["nominated"] as? NSNumber)?.boolValue == true,
-                       let rtt = values["currentRoundTripTime"] as? NSNumber {
-                        stats.rttMs = rtt.doubleValue * 1000
+                    if entry.type == "candidate-pair", (values["nominated"] as? NSNumber)?.boolValue == true {
+                        if let rtt = values["currentRoundTripTime"] as? NSNumber { stats.rttMs = rtt.doubleValue * 1000 }
+                        stats.transportBytesReceived = max(stats.transportBytesReceived, (values["bytesReceived"] as? NSNumber)?.doubleValue ?? 0)
                     }
                 }
                 continuation.resume(returning: stats)

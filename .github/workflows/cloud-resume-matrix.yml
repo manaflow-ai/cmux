@@ -32,7 +32,8 @@ permissions:
 
 concurrency:
   # The head is in the group: a new push runs beside a long run of an older head instead of waiting hours behind it.
-  group: cloud-resume-matrix-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  # An edit that leaves the body as it was skips, in a group of its own, so it never replaces a pending real run.
+  group: cloud-resume-matrix-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}${{ github.event.action == 'edited' && github.event.changes.body == null && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 env:
@@ -92,8 +93,13 @@ jobs:
           bash scripts/ci/init-submodule.sh ghostty-next
       - name: Install Linux cmux-tui build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
       - name: Set up cmux-tui Rust
         timeout-minutes: 10
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -148,7 +154,6 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      max-parallel: 12
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:

@@ -201,6 +201,10 @@ pub struct Answer {
     /// The surfaces not answered (`workspaces`, `chatList`, `chats:<id>`): their cursors stay.
     pub cut: Vec<String>,
     pub cut_why: BTreeMap<String, String>,
+    /// The relay position each surface's answered state reached (`relay`: `{surface: {epoch,
+    /// seq}}`): where a relay catch-up ([`super::relay`]) resumes. Empty from a Mac that does not
+    /// publish to the relay.
+    pub relay_heads: BTreeMap<String, (u64, u64)>,
 }
 
 impl Answer {
@@ -256,7 +260,20 @@ pub fn read(bytes: &[u8]) -> Result<Answer, ReadError> {
             .collect(),
         _ => BTreeMap::new(),
     };
-    let mut answer = Answer { cut, cut_why, ..Answer::default() };
+    let relay_heads = match reply.remove("relay") {
+        Some(Value::Object(heads)) => heads
+            .into_iter()
+            .filter_map(|(surface, head)| {
+                let part = |key: &str| {
+                    let value = head.get(key)?;
+                    value.as_u64().or_else(|| value.as_str()?.parse().ok())
+                };
+                Some((surface, (part("epoch")?, part("seq")?)))
+            })
+            .collect(),
+        _ => BTreeMap::new(),
+    };
+    let mut answer = Answer { cut, cut_why, relay_heads, ..Answer::default() };
     if !answer.is_cut("workspaces")
         && let Some(data) = reply.remove("workspaces").filter(Value::is_object)
     {
