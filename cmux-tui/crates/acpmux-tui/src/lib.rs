@@ -36,6 +36,7 @@ mod scheduler;
 mod start_wait;
 mod state;
 mod terminal;
+mod usage_reset;
 pub use run::run;
 
 /// Make this process's acpmux CLI open sessions in this terminal UI (`acpmux::tui_entry::run`).
@@ -56,9 +57,12 @@ pub mod editor;
 mod keys;
 pub mod links;
 pub mod menu;
+mod modes;
 mod mouse;
 pub mod notify;
+mod paste_link;
 mod picker;
+mod picks_hold;
 pub mod render;
 pub use menu::{Menu, MenuAction};
 #[cfg(all(test, unix))]
@@ -1168,12 +1172,15 @@ pub(crate) mod interaction_tests {
         app.sessions = vec![json!({"sessionId":"test-session","harness":"fake","cwd":root})];
         app.selected = 0;
         let mut transcript = Transcript::default();
-        transcript.available_commands = vec!["compact".into()];
+        transcript.available_commands = vec!["compact".into(), "review".into()];
+        transcript.command_descriptions.insert("compact".into(), "Summarize the chat".into());
         app.transcripts.insert("test-session".into(), transcript);
         app.open_palette();
-        assert!(
-            matches!(app.overlay,Overlay::Picker(ref p) if p.rows.iter().any(|r|r.value=="agent:/compact"))
-        );
+        // Each / row says what its command does when the harness says (#50541).
+        let Overlay::Picker(ref p) = app.overlay else { panic!("palette") };
+        let note = |v: &str| p.rows.iter().find(|r| r.value == v).map(|r| r.note.clone());
+        assert_eq!(note("agent:/compact").as_deref(), Some("Summarize the chat"));
+        assert_eq!(note("agent:/review").as_deref(), Some("provided by the selected harness"));
         app.overlay = Overlay::None;
         app.apply_pick(PickTarget::Action, "agent:/compact".into(), String::new());
         let msg = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())

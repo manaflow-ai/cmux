@@ -133,6 +133,7 @@ pub(super) fn table(records: &[Value], phases: bool) -> String {
         "prior_chat_painted_ms",
         "prior_chat_live_ms",
         "prewarmed",
+        "prewarm_reason",
         "first_launch_of_build",
     ];
     let cell = |record: &Value, key: &str| -> String {
