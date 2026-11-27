@@ -6319,6 +6319,13 @@ export class AcpmuxDirectClient {
       this.daemonLivenessTimer = undefined;
     }
     if (wasWaiting && this.daemonWaitingSince === undefined) this.emit("daemon resumed");
+    // The request check's timer is due from the oldest sent request: timed again from the ones
+    // left, so a page whose requests all came back wakes for none (idle wakeups after a switch).
+    if (!this.requestCheck && this.requestCheckTimer !== undefined) {
+      clearTimeout(this.requestCheckTimer);
+      this.requestCheckTimer = undefined;
+      this.armRequestCheck(id);
+    }
   }
 
   /// While a request waits, checks on the socket's daemon (`DAEMON_PROBE_AFTER_MS`,
@@ -6454,15 +6461,16 @@ export class AcpmuxDirectClient {
 
   /// One timer at a time: due `REQUEST_CHECK_MS` after the oldest sent request (or the last
   /// answer), or, with a question out, `DAEMON_PROBE_ANSWER_MS` after the daemon's last sign.
-  private armRequestCheck(): void {
+  /// `settling`: a request whose reply just came, not yet out of `pending`.
+  private armRequestCheck(settling?: number | string): void {
     if (this.requestCheckTimer !== undefined || this.requestCheckOff || this.closed || this.daemonUnprobed()) return;
     let due: number;
     if (this.requestCheck) {
       due = Math.max(this.requestCheck.at, this.daemonFrameAt) + AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS;
     } else {
       let oldest = Number.POSITIVE_INFINITY;
-      for (const entry of this.pending.values()) {
-        if (this.checkable(entry) && entry.sentAt! < oldest) oldest = entry.sentAt!;
+      for (const [id, entry] of this.pending) {
+        if (id !== settling && this.checkable(entry) && entry.sentAt! < oldest) oldest = entry.sentAt!;
       }
       if (oldest === Number.POSITIVE_INFINITY) return;
       due = Math.max(oldest, this.requestCheckedAt) + AcpmuxDirectClient.REQUEST_CHECK_MS;
