@@ -306,7 +306,8 @@ jobs:
       # nightly"). feat-cmux-next, nightly-next, main and dispatches never take this job. A feat-cmux-next-*
       # head does (Leo asked us to look at the iOS verification loop and make it faster, 2026-11-27: 9 of 15
       # iOS pull requests on such heads changed no tree-key input, yet each waited on the cmux-tui darwin build,
-      # 37 min on #61389), with the unchanged-key rule only, never BASE-MOVED. Any failure
+      # 37 min on #61389), with the unchanged-key rule only, never BASE-MOVED, while an open pull request
+      # targets it; a feat-cmux-next-* feature branch (no open pull request's base) is built on request. Any failure
       # answers "changed" (scripts/ci/cmux_tui_branch_inputs.py). Undo: vars.CMUX_TUI_BRANCH_INPUT_GATE = '0'.
       # BASE-MOVED: a head that changes a tree-key input builds nothing either once feat-cmux-next moved its own
       # tree key since the merge base: the pull request's route then reads its merge's tree, never this head's
@@ -318,6 +319,8 @@ jobs:
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
           CMUX_TUI_BRANCH_BASE_MOVED_GATE: ${{ vars.CMUX_TUI_BRANCH_BASE_MOVED_GATE }}
+          # false: a feat-cmux-next-* head no open pull request targets (integration_base) takes BASE-MOVED too.
+          CMUX_TUI_INTEGRATION: ${{ steps.stale.outputs.integration }}
         run: python3 scripts/ci/cmux_tui_branch_inputs.py --ref "$REF" --sha "$SHA"
 
   # Latest wins on feat-cmux-next, for the runs tree-preflight's group cannot replace: those an

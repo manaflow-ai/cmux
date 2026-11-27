@@ -49,6 +49,10 @@ base-coalesce.yml): every later push of its window is coalesced and builds
 nothing, so no newer run builds the tip. On 2026-11-23 05:48-07:50Z windows
 whose first push was superseded within minutes built no tree, and the nightly
 cut commits 40-87 minutes old.
+A feat-cmux-next-* branch is a base other heads build on only while an open pull request targets it
+(integration_base, one REST call; a failure keeps it as one). Otherwise it is a pull request branch like
+any other and takes the rule above: on 2026-11-27 none of 1,891 such branches was an open pull request's
+base, yet each push that changed a tree-key input built all three targets (34 min on one musl leg).
 nightly-next and release-next pushes keep their own rule below.
 Otherwise main, feat-cmux-next and next-batch/* runs gate latest/ and nightly-next
 promotion and are never superseded here, nor is a dispatch, a pull request run,
@@ -288,12 +292,33 @@ def deferred_to(key: str, run_id: str) -> str:
     return ""
 
 
+def integration_base(ref: str) -> bool:
+    """Whether some open pull request targets this feat-cmux-next-* branch as its base.
+
+    TRUNK_PREFIXES kept every feat-cmux-next-* push as "a base other heads build on": each push that changed a
+    tree-key input built all three targets. On 2026-11-27 the repository had 1,891 such branches and 0 of its
+    400 open pull requests had one as a base; they are feature branches (feat-cmux-next-<issue>-<slug>) whose
+    pull requests target feat-cmux-next. A branch no open pull request builds on now takes the on-request rule
+    and BASE-MOVED, like any pull request branch. One REST call; any failure answers yes (keep the old rule)."""
+    branch = ref.removeprefix("refs/heads/")
+    try:
+        status, data = api(f"pulls?state=open&base={urllib.parse.quote(branch, safe='')}&per_page=1")
+    except ApiError as error:
+        print(f"could not tell whether {branch} is a pull request base ({error}); keeping it as integration")
+        return True
+    if status != 200 or not isinstance(data, list):
+        print(f"could not tell whether {branch} is a pull request base (HTTP {status}); keeping it as integration")
+        return True
+    return bool(data)
+
+
 TRUNK_TIP_REF = "refs/heads/feat-cmux-next"
 
 
 def verdict(event: str, ref: str, sha: str, key: str, run_id: str,
             trunk_tip_only: bool = False, attempt: int = 1,
-            coalesce_base: str = "") -> tuple[bool, str]:
+            coalesce_base: str = "", info: dict | None = None) -> tuple[bool, str]:
+    """INFO, when given, gets "integration" (bool) for a feat-cmux-next-* head that asked integration_base."""
     if event != "push":
         return False, f"a {event} run is never superseded here"
     if trunk_tip_only and ref == TRUNK_TIP_REF:
@@ -310,7 +335,18 @@ def verdict(event: str, ref: str, sha: str, key: str, run_id: str,
         return stale, reason
     if ref in PROTECTED or ref.startswith("refs/heads/next-batch/"):
         return False, f"{ref} gates promotion; its runs are kept"
-    if needs_open_pull_request(ref):
+    if ref.startswith(TRUNK_PREFIXES) and ref not in TRUNK_REFS:
+        # A moved branch is superseded with no API call; a current (or deleted) head asks whether it is a base.
+        stale, reason = lane_verdict(ref, sha)
+        if not stale:
+            integration = integration_base(ref)
+            if info is not None:
+                info["integration"] = integration
+            if not integration:
+                unreviewed = unreviewed_verdict(ref, sha)
+                if unreviewed is not None:
+                    stale, reason = unreviewed
+    elif needs_open_pull_request(ref):
         # A moved branch is superseded whatever its pull requests say, so its
         # head (a free git read) goes first and the API lookups only follow
         # for a current head or a deleted branch.
@@ -344,9 +380,10 @@ def main(argv: list[str] | None = None) -> int:
     if not re.fullmatch(r"[0-9a-f]{40}", args.sha) or (args.key and not re.fullmatch(r"[0-9a-f]{40}", args.key)):
         print("error: --sha and --key must be 40-hex", file=sys.stderr)
         return 2
+    info: dict = {}
     try:
         stale, reason = verdict(args.event, args.ref, args.sha, args.key, args.run_id,
-                                args.trunk_tip_only, args.attempt, args.coalesce_base)
+                                args.trunk_tip_only, args.attempt, args.coalesce_base, info)
     except (ApiError, KeyError) as error:
         stale, reason = False, f"could not tell ({error}); keeping the run"
         print(f"::warning title=superseded check::{reason}")
@@ -358,6 +395,9 @@ def main(argv: list[str] | None = None) -> int:
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"stale={'true' if stale else 'false'}\n")
+            if "integration" in info:
+                # cmux_tui_branch_inputs.py reads it (CMUX_TUI_INTEGRATION): a feature head takes BASE-MOVED too.
+                handle.write(f"integration={'true' if info['integration'] else 'false'}\n")
     return 0
 
 
