@@ -192,9 +192,13 @@ async fn an_action_admitted_before_a_stop_never_runs() {
     peer.set_github_broker(true);
     let link = peer.link_epoch();
     peer.github_link.store(link + 1, Ordering::SeqCst);
-    let slot =
-        crate::github_broker::admit_owner(&peer.name, peer.github_ready(link), &peer.github_slots)
-            .unwrap();
+    let slot = crate::github_broker::admit_owner(
+        &peer.name,
+        peer.github_ready(link),
+        &peer.github_slots,
+        &json!({"action": "read", "repo": "o/r"}),
+    )
+    .unwrap();
     peer.stop();
     let mut out = peer.out_rx.lock().await.take().unwrap();
     peer.serve_github_action(json!(1), json!({"action": "read", "repo": "o/r"}), slot, link);
@@ -210,12 +214,34 @@ async fn a_reconnect_shares_its_github_slots_with_the_actions_still_running() {
     let (tx, _rx) = mpsc::channel(8);
     let old = Peer::new("slots-across-reconnects", "ws://127.0.0.1:9", None, None, tx.clone());
     let running: Vec<_> = (0..crate::github_broker::OWNER_SLOTS)
-        .map(|_| crate::github_broker::admit_owner(&old.name, true, &old.github_slots).unwrap())
+        .map(|_| {
+            crate::github_broker::admit_owner(
+                &old.name,
+                true,
+                &old.github_slots,
+                &json!({"action": "token"}),
+            )
+            .unwrap()
+        })
         .collect();
     old.stop();
     let new = Peer::new("slots-across-reconnects", "ws://127.0.0.1:9", None, None, tx);
-    let e = crate::github_broker::admit_owner(&new.name, true, &new.github_slots).unwrap_err();
+    let e = crate::github_broker::admit_owner(
+        &new.name,
+        true,
+        &new.github_slots,
+        &json!({"action": "token"}),
+    )
+    .unwrap_err();
     assert_eq!(e.data.unwrap()["reason"], "github.busy");
     drop(running);
-    assert!(crate::github_broker::admit_owner(&new.name, true, &new.github_slots).is_ok());
+    assert!(
+        crate::github_broker::admit_owner(
+            &new.name,
+            true,
+            &new.github_slots,
+            &json!({"action": "token"})
+        )
+        .is_ok()
+    );
 }

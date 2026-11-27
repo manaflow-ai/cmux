@@ -15,7 +15,15 @@ fn only_what_never_ran_or_is_safe_twice_moves_to_the_next_owner() {
         assert_eq!(failover(&r, &Ok(json!({}))), Next::Done);
         assert_eq!(failover(&r, &err("github.command_failed")), Next::Done);
         assert_eq!(failover(&r, &Err(RpcError::new(-32040, "no"))), Next::Done);
-        for not_run in ["client.not_sent", "client.busy", "github.busy"] {
+        // A caller over its own hourly reads is over on every Mac: no other owner is asked.
+        assert_eq!(failover(&r, &err("github.budget.caller")), Next::Done);
+        for not_run in [
+            "client.not_sent",
+            "client.busy",
+            "github.busy",
+            "github.budget.pool",
+            "github.budget.pace",
+        ] {
             assert_eq!(failover(&r, &err(not_run)), Next::Try, "{action:?} {not_run}");
         }
     }
