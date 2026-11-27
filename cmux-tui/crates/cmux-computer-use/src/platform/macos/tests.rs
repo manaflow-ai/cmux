@@ -1424,6 +1424,36 @@ fn menu_items_fail_closed_while_the_app_name_index_builds() {
 }
 
 #[test]
+fn a_never_switched_layout_is_read_from_the_selected_or_only_enabled_source() {
+    use roles::{InputSourceEntry as E, Layout as L, layout_id_from_sources as from};
+    let layout =
+        |name: &str| E { kind: Some("Keyboard Layout".into()), layout_name: Some(name.into()) };
+    let kind = |k: &str| E { kind: Some(k.into()), layout_name: None };
+    let palette = kind("Non Keyboard Input Method");
+    // A Mac never switched records no current layout ID, only its sources:
+    // cmd+s was refused there for every app (2026-11-26 CU suite, TextEdit).
+    let us = from(&[layout("U.S.")], &[layout("U.S."), palette.clone()]);
+    assert_eq!(us.as_deref(), Some("com.apple.keylayout.US"));
+    assert_eq!(roles::layout_of(us.as_deref(), true), L::Ansi);
+    let abc = from(&[], &[layout("ABC"), palette.clone()]);
+    assert_eq!(roles::layout_of(abc.as_deref(), true), L::Ansi);
+    let british = from(&[layout("British")], &[]);
+    assert_eq!(roles::layout_of(british.as_deref(), true), L::LettersDigits);
+    // The selected layout wins over other enabled ones.
+    let selected = from(&[layout("German")], &[layout("U.S."), layout("German")]);
+    assert_eq!(roles::layout_of(selected.as_deref(), true), L::Other);
+    // Still fail closed: two enabled and none selected, an input method,
+    // an unknown name, or nothing.
+    assert_eq!(from(&[], &[layout("U.S."), layout("German")]), None);
+    assert_eq!(from(&[layout("U.S."), kind("Input Mode")], &[]), None);
+    assert_eq!(from(&[], &[layout("ABC"), kind("Keyboard Input Method")]), None);
+    let pc = from(&[layout("British – PC")], &[]);
+    assert_eq!(roles::layout_of(pc.as_deref(), true), L::Other);
+    assert_eq!(from(&[], &[]), None);
+    assert_eq!(from(&[], &[palette]), None);
+}
+
+#[test]
 fn the_services_check_knows_which_keys_each_layout_places() {
     use roles::Layout as L;
     for id in
@@ -2926,6 +2956,52 @@ fn the_web_value_route_writes_only_into_plain_visible_text_fields() {
     }
     let proxy = roles::WebField { width: 12.0, height: 6.0, ..plain.clone() };
     assert!(roles::web_value_gate(Some(&proxy), setting).is_err(), "a padded 1x1 helper");
+}
+
+/// A web slider (`<input type="range">`) takes set_value, which writes its
+/// number straight to it with no page-focus wait: its increment action
+/// moves it by 5% (WebKit), so 42 of 0-100 was out of reach in the
+/// background (cu suite form-slider, 0 of 3 on 2026-11-26: "the slider can
+/// only be set to multiples of 5 in the background"). Typing into one stays
+/// refused, and every other rule of the gate still holds.
+#[test]
+#[allow(clippy::redundant_clone)]
+fn a_web_slider_takes_set_value_without_waiting_for_page_focus() {
+    assert_eq!(roles::web_kind("AXSlider", 0), roles::WebKind::Range);
+    assert_eq!(roles::web_kind("AXSlider", 1), roles::WebKind::Range, "WebKit's thumb child");
+    let slider = roles::WebField {
+        kind: roles::WebKind::Range,
+        secure: false,
+        width: 129.0,
+        height: 21.0,
+        on_screen: true,
+        hidden: false,
+        limited: false,
+        center: Point { x: 0.0, y: 0.0 },
+    };
+    let setting = roles::SecureField::Allow;
+    assert!(roles::web_value_gate(Some(&slider), setting).is_ok());
+    assert!(
+        roles::web_value_gate(Some(&slider), roles::SecureField::Refuse).is_err(),
+        "nothing types into a slider"
+    );
+    assert!(
+        roles::web_value_gate(Some(&roles::WebField { hidden: true, ..slider.clone() }), setting)
+            .is_err(),
+        "hidden"
+    );
+    assert!(
+        roles::web_value_gate(
+            Some(&roles::WebField { on_screen: false, ..slider.clone() }),
+            setting
+        )
+        .is_err(),
+        "off screen"
+    );
+    assert!(!roles::web_write_needs_page_focus(Some(roles::WebKind::Range)));
+    for kind in [None, Some(roles::WebKind::Plain), Some(roles::WebKind::Other)] {
+        assert!(roles::web_write_needs_page_focus(kind), "text inputs keep the focus rule");
+    }
 }
 
 /// Live in Safari (macOS 27.0.1): an <input> has no children; a native

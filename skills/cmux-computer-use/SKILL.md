@@ -162,6 +162,15 @@ resets or submits, and an alert with an empty `put_off` is for the person:
 report its `class`, owner and text and leave it. `alerts_off` means the
 setting is off; do not look for another way to reach the alert.
 
+Some apps hide their windows from screen capture on purpose: a chat app's
+screen security, a password field, protected video, a window the person
+excluded from assistants. Its `screenshot` comes back black, blank or with
+the window missing while the app itself works. That is the app's choice, not
+a bug: do not retry, do not act on those pixels, and do not read it another
+way (its UI tree, its files, its notifications) unless the person asked for
+that app by name. Tell the person the app hides its window from capture and
+let them do that step or say how to go on.
+
 A transport hiccup is not a refusal: the bridge retries a call itself while
 Computer Use restarts, and a retried call never runs twice.
 
