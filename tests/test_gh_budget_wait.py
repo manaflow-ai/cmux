@@ -9,6 +9,7 @@ gh calls of every job on the publish path, with room in timeout-minutes for the 
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -131,6 +132,17 @@ class WrapperTests(unittest.TestCase):
         self.assertNotIn("rate limit exceeded", result.stderr)
         self.assertEqual(h.calls(), ["call release upload v1 a.dmg", "rate_limit", "call release upload v1 a.dmg"])
         self.assertEqual(h.waited(), 1)
+
+    def test_a_wait_prints_one_structured_marker_on_stderr_only(self) -> None:
+        # ci-trace classifies waits by `CMUX-WAIT {json}` anywhere in a log line.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1")
+        result = h.gh("release", "upload", "v1", "a.dmg")
+        markers = [json.loads(m.group(1)) for m in re.finditer(r"CMUX-WAIT (\{.*\})", result.stderr)]
+        self.assertEqual(markers, [{"on": "github-api-budget", "class": "quota", "bound_s": 1, "waited_s": 1}])
+        self.assertNotIn("CMUX-WAIT", result.stdout)
+        # A caller merging stderr into stdout compares it exactly, so it gets no marker.
+        out = subprocess.run(["bash", "-c", f'"{h.shim}" api x 2>&1'], env=h.env, capture_output=True, text=True)
+        self.assertEqual(out.stdout, "ok api x\n")
 
     def test_a_secondary_limit_in_the_json_body_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
@@ -580,7 +592,11 @@ class WorkflowTests(unittest.TestCase):
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
                 # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
-                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
+                # ensure-gh.sh puts the gh this wrapper wraps on PATH, so it must come first; its one
+                # pinned release download sends the job token (GH_PIN_TOKEN, #58418: Macs 403 anonymous).
+                ensure_gh = steps[i].get("run") == "bash scripts/ci/nightly-steps/ensure-gh.sh"
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token or ensure_gh,
+                                (name, steps[i].get("name")))
 
     def test_no_new_publish_path_step_reads_github_on_the_shared_token_alone(self) -> None:
         new = [pair for pair in shared_token_only_steps(self.jobs) if pair not in SHARED_TOKEN_ONLY]
@@ -594,6 +610,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(scripts)
         for step in scripts:
             script = step["with"]["script"]
+            self.assertIn("require('./scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
+            script = (ROOT / "scripts/ci/nightly-steps/report-nightly-failure.cjs").read_text()
             self.assertIn("github.hook.wrap('request'", script, step.get("name"))
             self.assertIn("x-ratelimit-reset", script, step.get("name"))
             self.assertIn("deadline", script, step.get("name"))

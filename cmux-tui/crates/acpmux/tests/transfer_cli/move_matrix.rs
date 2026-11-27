@@ -522,9 +522,40 @@ async fn codex_store_moves(way: Way) {
             cells.check("moved", receipt["moves"][0]["moved"] == true, &receipt);
         }
         Way::Gui => {
+            // As the app moves it (a `peer`-controlled receive), the target would start the
+            // agent as a remote launch, which takes a Codex chat only through the
+            // `codex app-server` bridge (`web_modes::remote_start`). The fake agent speaks ACP,
+            // so the guarded receive refuses it (`remote.mode_not_asking`) before anything
+            // freezes: the row checks that refusal is clean, the chat staying whole and live on
+            // the source and nothing of it landing on the target.
             std::fs::create_dir_all(&destination).unwrap();
             let moved = gui_move(&mut src, &mut dst, id, &destination).await;
-            cells.check("moved", moved.is_ok(), format!("{moved:?}"));
+            cells.check(
+                "refused-before-freeze",
+                moved.as_ref().is_err_and(|e| {
+                    e.starts_with("receive:") && e.contains("remote.mode_not_asking")
+                }),
+                format!("{moved:?}"),
+            );
+            let on_target = files_under(&home_of(&format!("{tag}-t")).join(".codex/sessions"));
+            cells.check("target-untouched", on_target.is_empty(), format!("{on_target:?}"));
+            let kept = std::fs::read(&on_source[0]).ok();
+            cells.check(
+                "source-store-kept",
+                kept.as_deref().is_some_and(|k| k.starts_with(&rollout)),
+                "",
+            );
+            let answer =
+                src.try_call("session/prompt", prompt(id, "p-probe", "history-probe")).await;
+            let probe = src.texts(id, "agent_message_chunk").await.pop().unwrap_or_default();
+            let probe: Value = serde_json::from_str(&probe).unwrap_or(Value::Null);
+            cells.check(
+                "source-still-answers",
+                answer.is_ok() && probe["prompts"] == json!(["one", "two"]),
+                format!("{answer:?} {probe}"),
+            );
+            assert!(cells.red.is_empty(), "red cells for codex-store (gui): {:#?}", cells.red);
+            return;
         }
     }
 
@@ -534,14 +565,6 @@ async fn codex_store_moves(way: Way) {
         on_target.len() == 1 && std::fs::read(&on_target[0]).ok().as_deref() == Some(&rollout[..]),
         format!("{on_target:?}"),
     );
-    // Moved as the app moves it (a `peer`-controlled receive), the target respawns the agent as
-    // a remote launch, which takes a Codex chat only through the `codex app-server` bridge
-    // (`web_modes::remote_start`). The fake agent speaks ACP, so it is refused there
-    // (`remote.mode_not_asking`); the CLI row checks the resume from the moved store.
-    if matches!(way, Way::Gui) {
-        assert!(cells.red.is_empty(), "red cells for codex-store (gui): {:#?}", cells.red);
-        return;
-    }
     let answer = dst.try_call("session/prompt", prompt(id, "p-probe", "history-probe")).await;
     let probe = dst.texts(id, "agent_message_chunk").await.pop().unwrap_or_default();
     let probe: Value = serde_json::from_str(&probe).unwrap_or(Value::Null);

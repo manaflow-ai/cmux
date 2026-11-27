@@ -83,7 +83,7 @@ jobs:
       fallback: ${{ steps.pick.outputs.fallback }}
     steps:
       - name: Checkout the picker at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 2
         with:
@@ -110,7 +110,7 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           DEDICATED_LABEL: ${{ vars.CI_IOS_INTERNAL_RUNNER }}
           # Where the archive goes when no online runner carries xcode-27.0 (the signer's Mac: its image has Xcode 27).
-          FALLBACK_MAC: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+          FALLBACK_MAC: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
         run: python3 scripts/ci/ios_internal_runner.py
 
   archive:
@@ -126,21 +126,86 @@ jobs:
     # "Pin Xcode 27" fails: no INTERNAL build shipped after 08:16Z 11-25. The picker's `fallback` (a
     # Blacksmith Mac) replaces that label set when the runner census shows no online runner carrying
     # xcode-27.0: run 45717448413 waited 2 h 23 min on it with no Mac offering Xcode 27.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || needs.pick-archive-runner.outputs.fallback != '' && needs.pick-archive-runner.outputs.fallback || fromJSON('["cmux-mac","xcode-27.0"]') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || fromJSON(needs.pick-archive-runner.outputs.fallback != '' && needs.pick-archive-runner.outputs.fallback || '["cmux-mac","xcode-27.0"]') }}
     timeout-minutes: 90
     outputs:
       marketing: ${{ steps.stamp.outputs.marketing }}
       build_number: ${{ steps.stamp.outputs.build_number }}
     env:
       SHA: ${{ inputs.sha }}
+      # Keep these paths in step with testflight-build.sh's source inputs. The
+      # source review also reads string catalogs anywhere under the iOS tree.
+      ARCHIVE_PATHS: &archive-paths |
+        /.gitmodules
+        /.gitattributes
+        /.xcode-version
+        /scripts/select-ci-xcode.sh
+        /scripts/ci/xcode-pins.txt
+        /scripts/ci/ios_internal_builder.py
+        /scripts/cmux-next/check-app-store-rules.py
+        /cmux-next-ios/
+        !/cmux-next-ios/verify/**
+        /cmux-next-ios/verify/**/
+        /cmux-next-ios/verify/**/*.xcstrings
+        /Packages/
+        /vendor/stack-auth-swift-sdk-prerelease/
+        /AppIcon.icon/
+        /cmux-tui/
+        /schemas/
+        /backend/catalog/
+        /backend/packages/
+        /plans/cmux-next/
+        /skills/
+        /mux/
+        /samples/
       # The dedicated mini keeps ~/cmux-mobile-builds/.cache (xcframework, cargo,
       # SwiftPM) warm between builds; a fallback Mac builds under its temp.
       HOSTED_FALLBACK: ${{ !(needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '') }}
     steps:
       - name: Check the commit
+        id: source
         run: |
           set -euo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be 40 lowercase hex" >&2; exit 1; }
+          # actions/checkout accepts paths relative to the workspace. Give the
+          # remote fallback fresh metadata too, including on a re-run.
+          remote=$(mktemp -d "$GITHUB_WORKSPACE/ios-source.XXXXXX")
+          echo "remote=${remote##*/}" >> "$GITHUB_OUTPUT"
+
+      # Use only objects from the managed mirror. Each job owns a new Git
+      # directory and its own shallow pack, even if the mirror is replaced.
+      - name: Checkout from the verified fleet mirror
+        id: kept
+        if: runner.environment == 'self-hosted'
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mirror="${GLAEDA_GIT_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
+          if [[ -L "$mirror" || -L "$mirror/objects" || ! -d "$mirror/objects" ||
+                ! -f "$mirror/HEAD" || ! -f "$mirror/glaeda-verified" ||
+                -e "$mirror/glaeda-repair-pending" || -e "$mirror/shallow" ]] ||
+                ! git --git-dir="$mirror" cat-file -e "$SHA^{commit}" 2>/dev/null; then
+            echo "No verified local source for $SHA"
+            exit 0
+          fi
+          src=$(mktemp -d "$RUNNER_TEMP/ios-archive.XXXXXX")
+          git init -q "$src"
+          cd "$src"
+          git remote add origin "$mirror"
+          git config remote.origin.uploadpack "git -c uploadpack.allowFilter=true -c uploadpack.allowAnySHA1InWant=true upload-pack"
+          git config remote.origin.promisor true
+          git config remote.origin.partialclonefilter blob:none
+          git sparse-checkout set --no-cone --stdin <<< "$ARCHIVE_PATHS"
+          git fetch \
+            --no-tags --no-recurse-submodules --depth=1 --filter=blob:none origin "$SHA"
+          git checkout -q --detach "$SHA"
+          [[ "$(git rev-parse HEAD)" == "$SHA" && ! -e "$mirror/glaeda-repair-pending" ]]
+          git config --unset remote.origin.uploadpack
+          git remote set-url origin "$REPO_URL"
+          echo "directory=$src" >> "$GITHUB_OUTPUT"
 
       # Bounded: a fetch that hangs on the mini (run 45608822951, 2026-11-25:
       # 90 min in this step, then the job timeout cancelled the run) fails
@@ -154,15 +219,17 @@ jobs:
       # `git log -1`), so one commit is enough. Full history took 63 min on
       # cmux10s (run 45642754959).
       - name: Checkout the commit
+        if: steps.kept.outputs.directory == ''
         timeout-minutes: 20
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE"
-          [ -d .git ] || git init -q .
-          git remote remove origin 2>/dev/null || true
+          src="$GITHUB_WORKSPACE/${{ steps.source.outputs.remote }}"
+          cd "$src"
+          git init -q .
           git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          git sparse-checkout set --no-cone --stdin <<< "$ARCHIVE_PATHS"
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           fetched=""
           for wait in 0 10 30 60 120; do
@@ -172,7 +239,7 @@ jobs:
             fi
             if git -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=45 \
                  -c "http.https://github.com/.extraheader=$auth" \
-                 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$SHA"; then
+                 fetch --no-tags --prune --no-recurse-submodules --depth=1 --filter=blob:none origin "$SHA"; then
               fetched=1
               break
             fi
@@ -182,51 +249,47 @@ jobs:
           git clean -ffdxq
           git log -1 --format='checked out %H'
 
-      # App Store Connect warns (ITMS-90725, one email per upload) on any build
-      # made with an SDK older than iOS 27, and will refuse it. The archive Mac
-      # (xcode-27.0 label, or the dedicated mini) carries Xcode 27 beside the pool's 26.6 pin
-      # (scripts/ci/xcode-pins.txt), so this job pins a released Xcode 27
-      # instead: vars.IOS_STORE_XCODE_APP if set, else Xcode 27.1, else the
-      # newest Xcode_27.x on the image. Betas and release candidates are refused (App
-      # Store Connect rejects their SDKs). No Xcode 27 fails the job: an
-      # upload on the old SDK is what this replaces.
-      - name: Pin Xcode 27 (iOS 27 SDK) for App Store Connect
-        env:
-          IOS_STORE_XCODE_APP: ${{ vars.IOS_STORE_XCODE_APP }}
-        run: |
-          set -euo pipefail
-          pick="${IOS_STORE_XCODE_APP:-}"
-          # 27.1 first: the release the hosted xcode-27 image defaults to. A
-          # newer 27.x on an image can still be a release candidate.
-          for app in /Applications/Xcode_27.1.app /Applications/Xcode_27.1.0.app; do
-            [ -n "$pick" ] || { [ -d "$app/Contents/Developer" ] && pick="$app"; } || true
-          done
-          if [ -z "$pick" ]; then
-            best=""; best_rank=-1
-            for app in /Applications/Xcode_27*.app /Applications/Xcode.app; do
-              [ -d "$app/Contents/Developer" ] || continue
-              case "$(basename "$app")" in *[Bb]eta*|*[Rr]elease_[Cc]andidate*|*RC*) continue ;; esac
-              v="$(DEVELOPER_DIR="$app/Contents/Developer" xcodebuild -version 2>/dev/null | awk 'NR==1{print $2}')"
-              echo "found $app: Xcode ${v:-?}"
-              case "$v" in 27|27.*) ;; *) continue ;; esac
-              IFS=. read -r maj min pat <<< "$v"
-              rank=$(( ${maj:-0} * 10000 + ${min:-0} * 100 + ${pat:-0} ))
-              if [ "$rank" -gt "$best_rank" ]; then best="$app"; best_rank="$rank"; fi
-            done
-            pick="$best"
-          fi
-          if [ -z "$pick" ] || [ ! -d "$pick/Contents/Developer" ]; then
-            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(find /Applications -maxdepth 1 -name "Xcode*.app" 2>/dev/null | sort | tr '\n' ' ')" >&2
-            exit 1
-          fi
-          sdk="$(DEVELOPER_DIR="$pick/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
-          case "$sdk" in 27|27.*) ;; *) echo "::error::$pick has iOS SDK $sdk, not 27" >&2; exit 1 ;; esac
-          echo "Pinned $pick (iOS SDK $sdk) for App Store Connect"
-          echo "CMUX_CI_XCODE_APP=$pick" >> "$GITHUB_ENV"
-          CMUX_CI_XCODE_APP="$pick" ./scripts/select-ci-xcode.sh
-
+      # The builder ref supplies this selector even for old candidate SHAs.
       - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+        working-directory: ${{ steps.kept.outputs.directory || steps.source.outputs.remote }}
+        env:
+          CMUX_CI_SKIP_XCODE_SELECT: '1'
+          CMUX_CI_DEVELOPER_DIR: ''
+          IOS_STORE_XCODE_APP: ${{ vars.IOS_STORE_XCODE_APP }}
+        shell: python3 -I {0} ./scripts/select-ci-xcode.sh
+        run: &store-xcode |
+          import os, re, subprocess, sys
+          from pathlib import Path
+
+          apps = Path(os.environ.get("CMUX_XCODE_APPLICATIONS_DIR", "/Applications"))
+          preferred = [Path(value) for value in [os.environ.get("IOS_STORE_XCODE_APP")] if value]
+          preferred += [apps / "Xcode_27.1.app", apps / "Xcode_27.1.0.app"]
+          prerelease = re.compile(r"beta|preview|release[ _-]*candidate|rc(?=[ _.0-9-]|$)", re.I)
+          usable = []
+          for app in dict.fromkeys(preferred + sorted(apps.glob("Xcode*.app"))):
+              dev = app / "Contents/Developer"
+              if not dev.is_dir() or any(prerelease.search(p.name) for p in (app, app.resolve())):
+                  continue
+              env = dict(os.environ, DEVELOPER_DIR=str(dev))
+              def probe(*args):
+                  return subprocess.check_output(args, env=env, text=True, timeout=20).strip()
+              try:
+                  version = re.fullmatch(r"Xcode (27(?:\.\d+)*)", probe("xcodebuild", "-version").split("\n")[0])
+                  if not version or not re.fullmatch(r"27(?:\.\d+)*", probe("xcrun", "--sdk", "iphoneos", "--show-sdk-version")):
+                      continue
+                  if not probe("xcrun", "--sdk", "macosx", "--show-sdk-version"):
+                      continue
+              except (OSError, subprocess.SubprocessError) as error:
+                  print(f"Skipping {app}: {error}")
+                  continue
+              usable.append((tuple(map(int, version[1].split("."))), str(app)))
+              if app in preferred:
+                  break
+          if not usable:
+              raise SystemExit("No released Xcode 27 with working iOS 27 and macOS SDKs [cmux-ci machine: xcode-pin-missing]")
+          pick = max(usable)[1]
+          print(f"App Store Connect Xcode: {pick}")
+          subprocess.run([sys.argv[1]], env=dict(os.environ, CMUX_CI_XCODE_APP=pick), check=True)
 
       - name: Tools (xcodegen, Rust)
         run: |
@@ -239,11 +302,18 @@ jobs:
           { echo "/opt/homebrew/bin"; echo "$HOME/.cargo/bin"; } >> "$GITHUB_PATH"
 
       - name: Version and build number
+        working-directory: ${{ steps.kept.outputs.directory || steps.source.outputs.remote }}
         id: stamp
         run: python3 scripts/ci/ios_internal_builder.py stamp --project-yml cmux-next-ios/project.yml
 
       - name: Archive
+        working-directory: ${{ steps.kept.outputs.directory || steps.source.outputs.remote }}
+        # 6-8 min on Blacksmith (runs 45871646299, 45866160671); fleet Macs sat 66-70+ min here and held every
+        # later dispatch. testflight-build.sh bounds its xcframework build at 20 min; this bounds the rest
+        # (20 + Swift package backoff 9 + archive ~3, plus headroom). Live only after rc/cnx-ios-builder moves.
+        timeout-minutes: 40
         env:
+          CMUX_INTERNAL_SPARSE_ARCHIVE: '1'
           MARKETING: ${{ steps.stamp.outputs.marketing }}
           BUILD_NUMBER: ${{ steps.stamp.outputs.build_number }}
         run: |
@@ -263,6 +333,7 @@ jobs:
       # rejects only after an upload (ITMS-90626, 90683, ...). The checker
       # is the built commit's; testflight-build.sh also runs it.
       - name: App Store review rules (built app)
+        working-directory: ${{ steps.kept.outputs.directory || steps.source.outputs.remote }}
         run: |
           set -euo pipefail
           root="$HOME/cmux-mobile-builds"
@@ -283,9 +354,13 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-      - name: Clear the hand-off copy
+      - name: Clear the hand-off and checkout copies
         if: always()
-        run: rm -rf "$RUNNER_TEMP/handoff"
+        env:
+          REMOTE: ${{ steps.source.outputs.remote }}
+        run: |
+          rm -rf "$RUNNER_TEMP/handoff"
+          if [[ "$REMOTE" =~ ^ios-source\.[[:alnum:]]{6}$ ]]; then rm -rf "$GITHUB_WORKSPACE/$REMOTE"; fi
 
   # Only when the dispatch has no base (the first build after a manual or
   # retired-lane upload): the newest processed build's note records the commit
@@ -305,7 +380,7 @@ jobs:
       ref: ${{ steps.asc.outputs.ref }}
     steps:
       - name: Checkout the builder branch (trusted script)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -354,7 +429,7 @@ jobs:
       - name: Checkout the builder branch (trusted script)
         timeout-minutes: 12
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # History (trees, no file contents) for git log over base..sha; the
@@ -415,7 +490,7 @@ jobs:
       # which fetches that one object on demand (the repository is public).
       # Measured: cmuxterm-hq docs/findings/2026-11-25-ios-cicd-equilibrium.md.
       - name: Checkout the builder branch (trusted signing script)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 1
@@ -441,51 +516,14 @@ jobs:
             exit 1
           }
 
-      # App Store Connect warns (ITMS-90725, one email per upload) on any build
-      # made with an SDK older than iOS 27, and will refuse it. Blacksmith's
-      # macOS 26 image carries Xcode 27 beside the pool's 26.6 pin
-      # (scripts/ci/xcode-pins.txt), so this job pins a released Xcode 27
-      # instead: vars.IOS_STORE_XCODE_APP if set, else Xcode 27.1, else the
-      # newest Xcode_27.x on the image. Betas and release candidates are refused (App
-      # Store Connect rejects their SDKs). No Xcode 27 fails the job: an
-      # upload on the old SDK is what this replaces.
-      - name: Pin Xcode 27 (iOS 27 SDK) for App Store Connect
-        env:
-          IOS_STORE_XCODE_APP: ${{ vars.IOS_STORE_XCODE_APP }}
-        run: |
-          set -euo pipefail
-          pick="${IOS_STORE_XCODE_APP:-}"
-          # 27.1 first: the release the hosted xcode-27 image defaults to. A
-          # newer 27.x on an image can still be a release candidate.
-          for app in /Applications/Xcode_27.1.app /Applications/Xcode_27.1.0.app; do
-            [ -n "$pick" ] || { [ -d "$app/Contents/Developer" ] && pick="$app"; } || true
-          done
-          if [ -z "$pick" ]; then
-            best=""; best_rank=-1
-            for app in /Applications/Xcode_27*.app /Applications/Xcode.app; do
-              [ -d "$app/Contents/Developer" ] || continue
-              case "$(basename "$app")" in *[Bb]eta*|*[Rr]elease_[Cc]andidate*|*RC*) continue ;; esac
-              v="$(DEVELOPER_DIR="$app/Contents/Developer" xcodebuild -version 2>/dev/null | awk 'NR==1{print $2}')"
-              echo "found $app: Xcode ${v:-?}"
-              case "$v" in 27|27.*) ;; *) continue ;; esac
-              IFS=. read -r maj min pat <<< "$v"
-              rank=$(( ${maj:-0} * 10000 + ${min:-0} * 100 + ${pat:-0} ))
-              if [ "$rank" -gt "$best_rank" ]; then best="$app"; best_rank="$rank"; fi
-            done
-            pick="$best"
-          fi
-          if [ -z "$pick" ] || [ ! -d "$pick/Contents/Developer" ]; then
-            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(find /Applications -maxdepth 1 -name "Xcode*.app" 2>/dev/null | sort | tr '\n' ' ')" >&2
-            exit 1
-          fi
-          sdk="$(DEVELOPER_DIR="$pick/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
-          case "$sdk" in 27|27.*) ;; *) echo "::error::$pick has iOS SDK $sdk, not 27" >&2; exit 1 ;; esac
-          echo "Pinned $pick (iOS SDK $sdk) for App Store Connect"
-          echo "CMUX_CI_XCODE_APP=$pick" >> "$GITHUB_ENV"
-          CMUX_CI_XCODE_APP="$pick" ./scripts/select-ci-xcode.sh
-
+      # The builder ref supplies this selector even for old candidate SHAs.
       - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+        env:
+          CMUX_CI_SKIP_XCODE_SELECT: '1'
+          CMUX_CI_DEVELOPER_DIR: ''
+          IOS_STORE_XCODE_APP: ${{ vars.IOS_STORE_XCODE_APP }}
+        shell: python3 -I {0} ./scripts/select-ci-xcode.sh
+        run: *store-xcode
 
       - name: Install asc
         run: brew list asc >/dev/null 2>&1 || brew install asc

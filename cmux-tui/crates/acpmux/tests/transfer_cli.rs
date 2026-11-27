@@ -341,5 +341,7 @@ mod session_move_live;
 mod session_move_reachable;
 #[path = "transfer_cli/session_move_target_ask.rs"]
 mod session_move_target_ask;
+#[path = "transfer_cli/synced_pins_drafts.rs"]
+mod synced_pins_drafts;
 #[path = "transfer_cli/view_latency.rs"]
 mod view_latency;
