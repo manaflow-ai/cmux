@@ -42,7 +42,7 @@ export function NativeTranscript({ link, sessionId }: { link: () => Link | undef
       endpoint: target.endpoint,
       protocols: target.protocols,
       sessionId,
-      font: `${style.fontSize || "13px"} ${style.fontFamily || "sans-serif"}`,
+      font: `${style.fontSize || style.getPropertyValue("--text-body").trim()} ${style.fontFamily || "sans-serif"}`,
       lineHeight: Number.parseFloat(style.lineHeight) || 18,
       // The canvas needs resolved colours, so read the theme's tokens as the scroller computes them.
       colors: {
@@ -95,7 +95,7 @@ export function NativeTranscript({ link, sessionId }: { link: () => Link | undef
       style={{
         position: "fixed",
         pointerEvents: "none",
-        zIndex: 5,
+        zIndex: "var(--layer-raised)",
         visibility: atBottom ? "visible" : "hidden",
       }}
     />
