@@ -105,12 +105,18 @@ jobs:
           path: .nightly-tree
           persist-credentials: false
 
-      - name: Dial the nightly's Mac host with this head's link
+      # Run both directions: a phone built from this PR against the shipped NIGHTLY host,
+      # and a phone from NIGHTLY against this PR's host. One direction alone misses a host-only
+      # handshake change. The shared target keeps the second build within the 40-minute bound.
+      - name: Dial both cross-commit directions
         env:
           SKEW_LOG_DIR: ${{ runner.temp }}/pair-skew-logs
+          CARGO_TARGET_DIR: ${{ runner.temp }}/pair-skew-target
         run: |
           git config --global --add safe.directory '*'
-          scripts/ci/mobile-pair-skew.sh .nightly-tree .
+          mkdir -p "$CARGO_TARGET_DIR" "$SKEW_LOG_DIR"
+          SKEW_LOG_DIR="$SKEW_LOG_DIR/nightly-host" scripts/ci/mobile-pair-skew.sh .nightly-tree .
+          SKEW_LOG_DIR="$SKEW_LOG_DIR/pr-host" scripts/ci/mobile-pair-skew.sh . .nightly-tree
 
       - name: Upload the pair logs
         if: always()

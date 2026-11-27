@@ -13,6 +13,9 @@
 # unless each transport links and the daemon channel answers `identify`.
 #
 #   scripts/ci/mobile-pair-skew.sh OLD_CHECKOUT [HEAD_CHECKOUT]
+#
+# The CI job runs this twice: first with the NIGHTLY tree as OLD_CHECKOUT, then
+# with the PR tree as OLD_CHECKOUT, so both host/dial directions cross the skew.
 set -euo pipefail
 
 old=$(cd "${1:?usage: mobile-pair-skew.sh OLD_CHECKOUT [HEAD_CHECKOUT]}" && pwd)
