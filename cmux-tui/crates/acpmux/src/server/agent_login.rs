@@ -291,9 +291,13 @@ pub(super) async fn handle(
             }
             let (cli, _) = cli(hub, agent, params).await?;
             let s = login::start(&machine(hub), &cli, agent).await.map_err(error)?;
+            // The hosts the app may still close this sign-in's own tab on once it ended (as
+            // `_acpmux/account/sign_in` answers them).
+            let page_hosts = login::parse::page_hosts(agent, &s.url);
             let mut reply = json!({
                 "loginId": s.login_id,
                 "url": s.url,
+                "pageHosts": page_hosts,
                 "needsCode": s.needs_code,
                 "expiresAtMs": s.expires_at_ms,
             });
