@@ -12,6 +12,8 @@
 set -euo pipefail
 var=${1:?VAR}; a=${2:?VALUE_A}; b=${3:?VALUE_B}; rounds=${4:-3}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+# A CI checkout without submodules has an empty ghostty-next; ghostty-vt-sys needs it.
+[ -f "$root/ghostty-next/build.zig" ] || git -C "$root" submodule update --init --depth 1 ghostty-next
 cd "$root/cmux-tui"
 export CMUX_THROUGHPUT_MB=${CMUX_THROUGHPUT_MB:-200}
 export CMUX_THROUGHPUT_RUNS=${CMUX_THROUGHPUT_RUNS:-3}
