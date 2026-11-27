@@ -126,6 +126,28 @@ export function turnWork(rows: readonly AcpmuxRow[]): AcpmuxActivity[] | undefin
   return work.length ? work : undefined;
 }
 
+/// A turn's wall span: from the earlier of `began` and its first timed span's start to the later of
+/// `ended` and its last span's end (a tool's own timeline, a background shell to where it ended
+/// there, a thought). The one span the footer's Timeline draws as its axis and the "Worked for"
+/// reads (turns.ts `turnClock`), so the line never reads less than the panel's total (Leo,
+/// 2026-11-27: "but shouldn't the worked for count the timelines of the tool calls"). A bound left
+/// out is the spans' own; with neither, nor any span, it is empty (start Infinity).
+export function wallSpan(
+  began: number | undefined,
+  ended: number | undefined,
+  work: readonly AcpmuxActivity[] | undefined,
+): { start: number; end: number } {
+  let start = began ?? Infinity;
+  let end = ended ?? -Infinity;
+  for (const item of work ?? []) {
+    const [from, to] = spanTimes(item);
+    if (from === undefined || to === undefined) continue;
+    start = Math.min(start, from);
+    end = Math.max(end, to);
+  }
+  return { start, end };
+}
+
 /// The footer's spans on one axis. The axis starts at the turn's start (where its work ended less its
 /// duration), or at the first span when that came earlier, and ends at the turn's end or the last
 /// span's end. Its work ended at its own time, or later for a stretch the person came in on, which
@@ -134,16 +156,9 @@ export function waterfall(
   row: Pick<AcpmuxRow, "at" | "durationMs" | "workEndedAt">,
   work: readonly AcpmuxActivity[],
 ): Waterfall {
-  let first = Infinity;
-  let last = -Infinity;
-  for (const item of work) {
-    const [from, to] = spanTimes(item);
-    first = Math.min(first, from!);
-    last = Math.max(last, to!);
-  }
   const ended = row.workEndedAt ?? row.at;
-  const start = row.durationMs !== undefined ? Math.min(first, ended - row.durationMs) : first;
-  const end = row.durationMs !== undefined ? Math.max(last, ended) : last;
+  const timed = row.durationMs !== undefined;
+  const { start, end } = wallSpan(timed ? ended - row.durationMs! : undefined, timed ? ended : undefined, work);
   const spans = work.map((item): WaterfallSpan => {
     const [began, ended] = spanTimes(item);
     const from = began! - start;
