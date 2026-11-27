@@ -2,9 +2,11 @@ use super::*;
 
 #[test]
 fn care_passes_come_sooner_as_the_disk_fills() {
-    assert!(spacing(Pressure::Normal) > spacing(Pressure::High));
-    assert!(spacing(Pressure::High) > spacing(Pressure::Critical));
-    assert_eq!(spacing(Pressure::Critical), 10 * MINUTE_MS);
+    use cmux_worktree_care::budget::spacing_ms;
+    assert!(spacing_ms(0.5) > spacing_ms(0.75));
+    assert!(spacing_ms(0.75) > spacing_ms(0.85));
+    assert!(spacing_ms(0.85) > spacing_ms(0.95));
+    assert_eq!(spacing_ms(0.95), 3 * 60_000);
 }
 
 #[test]
@@ -28,7 +30,7 @@ fn care_one_pass_at_a_time_and_the_flag_clears_on_unwind() {
 #[test]
 fn care_each_removed_worktree_is_one_log_line_with_its_reason_idle_age_and_archive() {
     use cmux_worktree_care::pass::{Item, Outcome, Report};
-    use cmux_worktree_care::{Action, Verdict};
+    use cmux_worktree_care::{Action, Pressure, Verdict};
     let item = |path: &str, action, reason: &str, outcome| Item {
         path: path.into(),
         repository: "/m/cmux.git".into(),
