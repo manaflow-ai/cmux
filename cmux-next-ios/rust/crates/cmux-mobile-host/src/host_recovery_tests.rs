@@ -59,7 +59,7 @@ fn rig_config(base_url: String, dir: &std::path::Path) -> HostConfig {
     }
 }
 
-async fn recovery_sample(wake: bool) -> Duration {
+async fn recovery_sample(wake: bool, abandon_headers: bool) -> Duration {
     let backend = FakeSignaling::start(FakeOptions::default()).await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base_url = format!("http://{}", listener.local_addr().unwrap());
@@ -120,6 +120,15 @@ async fn recovery_sample(wake: bool) -> Duration {
             });
         }
     }));
+    if abandon_headers {
+        // Queue both empty and partial requests before hostd's first WebSocket.
+        // No scheduling delay: TCP accepts them before the later valid connection.
+        for header in [b"".as_slice(), b"GET /signal HTTP/1.1\r\nUpgrade: websocket\r\n".as_slice()] {
+            let mut abandoned = TcpStream::connect(base_url.trim_start_matches("http://")).await.unwrap();
+            abandoned.write_all(header).await.unwrap();
+            abandoned.shutdown().await.unwrap();
+        }
+    }
     let dir = tempfile::tempdir().unwrap();
     let config = rig_config(base_url, dir.path());
     let (changes, receiver) = watch::channel(0);
@@ -154,16 +163,21 @@ async fn recovery_sample(wake: bool) -> Duration {
 
 #[tokio::test]
 async fn wake_recovers_signaling_and_phone_dial() {
-    let elapsed = tokio::time::timeout(Duration::from_secs(15), recovery_sample(true)).await.unwrap();
+    let elapsed = tokio::time::timeout(Duration::from_secs(15), recovery_sample(true, false)).await.unwrap();
     println!("wake_to_phone_echo_after_ms={:.3}", elapsed.as_secs_f64() * 1000.0);
+}
+
+#[tokio::test]
+async fn wake_recovers_after_abandoned_http_headers() {
+    tokio::time::timeout(Duration::from_secs(15), recovery_sample(true, true)).await.unwrap();
 }
 
 /// Fleet benchmark: one baseline and one fixed sample through the exact same rig.
 #[tokio::test]
 #[ignore = "45 second baseline; run explicitly for the PR Performance table"]
 async fn wake_recovery_performance() {
-    let before = tokio::time::timeout(Duration::from_secs(65), recovery_sample(false)).await.unwrap();
-    let after = tokio::time::timeout(Duration::from_secs(15), recovery_sample(true)).await.unwrap();
+    let before = tokio::time::timeout(Duration::from_secs(65), recovery_sample(false, false)).await.unwrap();
+    let after = tokio::time::timeout(Duration::from_secs(15), recovery_sample(true, false)).await.unwrap();
     assert!(before >= cmux_mobile_link::signaling::KEEPALIVE_TIMEOUT);
     assert!(after < before / 2);
     println!(
