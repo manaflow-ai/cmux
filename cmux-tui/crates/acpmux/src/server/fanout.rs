@@ -5,6 +5,7 @@ use super::{
     Conn, Hub, Message, Ordering, broadcast, deliver, durable_gate, harness_admin, inventory_watch,
     json,
 };
+use crate::no_panic::LockExt;
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -112,11 +113,17 @@ pub(super) fn start(
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
+    let mut live_off = hub.presence.subscribe_off();
     tokio::spawn(async move {
         loop {
             let rows_due = conn.held_rows.due();
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
+                changed = live_off.changed() => {
+                    if changed.is_err() { break; }
+                    conn.outgoing_presence.live_off(&hub, *live_off.borrow_and_update());
+                    continue;
+                }
                 // The rows held behind a turn's first output go at their bound (`held_rows.rs`).
                 () = super::held_rows::wait(rows_due), if rows_due.is_some() => {
                     super::held_rows::flush(&hub, &conn);
@@ -152,7 +159,7 @@ pub(super) fn start(
                 // Never to a peer daemon's connection: its handshake watches, and this host's
                 // peers, their states and their errors are this machine's, not that peer's.
                 note = peer_states.recv() => {
-                    let hears = !super::view::a_link(conn)
+                    let hears = !super::view::a_link(&conn)
                         && conn.watch_all.load(Ordering::SeqCst);
                     match note {
                         Ok(note) if hears => harness_admin::watch_note(&conn, note),
@@ -184,8 +191,16 @@ pub(super) fn start(
                         Ok(note) => send_presence(&hub, &conn, &note),
                         // Fell behind: the chats it holds, as they are now.
                         Err(broadcast::error::RecvError::Lagged(_)) => {
-                            for chat in conn.local_attached_ids() {
-                                send_presence(&hub, &conn, &hub.presence.snapshot(&chat));
+                            let held = conn.subs.lock_or_recover().clone();
+                            for (chat, opts) in held {
+                                let note = if opts.remote {
+                                    opts.remote_presence.and_then(|snapshot| snapshot.snapshot())
+                                } else {
+                                    Some(hub.presence.snapshot(&chat))
+                                };
+                                if let Some(note) = note {
+                                    send_presence(&hub, &conn, &note);
+                                }
                             }
                         }
                         Err(broadcast::error::RecvError::Closed) => break,
@@ -217,10 +232,16 @@ fn send_presence(hub: &Hub, conn: &Conn, note: &serde_json::Value) {
     {
         return;
     }
-    let attached = note
-        .get("sessionId")
-        .and_then(serde_json::Value::as_str)
-        .is_some_and(|chat| conn.sub_opts(chat).is_some_and(|opts| opts.remote == remote));
+    let attached = note.get("sessionId").and_then(serde_json::Value::as_str).is_some_and(|chat| {
+        conn.sub_opts(chat).is_some_and(|opts| {
+            opts.remote == remote
+                && (!remote
+                    || opts.remote_peer.as_deref()
+                        == note
+                            .get(crate::hub::presence::REMOTE_MARKER)
+                            .and_then(serde_json::Value::as_str))
+        })
+    });
     if attached {
         let mut note = if super::view::a_link(conn) {
             hub.presence.shared_snapshot(note["sessionId"].as_str().unwrap_or_default())

@@ -656,12 +656,26 @@ async fn forward_inner(
         let held = m == method::SESSION_PROMPT
             && crate::author::author(params)?.is_some_and(|a| a.awaits_owner);
         let approval = held || matches!(m, method::MUX_QUEUE_APPROVE | method::MUX_QUEUE_DECLINE);
+        if m == method::MUX_DETACH {
+            super::view::detach_remote(hub, conn, &id);
+            return Ok(Some(json!({})));
+        }
+        let shared_presence =
+            m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params));
         let feature = match m {
+            _ if shared_presence => Some(crate::hub::presence::PEER_FEATURE),
             method::MUX_QUEUE_GET => Some(crate::author::QUEUE_GET_FEATURE),
             _ => approval.then_some(crate::author::QUEUE_APPROVAL_FEATURE),
         };
         let bound = feature.map(|f| peer.lists_on(f));
         if bound.is_some_and(|link| link.is_none()) {
+            if shared_presence {
+                return Err(peer_feature_unsupported(
+                    &peer,
+                    m,
+                    &[crate::hub::presence::PEER_FEATURE],
+                ));
+            }
             return Err(crate::author::approval_unsupported(&peer));
         }
         // So do a message's attachments, under their caps (`attach.rs`).
@@ -744,7 +758,7 @@ async fn forward_inner(
         }
         // Authored view and typing belong to the person named by the caller. Forward them to the
         // owner daemon so its presence fanout can relay the entry back to this daemon.
-        if m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params)) {
+        if shared_presence {
             if !peer.ready() {
                 wake_if_composing(&peer, m, params, conn.origin);
             }
@@ -855,9 +869,9 @@ async fn forward_inner(
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
                 let opts = SubOpts { event_stream, filter, ..SubOpts::default() };
-                super::view::subscribe_remote(hub, conn, &id, Some(opts));
+                super::view::subscribe_remote(hub, conn, &id, &peer.name, Some(opts));
             } else {
-                super::view::subscribe_remote(hub, conn, &id, None);
+                super::view::subscribe_remote(hub, conn, &id, &peer.name, None);
             }
             first_attach = peer.mark_attached(&id);
             if first_attach && m != method::MUX_ATTACH {
@@ -1032,7 +1046,20 @@ async fn forward_inner(
             }
             on = Some(epoch);
         }
-        let result = if matches!(
+        let presence_baseline = (m == method::MUX_ATTACH)
+            .then(|| {
+                conn.sub_opts(&id)
+                    .filter(|sub| sub.remote_peer.as_deref() == Some(peer.name.as_str()))
+                    .and_then(|sub| sub.remote_presence)
+                    .map(|snapshot| {
+                        let revision = snapshot.revision();
+                        (snapshot, revision)
+                    })
+            })
+            .flatten();
+        let result = if shared_presence {
+            conn.outgoing_presence.send(hub, conn, peer.clone(), m, p, on.unwrap_or(link)).await
+        } else if matches!(
             m,
             method::MUX_INFO
                 | method::MUX_EVENTS
@@ -1159,13 +1186,18 @@ async fn forward_inner(
             let on = (peer.name.as_str(), peer.generation, link, asked);
             hub.capture_peer_page(on, (&id, m == method::MUX_EVENTS), params, &result);
         }
+        if let Some((snapshot, revision)) = presence_baseline
+            && let Some(note) = result.get("presence")
+        {
+            snapshot.seed(note, revision);
+        }
         if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
             mac_group_read(&mut result, conn.is_person() && hub.person.macs.has_own());
         }
         if matches!(m, method::SESSION_FORK | method::ACP_SESSION_FORK)
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
-            super::view::subscribe_remote(hub, conn, new_id, None);
+            super::view::subscribe_remote(hub, conn, new_id, &peer.name, None);
             peer.mark_attached(new_id);
         }
         if purge {

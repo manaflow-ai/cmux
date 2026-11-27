@@ -555,6 +555,7 @@ impl Hub {
         // Its link's channels close for their local side now: the link's own `Disconnected`
         // notice finds the peer gone (`server/channels.rs`).
         crate::server::channels::link_lost(self, &peer.name, peer.generation);
+        self.presence.clear_remote(&peer.name);
         self.peer_states().removed(&peer.name, peer.generation, peer.link().last_seen);
         self.events.origin_tee(&peer.name, OriginState::Removed, crate::store::now_ms());
     }
@@ -931,6 +932,14 @@ impl Hub {
                 // Whether a name missing from its rows is final, and messages waiting for the
                 // peer go now (`hub/no_session.rs`).
                 PeerNotice::Listed => self.peer_listed(&peer, generation),
+                PeerNotice::PresenceReset { link } => {
+                    if self
+                        .peer(&peer)
+                        .is_some_and(|p| p.generation == generation && p.link_epoch() == link)
+                    {
+                        self.presence.reset_remote(&peer);
+                    }
+                }
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
                     self.peer_ready_rows(&peer, generation);
@@ -968,6 +977,7 @@ impl Hub {
                     // Channels that rode the link end for their local side.
                     crate::server::channels::link_lost(self, &peer, generation);
                     if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
+                        self.presence.clear_remote(&peer);
                         p.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
                     }
                     // Called directly, with no grace: this drop is its outage's first
@@ -1364,8 +1374,21 @@ impl Hub {
                         self.capture_peer_unsent((&peer, generation, link), id, seq);
                     }
                 }
-                PeerNotice::Notification { method: m, params, .. } if m == method::MUX_PRESENCE => {
-                    self.presence.publish_remote(&params, &peer);
+                PeerNotice::Notification { method: m, params, link }
+                    if m == method::MUX_PRESENCE =>
+                {
+                    if self
+                        .peer(&peer)
+                        .is_some_and(|p| p.generation == generation && p.link_epoch() == link)
+                    {
+                        if params.get(crate::hub::presence::BASELINE_MARKER)
+                            == Some(&Value::Bool(true))
+                        {
+                            self.presence.publish_remote_baseline(&params, &peer);
+                        } else {
+                            self.presence.publish_remote(&params, &peer);
+                        }
+                    }
                 }
                 PeerNotice::Notification { method: m, mut params, link } => {
                     let Some(id) =
