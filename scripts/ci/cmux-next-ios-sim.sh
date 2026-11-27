@@ -676,6 +676,14 @@ rm -rf "$out" "$work"
 mkdir -p "$out/screens" "$out/bench" "$work"
 summary="$out/SUMMARY.md"
 note() { printf '%s\n' "$*" | tee -a "$summary"; }
+# compile_open / compile_close: the step log's compile group (cmux-ci's STEP_COMPILE_GROUP, `::group::xcodebuild`
+# with a build action). cmux-ci run leaves the time inside one out of --timeout (up to CMUX_CI_STEP_COMPILE_BUDGET,
+# default 5400 s), so a cold FFI and app build no longer eats the run's own bound. Without a group the whole
+# compile counted: the nightly iPhone clips 46060009038 (attempt 2) were all cancelled at --timeout 3600 s after
+# an FFI cache miss (740 s), the Demo app (1118 s with the FFI) and a before app, before one clip was recorded.
+compile_group=""
+compile_open() { [[ -z "$compile_group" ]] || compile_close; compile_group="$1"; printf '::group::xcodebuild build (%s)\n' "$1"; }
+compile_close() { [[ -z "$compile_group" ]] || { printf '::endgroup::\n'; compile_group=""; }; }
 
 # Steps run with a per-step HOME; Homebrew tools live outside it. Appended, not
 # prepended: on a fleet worker the first PATH entry is the worker's rustup shim,
@@ -939,6 +947,7 @@ if [[ -z "$ui_products_job" ]]; then  # (not indented) the build and the app's l
 
 # --- Build ------------------------------------------------------------------
 t0=$SECONDS
+compile_open "FFI, xcodegen and the apps"
 # The FFI comes from the worker's source-keyed cache when an earlier step built the same
 # inputs with the same toolchain (scripts/ci/ios_ffi_cache.py: key, verified restore). A
 # miss builds it and publishes it under its own key for the next step with the same inputs,
@@ -1258,6 +1267,7 @@ if [[ -n "$ui_prebuild_pid" ]]; then
     cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true
   fi
 fi
+compile_close
 simctl boot "$udid"
 simctl bootstatus "$udid" -b >/dev/null
 if [[ "${CMUX_CI_SIM_SLIM:-0}" == 1 && -f "${CMUX_CI_SIM_STATE:-/nonexistent}/fallback" ]]; then
@@ -1717,8 +1727,10 @@ ui_cold_matrix() {
 ui_duress_runs() {
   local spec slug dir status bundle t1
   t1=$SECONDS
+  compile_open "UI suites, build-for-testing"
   xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
   ui_status=$?
+  compile_close
   note "- UI test build (build-for-testing, for duress= runs): exit $ui_status, $((SECONDS - t1)) s"
   if [[ $ui_status -ne 0 ]]; then
     tail -40 "$work/ui-build.log"; cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true; return
@@ -1809,8 +1821,10 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     # Cold suites run test-without-building once per fresh boot: built once, first.
     ui_t0=$SECONDS
     set +e
+    compile_open "UI suites, build-for-testing"
     xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
     ui_status=$?
+    compile_close
     set -e
     note "- UI test build (build-for-testing, for the cold suites): exit $ui_status, $((SECONDS - ui_t0)) s"
     if [[ $ui_status -ne 0 ]]; then
@@ -1824,8 +1838,10 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     # Built first, so the recording (every host process) holds the tests and not the compiler.
     ui_t0=$SECONDS
     set +e
+    compile_open "UI suites, build-for-testing"
     xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
     ui_status=$?
+    compile_close
     set -e
     note "- UI test build (build-for-testing, before the profile): exit $ui_status, $((SECONDS - ui_t0)) s"
     if [[ $ui_status -ne 0 ]]; then
