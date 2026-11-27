@@ -62,8 +62,8 @@ def prepare(app: Path, config: Path, out: Path) -> int:
     try:
         session = e2e.signin_session()
         if session is None:
-            print("CMR FAIL rig: no CMUX_CI_SIGNIN_FILE (cmux-ci run --sign-in agent)")
-            return 3
+            print("CMR sign-in: none (no CMUX_CI_SIGNIN_FILE); the copy runs signed out")
+            return 0
         with open(app / "Contents" / "Info.plist", "rb") as handle:
             info = plistlib.load(handle)
         bundle, exe = info["CFBundleIdentifier"], info["CFBundleExecutable"]
@@ -85,6 +85,9 @@ BLOCKED = ["Sign In to Use Cloud", "Start Free Trial", "Set Up Cloud", "Cloud Ho
 STARTS = ["Starting Here", "Cloud Ready", "Moving to Cloud", "In Cloud"]
 PROMPTS = {"auto": ("Spell the word ocean backwards in capital letters. Reply with only that word.", "NAECO"),
            "cloud": ("Spell the word forest backwards in capital letters. Reply with only that word.", "TSEROF")}
+
+
+UNSIGNED = False
 
 
 class ProductFailure(Exception):
@@ -330,13 +333,21 @@ def run(args) -> int:
         time.sleep(4)  # the first window settles
         receipt["steps"].append({"step": "launch", **dump(pid, out / "launch", "00-start")})
 
-        store = Path((out / "token-store-path").read_text().strip())
-        refreshed = lkr.wait_for(lambda: store.is_file() and "accessToken" in json.loads(store.read_text() or "{}"), 60, step=1)
-        receipt["steps"].append({"step": "sign-in", "ok": bool(refreshed)})
-        verdict("sign-in", bool(refreshed), "the copy holds an access token for the step's agent session"
-                if refreshed else "no access token in the copy's token store after 60 s")
-        if not refreshed:
-            raise ProductFailure("sign-in: the copy did not trade the refresh token")
+        global UNSIGNED
+        path_file = out / "token-store-path"
+        if not path_file.is_file():
+            UNSIGNED = True
+            receipt["signed_in"] = False
+            receipt["steps"].append({"step": "sign-in", "ok": None, "skipped": "no CMUX_CI_SIGNIN_FILE"})
+            print("CMR SKIP sign-in: no session from the submitter; the copy runs signed out", flush=True)
+        else:
+            store = Path(path_file.read_text().strip())
+            refreshed = lkr.wait_for(lambda: store.is_file() and "accessToken" in json.loads(store.read_text() or "{}"), 60, step=1)
+            receipt["steps"].append({"step": "sign-in", "ok": bool(refreshed)})
+            verdict("sign-in", bool(refreshed), "the copy holds an access token for the step's agent session"
+                    if refreshed else "no access token in the copy's token store after 60 s")
+            if not refreshed:
+                raise ProductFailure("sign-in: the copy did not trade the refresh token")
 
         read = {key: lkr.read_key(sock, key) for key in SETTINGS}
         ok = all(lkr.same(read[k], v) for k, v in SETTINGS.items())
@@ -384,6 +395,15 @@ def run(args) -> int:
         if not (move.get("undo_shown") and move.get("undo_result")):
             status = 1
     except ProductFailure as failure:
+        if UNSIGNED and "Sign In to Use Cloud" in str(failure):
+            print(f"CMR STOP rig: signed out, as expected without a session: {failure}", flush=True)
+            receipt["rig_stop"] = str(failure)
+            try:
+                receipt["steps"].append({"step": "signed-out-gate", **dump(pid, out / "failure", "00-signed-out")})
+            except Exception as error:
+                receipt["failure_dump_error"] = str(error)
+            status = 3
+            return status
         print(f"CMR FAIL product: {failure}", flush=True)
         receipt["product_failure"] = str(failure)
         try:

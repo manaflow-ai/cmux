@@ -42,7 +42,9 @@ if [[ -z "$dmg" ]]; then
 fi
 [[ "$dmg" == https://* ]] || { echo "no nightly DMG in the feed" >&2; exit 3; }
 echo "CMR host macOS $(sw_vers -productVersion) dmg $dmg"
-[[ -n "${CMUX_CI_SIGNIN_FILE:-}" ]] || { echo "CMR FAIL rig: no CMUX_CI_SIGNIN_FILE (send the step with --sign-in agent)"; exit 3; }
+# No session (a submitter without the agent account): the run still goes, signed out, and reads the app up to the
+# Cloud gate; its chats then stop at "Sign In to Use Cloud", which is the rig's (exit 3), not the product's.
+[[ -n "${CMUX_CI_SIGNIN_FILE:-}" ]] || echo "CMR SKIP sign-in: no CMUX_CI_SIGNIN_FILE (send the step with --sign-in agent); running signed out"
 rec_ready="$(python3 scripts/measure/launch_reveal_record.py preflight 2>&1)" \
   || { echo "CMR FAIL rig: cannot record: $rec_ready"; exit 3; }
 echo "CMR recorder: $rec_ready"
