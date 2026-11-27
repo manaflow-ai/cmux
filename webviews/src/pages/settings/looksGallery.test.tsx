@@ -35,9 +35,16 @@ beforeAll(() => {
     path: ["experiments", "lookDescriptions"],
     default: "phrase",
     accepts: ["phrase", "name", "tagged"],
-    choices: [choice("phrase", "A: One Short Phrase"), choice("name", "B: Name Only"), choice("tagged", "C: Phrase and Tag Line")],
+    choices: [
+      choice("phrase", "A: One Short Phrase"),
+      choice("name", "B: Name Only"),
+      choice("tagged", "C: Phrase and Tag Line"),
+    ],
     title: { key: "settings.experiments.lookDescriptions", text: "Look Descriptions" },
-    help: { key: "settings.experiments.lookDescriptions.help", text: "How each look in the Looks gallery is described." },
+    help: {
+      key: "settings.experiments.lookDescriptions.help",
+      text: "How each look in the Looks gallery is described.",
+    },
   } as SchemaRow;
   schema.rows.push(row);
   (rowsByKey as Map<string, SchemaRow>).set(row.key, row);
