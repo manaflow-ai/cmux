@@ -1,0 +1,468 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Valgrind
+Source: http://valgrind.org/downloads/current.html
+
+Files: *
+Copyright: 2000-2012 Julian Seward <jseward@acm.org>
+License: GPL-2.0+
+
+Files: debian/*
+Copyright: 2012 Alessandro Ghedini <ghedo@debian.org>
+ 2002 Cyrille Chepelov <cyrille@chepelov.org>
+ Andrés Roldán <aroldan@debian.org>
+ Pierre Habouzit <madcoder@debian.org>
+License: GPL-2.0+
+
+Files: mpi/*
+Copyright: 2006-2012, OpenWorks LLP
+License: BSD-3-Clause
+
+Files: exp-bbv/*
+Copyright: 2006-2012, Vince Weaver
+ 2006-2012, Oriol Prat
+License: GPL-2.0+
+
+Files: callgrind/*
+Copyright: 2002-2012, Josef Weidendorfer (Josef.Weidendorfer@gmx.de)
+ 2002-2012, Nicholas Nethercote (njn@valgrind.org)
+License: GPL-2.0+
+
+Files: VEX/*
+Copyright: 2004-2012, OpenWorks LLP
+License: GPL-2.0+
+
+Files: VEX/pub/libvex_guest_s390x.h
+ VEX/priv/host_s390_defs.*
+ VEX/priv/guest_s390_toIR.c
+ VEX/priv/guest_s390_defs.h
+ VEX/priv/host_s390_isel.c
+ VEX/priv/guest_s390_helpers.c
+Copyright: 2010-2012, IBM Corp.
+License: GPL-2.0+
+
+Files: VEX/priv/guest_mips_defs.h
+ VEX/priv/guest_mips_helpers.c
+ VEX/priv/guest_mips_toIR.c
+ VEX/priv/host_mips_defs.c
+Copyright: 2010-2012 RT-RK <mips-valgrind@rt-rk.com>
+License: GPL-2.0+
+
+Files: VEX/priv/guest_arm_toIR.c
+ VEX/priv/host_arm_isel.c
+Copyright: 2004-2012, OpenWorks LLP
+ 2010-2012, Samsung Electronics
+License: GPL-2.0+
+
+Files: lackey/*
+Copyright: 2002-2012, Nicholas Nethercote
+License: GPL-2.0+
+
+Files: dhat/*
+Copyright: 2010-2012, Mozilla Inc.
+License: GPL-2.0+
+
+Files: memcheck/*
+Copyright: 2000-2012, Julian Seward
+License: GPL-2.0+
+
+Files: memcheck/tests/*/more_x87_fp.c
+Copyright: 2003, Fabrice Bellard
+License: GPL-2.0+
+
+Files: memcheck/tests/str_tester.c
+Copyright: 1995-2003, Free Software Foundation, Inc
+License: LGPL-2.1+
+
+Files: memcheck/tests/linux/timerfd-syscall.c
+Copyright: 2008, Bart Van Assche <bvanassche@acm.org>
+ 2007, Davide Libenzi <davidel@xmailserver.org>
+License: GPL-2.0+
+
+Files: cachegrind/*
+Copyright: 2002-2012, Nicholas Nethercote
+License: GPL-2.0+
+
+Files: cachegrind/cg_merge.c
+Copyright: 2000 Daniel Nagy, Budapest University of Technology and Economics
+ 2002-2012 Nicholas Nethercote
+License: GPL-2.0+
+
+Files: coregrind/*
+Copyright: 2000-2012, Julian Seward
+License: GPL-2.0+
+
+Files: coregrind/pub_core_seqmatch.h
+Copyright: 2008-2012, OpenWorks Ltd
+License: GPL-2.0+
+
+Files: coregrind/m_debuginfo/*
+Copyright: 2008-2012, OpenWorks LLP
+License: GPL-2.0+
+
+Files: coregrind/m_debuginfo/*readmacho.c
+Copyright: 2005-2012, Apple Inc.
+License: GPL-2.0+
+
+Files: coregrind/m_debuginfo/priv_d3basics.h
+Copyright: 2008-2012, OpenWorks LLP
+ 1992-2006, Free Software Foundation Inc.
+License: GPL-2.0+
+
+Files: coregrind/m_debuginfo/readpdb.c
+Copyright: 2006, Eric Pouech
+ 2008, BitWagon Software LLC
+ 2000-2012, Julian Seward
+License: GPL-2.0+
+
+Files: coregrind/pub_core_oset.h
+Copyright: 2005-2012, Nicholas Nethercote
+License: GPL-2.0+
+
+Files: coregrind/pub_core_vki.h
+Copyright: 2006-2012, OpenWorks LLP
+ 2005-2012, Nicholas Nethercote
+ 2000-2012, Julian Seward
+License: GPL-2.0+
+
+Files: coregrind/m_seqmatch.c
+ coregrind/pub_core_pathscan.h
+Copyright: 2006-2012 OpenWorks Ltd
+License: GPL-2.0+
+
+Files: coregrind/m_redir.c
+Copyright: 2003-2012, Jeremy Fitzhardinge
+ 2000-2012, Julian Seward
+License: GPL-2.0+
+
+Files: coregrind/m_gdbserver/*
+Copyright: 1989-2012, Free Software Foundation, Inc
+License: GPL-2.0+
+
+Files: coregrind/m_gdbserver/m_gdbserver.c
+Copyright: 2012-2011, Philippe Waroquiers
+License: GPL-2.0+
+
+Files: coregrind/m_ume/macho.c
+ coregrind/m_syswrap/syswrap-amd64-darwin.c
+ coregrind/m_syswrap/priv_syswrap-darwin.h
+ coregrind/m_syswrap/syswrap-x86-darwin.c
+ coregrind/m_syswrap/syswrap-darwin.c
+ coregrind/m_coredump/coredump-macho.c
+ coregrind/pub_core_mach.h
+ coregrind/m_mach/mach_basics.c
+Copyright: 2005-2012 Apple Inc
+License: GPL-2.0+
+
+Files: coregrind/m_aspacemgr/aspacemgr-common.c
+ coregrind/m_aspacemgr/priv_aspacemgr.h
+ coregrind/pub_core_xarray.h
+ coregrind/m_sparsewa.c
+ coregrind/pub_core_sparsewa.h
+ coregrind/m_xarray.c
+ coregrind/pub_core_initimg.h
+ coregrind/m_vkiscnums.c
+ coregrind/m_vki.c
+ coregrind/pub_core_signals.h
+ coregrind/pub_core_vkiscnums.h
+ coregrind/m_sigframe/sigframe-x86-darwin.c
+ coregrind/m_sigframe/sigframe-amd64-darwin.c
+Copyright: 2006-2012 OpenWorks LLP
+License: GPL-2.0+
+
+Files: coregrind/pub_core_vkiscnums_asm.h
+Copyright: 2006-2012 OpenWorks LLP
+ 2005-2012 Nicholas Nethercote
+ 2000-2012 Julian Seward
+License: GPL-2.0+
+
+Files: coregrind/m_wordfm.*
+Copyright: 2000,2002 Daniel Nagy
+ 2005-2012 Nicholas Nethercote
+ 2007-2012 Julian Seward
+License: GPL-2.0+
+
+Files: coregrind/m_options.c
+ coregrind/m_syswrap/syswrap-linux.c
+ coregrind/m_syswrap/syswrap-x86-linux.c
+ coregrind/m_syswrap/syswrap-amd64-linux.c
+ coregrind/m_syswrap/priv_syswrap-main.h
+ coregrind/m_syswrap/priv_syswrap-linux.h
+ coregrind/m_tooliface.c
+Copyright: 2000-2012 Nicholas Nethercote
+License: GPL-2.0+
+
+Files: coregrind/m_syswrap/syswrap-ppc*-linux.c
+Copyright: 2005-2012 Cerion Armour-Brown <cerion@open-works.co.uk>
+ 2005-2012 Nicholas Nethercote <njn@valgrind.org>
+License: GPL-2.0+
+
+Files: coregrind/m_syswrap/syswrap-arm-linux.c
+Copyright: 2008-2012 Evan Geller
+ 2000-2012 Nicholas Nethercote
+License: GPL-2.0+
+
+Files: coregrind/m_syswrap/syswrap-s390x-linux.c
+ coregrind/m_sigframe/sigframe-s390x-linux.c
+Copyright: IBM Corp. 2010-2012
+License: GPL-2.0+
+
+Files: coregrind/pub_core_libcsetjmp.h
+ coregrind/m_libcsetjmp.c
+Copyright: 2010-2012 Mozilla Inc
+License: GPL-2.0+
+
+Files: coregrind/m_mach/mach_msg.c
+Copyright: 1991,1990,1989 Carnegie Mellon University
+License: other
+ Permission to use, copy, modify and distribute this software and its
+ documentation is hereby granted, provided that both the copyright
+ notice and this permission notice appear in all copies of the
+ software, derivative works or modified versions, and any portions
+ thereof, and that both notices appear in supporting documentation.
+ .
+ CARNEGIE MELLON ALLOWS FREE USE OF THIS SOFTWARE IN ITS "AS IS"
+ CONDITION.  CARNEGIE MELLON DISCLAIMS ANY LIABILITY OF ANY KIND FOR
+ ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+
+Files: coregrind/m_oset.c
+Copyright: 2005-2012 Nicholas Nethercote
+ 2000 Daniel Nagy, Budapest University of Technology and Economics
+License: GPL-2.0+
+
+Files: coregrind/vgdb.c
+ coregrind/pub_core_gdbserver.h
+Copyright: 2012 Philippe Waroquiers
+License: GPL-2.0+
+
+Files: coregrind/m_sigframe/sigframe-arm-linux.c
+Copyright: 2008-2012 Evan Geller
+ 2000-2012 Nicholas Nethercote
+ 2004-2012 Paul Mackerras
+License: GPL-2.0+
+
+Files: coregrind/m_sigframe/sigframe-ppc*-linux.c
+Copyright: 2000-2012, Nicholas Nethercote
+ 2004-2012, Paul Mackerras
+License: GPL-2.0+
+
+Files: coregrind/m_sigframe/sigframe-amd64-linux.c
+ coregrind/m_sigframe/sigframe-x86-linux.c
+ coregrind/m_hashtable.c
+Copyright: 2000-2012 Nicholas Nethercote
+License: GPL-2.0+
+
+Files: coregrind/m_demangle/*
+Copyright: 1998-2007, Free Software Foundation, Inc
+License: GPL-2.0+
+
+Files: coregrind/pub_core_hashtable.h
+Copyright: 2005-2012 Nicholas Nethercote
+License: GPL-2.0+
+
+Files: perf/tinycc.c
+Copyright: 2001-2004, Fabrice Bellard
+License: LGPL-2.0+
+
+Files: perf/bz2.c
+Copyright: 1996-2004 Julian R Seward
+License: BSD-3-Clause
+
+Files: massif/*
+Copyright: 2003-2012, Nicholas Nethercote
+License: GPL-2.0+
+
+Files: drd/*
+Copyright: 2006-2012, Bart Van Assche <bvanassche@acm.org>
+License: GPL-2.0+
+
+Files: drd/tests/tsan_thread_wrappers_pthread.h
+ drd/tests/tsan_unittest.cpp
+Copyright: 2008-2008 Google Inc
+License: GPL-2.0+
+
+Files: drd/drd_strmem_intercepts.c
+Copyright: 2000-2012 Julian Seward
+License: GPL-2.0+
+
+Files: helgrind/*
+Copyright: 2007-2012, OpenWorks LLP
+License: GPL-2.0+
+
+Files: helgrind/tests/tc17_sembar.c
+Copyright: 2005 Free Software Foundation, Inc
+License: LGPL-2.1+
+
+Files: none/*
+Copyright: 2002-2012, Nicholas Nethercote
+License: GPL-2.0+
+
+Files: none/tests/ppc*/*
+Copyright: 2007-2012 IBM
+License: GPL-2.0+
+
+Files: none/tests/ppc*/jm-insns.c
+Copyright: 2005 Jocelyn Mayer
+License: GPL-2.0+
+
+Files: none/tests/ppc*/round.c
+Copyright: 2006 Dave Nomura
+License: GPL-2.0+
+
+Files: none/tests/ppc32/testVMX.c
+Copyright: 2004 CEPBA-IBM Research Institute
+License: GPL-2.0+
+
+Files: none/tests/x86/bug126147-x86.c
+Copyright: 2002 Thomas M. Ogrisegg
+License: GPL-2.0+
+
+Files: none/tests/pth_atfork1.c
+Copyright: 2000 Free Software Foundation, Inc
+License: LGPL-2.0+
+
+Files: include/*
+Copyright: 2000-2012, Julian Seward
+License: GPL-2.0+
+
+Files: include/pub_tool_xarray.h
+Copyright: 2007-2012 OpenWorks LLP
+License: GPL-2.0+
+
+Files: include/pub_tool_vkiscnums*.h
+Copyright: 2006-2012, OpenWorks LLP
+ 2005-2012, Nicholas Nethercote
+License: GPL-2.0+
+
+Files: include/pub_tool_oset.h
+Copyright: 2005-2012, Nicholas Nethercote
+License: GPL-2.0+
+
+Files: include/vki/vki-scnums-arm-linux.h
+Copyright: 2008-2012, Evan Geller
+License: GPL-2.0+
+
+Files: include/vki/vki-s390x-linux.h
+Copyright: IBM Corp. 2010-2012
+License: GPL-2.0+
+
+Files: include/vki/vki-scnums-darwin.h
+Copyright: 2007-2012 Apple Inc
+License: GPL-2.0+
+
+Files: include/vki/vki-scnums-s390x-linux.h
+Copyright: IBM Corp. 2010-2012
+License: GPL-2.0+
+
+Files: include/vki/vki-posixtypes-s390x-linux.h
+Copyright: IBM Corp. 2010-2012
+License: GPL-2.0+
+
+Files: include/pub_tool_hashtable.h
+Copyright: 2005-2012 Nicholas Nethercote
+License: GPL-2.0+
+
+Files: include/pub_tool_gdbserver.h
+Copyright: 2012-2011 Philippe Waroquiers
+License: GPL-2.0+
+
+Files: include/pub_tool_vki.h
+Copyright: 2006-2012 OpenWorks LLP
+ 2005-2012 Nicholas Nethercote
+ 2000-2012 Julian Seward
+License: GPL-2.0+
+
+Files: include/pub_tool_wordfm.h
+Copyright: 2000,2002 Daniel Nagy
+ 2005-2012 Nicholas Nethercote
+ 2007-2012 Julian Seward
+License: GPL-2.0+
+
+Files: include/pub_tool_sparsewa.h
+ include/pub_tool_seqmatch.h
+Copyright: 2008-2012, OpenWorks Ltd
+License: GPL-2.0+
+
+Files: include/pub_tool_libcsetjmp.h
+Copyright: 2010-2012, Mozilla Inc
+License: GPL-2.0+
+
+License: BSD-3-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions
+ are met:
+ .
+ 1. Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+ .
+ 2. Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+ .
+ 3. Neither the name of the Institute nor the names of its contributors
+    may be used to endorse or promote products derived from this software
+    without specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
+ FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ SUCH DAMAGE.
+
+License: GPL-2.0+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 2 of the License, or
+ (at your option) any later version.
+ .
+ This package is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ You should have received a copy of the GNU General Public License
+ along with this program. If not, see <http://www.gnu.org/licenses/>.
+ .
+ On Debian systems, the complete text of the GNU General Public License version
+ 2 can be found in "/usr/share/common-licenses/GPL-2".
+
+License: LGPL-2.0+
+ This library is free software; you can redistribute it and/or
+ modify it under the terms of the GNU Lesser General Public
+ License as published by the Free Software Foundation; either
+ version 2 of the License, or (at your option) any later version.
+ .
+ This library is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ Lesser General Public License for more details.
+ .
+ You should have received a copy of the GNU Lesser General Public
+ License along with this library; if not, write to the Free Software
+ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
+ .
+ On Debian systems, the complete text of the GNU Lesser General Public License
+ version 2 can be found in "/usr/share/common-licenses/LGPL-2".
+
+License: LGPL-2.1+
+ This library is free software; you can redistribute it and/or
+ modify it under the terms of the GNU Lesser General Public
+ License as published by the Free Software Foundation; either
+ version 2.1 of the License, or (at your option) any later version.
+ .
+ This library is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ Lesser General Public License for more details.
+ .
+ You should have received a copy of the GNU Lesser General Public
+ License along with this library; if not, write to the Free Software
+ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
+ .
+ On Debian systems, the complete text of the GNU Lesser General Public License
+ version 2.1 can be found in "/usr/share/common-licenses/LGPL-2.1".

@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.i386.linux.valgrind.s1">
+  <reg name="orig_eaxs1" bitsize="32" type="int" regnum="83"/>
+</feature>

@@ -1,0 +1,87 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>8. README.S390</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="dist.html" title="Valgrind Distribution Documents">
+<link rel="prev" href="dist.readme-packagers.html" title="7. README_PACKAGERS">
+<link rel="next" href="dist.readme-android.html" title="9. README.android">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="dist.readme-packagers.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="dist.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind Distribution Documents</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="dist.readme-android.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="dist.readme-s390"></a>8. README.S390</h1></div></div></div>
+<div class="literallayout"><p><br>
+      <br>
+Requirements<br>
+------------<br>
+- You need GCC 3.4 or later to compile the s390 port.<br>
+- To run valgrind a z10 machine or any later model is recommended.<br>
+  Older machine models down to and including z990 may work but have<br>
+  not been tested extensively.<br>
+<br>
+<br>
+Limitations<br>
+-----------<br>
+- 31-bit client programs are not supported.<br>
+- Hexadecimal floating point is not supported.<br>
+- Transactional memory is not supported. The transactional-execution<br>
+  facility is masked off from HWCAP.<br>
+- A full list of unimplemented instructions can be retrieved from<br>
+  `docs/internals/s390-opcodes.csv', by grepping for "not implemented".<br>
+- FP signalling is not accurate. E.g., the "compare and signal"<br>
+  instructions behave like their non-signalling counterparts.<br>
+- On machine models predating z10, cachegrind will assume a z10 cache<br>
+  architecture. Otherwise, cachegrind will query the hosts cache system<br>
+  and use those parameters.<br>
+- Some gcc versions use mvc to copy 4/8 byte values. This will affect<br>
+  certain debug messages. For example, memcheck will complain about<br>
+  4 one-byte reads/writes instead of just a single read/write.<br>
+<br>
+<br>
+Hardware facilities<br>
+-------------------<br>
+Valgrind does not require that the host machine has the same hardware<br>
+facilities as the machine for which the client program was compiled.<br>
+This is convenient. If possible, the JIT compiler will translate the<br>
+client instructions according to the facilities available on the host.<br>
+This means, though, that probing for hardware facilities by issuing<br>
+instructions from that facility and observing whether SIGILL is thrown<br>
+may not work. As a consequence, programs that attempt to do so may<br>
+behave differently. It is believed that this is a rare use case.<br>
+<br>
+<br>
+Reading Material<br>
+----------------<br>
+(1) ELF ABI s390x Supplement<br>
+    https://github.com/IBM/s390x-abi/releases<br>
+(2) z/Architecture Principles of Operation<br>
+    https://www.ibm.com/support/pages/zarchitecture-principles-operation<br>
+(3) z/Architecture Reference Summary<br>
+    https://www.ibm.com/support/pages/zarchitecture-reference-summary<br>
+<br>
+    </p></div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="dist.readme-packagers.html">&lt;&lt; 7. README_PACKAGERS</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="dist.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="dist.readme-android.html">9. README.android &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

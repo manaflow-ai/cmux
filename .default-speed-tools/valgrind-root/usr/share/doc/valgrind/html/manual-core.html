@@ -1,0 +1,3236 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>2. Using and understanding the Valgrind core</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="manual.html" title="Valgrind User Manual">
+<link rel="prev" href="manual-intro.html" title="1. Introduction">
+<link rel="next" href="manual-core-adv.html" title="3. Using and understanding the Valgrind core: Advanced Topics">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="manual-intro.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="manual.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind User Manual</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="manual-core-adv.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="manual-core"></a>2. Using and understanding the Valgrind core</h1></div></div></div>
+<div class="toc">
+<p><b>Table of Contents</b></p>
+<dl class="toc">
+<dt><span class="sect1"><a href="manual-core.html#manual-core.whatdoes">2.1. What Valgrind does with your program</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.started">2.2. Getting started</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.comment">2.3. The Commentary</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.report">2.4. Reporting of errors</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.suppress">2.5. Suppressing errors</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.debuginfod">2.6. Debuginfod</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.options">2.7. Core Command-line Options</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="manual-core.html#manual-core.toolopts">2.7.1. Tool-selection Option</a></span></dt>
+<dt><span class="sect2"><a href="manual-core.html#manual-core.basicopts">2.7.2. Basic Options</a></span></dt>
+<dt><span class="sect2"><a href="manual-core.html#manual-core.erropts">2.7.3. Error-related Options</a></span></dt>
+<dt><span class="sect2"><a href="manual-core.html#manual-core.mallocopts">2.7.4. malloc-related Options</a></span></dt>
+<dt><span class="sect2"><a href="manual-core.html#manual-core.rareopts">2.7.5. Uncommon Options</a></span></dt>
+<dt><span class="sect2"><a href="manual-core.html#manual-core.debugopts">2.7.6. Debugging Options</a></span></dt>
+<dt><span class="sect2"><a href="manual-core.html#manual-core.defopts">2.7.7. Setting Default Options</a></span></dt>
+<dt><span class="sect2"><a href="manual-core.html#manual-core.dynopts">2.7.8. Dynamically Changing Options</a></span></dt>
+</dl></dd>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.pthreads">2.8. Support for Threads</a></span></dt>
+<dd><dl><dt><span class="sect2"><a href="manual-core.html#manual-core.pthreads_perf_sched">2.8.1. Scheduling and Multi-Thread Performance</a></span></dt></dl></dd>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.signals">2.9. Handling of Signals</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.xtree">2.10. Execution Trees</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.install">2.11. Building and Installing Valgrind</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.problems">2.12. If You Have Problems</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.limits">2.13. Limitations</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.example">2.14. An Example Run</a></span></dt>
+<dt><span class="sect1"><a href="manual-core.html#manual-core.warnings">2.15. Warning Messages You Might See</a></span></dt>
+</dl>
+</div>
+<p>This chapter describes the Valgrind core services, command-line
+options and behaviours.  That means it is relevant regardless of what
+particular tool you are using.  The information should be sufficient for you
+to make effective day-to-day use of Valgrind.  Advanced topics related to
+the Valgrind core are described in <a class="xref" href="manual-core-adv.html" title="3. Using and understanding the Valgrind core: Advanced Topics">Valgrind's core: advanced topics</a>.
+</p>
+<p>
+A point of terminology: most references to "Valgrind" in this chapter
+refer to the Valgrind core services.  </p>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.whatdoes"></a>2.1. What Valgrind does with your program</h2></div></div></div>
+<p>Valgrind is designed to be as non-intrusive as possible. It works
+directly with existing executables. You don't need to recompile, relink,
+or otherwise modify the program to be checked.</p>
+<p>You invoke Valgrind like this:</p>
+<pre class="programlisting">
+valgrind [valgrind-options] your-prog [your-prog-options]</pre>
+<p>The most important option is <code class="option">--tool</code> which dictates
+which Valgrind tool to run.  For example, if want to run the command
+<code class="computeroutput">ls -l</code> using the memory-checking tool
+Memcheck, issue this command:</p>
+<pre class="programlisting">
+valgrind --tool=memcheck ls -l</pre>
+<p>However, Memcheck is the default, so if you want to use it you can
+omit the <code class="option">--tool</code> option.</p>
+<p>Regardless of which tool is in use, Valgrind takes control of your
+program before it starts.  Debugging information is read from the
+executable and associated libraries, so that error messages and other
+outputs can be phrased in terms of source code locations, when
+appropriate.</p>
+<p>Your program is then run on a synthetic CPU provided by the
+Valgrind core.  As new code is executed for the first time, the core
+hands the code to the selected tool.  The tool adds its own
+instrumentation code to this and hands the result back to the core,
+which coordinates the continued execution of this instrumented
+code.</p>
+<p>The amount of instrumentation code added varies widely between
+tools.  At one end of the scale, Memcheck adds code to check every
+memory access and every value computed,
+making it run 10-50 times slower than natively.
+At the other end of the spectrum, the minimal tool, called Nulgrind,
+adds no instrumentation at all and causes in total "only" about a 4 times
+slowdown.</p>
+<p>Valgrind simulates every single instruction your program executes.
+Because of this, the active tool checks, or profiles, not only the code
+in your application but also in all supporting dynamically-linked libraries,
+including the C library, graphical libraries, and so on.</p>
+<p>If you're using an error-detection tool, Valgrind may
+detect errors in system libraries, for example the GNU C or X11
+libraries, which you have to use.  You might not be interested in these
+errors, since you probably have no control over that code.  Therefore,
+Valgrind allows you to selectively suppress errors, by recording them in
+a suppressions file which is read when Valgrind starts up.  The build
+mechanism selects default suppressions which give reasonable
+behaviour for the OS and libraries detected on your machine.
+To make it easier to write suppressions, you can use the
+<code class="option">--gen-suppressions=yes</code> option.  This tells Valgrind to
+print out a suppression for each reported error, which you can then
+copy into a suppressions file.</p>
+<p>Valgrind will try to match the behaviour of applications
+compiled to run on the same OS and libraries that Valgrind was
+built with. If you use different libraries or a different
+OS version there may be some small differences in behaviour.</p>
+<p>Different error-checking tools report different kinds of errors.
+The suppression mechanism therefore allows you to say which tool or
+tool(s) each suppression applies to.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.started"></a>2.2. Getting started</h2></div></div></div>
+<p>First off, consider whether it might be beneficial to recompile
+your application and supporting libraries with debugging info enabled
+(the <code class="option">-g</code> option).  Without debugging info, the best
+Valgrind tools will be able to do is guess which function a particular
+piece of code belongs to, which makes both error messages and profiling
+output nearly useless.  With <code class="option">-g</code>, you'll get
+messages which point directly to the relevant source code lines.</p>
+<p>Another option you might like to consider, if you are working with
+C++, is <code class="option">-fno-inline</code>.  That makes it easier to see the
+function-call chain, which can help reduce confusion when navigating
+around large C++ apps.  For example, debugging
+OpenOffice.org with Memcheck is a bit easier when using this option.  You
+don't have to do this, but doing so helps Valgrind produce more accurate
+and less confusing error reports.  Chances are you're set up like this
+already, if you intended to debug your program with GNU GDB, or some
+other debugger. Alternatively, the Valgrind option 
+<code class="option">--read-inline-info=yes</code> instructs Valgrind to read
+the debug information describing inlining information. With this,
+function call chain will be properly shown, even when your application
+is compiled with inlining. </p>
+<p>If you are planning to use Memcheck: On rare
+occasions, compiler optimisations (at <code class="option">-O2</code>
+and above, and sometimes <code class="option">-O1</code>) have been
+observed to generate code which fools Memcheck into wrongly reporting
+uninitialised value errors, or missing uninitialised value errors.  We have
+looked in detail into fixing this, and unfortunately the result is that
+doing so would give a further significant slowdown in what is already a slow
+tool.  So the best solution is to turn off optimisation altogether.  Since
+this often makes things unmanageably slow, a reasonable compromise is to use
+<code class="option">-O</code>.  This gets you the majority of the
+benefits of higher optimisation levels whilst keeping relatively small the
+chances of false positives or false negatives from Memcheck.  Also, you
+should compile your code with <code class="option">-Wall</code> because
+it can identify some or all of the problems that Valgrind can miss at the
+higher optimisation levels.  (Using <code class="option">-Wall</code>
+is also a good idea in general.)  All other tools (as far as we know) are
+unaffected by optimisation level, and for profiling tools like Cachegrind it
+is better to compile your program at its normal optimisation level.</p>
+<p>Valgrind understands the DWARF2/3/4 formats used by GCC 3.1 and
+later.  The reader for "stabs" debugging format (used by GCC versions
+prior to 3.1) has been disabled in Valgrind 3.9.0.</p>
+<p>When you're ready to roll, run Valgrind as described above.
+Note that you should run the real
+(machine-code) executable here.  If your application is started by, for
+example, a shell or Perl script, you'll need to modify it to invoke
+Valgrind on the real executables.  Running such scripts directly under
+Valgrind will result in you getting error reports pertaining to
+<code class="filename">/bin/sh</code>,
+<code class="filename">/usr/bin/perl</code>, or whatever interpreter
+you're using.  This may not be what you want and can be confusing.  You
+can force the issue by giving the option
+<code class="option">--trace-children=yes</code>, but confusion is still
+likely.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.comment"></a>2.3. The Commentary</h2></div></div></div>
+<p>Valgrind tools write a commentary, a stream of text, detailing
+error reports and other significant events.  All lines in the commentary
+have following form:
+
+</p>
+<pre class="programlisting">
+==12345== some-message-from-Valgrind</pre>
+<p>
+</p>
+<p>The <code class="computeroutput">12345</code> is the process ID.
+This scheme makes it easy to distinguish program output from Valgrind
+commentary, and also easy to differentiate commentaries from different
+processes which have become merged together, for whatever reason.</p>
+<p>By default, Valgrind tools write only essential messages to the
+commentary, so as to avoid flooding you with information of secondary
+importance.  If you want more information about what is happening,
+re-run, passing the <code class="option">-v</code> option to Valgrind.  A second
+<code class="option">-v</code> gives yet more detail.
+</p>
+<p>You can direct the commentary to three different places:</p>
+<div class="orderedlist"><ol class="orderedlist" type="1">
+<li class="listitem">
+<p><a name="manual-core.out2fd"></a>The default: send it to a file descriptor, which is by default
+    2 (stderr).  So, if you give the core no options, it will write
+    commentary to the standard error stream.  If you want to send it to
+    some other file descriptor, for example number 9, you can specify
+    <code class="option">--log-fd=9</code>.</p>
+<p>This is the simplest and most common arrangement, but can
+    cause problems when Valgrinding entire trees of processes which
+    expect specific file descriptors, particularly stdin/stdout/stderr,
+    to be available for their own use.</p>
+</li>
+<li class="listitem"><p><a name="manual-core.out2file"></a>A less intrusive
+    option is to write the commentary to a file, which you specify by
+    <code class="option">--log-file=filename</code>.  There are special format
+    specifiers that can be used to use a process ID or an environment
+    variable name in the log file name.  These are useful/necessary if your
+    program invokes multiple processes (especially for MPI programs).
+    See the <a class="link" href="manual-core.html#manual-core.basicopts" title="2.7.2. Basic Options">basic options section</a>
+    for more details.</p></li>
+<li class="listitem">
+<p><a name="manual-core.out2socket"></a>The
+    least intrusive option is to send the commentary to a network
+    socket.  The socket is specified as an IP address and port number
+    pair, like this: <code class="option">--log-socket=192.168.0.1:12345</code> if
+    you want to send the output to host IP 192.168.0.1 port 12345
+    (note: we
+    have no idea if 12345 is a port of pre-existing significance).  You
+    can also omit the port number:
+    <code class="option">--log-socket=192.168.0.1</code>, in which case a default
+    port of 1500 is used.  This default is defined by the constant
+    <code class="computeroutput">VG_CLO_DEFAULT_LOGPORT</code> in the
+    sources.</p>
+<p>Note, unfortunately, that you have to use an IP address here,
+    rather than a hostname.</p>
+<p>Writing to a network socket is pointless if you don't
+    have something listening at the other end.  We provide a simple
+    listener program,
+    <code class="computeroutput">valgrind-listener</code>, which accepts
+    connections on the specified port and copies whatever it is sent to
+    stdout.  Probably someone will tell us this is a horrible security
+    risk.  It seems likely that people will write more sophisticated
+    listeners in the fullness of time.</p>
+<p><code class="computeroutput">valgrind-listener</code> can accept
+    simultaneous connections from up to 50 Valgrinded processes.  In front
+    of each line of output it prints the current number of active
+    connections in round brackets.</p>
+<p><code class="computeroutput">valgrind-listener</code> accepts three
+    command-line options:</p>
+<div class="variablelist">
+<a name="listener.opts.list"></a><dl class="variablelist">
+<dt><span class="term"><code class="option">-e --exit-at-zero</code></span></dt>
+<dd><p>When the number of connected processes falls back to zero,
+           exit.  Without this, it will run forever, that is, until you
+           send it Control-C.</p></dd>
+<dt><span class="term"><code class="option">--max-connect=INTEGER</code></span></dt>
+<dd><p>By default, the listener can connect to up to 50 processes.
+             Occasionally, that number is too small. Use this option to
+             provide a different limit. E.g.
+             <code class="computeroutput">--max-connect=100</code>.
+           </p></dd>
+<dt><span class="term"><code class="option">portnumber</code></span></dt>
+<dd><p>Changes the port it listens on from the default (1500).
+          The specified port must be in the range 1024 to 65535.
+          The same restriction applies to port numbers specified by a
+          <code class="option">--log-socket</code> to Valgrind itself.</p></dd>
+</dl>
+</div>
+<p>If a Valgrinded process fails to connect to a listener, for
+    whatever reason (the listener isn't running, invalid or unreachable
+    host or port, etc), Valgrind switches back to writing the commentary
+    to stderr.  The same goes for any process which loses an established
+    connection to a listener.  In other words, killing the listener
+    doesn't kill the processes sending data to it.</p>
+</li>
+</ol></div>
+<p>Here is an important point about the relationship between the
+commentary and profiling output from tools.  The commentary contains a
+mix of messages from the Valgrind core and the selected tool.  If the
+tool reports errors, it will report them to the commentary.  However, if
+the tool does profiling, the profile data will be written to a file of
+some kind, depending on the tool, and independent of what
+<code class="option">--log-*</code> options are in force.  The commentary is
+intended to be a low-bandwidth, human-readable channel.  Profiling data,
+on the other hand, is usually voluminous and not meaningful without
+further processing, which is why we have chosen this arrangement.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.report"></a>2.4. Reporting of errors</h2></div></div></div>
+<p>When an error-checking tool
+detects something bad happening in the program, an error
+message is written to the commentary.  Here's an example from Memcheck:</p>
+<pre class="programlisting">
+==25832== Invalid read of size 4
+==25832==    at 0x8048724: BandMatrix::ReSize(int, int, int) (bogon.cpp:45)
+==25832==    by 0x80487AF: main (bogon.cpp:66)
+==25832==  Address 0xBFFFF74C is not stack'd, malloc'd or free'd</pre>
+<p>This message says that the program did an illegal 4-byte read of
+address 0xBFFFF74C, which, as far as Memcheck can tell, is not a valid
+stack address, nor corresponds to any current heap blocks or recently freed
+heap blocks.  The read is happening at line 45 of
+<code class="filename">bogon.cpp</code>, called from line 66 of the same file,
+etc.  For errors associated with an identified (current or freed) heap block,
+for example reading freed memory, Valgrind reports not only the
+location where the error happened, but also where the associated heap block
+was allocated/freed.</p>
+<p>Valgrind remembers all error reports.  When an error is detected,
+it is compared against old reports, to see if it is a duplicate.  If so,
+the error is noted, but no further commentary is emitted.  This avoids
+you being swamped with bazillions of duplicate error reports.</p>
+<p>If you want to know how many times each error occurred, run with
+the <code class="option">-v</code> option.  When execution finishes, all the
+reports are printed out, along with, and sorted by, their occurrence
+counts.  This makes it easy to see which errors have occurred most
+frequently.</p>
+<p>Errors are reported before the associated operation actually
+happens.  For example, if you're using Memcheck and your program attempts to
+read from address zero, Memcheck will emit a message to this effect, and
+your program will then likely die with a segmentation fault.</p>
+<p>In general, you should try and fix errors in the order that they
+are reported.  Not doing so can be confusing.  For example, a program
+which copies uninitialised values to several memory locations, and later
+uses them, will generate several error messages, when run on Memcheck.
+The first such error message may well give the most direct clue to the
+root cause of the problem.</p>
+<p>The process of detecting duplicate errors is quite an
+expensive one and can become a significant performance overhead
+if your program generates huge quantities of errors.  To avoid
+serious problems, Valgrind will simply stop collecting
+errors after 1,000 different errors have been seen, or 10,000,000 errors
+in total have been seen.  In this situation you might as well
+stop your program and fix it, because Valgrind won't tell you
+anything else useful after this.  Note that the 1,000/10,000,000 limits
+apply after suppressed errors are removed.  These limits are
+defined in <code class="filename">m_errormgr.c</code> and can be increased
+if necessary.</p>
+<p>To avoid this cutoff you can use the
+<code class="option">--error-limit=no</code> option.  Then Valgrind will always show
+errors, regardless of how many there are.  Use this option carefully,
+since it may have a bad effect on performance.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.suppress"></a>2.5. Suppressing errors</h2></div></div></div>
+<p>The error-checking tools detect numerous problems in the system
+libraries, such as the C library, 
+which come pre-installed with your OS.  You can't easily fix
+these, but you don't want to see these errors (and yes, there are many!)
+So Valgrind reads a list of errors to suppress at startup.  A default
+suppression file is created by the
+<code class="computeroutput">./configure</code> script when the system is
+built.</p>
+<p>You can modify and add to the suppressions file at your leisure,
+or, better, write your own.  Multiple suppression files are allowed.
+This is useful if part of your project contains errors you can't or
+don't want to fix, yet you don't want to continuously be reminded of
+them.</p>
+<p><b>Note: </b>By far the easiest way to add
+suppressions is to use the <code class="option">--gen-suppressions=yes</code> option
+described in <a class="xref" href="manual-core.html#manual-core.options" title="2.7. Core Command-line Options">Core Command-line Options</a>.  This generates
+suppressions automatically.  For best results,
+though, you may want to edit the output
+    of  <code class="option">--gen-suppressions=yes</code> by hand, in which
+case it would be advisable to read through this section.
+</p>
+<p>Each error to be suppressed is described very specifically, to
+minimise the possibility that a suppression-directive inadvertently
+suppresses a bunch of similar errors which you did want to see.  The
+suppression mechanism is designed to allow precise yet flexible
+specification of errors to suppress.</p>
+<p>If you use the <code class="option">-v</code> option, at the end of execution,
+Valgrind prints out one line for each used suppression, giving the number of times
+it got used, its name and the filename and line number where the suppression is
+defined. Depending on the suppression kind, the filename and line number are optionally
+followed by additional information (such as the number of blocks and bytes suppressed
+by a Memcheck leak suppression). Here's the suppressions used by a
+run of <code class="computeroutput">valgrind -v --tool=memcheck ls -l</code>:</p>
+<pre class="programlisting">
+--1610-- used_suppression:      2 dl-hack3-cond-1 /usr/lib/valgrind/default.supp:1234
+--1610-- used_suppression:      2 glibc-2.5.x-on-SUSE-10.2-(PPC)-2a /usr/lib/valgrind/default.supp:1234
+</pre>
+<p>Multiple suppressions files are allowed.  Valgrind loads suppression
+patterns from <code class="filename">$PREFIX/lib/valgrind/default.supp</code> unless
+<code class="option">--default-suppressions=no</code> has been specified.  You can
+ask to add suppressions from additional files by specifying
+<code class="option">--suppressions=/path/to/file.supp</code> one or more times.
+</p>
+<p>If you want to understand more about suppressions, look at an
+existing suppressions file whilst reading the following documentation.
+The file <code class="filename">glibc-2.3.supp</code>, in the source
+distribution, provides some good examples.</p>
+<p>Blank and comment lines in a suppression file are ignored.  Comment lines
+  are made of 0 or more blanks followed by a # character followed by some
+  text.</p>
+<p>Each suppression has the following components:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p>First line: its name.  This merely gives a handy name to the
+    suppression, by which it is referred to in the summary of used
+    suppressions printed out when a program finishes.  It's not
+    important what the name is; any identifying string will do.</p></li>
+<li class="listitem">
+<p>Second line: name of the tool(s) that the suppression is for
+    (if more than one, comma-separated), and the name of the suppression
+    itself, separated by a colon (n.b.: no spaces are allowed), eg:</p>
+<pre class="programlisting">
+tool_name1,tool_name2:suppression_name</pre>
+<p>Recall that Valgrind is a modular system, in which
+    different instrumentation tools can observe your program whilst it
+    is running.  Since different tools detect different kinds of errors,
+    it is necessary to say which tool(s) the suppression is meaningful
+    to.</p>
+<p>Tools will complain, at startup, if a tool does not understand
+    any suppression directed to it.  Tools ignore suppressions which are
+    not directed to them.  As a result, it is quite practical to put
+    suppressions for all tools into the same suppression file.</p>
+</li>
+<li class="listitem"><p>Next line: a small number of suppression types have extra
+    information after the second line (eg. the <code class="varname">Param</code>
+    suppression for Memcheck)</p></li>
+<li class="listitem">
+<p>Remaining lines: This is the calling context for the error --
+    the chain of function calls that led to it.  There can be up to 24
+    of these lines.</p>
+<p>Locations may be names of either shared objects, functions,
+    or source lines.  They begin with
+    <code class="computeroutput">obj:</code>,
+    <code class="computeroutput">fun:</code>, or
+    <code class="computeroutput">src:</code> respectively.  Function,
+    object, and file names to match against may use the wildcard characters
+    <code class="computeroutput">*</code> and
+    <code class="computeroutput">?</code>.   Source lines are specified
+    using the form <code class="filename">filename[:lineNumber]</code>.</p>
+<p><span class="command"><strong>Important note: </strong></span> C++ function names must be
+    <span class="command"><strong>mangled</strong></span>.  If you are writing suppressions by
+    hand, use the <code class="option">--demangle=no</code> option to get the
+    mangled names in your error messages.  An example of a mangled
+    C++ name is  <code class="computeroutput">_ZN9QListView4showEv</code>.
+    This is the form that the GNU C++ compiler uses internally, and
+    the form that must be used in suppression files.  The equivalent
+    demangled name, <code class="computeroutput">QListView::show()</code>,
+    is what you see at the C++ source code level.
+    </p>
+<p>A location line may also be
+    simply "<code class="computeroutput">...</code>" (three dots).  This is
+    a frame-level wildcard, which matches zero or more frames.  Frame
+    level wildcards are useful because they make it easy to ignore
+    varying numbers of uninteresting frames in between frames of
+    interest.  That is often important when writing suppressions which
+    are intended to be robust against variations in the amount of
+    function inlining done by compilers.</p>
+</li>
+<li class="listitem"><p>Finally, the entire suppression must be between curly
+    braces. Each brace must be the first character on its own
+    line.</p></li>
+</ul></div>
+<p>A suppression only suppresses an error when the error matches all
+the details in the suppression.  Here's an example:</p>
+<pre class="programlisting">
+{
+  __gconv_transform_ascii_internal/__mbrtowc/mbtowc
+  Memcheck:Value4
+  fun:__gconv_transform_ascii_internal
+  fun:__mbr*toc
+  fun:mbtowc
+}</pre>
+<p>What it means is: for Memcheck only, suppress a
+use-of-uninitialised-value error, when the data size is 4, when it
+occurs in the function
+<code class="computeroutput">__gconv_transform_ascii_internal</code>, when
+that is called from any function of name matching
+<code class="computeroutput">__mbr*toc</code>, when that is called from
+<code class="computeroutput">mbtowc</code>.  It doesn't apply under any
+other circumstances.  The string by which this suppression is identified
+to the user is
+<code class="computeroutput">__gconv_transform_ascii_internal/__mbrtowc/mbtowc</code>.</p>
+<p>(See <a class="xref" href="mc-manual.html#mc-manual.suppfiles" title="4.4. Writing suppression files">Writing suppression files</a> for more details
+on the specifics of Memcheck's suppression kinds.)</p>
+<p>Another example, again for the Memcheck tool:</p>
+<pre class="programlisting">
+{
+  libX11.so.6.2/libX11.so.6.2/libXaw.so.7.0
+  Memcheck:Value4
+  obj:/usr/X11R6/lib/libX11.so.6.2
+  obj:/usr/X11R6/lib/libX11.so.6.2
+  obj:/usr/X11R6/lib/libXaw.so.7.0
+}</pre>
+<p>This suppresses any size 4 uninitialised-value error which occurs
+anywhere in <code class="filename">libX11.so.6.2</code>, when called from
+anywhere in the same library, when called from anywhere in
+<code class="filename">libXaw.so.7.0</code>.  The inexact specification of
+locations is regrettable, but is about all you can hope for, given that
+the X11 libraries shipped on the Linux distro on which this example
+was made have had their symbol tables removed.</p>
+<p>An example of the src: specification, again for the Memcheck tool:</p>
+<pre class="programlisting">
+{
+  libX11.so.6.2/libX11.so.6.2/libXaw.so.7.0
+  Memcheck:Value4
+  src:valid.c:321
+}</pre>
+<p>This suppresses any size-4 uninitialised-value error which occurs
+at line 321 in <code class="filename">valid.c</code>.</p>
+<p>Although the above two examples do not make this clear, you can
+freely mix <code class="computeroutput">obj:</code>,
+<code class="computeroutput">fun:</code>, and
+<code class="computeroutput">src:</code>
+lines in a suppression.</p>
+<p>Finally, here's an example using three frame-level wildcards:</p>
+<pre class="programlisting">
+{
+   a-contrived-example
+   Memcheck:Leak
+   fun:malloc
+   ...
+   fun:ddd
+   ...
+   fun:ccc
+   ...
+   fun:main
+}
+</pre>
+<p>This suppresses Memcheck memory-leak errors, in the case where
+the allocation was done by <code class="computeroutput">main</code>
+calling (though any number of intermediaries, including zero)
+<code class="computeroutput">ccc</code>,
+calling onwards via
+<code class="computeroutput">ddd</code> and eventually
+to <code class="computeroutput">malloc.</code>.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.debuginfod"></a>2.6. Debuginfod</h2></div></div></div>
+<p><a name="debuginfod.para.1"></a>Valgrind supports the downloading of debuginfo
+files via debuginfod, an HTTP server for distributing ELF/DWARF debugging
+information. When a debuginfo file cannot be found locally, Valgrind is able
+to query debuginfod servers for the file using the file's build-id.</p>
+<p><a name="debuginfod.para.2"></a>In order to use this feature
+<code class="computeroutput">debuginfod-find</code> must be installed and the
+<code class="computeroutput">$DEBUGINFOD_URLS</code> environment variable must
+contain space-separated URLs of debuginfod servers. Valgrind does not support
+<code class="computeroutput">debuginfod-find</code> verbose output that is
+normally enabled with <code class="computeroutput">$DEBUGINFOD_PROGRESS</code>
+and <code class="computeroutput">$DEBUGINFOD_VERBOSE</code>. These environment
+variables will be ignored. This feature is supported on Linux only.</p>
+<p><a name="debuginfod.para.3"></a>For more information regarding debuginfod, see
+<a class="ulink" href="https://sourceware.org/elfutils/Debuginfod.html" target="_top">Elfutils Debuginfod</a>
+.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.options"></a>2.7. Core Command-line Options</h2></div></div></div>
+<p>As mentioned above, Valgrind's core accepts a common set of options.
+The tools also accept tool-specific options, which are documented
+separately for each tool.</p>
+<p>Valgrind's default settings succeed in giving reasonable behaviour
+in most cases.  We group the available options by rough categories.</p>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-core.toolopts"></a>2.7.1. Tool-selection Option</h3></div></div></div>
+<p><a name="tool.opts.para"></a>The single most important option.</p>
+<div class="variablelist">
+<a name="tool.opts.list"></a><dl class="variablelist">
+<dt>
+<a name="tool_name"></a><span class="term">
+      <code class="option">--tool=&lt;toolname&gt; [default: memcheck] </code>
+    </span>
+</dt>
+<dd><p>Run the Valgrind tool called <code class="varname">toolname</code>,
+      e.g. memcheck, cachegrind, callgrind, helgrind, drd, massif,
+      dhat, lackey, none, exp-bbv, etc.</p></dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-core.basicopts"></a>2.7.2. Basic Options</h3></div></div></div>
+<p><a name="basic.opts.para"></a>These options work with all tools.</p>
+<div class="variablelist">
+<a name="basic.opts.list"></a><dl class="variablelist">
+<dt>
+<a name="opt.help"></a><span class="term"><code class="option">-h --help</code></span>
+</dt>
+<dd><p>Show help for all options, both for the core and for the
+      selected tool.  If the option is repeated it is equivalent to giving
+      <code class="option">--help-debug</code>.</p></dd>
+<dt>
+<a name="opt.help-debug"></a><span class="term"><code class="option">--help-debug</code></span>
+</dt>
+<dd><p>Same as <code class="option">--help</code>, but also lists debugging
+      options which usually are only of use to Valgrind's
+      developers.</p></dd>
+<dt>
+<a name="opt.version"></a><span class="term"><code class="option">--version</code></span>
+</dt>
+<dd><p>Show the version number of the Valgrind core. Tools can have
+      their own version numbers. There is a scheme in place to ensure
+      that tools only execute when the core version is one they are
+      known to work with. This was done to minimise the chances of
+      strange problems arising from tool-vs-core version
+      incompatibilities.</p></dd>
+<dt>
+<a name="opt.quiet"></a><span class="term"><code class="option">-q</code>, <code class="option">--quiet</code></span>
+</dt>
+<dd><p>Run silently, and only print error messages. Useful if you
+      are running regression tests or have some other automated test
+      machinery.</p></dd>
+<dt>
+<a name="opt.verbose"></a><span class="term"><code class="option">-v</code>, <code class="option">--verbose</code></span>
+</dt>
+<dd><p>Be more verbose. Gives extra information on various aspects
+      of your program, such as: the shared objects loaded, the
+      suppressions used, the progress of the instrumentation and
+      execution engines, and warnings about unusual behaviour. Repeating
+      the option increases the verbosity level.</p></dd>
+<dt>
+<a name="opt.trace-children"></a><span class="term">
+      <code class="option">--trace-children=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd>
+<p>When enabled, Valgrind will trace into sub-processes
+      initiated via the <code class="varname">exec</code> system call.  This is
+      necessary for multi-process programs.
+      </p>
+<p>Note that Valgrind does trace into the child of a
+      <code class="varname">fork</code> (it would be difficult not to, since
+      <code class="varname">fork</code> makes an identical copy of a process), so this
+      option is arguably badly named.  However, most children of
+      <code class="varname">fork</code> calls immediately call <code class="varname">exec</code>
+      anyway.
+      </p>
+</dd>
+<dt>
+<a name="opt.trace-children-skip"></a><span class="term">
+      <code class="option">--trace-children-skip=patt1,patt2,... </code>
+    </span>
+</dt>
+<dd>
+<p>This option only has an effect when 
+        <code class="option">--trace-children=yes</code> is specified.  It allows
+        for some children to be skipped.  The option takes a comma
+        separated list of patterns for the names of child executables
+        that Valgrind should not trace into.  Patterns may include the
+        metacharacters <code class="computeroutput">?</code>
+        and <code class="computeroutput">*</code>, which have the usual
+        meaning.</p>
+<p>
+        This can be useful for pruning uninteresting branches from a
+        tree of processes being run on Valgrind.  But you should be
+        careful when using it.  When Valgrind skips tracing into an
+        executable, it doesn't just skip tracing that executable, it
+        also skips tracing any of that executable's child processes.
+        In other words, the flag doesn't merely cause tracing to stop
+        at the specified executables -- it skips tracing of entire
+        process subtrees rooted at any of the specified
+        executables.</p>
+</dd>
+<dt>
+<a name="opt.trace-children-skip-by-arg"></a><span class="term">
+      <code class="option">--trace-children-skip-by-arg=patt1,patt2,... </code>
+    </span>
+</dt>
+<dd><p>This is the same as  
+        <code class="option">--trace-children-skip</code>, with one difference:
+        the decision as to whether to trace into a child process is
+        made by examining the arguments to the child process, rather
+        than the name of its executable.</p></dd>
+<dt>
+<a name="opt.child-silent-after-fork"></a><span class="term">
+      <code class="option">--child-silent-after-fork=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>When enabled, Valgrind will not show any debugging or
+      logging output for the child process resulting from
+      a <code class="varname">fork</code> call.  This can make the output less
+      confusing (although more misleading) when dealing with processes
+      that create children.  It is particularly useful in conjunction
+      with <code class="varname">--trace-children=</code>.  Use of this option is also
+      strongly recommended if you are requesting XML output
+      (<code class="varname">--xml=yes</code>), since otherwise the XML from child and
+      parent may become mixed up, which usually makes it useless.
+      </p></dd>
+<dt>
+<a name="opt.vgdb"></a><span class="term">
+      <code class="option">--vgdb=&lt;no|yes|full&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd>
+<p>Valgrind will provide "gdbserver" functionality when
+      <code class="option">--vgdb=yes</code> or <code class="option">--vgdb=full</code> is
+      specified.  This allows an external GNU GDB debugger to control
+      and debug your program when it runs on Valgrind.
+      <code class="option">--vgdb=full</code> incurs significant performance
+      overheads, but provides more precise breakpoints and
+      watchpoints. See <a class="xref" href="manual-core-adv.html#manual-core-adv.gdbserver" title="3.2. Debugging your program using Valgrind gdbserver and GDB">Debugging your program using Valgrind's gdbserver and GDB</a> for
+      a detailed description.
+      </p>
+<p> If the embedded gdbserver is enabled but no gdb is
+      currently being used, the <a class="xref" href="manual-core-adv.html#manual-core-adv.vgdb" title="3.2.10. vgdb command line options">vgdb</a>
+      command line utility can send "monitor commands" to Valgrind
+      from a shell.  The Valgrind core provides a set of
+      <a class="xref" href="manual-core-adv.html#manual-core-adv.valgrind-monitor-commands" title="3.2.11. Valgrind monitor commands">Valgrind monitor commands</a>. A tool
+      can optionally provide tool specific monitor commands, which are
+      documented in the tool specific chapter.
+      </p>
+</dd>
+<dt>
+<a name="opt.vgdb-error"></a><span class="term">
+      <code class="option">--vgdb-error=&lt;number&gt; [default: 999999999] </code>
+    </span>
+</dt>
+<dd><p> Use this option when the Valgrind gdbserver is enabled with
+      <code class="option">--vgdb=yes</code> or <code class="option">--vgdb=full</code>.
+      Tools that report errors will wait
+      for "<code class="computeroutput">number</code>" errors to be
+      reported before freezing the program and waiting for you to
+      connect with GDB.  It follows that a value of zero will cause
+      the gdbserver to be started before your program is executed.
+      This is typically used to insert GDB breakpoints before
+      execution, and also works with tools that do not report
+      errors, such as Massif.
+      </p></dd>
+<dt>
+<a name="opt.vgdb-stop-at"></a><span class="term">
+      <code class="option">--vgdb-stop-at=&lt;set&gt; [default: none] </code>
+    </span>
+</dt>
+<dd>
+<p> Use this option when the Valgrind gdbserver is enabled with
+      <code class="option">--vgdb=yes</code> or <code class="option">--vgdb=full</code>.
+      The Valgrind gdbserver will be invoked for each error after
+      <code class="option">--vgdb-error</code> have been reported.
+      You can additionally ask the Valgrind gdbserver to be invoked
+      for other events, specified in one of the following ways:  </p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p>a comma separated list of one or more of
+            <code class="option">startup exit abexit valgrindabexit</code>.</p>
+<p>The values <code class="option">startup</code> <code class="option">exit</code>
+          <code class="option">valgrindabexit</code> respectively indicate to invoke
+          gdbserver before your program is executed, after the last instruction
+          of your program, on Valgrind abnormal exit (e.g. internal error, out
+          of memory, ...).</p>
+<p>The option <code class="option">abexit</code> is similar to <code class="option">exit</code>
+          but tells to invoke gdbserver only when your application exits abnormally
+          (i.e. with an exit code different of 0). </p>
+<p>Note: <code class="option">startup</code> and
+          <code class="option">--vgdb-error=0</code> will both cause Valgrind
+          gdbserver to be invoked before your program is executed. The
+          <code class="option">--vgdb-error=0</code> will in addition cause your 
+          program to stop on all subsequent errors.</p>
+</li>
+<li class="listitem"><p><code class="option">all</code> to specify the complete set.
+            It is equivalent to
+            <code class="option">--vgdb-stop-at=startup,exit,abexit,valgrindabexit</code>.</p></li>
+<li class="listitem"><p><code class="option">none</code> for the empty set.</p></li>
+</ul></div>
+</dd>
+<dt>
+<a name="opt.track-fds"></a><span class="term">
+      <code class="option">--track-fds=&lt;yes|no|all&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>When enabled, Valgrind will print out a list of open file
+      descriptors on exit or on request, via the gdbserver monitor
+      command <code class="varname">v.info open_fds</code>.  Along with each
+      file descriptor is printed a stack backtrace of where the file
+      was opened and any details relating to the file descriptor such
+      as the file name or socket details. Use <code class="option">all</code> to
+      include reporting on <code class="computeroutput">stdin</code>,
+      <code class="computeroutput">stdout</code> and
+      <code class="computeroutput">stderr</code>.</p></dd>
+<dt>
+<a name="opt.time-stamp"></a><span class="term">
+      <code class="option">--time-stamp=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>When enabled, each message is preceded with an indication of
+      the elapsed wallclock time since startup, expressed as days,
+      hours, minutes, seconds and milliseconds.</p></dd>
+<dt>
+<a name="opt.log-fd"></a><span class="term">
+      <code class="option">--log-fd=&lt;number&gt; [default: 2, stderr] </code>
+    </span>
+</dt>
+<dd><p>Specifies that Valgrind should send all of its messages to
+      the specified file descriptor.  The default, 2, is the standard
+      error channel (stderr).  Note that this may interfere with the
+      client's own use of stderr, as Valgrind's output will be
+      interleaved with any output that the client sends to
+      stderr.</p></dd>
+<dt>
+<a name="opt.log-file"></a><span class="term">
+      <code class="option">--log-file=&lt;filename&gt; </code>
+    </span>
+</dt>
+<dd>
+<p>Specifies that Valgrind should send all of its messages to
+      the specified file.  If the file name is empty, it causes an abort.
+      There are three special format specifiers that can be used in the file
+      name.</p>
+<p><code class="option">%p</code> is replaced with the current process ID.
+      This is very useful for program that invoke multiple processes.
+      WARNING: If you use <code class="option">--trace-children=yes</code> and your
+      program invokes multiple processes OR your program forks without
+      calling exec afterwards, and you don't use this specifier
+      (or the <code class="option">%q</code> specifier below), the Valgrind output from
+      all those processes will go into one file, possibly jumbled up, and
+      possibly incomplete. Note: If the program forks and calls exec afterwards,
+      Valgrind output of the child from the period between fork and exec
+      will be lost. Fortunately this gap is really tiny for most programs;
+      and modern programs use <code class="computeroutput">posix_spawn</code>
+      anyway.</p>
+<p><code class="option">%n</code> is replaced with a file sequence number
+      unique for this process.
+      This is useful for processes that produces several files
+      from the same filename template.</p>
+<p><code class="option">%q{FOO}</code> is replaced with the contents of the
+      environment variable <code class="varname">FOO</code>.  If the
+      <code class="option">{FOO}</code> part is malformed, it causes an abort.  This
+      specifier is rarely needed, but very useful in certain circumstances
+      (eg. when running MPI programs).  The idea is that you specify a
+      variable which will be set differently for each process in the job,
+      for example <code class="computeroutput">BPROC_RANK</code> or whatever is
+      applicable in your MPI setup.  If the named environment variable is not
+      set, it causes an abort.  Note that in some shells, the
+      <code class="option">{</code> and <code class="option">}</code> characters may need to be
+      escaped with a backslash.</p>
+<p><code class="option">%%</code> is replaced with <code class="option">%</code>.</p>
+<p>If an <code class="option">%</code> is followed by any other character, it
+      causes an abort.</p>
+<p>If the file name specifies a relative file name, it is put
+      in the program's initial working directory: this is the current
+      directory when the program started its execution after the fork
+      or after the exec.  If it specifies an absolute file name (ie.
+      starts with '/') then it is put there.
+      </p>
+</dd>
+<dt>
+<a name="opt.log-socket"></a><span class="term">
+      <code class="option">--log-socket=&lt;ip-address:port-number&gt; </code>
+    </span>
+</dt>
+<dd><p>Specifies that Valgrind should send all of its messages to
+      the specified port at the specified IP address.  The port may be
+      omitted, in which case port 1500 is used.  If a connection cannot
+      be made to the specified socket, Valgrind falls back to writing
+      output to the standard error (stderr).  This option is intended to
+      be used in conjunction with the
+      <code class="computeroutput">valgrind-listener</code> program.  For
+      further details, see 
+      <a class="link" href="manual-core.html#manual-core.comment" title="2.3. The Commentary">the commentary</a>
+      in the manual.</p></dd>
+<dt>
+<a name="opt.enable-debuginfod"></a><span class="term">
+      <code class="option">--enable-debuginfod=&lt;no|yes&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd><p>When enabled Valgrind will attempt to download missing debuginfo
+      from debuginfod servers if space-separated server URLs are present
+      in the <code class="computeroutput">$DEBUGINFOD_URLS</code> environment
+      variable.  This option is supported on Linux only.
+      </p></dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-core.erropts"></a>2.7.3. Error-related Options</h3></div></div></div>
+<p><a name="error-related.opts.para"></a>These options are used by all tools
+that can report errors, e.g. Memcheck, but not Cachegrind.</p>
+<div class="variablelist">
+<a name="error-related.opts.list"></a><dl class="variablelist">
+<dt>
+<a name="opt.xml"></a><span class="term">
+      <code class="option">--xml=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd>
+<p>When enabled, the important parts of the output (e.g. tool error
+      messages) will be in XML format rather than plain text.  Furthermore,
+      the XML output will be sent to a different output channel than the
+      plain text output.  Therefore, you also must use one of
+      <code class="option">--xml-fd</code>, <code class="option">--xml-file</code> or
+      <code class="option">--xml-socket</code> to specify where the XML is to be sent.
+      </p>
+<p>Less important messages will still be printed in plain text, but
+      because the XML output and plain text output are sent to different
+      output channels (the destination of the plain text output is still
+      controlled by <code class="option">--log-fd</code>, <code class="option">--log-file</code>
+      and <code class="option">--log-socket</code>) this should not cause problems.
+      </p>
+<p>This option is aimed at making life easier for tools that consume
+      Valgrind's output as input, such as GUI front ends.  Currently this
+      option works with Memcheck, Helgrind and DRD.  The output format is
+      specified in the file
+      <code class="computeroutput">docs/internals/xml-output-protocol4.txt</code>
+      in the source tree for Valgrind 3.5.0 or later.</p>
+<p>The recommended options for a GUI to pass, when requesting
+      XML output, are: <code class="option">--xml=yes</code> to enable XML output,
+      <code class="option">--xml-file</code> to send the XML output to a (presumably
+      GUI-selected) file, <code class="option">--log-file</code> to send the plain
+      text output to a second GUI-selected file,
+      <code class="option">--child-silent-after-fork=yes</code>, and
+      <code class="option">-q</code> to restrict the plain text output to critical
+      error messages created by Valgrind itself.  For example, failure to
+      read a specified suppressions file counts as a critical error message.
+      In this way, for a successful run the text output file will be empty.
+      But if it isn't empty, then it will contain important information
+      which the GUI user should be made aware
+      of.</p>
+</dd>
+<dt>
+<a name="opt.xml-fd"></a><span class="term">
+      <code class="option">--xml-fd=&lt;number&gt; [default: -1, disabled] </code>
+    </span>
+</dt>
+<dd><p>Specifies that Valgrind should send its XML output to the
+      specified file descriptor.  It must be used in conjunction with
+      <code class="option">--xml=yes</code>.</p></dd>
+<dt>
+<a name="opt.xml-file"></a><span class="term">
+      <code class="option">--xml-file=&lt;filename&gt; </code>
+    </span>
+</dt>
+<dd><p>Specifies that Valgrind should send its XML output
+      to the specified file.  It must be used in conjunction with
+      <code class="option">--xml=yes</code>.  Any <code class="option">%p</code> or
+      <code class="option">%q</code> sequences appearing in the filename are expanded
+      in exactly the same way as they are for <code class="option">--log-file</code>.
+      See the description of  <a class="xref" href="manual-core.html#opt.log-file">--log-file</a> for details.
+      </p></dd>
+<dt>
+<a name="opt.xml-socket"></a><span class="term">
+      <code class="option">--xml-socket=&lt;ip-address:port-number&gt; </code>
+    </span>
+</dt>
+<dd><p>Specifies that Valgrind should send its XML output the
+      specified port at the specified IP address.  It must be used in
+      conjunction with <code class="option">--xml=yes</code>.  The form of the argument
+      is the same as that used by <code class="option">--log-socket</code>.
+      See the description of <code class="option">--log-socket</code>
+      for further details.</p></dd>
+<dt>
+<a name="opt.xml-user-comment"></a><span class="term">
+      <code class="option">--xml-user-comment=&lt;string&gt; </code>
+    </span>
+</dt>
+<dd><p>Embeds an extra user comment string at the start of the XML
+      output.  Only works when <code class="option">--xml=yes</code> is specified;
+      ignored otherwise.</p></dd>
+<dt>
+<a name="opt.demangle"></a><span class="term">
+      <code class="option">--demangle=&lt;yes|no&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd>
+<p>Enable/disable automatic demangling (decoding) of C++ names.
+      Enabled by default.  When enabled, Valgrind will attempt to
+      translate encoded C++ names back to something approaching the
+      original.  The demangler handles symbols mangled by g++ versions
+      2.X, 3.X and 4.X.</p>
+<p>An important fact about demangling is that function names
+      mentioned in suppressions files should be in their mangled form.
+      Valgrind does not demangle function names when searching for
+      applicable suppressions, because to do otherwise would make
+      suppression file contents dependent on the state of Valgrind's
+      demangling machinery, and also slow down suppression matching.</p>
+</dd>
+<dt>
+<a name="opt.num-callers"></a><span class="term">
+      <code class="option">--num-callers=&lt;number&gt; [default: 12] </code>
+    </span>
+</dt>
+<dd>
+<p>Specifies the maximum number of entries shown in stack traces
+      that identify program locations.  Note that errors are commoned up
+      using only the top four function locations (the place in the current
+      function, and that of its three immediate callers).  So this doesn't
+      affect the total number of errors reported.</p>
+<p>The maximum value for this is 500. Note that higher settings
+      will make Valgrind run a bit more slowly and take a bit more
+      memory, but can be useful when working with programs with
+      deeply-nested call chains.</p>
+</dd>
+<dt>
+<a name="opt.unw-stack-scan-thresh"></a><span class="term">
+      <code class="option">--unw-stack-scan-thresh=&lt;number&gt; [default: 0] </code>
+    , </span><span class="term">
+      <code class="option">--unw-stack-scan-frames=&lt;number&gt; [default: 5] </code>
+    </span>
+</dt>
+<dd>
+<p>Stack-scanning support is available only on ARM
+      targets.</p>
+<p>These flags enable and control stack unwinding by stack
+      scanning.  When the normal stack unwinding mechanisms -- usage
+      of Dwarf CFI records, and frame-pointer following -- fail, stack
+      scanning may be able to recover a stack trace.</p>
+<p>Note that stack scanning is an imprecise, heuristic
+      mechanism that may give very misleading results, or none at all.
+      It should be used only in emergencies, when normal unwinding
+      fails, and it is important to nevertheless have stack
+      traces.</p>
+<p>Stack scanning is a simple technique: the unwinder reads
+      words from the stack, and tries to guess which of them might be
+      return addresses, by checking to see if they point just after
+      ARM or Thumb call instructions.  If so, the word is added to the
+      backtrace.</p>
+<p>The main danger occurs when a function call returns,
+      leaving its return address exposed, and a new function is
+      called, but the new function does not overwrite the old address.
+      The result of this is that the backtrace may contain entries for
+      functions which have already returned, and so be very
+      confusing.</p>
+<p>A second limitation of this implementation is that it will
+      scan only the page (4KB, normally) containing the starting stack
+      pointer.  If the stack frames are large, this may result in only
+      a few (or not even any) being present in the trace.  Also, if
+      you are unlucky and have an initial stack pointer near the end
+      of its containing page, the scan may miss all interesting
+      frames.</p>
+<p>By default stack scanning is disabled.  The normal use
+      case is to ask for it when a stack trace would otherwise be very
+      short.  So, to enable it,
+      use <code class="computeroutput">--unw-stack-scan-thresh=number</code>.
+      This requests Valgrind to try using stack scanning to "extend"
+      stack traces which contain fewer
+      than <code class="computeroutput">number</code> frames.</p>
+<p>If stack scanning does take place, it will only generate
+      at most the number of frames specified
+      by <code class="computeroutput">--unw-stack-scan-frames</code>.
+      Typically, stack scanning generates so many garbage entries that
+      this value is set to a low value (5) by default.  In no case
+      will a stack trace larger than the value specified
+      by <code class="computeroutput">--num-callers</code> be
+      created.</p>
+</dd>
+<dt>
+<a name="opt.error-limit"></a><span class="term">
+      <code class="option">--error-limit=&lt;yes|no&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd><p>When enabled, Valgrind stops reporting errors after 10,000,000
+      in total, or 1,000 different ones, have been seen.  This is to
+      stop the error tracking machinery from becoming a huge performance
+      overhead in programs with many errors.</p></dd>
+<dt>
+<a name="opt.error-exitcode"></a><span class="term">
+      <code class="option">--error-exitcode=&lt;number&gt; [default: 0] </code>
+    </span>
+</dt>
+<dd><p>Specifies an alternative exit code to return if Valgrind
+      reported any errors in the run.  When set to the default value
+      (zero), the return value from Valgrind will always be the return 
+      value of the process being simulated.  When set to a nonzero value,
+      that value is returned instead, if Valgrind detects any errors.
+      This is useful for using Valgrind as part of an automated test
+      suite, since it makes it easy to detect test cases for which
+      Valgrind has reported errors, just by inspecting return codes.
+      When set to a nonzero value and Valgrind detects no error,
+      the return value of Valgrind will be the return value of the
+      program being simulated.
+      </p></dd>
+<dt>
+<a name="opt.exit-on-first-error"></a><span class="term">
+      <code class="option">--exit-on-first-error=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>If this option is enabled, Valgrind exits on the first error.
+      A nonzero exit value must be defined using
+      <code class="computeroutput">--error-exitcode</code> option.
+      Useful if you are running regression tests or have some other
+      automated test machinery.</p></dd>
+<dt>
+<a name="opt.error-markers"></a><span class="term">
+      <code class="option">--error-markers=&lt;begin&gt;,&lt;end&gt; [default: none]</code>
+    </span>
+</dt>
+<dd>
+<p>When errors are output as plain text (i.e. XML not used),
+      <code class="option">--error-markers</code> instructs to output a line
+      containing the <code class="option">begin</code> (<code class="option">end</code>)
+      string before (after) each error. </p>
+<p> Such marker lines facilitate searching for errors and/or
+      extracting errors in an output file that contain valgrind errors mixed
+      with the program output. </p>
+<p> Note that empty markers are accepted. So, only using a begin
+      (or an end) marker is possible.</p>
+</dd>
+<dt>
+<a name="opt.show-error-list"></a><span class="term">
+      <code class="option">--show-error-list=no|yes [default: no]</code>
+    </span>
+</dt>
+<dd>
+<p>If this option is enabled, for tools that report errors, valgrind
+        will show the list of detected errors and the list of used suppressions
+        at exit.
+      </p>
+<p>Note that at verbosity 2 and above, valgrind automatically shows
+        the list of detected errors and the list of used suppressions
+        at exit, unless  <code class="option">--show-error-list=no</code> is selected.
+      </p>
+</dd>
+<dt>
+<a name="opt.s"></a><span class="term">
+      <code class="option">-s</code>
+    </span>
+</dt>
+<dd><p>Specifying <code class="option">-s</code> is equivalent to
+        <code class="option">--show-error-list=yes</code>.
+      </p></dd>
+<dt>
+<a name="opt.sigill-diagnostics"></a><span class="term">
+      <code class="option">--sigill-diagnostics=&lt;yes|no&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd>
+<p>Enable/disable printing of illegal instruction diagnostics.
+      Enabled by default, but defaults to disabled when
+      <code class="option">--quiet</code> is given. The default can always be explicitly
+      overridden by giving this option.</p>
+<p>When enabled, a warning message will be printed, along with some
+      diagnostics, whenever an instruction is encountered that Valgrind
+      cannot decode or translate, before the program is given a SIGILL signal.
+      Often an illegal instruction indicates a bug in the program or missing
+      support for the particular instruction in Valgrind.  But some programs
+      do deliberately try to execute an instruction that might be missing
+      and trap the SIGILL signal to detect processor features.  Using
+      this flag makes it possible to avoid the diagnostic output
+      that you would otherwise get in such cases.</p>
+</dd>
+<dt>
+<a name="opt.keep-debuginfo"></a><span class="term">
+      <code class="option">--keep-debuginfo=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd>
+<p>When enabled, keep ("archive") symbols and all other debuginfo
+      for unloaded code. This allows saved stack traces to include file/line
+      info for code that has been dlclose'd (or similar).  Be careful with
+      this, since it can lead to unbounded memory use for programs which
+      repeatedly load and unload shared objects.</p>
+<p>Some tools and some functionalities have only limited support
+      for archived debug info.  Memcheck fully supports it.  Generally,
+      tools that report errors can use archived debug info to show the error
+      stack traces.  The known limitations are: Helgrind's past access stack
+      trace of a race condition is does not use archived debug info. Massif
+      (and more generally the xtree Massif output format) does not make use
+      of archived debug info. Only Memcheck has been (somewhat) tested
+      with <code class="option">--keep-debuginfo=yes</code>, so other tools may have
+      unknown limitations. </p>
+</dd>
+<dt>
+<a name="opt.show-below-main"></a><span class="term">
+      <code class="option">--show-below-main=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd>
+<p>By default, stack traces for errors do not show any
+      functions that appear beneath <code class="function">main</code> because
+      most of the time it's uninteresting C library stuff and/or
+      gobbledygook.  Alternatively, if <code class="function">main</code> is not
+      present in the stack trace, stack traces will not show any functions
+      below <code class="function">main</code>-like functions such as glibc's
+      <code class="function">__libc_start_main</code>.   Furthermore, if
+      <code class="function">main</code>-like functions are present in the trace,
+      they are normalised as <code class="function">(below main)</code>, in order to
+      make the output more deterministic.</p>
+<p>If this option is enabled, all stack trace entries will be
+      shown and <code class="function">main</code>-like functions will not be
+      normalised.</p>
+</dd>
+<dt>
+<a name="opt.fullpath-after"></a><span class="term">
+      <code class="option">--fullpath-after=&lt;string&gt;
+              [default: don't show source paths] </code>
+    </span>
+</dt>
+<dd>
+<p>By default Valgrind only shows the filenames in stack
+      traces, but not full paths to source files.  When using Valgrind
+      in large projects where the sources reside in multiple different
+      directories, this can be inconvenient.
+      <code class="option">--fullpath-after</code> provides a flexible solution
+      to this problem.  When this option is present, the path to each
+      source file is shown, with the following all-important caveat:
+      if <code class="option">string</code> is found in the path, then the path
+      up to and including <code class="option">string</code> is omitted, else the
+      path is shown unmodified.  Note that <code class="option">string</code> is
+      not required to be a prefix of the path.</p>
+<p>For example, consider a file named
+      <code class="computeroutput">/home/janedoe/blah/src/foo/bar/xyzzy.c</code>.
+      Specifying <code class="option">--fullpath-after=/home/janedoe/blah/src/</code>
+      will cause Valgrind to show the name
+      as <code class="computeroutput">foo/bar/xyzzy.c</code>.</p>
+<p>Because the string is not required to be a prefix,
+      <code class="option">--fullpath-after=src/</code> will produce the same
+      output.  This is useful when the path contains arbitrary
+      machine-generated characters.  For example, the
+      path
+      <code class="computeroutput">/my/build/dir/C32A1B47/blah/src/foo/xyzzy</code>
+      can be pruned to <code class="computeroutput">foo/xyzzy</code>
+      using
+      <code class="option">--fullpath-after=/blah/src/</code>.</p>
+<p>If you simply want to see the full path, just specify an
+      empty string: <code class="option">--fullpath-after=</code>.  This isn't a
+      special case, merely a logical consequence of the above rules.</p>
+<p>Finally, you can use <code class="option">--fullpath-after</code>
+      multiple times.  Any appearance of it causes Valgrind to switch
+      to producing full paths and applying the above filtering rule.
+      Each produced path is compared against all
+      the <code class="option">--fullpath-after</code>-specified strings, in the
+      order specified.  The first string to match causes the path to
+      be truncated as described above.  If none match, the full path
+      is shown.  This facilitates chopping off prefixes when the
+      sources are drawn from a number of unrelated directories.
+      </p>
+</dd>
+<dt>
+<a name="opt.extra-debuginfo-path"></a><span class="term">
+      <code class="option">--extra-debuginfo-path=&lt;path&gt; [default: undefined and unused] </code>
+    </span>
+</dt>
+<dd>
+<p>By default Valgrind searches in several well-known paths
+      for debug objects, such
+      as <code class="computeroutput">/usr/lib/debug/</code>.</p>
+<p>However, there may be scenarios where you may wish to put
+      debug objects at an arbitrary location, such as external storage
+      when running Valgrind on a mobile device with limited local
+      storage.  Another example might be a situation where you do not
+      have permission to install debug object packages on the system
+      where you are running Valgrind.</p>
+<p>In these scenarios, you may provide an absolute path as an extra,
+      final place for Valgrind to search for debug objects by specifying
+      <code class="option">--extra-debuginfo-path=/path/to/debug/objects</code>.
+      The given path will be prepended to the absolute path name of
+      the searched-for object.  For example, if Valgrind is looking
+      for the debuginfo
+      for <code class="computeroutput">/w/x/y/zz.so</code>
+      and <code class="option">--extra-debuginfo-path=/a/b/c</code> is specified,
+      it will look for a debug object at
+      <code class="computeroutput">/a/b/c/w/x/y/zz.so</code>.</p>
+<p>This flag should only be specified once.  If it is
+      specified multiple times, only the last instance is
+      honoured.</p>
+</dd>
+<dt>
+<a name="opt.debuginfo-server"></a><span class="term">
+      <code class="option">--debuginfo-server=ipaddr:port [default: undefined and unused]</code>
+    </span>
+</dt>
+<dd>
+<p>This is a new, experimental, feature introduced in version
+      3.9.0.</p>
+<p>In some scenarios it may be convenient to read debuginfo
+      from objects stored on a different machine.  With this flag,
+      Valgrind will query a debuginfo server running
+      on <code class="computeroutput">ipaddr</code> and listening on
+      port <code class="computeroutput">port</code>, if it cannot find
+      the debuginfo object in the local filesystem.</p>
+<p>The debuginfo server must accept TCP connections on
+      port <code class="computeroutput">port</code>.  The debuginfo
+      server is contained in the source
+      file <code class="computeroutput">auxprogs/valgrind-di-server.c</code>.
+      It will only serve from the directory it is started
+      in.  <code class="computeroutput">port</code> defaults to 1500 in
+      both client and server if not specified.</p>
+<p>If Valgrind looks for the debuginfo for
+      <code class="computeroutput">/w/x/y/zz.so</code> by using the
+      debuginfo server, it will strip the pathname components and
+      merely request <code class="computeroutput">zz.so</code> on the
+      server.  That in turn will look only in its current working
+      directory for a matching debuginfo object.</p>
+<p>The debuginfo data is transmitted in small fragments (8
+      KB) as requested by Valgrind.  Each block is compressed using
+      LZO to reduce transmission time.  The implementation has been
+      tuned for best performance over a single-stage 802.11g (WiFi)
+      network link.</p>
+<p>Note that checks for matching primary vs debug objects,
+      using GNU debuglink CRC scheme, are performed even when using
+      the debuginfo server.  To disable such checking, you need to
+      also specify
+      <code class="computeroutput">--allow-mismatched-debuginfo=yes</code>.
+      </p>
+<p>By default the Valgrind build system will
+      build <code class="computeroutput">valgrind-di-server</code> for
+      the target platform, which is almost certainly not what you
+      want.  So far we have been unable to find out how to get
+      automake/autoconf to build it for the build platform.  If
+      you want to use it, you will have to recompile it by hand using
+      the command shown at the top
+      of <code class="computeroutput">auxprogs/valgrind-di-server.c</code>.</p>
+<p>Valgrind can also download debuginfo via debuginfod. See the
+      DEBUGINFOD section for more information.</p>
+</dd>
+<dt>
+<a name="opt.allow-mismatched-debuginfo"></a><span class="term">
+      <code class="option">--allow-mismatched-debuginfo=no|yes [no] </code>
+    </span>
+</dt>
+<dd>
+<p>When reading debuginfo from separate debuginfo objects,
+      Valgrind will by default check that the main and debuginfo
+      objects match, using the GNU debuglink mechanism.  This
+      guarantees that it does not read debuginfo from out of date
+      debuginfo objects, and also ensures that Valgrind can't crash as
+      a result of mismatches.</p>
+<p>This check can be overridden using 
+      <code class="computeroutput">--allow-mismatched-debuginfo=yes</code>.
+      This may be useful when the debuginfo and main objects have not
+      been split in the proper way.  Be careful when using this,
+      though: it disables all consistency checking, and Valgrind has
+      been observed to crash when the main and debuginfo objects don't
+      match.</p>
+</dd>
+<dt>
+<a name="opt.suppressions"></a><span class="term">
+      <code class="option">--suppressions=&lt;filename&gt; [default: $PREFIX/lib/valgrind/default.supp] </code>
+    </span>
+</dt>
+<dd><p>Specifies an extra file from which to read descriptions of
+      errors to suppress.  You may use up to 100 extra suppression
+      files.</p></dd>
+<dt>
+<a name="opt.gen-suppressions"></a><span class="term">
+      <code class="option">--gen-suppressions=&lt;yes|no|all&gt; [default: no] </code>
+    </span>
+</dt>
+<dd>
+<p>When set to <code class="varname">yes</code>, Valgrind will pause
+      after every error shown and print the line:
+      </p>
+<div class="literallayout"><p><code class="computeroutput">    ---- Print suppression ? --- [Return/N/n/Y/y/C/c] ----</code></p></div>
+<p>
+
+      Pressing <code class="varname">Ret</code>, or <code class="varname">N Ret</code> or
+      <code class="varname">n Ret</code>, causes Valgrind continue execution without
+      printing a suppression for this error.</p>
+<p>Pressing <code class="varname">Y Ret</code> or
+      <code class="varname">y Ret</code> causes Valgrind to write a suppression
+      for this error.  You can then cut and paste it into a suppression file
+      if you don't want to hear about the error in the future.</p>
+<p>When set to <code class="varname">all</code>, Valgrind will print a
+      suppression for every reported error, without querying the
+      user.</p>
+<p>This option is particularly useful with C++ programs, as it
+      prints out the suppressions with mangled names, as
+      required.</p>
+<p>Note that the suppressions printed are as specific as
+      possible.  You may want to common up similar ones, by adding
+      wildcards to function names, and by using frame-level wildcards.
+      The wildcarding facilities are powerful yet flexible, and with a
+      bit of careful editing, you may be able to suppress a whole
+      family of related errors with only a few suppressions.  
+      
+      </p>
+<p>Sometimes two different errors
+      are suppressed by the same suppression, in which case Valgrind
+      will output the suppression more than once, but you only need to
+      have one copy in your suppression file (but having more than one
+      won't cause problems).  Also, the suppression name is given as
+      <code class="computeroutput">&lt;insert a suppression name
+      here&gt;</code>; the name doesn't really matter, it's
+      only used with the <code class="option">-v</code> option which prints out all
+      used suppression records.</p>
+</dd>
+<dt>
+<a name="opt.input-fd"></a><span class="term">
+      <code class="option">--input-fd=&lt;number&gt; [default: 0, stdin] </code>
+    </span>
+</dt>
+<dd><p>When using
+      <code class="option">--gen-suppressions=yes</code>, Valgrind will stop so as
+      to read keyboard input from you when each error occurs.  By
+      default it reads from the standard input (stdin), which is
+      problematic for programs which close stdin.  This option allows
+      you to specify an alternative file descriptor from which to read
+      input.</p></dd>
+<dt>
+<a name="opt.dsymutil"></a><span class="term">
+      <code class="option">--dsymutil=no|yes [yes] </code>
+    </span>
+</dt>
+<dd>
+<p>This option is only relevant when running Valgrind on
+      macOS.</p>
+<p>macOS uses a deferred debug information (debuginfo)
+      linking scheme.  When object files containing debuginfo are
+      linked into a <code class="computeroutput">.dylib</code> or an
+      executable, the debuginfo is not copied into the final file.
+      Instead, the debuginfo must be linked manually by
+      running <code class="computeroutput">dsymutil</code>, a
+      system-provided utility, on the executable
+      or <code class="computeroutput">.dylib</code>.  The resulting
+      combined debuginfo is placed in a directory alongside the
+      executable or <code class="computeroutput">.dylib</code>, but with
+      the extension <code class="computeroutput">.dSYM</code>.</p>
+<p>With <code class="option">--dsymutil=no</code>, Valgrind
+      will detect cases where the
+      <code class="computeroutput">.dSYM</code> directory is either
+      missing, or is present but does not appear to match the
+      associated executable or <code class="computeroutput">.dylib</code>,
+      most likely because it is out of date.  In these cases, Valgrind
+      will print a warning message but take no further action.</p>
+<p>With <code class="option">--dsymutil=yes</code>, Valgrind
+      will, in such cases, automatically
+      run <code class="computeroutput">dsymutil</code> as necessary to
+      bring the debuginfo up to date.  For all practical purposes, if
+      you always use <code class="option">--dsymutil=yes</code>, then
+      there is never any need to
+      run <code class="computeroutput">dsymutil</code> manually or as part
+      of your applications's build system, since Valgrind will run it
+      as necessary.</p>
+<p>Valgrind will not attempt to
+      run <code class="computeroutput">dsymutil</code> on any 
+      executable or library in
+      <code class="computeroutput">/usr/</code>,
+      <code class="computeroutput">/bin/</code>,
+      <code class="computeroutput">/sbin/</code>,
+      <code class="computeroutput">/opt/</code>,
+      <code class="computeroutput">/sw/</code>,
+      <code class="computeroutput">/System/</code>,
+      <code class="computeroutput">/Library/</code> or
+      <code class="computeroutput">/Applications/</code>
+      since <code class="computeroutput">dsymutil</code> will always fail
+      in such situations.  It fails both because the debuginfo for
+      such pre-installed system components is not available anywhere,
+      and also because it would require write privileges in those
+      directories.</p>
+<p>Be careful when
+      using <code class="option">--dsymutil=yes</code>, since it will
+      cause pre-existing <code class="computeroutput">.dSYM</code>
+      directories to be silently deleted and re-created.  Also note that
+      <code class="computeroutput">dsymutil</code> is quite slow, sometimes
+      excessively so.</p>
+</dd>
+<dt>
+<a name="opt.max-stackframe"></a><span class="term">
+      <code class="option">--max-stackframe=&lt;number&gt; [default: 2000000] </code>
+    </span>
+</dt>
+<dd>
+<p>The maximum size of a stack frame.  If the stack pointer moves by
+      more than this amount then Valgrind will assume that
+      the program is switching to a different stack.</p>
+<p>You may need to use this option if your program has large
+      stack-allocated arrays.  Valgrind keeps track of your program's
+      stack pointer.  If it changes by more than the threshold amount,
+      Valgrind assumes your program is switching to a different stack,
+      and Memcheck behaves differently than it would for a stack pointer
+      change smaller than the threshold.  Usually this heuristic works
+      well.  However, if your program allocates large structures on the
+      stack, this heuristic will be fooled, and Memcheck will
+      subsequently report large numbers of invalid stack accesses.  This
+      option allows you to change the threshold to a different
+      value.</p>
+<p>You should only consider use of this option if Valgrind's
+      debug output directs you to do so.  In that case it will tell you
+      the new threshold you should specify.</p>
+<p>In general, allocating large structures on the stack is a
+      bad idea, because you can easily run out of stack space,
+      especially on systems with limited memory or which expect to
+      support large numbers of threads each with a small stack, and also
+      because the error checking performed by Memcheck is more effective
+      for heap-allocated data than for stack-allocated data.  If you
+      have to use this option, you may wish to consider rewriting your
+      code to allocate on the heap rather than on the stack.</p>
+</dd>
+<dt>
+<a name="opt.main-stacksize"></a><span class="term">
+      <code class="option">--main-stacksize=&lt;number&gt;
+               [default: use current 'ulimit' value] </code>
+    </span>
+</dt>
+<dd>
+<p>Specifies the size of the main thread's stack.</p>
+<p>To simplify its memory management, Valgrind reserves all
+      required space for the main thread's stack at startup.  That
+      means it needs to know the required stack size at
+      startup.</p>
+<p>By default, Valgrind uses the current "ulimit" value for
+      the stack size, or 16 MB, whichever is lower.  In many cases
+      this gives a stack size in the range 8 to 16 MB, which almost
+      never overflows for most applications.</p>
+<p>If you need a larger total stack size,
+      use <code class="option">--main-stacksize</code> to specify it.  Only set
+      it as high as you need, since reserving far more space than you
+      need (that is, hundreds of megabytes more than you need)
+      constrains Valgrind's memory allocators and may reduce the total
+      amount of memory that Valgrind can use.  This is only really of
+      significance on 32-bit machines.</p>
+<p>On Linux, you may request a stack of size up to 2GB.
+      Valgrind will stop with a diagnostic message if the stack cannot
+      be allocated.</p>
+<p><code class="option">--main-stacksize</code> only affects the stack
+      size for the program's initial thread.  It has no bearing on the
+      size of thread stacks, as Valgrind does not allocate
+      those.</p>
+<p>You may need to use both <code class="option">--main-stacksize</code>
+      and <code class="option">--max-stackframe</code> together.  It is important
+      to understand that <code class="option">--main-stacksize</code> sets the
+      maximum total stack size,
+      whilst <code class="option">--max-stackframe</code> specifies the largest
+      size of any one stack frame.  You will have to work out
+      the <code class="option">--main-stacksize</code> value for yourself
+      (usually, if your applications segfaults).  But Valgrind will
+      tell you the needed <code class="option">--max-stackframe</code> size, if
+      necessary.</p>
+<p>As discussed further in the description
+      of <code class="option">--max-stackframe</code>, a requirement for a large
+      stack is a sign of potential portability problems.  You are best
+      advised to place all large data in heap-allocated memory.</p>
+</dd>
+<dt>
+<a name="opt.max-threads"></a><span class="term">
+      <code class="option">--max-threads=&lt;number&gt; [default: 500] </code>
+    </span>
+</dt>
+<dd><p>By default, Valgrind can handle to up to 500 threads.
+      Occasionally, that number is too small. Use this option to
+      provide a different limit. E.g.
+      <code class="computeroutput">--max-threads=3000</code>.
+      </p></dd>
+<dt>
+<a name="opt.realloc-zero-bytes-frees"></a><span class="term">
+      <code class="option">--realloc-zero-bytes-frees=yes|no [default: yes for glibc no otherwise] </code>
+    </span>
+</dt>
+<dd>
+<p>The behaviour of <code class="computeroutput">realloc()</code> is
+      implementation defined (in C17, in C23 it is likely to become
+      undefined). Valgrind tries to work in the same way as the
+      underlying OS and C runtime library. However, if you use a
+      different C runtime library then this default may be wrong.
+      For instance, if you use Valgrind on Linux installed via a package
+      and use the musl C runtime or the JEMalloc library then
+      consider using
+      <code class="computeroutput">--realloc-zero-bytes-frees=no</code>.
+      </p>
+<p>Address Sanitizer has a similar and even wordier option
+      <code class="computeroutput">allocator_frees_and_returns_null_on_realloc_zero</code>.
+      </p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-core.mallocopts"></a>2.7.4. malloc-related Options</h3></div></div></div>
+<p><a name="malloc-related.opts.para"></a>For tools that use their own version of
+<code class="computeroutput">malloc</code> (e.g. Memcheck,
+Massif, Helgrind, DRD), the following options apply.</p>
+<div class="variablelist">
+<a name="malloc-related.opts.list"></a><dl class="variablelist">
+<dt>
+<a name="opt.alignment"></a><span class="term">
+      <code class="option">--alignment=&lt;number&gt; [default: 8 or 16, depending on the platform] </code>
+    </span>
+</dt>
+<dd><p>By default Valgrind's <code class="function">malloc</code>,
+      <code class="function">realloc</code>, etc, return a block whose starting
+      address is 8-byte aligned or 16-byte aligned (the value depends on the
+      platform and matches the platform default).  This option allows you to
+      specify a different alignment.  The supplied value must be greater
+      than or equal to the default, less than or equal to 4096, and must be
+      a power of two.</p></dd>
+<dt>
+<a name="opt.redzone-size"></a><span class="term">
+      <code class="option">--redzone-size=&lt;number&gt; [default: depends on the tool] </code>
+    </span>
+</dt>
+<dd>
+<p> Valgrind's <code class="function">malloc, realloc,</code> etc, add
+      padding blocks before and after each heap block allocated by the
+      program being run. Such padding blocks are called redzones.  The
+      default value for the redzone size depends on the tool.  For
+      example, Memcheck adds and protects a minimum of 16 bytes before
+      and after each block allocated by the client.  This allows it to
+      detect block underruns or overruns of up to 16 bytes.
+      </p>
+<p>Increasing the redzone size makes it possible to detect
+      overruns of larger distances, but increases the amount of memory
+      used by Valgrind.  Decreasing the redzone size will reduce the
+      memory needed by Valgrind but also reduces the chances of
+      detecting over/underruns, so is not recommended.</p>
+</dd>
+<dt>
+<a name="opt.xtree-memory"></a><span class="term">
+      <code class="option">--xtree-memory=none|allocs|full [none] </code>
+    </span>
+</dt>
+<dd>
+<p> Tools replacing Valgrind's <code class="function">malloc,
+      realloc,</code> etc, can optionally produce an execution
+      tree detailing which piece of code is responsible for heap
+      memory usage. See <a class="xref" href="manual-core.html#manual-core.xtree" title="2.10. Execution Trees">Execution Trees</a>
+      for a detailed explanation about execution trees. </p>
+<p> When set to <code class="varname">none</code>, no memory execution
+      tree is produced.</p>
+<p> When set to <code class="varname">allocs</code>, the memory
+      execution tree gives the current number of allocated bytes and
+      the current number of allocated blocks. </p>
+<p> When set to <code class="varname">full</code>, the memory execution
+      tree gives 6 different measurements : the current number of
+      allocated bytes and blocks (same values as
+      for <code class="varname">allocs</code>), the total number of allocated
+      bytes and blocks, the total number of freed bytes and
+      blocks.</p>
+<p>Note that the overhead in cpu and memory to produce
+        an xtree depends on the tool. The overhead in cpu is small for
+        the value <code class="varname">allocs</code>, as the information needed
+        to produce this report is maintained in any case by the tool.
+        For massif and helgrind, specifying <code class="varname">full</code>
+        implies to capture a stack trace for each free operation,
+        while normally these tools only capture an allocation stack
+        trace.  For Memcheck, the cpu overhead for the
+        value <code class="varname">full</code> is small, as this can only be
+        used in combination with
+        <code class="option">--keep-stacktraces=alloc-and-free</code> or
+        <code class="option">--keep-stacktraces=alloc-then-free</code>, which
+        already records a stack trace for each free operation. The
+        memory overhead varies between 5 and 10 words per unique
+        stacktrace in the xtree, plus the memory needed to record the
+        stack trace for the free operations, if needed specifically
+        for the xtree.
+      </p>
+</dd>
+<dt>
+<a name="opt.xtree-memory-file"></a><span class="term">
+      <code class="option">--xtree-memory-file=&lt;filename&gt; [default:
+      xtmemory.kcg.%p] </code>
+    </span>
+</dt>
+<dd>
+<p>Specifies that Valgrind should produce the xtree memory
+      report in the specified file.  Any <code class="option">%p</code> or
+      <code class="option">%q</code> sequences appearing in the filename are expanded
+      in exactly the same way as they are for <code class="option">--log-file</code>.
+      See the description of <a class="xref" href="manual-core.html#opt.log-file">--log-file</a>
+      for details. </p>
+<p>If the filename contains the extension  <code class="option">.ms</code>,
+        then the produced file format will be a massif output file format.
+        If the filename contains the extension  <code class="option">.kcg</code>
+        or no extension is provided or recognised,
+        then the produced file format will be a callgrind output format.</p>
+<p>See <a class="xref" href="manual-core.html#manual-core.xtree" title="2.10. Execution Trees">Execution Trees</a>
+      for a detailed explanation about execution trees formats. </p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-core.rareopts"></a>2.7.5. Uncommon Options</h3></div></div></div>
+<p><a name="uncommon.opts.para"></a>These options apply to all tools, as they
+affect certain obscure workings of the Valgrind core.  Most people won't
+need to use them.</p>
+<div class="variablelist">
+<a name="uncommon.opts.list"></a><dl class="variablelist">
+<dt>
+<a name="opt.smc-check"></a><span class="term">
+      <code class="option">--smc-check=&lt;none|stack|all|all-non-file&gt;
+      [default: all-non-file for x86/amd64/s390x, stack for other archs] </code>
+    </span>
+</dt>
+<dd>
+<p>This option controls Valgrind's detection of self-modifying
+       code.  If no checking is done, when a program executes some code, then
+       overwrites it with new code, and executes the new code, Valgrind will
+       continue to execute the translations it made for the old code.  This
+       will likely lead to incorrect behaviour and/or crashes.</p>
+<p>For "modern" architectures -- anything that's not x86,
+        amd64 or s390x -- the default is <code class="varname">stack</code>.
+        This is because a correct program must take explicit action
+        to reestablish D-I cache coherence following code
+        modification.  Valgrind observes and honours such actions,
+        with the result that self-modifying code is transparently
+        handled with zero extra cost.</p>
+<p>For x86, amd64 and s390x, the program is not required to
+        notify the hardware of required D-I coherence syncing.  Hence
+        the default is <code class="varname">all-non-file</code>, which covers
+        the normal case of generating code into an anonymous
+        (non-file-backed) mmap'd area.</p>
+<p>The meanings of the four available settings are as
+        follows.  No detection (<code class="varname">none</code>),
+        detect self-modifying code
+        on the stack (which is used by GCC to implement nested
+        functions) (<code class="varname">stack</code>), detect self-modifying code
+        everywhere (<code class="varname">all</code>), and detect
+        self-modifying code everywhere except in file-backed
+        mappings (<code class="varname">all-non-file</code>).</p>
+<p>Running with <code class="varname">all</code> will slow Valgrind
+        down noticeably.  Running with <code class="varname">none</code> will
+        rarely speed things up, since very little code gets
+        dynamically generated in most programs.  The
+        <code class="function">VALGRIND_DISCARD_TRANSLATIONS</code> client
+        request is an alternative to <code class="option">--smc-check=all</code>
+        and <code class="option">--smc-check=all-non-file</code>
+        that requires more programmer effort but allows Valgrind to run
+        your program faster, by telling it precisely when translations
+        need to be re-made.
+        
+        </p>
+<p><code class="option">--smc-check=all-non-file</code> provides a
+       cheaper but more limited version
+       of <code class="option">--smc-check=all</code>.  It adds checks to any
+       translations that do not originate from file-backed memory
+       mappings.  Typical applications that generate code, for example
+       JITs in web browsers, generate code into anonymous mmaped areas,
+       whereas the "fixed" code of the browser always lives in
+       file-backed mappings.  <code class="option">--smc-check=all-non-file</code>
+       takes advantage of this observation, limiting the overhead of
+       checking to code which is likely to be JIT generated.</p>
+</dd>
+<dt>
+<a name="opt.read-inline-info"></a><span class="term">
+      <code class="option">--read-inline-info=&lt;yes|no&gt; [default: see below] </code>
+    </span>
+</dt>
+<dd>
+<p>When enabled, Valgrind will read information about inlined
+      function calls from DWARF3 debug info.  This slows Valgrind
+      startup and makes it use more memory (typically for each inlined
+      piece of code, 6 words and space for the function name), but it
+      results in more descriptive stacktraces.  Currently,
+      this functionality is enabled by default only for Linux,
+      Android and Solaris targets and only for the tools Memcheck, Massif,
+      Helgrind and DRD.  Here is an example of some stacktraces with
+      <code class="option">--read-inline-info=no</code>:
+</p>
+<pre class="programlisting">
+==15380== Conditional jump or move depends on uninitialised value(s)
+==15380==    at 0x80484EA: main (inlinfo.c:6)
+==15380== 
+==15380== Conditional jump or move depends on uninitialised value(s)
+==15380==    at 0x8048550: fun_noninline (inlinfo.c:6)
+==15380==    by 0x804850E: main (inlinfo.c:34)
+==15380== 
+==15380== Conditional jump or move depends on uninitialised value(s)
+==15380==    at 0x8048520: main (inlinfo.c:6)
+</pre>
+<p>And here are the same errors with
+      <code class="option">--read-inline-info=yes</code>:</p>
+<pre class="programlisting">
+==15377== Conditional jump or move depends on uninitialised value(s)
+==15377==    at 0x80484EA: fun_d (inlinfo.c:6)
+==15377==    by 0x80484EA: fun_c (inlinfo.c:14)
+==15377==    by 0x80484EA: fun_b (inlinfo.c:20)
+==15377==    by 0x80484EA: fun_a (inlinfo.c:26)
+==15377==    by 0x80484EA: main (inlinfo.c:33)
+==15377== 
+==15377== Conditional jump or move depends on uninitialised value(s)
+==15377==    at 0x8048550: fun_d (inlinfo.c:6)
+==15377==    by 0x8048550: fun_noninline (inlinfo.c:41)
+==15377==    by 0x804850E: main (inlinfo.c:34)
+==15377== 
+==15377== Conditional jump or move depends on uninitialised value(s)
+==15377==    at 0x8048520: fun_d (inlinfo.c:6)
+==15377==    by 0x8048520: main (inlinfo.c:35)
+</pre>
+</dd>
+<dt>
+<a name="opt.read-var-info"></a><span class="term">
+      <code class="option">--read-var-info=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd>
+<p>When enabled, Valgrind will read information about
+      variable types and locations from DWARF3 debug info.
+      This slows Valgrind startup significantly and makes it use significantly
+      more memory, but for the tools that can take advantage of it (Memcheck,
+      Helgrind, DRD) it can result in more precise error messages.  For example,
+      here are some standard errors issued by Memcheck:</p>
+<pre class="programlisting">
+==15363== Uninitialised byte(s) found during client check request
+==15363==    at 0x80484A9: croak (varinfo1.c:28)
+==15363==    by 0x8048544: main (varinfo1.c:55)
+==15363==  Address 0x80497f7 is 7 bytes inside data symbol "global_i2"
+==15363== 
+==15363== Uninitialised byte(s) found during client check request
+==15363==    at 0x80484A9: croak (varinfo1.c:28)
+==15363==    by 0x8048550: main (varinfo1.c:56)
+==15363==  Address 0xbea0d0cc is on thread 1's stack
+==15363==  in frame #1, created by main (varinfo1.c:45)
+</pre>
+<p>And here are the same errors with
+      <code class="option">--read-var-info=yes</code>:</p>
+<pre class="programlisting">
+==15370== Uninitialised byte(s) found during client check request
+==15370==    at 0x80484A9: croak (varinfo1.c:28)
+==15370==    by 0x8048544: main (varinfo1.c:55)
+==15370==  Location 0x80497f7 is 0 bytes inside global_i2[7],
+==15370==  a global variable declared at varinfo1.c:41
+==15370== 
+==15370== Uninitialised byte(s) found during client check request
+==15370==    at 0x80484A9: croak (varinfo1.c:28)
+==15370==    by 0x8048550: main (varinfo1.c:56)
+==15370==  Location 0xbeb4a0cc is 0 bytes inside local var "local"
+==15370==  declared at varinfo1.c:46, in frame #1 of thread 1
+</pre>
+</dd>
+<dt>
+<a name="opt.vgdb-poll"></a><span class="term">
+      <code class="option">--vgdb-poll=&lt;number&gt; [default: 5000] </code>
+    </span>
+</dt>
+<dd><p> As part of its main loop, the Valgrind scheduler will
+      poll to check if some activity (such as an external command or
+      some input from a gdb) has to be handled by gdbserver.  This
+      activity poll will be done after having run the given number of
+      basic blocks (or slightly more than the given number of basic
+      blocks). This poll is quite cheap so the default value is set
+      relatively low. You might further decrease this value if vgdb
+      cannot use ptrace system call to interrupt Valgrind if all
+      threads are (most of the time) blocked in a system call.
+      </p></dd>
+<dt>
+<a name="opt.vgdb-shadow-registers"></a><span class="term">
+      <code class="option">--vgdb-shadow-registers=no|yes [default: no] </code>
+    </span>
+</dt>
+<dd><p> When activated, gdbserver will expose the Valgrind shadow registers
+      to GDB. With this, the value of the Valgrind shadow registers can be examined
+      or changed using GDB. Exposing shadow registers only works with GDB version
+      7.1 or later.
+      </p></dd>
+<dt>
+<a name="opt.vgdb-prefix"></a><span class="term">
+      <code class="option">--vgdb-prefix=&lt;prefix&gt; [default: /tmp/vgdb-pipe] </code>
+    </span>
+</dt>
+<dd><p> To communicate with gdb/vgdb, the Valgrind gdbserver
+      creates 3 files (2 named FIFOs and a mmap shared memory
+      file). The prefix option controls the directory and prefix for
+      the creation of these files.
+      </p></dd>
+<dt>
+<a name="opt.run-libc-freeres"></a><span class="term">
+      <code class="option">--run-libc-freeres=&lt;yes|no&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd>
+<p>This option is only relevant when running Valgrind on Linux.</p>
+<p>The GNU C library (<code class="function">libc.so</code>), which is
+      used by all programs, may allocate memory for its own uses.
+      Usually it doesn't bother to free that memory when the program
+      ends—there would be no point, since the Linux kernel reclaims
+      all process resources when a process exits anyway, so it would
+      just slow things down.</p>
+<p>The glibc authors realised that this behaviour causes leak
+      checkers, such as Valgrind, to falsely report leaks in glibc, when
+      a leak check is done at exit.  In order to avoid this, they
+      provided a routine called <code class="function">__libc_freeres</code>
+      specifically to make glibc release all memory it has allocated.
+      Memcheck therefore tries to run
+      <code class="function">__libc_freeres</code> at exit.</p>
+<p>Unfortunately, in some very old versions of glibc,
+      <code class="function">__libc_freeres</code> is sufficiently buggy to cause
+      segmentation faults.  This was particularly noticeable on Red Hat
+      7.1.  So this option is provided in order to inhibit the run of
+      <code class="function">__libc_freeres</code>.  If your program seems to run
+      fine on Valgrind, but segfaults at exit, you may find that
+      <code class="option">--run-libc-freeres=no</code> fixes that, although at the
+      cost of possibly falsely reporting space leaks in
+      <code class="filename">libc.so</code>.</p>
+</dd>
+<dt>
+<a name="opt.run-cxx-freeres"></a><span class="term">
+      <code class="option">--run-cxx-freeres=&lt;yes|no&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd>
+<p>This option is only relevant when running Valgrind on Linux
+            or Solaris C++ programs.</p>
+<p>The GNU Standard C++ library (<code class="function">libstdc++.so</code>),
+      which is used by all C++ programs compiled with g++, may allocate memory
+      for its own uses. Usually it doesn't bother to free that memory when
+      the program ends—there would be no point, since the kernel reclaims
+      all process resources when a process exits anyway, so it would
+      just slow things down.</p>
+<p>The gcc authors realised that this behaviour causes leak
+      checkers, such as Valgrind, to falsely report leaks in libstdc++, when
+      a leak check is done at exit.  In order to avoid this, they
+      provided a routine called <code class="function">__gnu_cxx::__freeres</code>
+      specifically to make libstdc++ release all memory it has allocated.
+      Memcheck therefore tries to run
+      <code class="function">__gnu_cxx::__freeres</code> at exit.</p>
+<p>For the sake of flexibility and unforeseen problems with
+      <code class="function">__gnu_cxx::__freeres</code>, option
+      <code class="option">--run-cxx-freeres=no</code> exists,
+      although at the cost of possibly falsely reporting space leaks in
+      <code class="filename">libstdc++.so</code>.</p>
+</dd>
+<dt>
+<a name="opt.sim-hints"></a><span class="term">
+      <code class="option">--sim-hints=hint1,hint2,... </code>
+    </span>
+</dt>
+<dd>
+<p>Pass miscellaneous hints to Valgrind which slightly modify
+      the simulated behaviour in nonstandard or dangerous ways, possibly
+      to help the simulation of strange features.  By default no hints
+      are enabled.  Use with caution!  Currently known hints are:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p><code class="option">lax-ioctls: </code> Be very lax about ioctl
+          handling; the only assumption is that the size is
+          correct. Doesn't require the full buffer to be initialised
+          when writing.  Without this, using some device drivers with a
+          large number of strange ioctl commands becomes very
+          tiresome.</p></li>
+<li class="listitem"><p><code class="option">fuse-compatible: </code> Enable special
+            handling for certain system calls that may block in a FUSE
+            file-system.  This may be necessary when running Valgrind
+            on a multi-threaded program that uses one thread to manage
+            a FUSE file-system and another thread to access that
+            file-system.
+          </p></li>
+<li class="listitem"><p><code class="option">enable-outer: </code> Enable some special
+          magic needed when the program being run is itself
+          Valgrind.</p></li>
+<li class="listitem"><p><code class="option">no-inner-prefix: </code> Disable printing
+          a prefix <code class="option">&gt;</code> in front of each stdout or
+          stderr output line in an inner Valgrind being run by an
+          outer Valgrind. This is useful when running Valgrind
+          regression tests in an outer/inner setup. Note that the
+          prefix <code class="option">&gt;</code> will always be printed in
+          front of the inner debug logging lines.</p></li>
+<li class="listitem">
+<p><code class="option">no-nptl-pthread-stackcache: </code>
+            This hint is only relevant when running Valgrind on Linux;
+            it is ignored on FreeBSD, Solaris and macOS.</p>
+<p>The GNU glibc pthread library
+            (<code class="function">libpthread.so</code>), which is used by
+            pthread programs, maintains a cache of pthread stacks.
+            When a pthread terminates, the memory used for the pthread
+            stack and some thread local storage related data structure
+            are not always directly released.  This memory is kept in
+            a cache (up to a certain size), and is re-used if a new
+            thread is started.</p>
+<p>This cache causes the helgrind tool to report some
+            false positive race condition errors on this cached
+            memory, as helgrind does not understand the internal glibc
+            cache synchronisation primitives. So, when using helgrind,
+            disabling the cache helps to avoid false positive race
+            conditions, in particular when using thread local storage
+            variables (e.g. variables using the
+            <code class="function">__thread</code> qualifier).</p>
+<p>When using the memcheck tool, disabling the cache
+            ensures the memory used by glibc to handle __thread
+            variables is directly released when a thread
+            terminates.</p>
+<p>Note: Valgrind disables the cache using some internal
+            knowledge of the glibc stack cache implementation and by
+            examining the debug information of the pthread
+            library. This technique is thus somewhat fragile and might
+            not work for all glibc versions. This has been successfully
+            tested with various glibc versions (e.g. 2.11, 2.16, 2.18)
+            on various platforms.</p>
+</li>
+<li class="listitem"><p><code class="option">lax-doors: </code> (Solaris only) Be very lax
+          about door syscall handling over unrecognised door file
+          descriptors. Does not require that full buffer is initialised
+          when writing. Without this, programs using libdoor(3LIB)
+          functionality with completely proprietary semantics may report
+          large number of false positives.</p></li>
+<li class="listitem"><p><code class="option">fallback-llsc: </code>(MIPS and ARM64 only): Enables
+            an alternative implementation of Load-Linked (LL) and
+            Store-Conditional (SC) instructions.  The standard implementation
+            gives more correct behaviour, but can cause indefinite looping on
+            certain processor implementations that are intolerant of extra
+            memory references between LL and SC.  So far this is known only to
+            happen on Cavium 3 cores.
+
+            You should not need to use this flag, since the relevant cores are
+            detected at startup and the alternative implementation is
+            automatically enabled if necessary.  There is no equivalent
+            anti-flag: you cannot force-disable the alternative
+            implementation, if it is automatically enabled.
+
+            The underlying problem exists because the "standard"
+            implementation of LL and SC is done by copying through LL and SC
+            instructions into the instrumented code.  However, tools may
+            insert extra instrumentation memory references in between the LL
+            and SC instructions.  These memory references are not present in
+            the original uninstrumented code, and their presence in the
+            instrumented code can cause the SC instructions to persistently
+            fail, leading to indefinite looping in LL-SC blocks.
+
+            The alternative implementation gives correct behaviour of LL and
+            SC instructions between threads in a process, up to and including
+            the ABA scenario.  It also gives correct behaviour between a
+            Valgrinded thread and a non-Valgrinded thread running in a
+            different process, that communicate via shared memory, but only up
+            to and including correct CAS behaviour -- in this case the ABA
+            scenario may not be correctly handled.
+          </p></li>
+</ul></div>
+</dd>
+<dt>
+<a name="opt.scheduling-quantum"></a><span class="term">
+      <code class="option">--scheduling-quantum=&lt;number&gt;   [default: 100000] </code>
+    </span>
+</dt>
+<dd><p>The <code class="option">--scheduling-quantum</code> option controls
+      the maximum number of basic blocks executed by a thread before releasing
+      the lock used by Valgrind to serialise thread execution.  Smaller values
+      give finer interleaving but increases the scheduling overhead. Finer
+      interleaving can be useful to reproduce race conditions with helgrind or
+      DRD.  For more details about the Valgrind thread serialisation scheme and
+      its impact on performance and thread scheduling, see
+      <a class="xref" href="manual-core.html#manual-core.pthreads_perf_sched" title="2.8.1. Scheduling and Multi-Thread Performance">Scheduling and Multi-Thread Performance</a>.
+      </p></dd>
+<dt>
+<a name="opt.fair-sched"></a><span class="term">
+      <code class="option">--fair-sched=&lt;no|yes|try&gt;    [default: no] </code>
+    </span>
+</dt>
+<dd>
+<p>The <code class="option">--fair-sched</code> option controls
+      the locking mechanism used by Valgrind to serialise thread
+      execution.  The locking mechanism controls the way the threads
+      are scheduled, and different settings give different trade-offs
+      between fairness and performance. For more details about the
+      Valgrind thread serialisation scheme and its impact on
+      performance and thread scheduling, see
+      <a class="xref" href="manual-core.html#manual-core.pthreads_perf_sched" title="2.8.1. Scheduling and Multi-Thread Performance">Scheduling and Multi-Thread Performance</a>.</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p>The value <code class="option">--fair-sched=yes</code>
+          activates a fair scheduler.  In short, if multiple threads are
+          ready to run, the threads will be scheduled in a round robin
+          fashion.  This mechanism is not available on all platforms or
+          Linux versions.  If not available,
+          using <code class="option">--fair-sched=yes</code> will cause Valgrind to
+          terminate with an error.</p>
+<p>You may find this setting improves overall
+          responsiveness if you are running an interactive
+          multithreaded program, for example a web browser, on
+          Valgrind.</p>
+</li>
+<li class="listitem"><p>The value <code class="option">--fair-sched=try</code>
+          activates fair scheduling if available on the
+          platform.  Otherwise, it will automatically fall back
+          to <code class="option">--fair-sched=no</code>.</p></li>
+<li class="listitem"><p>The value <code class="option">--fair-sched=no</code> activates
+          a scheduler which does not guarantee fairness
+          between threads ready to run, but which in general gives the
+         highest performance.</p></li>
+</ul></div>
+</dd>
+<dt>
+<a name="opt.kernel-variant"></a><span class="term">
+      <code class="option">--kernel-variant=variant1,variant2,...</code>
+    </span>
+</dt>
+<dd>
+<p>Handle system calls and ioctls arising from minor variants
+      of the default kernel for this platform.  This is useful for
+      running on hacked kernels or with kernel modules which support
+      nonstandard ioctls, for example.  Use with caution.  If you don't
+      understand what this option does then you almost certainly don't
+      need it.  Currently known variants are:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p><code class="option">bproc</code>: support the
+            <code class="function">sys_broc</code> system call on x86.  This is for
+            running on BProc, which is a minor variant of standard Linux which
+            is sometimes used for building clusters.
+          </p></li>
+<li class="listitem"><p><code class="option">android-no-hw-tls</code>: some
+          versions of the Android emulator for ARM do not provide a
+          hardware TLS (thread-local state) register, and Valgrind
+          crashes at startup.  Use this variant to select software
+          support for TLS.
+          </p></li>
+<li class="listitem"><p><code class="option">android-gpu-sgx5xx</code>: use this to
+          support handling of proprietary ioctls for the PowerVR SGX
+          5XX series of GPUs on Android devices.  Failure to select
+          this does not cause stability problems, but may cause
+          Memcheck to report false errors after the program performs
+          GPU-specific ioctls.
+          </p></li>
+<li class="listitem"><p><code class="option">android-gpu-adreno3xx</code>: similarly, use
+          this to support handling of proprietary ioctls for the
+          Qualcomm Adreno 3XX series of GPUs on Android devices.
+          </p></li>
+</ul></div>
+</dd>
+<dt>
+<a name="opt.merge-recursive-frames"></a><span class="term">
+      <code class="option">--merge-recursive-frames=&lt;number&gt; [default: 0] </code>
+    </span>
+</dt>
+<dd>
+<p>Some recursive algorithms, for example balanced binary
+      tree implementations, create many different stack traces, each
+      containing cycles of calls.  A cycle is defined as two identical
+      program counter values separated by zero or more other program
+      counter values.  Valgrind may then use a lot of memory to store
+      all these stack traces.  This is a poor use of memory
+      considering that such stack traces contain repeated
+      uninteresting recursive calls instead of more interesting
+      information such as the function that has initiated the
+      recursive call.
+      </p>
+<p>The option <code class="option">--merge-recursive-frames=&lt;number&gt;</code>
+      instructs Valgrind to detect and merge recursive call cycles
+      having a size of up to <code class="option">&lt;number&gt;</code>
+      frames. When such a cycle is detected, Valgrind records the
+      cycle in the stack trace as a unique program counter.
+      </p>
+<p>
+      The value 0 (the default) causes no recursive call merging.
+      A value of 1 will cause stack traces of simple recursive algorithms
+      (for example, a factorial implementation) to be collapsed.
+      A value of 2 will usually be needed to collapse stack traces produced
+      by recursive algorithms such as binary trees, quick sort, etc.
+      Higher values might be needed for more complex recursive algorithms.
+      </p>
+<p>Note: recursive calls are detected by analysis of program
+      counter values.  They are not detected by looking at function
+      names.</p>
+</dd>
+<dt>
+<a name="opt.num-transtab-sectors"></a><span class="term">
+      <code class="option">--num-transtab-sectors=&lt;number&gt; [default: 6
+      for Android platforms, 16 for all others] </code>
+    </span>
+</dt>
+<dd><p>Valgrind translates and instruments your program's machine
+      code in small fragments (basic blocks). The translations are stored in a
+      translation cache that is divided into a number of sections
+      (sectors). If the cache is full, the sector containing the
+      oldest translations is emptied and reused. If these old
+      translations are needed again, Valgrind must re-translate and
+      re-instrument the corresponding machine code, which is
+      expensive.  If the "executed instructions" working set of a
+      program is big, increasing the number of sectors may improve
+      performance by reducing the number of re-translations needed.
+      Sectors are allocated on demand.  Once allocated, a sector can
+      never be freed, and occupies considerable space, depending on the tool
+      and the value of <code class="option">--avg-transtab-entry-size</code>
+      (about 40 MB per sector for Memcheck).  Use the
+      option <code class="option">--stats=yes</code> to obtain precise
+      information about the memory used by a sector and the allocation
+      and recycling of sectors.</p></dd>
+<dt>
+<a name="opt.avg-transtab-entry-size"></a><span class="term">
+      <code class="option">--avg-transtab-entry-size=&lt;number&gt; [default: 0,
+      meaning use tool provided default] </code>
+    </span>
+</dt>
+<dd><p>Average size of translated basic block. This average size
+      is used to dimension the size of a sector.
+      Each tool provides a default value to be used.
+      If this default value is too small, the translation sectors
+      will become full too quickly. If this default value is too big,
+      a significant part of the translation sector memory will be unused.
+      Note that the average size of a basic block translation depends
+      on the tool, and might depend on tool options. For example,
+      the memcheck option <code class="option">--track-origins=yes</code>
+      increases the size of the basic block translations.
+      Use <code class="option">--avg-transtab-entry-size</code> to tune the size of the
+      sectors, either to gain memory or to avoid too many retranslations.
+      </p></dd>
+<dt>
+<a name="opt.aspace-minaddr"></a><span class="term">
+      <code class="option">--aspace-minaddr=&lt;address&gt; [default: depends
+      on the platform] </code>
+    </span>
+</dt>
+<dd><p>To avoid potential conflicts with some system libraries,
+      Valgrind does not use the address space
+      below <code class="option">--aspace-minaddr</code> value, keeping it
+      reserved in case a library specifically requests memory in this
+      region.  So, some "pessimistic" value is guessed by Valgrind
+      depending on the platform. On linux, by default, Valgrind avoids
+      using the first 64MB even if typically there is no conflict in
+      this complete zone.  You can use the
+      option <code class="option">--aspace-minaddr</code> to have your memory
+      hungry application benefitting from more of this lower memory.
+      On the other hand, if you encounter a conflict, increasing
+      aspace-minaddr value might solve it. Conflicts will typically
+      manifest themselves with mmap failures in the low range of the
+      address space. The
+      provided <code class="computeroutput">address</code> must be page
+      aligned and must be equal or bigger to 0x1000 (4KB). To find the
+      default value on your platform, do something such as
+      <code class="computeroutput">valgrind -d -d date 2&gt;&amp;1 | grep -i minaddr</code>.
+      Values lower than 0x10000 (64KB) are known to create problems
+      on some distributions.
+      </p></dd>
+<dt>
+<a name="opt.valgrind-stacksize"></a><span class="term">
+      <code class="option">--valgrind-stacksize=&lt;number&gt; [default: 1MB] </code>
+    </span>
+</dt>
+<dd>
+<p>For each thread, Valgrind needs its own 'private' stack.
+      The default size for these stacks is largely dimensioned, and so
+      should be sufficient in most cases.  In case the size is too small,
+      Valgrind will segfault. Before segfaulting, a warning might be produced
+      by Valgrind when approaching the limit.
+      </p>
+<p>
+      Use the option <code class="option">--valgrind-stacksize</code> if such an (unlikely)
+      warning is produced, or Valgrind dies due to a segmentation violation.
+      Such segmentation violations have been seen when demangling huge C++
+      symbols.
+      </p>
+<p>If your application uses many threads and needs a lot of memory, you can
+      gain some memory by reducing the size of these Valgrind stacks using
+      the option <code class="option">--valgrind-stacksize</code>.
+      </p>
+</dd>
+<dt>
+<a name="opt.show-emwarns"></a><span class="term">
+      <code class="option">--show-emwarns=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>When enabled, Valgrind will emit warnings about its CPU
+      emulation in certain cases.  These are usually not
+      interesting.</p></dd>
+<dt>
+<a name="opt.require-text-symbol"></a><span class="term">
+      <code class="option">--require-text-symbol=:sonamepatt:fnnamepatt</code>
+    </span>
+</dt>
+<dd>
+<p>When a shared object whose soname
+      matches <code class="varname">sonamepatt</code> is loaded into the
+      process, examine all the text symbols it exports.  If none of
+      those match <code class="varname">fnnamepatt</code>, print an error
+      message and abandon the run.  This makes it possible to ensure
+      that the run does not continue unless a given shared object
+      contains a particular function name.
+      </p>
+<p>
+      Both <code class="varname">sonamepatt</code> and
+      <code class="varname">fnnamepatt</code> can be written using the usual
+      <code class="varname">?</code> and <code class="varname">*</code> wildcards.  For
+      example: <code class="varname">":*libc.so*:foo?bar"</code>.  You may use
+      characters other than a colon to separate the two patterns.  It
+      is only important that the first character and the separator
+      character are the same.  For example, the above example could
+      also be written <code class="varname">"Q*libc.so*Qfoo?bar"</code>.
+      Multiple <code class="varname"> --require-text-symbol</code> flags are
+      allowed, in which case shared objects that are loaded into
+      the process will be checked against all of them.
+      </p>
+<p>
+      The purpose of this is to support reliable usage of marked-up
+      libraries.  For example, suppose we have a version of GCC's
+      <code class="varname">libgomp.so</code> which has been marked up with
+      annotations to support Helgrind.  It is only too easy and
+      confusing to load the wrong, un-annotated
+      <code class="varname">libgomp.so</code> into the application.  So the idea
+      is: add a text symbol in the marked-up library, for
+      example <code class="varname">annotated_for_helgrind_3_6</code>, and then
+      give the flag
+      <code class="varname">--require-text-symbol=:*libgomp*so*:annotated_for_helgrind_3_6</code>
+      so that when <code class="varname">libgomp.so</code> is loaded, Valgrind
+      scans its symbol table, and if the symbol isn't present the run
+      is aborted, rather than continuing silently with the
+      un-marked-up library.  Note that you should put the entire flag
+      in quotes to stop shells expanding up the <code class="varname">*</code>
+      and <code class="varname">?</code> wildcards.
+      </p>
+</dd>
+<dt>
+<a name="opt.soname-synonyms"></a><span class="term">
+      <code class="option">--soname-synonyms=syn1=pattern1,syn2=pattern2,...</code>
+    </span>
+</dt>
+<dd>
+<p>When a shared library is loaded, Valgrind checks for
+      functions in the library that must be replaced or wrapped.  For
+      example, Memcheck replaces some string and memory functions
+      (strchr, strlen, strcpy, memchr, memcpy, memmove, etc.) with its
+      own versions.  Such replacements are normally done only in shared
+      libraries whose soname matches a predefined soname pattern (e.g.
+      <code class="varname">libc.so*</code> on linux).  By default, no
+      replacement is done for a statically linked binary or for
+      alternative libraries, except for the allocation functions
+      (malloc, free, calloc, memalign, realloc, operator new, operator
+      delete, etc.) Such allocation functions are intercepted by
+      default in any shared library or in the executable if they are
+      exported as global symbols. This means that if a replacement
+      allocation library such as tcmalloc is found, its functions are
+      also intercepted by default.
+
+      In some cases, the replacements allow
+      <code class="option">--soname-synonyms</code> to specify one additional
+      synonym pattern, giving flexibility in the replacement.  Or to
+      prevent interception of all public allocation symbols.</p>
+<p>Currently, this flexibility is only allowed for the
+      malloc related functions, using the
+      synonym <code class="varname">somalloc</code>.  This synonym is usable for
+      all tools doing standard replacement of malloc related functions
+      (e.g. memcheck, helgrind, drd, massif, dhat).
+      </p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p>Alternate malloc library: to replace the malloc
+          related functions in a specific alternate library with
+          soname <code class="varname">mymalloclib.so</code> (and not in any
+          others), give the
+          option <code class="option">--soname-synonyms=somalloc=mymalloclib.so</code>.
+          A pattern can be used to match multiple libraries sonames.
+          For
+          example, <code class="option">--soname-synonyms=somalloc=*tcmalloc*</code>
+          will match the soname of all variants of the tcmalloc
+          library (native, debug, profiled, ... tcmalloc
+          variants). </p>
+<p>Note: the soname of a elf shared library can be
+          retrieved using the readelf utility. </p>
+</li>
+<li class="listitem"><p>Replacements in a statically linked library are done
+          by using the <code class="varname">NONE</code> pattern. For example,
+          if you link with <code class="varname">libtcmalloc.a</code>, and only
+          want to intercept the malloc related functions in the
+          executable (and standard libraries) themselves, but not any
+          other shared libraries, you can give the
+          option <code class="option">--soname-synonyms=somalloc=NONE</code>.
+          Note that a NONE pattern will match the main executable and
+          any shared library having no soname. </p></li>
+<li class="listitem"><p>To run a "default" Firefox build for Linux, in which
+          JEMalloc is linked in to the main executable,
+          use <code class="option">--soname-synonyms=somalloc=NONE</code>.
+          </p></li>
+<li class="listitem"><p>To only intercept allocation symbols in the default
+	  system libraries, but not in any other shared library or the
+	  executable defining public malloc or operator new related
+	  functions use a non-existing library name
+	  like <code class="option">--soname-synonyms=somalloc=nouserintercepts</code>
+	  (where <code class="varname">nouserintercepts</code> can be any
+	  non-existing library name).
+	  </p></li>
+<li class="listitem"><p>Shared library of the dynamic (runtime) linker is excluded from
+         searching for global public symbols, such as those for the malloc
+         related functions (identified by <code class="varname">somalloc</code> synonym).
+         </p></li>
+</ul></div>
+</dd>
+<dt>
+<a name="opt.progress-interval"></a><span class="term">
+      <code class="option">--progress-interval=&lt;number&gt; [default: 0, meaning 'disabled'] </code>
+    </span>
+</dt>
+<dd>
+<p>This is an enhancement to Valgrind's debugging output.  It is
+        unlikely to be of interest to end users.</p>
+<p>When <code class="varname">number</code> is set to a non-zero value,
+        Valgrind will print a one-line progress summary
+        every <code class="varname">number</code> seconds.  Valid settings
+        for <code class="varname">number</code> are between 0 and 3600
+        inclusive.  Here's some example output
+        with <code class="varname">number</code>
+        set to 10:
+        </p>
+<pre class="programlisting">
+PROGRESS: U 110s, W 113s, 97.3% CPU, EvC 414.79M, TIn 616.7k, TOut 0.5k, #thr 67
+PROGRESS: U 120s, W 124s, 96.8% CPU, EvC 505.27M, TIn 636.6k, TOut 3.0k, #thr 64
+PROGRESS: U 130s, W 134s, 97.0% CPU, EvC 574.90M, TIn 657.5k, TOut 3.0k, #thr 63
+</pre>
+<p>
+        Each line shows:
+      </p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p><code class="varname">U</code>: total user time</p></li>
+<li class="listitem"><p><code class="varname">W</code>: total wallclock time</p></li>
+<li class="listitem"><p><code class="varname">CPU</code>: overall average cpu use</p></li>
+<li class="listitem"><p><code class="varname">EvC</code>: number of event checks.  An event
+         check is a backwards branch in the simulated program, so this is a
+         measure of forward progress of the program</p></li>
+<li class="listitem"><p><code class="varname">TIn</code>: number of code blocks instrumented
+          by the JIT</p></li>
+<li class="listitem"><p><code class="varname">TOut</code>: number of instrumented code
+          blocks that have been thrown away</p></li>
+<li class="listitem"><p><code class="varname">#thr</code>: number of threads in the
+        program</p></li>
+</ul></div>
+<p>
+      From the progress of these, it is possible to observe:
+      </p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p>when the program is compute bound (<code class="varname">TIn</code>
+          rises slowly, <code class="varname">EvC</code> rises rapidly)</p></li>
+<li class="listitem"><p>when the program is in a spinloop
+          (<code class="varname">TIn</code>/<code class="varname">TOut</code>
+          fixed, <code class="varname">EvC</code> rises rapidly)</p></li>
+<li class="listitem"><p>when the program is JIT-bound (<code class="varname">TIn</code>
+          rises rapidly)</p></li>
+<li class="listitem"><p>when the program is rapidly discarding code
+          (<code class="varname">TOut</code> rises rapidly)</p></li>
+<li class="listitem"><p>when the program is about to achieve some expected state
+          (<code class="varname">EvC</code> arrives at some value you
+          expect)</p></li>
+<li class="listitem"><p> when the program is idling (<code class="varname">U</code> rises
+          more slowly than <code class="varname">W</code>)</p></li>
+</ul></div>
+<p>
+      </p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-core.debugopts"></a>2.7.6. Debugging Options</h3></div></div></div>
+<p><a name="debug.opts.para"></a>There are also some options for debugging
+Valgrind itself.  You shouldn't need to use them in the normal run of
+things.  If you wish to see the list, use the
+<code class="option">--help-debug</code> option.</p>
+<p>If you wish to debug your program rather than debugging
+Valgrind itself, then you should use the options
+<code class="option">--vgdb=yes</code> or <code class="option">--vgdb=full</code>.
+</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-core.defopts"></a>2.7.7. Setting Default Options</h3></div></div></div>
+<p>Note that Valgrind also reads options from three places:</p>
+<div class="orderedlist"><ol class="orderedlist" type="1">
+<li class="listitem"><p>The file <code class="computeroutput">~/.valgrindrc</code></p></li>
+<li class="listitem"><p>The environment variable
+    <code class="computeroutput">$VALGRIND_OPTS</code></p></li>
+<li class="listitem"><p>The file <code class="computeroutput">./.valgrindrc</code></p></li>
+</ol></div>
+<p>These are processed in the given order, before the
+command-line options.  Options processed later override those
+processed earlier; for example, options in
+<code class="computeroutput">./.valgrindrc</code> will take
+precedence over those in
+<code class="computeroutput">~/.valgrindrc</code>.
+</p>
+<p>Please note that the <code class="computeroutput">./.valgrindrc</code>
+file is ignored if it is not a regular file, or is marked as world writeable,
+or is not owned by the current user. This is because the
+<code class="computeroutput">./.valgrindrc</code> can contain options that are
+potentially harmful or can be used by a local attacker to execute code under
+your user account.
+</p>
+<p>Any tool-specific options put in
+<code class="computeroutput">$VALGRIND_OPTS</code> or the
+<code class="computeroutput">.valgrindrc</code> files should be
+prefixed with the tool name and a colon.  For example, if you
+want Memcheck to always do leak checking, you can put the
+following entry in <code class="literal">~/.valgrindrc</code>:</p>
+<pre class="programlisting">
+--memcheck:leak-check=yes</pre>
+<p>This will be ignored if any tool other than Memcheck is
+run.  Without the <code class="computeroutput">memcheck:</code>
+part, this will cause problems if you select other tools that
+don't understand
+<code class="option">--leak-check=yes</code>.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-core.dynopts"></a>2.7.8. Dynamically Changing Options</h3></div></div></div>
+<p>The value of some command line options can be changed dynamically
+  while your program is running under Valgrind.</p>
+<p>The dynamically changeable options of the valgrind core and a given
+  tool can be listed using option
+  <code class="computeroutput">--help-dyn-options</code>, for example:</p>
+<pre class="screen">
+$ valgrind --tool=memcheck --help-dyn-options
+  dynamically changeable options:
+    -v -q -d --stats --vgdb=no --vgdb=yes --vgdb=full --vgdb-poll --vgdb-error
+    --vgdb-stop-at --error-markers --show-error-list -s --show-below-main
+    --time-stamp --trace-children --child-silent-after-fork --trace-sched
+    --trace-signals --trace-symtab --trace-cfi --debug-dump=syms
+    --debug-dump=line --debug-dump=frames --trace-redir --trace-syscalls
+    --sym-offsets --progress-interval --merge-recursive-frames
+    --vex-iropt-verbosity --suppressions --trace-flags --trace-notbelow
+    --trace-notabove --profile-flags --gen-suppressions=no
+    --gen-suppressions=yes --gen-suppressions=all --errors-for-leak-kinds
+    --show-leak-kinds --leak-check-heuristics --show-reachable
+    --show-possibly-lost --freelist-vol --freelist-big-blocks --leak-check=no
+    --leak-check=summary --leak-check=yes --leak-check=full --ignore-ranges
+    --ignore-range-below-sp --show-mismatched-frees
+valgrind: Use --help for more information.
+$</pre>
+<p>The dynamic options can be changed the following ways:</p>
+<div class="orderedlist"><ol class="orderedlist" type="1">
+<li class="listitem">
+<p>From the shell, using vgdb and the monitor command
+     <code class="computeroutput">v.clo</code>:</p>
+<pre class="screen">
+$ vgdb "v.clo --trace-children=yes --child-silent-after-fork=no"
+sending command v.clo --trace-children=yes --child-silent-after-fork=no to pid 4404
+$</pre>
+<p>Note: you must use double quotes around the monitor command to avoid
+  vgdb interpreting the valgrind options as its own options.</p>
+</li>
+<li class="listitem">
+<p>From gdb, using the the monitor command
+     <code class="computeroutput">v.clo</code>:</p>
+<pre class="screen">
+(gdb) monitor v.clo --trace-children=yes --child-silent-after-fork=no
+(gdb) </pre>
+</li>
+<li class="listitem">
+<p>From your program, using the client request
+       <code class="computeroutput">VALGRIND_CLO_CHANGE(option)</code>:</p>
+<pre class="screen">
+      VALGRIND_CLO_CHANGE ("--trace-children=yes");
+      VALGRIND_CLO_CHANGE ("--child-silent-after-fork=no");</pre>
+</li>
+</ol></div>
+<p>Dynamically changeable options can be used in various circumstances,
+    such as changing the valgrind behaviour during execution, loading
+    suppression files as part of shared library initialisation, change or
+    set valgrind options in child processes, ...
+  </p>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.pthreads"></a>2.8. Support for Threads</h2></div></div></div>
+<p>Threaded programs are fully supported.</p>
+<p>The main thing to point out with respect to threaded programs is
+that your program will use the native threading library, but Valgrind
+serialises execution so that only one (kernel) thread is running at a
+time.  This approach avoids the horrible implementation problems of
+implementing a truly multithreaded version of Valgrind, but it does
+mean that threaded apps never use more than one CPU simultaneously,
+even if you have a multiprocessor or multicore machine.</p>
+<p>Valgrind doesn't schedule the threads itself.  It merely ensures
+that only one thread runs at once, using a simple locking scheme.  The
+actual thread scheduling remains under control of the OS kernel.  What
+this does mean, though, is that your program will see very different
+scheduling when run on Valgrind than it does when running normally.
+This is both because Valgrind is serialising the threads, and because
+the code runs so much slower than normal.</p>
+<p>This difference in scheduling may cause your program to behave
+differently, if you have some kind of concurrency, critical race,
+locking, or similar, bugs.  In that case you might consider using the
+tools Helgrind and/or DRD to track them down.</p>
+<p>On Linux, Valgrind also supports direct use of the
+<code class="computeroutput">clone</code> system call,
+<code class="computeroutput">futex</code> and so on.
+<code class="computeroutput">clone</code> is supported where either
+everything is shared (a thread) or nothing is shared (fork-like); partial
+sharing will fail.
+</p>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="manual-core.pthreads_perf_sched"></a>2.8.1. Scheduling and Multi-Thread Performance</h3></div></div></div>
+<p>A thread executes code only when it holds the abovementioned
+lock.  After executing some number of instructions, the running thread
+will release the lock.  All threads ready to run will then compete to
+acquire the lock.</p>
+<p>The <code class="option">--fair-sched</code> option controls the locking mechanism
+used to serialise thread execution.</p>
+<p>The default pipe based locking mechanism
+(<code class="option">--fair-sched=no</code>) is available on all
+platforms.  Pipe based locking does not guarantee fairness between
+threads: it is quite likely that a thread that has just released the
+lock reacquires it immediately, even though other threads are ready to
+run.  When using pipe based locking, different runs of the same
+multithreaded application might give very different thread
+scheduling.</p>
+<p>An alternative locking mechanism, based on futexes, is available
+on some platforms.  If available, it is activated
+by <code class="option">--fair-sched=yes</code> or
+<code class="option">--fair-sched=try</code>.  Futex based locking ensures
+fairness (round-robin scheduling) between threads: if multiple threads
+are ready to run, the lock will be given to the thread which first
+requested the lock.  Note that a thread which is blocked in a system
+call (e.g. in a blocking read system call) has not (yet) requested the
+lock: such a thread requests the lock only after the system call is
+finished.</p>
+<p> The fairness of the futex based locking produces better
+reproducibility of thread scheduling for different executions of a
+multithreaded application. This better reproducibility is particularly
+helpful when using Helgrind or DRD.</p>
+<p>Valgrind's use of thread serialisation implies that only one
+thread at a time may run.  On a multiprocessor/multicore system, the
+running thread is assigned to one of the CPUs by the OS kernel
+scheduler.  When a thread acquires the lock, sometimes the thread will
+be assigned to the same CPU as the thread that just released the
+lock.  Sometimes, the thread will be assigned to another CPU.  When
+using pipe based locking, the thread that just acquired the lock
+will usually be scheduled on the same CPU as the thread that just
+released the lock.  With the futex based mechanism, the thread that
+just acquired the lock will more often be scheduled on another
+CPU.</p>
+<p>Valgrind's thread serialisation and CPU assignment by the OS
+kernel scheduler can interact badly with the CPU frequency scaling
+available on many modern CPUs.  To decrease power consumption, the
+frequency of a CPU or core is automatically decreased if the CPU/core
+has not been used recently.  If the OS kernel often assigns the thread
+which just acquired the lock to another CPU/core, it is quite likely
+that this CPU/core is currently at a low frequency.  The frequency of
+this CPU will be increased after some time.  However, during this
+time, the (only) running thread will have run at the low frequency.
+Once this thread has run for some time, it will release the lock.
+Another thread will acquire this lock, and might be scheduled again on
+another CPU whose clock frequency was decreased in the
+meantime.</p>
+<p>The futex based locking causes threads to change CPUs/cores more
+often.  So, if CPU frequency scaling is activated, the futex based
+locking might decrease significantly the performance of a
+multithreaded app running under Valgrind.  Performance losses of up to
+50% degradation have been observed, as compared to running on a
+machine for which CPU frequency scaling has been disabled.  The pipe
+based locking locking scheme also interacts badly with CPU frequency
+scaling, with performance losses in the range 10..20% having been
+observed.</p>
+<p>To avoid such performance degradation, you should indicate to
+the kernel that all CPUs/cores should always run at maximum clock
+speed.  Depending on your Linux distribution, CPU frequency scaling
+may be controlled using a graphical interface or using command line
+such as
+<code class="computeroutput">cpufreq-selector</code> or
+<code class="computeroutput">cpufreq-set</code>.
+</p>
+<p>An alternative way to avoid these problems is to tell the
+OS scheduler to tie a Valgrind process to a specific (fixed) CPU using the
+<code class="computeroutput">taskset</code> command.  This should ensure
+that the selected CPU does not fall below its maximum frequency
+setting so long as any thread of the program has work to do.
+</p>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.signals"></a>2.9. Handling of Signals</h2></div></div></div>
+<p>Valgrind has a fairly complete signal implementation.  It should be
+able to cope with any POSIX-compliant use of signals.</p>
+<p>If you're using signals in clever ways (for example, catching
+SIGSEGV, modifying page state and restarting the instruction), you're
+probably relying on precise exceptions.  In this case, you will need
+to use <code class="option">--vex-iropt-register-updates=allregs-at-mem-access</code>
+or <code class="option">--vex-iropt-register-updates=allregs-at-each-insn</code>.
+</p>
+<p>If your program dies as a result of a fatal core-dumping signal,
+Valgrind will generate its own core file
+(<code class="computeroutput">vgcore.NNNNN</code>) containing your program's
+state.  You may use this core file for post-mortem debugging with GDB or
+similar.  (Note: it will not generate a core if your core dump size limit is
+0.)  At the time of writing the core dumps do not include all the floating
+point register information.</p>
+<p>In the unlikely event that Valgrind itself crashes, the operating system
+will create a core dump in the usual way.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.xtree"></a>2.10. Execution Trees</h2></div></div></div>
+<p>An execution tree (xtree) is made of a set of stack traces, each
+  stack trace is associated with some resource consumptions or event
+  counts.  Depending on the xtree, different event counts/resource
+  consumptions can be recorded in the xtree. Multiple tools can
+  produce memory use xtree. Memcheck can output the leak search results
+  in an xtree.</p>
+<p> A typical usage for an xtree is to show a graphical or textual
+  representation of the heap usage of a program. The below figure is
+  a heap usage xtree graphical representation produced by
+  kcachegrind. In the kcachegrind output, you can see that main
+  current heap usage (allocated indirectly) is 528 bytes : 388 bytes
+  allocated indirectly via a call to function f1 and 140 bytes
+  indirectly allocated via a call to function f2. f2 has allocated
+  memory by calling g2, while f1 has allocated memory by calling g11
+  and g12. g11, g12 and g1 have directly called a memory allocation
+  function (malloc), and so have a non zero 'Self' value. Note that when
+  kcachegrind shows an xtree, the 'Called' column and call nr indications in
+  the Call Graph are not significant (always set to 0 or 1, independently
+  of the real nr of calls. The kcachegrind versions &gt;= 0.8.0 do not show
+  anymore such irrelevant xtree call number information.</p>
+<div><img src="images/kcachegrind_xtree.png"></div>
+<p>An xtree heap memory report is produced at the end of the
+  execution when required using the
+  option <code class="option">--xtree-memory</code>.  It can also be produced on
+  demand using the <code class="option">xtmemory</code> monitor command (see
+  <a class="xref" href="manual-core-adv.html#manual-core-adv.valgrind-monitor-commands" title="3.2.11. Valgrind monitor commands">Valgrind monitor commands</a>). Currently,
+  an xtree heap memory report can be produced by
+  the <code class="option">memcheck</code>, <code class="option">helgrind</code>
+  and <code class="option">massif</code> tools.</p>
+<p>The xtrees produced by the option
+  <a class="xref" href="manual-core.html#opt.xtree-memory">--xtree-memory</a> or the <code class="option">xtmemory</code>
+  monitor command are showing the following events/resource
+  consumption describing heap usage:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p><code class="option">curB</code> current number of Bytes allocated. The
+      number of allocated bytes is added to the <code class="option">curB</code>
+      value of a stack trace for each allocation. It is decreased when
+      a block allocated by this stack trace is released (by another
+      "freeing" stack trace)</p></li>
+<li class="listitem"><p><code class="option">curBk</code> current number of Blocks allocated,
+      maintained similary to curB : +1 for each allocation, -1 when
+      the block is freed.</p></li>
+<li class="listitem"><p><code class="option">totB</code> total allocated Bytes. This is
+      increased for each allocation with the number of allocated bytes.</p></li>
+<li class="listitem"><p><code class="option">totBk</code> total allocated Blocks, maintained similary
+      to totB : +1 for each allocation.</p></li>
+<li class="listitem"><p><code class="option">totFdB</code> total Freed Bytes, increased each time
+      a block is released by this ("freeing") stack trace : + nr freed bytes
+      for each free operation.</p></li>
+<li class="listitem"><p><code class="option">totFdBk</code> total Freed Blocks, maintained similarly
+      to totFdB : +1 for each free operation.</p></li>
+</ul></div>
+<p>Note that the last 4 counts are produced only when the
+  <code class="option">--xtree-memory=full</code> was given at startup.</p>
+<p>Xtrees can be saved in 2 file formats, the "Callgrind Format" and
+the "Massif Format".</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p>Callgrind Format</p>
+<p>An xtree file in the Callgrind Format contains a single callgraph,
+      associating each stack trace with the values recorded
+      in the xtree. </p>
+<p>Different Callgrind Format file visualisers are available:</p>
+<p>Valgrind distribution includes the <code class="option">callgrind_annotate</code>
+      command line utility that reads in the xtree data, and prints a sorted
+      lists of functions, optionally with source annotation. Note that due to
+      xtree specificities, you must give the option
+      <code class="option">--inclusive=yes</code> to callgrind_annotate.</p>
+<p>For graphical visualization of the data, you can use
+      <a class="ulink" href="https://kcachegrind.github.io/html/Home.html" target="_top">KCachegrind</a>, which is a KDE/Qt based
+      GUI that makes it easy to navigate the large amount of data that
+      an xtree can contain.</p>
+<p>Note that xtree Callgrind Format does not make use of the inline
+      information even when specifying <code class="option">--read-inline-info=yes</code>.
+    </p>
+</li>
+<li class="listitem">
+<p>Massif Format</p>
+<p>An xtree file in the Massif Format contains one detailed tree
+      callgraph data for each type of event recorded in the xtree.  So,
+      for <code class="option">--xtree-memory=alloc</code>, the output file will
+      contain 2 detailed trees (for the counts <code class="option">curB</code>
+      and <code class="option">curBk</code>),
+      while <code class="option">--xtree-memory=full</code> will give a file
+      with 6 detailed trees.</p>
+<p>Different Massif Format file visualisers are available. Valgrind
+      distribution includes the <code class="option">ms_print</code>
+      command line utility that produces an easy to read reprentation of
+      a massif output file. See <a class="xref" href="ms-manual.html#ms-manual.using-print" title="9.2. Using Massif and ms_print">Using Massif and ms_print</a> and
+      <a class="xref" href="ms-manual.html#ms-manual.using-visualizer" title="9.3. Using massif-visualizer">Using massif-visualizer</a> for more details
+      about visualising Massif Format output files.</p>
+<p>Note that xtree Massif Format makes use of the inline
+      information when specifying <code class="option">--read-inline-info=yes</code>.
+    </p>
+</li>
+</ul></div>
+<p>Note that for equivalent information, the Callgrind Format is more compact
+  than the Massif Format.  However, the Callgrind Format always contains the
+  full data: there is no filtering done during file production, filtering is
+  done by visualisers such as kcachegrind. kcachegrind is particularly easy to
+  use to analyse big xtree data containing multiple events counts or resources
+  consumption.  The Massif Format (optionally) only contains a part of the data.
+  For example, the Massif tool might filter some of the data, according to the
+  <code class="option">--threshold</code> option.
+</p>
+<p>To clarify the xtree concept, the below gives several extracts of
+  the output produced by the following commands:
+</p>
+<pre class="screen">
+valgrind --xtree-memory=full --xtree-memory-file=xtmemory.kcg mfg
+callgrind_annotate --auto=yes --inclusive=yes --sort=curB:100,curBk:100,totB:100,totBk:100,totFdB:100,totFdBk:100  xtmemory.kcg
+</pre>
+<p>
+</p>
+<p>The below extract shows that the program mfg has allocated in
+  total 770 bytes in 60 different blocks. Of these 60 blocks, 19 were
+  freed, releasing a total of 242 bytes. The heap currently contains
+  528 bytes in 41 blocks.</p>
+<pre class="screen">
+--------------------------------------------------------------------------------
+curB curBk totB totBk totFdB totFdBk 
+--------------------------------------------------------------------------------
+ 528    41  770    60    242      19  PROGRAM TOTALS
+</pre>
+<p>The below gives more details about which functions have
+  allocated or released memory. As an example, we see that main has
+  (directly or indirectly) allocated 770 bytes of memory and freed
+  (directly or indirectly) 242 bytes of memory. The function f1 has
+  (directly or indirectly) allocated 570 bytes of memory, and has not
+  (directly or indirectly) freed memory.  Of the 570 bytes allocated
+  by function f1, 388 bytes (34 blocks) have not been
+  released.</p>
+<pre class="screen">
+--------------------------------------------------------------------------------
+curB curBk totB totBk totFdB totFdBk  file:function
+--------------------------------------------------------------------------------
+ 528    41  770    60    242      19  mfg.c:main
+ 388    34  570    50      0       0  mfg.c:f1
+ 220    20  330    30      0       0  mfg.c:g11
+ 168    14  240    20      0       0  mfg.c:g12
+ 140     7  200    10      0       0  mfg.c:g2
+ 140     7  200    10      0       0  mfg.c:f2
+   0     0    0     0    131      10  mfg.c:freeY
+   0     0    0     0    111       9  mfg.c:freeX
+</pre>
+<p>The below gives a more detailed information about the callgraph
+  and which source lines/calls have (directly or indirectly) allocated or
+  released memory. The below shows that the 770 bytes allocated by
+  main have been indirectly allocated by calls to f1 and f2.
+  Similarly, we see that the 570 bytes allocated by f1 have been
+  indirectly allocated by calls to g11 and g12. Of the 330 bytes allocated
+  by the 30 calls to g11, 168 bytes have not been freed.
+  The function freeY (called once by main) has released in total
+  10 blocks and 131 bytes. </p>
+<pre class="screen">
+--------------------------------------------------------------------------------
+-- Auto-annotated source: /home/philippe/valgrind/littleprogs/ + mfg.c
+--------------------------------------------------------------------------------
+curB curBk totB totBk totFdB totFdBk 
+....
+   .     .    .     .      .       .  static void freeY(void)
+   .     .    .     .      .       .  {
+   .     .    .     .      .       .     int i;
+   .     .    .     .      .       .     for (i = 0; i &lt; next_ptr; i++)
+   .     .    .     .      .       .        if(i % 5 == 0 &amp;&amp; ptrs[i] != NULL)
+   0     0    0     0    131      10           free(ptrs[i]);
+   .     .    .     .      .       .  }
+   .     .    .     .      .       .  static void f1(void)
+   .     .    .     .      .       .  {
+   .     .    .     .      .       .     int i;
+   .     .    .     .      .       .     for (i = 0; i &lt; 30; i++)
+ 220    20  330    30      0       0        g11();
+   .     .    .     .      .       .     for (i = 0; i &lt; 20; i++)
+ 168    14  240    20      0       0        g12();
+   .     .    .     .      .       .  }
+   .     .    .     .      .       .  int main()
+   .     .    .     .      .       .  {
+ 388    34  570    50      0       0     f1();
+ 140     7  200    10      0       0     f2();
+   0     0    0     0    111       9     freeX();
+   0     0    0     0    131      10     freeY();
+   .     .    .     .      .       .     return 0;
+   .     .    .     .      .       .  }
+</pre>
+<p>Heap memory xtrees are helping to understand how your (big)
+  program is using the heap. A full heap memory xtree helps to pin
+  point some code that allocates a lot of small objects : allocating
+  such small objects might be replaced by more efficient technique,
+  such as allocating a big block using malloc, and then diviving this
+  block into smaller blocks in order to decrease the cpu and/or memory
+  overhead of allocating a lot of small blocks. Such full xtree information
+  complements e.g. what callgrind can show: callgrind can show the number
+  of calls to a function (such as malloc) but does not indicate the volume
+  of memory allocated (or freed).</p>
+<p>A full heap memory xtree also can identify the code that allocates
+  and frees a lot of blocks : the total foot print of the program might
+  not reflect the fact that the same memory was over and over allocated
+  then released.</p>
+<p>Finally, Xtree visualisers such as kcachegrind are helping to
+  identify big memory consumers, in order to possibly optimise the
+  amount of memory needed by your program.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.install"></a>2.11. Building and Installing Valgrind</h2></div></div></div>
+<p>We use the standard Unix
+<code class="computeroutput">./configure</code>,
+<code class="computeroutput">make</code>, <code class="computeroutput">make
+install</code> mechanism.  Once you have completed 
+<code class="computeroutput">make install</code> you may then want 
+to run the regression tests
+with <code class="computeroutput">make regtest</code>.
+</p>
+<p>In addition to the usual
+<code class="option">--prefix=/path/to/install/tree</code>, there are three
+ options which affect how Valgrind is built:
+</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p><code class="option">--enable-inner</code></p>
+<p>This builds Valgrind with some special magic hacks which make
+     it possible to run it on a standard build of Valgrind (what the
+     developers call "self-hosting").  Ordinarily you should not use
+     this option as various kinds of safety checks are disabled.
+   </p>
+</li>
+<li class="listitem">
+<p><code class="option">--enable-only64bit</code></p>
+<p><code class="option">--enable-only32bit</code></p>
+<p>On 64-bit platforms (amd64-linux, ppc64-linux,
+     amd64-darwin), Valgrind is by default built in such a way that
+     both 32-bit and 64-bit executables can be run.  Sometimes this
+     cleverness is a problem for a variety of reasons.  These two
+     options allow for single-target builds in this situation.  If you
+     issue both, the configure script will complain.  Note they are
+     ignored on 32-bit-only platforms (x86-linux, ppc32-linux,
+     arm-linux, x86-darwin).
+   </p>
+</li>
+</ul></div>
+<p>
+</p>
+<p>The <code class="computeroutput">configure</code> script tests
+the version of the X server currently indicated by the current
+<code class="computeroutput">$DISPLAY</code>.  This is a known bug.
+The intention was to detect the version of the current X
+client libraries, so that correct suppressions could be selected
+for them, but instead the test checks the server version.  This
+is just plain wrong.</p>
+<p>If you are building a binary package of Valgrind for
+distribution, please read <code class="literal">README_PACKAGERS</code>
+<a class="xref" href="dist.readme-packagers.html" title="7. README_PACKAGERS">Readme Packagers</a>.  It contains some
+important information.</p>
+<p>Apart from that, there's not much excitement here.  Let us
+know if you have build problems.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.problems"></a>2.12. If You Have Problems</h2></div></div></div>
+<p>Contact us at <a class="ulink" href="http://www.valgrind.org/" target="_top">http://www.valgrind.org/</a>.</p>
+<p>See <a class="xref" href="manual-core.html#manual-core.limits" title="2.13. Limitations">Limitations</a> for the known
+limitations of Valgrind, and for a list of programs which are
+known not to work on it.</p>
+<p>All parts of the system make heavy use of assertions and 
+internal self-checks.  They are permanently enabled, and we have no 
+plans to disable them.  If one of them breaks, please mail us!</p>
+<p>If you get an assertion failure
+in <code class="filename">m_mallocfree.c</code>, this may have happened because
+your program wrote off the end of a heap block, or before its
+beginning, thus corrupting heap metadata.  Valgrind hopefully will have
+emitted a message to that effect before dying in this way.</p>
+<p>Read the <a class="xref" href="FAQ.html" title="Valgrind FAQ">Valgrind FAQ</a> for more advice about common problems, 
+crashes, etc.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.limits"></a>2.13. Limitations</h2></div></div></div>
+<p>The following list of limitations seems long.  However, most
+programs actually work fine.</p>
+<p>Valgrind will run programs on the supported platforms
+subject to the following constraints:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p>On Linux, Valgrind determines at startup the size of the 'brk
+      segment' using the RLIMIT_DATA rlim_cur, with a minimum of 1 MB and
+      a maximum of 8 MB. Valgrind outputs a message each time a program
+      tries to extend the brk segment beyond the size determined at
+      startup.  Most programs will work properly with this limit,
+      typically by switching to the use of mmap to get more memory.
+      If your program really needs a big brk segment, you must change
+      the 8 MB hardcoded limit and recompile Valgrind.
+   </p></li>
+<li class="listitem"><p>On x86 and amd64, there is no support for 3DNow!
+   instructions.  If the translator encounters these, Valgrind will
+   generate a SIGILL when the instruction is executed.  Apart from
+   that, on x86 and amd64, essentially all instructions are supported,
+   up to and including AVX and AES in 64-bit mode and SSSE3 in 32-bit
+   mode.  32-bit mode does in fact support the bare minimum SSE4
+   instructions needed to run programs on MacOSX 10.6 on 32-bit
+   targets.
+   </p></li>
+<li class="listitem"><p>On ppc32 and ppc64, almost all integer, floating point and
+   Altivec instructions are supported.  Specifically: integer and FP
+   insns that are mandatory for PowerPC, the "General-purpose
+   optional" group (fsqrt, fsqrts, stfiwx), the "Graphics optional"
+   group (fre, fres, frsqrte, frsqrtes), and the Altivec (also known
+   as VMX) SIMD instruction set, are supported.  Also, instructions
+   from the Power ISA 2.05 specification, as present in POWER6 CPUs,
+   are supported.</p></li>
+<li class="listitem"><p>On ARM, essentially the entire ARMv7-A instruction set
+    is supported, in both ARM and Thumb mode.  ThumbEE and Jazelle are
+    not supported.  NEON, VFPv3 and ARMv6 media support is fairly
+    complete.
+   </p></li>
+<li class="listitem"><p>If your program does its own memory management, rather than
+   using malloc/new/free/delete, it should still work, but Memcheck's
+   error checking won't be so effective.  If you describe your
+   program's memory management scheme using "client requests" (see
+   <a class="xref" href="manual-core-adv.html#manual-core-adv.clientreq" title="3.1. The Client Request mechanism">The Client Request mechanism</a>), Memcheck can do
+   better.  Nevertheless, using malloc/new and free/delete is still
+   the best approach.</p></li>
+<li class="listitem"><p>Valgrind's signal simulation is not as robust as it could be.
+   Basic POSIX-compliant sigaction and sigprocmask functionality is
+   supplied, but it's conceivable that things could go badly awry if you
+   do weird things with signals.  Workaround: don't.  Programs that do
+   non-POSIX signal tricks are in any case inherently unportable, so
+   should be avoided if possible.</p></li>
+<li class="listitem"><p>Machine instructions, and system calls, have been implemented
+   on demand.  So it's possible, although unlikely, that a program will
+   fall over with a message to that effect.  If this happens, please
+   report all the details printed out, so we can try and implement the
+   missing feature.</p></li>
+<li class="listitem"><p>Memory consumption of your program is majorly increased
+   whilst running under Valgrind's Memcheck tool.  This is due to the
+   large amount of administrative information maintained behind the
+   scenes.  Another cause is that Valgrind dynamically translates the
+   original executable.  Translated, instrumented code is 12-18 times
+   larger than the original so you can easily end up with 150+ MB of
+   translations when running (eg) a web browser.</p></li>
+<li class="listitem">
+<p>Valgrind can handle dynamically-generated code just fine.  If
+   you regenerate code over the top of old code (ie. at the same
+   memory addresses), if the code is on the stack Valgrind will
+   realise the code has changed, and work correctly.  This is
+   necessary to handle the trampolines GCC uses to implemented nested
+   functions.  If you regenerate code somewhere other than the stack,
+   and you are running on an 32- or 64-bit x86 CPU, you will need to
+   use the <code class="option">--smc-check=all</code> option, and Valgrind will
+   run more slowly than normal.  Or you can add client requests that
+   tell Valgrind when your program has overwritten code.
+   </p>
+<p> On other platforms (ARM, PowerPC) Valgrind observes and
+   honours the cache invalidation hints that programs are obliged to
+   emit to notify new code, and so self-modifying-code support should
+   work automatically, without the need
+   for <code class="option">--smc-check=all</code>.</p>
+</li>
+<li class="listitem">
+<p>Valgrind has the following limitations
+   in its implementation of x86/AMD64 floating point relative to 
+   IEEE754.</p>
+<p>Precision: There is no support for 80 bit arithmetic.
+   Internally, Valgrind represents all such "long double" numbers in 64
+   bits, and so there may be some differences in results.  Whether or
+   not this is critical remains to be seen.  Note, the x86/amd64
+   fldt/fstpt instructions (read/write 80-bit numbers) are correctly
+   simulated, using conversions to/from 64 bits, so that in-memory
+   images of 80-bit numbers look correct if anyone wants to see.</p>
+<p>The impression observed from many FP regression tests is that
+   the accuracy differences aren't significant.  Generally speaking, if
+   a program relies on 80-bit precision, there may be difficulties
+   porting it to non x86/amd64 platforms which only support 64-bit FP
+   precision.  Even on x86/amd64, the program may get different results
+   depending on whether it is compiled to use SSE2 instructions (64-bits
+   only), or x87 instructions (80-bit).  The net effect is to make FP
+   programs behave as if they had been run on a machine with 64-bit IEEE
+   floats, for example PowerPC.  On amd64 FP arithmetic is done by
+   default on SSE2, so amd64 looks more like PowerPC than x86 from an FP
+   perspective, and there are far fewer noticeable accuracy differences
+   than with x86.</p>
+<p>Rounding: Valgrind does observe the 4 IEEE-mandated rounding
+   modes (to nearest, to +infinity, to -infinity, to zero) for the
+   following conversions: float to integer, integer to float where
+   there is a possibility of loss of precision, and float-to-float
+   rounding.  For all other FP operations, only the IEEE default mode
+   (round to nearest) is supported.</p>
+<p>Numeric exceptions in FP code: IEEE754 defines five types of
+   numeric exception that can happen: invalid operation (sqrt of
+   negative number, etc), division by zero, overflow, underflow,
+   inexact (loss of precision).</p>
+<p>For each exception, two courses of action are defined by IEEE754:
+   either (1) a user-defined exception handler may be called, or (2) a
+   default action is defined, which "fixes things up" and allows the
+   computation to proceed without throwing an exception.</p>
+<p>Currently Valgrind only supports the default fixup actions.
+   Again, feedback on the importance of exception support would be
+   appreciated.</p>
+<p>When Valgrind detects that the program is trying to exceed any
+   of these limitations (setting exception handlers, rounding mode, or
+   precision control), it can print a message giving a traceback of
+   where this has happened, and continue execution.  This behaviour used
+   to be the default, but the messages are annoying and so showing them
+   is now disabled by default.  Use <code class="option">--show-emwarns=yes</code> to see
+   them.</p>
+<p>The above limitations define precisely the IEEE754 'default'
+   behaviour: default fixup on all exceptions, round-to-nearest
+   operations, and 64-bit precision.</p>
+</li>
+<li class="listitem">
+<p>Valgrind has the following limitations in
+   its implementation of x86/AMD64 SSE2 FP arithmetic, relative to 
+   IEEE754.</p>
+<p>Essentially the same: no exceptions, and limited observance of
+   rounding mode.  Also, SSE2 has control bits which make it treat
+   denormalised numbers as zero (DAZ) and a related action, flush
+   denormals to zero (FTZ).  Both of these cause SSE2 arithmetic to be
+   less accurate than IEEE requires.  Valgrind detects, ignores, and can
+   warn about, attempts to enable either mode.</p>
+</li>
+<li class="listitem">
+<p>Valgrind has the following limitations in
+   its implementation of ARM VFPv3 arithmetic, relative to 
+   IEEE754.</p>
+<p>Essentially the same: no exceptions, and limited observance
+   of rounding mode.  Also, switching the VFP unit into vector mode
+   will cause Valgrind to abort the program -- it has no way to
+   emulate vector uses of VFP at a reasonable performance level.  This
+   is no big deal given that non-scalar uses of VFP instructions are
+   in any case deprecated.</p>
+</li>
+<li class="listitem">
+<p>Valgrind has the following limitations
+   in its implementation of PPC32 and PPC64 floating point 
+   arithmetic, relative to IEEE754.</p>
+<p>Scalar (non-Altivec): Valgrind provides a bit-exact emulation of
+   all floating point instructions, except for "fre" and "fres", which are
+   done more precisely than required by the PowerPC architecture specification.
+   All floating point operations observe the current rounding mode.
+   </p>
+<p>However, fpscr[FPRF] is not set after each operation.  That could
+   be done but would give measurable performance overheads, and so far
+   no need for it has been found.</p>
+<p>As on x86/AMD64, IEEE754 exceptions are not supported: all floating
+   point exceptions are handled using the default IEEE fixup actions.
+   Valgrind detects, ignores, and can warn about, attempts to unmask 
+   the 5 IEEE FP exception kinds by writing to the floating-point status 
+   and control register (fpscr).
+   </p>
+<p>Vector (Altivec, VMX): essentially as with x86/AMD64 SSE/SSE2: 
+   no exceptions, and limited observance of rounding mode.  
+   For Altivec, FP arithmetic
+   is done in IEEE/Java mode, which is more accurate than the Linux default
+   setting.  "More accurate" means that denormals are handled properly, 
+   rather than simply being flushed to zero.</p>
+</li>
+</ul></div>
+<p>Programs which are known not to work are:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; "><li class="listitem"><p>emacs starts up but immediately concludes it is out of
+   memory and aborts.  It may be that Memcheck does not provide
+   a good enough emulation of the 
+   <code class="computeroutput">mallinfo</code> function.
+   Emacs works fine if you build it to use
+   the standard malloc/free routines.</p></li></ul></div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.example"></a>2.14. An Example Run</h2></div></div></div>
+<p>This is the log for a run of a small program using Memcheck.
+The program is in fact correct, and the reported error is as the
+result of a potentially serious code generation bug in GNU g++
+(snapshot 20010527).</p>
+<pre class="programlisting">
+sewardj@phoenix:~/newmat10$ ~/Valgrind-6/valgrind -v ./bogon 
+==25832== Valgrind 0.10, a memory error detector for x86 RedHat 7.1.
+==25832== Copyright (C) 2000-2001, and GNU GPL'd, by Julian Seward.
+==25832== Startup, with flags:
+==25832== --suppressions=/home/sewardj/Valgrind/redhat71.supp
+==25832== reading syms from /lib/ld-linux.so.2
+==25832== reading syms from /lib/libc.so.6
+==25832== reading syms from /mnt/pima/jrs/Inst/lib/libgcc_s.so.0
+==25832== reading syms from /lib/libm.so.6
+==25832== reading syms from /mnt/pima/jrs/Inst/lib/libstdc++.so.3
+==25832== reading syms from /home/sewardj/Valgrind/valgrind.so
+==25832== reading syms from /proc/self/exe
+==25832== 
+==25832== Invalid read of size 4
+==25832==    at 0x8048724: BandMatrix::ReSize(int,int,int) (bogon.cpp:45)
+==25832==    by 0x80487AF: main (bogon.cpp:66)
+==25832==  Address 0xBFFFF74C is not stack'd, malloc'd or free'd
+==25832==
+==25832== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)
+==25832== malloc/free: in use at exit: 0 bytes in 0 blocks.
+==25832== malloc/free: 0 allocs, 0 frees, 0 bytes allocated.
+==25832== For a detailed leak analysis, rerun with: --leak-check=yes
+</pre>
+<p>The GCC folks fixed this about a week before GCC 3.0
+shipped.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-core.warnings"></a>2.15. Warning Messages You Might See</h2></div></div></div>
+<p>Some of these only appear if you run in verbose mode
+(enabled by <code class="option">-v</code>):</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p><code class="computeroutput">More than 100 errors detected.  Subsequent
+    errors will still be recorded, but in less detail than
+    before.</code></p>
+<p>After 100 different errors have been shown, Valgrind becomes
+    more conservative about collecting them.  It then requires only the
+    program counters in the top two stack frames to match when deciding
+    whether or not two errors are really the same one.  Prior to this
+    point, the PCs in the top four frames are required to match.  This
+    hack has the effect of slowing down the appearance of new errors
+    after the first 100.  The 100 constant can be changed by recompiling
+    Valgrind.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">More than 1000 errors detected.  I'm not
+    reporting any more.  Final error counts may be inaccurate.  Go fix
+    your program!</code></p>
+<p>After 1000 different errors have been detected, Valgrind
+    ignores any more.  It seems unlikely that collecting even more
+    different ones would be of practical help to anybody, and it avoids
+    the danger that Valgrind spends more and more of its time comparing
+    new errors against an ever-growing collection.  As above, the 1000
+    number is a compile-time constant.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">Warning: client switching stacks?</code></p>
+<p>Valgrind spotted such a large change in the stack pointer
+    that it guesses the client is switching to a different stack.  At
+    this point it makes a kludgey guess where the base of the new
+    stack is, and sets memory permissions accordingly.  At the moment
+    "large change" is defined as a change of more that 2000000 in the
+    value of the stack pointer register.  If Valgrind guesses wrong,
+    you may get many bogus error messages following this and/or have
+    crashes in the stack trace recording code.  You might avoid these
+    problems by informing Valgrind about the stack bounds using
+    VALGRIND_STACK_REGISTER client request. </p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">Warning: client attempted to close Valgrind's
+    logfile fd &lt;number&gt;</code></p>
+<p>Valgrind doesn't allow the client to close the logfile,
+    because you'd never see any diagnostic information after that point.
+    If you see this message, you may want to use the
+    <code class="option">--log-fd=&lt;number&gt;</code> option to specify a
+    different logfile file-descriptor number.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">Warning: noted but unhandled ioctl
+    &lt;number&gt;</code></p>
+<p>Valgrind observed a call to one of the vast family of
+    <code class="computeroutput">ioctl</code> system calls, but did not
+    modify its memory status info (because nobody has yet written a 
+    suitable wrapper).  The call will still have gone through, but you may get
+    spurious errors after this as a result of the non-update of the
+    memory info.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">Warning: set address range perms: large range
+    &lt;number&gt;</code></p>
+<p>Diagnostic message, mostly for benefit of the Valgrind
+    developers, to do with memory permissions.</p>
+</li>
+</ul></div>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="manual-intro.html">&lt;&lt; 1. Introduction</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="manual.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="manual-core-adv.html">3. Using and understanding the Valgrind core: Advanced Topics &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

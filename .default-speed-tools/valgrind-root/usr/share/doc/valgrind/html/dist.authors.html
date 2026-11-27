@@ -1,0 +1,134 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>1. AUTHORS</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="dist.html" title="Valgrind Distribution Documents">
+<link rel="prev" href="dist.html" title="Valgrind Distribution Documents">
+<link rel="next" href="dist.news.html" title="2. NEWS">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="dist.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="dist.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind Distribution Documents</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="dist.news.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="dist.authors"></a>1. AUTHORS</h1></div></div></div>
+<div class="literallayout"><p><br>
+        <br>
+Julian Seward was the original founder, designer and author of<br>
+Valgrind, created the dynamic translation frameworks, wrote Memcheck,<br>
+the 3.X versions of Helgrind, SGCheck, DHAT, and did lots of other<br>
+things.<br>
+<br>
+Nicholas Nethercote did the core/tool generalisation, wrote<br>
+Cachegrind and Massif, and tons of other stuff.<br>
+<br>
+Tom Hughes did a vast number of bug fixes, helped out with support for<br>
+more recent Linux/glibc versions, set up the present build system, and has<br>
+helped out with test and build machines.<br>
+<br>
+Jeremy Fitzhardinge wrote Helgrind (in the 2.X line) and totally<br>
+overhauled low-level syscall/signal and address space layout stuff,<br>
+among many other things.<br>
+<br>
+Josef Weidendorfer wrote and maintains Callgrind and the associated<br>
+KCachegrind GUI.<br>
+<br>
+Paul Mackerras did a lot of the initial per-architecture factoring<br>
+that forms the basis of the 3.0 line and was also seen in 2.4.0.<br>
+He also did UCode-based dynamic translation support for PowerPC, and<br>
+created a set of ppc-linux derivatives of the 2.X release line.<br>
+<br>
+Greg Parker wrote the Mac OS X port.<br>
+<br>
+Dirk Mueller contributed the malloc/free mismatch checking<br>
+and other bits and pieces, and acts as our KDE liaison.<br>
+<br>
+Robert Walsh added file descriptor leakage checking, new library<br>
+interception machinery, support for client allocation pools, and minor<br>
+other tweakage.<br>
+<br>
+Bart Van Assche wrote and maintains DRD.<br>
+<br>
+Cerion Armour-Brown worked on PowerPC instruction set support in the<br>
+Vex dynamic-translation framework.  Maynard Johnson improved the<br>
+Power6 support.<br>
+<br>
+Kirill Batuzov and Dmitry Zhurikhin did the NEON instruction set<br>
+support for ARM.  Donna Robinson did the v6 media instruction support.<br>
+<br>
+Donna Robinson created and maintains the very excellent<br>
+http://www.valgrind.org.<br>
+<br>
+Vince Weaver wrote and maintains BBV.<br>
+<br>
+Frederic Gobry helped with autoconf and automake.<br>
+<br>
+Daniel Berlin modified readelf's dwarf2 source line reader, written by Nick<br>
+Clifton, for use in Valgrind.<br>
+<br>
+Michael Matz and Simon Hausmann modified the GNU binutils demangler(s) for<br>
+use in Valgrind.<br>
+<br>
+David Woodhouse has helped out with test and build machines over the course<br>
+of many releases.<br>
+<br>
+Florian Krohm and Christian Borntraeger wrote the initial S390X/Linux<br>
+port.  Andreas Arnez is the current maintainer and developer of it.<br>
+Florian improved and ruggedised the regression test system during 2011.<br>
+<br>
+Philippe Waroquiers wrote and maintains the embedded GDB server.  He<br>
+also made a bunch of performance and memory-reduction fixes across<br>
+diverse parts of the system.<br>
+<br>
+Carl Love and Maynard Johnson contributed IBM Power6 and Power7<br>
+support, and generally deal with ppc{32,64}-linux issues.<br>
+<br>
+Petar Jovanovic and Dejan Jevtic wrote and maintain the mips32-linux<br>
+port.<br>
+<br>
+Dragos Tatulea modified the arm-android port so it also works on<br>
+x86-android.<br>
+<br>
+Jakub Jelinek helped out extensively with the AVX and AVX2 support.<br>
+<br>
+Mark Wielaard fixed a bunch of bugs and acts as our Fedora/RHEL<br>
+liaison.<br>
+<br>
+Assad Hashmi contributed support for AArch64 v8.1 and later.<br>
+<br>
+Maran Pakkirisamy implemented support for decimal floating point on<br>
+s390.<br>
+<br>
+Rhys Kidd updated and maintains the macOS port.<br>
+<br>
+Many, many people sent bug reports, patches, and helpful feedback.<br>
+<br>
+Development of Valgrind was supported in part by the Tri-Lab Partners<br>
+(Lawrence Livermore National Laboratory, Los Alamos National<br>
+Laboratory, and Sandia National Laboratories) of the U.S. Department<br>
+of Energy's Advanced Simulation &amp; Computing (ASC) Program.<br>
+<br>
+    </p></div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="dist.html">&lt;&lt; Valgrind Distribution Documents</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="dist.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="dist.news.html">2. NEWS &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

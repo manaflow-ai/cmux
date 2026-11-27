@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010-2012 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.s390.fpr-valgrind-s2">
+  <reg name="fpcs2" bitsize="32" type="uint32" group="float"/>
+  <reg name="f0s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f1s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f2s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f3s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f4s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f5s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f6s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f7s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f8s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f9s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f10s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f11s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f12s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f13s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f14s2" bitsize="64" type="uint64" group="float"/>
+  <reg name="f15s2" bitsize="64" type="uint64" group="float"/>
+</feature>

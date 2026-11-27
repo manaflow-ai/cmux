@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010-2012 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!-- S/390 64-bit user-level code.  -->
+
+<!DOCTYPE target SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.s390.linux">
+  <reg name="orig_r2" bitsize="64" type="uint64" group="system"/>
+</feature>

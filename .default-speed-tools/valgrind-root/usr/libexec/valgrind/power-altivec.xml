@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.power.altivec">
+  <vector id="v4f" type="ieee_single" count="4"/>
+  <vector id="v4i32" type="int32" count="4"/>
+  <vector id="v8i16" type="int16" count="8"/>
+  <vector id="v16i8" type="int8" count="16"/>
+  <union id="vec128">
+    <field name="uint128" type="uint128"/>
+    <field name="v4_float" type="v4f"/>
+    <field name="v4_int32" type="v4i32"/>
+    <field name="v8_int16" type="v8i16"/>
+    <field name="v16_int8" type="v16i8"/>
+  </union>
+
+  <reg name="vr0" bitsize="128" type="vec128" regnum="73"/>
+  <reg name="vr1" bitsize="128" type="vec128"/>
+  <reg name="vr2" bitsize="128" type="vec128"/>
+  <reg name="vr3" bitsize="128" type="vec128"/>
+  <reg name="vr4" bitsize="128" type="vec128"/>
+  <reg name="vr5" bitsize="128" type="vec128"/>
+  <reg name="vr6" bitsize="128" type="vec128"/>
+  <reg name="vr7" bitsize="128" type="vec128"/>
+  <reg name="vr8" bitsize="128" type="vec128"/>
+  <reg name="vr9" bitsize="128" type="vec128"/>
+  <reg name="vr10" bitsize="128" type="vec128"/>
+  <reg name="vr11" bitsize="128" type="vec128"/>
+  <reg name="vr12" bitsize="128" type="vec128"/>
+  <reg name="vr13" bitsize="128" type="vec128"/>
+  <reg name="vr14" bitsize="128" type="vec128"/>
+  <reg name="vr15" bitsize="128" type="vec128"/>
+  <reg name="vr16" bitsize="128" type="vec128"/>
+  <reg name="vr17" bitsize="128" type="vec128"/>
+  <reg name="vr18" bitsize="128" type="vec128"/>
+  <reg name="vr19" bitsize="128" type="vec128"/>
+  <reg name="vr20" bitsize="128" type="vec128"/>
+  <reg name="vr21" bitsize="128" type="vec128"/>
+  <reg name="vr22" bitsize="128" type="vec128"/>
+  <reg name="vr23" bitsize="128" type="vec128"/>
+  <reg name="vr24" bitsize="128" type="vec128"/>
+  <reg name="vr25" bitsize="128" type="vec128"/>
+  <reg name="vr26" bitsize="128" type="vec128"/>
+  <reg name="vr27" bitsize="128" type="vec128"/>
+  <reg name="vr28" bitsize="128" type="vec128"/>
+  <reg name="vr29" bitsize="128" type="vec128"/>
+  <reg name="vr30" bitsize="128" type="vec128"/>
+  <reg name="vr31" bitsize="128" type="vec128"/>
+
+  <reg name="vscr" bitsize="32" group="vector"/>
+  <reg name="vrsave" bitsize="32" group="vector"/>
+</feature>

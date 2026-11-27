@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010-2012 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!-- S/390 64-bit user-level code.  -->
+
+<!DOCTYPE target SYSTEM "gdb-target.dtd">
+<target>
+  <architecture>s390:64-bit</architecture>
+  <xi:include href="s390x-core64.xml"/>
+  <xi:include href="s390-acr.xml"/>
+  <xi:include href="s390-fpr.xml"/>
+  <xi:include href="s390x-linux64.xml"/>
+  <xi:include href="s390x-core64-valgrind-s1.xml"/>
+  <xi:include href="s390-acr-valgrind-s1.xml"/>
+  <xi:include href="s390-fpr-valgrind-s1.xml"/>
+  <xi:include href="s390x-linux64-valgrind-s1.xml"/>
+  <xi:include href="s390x-core64-valgrind-s2.xml"/>
+  <xi:include href="s390-acr-valgrind-s2.xml"/>
+  <xi:include href="s390-fpr-valgrind-s2.xml"/>
+  <xi:include href="s390x-linux64-valgrind-s2.xml"/>
+</target>

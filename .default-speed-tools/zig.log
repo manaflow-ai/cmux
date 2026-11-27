@@ -1,0 +1,31 @@
+remote: cmux git cache: served by cache, 2.8 s (CMUX_GIT_CACHE=0 skips it)        
+From http://127.0.0.1:47380/github.com/manaflow-ai/ghostty-next
+ * [new tag]         xcframework-5c01c7171dc2c00d486f231adda7fb5bf6e55c97-apple-v6 -> xcframework-5c01c7171dc2c00d486f231adda7fb5bf6e55c97-apple-v6
+fatal: Unable to create '/home/cmux/Projects/.wt-mirrors/manaflow-ai/cmux.git/worktrees/lane--phone-default-speed/modules/ghostty-next/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+fatal: Unable to checkout '5c01c7171dc2c00d486f231adda7fb5bf6e55c97' in submodule path 'ghostty-next'
+::warning::git submodule update for ghostty-next failed (attempt 1 of 3, exit 128); retrying in 5s
+Submodule 'ghostty-next' (https://github.com/manaflow-ai/ghostty-next.git) registered for path 'ghostty-next'
+Cloning into '/mnt/lane-data/checkouts/cmux/lane--phone-default-speed/ghostty-next'...
+remote: cmux git cache: served by cache, 11.9 s (CMUX_GIT_CACHE=0 skips it)        
+remote: cmux git cache: served by cache, 2.1 s (CMUX_GIT_CACHE=0 skips it)        
+From http://127.0.0.1:47380/github.com/manaflow-ai/ghostty-next
+ * branch            5c01c7171dc2c00d486f231adda7fb5bf6e55c97 -> FETCH_HEAD
+Submodule path 'ghostty-next': checked out '5c01c7171dc2c00d486f231adda7fb5bf6e55c97'
+init-submodule: ghostty-next at 5c01c7171dc2 in 47 s (attempt 2)
+Installing verified zig 0.17.0
+Zig download budget: 480s
+zig-tarball-r2: no cache URL; nothing to fetch
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0 54.6M    0  259k    0     0   129k      0  0:07:11  0:00:02  0:07:09  129k  1 54.6M    1  787k    0     0   269k      0  0:03:27  0:00:02  0:03:25  269k  2 54.6M    2 1555k    0     0   399k      0  0:02:20  0:00:03  0:02:17  399k  4 54.6M    4 2339k    0     0   475k      0  0:01:57  0:00:04  0:01:53  475k  5 54.6M    5 3139k    0     0   532k      0  0:01:45  0:00:05  0:01:40  629k  7 54.6M    7 3996k    0     0   578k      0  0:01:36  0:00:06  0:01:30  761k  8 54.6M    8 4972k    0     0   628k      0  0:01:29  0:00:07  0:01:22  839k 10 54.6M   10 5900k    0     0   655k      0  0:01:25  0:00:08  0:01:17  851k 13 54.6M   13 7308k    0     0   737k      0  0:01:15  0:00:09  0:01:06  995k 16 54.6M   16 9052k    0     0   829k      0  0:01:07  0:00:10  0:00:57 1180k 20 54.6M   20 11.0M    0     0   947k      0  0:00:59  0:00:11  0:00:48 1458k 24 54.6M   24 13.4M    0     0  1063k      0  0:00:52  0:00:12  0:00:40 1751k 29 54.6M   29 16.3M    0     0  1202k      0  0:00:46  0:00:13  0:00:33 2207k 37 54.6M   37 20.5M    0     0  1401k      0  0:00:39  0:00:15  0:00:24 2692k 45 54.6M   45 24.6M    0     0  1580k      0  0:00:35  0:00:16  0:00:19 3187k 55 54.6M   55 30.4M    0     0  1845k      0  0:00:30  0:00:16  0:00:14 3991k 62 54.6M   62 34.1M    0     0  1950k      0  0:00:28  0:00:17  0:00:11 4248k 73 54.6M   73 40.2M    0     0  2165k      0  0:00:25  0:00:19  0:00:06 4783k 87 54.6M   87 47.7M    0     0  2459k      0  0:00:22  0:00:19  0:00:03 5701k100 54.6M  100 54.6M    0     0  2731k      0  0:00:20  0:00:20 --:--:-- 6826k
+/mnt/lane-data/checkouts/cmux/lane--phone-default-speed/.default-speed-tools/cmux-zig-install-0.17.0.8ZhNDB/zig-x86_64-linux-0.17.0.tar.xz: OK
+minisign not found; verified Zig tarball with SHA-256 from https://ziglang.org/download/index.json
+patched /mnt/lane-data/checkouts/cmux/lane--phone-default-speed/.default-speed-tools/cmux-zig-install-0.17.0.8ZhNDB/zig-x86_64-linux-0.17.0/lib/std/Io/Threaded.zig (Zig 0bfd34342b: no spawnDarwin where spawning is unsupported)
+ZIG_FORCE_LOCAL_INSTALL=1; installing zig under /mnt/lane-data/checkouts/cmux/lane--phone-default-speed/.default-speed-tools/zig-x86_64-linux-0.17.0
+0.17.0

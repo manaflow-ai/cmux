@@ -1,0 +1,2043 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>3. OLDER NEWS</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="dist.html" title="Valgrind Distribution Documents">
+<link rel="prev" href="dist.news.html" title="2. NEWS">
+<link rel="next" href="dist.readme.html" title="4. README">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="dist.news.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="dist.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind Distribution Documents</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="dist.readme.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="dist.news.old"></a>3. OLDER NEWS</h1></div></div></div>
+<div class="literallayout"><p><br>
+      Release 3.3.1 (4 June 2008)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+3.3.1 fixes a bunch of bugs in 3.3.0, adds support for glibc-2.8 based<br>
+systems (openSUSE 11, Fedora Core 9), improves the existing glibc-2.7<br>
+support, and adds support for the SSSE3 (Core 2) instruction set.<br>
+<br>
+3.3.1 will likely be the last release that supports some very old<br>
+systems.  In particular, the next major release, 3.4.0, will drop<br>
+support for the old LinuxThreads threading library, and for gcc<br>
+versions prior to 3.0.<br>
+<br>
+The fixed bugs are as follows.  Note that "n-i-bz" stands for "not in<br>
+bugzilla" -- that is, a bug that was reported to us but never got a<br>
+bugzilla entry.  We encourage you to file bugs in bugzilla<br>
+(http://bugs.kde.org/enter_valgrind_bug.cgi) rather than mailing the<br>
+developers (or mailing lists) directly -- bugs that are not entered<br>
+into bugzilla tend to get forgotten about or ignored.<br>
+<br>
+n-i-bz  Massif segfaults at exit<br>
+n-i-bz  Memcheck asserts on Altivec code<br>
+n-i-bz  fix sizeof bug in Helgrind<br>
+n-i-bz  check fd on sys_llseek<br>
+n-i-bz  update syscall lists to kernel 2.6.23.1<br>
+n-i-bz  support sys_sync_file_range<br>
+n-i-bz  handle sys_sysinfo, sys_getresuid, sys_getresgid on ppc64-linux<br>
+n-i-bz  intercept memcpy in 64-bit ld.so's<br>
+n-i-bz  Fix wrappers for sys_{futimesat,utimensat}<br>
+n-i-bz  Minor false-error avoidance fixes for Memcheck<br>
+n-i-bz  libmpiwrap.c: add a wrapper for MPI_Waitany<br>
+n-i-bz  helgrind support for glibc-2.8<br>
+n-i-bz  partial fix for mc_leakcheck.c:698 assert:<br>
+        'lc_shadows[i]-&gt;data + lc_shadows[i] ...<br>
+n-i-bz  Massif/Cachegrind output corruption when programs fork<br>
+n-i-bz  register allocator fix: handle spill stores correctly<br>
+n-i-bz  add support for PA6T PowerPC CPUs<br>
+126389  vex x86-&gt;IR: 0xF 0xAE (FXRSTOR)<br>
+158525  ==126389<br>
+152818  vex x86-&gt;IR: 0xF3 0xAC (repz lodsb) <br>
+153196  vex x86-&gt;IR: 0xF2 0xA6 (repnz cmpsb) <br>
+155011  vex x86-&gt;IR: 0xCF (iret)<br>
+155091  Warning [...] unhandled DW_OP_ opcode 0x23<br>
+156960  ==155901<br>
+155528  support Core2/SSSE3 insns on x86/amd64<br>
+155929  ms_print fails on massif outputs containing long lines<br>
+157665  valgrind fails on shmdt(0) after shmat to 0<br>
+157748  support x86 PUSHFW/POPFW<br>
+158212  helgrind: handle pthread_rwlock_try{rd,wr}lock.<br>
+158425  sys_poll incorrectly emulated when RES==0<br>
+158744  vex amd64-&gt;IR: 0xF0 0x41 0xF 0xC0 (xaddb)<br>
+160907  Support for a couple of recent Linux syscalls<br>
+161285  Patch -- support for eventfd() syscall<br>
+161378  illegal opcode in debug libm (FUCOMPP)<br>
+160136  ==161378<br>
+161487  number of suppressions files is limited to 10<br>
+162386  ms_print typo in milliseconds time unit for massif<br>
+161036  exp-drd: client allocated memory was never freed<br>
+162663  signalfd_wrapper fails on 64bit linux<br>
+<br>
+(3.3.1.RC1:  2 June 2008, vex r1854, valgrind r8169).<br>
+(3.3.1:      4 June 2008, vex r1854, valgrind r8180).<br>
+<br>
+<br>
+<br>
+Release 3.3.0 (7 December 2007)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+3.3.0 is a feature release with many significant improvements and the<br>
+usual collection of bug fixes.  This release supports X86/Linux,<br>
+AMD64/Linux, PPC32/Linux and PPC64/Linux.  Support for recent distros<br>
+(using gcc 4.3, glibc 2.6 and 2.7) has been added.<br>
+<br>
+The main excitement in 3.3.0 is new and improved tools.  Helgrind<br>
+works again, Massif has been completely overhauled and much improved,<br>
+Cachegrind now does branch-misprediction profiling, and a new category<br>
+of experimental tools has been created, containing two new tools:<br>
+Omega and DRD.  There are many other smaller improvements.  In detail:<br>
+<br>
+- Helgrind has been completely overhauled and works for the first time<br>
+  since Valgrind 2.2.0.  Supported functionality is: detection of<br>
+  misuses of the POSIX PThreads API, detection of potential deadlocks<br>
+  resulting from cyclic lock dependencies, and detection of data<br>
+  races.  Compared to the 2.2.0 Helgrind, the race detection algorithm<br>
+  has some significant improvements aimed at reducing the false error<br>
+  rate.  Handling of various kinds of corner cases has been improved.<br>
+  Efforts have been made to make the error messages easier to<br>
+  understand.  Extensive documentation is provided.<br>
+<br>
+- Massif has been completely overhauled.  Instead of measuring<br>
+  space-time usage -- which wasn't always useful and many people found<br>
+  confusing -- it now measures space usage at various points in the<br>
+  execution, including the point of peak memory allocation.  Its<br>
+  output format has also changed: instead of producing PostScript<br>
+  graphs and HTML text, it produces a single text output (via the new<br>
+  'ms_print' script) that contains both a graph and the old textual<br>
+  information, but in a more compact and readable form.  Finally, the<br>
+  new version should be more reliable than the old one, as it has been<br>
+  tested more thoroughly.<br>
+<br>
+- Cachegrind has been extended to do branch-misprediction profiling.<br>
+  Both conditional and indirect branches are profiled.  The default<br>
+  behaviour of Cachegrind is unchanged.  To use the new functionality,<br>
+  give the option --branch-sim=yes.<br>
+<br>
+- A new category of "experimental tools" has been created.  Such tools<br>
+  may not work as well as the standard tools, but are included because<br>
+  some people will find them useful, and because exposure to a wider<br>
+  user group provides tool authors with more end-user feedback.  These<br>
+  tools have a "exp-" prefix attached to their names to indicate their<br>
+  experimental nature.  Currently there are two experimental tools:<br>
+<br>
+  * exp-Omega: an instantaneous leak detector.  See<br>
+    exp-omega/docs/omega_introduction.txt.<br>
+<br>
+  * exp-DRD: a data race detector based on the happens-before<br>
+    relation.  See exp-drd/docs/README.txt.<br>
+<br>
+- Scalability improvements for very large programs, particularly those<br>
+  which have a million or more malloc'd blocks in use at once.  These<br>
+  improvements mostly affect Memcheck.  Memcheck is also up to 10%<br>
+  faster for all programs, with x86-linux seeing the largest<br>
+  improvement.<br>
+<br>
+- Works well on the latest Linux distros.  Has been tested on Fedora<br>
+  Core 8 (x86, amd64, ppc32, ppc64) and openSUSE 10.3.  glibc 2.6 and<br>
+  2.7 are supported.  gcc-4.3 (in its current pre-release state) is<br>
+  supported.  At the same time, 3.3.0 retains support for older<br>
+  distros.<br>
+<br>
+- The documentation has been modestly reorganised with the aim of<br>
+  making it easier to find information on common-usage scenarios.<br>
+  Some advanced material has been moved into a new chapter in the main<br>
+  manual, so as to unclutter the main flow, and other tidying up has<br>
+  been done.<br>
+<br>
+- There is experimental support for AIX 5.3, both 32-bit and 64-bit<br>
+  processes.  You need to be running a 64-bit kernel to use Valgrind<br>
+  on a 64-bit executable.<br>
+<br>
+- There have been some changes to command line options, which may<br>
+  affect you:<br>
+<br>
+  * --log-file-exactly and <br>
+    --log-file-qualifier options have been removed.<br>
+<br>
+    To make up for this --log-file option has been made more powerful.<br>
+    It now accepts a %p format specifier, which is replaced with the<br>
+    process ID, and a %q{FOO} format specifier, which is replaced with<br>
+    the contents of the environment variable FOO.<br>
+<br>
+  * --child-silent-after-fork=yes|no [no]<br>
+<br>
+    Causes Valgrind to not show any debugging or logging output for<br>
+    the child process resulting from a fork() call.  This can make the<br>
+    output less confusing (although more misleading) when dealing with<br>
+    processes that create children.<br>
+<br>
+  * --cachegrind-out-file, --callgrind-out-file and --massif-out-file<br>
+<br>
+    These control the names of the output files produced by<br>
+    Cachegrind, Callgrind and Massif.  They accept the same %p and %q<br>
+    format specifiers that --log-file accepts.  --callgrind-out-file<br>
+    replaces Callgrind's old --base option.<br>
+<br>
+  * Cachegrind's 'cg_annotate' script no longer uses the --&lt;pid&gt;<br>
+    option to specify the output file.  Instead, the first non-option<br>
+    argument is taken to be the name of the output file, and any<br>
+    subsequent non-option arguments are taken to be the names of<br>
+    source files to be annotated.<br>
+<br>
+  * Cachegrind and Callgrind now use directory names where possible in<br>
+    their output files.  This means that the -I option to<br>
+    'cg_annotate' and 'callgrind_annotate' should not be needed in<br>
+    most cases.  It also means they can correctly handle the case<br>
+    where two source files in different directories have the same<br>
+    name.<br>
+<br>
+- Memcheck offers a new suppression kind: "Jump".  This is for<br>
+  suppressing jump-to-invalid-address errors.  Previously you had to<br>
+  use an "Addr1" suppression, which didn't make much sense.<br>
+<br>
+- Memcheck has new flags --malloc-fill=&lt;hexnum&gt; and<br>
+  --free-fill=&lt;hexnum&gt; which free malloc'd / free'd areas with the<br>
+  specified byte.  This can help shake out obscure memory corruption<br>
+  problems.  The definedness and addressability of these areas is<br>
+  unchanged -- only the contents are affected.<br>
+<br>
+- The behaviour of Memcheck's client requests VALGRIND_GET_VBITS and<br>
+  VALGRIND_SET_VBITS have changed slightly.  They no longer issue<br>
+  addressability errors -- if either array is partially unaddressable,<br>
+  they just return 3 (as before).  Also, SET_VBITS doesn't report<br>
+  definedness errors if any of the V bits are undefined.<br>
+<br>
+- The following Memcheck client requests have been removed:<br>
+    VALGRIND_MAKE_NOACCESS<br>
+    VALGRIND_MAKE_WRITABLE<br>
+    VALGRIND_MAKE_READABLE<br>
+    VALGRIND_CHECK_WRITABLE<br>
+    VALGRIND_CHECK_READABLE<br>
+    VALGRIND_CHECK_DEFINED<br>
+  They were deprecated in 3.2.0, when equivalent but better-named client<br>
+  requests were added.  See the 3.2.0 release notes for more details.<br>
+<br>
+- The behaviour of the tool Lackey has changed slightly.  First, the output<br>
+  from --trace-mem has been made more compact, to reduce the size of the<br>
+  traces.  Second, a new option --trace-superblocks has been added, which<br>
+  shows the addresses of superblocks (code blocks) as they are executed.<br>
+<br>
+- The following bugs have been fixed.  Note that "n-i-bz" stands for<br>
+  "not in bugzilla" -- that is, a bug that was reported to us but<br>
+  never got a bugzilla entry.  We encourage you to file bugs in<br>
+  bugzilla (http://bugs.kde.org/enter_valgrind_bug.cgi) rather than<br>
+  mailing the developers (or mailing lists) directly.<br>
+<br>
+  n-i-bz  x86_linux_REDIR_FOR_index() broken<br>
+  n-i-bz  guest-amd64/toIR.c:2512 (dis_op2_E_G): Assertion `0' failed.<br>
+  n-i-bz  Support x86 INT insn (INT (0xCD) 0x40 - 0x43)<br>
+  n-i-bz  Add sys_utimensat system call for Linux x86 platform<br>
+   79844  Helgrind complains about race condition which does not exist<br>
+   82871  Massif output function names too short<br>
+   89061  Massif: ms_main.c:485 (get_XCon): Assertion `xpt-&gt;max_chi...'<br>
+   92615  Write output from Massif at crash<br>
+   95483  massif feature request: include peak allocation in report<br>
+  112163  MASSIF crashed with signal 7 (SIGBUS) after running 2 days<br>
+  119404  problems running setuid executables (partial fix)<br>
+  121629  add instruction-counting mode for timing<br>
+  127371  java vm giving unhandled instruction bytes: 0x26 0x2E 0x64 0x65<br>
+  129937  ==150380<br>
+  129576  Massif loses track of memory, incorrect graphs<br>
+  132132  massif --format=html output does not do html entity escaping<br>
+  132950  Heap alloc/usage summary<br>
+  133962  unhandled instruction bytes: 0xF2 0x4C 0xF 0x10<br>
+  134990  use -fno-stack-protector if possible<br>
+  136382  ==134990<br>
+  137396  I would really like helgrind to work again...<br>
+  137714  x86/amd64-&gt;IR: 0x66 0xF 0xF7 0xC6 (maskmovq, maskmovdq)<br>
+  141631  Massif: percentages don't add up correctly<br>
+  142706  massif numbers don't seem to add up<br>
+  143062  massif crashes on app exit with signal 8 SIGFPE<br>
+  144453  (get_XCon): Assertion 'xpt-&gt;max_children != 0' failed.<br>
+  145559  valgrind aborts when malloc_stats is called<br>
+  145609  valgrind aborts all runs with 'repeated section!'<br>
+  145622  --db-attach broken again on x86-64<br>
+  145837  ==149519<br>
+  145887  PPC32: getitimer() system call is not supported<br>
+  146252  ==150678<br>
+  146456  (update_XCon): Assertion 'xpt-&gt;curr_space &gt;= -space_delta'...<br>
+  146701  ==134990<br>
+  146781  Adding support for private futexes<br>
+  147325  valgrind internal error on syscall (SYS_io_destroy, 0)<br>
+  147498  amd64-&gt;IR: 0xF0 0xF 0xB0 0xF (lock cmpxchg %cl,(%rdi))<br>
+  147545  Memcheck: mc_main.c:817 (get_sec_vbits8): Assertion 'n' failed.<br>
+  147628  SALC opcode 0xd6 unimplemented<br>
+  147825  crash on amd64-linux with gcc 4.2 and glibc 2.6 (CFI)<br>
+  148174  Incorrect type of freed_list_volume causes assertion [...]<br>
+  148447  x86_64 : new NOP codes: 66 66 66 66 2e 0f 1f<br>
+  149182  PPC Trap instructions not implemented in valgrind<br>
+  149504  Assertion hit on alloc_xpt-&gt;curr_space &gt;= -space_delta<br>
+  149519  ppc32: V aborts with SIGSEGV on execution of a signal handler<br>
+  149892  ==137714<br>
+  150044  SEGV during stack deregister<br>
+  150380  dwarf/gcc interoperation (dwarf3 read problems)<br>
+  150408  ==148447<br>
+  150678  guest-amd64/toIR.c:3741 (dis_Grp5): Assertion `sz == 4' failed<br>
+  151209  V unable to execute programs for users with UID &gt; 2^16<br>
+  151938  help on --db-command= misleading<br>
+  152022  subw $0x28, %%sp causes assertion failure in memcheck<br>
+  152357  inb and outb not recognized in 64-bit mode<br>
+  152501  vex x86-&gt;IR: 0x27 0x66 0x89 0x45 (daa) <br>
+  152818  vex x86-&gt;IR: 0xF3 0xAC 0xFC 0x9C (rep lodsb)<br>
+<br>
+Developer-visible changes:<br>
+<br>
+- The names of some functions and types within the Vex IR have<br>
+  changed.  Run 'svn log -r1689 VEX/pub/libvex_ir.h' for full details.<br>
+  Any existing standalone tools will have to be updated to reflect<br>
+  these changes.  The new names should be clearer.  The file<br>
+  VEX/pub/libvex_ir.h is also much better commented.<br>
+<br>
+- A number of new debugging command line options have been added.<br>
+  These are mostly of use for debugging the symbol table and line<br>
+  number readers:<br>
+<br>
+  --trace-symtab-patt=&lt;patt&gt; limit debuginfo tracing to obj name &lt;patt&gt;<br>
+  --trace-cfi=no|yes        show call-frame-info details? [no]<br>
+  --debug-dump=syms         mimic /usr/bin/readelf --syms<br>
+  --debug-dump=line         mimic /usr/bin/readelf --debug-dump=line<br>
+  --debug-dump=frames       mimic /usr/bin/readelf --debug-dump=frames<br>
+  --sym-offsets=yes|no      show syms in form 'name+offset' ? [no]<br>
+<br>
+- Internally, the code base has been further factorised and<br>
+  abstractified, particularly with respect to support for non-Linux<br>
+  OSs.<br>
+<br>
+(3.3.0.RC1:  2 Dec 2007, vex r1803, valgrind r7268).<br>
+(3.3.0.RC2:  5 Dec 2007, vex r1804, valgrind r7282).<br>
+(3.3.0.RC3:  9 Dec 2007, vex r1804, valgrind r7288).<br>
+(3.3.0:     10 Dec 2007, vex r1804, valgrind r7290).<br>
+<br>
+<br>
+<br>
+Release 3.2.3 (29 Jan 2007)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+Unfortunately 3.2.2 introduced a regression which can cause an<br>
+assertion failure ("vex: the `impossible' happened: eqIRConst") when<br>
+running obscure pieces of SSE code.  3.2.3 fixes this and adds one<br>
+more glibc-2.5 intercept.  In all other respects it is identical to<br>
+3.2.2.  Please do not use (or package) 3.2.2; instead use 3.2.3.<br>
+<br>
+n-i-bz   vex: the `impossible' happened: eqIRConst<br>
+n-i-bz   Add an intercept for glibc-2.5 __stpcpy_chk<br>
+<br>
+(3.2.3: 29 Jan 2007, vex r1732, valgrind r6560).<br>
+<br>
+<br>
+Release 3.2.2 (22 Jan 2007)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+3.2.2 fixes a bunch of bugs in 3.2.1, adds support for glibc-2.5 based<br>
+systems (openSUSE 10.2, Fedora Core 6), improves support for icc-9.X<br>
+compiled code, and brings modest performance improvements in some<br>
+areas, including amd64 floating point, powerpc support, and startup<br>
+responsiveness on all targets.<br>
+<br>
+The fixed bugs are as follows.  Note that "n-i-bz" stands for "not in<br>
+bugzilla" -- that is, a bug that was reported to us but never got a<br>
+bugzilla entry.  We encourage you to file bugs in bugzilla<br>
+(http://bugs.kde.org/enter_valgrind_bug.cgi) rather than mailing the<br>
+developers (or mailing lists) directly.<br>
+<br>
+129390   ppc?-&gt;IR: some kind of VMX prefetch (dstt)<br>
+129968   amd64-&gt;IR: 0xF 0xAE 0x0 (fxsave)<br>
+134319   ==129968<br>
+133054   'make install' fails with syntax errors<br>
+118903   ==133054<br>
+132998   startup fails in when running on UML<br>
+134207   pkg-config output contains @VG_PLATFORM@<br>
+134727   valgrind exits with "Value too large for defined data type"<br>
+n-i-bz   ppc32/64: support mcrfs<br>
+n-i-bz   Cachegrind/Callgrind: Update cache parameter detection<br>
+135012   x86-&gt;IR: 0xD7 0x8A 0xE0 0xD0 (xlat)<br>
+125959   ==135012<br>
+126147   x86-&gt;IR: 0xF2 0xA5 0xF 0x77 (repne movsw)<br>
+136650   amd64-&gt;IR: 0xC2 0x8 0x0<br>
+135421   x86-&gt;IR: unhandled Grp5(R) case 6<br>
+n-i-bz   Improved documentation of the IR intermediate representation<br>
+n-i-bz   jcxz (x86) (users list, 8 Nov)<br>
+n-i-bz   ExeContext hashing fix<br>
+n-i-bz   fix CFI reading failures ("Dwarf CFI 0:24 0:32 0:48 0:7")<br>
+n-i-bz   fix Cachegrind/Callgrind simulation bug<br>
+n-i-bz   libmpiwrap.c: fix handling of MPI_LONG_DOUBLE<br>
+n-i-bz   make User errors suppressible<br>
+136844   corrupted malloc line when using --gen-suppressions=yes<br>
+138507   ==136844<br>
+n-i-bz   Speed up the JIT's register allocator<br>
+n-i-bz   Fix confusing leak-checker flag hints<br>
+n-i-bz   Support recent autoswamp versions<br>
+n-i-bz   ppc32/64 dispatcher speedups<br>
+n-i-bz   ppc64 front end rld/rlw improvements<br>
+n-i-bz   ppc64 back end imm64 improvements<br>
+136300   support 64K pages on ppc64-linux<br>
+139124   == 136300<br>
+n-i-bz   fix ppc insn set tests for gcc &gt;= 4.1<br>
+137493   x86-&gt;IR: recent binutils no-ops<br>
+137714   x86-&gt;IR: 0x66 0xF 0xF7 0xC6 (maskmovdqu)<br>
+138424   "failed in UME with error 22" (produce a better error msg)<br>
+138856   ==138424<br>
+138627   Enhancement support for prctl ioctls<br>
+138896   Add support for usb ioctls<br>
+136059   ==138896<br>
+139050   ppc32-&gt;IR: mfspr 268/269 instructions not handled<br>
+n-i-bz   ppc32-&gt;IR: lvxl/stvxl<br>
+n-i-bz   glibc-2.5 support<br>
+n-i-bz   memcheck: provide replacement for mempcpy<br>
+n-i-bz   memcheck: replace bcmp in ld.so<br>
+n-i-bz   Use 'ifndef' in VEX's Makefile correctly<br>
+n-i-bz   Suppressions for MVL 4.0.1 on ppc32-linux<br>
+n-i-bz   libmpiwrap.c: Fixes for MPICH<br>
+n-i-bz   More robust handling of hinted client mmaps<br>
+139776   Invalid read in unaligned memcpy with Intel compiler v9<br>
+n-i-bz   Generate valid XML even for very long fn names<br>
+n-i-bz   Don't prompt about suppressions for unshown reachable leaks<br>
+139910   amd64 rcl is not supported<br>
+n-i-bz   DWARF CFI reader: handle DW_CFA_undefined<br>
+n-i-bz   DWARF CFI reader: handle icc9 generated CFI info better<br>
+n-i-bz   fix false uninit-value errs in icc9 generated FP code<br>
+n-i-bz   reduce extraneous frames in libmpiwrap.c<br>
+n-i-bz   support pselect6 on amd64-linux<br>
+<br>
+(3.2.2: 22 Jan 2007, vex r1729, valgrind r6545).<br>
+<br>
+<br>
+Release 3.2.1 (16 Sept 2006)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+3.2.1 adds x86/amd64 support for all SSE3 instructions except monitor<br>
+and mwait, further reduces memcheck's false error rate on all<br>
+platforms, adds support for recent binutils (in OpenSUSE 10.2 and<br>
+Fedora Rawhide) and fixes a bunch of bugs in 3.2.0.  Some of the fixed<br>
+bugs were causing large programs to segfault with --tool=callgrind and<br>
+--tool=cachegrind, so an upgrade is recommended.<br>
+<br>
+In view of the fact that any 3.3.0 release is unlikely to happen until<br>
+well into 1Q07, we intend to keep the 3.2.X line alive for a while<br>
+yet, and so we tentatively plan a 3.2.2 release sometime in December<br>
+06.<br>
+<br>
+The fixed bugs are as follows.  Note that "n-i-bz" stands for "not in<br>
+bugzilla" -- that is, a bug that was reported to us but never got a<br>
+bugzilla entry.<br>
+<br>
+n-i-bz   Expanding brk() into last available page asserts<br>
+n-i-bz   ppc64-linux stack RZ fast-case snafu<br>
+n-i-bz   'c' in --gen-supps=yes doesn't work<br>
+n-i-bz   VG_N_SEGMENTS too low (users, 28 June)<br>
+n-i-bz   VG_N_SEGNAMES too low (Stu Robinson)<br>
+106852   x86-&gt;IR: fisttp (SSE3)<br>
+117172   FUTEX_WAKE does not use uaddr2<br>
+124039   Lacks support for VKI_[GP]IO_UNIMAP*<br>
+127521   amd64-&gt;IR: 0xF0 0x48 0xF 0xC7 (cmpxchg8b)<br>
+128917   amd64-&gt;IR: 0x66 0xF 0xF6 0xC4 (psadbw,SSE2)<br>
+129246   JJ: ppc32/ppc64 syscalls, w/ patch<br>
+129358   x86-&gt;IR: fisttpl (SSE3)<br>
+129866   cachegrind/callgrind causes executable to die<br>
+130020   Can't stat .so/.exe error while reading symbols<br>
+130388   Valgrind aborts when process calls malloc_trim()<br>
+130638   PATCH: ppc32 missing system calls<br>
+130785   amd64-&gt;IR: unhandled instruction "pushfq"<br>
+131481:  (HINT_NOP) vex x86-&gt;IR: 0xF 0x1F 0x0 0xF<br>
+131298   ==131481<br>
+132146   Programs with long sequences of bswap[l,q]s<br>
+132918   vex amd64-&gt;IR: 0xD9 0xF8 (fprem)<br>
+132813   Assertion at priv/guest-x86/toIR.c:652 fails<br>
+133051   'cfsi-&gt;len &gt; 0 &amp;&amp; cfsi-&gt;len &lt; 2000000' failed<br>
+132722   valgrind header files are not standard C<br>
+n-i-bz   Livelocks entire machine (users list, Timothy Terriberry)<br>
+n-i-bz   Alex Bennee mmap problem (9 Aug)<br>
+n-i-bz   BartV: Don't print more lines of a stack-trace than were obtained.<br>
+n-i-bz   ppc32 SuSE 10.1 redir<br>
+n-i-bz   amd64 padding suppressions<br>
+n-i-bz   amd64 insn printing fix.<br>
+n-i-bz   ppc cmp reg,reg fix<br>
+n-i-bz   x86/amd64 iropt e/rflag reduction rules<br>
+n-i-bz   SuSE 10.1 (ppc32) minor fixes<br>
+133678   amd64-&gt;IR: 0x48 0xF 0xC5 0xC0 (pextrw?)<br>
+133694   aspacem assertion: aspacem_minAddr &lt;= holeStart<br>
+n-i-bz   callgrind: fix warning about malformed creator line <br>
+n-i-bz   callgrind: fix annotate script for data produced with <br>
+         --dump-instr=yes<br>
+n-i-bz   callgrind: fix failed assertion when toggling <br>
+         instrumentation mode<br>
+n-i-bz   callgrind: fix annotate script fix warnings with<br>
+         --collect-jumps=yes<br>
+n-i-bz   docs path hardwired (Dennis Lubert)<br>
+<br>
+The following bugs were not fixed, due primarily to lack of developer<br>
+time, and also because bug reporters did not answer requests for<br>
+feedback in time for the release:<br>
+<br>
+129390   ppc?-&gt;IR: some kind of VMX prefetch (dstt)<br>
+129968   amd64-&gt;IR: 0xF 0xAE 0x0 (fxsave)<br>
+133054   'make install' fails with syntax errors<br>
+n-i-bz   Signal race condition (users list, 13 June, Johannes Berg)<br>
+n-i-bz   Unrecognised instruction at address 0x70198EC2 (users list,<br>
+         19 July, Bennee)<br>
+132998   startup fails in when running on UML<br>
+<br>
+The following bug was tentatively fixed on the mainline but the fix<br>
+was considered too risky to push into 3.2.X:<br>
+<br>
+133154   crash when using client requests to register/deregister stack<br>
+<br>
+(3.2.1: 16 Sept 2006, vex r1658, valgrind r6070).<br>
+<br>
+<br>
+Release 3.2.0 (7 June 2006)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+3.2.0 is a feature release with many significant improvements and the<br>
+usual collection of bug fixes.  This release supports X86/Linux,<br>
+AMD64/Linux, PPC32/Linux and PPC64/Linux.<br>
+<br>
+Performance, especially of Memcheck, is improved, Addrcheck has been<br>
+removed, Callgrind has been added, PPC64/Linux support has been added,<br>
+Lackey has been improved, and MPI support has been added.  In detail:<br>
+<br>
+- Memcheck has improved speed and reduced memory use.  Run times are<br>
+  typically reduced by 15-30%, averaging about 24% for SPEC CPU2000.<br>
+  The other tools have smaller but noticeable speed improvements.  We<br>
+  are interested to hear what improvements users get.<br>
+<br>
+  Memcheck uses less memory due to the introduction of a compressed<br>
+  representation for shadow memory.  The space overhead has been<br>
+  reduced by a factor of up to four, depending on program behaviour.<br>
+  This means you should be able to run programs that use more memory<br>
+  than before without hitting problems.<br>
+<br>
+- Addrcheck has been removed.  It has not worked since version 2.4.0,<br>
+  and the speed and memory improvements to Memcheck make it redundant.<br>
+  If you liked using Addrcheck because it didn't give undefined value<br>
+  errors, you can use the new Memcheck option --undef-value-errors=no<br>
+  to get the same behaviour.<br>
+<br>
+- The number of undefined-value errors incorrectly reported by<br>
+  Memcheck has been reduced (such false reports were already very<br>
+  rare).  In particular, efforts have been made to ensure Memcheck<br>
+  works really well with gcc 4.0/4.1-generated code on X86/Linux and<br>
+  AMD64/Linux.<br>
+<br>
+- Josef Weidendorfer's popular Callgrind tool has been added.  Folding<br>
+  it in was a logical step given its popularity and usefulness, and<br>
+  makes it easier for us to ensure it works "out of the box" on all<br>
+  supported targets.  The associated KDE KCachegrind GUI remains a<br>
+  separate project.<br>
+<br>
+- A new release of the Valkyrie GUI for Memcheck, version 1.2.0,<br>
+  accompanies this release.  Improvements over previous releases<br>
+  include improved robustness, many refinements to the user interface,<br>
+  and use of a standard autoconf/automake build system.  You can get<br>
+  it from http://www.valgrind.org/downloads/guis.html.<br>
+<br>
+- Valgrind now works on PPC64/Linux.  As with the AMD64/Linux port,<br>
+  this supports programs using to 32G of address space.  On 64-bit<br>
+  capable PPC64/Linux setups, you get a dual architecture build so<br>
+  that both 32-bit and 64-bit executables can be run.  Linux on POWER5<br>
+  is supported, and POWER4 is also believed to work.  Both 32-bit and<br>
+  64-bit DWARF2 is supported.  This port is known to work well with<br>
+  both gcc-compiled and xlc/xlf-compiled code.<br>
+<br>
+- Floating point accuracy has been improved for PPC32/Linux.<br>
+  Specifically, the floating point rounding mode is observed on all FP<br>
+  arithmetic operations, and multiply-accumulate instructions are<br>
+  preserved by the compilation pipeline.  This means you should get FP<br>
+  results which are bit-for-bit identical to a native run.  These<br>
+  improvements are also present in the PPC64/Linux port.<br>
+<br>
+- Lackey, the example tool, has been improved:<br>
+<br>
+  * It has a new option --detailed-counts (off by default) which<br>
+    causes it to print out a count of loads, stores and ALU operations<br>
+    done, and their sizes.<br>
+<br>
+  * It has a new option --trace-mem (off by default) which causes it<br>
+    to print out a trace of all memory accesses performed by a<br>
+    program.  It's a good starting point for building Valgrind tools<br>
+    that need to track memory accesses.  Read the comments at the top<br>
+    of the file lackey/lk_main.c for details.<br>
+<br>
+  * The original instrumentation (counting numbers of instructions,<br>
+    jumps, etc) is now controlled by a new option --basic-counts.  It<br>
+    is on by default.<br>
+<br>
+- MPI support: partial support for debugging distributed applications<br>
+  using the MPI library specification has been added.  Valgrind is<br>
+  aware of the memory state changes caused by a subset of the MPI<br>
+  functions, and will carefully check data passed to the (P)MPI_<br>
+  interface.<br>
+<br>
+- A new flag, --error-exitcode=, has been added.  This allows changing<br>
+  the exit code in runs where Valgrind reported errors, which is<br>
+  useful when using Valgrind as part of an automated test suite.<br>
+<br>
+- Various segfaults when reading old-style "stabs" debug information<br>
+  have been fixed.<br>
+<br>
+- A simple performance evaluation suite has been added.  See<br>
+  perf/README and README_DEVELOPERS for details.  There are<br>
+  various bells and whistles.<br>
+<br>
+- New configuration flags:<br>
+    --enable-only32bit<br>
+    --enable-only64bit<br>
+  By default, on 64 bit platforms (ppc64-linux, amd64-linux) the build<br>
+  system will attempt to build a Valgrind which supports both 32-bit<br>
+  and 64-bit executables.  This may not be what you want, and you can<br>
+  override the default behaviour using these flags.<br>
+<br>
+Please note that Helgrind is still not working.  We have made an<br>
+important step towards making it work again, however, with the<br>
+addition of function wrapping (see below).<br>
+<br>
+Other user-visible changes:<br>
+<br>
+- Valgrind now has the ability to intercept and wrap arbitrary<br>
+  functions.  This is a preliminary step towards making Helgrind work<br>
+  again, and was required for MPI support.<br>
+<br>
+- There are some changes to Memcheck's client requests.  Some of them<br>
+  have changed names:<br>
+<br>
+    MAKE_NOACCESS  --&gt; MAKE_MEM_NOACCESS<br>
+    MAKE_WRITABLE  --&gt; MAKE_MEM_UNDEFINED<br>
+    MAKE_READABLE  --&gt; MAKE_MEM_DEFINED<br>
+<br>
+    CHECK_WRITABLE --&gt; CHECK_MEM_IS_ADDRESSABLE<br>
+    CHECK_READABLE --&gt; CHECK_MEM_IS_DEFINED<br>
+    CHECK_DEFINED  --&gt; CHECK_VALUE_IS_DEFINED<br>
+<br>
+  The reason for the change is that the old names are subtly<br>
+  misleading.  The old names will still work, but they are deprecated<br>
+  and may be removed in a future release.<br>
+<br>
+  We also added a new client request:<br>
+  <br>
+    MAKE_MEM_DEFINED_IF_ADDRESSABLE(a, len)<br>
+    <br>
+  which is like MAKE_MEM_DEFINED but only affects a byte if the byte is<br>
+  already addressable.<br>
+<br>
+- The way client requests are encoded in the instruction stream has<br>
+  changed.  Unfortunately, this means 3.2.0 will not honour client<br>
+  requests compiled into binaries using headers from earlier versions<br>
+  of Valgrind.  We will try to keep the client request encodings more <br>
+  stable in future.<br>
+<br>
+BUGS FIXED:<br>
+<br>
+108258   NPTL pthread cleanup handlers not called <br>
+117290   valgrind is sigKILL'd on startup<br>
+117295   == 117290<br>
+118703   m_signals.c:1427 Assertion 'tst-&gt;status == VgTs_WaitSys'<br>
+118466   add %reg, %reg generates incorrect validity for bit 0<br>
+123210   New: strlen from ld-linux on amd64<br>
+123244   DWARF2 CFI reader: unhandled CFI instruction 0:18<br>
+123248   syscalls in glibc-2.4: openat, fstatat, symlinkat<br>
+123258   socketcall.recvmsg(msg.msg_iov[i] points to uninit<br>
+123535   mremap(new_addr) requires MREMAP_FIXED in 4th arg<br>
+123836   small typo in the doc<br>
+124029   ppc compile failed: `vor' gcc 3.3.5<br>
+124222   Segfault: @@don't know what type ':' is<br>
+124475   ppc32: crash (syscall?) timer_settime()<br>
+124499   amd64-&gt;IR: 0xF 0xE 0x48 0x85 (femms)<br>
+124528   FATAL: aspacem assertion failed: segment_is_sane<br>
+124697   vex x86-&gt;IR: 0xF 0x70 0xC9 0x0 (pshufw)<br>
+124892   vex x86-&gt;IR: 0xF3 0xAE (REPx SCASB)<br>
+126216   == 124892<br>
+124808   ppc32: sys_sched_getaffinity() not handled<br>
+n-i-bz   Very long stabs strings crash m_debuginfo<br>
+n-i-bz   amd64-&gt;IR: 0x66 0xF 0xF5 (pmaddwd)<br>
+125492   ppc32: support a bunch more syscalls<br>
+121617   ppc32/64: coredumping gives assertion failure<br>
+121814   Coregrind return error as exitcode patch<br>
+126517   == 121814<br>
+125607   amd64-&gt;IR: 0x66 0xF 0xA3 0x2 (btw etc)<br>
+125651   amd64-&gt;IR: 0xF8 0x49 0xFF 0xE3 (clc?)<br>
+126253   x86 movx is wrong<br>
+126451   3.2 SVN doesn't work on ppc32 CPU's without FPU<br>
+126217   increase # threads<br>
+126243   vex x86-&gt;IR: popw mem<br>
+126583   amd64-&gt;IR: 0x48 0xF 0xA4 0xC2 (shld $1,%rax,%rdx)<br>
+126668   amd64-&gt;IR: 0x1C 0xFF (sbb $0xff,%al)<br>
+126696   support for CDROMREADRAW ioctl and CDROMREADTOCENTRY fix<br>
+126722   assertion: segment_is_sane at m_aspacemgr/aspacemgr.c:1624<br>
+126938   bad checking for syscalls linkat, renameat, symlinkat<br>
+<br>
+(3.2.0RC1: 27 May  2006, vex r1626, valgrind r5947).<br>
+(3.2.0:     7 June 2006, vex r1628, valgrind r5957).<br>
+<br>
+<br>
+Release 3.1.1 (15 March 2006)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+3.1.1 fixes a bunch of bugs reported in 3.1.0.  There is no new<br>
+functionality.  The fixed bugs are:<br>
+<br>
+(note: "n-i-bz" means "not in bugzilla" -- this bug does not have<br>
+ a bugzilla entry).<br>
+<br>
+n-i-bz   ppc32: fsub 3,3,3 in dispatcher doesn't clear NaNs<br>
+n-i-bz   ppc32: __NR_{set,get}priority<br>
+117332   x86: missing line info with icc 8.1<br>
+117366   amd64: 0xDD 0x7C fnstsw<br>
+118274   == 117366<br>
+117367   amd64: 0xD9 0xF4 fxtract<br>
+117369   amd64: __NR_getpriority (140)<br>
+117419   ppc32: lfsu f5, -4(r11)<br>
+117419   ppc32: fsqrt<br>
+117936   more stabs problems (segfaults while reading debug info)<br>
+119914   == 117936<br>
+120345   == 117936<br>
+118239   amd64: 0xF 0xAE 0x3F (clflush)<br>
+118939   vm86old system call<br>
+n-i-bz   memcheck/tests/mempool reads freed memory<br>
+n-i-bz   AshleyP's custom-allocator assertion<br>
+n-i-bz   Dirk strict-aliasing stuff<br>
+n-i-bz   More space for debugger cmd line (Dan Thaler)<br>
+n-i-bz   Clarified leak checker output message<br>
+n-i-bz   AshleyP's --gen-suppressions output fix<br>
+n-i-bz   cg_annotate's --sort option broken<br>
+n-i-bz   OSet 64-bit fastcmp bug<br>
+n-i-bz   VG_(getgroups) fix (Shinichi Noda)<br>
+n-i-bz   ppc32: allocate from callee-saved FP/VMX regs<br>
+n-i-bz   misaligned path word-size bug in mc_main.c<br>
+119297   Incorrect error message for sse code<br>
+120410   x86: prefetchw (0xF 0xD 0x48 0x4)<br>
+120728   TIOCSERGETLSR, TIOCGICOUNT, HDIO_GET_DMA ioctls<br>
+120658   Build fixes for gcc 2.96<br>
+120734   x86: Support for changing EIP in signal handler<br>
+n-i-bz   memcheck/tests/zeropage de-looping fix<br>
+n-i-bz   x86: fxtract doesn't work reliably<br>
+121662   x86: lock xadd (0xF0 0xF 0xC0 0x2)<br>
+121893   calloc does not always return zeroed memory<br>
+121901   no support for syscall tkill<br>
+n-i-bz   Suppression update for Debian unstable<br>
+122067   amd64: fcmovnu (0xDB 0xD9)<br>
+n-i-bz   ppc32: broken signal handling in cpu feature detection<br>
+n-i-bz   ppc32: rounding mode problems (improved, partial fix only)<br>
+119482   ppc32: mtfsb1<br>
+n-i-bz   ppc32: mtocrf/mfocrf<br>
+<br>
+(3.1.1:  15 March 2006, vex r1597, valgrind r5771).<br>
+<br>
+<br>
+Release 3.1.0 (25 November 2005)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+3.1.0 is a feature release with a number of significant improvements:<br>
+AMD64 support is much improved, PPC32 support is good enough to be<br>
+usable, and the handling of memory management and address space is<br>
+much more robust.  In detail:<br>
+<br>
+- AMD64 support is much improved.  The 64-bit vs. 32-bit issues in<br>
+  3.0.X have been resolved, and it should "just work" now in all<br>
+  cases.  On AMD64 machines both 64-bit and 32-bit versions of<br>
+  Valgrind are built.  The right version will be invoked<br>
+  automatically, even when using --trace-children and mixing execution<br>
+  between 64-bit and 32-bit executables.  Also, many more instructions<br>
+  are supported.<br>
+<br>
+- PPC32 support is now good enough to be usable.  It should work with<br>
+  all tools, but please let us know if you have problems.  Three<br>
+  classes of CPUs are supported: integer only (no FP, no Altivec),<br>
+  which covers embedded PPC uses, integer and FP but no Altivec<br>
+  (G3-ish), and CPUs capable of Altivec too (G4, G5).<br>
+<br>
+- Valgrind's address space management has been overhauled.  As a<br>
+  result, Valgrind should be much more robust with programs that use<br>
+  large amounts of memory.  There should be many fewer "memory<br>
+  exhausted" messages, and debug symbols should be read correctly on<br>
+  large (eg. 300MB+) executables.  On 32-bit machines the full address<br>
+  space available to user programs (usually 3GB or 4GB) can be fully<br>
+  utilised.  On 64-bit machines up to 32GB of space is usable; when<br>
+  using Memcheck that means your program can use up to about 14GB.<br>
+<br>
+  A side effect of this change is that Valgrind is no longer protected<br>
+  against wild writes by the client.  This feature was nice but relied<br>
+  on the x86 segment registers and so wasn't portable.<br>
+<br>
+- Most users should not notice, but as part of the address space<br>
+  manager change, the way Valgrind is built has been changed.  Each<br>
+  tool is now built as a statically linked stand-alone executable,<br>
+  rather than as a shared object that is dynamically linked with the<br>
+  core.  The "valgrind" program invokes the appropriate tool depending<br>
+  on the --tool option.  This slightly increases the amount of disk<br>
+  space used by Valgrind, but it greatly simplified many things and<br>
+  removed Valgrind's dependence on glibc.<br>
+<br>
+Please note that Addrcheck and Helgrind are still not working.  Work<br>
+is underway to reinstate them (or equivalents).  We apologise for the<br>
+inconvenience.<br>
+<br>
+Other user-visible changes:<br>
+<br>
+- The --weird-hacks option has been renamed --sim-hints.<br>
+<br>
+- The --time-stamp option no longer gives an absolute date and time.<br>
+  It now prints the time elapsed since the program began.<br>
+<br>
+- It should build with gcc-2.96.<br>
+<br>
+- Valgrind can now run itself (see README_DEVELOPERS for how).<br>
+  This is not much use to you, but it means the developers can now<br>
+  profile Valgrind using Cachegrind.  As a result a couple of<br>
+  performance bad cases have been fixed.<br>
+<br>
+- The XML output format has changed slightly.  See<br>
+  docs/internals/xml-output.txt.<br>
+<br>
+- Core dumping has been reinstated (it was disabled in 3.0.0 and 3.0.1).<br>
+  If your program crashes while running under Valgrind, a core file with<br>
+  the name "vgcore.&lt;pid&gt;" will be created (if your settings allow core<br>
+  file creation).  Note that the floating point information is not all<br>
+  there.  If Valgrind itself crashes, the OS will create a normal core<br>
+  file.<br>
+<br>
+The following are some user-visible changes that occurred in earlier<br>
+versions that may not have been announced, or were announced but not<br>
+widely noticed.  So we're mentioning them now.<br>
+<br>
+- The --tool flag is optional once again;  if you omit it, Memcheck<br>
+  is run by default.<br>
+<br>
+- The --num-callers flag now has a default value of 12.  It was<br>
+  previously 4.<br>
+<br>
+- The --xml=yes flag causes Valgrind's output to be produced in XML<br>
+  format.  This is designed to make it easy for other programs to<br>
+  consume Valgrind's output.  The format is described in the file<br>
+  docs/internals/xml-format.txt.<br>
+<br>
+- The --gen-suppressions flag supports an "all" value that causes every<br>
+  suppression to be printed without asking.<br>
+<br>
+- The --log-file option no longer puts "pid" in the filename, eg. the<br>
+  old name "foo.pid12345" is now "foo.12345".<br>
+<br>
+- There are several graphical front-ends for Valgrind, such as Valkyrie,<br>
+  Alleyoop and Valgui.  See http://www.valgrind.org/downloads/guis.html<br>
+  for a list.<br>
+<br>
+BUGS FIXED:<br>
+<br>
+109861  amd64 hangs at startup<br>
+110301  ditto<br>
+111554  valgrind crashes with Cannot allocate memory<br>
+111809  Memcheck tool doesn't start java<br>
+111901  cross-platform run of cachegrind fails on opteron<br>
+113468  (vgPlain_mprotect_range): Assertion 'r != -1' failed.<br>
+ 92071  Reading debugging info uses too much memory<br>
+109744  memcheck loses track of mmap from direct ld-linux.so.2<br>
+110183  tail of page with _end<br>
+ 82301  FV memory layout too rigid<br>
+ 98278  Infinite recursion possible when allocating memory<br>
+108994  Valgrind runs out of memory due to 133x overhead<br>
+115643  valgrind cannot allocate memory<br>
+105974  vg_hashtable.c static hash table<br>
+109323  ppc32: dispatch.S uses Altivec insn, which doesn't work on POWER. <br>
+109345  ptrace_setregs not yet implemented for ppc<br>
+110831  Would like to be able to run against both 32 and 64 bit <br>
+        binaries on AMD64<br>
+110829  == 110831<br>
+111781  compile of valgrind-3.0.0 fails on my linux (gcc 2.X prob)<br>
+112670  Cachegrind: cg_main.c:486 (handleOneStatement ...<br>
+112941  vex x86: 0xD9 0xF4 (fxtract)<br>
+110201  == 112941<br>
+113015  vex amd64-&gt;IR: 0xE3 0x14 0x48 0x83 (jrcxz)<br>
+113126  Crash with binaries built with -gstabs+/-ggdb<br>
+104065  == 113126<br>
+115741  == 113126<br>
+113403  Partial SSE3 support on x86<br>
+113541  vex: Grp5(x86) (alt encoding inc/dec) case 1<br>
+113642  valgrind crashes when trying to read debug information<br>
+113810  vex x86-&gt;IR: 66 0F F6 (66 + PSADBW == SSE PSADBW)<br>
+113796  read() and write() do not work if buffer is in shared memory<br>
+113851  vex x86-&gt;IR: (pmaddwd): 0x66 0xF 0xF5 0xC7<br>
+114366  vex amd64 cannnot handle __asm__( "fninit" )<br>
+114412  vex amd64-&gt;IR: 0xF 0xAD 0xC2 0xD3 (128-bit shift, shrdq?)<br>
+114455  vex amd64-&gt;IR: 0xF 0xAC 0xD0 0x1 (also shrdq)<br>
+115590: amd64-&gt;IR: 0x67 0xE3 0x9 0xEB (address size override)<br>
+115953  valgrind svn r5042 does not build with parallel make (-j3)<br>
+116057  maximum instruction size - VG_MAX_INSTR_SZB too small?<br>
+116483  shmat failes with invalid argument<br>
+102202  valgrind crashes when realloc'ing until out of memory<br>
+109487  == 102202<br>
+110536  == 102202<br>
+112687  == 102202<br>
+111724  vex amd64-&gt;IR: 0x41 0xF 0xAB (more BT{,S,R,C} fun n games)<br>
+111748  vex amd64-&gt;IR: 0xDD 0xE2 (fucom)<br>
+111785  make fails if CC contains spaces<br>
+111829  vex x86-&gt;IR: sbb AL, Ib<br>
+111851  vex x86-&gt;IR: 0x9F 0x89 (lahf/sahf)<br>
+112031  iopl on AMD64 and README_MISSING_SYSCALL_OR_IOCTL update<br>
+112152  code generation for Xin_MFence on x86 with SSE0 subarch<br>
+112167  == 112152<br>
+112789  == 112152<br>
+112199  naked ar tool is used in vex makefile<br>
+112501  vex x86-&gt;IR: movq (0xF 0x7F 0xC1 0xF) (mmx MOVQ)<br>
+113583  == 112501<br>
+112538  memalign crash<br>
+113190  Broken links in docs/html/<br>
+113230  Valgrind sys_pipe on x86-64 wrongly thinks file descriptors<br>
+        should be 64bit<br>
+113996  vex amd64-&gt;IR: fucomp (0xDD 0xE9)<br>
+114196  vex x86-&gt;IR: out %eax,(%dx) (0xEF 0xC9 0xC3 0x90)<br>
+114289  Memcheck fails to intercept malloc when used in an uclibc environment<br>
+114756  mbind syscall support<br>
+114757  Valgrind dies with assertion: Assertion 'noLargerThan &gt; 0' failed<br>
+114563  stack tracking module not informed when valgrind switches threads<br>
+114564  clone() and stacks<br>
+114565  == 114564<br>
+115496  glibc crashes trying to use sysinfo page<br>
+116200  enable fsetxattr, fgetxattr, and fremovexattr for amd64<br>
+<br>
+(3.1.0RC1: 20 November 2005, vex r1466, valgrind r5224).<br>
+(3.1.0:    26 November 2005, vex r1471, valgrind r5235).<br>
+<br>
+<br>
+Release 3.0.1 (29 August 2005)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+3.0.1 fixes a bunch of bugs reported in 3.0.0.  There is no new<br>
+functionality.  Some of the fixed bugs are critical, so if you<br>
+use/distribute 3.0.0, an upgrade to 3.0.1 is recommended.  The fixed<br>
+bugs are:<br>
+<br>
+(note: "n-i-bz" means "not in bugzilla" -- this bug does not have<br>
+ a bugzilla entry).<br>
+<br>
+109313  (== 110505) x86 cmpxchg8b<br>
+n-i-bz  x86: track but ignore changes to %eflags.AC (alignment check)<br>
+110102  dis_op2_E_G(amd64)<br>
+110202  x86 sys_waitpid(#286)<br>
+110203  clock_getres(,0)<br>
+110208  execve fail wrong retval<br>
+110274  SSE1 now mandatory for x86<br>
+110388  amd64 0xDD 0xD1<br>
+110464  amd64 0xDC 0x1D FCOMP<br>
+110478  amd64 0xF 0xD PREFETCH<br>
+n-i-bz  XML &lt;unique&gt; printing wrong<br>
+n-i-bz  Dirk r4359 (amd64 syscalls from trunk)<br>
+110591  amd64 and x86: rdtsc not implemented properly<br>
+n-i-bz  Nick r4384 (stub implementations of Addrcheck and Helgrind)<br>
+110652  AMD64 valgrind crashes on cwtd instruction<br>
+110653  AMD64 valgrind crashes on sarb $0x4,foo(%rip) instruction<br>
+110656  PATH=/usr/bin::/bin valgrind foobar stats ./fooba<br>
+110657  Small test fixes<br>
+110671  vex x86-&gt;IR: unhandled instruction bytes: 0xF3 0xC3 (rep ret)<br>
+n-i-bz  Nick (Cachegrind should not assert when it encounters a client<br>
+        request.)<br>
+110685  amd64-&gt;IR: unhandled instruction bytes: 0xE1 0x56 (loope Jb)<br>
+110830  configuring with --host fails to build 32 bit on 64 bit target<br>
+110875  Assertion when execve fails<br>
+n-i-bz  Updates to Memcheck manual<br>
+n-i-bz  Fixed broken malloc_usable_size()<br>
+110898  opteron instructions missing: btq btsq btrq bsfq<br>
+110954  x86-&gt;IR: unhandled instruction bytes: 0xE2 0xF6 (loop Jb)<br>
+n-i-bz  Make suppressions work for "???" lines in stacktraces.<br>
+111006  bogus warnings from linuxthreads<br>
+111092  x86: dis_Grp2(Reg): unhandled case(x86) <br>
+111231  sctp_getladdrs() and sctp_getpaddrs() returns uninitialized<br>
+        memory<br>
+111102  (comment #4)   Fixed 64-bit unclean "silly arg" message<br>
+n-i-bz  vex x86-&gt;IR: unhandled instruction bytes: 0x14 0x0<br>
+n-i-bz  minor umount/fcntl wrapper fixes<br>
+111090  Internal Error running Massif<br>
+101204  noisy warning<br>
+111513  Illegal opcode for SSE instruction (x86 movups)<br>
+111555  VEX/Makefile: CC is set to gcc<br>
+n-i-bz  Fix XML bugs in FAQ<br>
+<br>
+(3.0.1: 29 August 05,<br>
+        vex/branches/VEX_3_0_BRANCH r1367,<br>
+        valgrind/branches/VALGRIND_3_0_BRANCH r4574).<br>
+<br>
+<br>
+<br>
+Release 3.0.0 (3 August 2005)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+3.0.0 is a major overhaul of Valgrind.  The most significant user<br>
+visible change is that Valgrind now supports architectures other than<br>
+x86.  The new architectures it supports are AMD64 and PPC32, and the<br>
+infrastructure is present for other architectures to be added later.<br>
+<br>
+AMD64 support works well, but has some shortcomings:<br>
+<br>
+- It generally won't be as solid as the x86 version.  For example,<br>
+  support for more obscure instructions and system calls may be missing.<br>
+  We will fix these as they arise.<br>
+<br>
+- Address space may be limited; see the point about<br>
+  position-independent executables below.<br>
+<br>
+- If Valgrind is built on an AMD64 machine, it will only run 64-bit<br>
+  executables.  If you want to run 32-bit x86 executables under Valgrind<br>
+  on an AMD64, you will need to build Valgrind on an x86 machine and<br>
+  copy it to the AMD64 machine.  And it probably won't work if you do<br>
+  something tricky like exec'ing a 32-bit program from a 64-bit program<br>
+  while using --trace-children=yes.  We hope to improve this situation<br>
+  in the future.<br>
+<br>
+The PPC32 support is very basic.  It may not work reliably even for<br>
+small programs, but it's a start.  Many thanks to Paul Mackerras for<br>
+his great work that enabled this support.  We are working to make<br>
+PPC32 usable as soon as possible.<br>
+<br>
+Other user-visible changes:<br>
+<br>
+- Valgrind is no longer built by default as a position-independent<br>
+  executable (PIE), as this caused too many problems.<br>
+<br>
+  Without PIE enabled, AMD64 programs will only be able to access 2GB of<br>
+  address space.  We will fix this eventually, but not for the moment.<br>
+  <br>
+  Use --enable-pie at configure-time to turn this on.<br>
+<br>
+- Support for programs that use stack-switching has been improved.  Use<br>
+  the --max-stackframe flag for simple cases, and the<br>
+  VALGRIND_STACK_REGISTER, VALGRIND_STACK_DEREGISTER and<br>
+  VALGRIND_STACK_CHANGE client requests for trickier cases.<br>
+<br>
+- Support for programs that use self-modifying code has been improved,<br>
+  in particular programs that put temporary code fragments on the stack.<br>
+  This helps for C programs compiled with GCC that use nested functions,<br>
+  and also Ada programs.  This is controlled with the --smc-check<br>
+  flag, although the default setting should work in most cases.<br>
+<br>
+- Output can now be printed in XML format.  This should make it easier<br>
+  for tools such as GUI front-ends and automated error-processing<br>
+  schemes to use Valgrind output as input.  The --xml flag controls this.<br>
+  As part of this change, ELF directory information is read from executables,<br>
+  so absolute source file paths are available if needed.<br>
+<br>
+- Programs that allocate many heap blocks may run faster, due to<br>
+  improvements in certain data structures.<br>
+<br>
+- Addrcheck is currently not working.  We hope to get it working again<br>
+  soon.  Helgrind is still not working, as was the case for the 2.4.0<br>
+  release.<br>
+<br>
+- The JITter has been completely rewritten, and is now in a separate<br>
+  library, called Vex.  This enabled a lot of the user-visible changes,<br>
+  such as new architecture support.  The new JIT unfortunately translates<br>
+  more slowly than the old one, so programs may take longer to start.<br>
+  We believe the code quality is produces is about the same, so once<br>
+  started, programs should run at about the same speed.  Feedback about<br>
+  this would be useful.<br>
+<br>
+  On the plus side, Vex and hence Memcheck tracks value flow properly<br>
+  through floating point and vector registers, something the 2.X line<br>
+  could not do.  That means that Memcheck is much more likely to be<br>
+  usably accurate on vectorised code.<br>
+<br>
+- There is a subtle change to the way exiting of threaded programs<br>
+  is handled.  In 3.0, Valgrind's final diagnostic output (leak check,<br>
+  etc) is not printed until the last thread exits.  If the last thread<br>
+  to exit was not the original thread which started the program, any<br>
+  other process wait()-ing on this one to exit may conclude it has<br>
+  finished before the diagnostic output is printed.  This may not be<br>
+  what you expect.  2.X had a different scheme which avoided this<br>
+  problem, but caused deadlocks under obscure circumstances, so we<br>
+  are trying something different for 3.0.<br>
+<br>
+- Small changes in control log file naming which make it easier to<br>
+  use valgrind for debugging MPI-based programs.  The relevant<br>
+  new flags are --log-file-exactly= and --log-file-qualifier=.<br>
+<br>
+- As part of adding AMD64 support, DWARF2 CFI-based stack unwinding<br>
+  support was added.  In principle this means Valgrind can produce<br>
+  meaningful backtraces on x86 code compiled with -fomit-frame-pointer<br>
+  providing you also compile your code with -fasynchronous-unwind-tables.<br>
+<br>
+- The documentation build system has been completely redone.<br>
+  The documentation masters are now in XML format, and from that<br>
+  HTML, PostScript and PDF documentation is generated.  As a result<br>
+  the manual is now available in book form.  Note that the<br>
+  documentation in the source tarballs is pre-built, so you don't need<br>
+  any XML processing tools to build Valgrind from a tarball.<br>
+<br>
+Changes that are not user-visible:<br>
+<br>
+- The code has been massively overhauled in order to modularise it.<br>
+  As a result we hope it is easier to navigate and understand.<br>
+<br>
+- Lots of code has been rewritten.<br>
+<br>
+BUGS FIXED:<br>
+<br>
+110046  sz == 4 assertion failed <br>
+109810  vex amd64-&gt;IR: unhandled instruction bytes: 0xA3 0x4C 0x70 0xD7<br>
+109802  Add a plausible_stack_size command-line parameter ?<br>
+109783  unhandled ioctl TIOCMGET (running hw detection tool discover) <br>
+109780  unhandled ioctl BLKSSZGET (running fdisk -l /dev/hda)<br>
+109718  vex x86-&gt;IR: unhandled instruction: ffreep <br>
+109429  AMD64 unhandled syscall: 127 (sigpending)<br>
+109401  false positive uninit in strchr from ld-linux.so.2<br>
+109385  "stabs" parse failure <br>
+109378  amd64: unhandled instruction REP NOP<br>
+109376  amd64: unhandled instruction LOOP Jb <br>
+109363  AMD64 unhandled instruction bytes <br>
+109362  AMD64 unhandled syscall: 24 (sched_yield)<br>
+109358  fork() won't work with valgrind-3.0 SVN<br>
+109332  amd64 unhandled instruction: ADC Ev, Gv<br>
+109314  Bogus memcheck report on amd64<br>
+108883  Crash; vg_memory.c:905 (vgPlain_init_shadow_range):<br>
+        Assertion `vgPlain_defined_init_shadow_page()' failed.<br>
+108349  mincore syscall parameter checked incorrectly <br>
+108059  build infrastructure: small update<br>
+107524  epoll_ctl event parameter checked on EPOLL_CTL_DEL<br>
+107123  Vex dies with unhandled instructions: 0xD9 0x31 0xF 0xAE<br>
+106841  auxmap &amp; openGL problems<br>
+106713  SDL_Init causes valgrind to exit<br>
+106352  setcontext and makecontext not handled correctly <br>
+106293  addresses beyond initial client stack allocation <br>
+        not checked in VALGRIND_DO_LEAK_CHECK<br>
+106283  PIE client programs are loaded at address 0<br>
+105831  Assertion `vgPlain_defined_init_shadow_page()' failed.<br>
+105039  long run-times probably due to memory manager <br>
+104797  valgrind needs to be aware of BLKGETSIZE64<br>
+103594  unhandled instruction: FICOM<br>
+103320  Valgrind 2.4.0 fails to compile with gcc 3.4.3 and -O0<br>
+103168  potentially memory leak in coregrind/ume.c <br>
+102039  bad permissions for mapped region at address 0xB7C73680<br>
+101881  weird assertion problem<br>
+101543  Support fadvise64 syscalls<br>
+75247   x86_64/amd64 support (the biggest "bug" we have ever fixed)<br>
+<br>
+(3.0RC1: 27 July   05, vex r1303, valgrind r4283).<br>
+(3.0.0:   3 August 05, vex r1313, valgrind r4316).<br>
+<br>
+<br>
+<br>
+Stable release 2.4.1 (1 August 2005)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+(The notes for this release have been lost.  Sorry!  It would have<br>
+contained various bug fixes but no new features.)<br>
+<br>
+<br>
+<br>
+Stable release 2.4.0 (March 2005) -- CHANGES RELATIVE TO 2.2.0<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+2.4.0 brings many significant changes and bug fixes.  The most<br>
+significant user-visible change is that we no longer supply our own<br>
+pthread implementation.  Instead, Valgrind is finally capable of<br>
+running the native thread library, either LinuxThreads or NPTL.<br>
+<br>
+This means our libpthread has gone, along with the bugs associated<br>
+with it.  Valgrind now supports the kernel's threading syscalls, and<br>
+lets you use your standard system libpthread.  As a result:<br>
+<br>
+* There are many fewer system dependencies and strange library-related<br>
+  bugs.  There is a small performance improvement, and a large<br>
+  stability improvement.<br>
+<br>
+* On the downside, Valgrind can no longer report misuses of the POSIX<br>
+  PThreads API.  It also means that Helgrind currently does not work.<br>
+  We hope to fix these problems in a future release.<br>
+<br>
+Note that running the native thread libraries does not mean Valgrind<br>
+is able to provide genuine concurrent execution on SMPs.  We still<br>
+impose the restriction that only one thread is running at any given<br>
+time.<br>
+<br>
+There are many other significant changes too:<br>
+<br>
+* Memcheck is (once again) the default tool.<br>
+<br>
+* The default stack backtrace is now 12 call frames, rather than 4.<br>
+<br>
+* Suppressions can have up to 25 call frame matches, rather than 4.<br>
+<br>
+* Memcheck and Addrcheck use less memory.  Under some circumstances,<br>
+  they no longer allocate shadow memory if there are large regions of<br>
+  memory with the same A/V states - such as an mmaped file.<br>
+<br>
+* The memory-leak detector in Memcheck and Addrcheck has been<br>
+  improved.  It now reports more types of memory leak, including<br>
+  leaked cycles.  When reporting leaked memory, it can distinguish<br>
+  between directly leaked memory (memory with no references), and<br>
+  indirectly leaked memory (memory only referred to by other leaked<br>
+  memory).<br>
+<br>
+* Memcheck's confusion over the effect of mprotect() has been fixed:<br>
+  previously mprotect could erroneously mark undefined data as<br>
+  defined.<br>
+<br>
+* Signal handling is much improved and should be very close to what<br>
+  you get when running natively.  <br>
+<br>
+  One result of this is that Valgrind observes changes to sigcontexts<br>
+  passed to signal handlers.  Such modifications will take effect when<br>
+  the signal returns.  You will need to run with --single-step=yes to<br>
+  make this useful.<br>
+<br>
+* Valgrind is built in Position Independent Executable (PIE) format if<br>
+  your toolchain supports it.  This allows it to take advantage of all<br>
+  the available address space on systems with 4Gbyte user address<br>
+  spaces.<br>
+<br>
+* Valgrind can now run itself (requires PIE support).<br>
+<br>
+* Syscall arguments are now checked for validity.  Previously all<br>
+  memory used by syscalls was checked, but now the actual values<br>
+  passed are also checked.<br>
+<br>
+* Syscall wrappers are more robust against bad addresses being passed<br>
+  to syscalls: they will fail with EFAULT rather than killing Valgrind<br>
+  with SIGSEGV.<br>
+<br>
+* Because clone() is directly supported, some non-pthread uses of it<br>
+  will work.  Partial sharing (where some resources are shared, and<br>
+  some are not) is not supported.<br>
+<br>
+* open() and readlink() on /proc/self/exe are supported.<br>
+<br>
+BUGS FIXED:<br>
+<br>
+88520   pipe+fork+dup2 kills the main program<br>
+88604 	Valgrind Aborts when using $VALGRIND_OPTS and user progra...<br>
+88614 	valgrind: vg_libpthread.c:2323 (read): Assertion `read_pt...<br>
+88703 	Stabs parser fails to handle ";"<br>
+88886 	ioctl wrappers for TIOCMBIS and TIOCMBIC<br>
+89032 	valgrind pthread_cond_timedwait fails<br>
+89106 	the 'impossible' happened<br>
+89139 	Missing sched_setaffinity &amp; sched_getaffinity<br>
+89198 	valgrind lacks support for SIOCSPGRP and SIOCGPGRP<br>
+89263 	Missing ioctl translations for scsi-generic and CD playing<br>
+89440 	tests/deadlock.c line endings<br>
+89481 	`impossible' happened: EXEC FAILED<br>
+89663 	valgrind 2.2.0 crash on Redhat 7.2<br>
+89792 	Report pthread_mutex_lock() deadlocks instead of returnin...<br>
+90111 	statvfs64 gives invalid error/warning<br>
+90128 	crash+memory fault with stabs generated by gnat for a run...<br>
+90778 	VALGRIND_CHECK_DEFINED() not as documented in memcheck.h<br>
+90834 	cachegrind crashes at end of program without reporting re...<br>
+91028 	valgrind: vg_memory.c:229 (vgPlain_unmap_range): Assertio...<br>
+91162 	valgrind crash while debugging drivel 1.2.1<br>
+91199 	Unimplemented function<br>
+91325 	Signal routing does not propagate the siginfo structure<br>
+91599 	Assertion `cv == ((void *)0)'<br>
+91604 	rw_lookup clears orig and sends the NULL value to rw_new<br>
+91821 	Small problems building valgrind with $top_builddir ne $t...<br>
+91844 	signal 11 (SIGSEGV) at get_tcb (libpthread.c:86) in corec...<br>
+92264 	UNIMPLEMENTED FUNCTION: pthread_condattr_setpshared<br>
+92331 	per-target flags necessitate AM_PROG_CC_C_O<br>
+92420 	valgrind doesn't compile with linux 2.6.8.1/9<br>
+92513 	Valgrind 2.2.0 generates some warning messages<br>
+92528 	vg_symtab2.c:170 (addLoc): Assertion `loc-&gt;size &gt; 0' failed.<br>
+93096 	unhandled ioctl 0x4B3A and 0x5601<br>
+93117 	Tool and core interface versions do not match<br>
+93128 	Can't run valgrind --tool=memcheck because of unimplement...<br>
+93174 	Valgrind can crash if passed bad args to certain syscalls<br>
+93309 	Stack frame in new thread is badly aligned<br>
+93328 	Wrong types used with sys_sigprocmask()<br>
+93763 	/usr/include/asm/msr.h is missing<br>
+93776 	valgrind: vg_memory.c:508 (vgPlain_find_map_space): Asser...<br>
+93810 	fcntl() argument checking a bit too strict<br>
+94378 	Assertion `tst-&gt;sigqueue_head != tst-&gt;sigqueue_tail' failed.<br>
+94429 	valgrind 2.2.0 segfault with mmap64 in glibc 2.3.3<br>
+94645 	Impossible happened: PINSRW mem<br>
+94953 	valgrind: the `impossible' happened: SIGSEGV<br>
+95667 	Valgrind does not work with any KDE app<br>
+96243 	Assertion 'res==0' failed<br>
+96252 	stage2 loader of valgrind fails to allocate memory<br>
+96520 	All programs crashing at _dl_start (in /lib/ld-2.3.3.so) ...<br>
+96660 	ioctl CDROMREADTOCENTRY causes bogus warnings<br>
+96747 	After looping in a segfault handler, the impossible happens<br>
+96923 	Zero sized arrays crash valgrind trace back with SIGFPE<br>
+96948 	valgrind stops with assertion failure regarding mmap2<br>
+96966 	valgrind fails when application opens more than 16 sockets<br>
+97398 	valgrind: vg_libpthread.c:2667 Assertion failed<br>
+97407 	valgrind: vg_mylibc.c:1226 (vgPlain_safe_fd): Assertion `...<br>
+97427 	"Warning: invalid file descriptor -1 in syscall close()" ...<br>
+97785 	missing backtrace<br>
+97792 	build in obj dir fails - autoconf / makefile cleanup<br>
+97880 	pthread_mutex_lock fails from shared library (special ker...<br>
+97975 	program aborts without ang VG messages<br>
+98129 	Failed when open and close file 230000 times using stdio<br>
+98175 	Crashes when using valgrind-2.2.0 with a program using al...<br>
+98288 	Massif broken<br>
+98303 	UNIMPLEMENTED FUNCTION pthread_condattr_setpshared<br>
+98630 	failed--compilation missing warnings.pm, fails to make he...<br>
+98756 	Cannot valgrind signal-heavy kdrive X server<br>
+98966 	valgrinding the JVM fails with a sanity check assertion<br>
+99035 	Valgrind crashes while profiling<br>
+99142 	loops with message "Signal 11 being dropped from thread 0...<br>
+99195 	threaded apps crash on thread start (using QThread::start...<br>
+99348 	Assertion `vgPlain_lseek(core_fd, 0, 1) == phdrs[i].p_off...<br>
+99568 	False negative due to mishandling of mprotect<br>
+99738 	valgrind memcheck crashes on program that uses sigitimer<br>
+99923 	0-sized allocations are reported as leaks<br>
+99949 	program seg faults after exit()<br>
+100036 	"newSuperblock's request for 1048576 bytes failed"<br>
+100116 	valgrind: (pthread_cond_init): Assertion `sizeof(* cond) ...<br>
+100486 	memcheck reports "valgrind: the `impossible' happened: V...<br>
+100833 	second call to "mremap" fails with EINVAL<br>
+101156 	(vgPlain_find_map_space): Assertion `(addr &amp; ((1 &lt;&lt; 12)-1...<br>
+101173 	Assertion `recDepth &gt;= 0 &amp;&amp; recDepth &lt; 500' failed<br>
+101291 	creating threads in a forked process fails<br>
+101313 	valgrind causes different behavior when resizing a window...<br>
+101423 	segfault for c++ array of floats<br>
+101562 	valgrind massif dies on SIGINT even with signal handler r...<br>
+<br>
+<br>
+Stable release 2.2.0 (31 August 2004) -- CHANGES RELATIVE TO 2.0.0<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+2.2.0 brings nine months worth of improvements and bug fixes.  We<br>
+believe it to be a worthy successor to 2.0.0.  There are literally<br>
+hundreds of bug fixes and minor improvements.  There are also some<br>
+fairly major user-visible changes:<br>
+<br>
+* A complete overhaul of handling of system calls and signals, and <br>
+  their interaction with threads.  In general, the accuracy of the <br>
+  system call, thread and signal simulations is much improved:<br>
+<br>
+  - Blocking system calls behave exactly as they do when running<br>
+    natively (not on valgrind).  That is, if a syscall blocks only the<br>
+    calling thread when running natively, than it behaves the same on<br>
+    valgrind.  No more mysterious hangs because V doesn't know that some<br>
+    syscall or other, should block only the calling thread.<br>
+<br>
+  - Interrupted syscalls should now give more faithful results.<br>
+<br>
+  - Signal contexts in signal handlers are supported.<br>
+<br>
+* Improvements to NPTL support to the extent that V now works <br>
+  properly on NPTL-only setups.<br>
+<br>
+* Greater isolation between Valgrind and the program being run, so<br>
+  the program is less likely to inadvertently kill Valgrind by<br>
+  doing wild writes.<br>
+<br>
+* Massif: a new space profiling tool.  Try it!  It's cool, and it'll<br>
+  tell you in detail where and when your C/C++ code is allocating heap.<br>
+  Draws pretty .ps pictures of memory use against time.  A potentially<br>
+  powerful tool for making sense of your program's space use.<br>
+<br>
+* File descriptor leakage checks.  When enabled, Valgrind will print out<br>
+  a list of open file descriptors on exit.<br>
+<br>
+* Improved SSE2/SSE3 support.<br>
+<br>
+* Time-stamped output; use --time-stamp=yes<br>
+<br>
+<br>
+<br>
+Stable release 2.2.0 (31 August 2004) -- CHANGES RELATIVE TO 2.1.2<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+2.2.0 is not much different from 2.1.2, released seven weeks ago.<br>
+A number of bugs have been fixed, most notably #85658, which gave<br>
+problems for quite a few people.  There have been many internal<br>
+cleanups, but those are not user visible.<br>
+<br>
+The following bugs have been fixed since 2.1.2:<br>
+<br>
+85658   Assert in coregrind/vg_libpthread.c:2326 (open64) !=<br>
+        (void*)0 failed<br>
+        This bug was reported multiple times, and so the following<br>
+        duplicates of it are also fixed: 87620, 85796, 85935, 86065, <br>
+        86919, 86988, 87917, 88156<br>
+<br>
+80716   Semaphore mapping bug caused by unmap (sem_destroy)<br>
+        (Was fixed prior to 2.1.2)<br>
+<br>
+86987   semctl and shmctl syscalls family is not handled properly<br>
+<br>
+86696   valgrind 2.1.2 + RH AS2.1 + librt<br>
+<br>
+86730   valgrind locks up at end of run with assertion failure <br>
+        in __pthread_unwind<br>
+<br>
+86641   memcheck doesn't work with Mesa OpenGL/ATI on Suse 9.1<br>
+        (also fixes 74298, a duplicate of this)<br>
+<br>
+85947   MMX/SSE unhandled instruction 'sfence'<br>
+<br>
+84978   Wrong error "Conditional jump or move depends on<br>
+        uninitialised value" resulting from "sbbl %reg, %reg"<br>
+<br>
+86254   ssort() fails when signed int return type from comparison is <br>
+        too small to handle result of unsigned int subtraction<br>
+<br>
+87089   memalign( 4, xxx) makes valgrind assert<br>
+<br>
+86407   Add support for low-level parallel port driver ioctls.<br>
+<br>
+70587   Add timestamps to Valgrind output? (wishlist)<br>
+<br>
+84937   vg_libpthread.c:2505 (se_remap): Assertion `res == 0'<br>
+        (fixed prior to 2.1.2)<br>
+<br>
+86317   cannot load libSDL-1.2.so.0 using valgrind<br>
+<br>
+86989   memcpy from mac_replace_strmem.c complains about<br>
+        uninitialized pointers passed when length to copy is zero<br>
+<br>
+85811   gnu pascal symbol causes segmentation fault; ok in 2.0.0<br>
+<br>
+79138   writing to sbrk()'d memory causes segfault<br>
+<br>
+77369   sched deadlock while signal received during pthread_join<br>
+        and the joined thread exited<br>
+<br>
+88115   In signal handler for SIGFPE,  siginfo-&gt;si_addr is wrong <br>
+        under Valgrind<br>
+<br>
+78765   Massif crashes on app exit if FP exceptions are enabled<br>
+<br>
+Additionally there are the following changes, which are not <br>
+connected to any bug report numbers, AFAICS:<br>
+<br>
+* Fix scary bug causing mis-identification of SSE stores vs<br>
+  loads and so causing memcheck to sometimes give nonsense results<br>
+  on SSE code.<br>
+<br>
+* Add support for the POSIX message queue system calls.<br>
+<br>
+* Fix to allow 32-bit Valgrind to run on AMD64 boxes.  Note: this does<br>
+  NOT allow Valgrind to work with 64-bit executables - only with 32-bit<br>
+  executables on an AMD64 box.<br>
+<br>
+* At configure time, only check whether linux/mii.h can be processed <br>
+  so that we don't generate ugly warnings by trying to compile it.<br>
+<br>
+* Add support for POSIX clocks and timers.<br>
+<br>
+<br>
+<br>
+Developer (cvs head) release 2.1.2 (18 July 2004)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+2.1.2 contains four months worth of bug fixes and refinements.<br>
+Although officially a developer release, we believe it to be stable<br>
+enough for widespread day-to-day use.  2.1.2 is pretty good, so try it<br>
+first, although there is a chance it won't work.  If so then try 2.0.0<br>
+and tell us what went wrong."  2.1.2 fixes a lot of problems present<br>
+in 2.0.0 and is generally a much better product.<br>
+<br>
+Relative to 2.1.1, a large number of minor problems with 2.1.1 have<br>
+been fixed, and so if you use 2.1.1 you should try 2.1.2.  Users of<br>
+the last stable release, 2.0.0, might also want to try this release.<br>
+<br>
+The following bugs, and probably many more, have been fixed.  These<br>
+are listed at http://bugs.kde.org.  Reporting a bug for valgrind in<br>
+the http://bugs.kde.org is much more likely to get you a fix than<br>
+mailing developers directly, so please continue to keep sending bugs<br>
+there.<br>
+<br>
+76869   Crashes when running any tool under Fedora Core 2 test1<br>
+        This fixes the problem with returning from a signal handler <br>
+        when VDSOs are turned off in FC2.<br>
+<br>
+69508   java 1.4.2 client fails with erroneous "stack size too small".<br>
+        This fix makes more of the pthread stack attribute related <br>
+        functions work properly.  Java still doesn't work though.<br>
+<br>
+71906   malloc alignment should be 8, not 4<br>
+        All memory returned by malloc/new etc is now at least<br>
+        8-byte aligned.<br>
+<br>
+81970   vg_alloc_ThreadState: no free slots available<br>
+        (closed because the workaround is simple: increase<br>
+         VG_N_THREADS, rebuild and try again.)<br>
+<br>
+78514   Conditional jump or move depends on uninitialized value(s)<br>
+        (a slight mishanding of FP code in memcheck)<br>
+<br>
+77952   pThread Support (crash) (due to initialisation-ordering probs)<br>
+        (also 85118)<br>
+<br>
+80942   Addrcheck wasn't doing overlap checking as it should.<br>
+78048   return NULL on malloc/new etc failure, instead of asserting<br>
+73655   operator new() override in user .so files often doesn't get picked up<br>
+83060   Valgrind does not handle native kernel AIO<br>
+69872   Create proper coredumps after fatal signals<br>
+82026   failure with new glibc versions: __libc_* functions are not exported<br>
+70344   UNIMPLEMENTED FUNCTION: tcdrain <br>
+81297   Cancellation of pthread_cond_wait does not require mutex<br>
+82872   Using debug info from additional packages (wishlist)<br>
+83025   Support for ioctls FIGETBSZ and FIBMAP<br>
+83340   Support for ioctl HDIO_GET_IDENTITY<br>
+79714   Support for the semtimedop system call.<br>
+77022   Support for ioctls FBIOGET_VSCREENINFO and FBIOGET_FSCREENINFO<br>
+82098   hp2ps ansification (wishlist)<br>
+83573   Valgrind SIGSEGV on execve<br>
+82999   show which cmdline option was erroneous (wishlist)<br>
+83040   make valgrind VPATH and distcheck-clean (wishlist)<br>
+83998   Assertion `newfd &gt; vgPlain_max_fd' failed (see below)<br>
+82722   Unchecked mmap in as_pad leads to mysterious failures later<br>
+78958   memcheck seg faults while running Mozilla <br>
+85416   Arguments with colon (e.g. --logsocket) ignored<br>
+<br>
+<br>
+Additionally there are the following changes, which are not <br>
+connected to any bug report numbers, AFAICS:<br>
+<br>
+* Rearranged address space layout relative to 2.1.1, so that<br>
+  Valgrind/tools will run out of memory later than currently in many<br>
+  circumstances.  This is good news esp. for Calltree.  It should<br>
+  be possible for client programs to allocate over 800MB of<br>
+  memory when using memcheck now.<br>
+<br>
+* Improved checking when laying out memory.  Should hopefully avoid<br>
+  the random segmentation faults that 2.1.1 sometimes caused.<br>
+<br>
+* Support for Fedora Core 2 and SuSE 9.1.  Improvements to NPTL<br>
+  support to the extent that V now works properly on NPTL-only setups.<br>
+<br>
+* Renamed the following options:<br>
+  --logfile-fd  --&gt;  --log-fd<br>
+  --logfile     --&gt;  --log-file<br>
+  --logsocket   --&gt;  --log-socket<br>
+  to be consistent with each other and other options (esp. --input-fd).<br>
+<br>
+* Add support for SIOCGMIIPHY, SIOCGMIIREG and SIOCSMIIREG ioctls and<br>
+  improve the checking of other interface related ioctls.<br>
+<br>
+* Fix building with gcc-3.4.1.<br>
+<br>
+* Remove limit on number of semaphores supported.<br>
+<br>
+* Add support for syscalls: set_tid_address (258), acct (51).<br>
+<br>
+* Support instruction "repne movs" -- not official but seems to occur.<br>
+<br>
+* Implement an emulated soft limit for file descriptors in addition to<br>
+  the current reserved area, which effectively acts as a hard limit. The<br>
+  setrlimit system call now simply updates the emulated limits as best<br>
+  as possible - the hard limit is not allowed to move at all and just<br>
+  returns EPERM if you try and change it.  This should stop reductions<br>
+  in the soft limit causing assertions when valgrind tries to allocate<br>
+  descriptors from the reserved area.<br>
+  (This actually came from bug #83998).<br>
+<br>
+* Major overhaul of Cachegrind implementation.  First user-visible change<br>
+  is that cachegrind.out files are now typically 90% smaller than they<br>
+  used to be;  code annotation times are correspondingly much smaller.<br>
+  Second user-visible change is that hit/miss counts for code that is<br>
+  unloaded at run-time is no longer dumped into a single "discard" pile,<br>
+  but accurately preserved.<br>
+<br>
+* Client requests for telling valgrind about memory pools.<br>
+<br>
+<br>
+<br>
+Developer (cvs head) release 2.1.1 (12 March 2004)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+2.1.1 contains some internal structural changes needed for V's<br>
+long-term future.  These don't affect end-users.  Most notable<br>
+user-visible changes are:<br>
+<br>
+* Greater isolation between Valgrind and the program being run, so<br>
+  the program is less likely to inadvertently kill Valgrind by<br>
+  doing wild writes.<br>
+<br>
+* Massif: a new space profiling tool.  Try it!  It's cool, and it'll<br>
+  tell you in detail where and when your C/C++ code is allocating heap.<br>
+  Draws pretty .ps pictures of memory use against time.  A potentially<br>
+  powerful tool for making sense of your program's space use.<br>
+<br>
+* Fixes for many bugs, including support for more SSE2/SSE3 instructions,<br>
+  various signal/syscall things, and various problems with debug<br>
+  info readers.<br>
+<br>
+* Support for glibc-2.3.3 based systems.<br>
+<br>
+We are now doing automatic overnight build-and-test runs on a variety<br>
+of distros.  As a result, we believe 2.1.1 builds and runs on:<br>
+Red Hat 7.2, 7.3, 8.0, 9, Fedora Core 1, SuSE 8.2, SuSE 9.<br>
+<br>
+<br>
+The following bugs, and probably many more, have been fixed.  These<br>
+are listed at http://bugs.kde.org.  Reporting a bug for valgrind in<br>
+the http://bugs.kde.org is much more likely to get you a fix than<br>
+mailing developers directly, so please continue to keep sending bugs<br>
+there.<br>
+<br>
+69616   glibc 2.3.2 w/NPTL is massively different than what valgrind expects <br>
+69856   I don't know how to instrument MMXish stuff (Helgrind)<br>
+73892   valgrind segfaults starting with Objective-C debug info <br>
+        (fix for S-type stabs)<br>
+73145   Valgrind complains too much about close(&lt;reserved fd&gt;) <br>
+73902   Shadow memory allocation seems to fail on RedHat 8.0 <br>
+68633   VG_N_SEMAPHORES too low (V itself was leaking semaphores)<br>
+75099   impossible to trace multiprocess programs <br>
+76839   the `impossible' happened: disInstr: INT but not 0x80 ! <br>
+76762   vg_to_ucode.c:3748 (dis_push_segreg): Assertion `sz == 4' failed. <br>
+76747   cannot include valgrind.h in c++ program <br>
+76223   parsing B(3,10) gave NULL type =&gt; impossible happens <br>
+75604   shmdt handling problem <br>
+76416   Problems with gcc 3.4 snap 20040225 <br>
+75614   using -gstabs when building your programs the `impossible' happened<br>
+75787   Patch for some CDROM ioctls CDORM_GET_MCN, CDROM_SEND_PACKET,<br>
+75294   gcc 3.4 snapshot's libstdc++ have unsupported instructions. <br>
+        (REP RET)<br>
+73326   vg_symtab2.c:272 (addScopeRange): Assertion `range-&gt;size &gt; 0' failed. <br>
+72596   not recognizing __libc_malloc <br>
+69489   Would like to attach ddd to running program <br>
+72781   Cachegrind crashes with kde programs <br>
+73055   Illegal operand at DXTCV11CompressBlockSSE2 (more SSE opcodes)<br>
+73026   Descriptor leak check reports port numbers wrongly <br>
+71705   README_MISSING_SYSCALL_OR_IOCTL out of date <br>
+72643   Improve support for SSE/SSE2 instructions <br>
+72484   valgrind leaves it's own signal mask in place when execing <br>
+72650   Signal Handling always seems to restart system calls <br>
+72006   The mmap system call turns all errors in ENOMEM <br>
+71781   gdb attach is pretty useless <br>
+71180   unhandled instruction bytes: 0xF 0xAE 0x85 0xE8 <br>
+69886   writes to zero page cause valgrind to assert on exit <br>
+71791   crash when valgrinding gimp 1.3 (stabs reader problem)<br>
+69783   unhandled syscall: 218 <br>
+69782   unhandled instruction bytes: 0x66 0xF 0x2B 0x80 <br>
+70385   valgrind fails if the soft file descriptor limit is less <br>
+        than about 828<br>
+69529   "rep; nop" should do a yield <br>
+70827   programs with lots of shared libraries report "mmap failed" <br>
+        for some of them when reading symbols <br>
+71028   glibc's strnlen is optimised enough to confuse valgrind <br>
+<br>
+<br>
+<br>
+<br>
+Unstable (cvs head) release 2.1.0 (15 December 2003)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+For whatever it's worth, 2.1.0 actually seems pretty darn stable to me<br>
+(Julian).  It looks eminently usable, and given that it fixes some<br>
+significant bugs, may well be worth using on a day-to-day basis.<br>
+2.1.0 is known to build and pass regression tests on: SuSE 9, SuSE<br>
+8.2, RedHat 8.<br>
+<br>
+2.1.0 most notably includes Jeremy Fitzhardinge's complete overhaul of<br>
+handling of system calls and signals, and their interaction with<br>
+threads.  In general, the accuracy of the system call, thread and<br>
+signal simulations is much improved.  Specifically:<br>
+<br>
+- Blocking system calls behave exactly as they do when running<br>
+  natively (not on valgrind).  That is, if a syscall blocks only the<br>
+  calling thread when running natively, than it behaves the same on<br>
+  valgrind.  No more mysterious hangs because V doesn't know that some<br>
+  syscall or other, should block only the calling thread.<br>
+<br>
+- Interrupted syscalls should now give more faithful results.<br>
+<br>
+- Finally, signal contexts in signal handlers are supported.  As a<br>
+  result, konqueror on SuSE 9 no longer segfaults when notified of<br>
+  file changes in directories it is watching.<br>
+<br>
+Other changes:<br>
+<br>
+- Robert Walsh's file descriptor leakage checks.  When enabled,<br>
+  Valgrind will print out a list of open file descriptors on<br>
+  exit.  Along with each file descriptor, Valgrind prints out a stack<br>
+  backtrace of where the file was opened and any details relating to the<br>
+  file descriptor such as the file name or socket details.<br>
+  To use, give: --track-fds=yes<br>
+<br>
+- Implemented a few more SSE/SSE2 instructions.<br>
+<br>
+- Less crud on the stack when you do 'where' inside a GDB attach.<br>
+<br>
+- Fixed the following bugs:<br>
+  68360: Valgrind does not compile against 2.6.0-testX kernels<br>
+  68525: CVS head doesn't compile on C90 compilers<br>
+  68566: pkgconfig support (wishlist)<br>
+  68588: Assertion `sz == 4' failed in vg_to_ucode.c (disInstr)<br>
+  69140: valgrind not able to explicitly specify a path to a binary. <br>
+  69432: helgrind asserts encountering a MutexErr when there are <br>
+         EraserErr suppressions<br>
+<br>
+- Increase the max size of the translation cache from 200k average bbs<br>
+  to 300k average bbs.  Programs on the size of OOo (680m17) are<br>
+  thrashing the cache at the smaller size, creating large numbers of<br>
+  retranslations and wasting significant time as a result.<br>
+<br>
+<br>
+<br>
+Stable release 2.0.0 (5 Nov 2003)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+<br>
+2.0.0 improves SSE/SSE2 support, fixes some minor bugs, and<br>
+improves support for SuSE 9 and the Red Hat "Severn" beta.<br>
+<br>
+- Further improvements to SSE/SSE2 support.  The entire test suite of<br>
+  the GNU Scientific Library (gsl-1.4) compiled with Intel Icc 7.1<br>
+  20030307Z '-g -O -xW' now works.  I think this gives pretty good<br>
+  coverage of SSE/SSE2 floating point instructions, or at least the<br>
+  subset emitted by Icc.<br>
+<br>
+- Also added support for the following instructions:<br>
+    MOVNTDQ UCOMISD UNPCKLPS UNPCKHPS SQRTSS<br>
+    PUSH/POP %{FS,GS}, and PUSH %CS (Nb: there is no POP %CS).<br>
+<br>
+- CFI support for GDB version 6.  Needed to enable newer GDBs<br>
+  to figure out where they are when using --gdb-attach=yes.<br>
+<br>
+- Fix this:<br>
+      mc_translate.c:1091 (memcheck_instrument): Assertion<br>
+      `u_in-&gt;size == 4 || u_in-&gt;size == 16' failed.<br>
+<br>
+- Return an error rather than panicing when given a bad socketcall.<br>
+<br>
+- Fix checking of syscall rt_sigtimedwait().<br>
+<br>
+- Implement __NR_clock_gettime (syscall 265).  Needed on Red Hat Severn.<br>
+<br>
+- Fixed bug in overlap check in strncpy() -- it was assuming the src was 'n'<br>
+  bytes long, when it could be shorter, which could cause false<br>
+  positives.<br>
+<br>
+- Support use of select() for very large numbers of file descriptors.<br>
+<br>
+- Don't fail silently if the executable is statically linked, or is<br>
+  setuid/setgid. Print an error message instead.<br>
+<br>
+- Support for old DWARF-1 format line number info.<br>
+<br>
+<br>
+<br>
+Snapshot 20031012 (12 October 2003)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+<br>
+Three months worth of bug fixes, roughly.  Most significant single<br>
+change is improved SSE/SSE2 support, mostly thanks to Dirk Mueller.<br>
+<br>
+20031012 builds on Red Hat Fedora ("Severn") but doesn't really work<br>
+(curiously, mozilla runs OK, but a modest "ls -l" bombs).  I hope to<br>
+get a working version out soon.  It may or may not work ok on the<br>
+forthcoming SuSE 9; I hear positive noises about it but haven't been<br>
+able to verify this myself (not until I get hold of a copy of 9).<br>
+<br>
+A detailed list of changes, in no particular order:<br>
+<br>
+- Describe --gen-suppressions in the FAQ.<br>
+<br>
+- Syscall __NR_waitpid supported.<br>
+<br>
+- Minor MMX bug fix.<br>
+<br>
+- -v prints program's argv[] at startup.<br>
+<br>
+- More glibc-2.3 suppressions.<br>
+<br>
+- Suppressions for stack underrun bug(s) in the c++ support library<br>
+  distributed with Intel Icc 7.0.<br>
+<br>
+- Fix problems reading /proc/self/maps.<br>
+<br>
+- Fix a couple of messages that should have been suppressed by -q, <br>
+  but weren't.<br>
+<br>
+- Make Addrcheck understand "Overlap" suppressions.<br>
+<br>
+- At startup, check if program is statically linked and bail out if so.<br>
+<br>
+- Cachegrind: Auto-detect Intel Pentium-M, also VIA Nehemiah<br>
+<br>
+- Memcheck/addrcheck: minor speed optimisations<br>
+<br>
+- Handle syscall __NR_brk more correctly than before.<br>
+<br>
+- Fixed incorrect allocate/free mismatch errors when using<br>
+  operator new(unsigned, std::nothrow_t const&amp;)<br>
+  operator new[](unsigned, std::nothrow_t const&amp;)<br>
+<br>
+- Support POSIX pthread spinlocks.<br>
+<br>
+- Fixups for clean compilation with gcc-3.3.1.<br>
+<br>
+- Implemented more opcodes: <br>
+    - push %es<br>
+    - push %ds<br>
+    - pop %es<br>
+    - pop %ds<br>
+    - movntq<br>
+    - sfence<br>
+    - pshufw<br>
+    - pavgb<br>
+    - ucomiss<br>
+    - enter<br>
+    - mov imm32, %esp<br>
+    - all "in" and "out" opcodes<br>
+    - inc/dec %esp<br>
+    - A whole bunch of SSE/SSE2 instructions<br>
+<br>
+- Memcheck: don't bomb on SSE/SSE2 code.<br>
+<br>
+<br>
+Snapshot 20030725 (25 July 2003)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+<br>
+Fixes some minor problems in 20030716.<br>
+<br>
+- Fix bugs in overlap checking for strcpy/memcpy etc.<br>
+<br>
+- Do overlap checking with Addrcheck as well as Memcheck.<br>
+<br>
+- Fix this:<br>
+      Memcheck: the `impossible' happened:<br>
+      get_error_name: unexpected type<br>
+<br>
+- Install headers needed to compile new skins.<br>
+<br>
+- Remove leading spaces and colon in the LD_LIBRARY_PATH / LD_PRELOAD<br>
+  passed to non-traced children.<br>
+<br>
+- Fix file descriptor leak in valgrind-listener.<br>
+<br>
+- Fix longstanding bug in which the allocation point of a <br>
+  block resized by realloc was not correctly set.  This may<br>
+  have caused confusing error messages.<br>
+<br>
+<br>
+Snapshot 20030716 (16 July 2003)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+<br>
+20030716 is a snapshot of our current CVS head (development) branch.<br>
+This is the branch which will become valgrind-2.0.  It contains<br>
+significant enhancements over the 1.9.X branch.<br>
+<br>
+Despite this being a snapshot of the CVS head, it is believed to be<br>
+quite stable -- at least as stable as 1.9.6 or 1.0.4, if not more so<br>
+-- and therefore suitable for widespread use.  Please let us know asap<br>
+if it causes problems for you.<br>
+<br>
+Two reasons for releasing a snapshot now are:<br>
+<br>
+- It's been a while since 1.9.6, and this snapshot fixes<br>
+  various problems that 1.9.6 has with threaded programs <br>
+  on glibc-2.3.X based systems.<br>
+<br>
+- So as to make available improvements in the 2.0 line.<br>
+<br>
+Major changes in 20030716, as compared to 1.9.6:<br>
+<br>
+- More fixes to threading support on glibc-2.3.1 and 2.3.2-based<br>
+  systems (SuSE 8.2, Red Hat 9).  If you have had problems<br>
+  with inconsistent/illogical behaviour of errno, h_errno or the DNS<br>
+  resolver functions in threaded programs, 20030716 should improve<br>
+  matters.  This snapshot seems stable enough to run OpenOffice.org<br>
+  1.1rc on Red Hat 7.3, SuSE 8.2 and Red Hat 9, and that's a big<br>
+  threaded app if ever I saw one.<br>
+<br>
+- Automatic generation of suppression records; you no longer<br>
+  need to write them by hand.  Use --gen-suppressions=yes.<br>
+<br>
+- strcpy/memcpy/etc check their arguments for overlaps, when<br>
+  running with the Memcheck or Addrcheck skins.<br>
+<br>
+- malloc_usable_size() is now supported.<br>
+<br>
+- new client requests:<br>
+    - VALGRIND_COUNT_ERRORS, VALGRIND_COUNT_LEAKS: <br>
+      useful with regression testing<br>
+    - VALGRIND_NON_SIMD_CALL[0123]: for running arbitrary functions <br>
+      on real CPU (use with caution!)<br>
+<br>
+- The GDB attach mechanism is more flexible.  Allow the GDB to<br>
+  be run to be specified by --gdb-path=/path/to/gdb, and specify<br>
+  which file descriptor V will read its input from with<br>
+  --input-fd=&lt;number&gt;.<br>
+<br>
+- Cachegrind gives more accurate results (wasn't tracking instructions in<br>
+  malloc() and friends previously, is now).<br>
+<br>
+- Complete support for the MMX instruction set.<br>
+<br>
+- Partial support for the SSE and SSE2 instruction sets.  Work for this<br>
+  is ongoing.  About half the SSE/SSE2 instructions are done, so<br>
+  some SSE based programs may work.  Currently you need to specify<br>
+  --skin=addrcheck.  Basically not suitable for real use yet.<br>
+<br>
+- Significant speedups (10%-20%) for standard memory checking.<br>
+<br>
+- Fix assertion failure in pthread_once().<br>
+<br>
+- Fix this:<br>
+    valgrind: vg_intercept.c:598 (vgAllRoadsLeadToRome_select): <br>
+              Assertion `ms_end &gt;= ms_now' failed.<br>
+<br>
+- Implement pthread_mutexattr_setpshared.<br>
+<br>
+- Understand Pentium 4 branch hints.  Also implemented a couple more<br>
+  obscure x86 instructions.<br>
+<br>
+- Lots of other minor bug fixes.<br>
+<br>
+- We have a decent regression test system, for the first time.<br>
+  This doesn't help you directly, but it does make it a lot easier<br>
+  for us to track the quality of the system, especially across<br>
+  multiple linux distributions.  <br>
+<br>
+  You can run the regression tests with 'make regtest' after 'make<br>
+  install' completes.  On SuSE 8.2 and Red Hat 9 I get this:<br>
+ <br>
+     == 84 tests, 0 stderr failures, 0 stdout failures ==<br>
+<br>
+  On Red Hat 8, I get this:<br>
+<br>
+     == 84 tests, 2 stderr failures, 1 stdout failure ==<br>
+     corecheck/tests/res_search               (stdout)<br>
+     memcheck/tests/sigaltstack               (stderr)<br>
+<br>
+  sigaltstack is probably harmless.  res_search doesn't work<br>
+  on R H 8 even running natively, so I'm not too worried.   <br>
+<br>
+  On Red Hat 7.3, a glibc-2.2.5 system, I get these harmless failures:<br>
+<br>
+     == 84 tests, 2 stderr failures, 1 stdout failure ==<br>
+     corecheck/tests/pth_atfork1              (stdout)<br>
+     corecheck/tests/pth_atfork1              (stderr)<br>
+     memcheck/tests/sigaltstack               (stderr)<br>
+<br>
+  You need to run on a PII system, at least, since some tests<br>
+  contain P6-specific instructions, and the test machine needs<br>
+  access to the internet so that corecheck/tests/res_search<br>
+  (a test that the DNS resolver works) can function.<br>
+<br>
+As ever, thanks for the vast amount of feedback :) and bug reports :(<br>
+We may not answer all messages, but we do at least look at all of<br>
+them, and tend to fix the most frequently reported bugs.<br>
+<br>
+<br>
+<br>
+Version 1.9.6 (7 May 2003 or thereabouts)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+<br>
+Major changes in 1.9.6:<br>
+<br>
+- Improved threading support for glibc &gt;= 2.3.2 (SuSE 8.2,<br>
+  RedHat 9, to name but two ...)  It turned out that 1.9.5<br>
+  had problems with threading support on glibc &gt;= 2.3.2,<br>
+  usually manifested by threaded programs deadlocking in system calls,<br>
+  or running unbelievably slowly.  Hopefully these are fixed now.  1.9.6<br>
+  is the first valgrind which gives reasonable support for<br>
+  glibc-2.3.2.  Also fixed a 2.3.2 problem with pthread_atfork().<br>
+<br>
+- Majorly expanded FAQ.txt.  We've added workarounds for all<br>
+  common problems for which a workaround is known.<br>
+<br>
+Minor changes in 1.9.6:<br>
+<br>
+- Fix identification of the main thread's stack.  Incorrect<br>
+  identification of it was causing some on-stack addresses to not get<br>
+  identified as such.  This only affected the usefulness of some error<br>
+  messages; the correctness of the checks made is unchanged.<br>
+<br>
+- Support for kernels &gt;= 2.5.68.<br>
+<br>
+- Dummy implementations of __libc_current_sigrtmin, <br>
+  __libc_current_sigrtmax and __libc_allocate_rtsig, hopefully<br>
+  good enough to keep alive programs which previously died for lack of<br>
+  them.<br>
+<br>
+- Fix bug in the VALGRIND_DISCARD_TRANSLATIONS client request.<br>
+<br>
+- Fix bug in the DWARF2 debug line info loader, when instructions <br>
+  following each other have source lines far from each other <br>
+  (e.g. with inlined functions).<br>
+<br>
+- Debug info reading: read symbols from both "symtab" and "dynsym"<br>
+  sections, rather than merely from the one that comes last in the<br>
+  file.<br>
+<br>
+- New syscall support: prctl(), creat(), lookup_dcookie().<br>
+<br>
+- When checking calls to accept(), recvfrom(), getsocketopt(),<br>
+  don't complain if buffer values are NULL.<br>
+<br>
+- Try and avoid assertion failures in<br>
+  mash_LD_PRELOAD_and_LD_LIBRARY_PATH.<br>
+<br>
+- Minor bug fixes in cg_annotate.<br>
+<br>
+<br>
+<br>
+Version 1.9.5 (7 April 2003)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+<br>
+It occurs to me that it would be helpful for valgrind users to record<br>
+in the source distribution the changes in each release.  So I now<br>
+attempt to mend my errant ways :-)  Changes in this and future releases<br>
+will be documented in the NEWS file in the source distribution.<br>
+<br>
+Major changes in 1.9.5:<br>
+<br>
+- (Critical bug fix): Fix a bug in the FPU simulation.  This was<br>
+  causing some floating point conditional tests not to work right.<br>
+  Several people reported this.  If you had floating point code which<br>
+  didn't work right on 1.9.1 to 1.9.4, it's worth trying 1.9.5.<br>
+<br>
+- Partial support for Red Hat 9.  RH9 uses the new Native Posix <br>
+  Threads Library (NPTL), instead of the older LinuxThreads.  <br>
+  This potentially causes problems with V which will take some<br>
+  time to correct.  In the meantime we have partially worked around<br>
+  this, and so 1.9.5 works on RH9.  Threaded programs still work,<br>
+  but they may deadlock, because some system calls (accept, read,<br>
+  write, etc) which should be nonblocking, in fact do block.  This<br>
+  is a known bug which we are looking into.<br>
+<br>
+  If you can, your best bet (unfortunately) is to avoid using <br>
+  1.9.5 on a Red Hat 9 system, or on any NPTL-based distribution.<br>
+  If your glibc is 2.3.1 or earlier, you're almost certainly OK.<br>
+<br>
+Minor changes in 1.9.5:<br>
+<br>
+- Added some #errors to valgrind.h to ensure people don't include<br>
+  it accidentally in their sources.  This is a change from 1.0.X<br>
+  which was never properly documented.  The right thing to include<br>
+  is now memcheck.h.  Some people reported problems and strange<br>
+  behaviour when (incorrectly) including valgrind.h in code with <br>
+  1.9.1 -- 1.9.4.  This is no longer possible.<br>
+<br>
+- Add some __extension__ bits and pieces so that gcc configured<br>
+  for valgrind-checking compiles even with -Werror.  If you<br>
+  don't understand this, ignore it.  Of interest to gcc developers<br>
+  only.<br>
+<br>
+- Removed a pointless check which caused problems interworking <br>
+  with Clearcase.  V would complain about shared objects whose<br>
+  names did not end ".so", and refuse to run.  This is now fixed.<br>
+  In fact it was fixed in 1.9.4 but not documented.<br>
+<br>
+- Fixed a bug causing an assertion failure of "waiters == 1"<br>
+  somewhere in vg_scheduler.c, when running large threaded apps,<br>
+  notably MySQL.<br>
+<br>
+- Add support for the munlock system call (124).<br>
+<br>
+Some comments about future releases:<br>
+<br>
+1.9.5 is, we hope, the most stable Valgrind so far.  It pretty much<br>
+supersedes the 1.0.X branch.  If you are a valgrind packager, please<br>
+consider making 1.9.5 available to your users.  You can regard the<br>
+1.0.X branch as obsolete: 1.9.5 is stable and vastly superior.  There<br>
+are no plans at all for further releases of the 1.0.X branch.<br>
+<br>
+If you want a leading-edge valgrind, consider building the cvs head<br>
+(from SourceForge), or getting a snapshot of it.  Current cool stuff<br>
+going in includes MMX support (done); SSE/SSE2 support (in progress),<br>
+a significant (10-20%) performance improvement (done), and the usual<br>
+large collection of minor changes.  Hopefully we will be able to<br>
+improve our NPTL support, but no promises.<br>
+<br>
+<br>
+    </p></div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="dist.news.html">&lt;&lt; 2. NEWS</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="dist.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="dist.readme.html">4. README &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

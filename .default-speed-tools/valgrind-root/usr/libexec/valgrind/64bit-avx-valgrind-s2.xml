@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010-2012 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.i386.avx.valgrind.s2">
+  <reg name="ymm0hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm1hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm2hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm3hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm4hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm5hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm6hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm7hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm8hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm9hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm10hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm11hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm12hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm13hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm14hs2" bitsize="128" type="uint128"/>
+  <reg name="ymm15hs2" bitsize="128" type="uint128"/>
+</feature>

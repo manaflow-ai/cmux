@@ -407,3 +407,5 @@ Retired in the cmux-bench PR: `fresh-home-launch-ab.sh` (same measurement as `ni
 - `ci140-input-hash-repeats`: CI minutes spent on job runs whose declared inputs (router/step-table/workflow `paths`, else whole tree) hash the same as an earlier green run of the same job; read-only, needs the hq meter's `--save` records (goal ci-min-per-pr-140).
 
 Phone terminal deterministic work: `cmux-bench phone-speed` wraps the `phone-speed-icount` Linux PR gate; `--import LOG` records its six Callgrind instruction counts. Calibration and scope: [phone-speed](../bench/phone-speed/README.md).
+
+Default-grid Ghostty instruction budgets: `cmux-bench phone-default-speed` ([harness](../bench/phone-default-speed/README.md)); relative core work, physical calibration pending.

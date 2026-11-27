@@ -1,0 +1,434 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>6. README_DEVELOPERS</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="dist.html" title="Valgrind Distribution Documents">
+<link rel="prev" href="dist.readme-missing.html" title="5. README_MISSING_SYSCALL_OR_IOCTL">
+<link rel="next" href="dist.readme-packagers.html" title="7. README_PACKAGERS">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="dist.readme-missing.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="dist.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind Distribution Documents</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="dist.readme-packagers.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="dist.readme-developers"></a>6. README_DEVELOPERS</h1></div></div></div>
+<div class="literallayout"><p><br>
+      Building and installing it<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+To build/install from the GIT repository or from a distribution<br>
+tarball, refer to the section with the same name in README.<br>
+<br>
+<br>
+Building and not installing it<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+To run Valgrind without having to install it, run coregrind/valgrind<br>
+with the VALGRIND_LIB environment variable set, where &lt;dir&gt; is the root<br>
+of the source tree (and must be an absolute path).  Eg:<br>
+<br>
+  VALGRIND_LIB=~/grind/head4/.in_place ~/grind/head4/coregrind/valgrind <br>
+<br>
+This allows you to compile and run with "make" instead of "make install",<br>
+saving you time.<br>
+<br>
+Or, you can use the 'vg-in-place' script which does that for you.<br>
+<br>
+I recommend compiling with "make --quiet" to further reduce the amount of<br>
+output spewed out during compilation, letting you actually see any errors,<br>
+warnings, etc.<br>
+<br>
+<br>
+Building a distribution tarball<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+To build a distribution tarball from the valgrind sources:<br>
+<br>
+  make dist<br>
+<br>
+In addition to compiling, linking and packaging everything up, the command<br>
+will also attempt to build the documentation.<br>
+<br>
+If you only want to test whether the generated tarball is complete and runs<br>
+regression tests successfully, building documentation is not needed.<br>
+<br>
+  make dist BUILD_ALL_DOCS=no<br>
+<br>
+If you insist on building documentation some embarrassing instructions<br>
+can be found in docs/README.<br>
+<br>
+<br>
+Running the regression tests<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+To build and run all the regression tests, run "make [--quiet] regtest".<br>
+<br>
+To run a subset of the regression tests, execute:<br>
+<br>
+  perl tests/vg_regtest &lt;name&gt;<br>
+<br>
+where &lt;name&gt; is a directory (all tests within will be run) or a single<br>
+.vgtest test file, or the name of a program which has a like-named .vgtest<br>
+file.  Eg:<br>
+<br>
+  perl tests/vg_regtest memcheck<br>
+  perl tests/vg_regtest memcheck/tests/badfree.vgtest<br>
+  perl tests/vg_regtest memcheck/tests/badfree<br>
+<br>
+<br>
+Running the performance tests<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+To build and run all the performance tests, run "make [--quiet] perf".<br>
+<br>
+To run a subset of the performance suite, execute:<br>
+<br>
+  perl perf/vg_perf &lt;name&gt;<br>
+<br>
+where &lt;name&gt; is a directory (all tests within will be run) or a single<br>
+.vgperf test file, or the name of a program which has a like-named .vgperf<br>
+file.  Eg:<br>
+<br>
+  perl perf/vg_perf perf/<br>
+  perl perf/vg_perf perf/bz2.vgperf<br>
+  perl perf/vg_perf perf/bz2<br>
+<br>
+To compare multiple versions of Valgrind, use the --vg= option multiple<br>
+times.  For example, if you have two Valgrinds next to each other, one in<br>
+trunk1/ and one in trunk2/, from within either trunk1/ or trunk2/ do this to<br>
+compare them on all the performance tests:<br>
+<br>
+  perl perf/vg_perf --vg=../trunk1 --vg=../trunk2 perf/<br>
+<br>
+<br>
+Commit access and try branches<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+To get commit access to the valgrind git repository on sourceware<br>
+you will have to ask an existing developer and fill in the following<br>
+form: https://sourceware.org/cgi-bin/pdw/ps_form.cgi<br>
+<br>
+Every developer with commit access can use try branches. If you want to try a<br>
+branch before pushing you can push to a special named try branch as follows: <br>
+<br>
+  git push origin $BRANCH:users/$USERNAME/try-$BRANCH<br>
+<br>
+Where $BRANCH is the branch name and $USERNAME is your user name.<br>
+<br>
+You can see the status of the builders here:<br>
+https://builder.sourceware.org/buildbot/#/builders?tags=valgrind-try<br>
+<br>
+The buildbot will also sent the patch author multiple success/failure emails.<br>
+<br>
+Afterwards you can delete the branch again:<br>
+<br>
+    git push origin :users/$USERNAME/try-$BRANCH<br>
+<br>
+<br>
+Debugging Valgrind with GDB<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+To debug the valgrind launcher program (&lt;prefix&gt;/bin/valgrind) just<br>
+run it under gdb in the normal way.<br>
+<br>
+Debugging the main body of the valgrind code (and/or the code for<br>
+a particular tool) requires a bit more trickery but can be achieved<br>
+without too much problem by following these steps:<br>
+<br>
+(1) Set VALGRIND_LAUNCHER to point to the valgrind executable.  Eg:<br>
+<br>
+      export VALGRIND_LAUNCHER=/usr/local/bin/valgrind<br>
+<br>
+    or for an uninstalled version in a source directory $DIR:<br>
+<br>
+      export VALGRIND_LAUNCHER=$DIR/coregrind/valgrind<br>
+      export VALGRIND_LIB=$DIR/.in_place<br>
+<br>
+    VALGRIND_LIB is where the default.supp and vgpreload_ libraries<br>
+    are found (which is under /usr/libexec/valgrind for an installed<br>
+    version).<br>
+<br>
+(2) Run gdb on the tool executable.  Eg:<br>
+<br>
+      gdb /usr/local/lib/valgrind/lackey-ppc32-linux<br>
+<br>
+    or<br>
+<br>
+      gdb $DIR/.in_place/memcheck-x86-linux<br>
+<br>
+(3) Do "handle SIGSEGV SIGILL nostop noprint" in GDB to prevent GDB from<br>
+    stopping on a SIGSEGV or SIGILL:<br>
+<br>
+    (gdb) handle SIGILL SIGSEGV nostop noprint<br>
+<br>
+    If you are using lldb, then the equivalent command is<br>
+<br>
+    (lldb) pro hand -p true -s false -n false SIGILL SIGSEGV<br>
+<br>
+(4) Set any breakpoints you want and proceed as normal for gdb. The<br>
+    macro VG_(FUNC) is expanded to vgPlain_FUNC, so If you want to set<br>
+    a breakpoint VG_(do_exec), you could do like this in GDB:<br>
+<br>
+    (gdb) b vgPlain_do_exec<br>
+<br>
+(5) Run the tool with required options (the --tool option is required<br>
+    for correct setup), e.g.<br>
+<br>
+    (gdb) run --tool=lackey pwd<br>
+<br>
+Steps (1)--(3) can be put in a .gdbinit file, but any directory names must<br>
+be fully expanded (ie. not an environment variable).<br>
+<br>
+A different and possibly easier way is as follows:<br>
+<br>
+(1) Run Valgrind as normal, but add the flag --wait-for-gdb=yes.  This<br>
+    puts the tool executable into a wait loop soon after it gains<br>
+    control.  This delays startup for a few seconds.<br>
+<br>
+(2) In a different shell, do "gdb /proc/&lt;pid&gt;/exe &lt;pid&gt;", where<br>
+    &lt;pid&gt; you read from the output printed by (1).  This attaches<br>
+    GDB to the tool executable, which should be in the above mentioned<br>
+    wait loop.<br>
+<br>
+(3) Do "cont" to continue.  After the loop finishes spinning, startup<br>
+    will continue as normal.  Note that comment (3) above re passing<br>
+    signals applies here too.<br>
+<br>
+The default build of Valgrind uses "-g -O2". This is OK most of the<br>
+time, but with sophisticated optimization it can be difficult to<br>
+see the contents of variables. A quick way to get to see function<br>
+variables is to temporarily add "__attribute__((optnone))" before<br>
+the function definition and rebuild. Alternatively modify<br>
+Makefile.all.am and remove -O2 from AM_CFLAGS_BASE. That will<br>
+require you to reconfigure and rebuild Valgrind.<br>
+<br>
+Self-hosting<br>
+~~~~~~~~~~~~<br>
+This section explains:<br>
+  (A) How to configure Valgrind to run under Valgrind.<br>
+      Such a setup is called self hosting, or outer/inner setup.<br>
+  (B) How to run Valgrind regression tests in a 'self-hosting' mode,<br>
+      e.g. to verify Valgrind has no bugs such as memory leaks.<br>
+  (C) How to run Valgrind performance tests in a 'self-hosting' mode,<br>
+      to analyse and optimise the performance of Valgrind and its tools.<br>
+<br>
+(A) How to configure Valgrind to run under Valgrind:<br>
+<br>
+(1) Check out 2 trees, "Inner" and "Outer".  Inner runs the app<br>
+    directly.  Outer runs Inner.<br>
+<br>
+(2) Configure Inner with --enable-inner and build as usual.<br>
+<br>
+(3) Configure Outer normally and build+install as usual.<br>
+    Note: You must use a "make install"-ed valgrind.<br>
+    Do *not* use vg-in-place for the Outer valgrind.<br>
+<br>
+(4) Choose a very simple program (date) and try<br>
+<br>
+    outer/.../bin/valgrind --sim-hints=enable-outer --trace-children=yes  \<br>
+       --smc-check=all-non-file \<br>
+       --run-libc-freeres=no --tool=cachegrind -v \<br>
+       inner/.../vg-in-place --vgdb-prefix=./inner --tool=none -v prog<br>
+<br>
+If you omit the --trace-children=yes, you'll only monitor Inner's launcher<br>
+program, not its stage2. Outer needs --run-libc-freeres=no, as otherwise<br>
+it will try to find and run __libc_freeres in the inner, while libc is not<br>
+used by the inner. Inner needs --vgdb-prefix=./inner to avoid inner<br>
+gdbserver colliding with outer gdbserver.<br>
+Currently, inner does *not* use the client request <br>
+VALGRIND_DISCARD_TRANSLATIONS for the JITted code or the code patched for<br>
+translation chaining. So the outer needs --smc-check=all-non-file to<br>
+detect the modified code.<br>
+<br>
+Debugging the whole thing might imply to use up to 3 GDB:<br>
+  * a GDB attached to the Outer valgrind, allowing<br>
+    to examine the state of Outer.<br>
+  * a GDB using Outer gdbserver, allowing to<br>
+    examine the state of Inner.<br>
+  * a GDB using Inner gdbserver, allowing to<br>
+    examine the state of prog.<br>
+<br>
+The whole thing is fragile, confusing and slow, but it does work well enough<br>
+for you to get some useful performance data.  Inner has most of<br>
+its output (ie. those lines beginning with "==&lt;pid&gt;==") prefixed with a '&gt;',<br>
+which helps a lot. However, when running regression tests in an Outer/Inner<br>
+setup, this prefix causes the reg test diff to fail. Give <br>
+--sim-hints=no-inner-prefix to the Inner to disable the production<br>
+of the prefix in the stdout/stderr output of Inner.<br>
+<br>
+The allocators in coregrind/m_mallocfree.c and VEX/priv/main_util.h are<br>
+annotated with client requests so Memcheck can be used to find leaks<br>
+and use after free in an Inner Valgrind.<br>
+<br>
+The Valgrind "big lock" is annotated with helgrind client requests<br>
+so Helgrind and DRD can be used to find race conditions in an Inner<br>
+Valgrind.<br>
+<br>
+All this has not been tested much, so don't be surprised if you hit problems.<br>
+<br>
+When using self-hosting with an outer Callgrind tool, use '--pop-on-jump'<br>
+(on the outer). Otherwise, Callgrind has much higher memory requirements. <br>
+<br>
+(B) Regression tests in an outer/inner setup:<br>
+<br>
+ To run all the regression tests with an outer memcheck, do :<br>
+   perl tests/vg_regtest --outer-valgrind=../outer/.../bin/valgrind \<br>
+                         --all<br>
+<br>
+ To run a specific regression tests with an outer memcheck, do:<br>
+   perl tests/vg_regtest --outer-valgrind=../outer/.../bin/valgrind \<br>
+                         none/tests/args.vgtest<br>
+<br>
+ To run regression tests with another outer tool:<br>
+   perl tests/vg_regtest --outer-valgrind=../outer/.../bin/valgrind \<br>
+                         --outer-tool=helgrind --all<br>
+<br>
+ --outer-args allows to give specific arguments to the outer tool,<br>
+ replacing the default one provided by vg_regtest.<br>
+<br>
+Note: --outer-valgrind must be a "make install"-ed valgrind.<br>
+Do *not* use vg-in-place.<br>
+<br>
+When an outer valgrind runs an inner valgrind, a regression test<br>
+produces one additional file &lt;testname&gt;.outer.log which contains the<br>
+errors detected by the outer valgrind.  E.g. for an outer memcheck, it<br>
+contains the leaks found in the inner, for an outer helgrind or drd,<br>
+it contains the detected race conditions.<br>
+<br>
+The file tests/outer_inner.supp contains suppressions for <br>
+the irrelevant or benign errors found in the inner.<br>
+<br>
+A regression test running in the inner (e.g. memcheck/tests/badrw) will<br>
+cause the inner to report an error, which is expected and checked<br>
+as usual when running the regtests in an outer/inner setup.<br>
+However, the outer will often also observe an error, e.g. a jump<br>
+using uninitialised data, or a read/write outside the bounds of a heap<br>
+block. When the outer reports such an error, it will output the<br>
+inner host stacktrace. To this stacktrace, it will append the<br>
+stacktrace of the inner guest program. For example, this is an error<br>
+reported by the outer when the inner runs the badrw regtest:<br>
+  ==8119== Invalid read of size 2<br>
+  ==8119==    at 0x7F2EFD7AF: ???<br>
+  ==8119==    by 0x7F2C82EAF: ???<br>
+  ==8119==    by 0x7F180867F: ???<br>
+  ==8119==    by 0x40051D: main (badrw.c:5)<br>
+  ==8119==    by 0x7F180867F: ???<br>
+  ==8119==    by 0x1BFF: ???<br>
+  ==8119==    by 0x3803B7F0: _______VVVVVVVV_appended_inner_guest_stack_VVVVVVVV_______ (m_execontext.c:332)<br>
+  ==8119==    by 0x40055C: main (badrw.c:22)<br>
+  ==8119==  Address 0x55cd03c is 4 bytes before a block of size 16 alloc'd<br>
+  ==8119==    at 0x2804E26D: vgPlain_arena_malloc (m_mallocfree.c:1914)<br>
+  ==8119==    by 0x2800BAB4: vgMemCheck_new_block (mc_malloc_wrappers.c:368)<br>
+  ==8119==    by 0x2800BC87: vgMemCheck_malloc (mc_malloc_wrappers.c:403)<br>
+  ==8119==    by 0x28097EAE: do_client_request (scheduler.c:1861)<br>
+  ==8119==    by 0x28097EAE: vgPlain_scheduler (scheduler.c:1425)<br>
+  ==8119==    by 0x280A7237: thread_wrapper (syswrap-linux.c:103)<br>
+  ==8119==    by 0x280A7237: run_a_thread_NORETURN (syswrap-linux.c:156)<br>
+  ==8119==    by 0x3803B7F0: _______VVVVVVVV_appended_inner_guest_stack_VVVVVVVV_______ (m_execontext.c:332)<br>
+  ==8119==    by 0x4C294C4: malloc (vg_replace_malloc.c:298)<br>
+  ==8119==    by 0x40051D: main (badrw.c:5)<br>
+In the above, the first stacktrace starts with the inner host stacktrace,<br>
+which in this case is some JITted code. Such code sometimes contains IPs<br>
+that points in the inner guest code (0x40051D: main (badrw.c:5)).<br>
+After the separator, we have the inner guest stacktrace.<br>
+The second stacktrace gives the stacktrace where the heap block that was<br>
+overrun was allocated. We see it was allocated by the inner valgrind<br>
+in the client arena (first part of the stacktrace). The second part is<br>
+the guest stacktrace that did the allocation.<br>
+<br>
+<br>
+(C) Performance tests in an outer/inner setup:<br>
+<br>
+ To run all the performance tests with an outer cachegrind, do :<br>
+    perl perf/vg_perf --outer-valgrind=../outer/.../bin/valgrind perf<br>
+<br>
+ To run a specific perf test (e.g. bz2) in this setup, do :<br>
+    perl perf/vg_perf --outer-valgrind=../outer/.../bin/valgrind perf/bz2<br>
+<br>
+ To run all the performance tests with an outer callgrind, do :<br>
+    perl perf/vg_perf --outer-valgrind=../outer/.../bin/valgrind \<br>
+                      --outer-tool=callgrind perf<br>
+<br>
+Note: --outer-valgrind must be a "make install"-ed valgrind.<br>
+Do *not* use vg-in-place.<br>
+<br>
+ To compare the performance of multiple Valgrind versions, do :<br>
+    perl perf/vg_perf --outer-valgrind=../outer/.../bin/valgrind \<br>
+      --outer-tool=callgrind \<br>
+      --vg=../inner_xxxx --vg=../inner_yyyy perf<br>
+  (where inner_xxxx and inner_yyyy are the toplevel directories of<br>
+  the versions to compare).<br>
+  Cachegrind and cg_diff are particularly handy to obtain a delta<br>
+  between the two versions.<br>
+<br>
+When the outer tool is callgrind or cachegrind, the following<br>
+output files will be created for each test:<br>
+   &lt;outertoolname&gt;.out.&lt;inner_valgrind_dir&gt;.&lt;tt&gt;.&lt;perftestname&gt;.&lt;pid&gt;<br>
+   &lt;outertoolname&gt;.outer.log.&lt;inner_valgrind_dir&gt;.&lt;tt&gt;.&lt;perftestname&gt;.&lt;pid&gt;<br>
+ (where tt is the two letters abbreviation for the inner tool(s) run).<br>
+<br>
+For example, the command<br>
+    perl perf/vg_perf \<br>
+      --outer-valgrind=../outer_trunk/install/bin/valgrind \<br>
+      --outer-tool=callgrind \<br>
+      --vg=../inner_tchain --vg=../inner_trunk perf/many-loss-records<br>
+<br>
+produces the files<br>
+    callgrind.out.inner_tchain.no.many-loss-records.18465<br>
+    callgrind.outer.log.inner_tchain.no.many-loss-records.18465<br>
+    callgrind.out.inner_tchain.me.many-loss-records.21899<br>
+    callgrind.outer.log.inner_tchain.me.many-loss-records.21899<br>
+    callgrind.out.inner_trunk.no.many-loss-records.21224<br>
+    callgrind.outer.log.inner_trunk.no.many-loss-records.21224<br>
+    callgrind.out.inner_trunk.me.many-loss-records.22916<br>
+    callgrind.outer.log.inner_trunk.me.many-loss-records.22916<br>
+<br>
+<br>
+Printing out problematic blocks<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+If you want to print out a disassembly of a particular block that<br>
+causes a crash, do the following.<br>
+<br>
+Try running with "--vex-guest-chase=no --trace-flags=10000000<br>
+--trace-notbelow=999999".  This should print one line for each block<br>
+translated, and that includes the address.<br>
+<br>
+Then re-run with 999999 changed to the highest bb number shown.<br>
+This will print the one line per block, and also will print a<br>
+disassembly of the block in which the fault occurred.<br>
+<br>
+<br>
+Formatting the code with clang-format<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+clang-format is a tool to format C/C++/... code.  The root directory of the<br>
+Valgrind tree contains file .clang-format which is a configuration for this tool<br>
+and specifies a style for Valgrind.  This gives you an option to use<br>
+clang-format to easily format Valgrind code which you are modifying.<br>
+<br>
+The Valgrind codebase is not globally formatted with clang-format.  It means<br>
+that you should not use the tool to format a complete file after making changes<br>
+in it because that would lead to creating unrelated modifications.<br>
+<br>
+The right approach is to format only updated or new code.  By using an<br>
+integration with a text editor, it is possible to reformat arbitrary blocks<br>
+of code with a single keystroke.  Refer to the upstream documentation which<br>
+describes integration with various editors and IDEs:<br>
+https://clang.llvm.org/docs/ClangFormat.html.<br>
+<br>
+    </p></div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="dist.readme-missing.html">&lt;&lt; 5. README_MISSING_SYSCALL_OR_IOCTL</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="dist.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="dist.readme-packagers.html">7. README_PACKAGERS &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

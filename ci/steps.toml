@@ -4226,3 +4226,43 @@ cargo +"$channel" test --release --locked --manifest-path scripts/bench/phone-sp
 cargo +"$channel" run --release --locked --manifest-path scripts/bench/phone-speed/Cargo.toml -- check
 python3 scripts/bench/tests/test_phone_speed.py
 '''
+
+# The default Mac grid uses Ghostty rather than the opt-in projection path.
+[step.phone-default-speed-icount]
+job = "linux"
+pr_scope = false
+alone = true
+timeout = 1800
+title = "Default-grid Ghostty instruction budgets"
+about = "Callgrind counts actual Ghostty core updates and styled commands at 100 and 10000 seeded lines"
+needs = ["rust", "zig", "valgrind"]
+inputs = [
+  "scripts/bench/phone-default-speed/**",
+  "scripts/bench/benches/phone_default_speed.py",
+  "scripts/bench/tests/test_phone_default_speed.py",
+  "scripts/bench/tests/fixtures/phone-default-speed/**",
+  "cmux-tui/crates/ghostty-vt/**",
+  "cmux-tui/crates/ghostty-vt-sys/**",
+  "cmux-tui/crates/cmux-transport-rewrite/**",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "ghostty-next", "ghostty-next/**",
+  "scripts/ci/zig-packages.lock",
+]
+run = '''
+set -euo pipefail
+python3 scripts/bench/phone-default-speed/check_lock.py
+export CARGO_TARGET_DIR="$PWD/scripts/bench/phone-default-speed/target"
+export CMUX_GHOSTTY_VT_ZIG_CPU=baseline CMUX_GHOSTTY_SRC=""
+# Match setup-zig / zig-global-cache: retain compiled native objects outside the
+# checkout that pool jobs clean. Zig keys objects by source and compiler inputs.
+export ZIG_LOCAL_CACHE_DIR="${ZIG_LOCAL_CACHE_DIR:-${ZIG_GLOBAL_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/zig}}"
+if [ -d "$CI_TOOLS/valgrind-root/usr/include" ]; then
+  export VALGRIND_INCLUDE="$CI_TOOLS/valgrind-root/usr/include"
+fi
+channel="$(sed -n 's/^channel *= *"\([^" ]*\)".*/\1/p' cmux-tui/rust-toolchain.toml)"
+cargo +"$channel" test --release --locked --manifest-path scripts/bench/phone-default-speed/Cargo.toml
+cargo +"$channel" run --release --locked --manifest-path scripts/bench/phone-default-speed/Cargo.toml -- check
+python3 scripts/bench/tests/test_phone_default_speed.py
+'''

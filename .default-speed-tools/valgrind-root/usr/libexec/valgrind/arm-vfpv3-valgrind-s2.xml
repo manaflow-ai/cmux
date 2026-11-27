@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.arm.vfp.valgrind.s2">
+  <reg name="d0s2" bitsize="64" type="uint64"/>
+  <reg name="d1s2" bitsize="64" type="uint64"/>
+  <reg name="d2s2" bitsize="64" type="uint64"/>
+  <reg name="d3s2" bitsize="64" type="uint64"/>
+  <reg name="d4s2" bitsize="64" type="uint64"/>
+  <reg name="d5s2" bitsize="64" type="uint64"/>
+  <reg name="d6s2" bitsize="64" type="uint64"/>
+  <reg name="d7s2" bitsize="64" type="uint64"/>
+  <reg name="d8s2" bitsize="64" type="uint64"/>
+  <reg name="d9s2" bitsize="64" type="uint64"/>
+  <reg name="d10s2" bitsize="64" type="uint64"/>
+  <reg name="d11s2" bitsize="64" type="uint64"/>
+  <reg name="d12s2" bitsize="64" type="uint64"/>
+  <reg name="d13s2" bitsize="64" type="uint64"/>
+  <reg name="d14s2" bitsize="64" type="uint64"/>
+  <reg name="d15s2" bitsize="64" type="uint64"/>
+  <reg name="d16s2" bitsize="64" type="uint64"/>
+  <reg name="d17s2" bitsize="64" type="uint64"/>
+  <reg name="d18s2" bitsize="64" type="uint64"/>
+  <reg name="d19s2" bitsize="64" type="uint64"/>
+  <reg name="d20s2" bitsize="64" type="uint64"/>
+  <reg name="d21s2" bitsize="64" type="uint64"/>
+  <reg name="d22s2" bitsize="64" type="uint64"/>
+  <reg name="d23s2" bitsize="64" type="uint64"/>
+  <reg name="d24s2" bitsize="64" type="uint64"/>
+  <reg name="d25s2" bitsize="64" type="uint64"/>
+  <reg name="d26s2" bitsize="64" type="uint64"/>
+  <reg name="d27s2" bitsize="64" type="uint64"/>
+  <reg name="d28s2" bitsize="64" type="uint64"/>
+  <reg name="d29s2" bitsize="64" type="uint64"/>
+  <reg name="d30s2" bitsize="64" type="uint64"/>
+  <reg name="d31s2" bitsize="64" type="uint64"/>
+
+  <reg name="fpscrs2" bitsize="32" type="int" group="float"/>
+</feature>
