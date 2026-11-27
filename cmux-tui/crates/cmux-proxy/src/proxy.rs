@@ -329,7 +329,7 @@ pub fn hops_from_entries(
                 None => push(&mut hops, Hop::Direct),
             },
             SystemEntry::Other(kind) => {
-                tracing::debug!(%kind, "a system proxy kind the link cannot use")
+                tracing::debug!(%kind, "a system proxy kind the link cannot use");
             }
         }
     }
