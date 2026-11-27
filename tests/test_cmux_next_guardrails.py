@@ -2216,6 +2216,8 @@ class WarningTests(Fixture):
         self.write("plans/cmux-next/OWNERS.md", (SOURCE / "plans/cmux-next/OWNERS.md").read_text())
         self.commit("the shipped owner map")
         self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        # As it ships: merged upstream, which is the table owner warnings read (guardrails.owners_text).
+        self.git("update-ref", guardrails.UPSTREAM, self.base)
         expected = {
             # The typing row names this file; the terminal row only its folder: the most specific row owns it.
             f"{PKG}/Sources/CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift": ["PL-typing"],

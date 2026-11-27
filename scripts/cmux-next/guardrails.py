@@ -3016,20 +3016,18 @@ def marker_ids(lines) -> collections.Counter:
     return found
 
 
-def owners_text(repo: Path, head: str) -> str:
-    """OWNERS.md as merged upstream, unless HEAD's branch edits it. Who holds an area is the merged table's answer:
-    2026-11-27 a lane cut before cmux#60006 dropped `design-*motion*` from Layout motion still sent its pushes to the
-    transcript-motion lane, because the hook read the row from the lane's own stale copy. A branch that changes the
-    table since it forked means its own rows, so those stand."""
-    try:
-        fork = git(repo, "merge-base", UPSTREAM, head).strip()
-    except (Exception, SystemExit):
-        fork = ""
-    texts = blobs(repo, [(head, OWNERS), (UPSTREAM, OWNERS)] + ([(fork, OWNERS)] if fork else []))
+def owner_specs(base: str, head: str) -> list[tuple[str, str]]:
+    """The OWNERS.md reads owners_text needs, for the caller's one blobs() batch (no git call of its own)."""
+    return [(head, OWNERS), (base, OWNERS), (UPSTREAM, OWNERS)]
+
+
+def owners_text(texts: dict[tuple[str, str], str], base: str, head: str) -> str | None:
+    """OWNERS.md as merged upstream, unless the push itself (BASE..HEAD) edits it. Who holds an area is the merged
+    table's answer: 2026-11-27 a lane cut before cmux#60006 dropped `design-*motion*` from Layout motion still sent
+    its pushes to the transcript-motion lane, because the hook read the row from the lane's own stale copy. A push
+    that rewrites the table means its own rows, so those stand. None: no table anywhere."""
     mine, merged = texts.get((head, OWNERS)), texts.get((UPSTREAM, OWNERS))
-    if merged is None or (mine is not None and texts.get((fork, OWNERS)) != mine):
-        if mine is None:
-            raise KeyError(OWNERS)
+    if merged is None or (mine is not None and texts.get((base, OWNERS)) != mine):
         return mine
     return merged
 
@@ -3151,7 +3149,7 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         if not own.head:
             continue
         try:
-            owners = parse_owners(owners_text(repo, own.head))
+            owners = parse_owners(owners_text(blobs(repo, owner_specs(own.base, own.head)), own.base, own.head) or "")
         except (Exception, SystemExit):
             continue
         names = owner_route_files(repo, own)
@@ -3285,7 +3283,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     names = git(repo, "diff", "--name-only", "--no-renames", base, head, check=False)
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
     blob_ids: dict[tuple[str, str], str] = {}
-    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
+    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES)] + owner_specs(base, head)
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
@@ -3347,10 +3345,11 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
     except Exception as error:  # a broken warning must not switch off the refusals above
         warnings.append(("guardrails", check_failure("perf-hot", error)))
-    if (head, OWNERS) in texts:
+    owners = owners_text(texts, base, head)
+    if owners is not None:
         names_list = [f for f in names.split("\n") if f]
         try:
-            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(owners_text(repo, head)))]
+            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(owners))]
         except Exception as error:  # a broken warning must not switch off the refusals above
             warnings.append(("guardrails", check_failure("owner", error)))
     return found, warnings

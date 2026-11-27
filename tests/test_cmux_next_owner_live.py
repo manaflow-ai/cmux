@@ -339,11 +339,11 @@ class Route(unittest.TestCase):
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
             guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
         self.assertEqual([(to, area) for to, area, *_ in sent], [("host-b/motion-springs", "Layout motion")])
-        # The lane's own edit to the table stands over the merged one.
+        # A push that itself rewrites the row means its own table.
+        prev = git("rev-parse", "HEAD")
         commit("plans/cmux-next/OWNERS.md", table.format("mobile-*"), "claim the row")
-        own = types.SimpleNamespace(base=base, head=git("rev-parse", "HEAD"), before=())
         commit("Layout/Pane.swift", "pane 2\n", "own change 2")
-        own = types.SimpleNamespace(base=base, head=git("rev-parse", "HEAD"), before=())
+        own = types.SimpleNamespace(base=prev, head=git("rev-parse", "HEAD"), before=())
         rows.append(row("host-c/mobile-bandwidth-steps", "running"))
         sent.clear()
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
