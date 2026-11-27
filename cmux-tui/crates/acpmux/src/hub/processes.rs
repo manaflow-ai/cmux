@@ -888,10 +888,28 @@ fn task_params(params: Option<&mut Value>) -> Value {
 
 impl Hub {
     /// The session's table, read from its log's copies the first time.
+    ///
+    /// The log is read with the table's lock let go: `running_processes_read` and
+    /// `running_heavy_read` take that lock for every chat on each `daemon status` and row list
+    /// (`host_load.rs`, `idle.rs`) and promise never to wait on a log scan. On the coordinator Mac,
+    /// 2026-11-27 02:43Z to 03:20Z: a first read here waited in the store's fork view behind a cold
+    /// archive commit, which waited behind a whole-log pack at background priority; it held this
+    /// lock all the while, 15 of 32 tokio workers parked on it, and every acpmux delivery on the
+    /// host timed out (`tools/acpmux_delivery_probe.py`, 10 missed probes). Two first reads may
+    /// race: the first table put in wins and the other is dropped, and a record logged after a
+    /// read is folded by its `note_process` (its seq is past the table's `through`).
     fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
+        let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        if table.loaded {
+            return table;
+        }
+        drop(table);
+        let mut read = self.read_processes(session);
         let mut table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         if !table.loaded {
-            *table = self.read_processes(session);
+            // The preview watches started meanwhile stay the only ones (`rebuild_processes`).
+            read.watching = std::mem::take(&mut table.watching);
+            *table = read;
         }
         table
     }
