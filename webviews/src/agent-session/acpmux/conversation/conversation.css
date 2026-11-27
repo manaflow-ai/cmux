@@ -2538,10 +2538,20 @@ pre.cv-math-source {
   --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
   --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
   /* Transcript arrivals follow Claude Code's softer standard step. Reuse the host-scaled move token
-     so speed, minimal-motion and reduced-motion gates still apply to the shared arrival clock. */
-  --agent-motion-arrive: var(--agent-motion-move, var(--cmux-motion-standard, 180ms));
+     so speed, minimal-motion and reduced-motion gates still apply to the shared arrival clock. A look
+     may give arrivals their own step (--cmux-motion-arrive, 0 to 600 ms; 0 lands rows in place);
+     off or reduced motion drops it (below), so the host's clock rules again. */
+  --agent-motion-arrive: var(--cmux-motion-arrive, var(--agent-motion-move, var(--cmux-motion-standard, 180ms)));
   /* Its width is what a row's 100cqw reads. */
   container-type: inline-size;
+}
+/* Off or reduced motion keeps cmux's arrival clock, whatever a look sets (the guaranteed-invalid
+   value, so the read above falls back to the host's move token). */
+:root[data-agent-motion="off"],
+:root[data-agent-motion="reduced"],
+:root[data-cmux-motion="off"],
+:root[data-cmux-motion="reduced"] {
+  --cmux-motion-arrive: initial;
 }
 /* Where Session Info lies over the chat, the transcript leaves its box out (session-info/chatCut.ts):
    nothing scrolls behind its glass, so it never flickers under a scroll (Leo, 2026-11-03). Only the
