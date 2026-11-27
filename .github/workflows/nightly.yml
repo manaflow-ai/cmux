@@ -51,7 +51,7 @@ on:
         default: false
         type: boolean
       build_only:
-        description: Measure the unsigned universal build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.
+        description: Measure the unsigned arm64 nightly build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.
         required: false
         default: false
         type: boolean
@@ -144,6 +144,18 @@ jobs:
       attestations: write
       id-token: write
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
+    # The main app ticks (15-minute and daily backstop) decide one at a time.
+    # The in-flight cap below counts other runs' app jobs, which exist only
+    # after their decide finished, so two decides running at once cannot see
+    # each other. That happened when the decide runner pool stalled: ticks
+    # piled up with decide queued, then all decided together, each counted
+    # fewer than 3 builds, and five main runs were in flight (run 45668811281).
+    # One group holds one running decide and one pending; a newer tick replaces
+    # only a pending decide that has not started (it would build an older head),
+    # and nothing running is cancelled. Every other run keeps its own group.
+    concurrency:
+      group: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' && github.event.schedule != '17 */6 * * *' && 'nightly-main-tick-decide' || format('nightly-decide-{0}', github.run_id) }}
+      cancel-in-progress: false
     # Main's decide is a keyless metadata job, so it runs on a Linux JIT
     # runner, never a nightly mini: queued there behind a build, every push's
     # decide waited for the mini and the runs drained in a burst when it freed
@@ -188,7 +200,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -205,7 +217,7 @@ jobs:
       # router CI uses, which reads the Xcode project and the package graph.
       # Only the paths are needed, so one revision of history is enough.
       - name: Check out the revision under consideration
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -235,7 +247,7 @@ jobs:
             if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const seedOnly = process.env.SEED_ONLY === 'true';
-            // A build-only run measures the unsigned universal app build (cold
+            // A build-only run measures the unsigned arm64 app build (cold
             // or warm cache) and stops there: no helper, signing, notarization,
             // dSYM upload, or publication, so it is safe to dispatch from a
             // branch. It always builds the production workload, so the fast
@@ -243,15 +255,18 @@ jobs:
             const buildOnly = process.env.BUILD_ONLY === 'true';
             const coldCache = buildOnly && process.env.COLD_CACHE === 'true';
             const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';
-            // Nightly ships one universal DMG for downloads plus one thin DMG per
-            // architecture for updates. Browsers cannot tell Apple silicon from
-            // Intel, so `cmux-nightly-macos.dmg` and the legacy `appcast.xml`
-            // feed stay universal; the app's feed resolver moves every install
-            // onto its architecture's feed at the first update check.
-            // A manually dispatched fast build is a branch-dogfood artifact only.
-            // It deliberately produces one Apple silicon DMG and never publishes
-            // to the shared NIGHTLY release or feed.
-            const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            // Nightly builds and publishes Apple silicon (arm64) only. Intel
+            // (x86_64) and universal builds ship from the stable release
+            // (release.yml) only. The x86_64, universal and legacy `appcast.xml`
+            // feeds, and the `cmux-nightly-{x86_64,universal}-macos.dmg` and
+            // `cmux-nightly-macos.dmg` aliases, are frozen at the last build
+            // that had them: publish never rewrites them, and the asset prune
+            // keeps the builds they point at. The app's feed resolver moves
+            // every install onto its own architecture's feed, so an Intel Mac
+            // reads only the frozen x86_64 feed and is never offered an arm64
+            // build. A manually dispatched fast build is a branch-dogfood
+            // artifact only and never publishes to the shared NIGHTLY release.
+            const variants = ['arm64'];
             core.setOutput('variants', JSON.stringify(variants));
             core.setOutput('legacy_variant', 'universal');
             core.setOutput('fast_build', fastBuild ? 'true' : 'false');
@@ -406,9 +421,15 @@ jobs:
                     // runner pool were invisible here, and every tick started another (11-25, five at once).
                     const isLive = (job) => job.status !== 'completed' || job.conclusion === 'success';
                     const appJobs = jobs.filter((job) => /^build-nightly-app/.test(job.name));
+                    // A run whose decide finished but whose pick job GitHub has not created yet
+                    // may be building: count it, so the previous tick's run is never missed in
+                    // the seconds between its decide ending and this one starting.
+                    const pickJob = jobs.find((job) => /^pick-nightly-app-runner/.test(job.name));
+                    const decided = jobs.find((job) => job.name === 'decide' &&
+                      job.status === 'completed' && job.conclusion === 'success');
                     const building = appJobs.length > 0
                       ? appJobs.find(isLive)
-                      : jobs.find((job) => /^pick-nightly-app-runner/.test(job.name) && isLive(job));
+                      : pickJob ? (isLive(pickJob) && pickJob) : decided;
                     if (!building) continue;
                     inFlight.push(run);
                     if (run.head_sha === headSha && !duplicateOfRun) duplicateOfRun = run;
@@ -670,7 +691,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -684,7 +705,7 @@ jobs:
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
       - name: Checkout the promote guard from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -693,6 +714,7 @@ jobs:
             scripts/ci/nightly_next_train.py
             scripts/ci/signing-runner-claim.sh
             .github/release-surface.txt
+            .github/actions/app-token-spread/
           sparse-checkout-cone-mode: false
 
       # Before any App key: on an owned Mac the job must hold the whole mini (glaeda's exclusive class).
@@ -707,10 +729,12 @@ jobs:
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
@@ -824,7 +848,7 @@ jobs:
     # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
     if: false
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
     concurrency:
@@ -871,7 +895,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -885,7 +909,7 @@ jobs:
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
       - name: Checkout the promote guard from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -993,7 +1017,7 @@ jobs:
     timeout-minutes: 90
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -1005,7 +1029,7 @@ jobs:
           fi
 
       - name: Checkout cache ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -1059,7 +1083,7 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
-      - name: Refresh universal nightly compilation cache
+      - name: Refresh nightly compilation cache (arm64)
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
@@ -1068,7 +1092,7 @@ jobs:
             -clonedSourcePackagesDirPath .spm-cache \
             -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
-            ARCHS="arm64 x86_64" \
+            ARCHS="arm64" \
             ONLY_ACTIVE_ARCH=NO \
             COMPILATION_CACHE_ENABLE_CACHING=YES \
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
@@ -1186,7 +1210,7 @@ jobs:
     env:
       # As seed-derived-data.yml: the macOS 15 pool's own Xcode, else the lane's.
       CMUX_CI_XCODE_APP: ${{ endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains((endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15), 'Xcode_27') && '27' || '26' }}
       CMUX_SKIP_ZIG_BUILD: "1"
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1199,7 +1223,7 @@ jobs:
           fi
 
       - name: Checkout cache ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -1352,7 +1376,7 @@ jobs:
           fi
 
       - name: Checkout helper ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -1375,13 +1399,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p nightly-helper
-          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
-            ./scripts/build-ghostty-cli-helper.sh --target aarch64-macos --output nightly-helper/ghostty
-            lipo nightly-helper/ghostty -verify_arch arm64
-          else
-            ./scripts/build-ghostty-cli-helper.sh --universal --output nightly-helper/ghostty
-            lipo nightly-helper/ghostty -verify_arch arm64 x86_64
-          fi
+          # Nightly ships arm64 only; the universal helper is a stable-release build.
+          ./scripts/build-ghostty-cli-helper.sh --target aarch64-macos --output nightly-helper/ghostty
+          lipo nightly-helper/ghostty -verify_arch arm64
 
       - name: Upload Ghostty CLI helper
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1404,7 +1424,7 @@ jobs:
   pick-nightly-app-runner:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       # The queue janitor's pool snapshot (an artifact).
@@ -1415,23 +1435,27 @@ jobs:
       cloud: ${{ steps.pick.outputs.cloud }}
     steps:
       - name: Checkout the picker at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            .github/actions/app-token-spread
 
       - name: Mint the owned-pool routing token
         id: route-token
         if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -1440,10 +1464,12 @@ jobs:
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
 
       - name: Pick the trusted mini or a moving cloud macOS label
@@ -1513,7 +1539,7 @@ jobs:
     timeout-minutes: 90
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       CHANNEL_ICON_NAME: ${{ needs.decide.outputs.icon_name }}
     steps:
@@ -1527,7 +1553,7 @@ jobs:
           fi
 
       - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -1671,11 +1697,13 @@ jobs:
       - name: Build nightly app (Release)
         run: |
           set -euo pipefail
+          # Nightly ships arm64 only (Intel and universal ship from the stable
+          # release). ONLY_ACTIVE_ARCH stays NO on the full build so the arm64
+          # slice builds even on a runner whose active arch differs.
+          archs="arm64"
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
-            archs="arm64"
             only_active="YES"
           else
-            archs="arm64 x86_64"
             only_active="NO"
           fi
           # Let xcodebuild fan out across the host. The two whole-module Swift
@@ -1873,7 +1901,8 @@ jobs:
   resolve-nightly-cmux-tui-client:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # Mini mode runs this keyless job on the Linux lane VM, every attempt: it needs no Mac (Leo: free the Macs).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 150 || 30 }}
@@ -1881,7 +1910,7 @@ jobs:
       commit: ${{ steps.resolve.outputs.commit }}
     steps:
       - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -1909,7 +1938,8 @@ jobs:
   pick-classic-sign-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # Mini mode runs this keyless job on the Linux lane VM, every attempt: it needs no Mac (Leo: free the Macs).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 126 || 6 }}
     permissions:
       # The queue janitor's pool snapshot (an artifact).
@@ -1922,7 +1952,7 @@ jobs:
       attempt: ${{ steps.pick.outputs.attempt }}
     steps:
       - name: Checkout the picker at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 2
         with:
@@ -1952,7 +1982,7 @@ jobs:
   pick-classic-prepare-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 6
     permissions:
       contents: read
@@ -1960,23 +1990,27 @@ jobs:
       trusted: ${{ steps.pick.outputs.trusted }}
     steps:
       - name: Checkout the picker at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            .github/actions/app-token-spread
 
       - name: Mint the owned-pool routing token
         id: route-token
         if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -1985,10 +2019,12 @@ jobs:
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
 
       - name: Pick the trusted mini if it is idle now
@@ -2027,7 +2063,7 @@ jobs:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
     steps:
@@ -2044,7 +2080,7 @@ jobs:
           fi
 
       - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -2110,7 +2146,7 @@ jobs:
 
       - name: Download unsigned nightly app
         if: steps.signing-inputs-parallel.outputs.app_ok != 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-unsigned-app
           path: nightly-inputs/app
@@ -2124,7 +2160,7 @@ jobs:
 
       - name: Download universal Ghostty CLI helper
         if: steps.signing-inputs-parallel.outputs.helper_ok != 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-ghostty-cli-helper
           path: nightly-inputs/ghostty
@@ -2155,7 +2191,9 @@ jobs:
         if: needs.decide.outputs.fast_build != 'true'
         env:
           # install-cmux-tui-client.sh verifies the manifest's build-provenance
-          # attestation with gh before trusting it.
+          # attestation with gh before trusting it: offline from the published
+          # or host-cached Sigstore bundle, so concurrent nightlies spend no
+          # API quota; the token is only for a commit with neither.
           GH_TOKEN: ${{ github.token }}
           CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
           # Per-job cache, so legs sharing a host never race on one download.
@@ -2292,7 +2330,7 @@ jobs:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
@@ -2322,7 +2360,7 @@ jobs:
           fi
 
       - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -2973,7 +3011,7 @@ jobs:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       BUNDLE_REMOTE_DAEMON_ASSETS: ${{ needs.decide.outputs.fast_build == 'true' || needs.decide.outputs.should_publish != 'true' }}
@@ -2982,7 +3020,7 @@ jobs:
       CHANNEL_APP_PATH: signed/${{ needs.decide.outputs.app_name }}.app
     steps:
       - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -3125,14 +3163,14 @@ jobs:
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
     steps:
       - name: Checkout publish ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
 
       # The wrapper comes from the workflow commit: the build checkout may predate it.
       - name: Checkout the gh token wrapper at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -3172,7 +3210,7 @@ jobs:
           fi
 
       - name: Download nightly variant artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-nightly-variant-*
           path: nightly-out
@@ -3180,7 +3218,7 @@ jobs:
 
       # Publish only the bytes that verify-signed-nightly launched.
       - name: Download tested DMG digests
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-nightly-tested-*
           path: tested
@@ -3220,20 +3258,12 @@ jobs:
           set -euo pipefail
           cd nightly-out
           ls -l
-          for variant in arm64 x86_64; do
-            [ -f "${CHANNEL_DMG_PREFIX}-${variant}.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-${variant}.dmg" >&2; exit 1; }
-            [ -f "appcast-${variant}.xml" ] || { echo "missing appcast-${variant}.xml" >&2; exit 1; }
-          done
-          # `cmux-nightly-macos.dmg` and `appcast.xml` are the download and feed
-          # every pre-existing link and install uses. They stay universal: the
-          # universal variant generates appcast.xml itself, and installs move to
-          # their architecture's feed on the next update check.
-          [ "$NIGHTLY_LEGACY_VARIANT" = "universal" ] || { echo "unexpected legacy variant: $NIGHTLY_LEGACY_VARIANT" >&2; exit 1; }
-          [ -f "${CHANNEL_DMG_PREFIX}-universal.dmg" ] || { echo "universal variant DMG missing" >&2; exit 1; }
-          [ -f appcast.xml ] || { echo "universal variant appcast.xml missing" >&2; exit 1; }
-          cp "${CHANNEL_DMG_PREFIX}-universal.dmg" "${CHANNEL_DMG_PREFIX}.dmg"
-          # Compatibility feed for nightlies older than the unified appcast.
-          cp appcast.xml appcast-universal.xml
+          # Nightly builds arm64 only. `cmux-nightly-macos.dmg`, `appcast.xml`,
+          # `appcast-universal.xml` and the x86_64 DMG and feed are frozen at the
+          # last build that produced them (stable ships Intel and universal), so
+          # nothing here writes them.
+          [ -f "${CHANNEL_DMG_PREFIX}-arm64.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-arm64.dmg" >&2; exit 1; }
+          [ -f "appcast-arm64.xml" ] || { echo "missing appcast-arm64.xml" >&2; exit 1; }
           ls -l
 
       - name: Prepare nightly release notes and appcast summaries
@@ -3251,8 +3281,7 @@ jobs:
           Published commit: \`${NOTES_HEAD}\`.
           **${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
           - [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`
-          - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
-          - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check
+          - Intel and universal builds ship from the stable release; the Intel and universal nightly downloads and feeds stay at their last build.
           EOF
           # Read the live completed publication under the channel writer lock,
           # rather than the decide job's baseline from before the build started.
@@ -3262,7 +3291,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
-            --appcasts nightly-out --build "$NIGHTLY_BUILD"
+            --appcasts nightly-out --build "$NIGHTLY_BUILD" \
+            --feeds appcast-arm64.xml
 
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
@@ -3303,8 +3333,6 @@ jobs:
           python3 .gh-tooling/scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg" \
             --immutable "nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD}" \
@@ -3312,15 +3340,9 @@ jobs:
             --immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
             --immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}.dmg" \
             --github-output "$GITHUB_OUTPUT" \
             --replace-feeds \
-            --feed nightly-out/appcast-arm64.xml \
-            --feed nightly-out/appcast-x86_64.xml \
-            --feed nightly-out/appcast-universal.xml \
-            --feed nightly-out/appcast.xml
+            --feed nightly-out/appcast-arm64.xml
 
       - name: Publish verified nightly release metadata
         if: needs.decide.outputs.should_publish == 'true'
@@ -3356,7 +3378,9 @@ jobs:
           # either the old version or the new one, never missing. Thin feeds go
           # first: the app rewrites the legacy feed URL to a thin feed, so those
           # must already be current when the legacy feed changes.
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          # Nightly is arm64 only: the x86_64, universal and legacy feeds keep
+          # their last build and are never rewritten here.
+          for appcast in appcast-arm64.xml; do
             python3 scripts/ci/upload-r2-object.py \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
@@ -3471,7 +3495,8 @@ jobs:
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, publish-nightly]
     if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # Mini mode runs this keyless job on the Linux lane VM, every attempt: it needs no Mac (Leo: free the Macs).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       issues: write
@@ -3483,7 +3508,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -3497,7 +3522,7 @@ jobs:
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
       - name: Checkout the failure incident script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -3506,6 +3531,8 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Open or update the nightly failure issue
+        # Reporting only: a failure here must not mask the real job results.
+        continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ needs.decide.outputs.head_sha }}

@@ -1,4 +1,11 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 
 /// A `fcntl(2)` write lock on a spool lock file, held until deallocation.
 ///

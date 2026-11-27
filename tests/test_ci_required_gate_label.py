@@ -10,7 +10,9 @@ refused the merge on base-branch policy.
 So every job behind a required check leads with a label no other job asks for, `cmux-gcp-gate-jit-x64`. The
 fleet reconciler serves it with one-job VMs only (no cloud identity, deleted after the job), ahead of every PR
 label, under its own cap sized to the gates' volume and with runners kept warm, so a required check starts
-however deep the PR backlog is. `vars.CI_GATE_SKIP_FLEET=1` turns the label off and leaves the old selector.
+however deep the PR backlog is. The label is written out as a literal: the `vars.CI_GATE_SKIP_FLEET` switch and
+the CI_TRUSTED_RUNNER selector behind it were frozen to the label they resolved to (the switch was unset), so no
+variable picks a gate job's runner.
 
 The two CLA workflows are pinned byte for byte by scripts/ci/validate-cla-policy.rb, which runs from the base
 branch, so they move in steps: the validator first admits the gate selector (CLA_GATE_RUNNER_EXPRESSION) and
@@ -23,7 +25,6 @@ listed job reports, or any other job on the label, fails.
 """
 from __future__ import annotations
 
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -38,12 +39,14 @@ from required_status_checks import REQUIRED_CHECKS  # noqa: E402
 GATE_LABEL = "cmux-gcp-gate-jit-x64"
 FORK_BRANCH = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
 GATE_OPERAND = "vars.CI_GATE_SKIP_FLEET != '1' && '" + GATE_LABEL + "' || "
+GATE_VALUE = FORK_BRANCH + "'" + GATE_LABEL + "' }}"
 # (workflow file, job) -> the required check it reports, or the required check it gates (a job the reporting
 # job needs: the check cannot start before it ends).
 GATE_JOBS = {
     ("cla.yml", "CLAAssistant"): "CLA Assistant",
     ("cla-policy-guard.yml", "validate"): "CLA policy guard",
     ("backend-migrations.yml", "gate"): "backend migrations applied",
+    ("backend-migrations.yml", "gate-no-change"): "backend migrations applied",
     ("backend-migrations.yml", "plan"): "backend migrations applied",
     ("backend-migrations.yml", "apply-staging"): "backend migrations applied",
     ("backend-migrations.yml", "apply-production"): "backend migrations applied",
@@ -63,10 +66,13 @@ STAGED = {
 # cmux-linux`) for every own-branch Linux job, with the pickers ... deleted now"); only the fleet-wide
 # CI_OVERFLOW_LINUX switch every cmux-linux job carries stays ahead of it.
 POOL_LABEL = "cmux-linux"
-POOL_SELECTOR = FORK_BRANCH + "vars.CI_OVERFLOW_LINUX || '" + POOL_LABEL + "' }}"
+POOL_VALUE = FORK_BRANCH + "vars.CI_OVERFLOW_LINUX || '" + POOL_LABEL + "' }}"
 POOL_JOBS = {
     ("merge-group-policy-checks.yml", "cla-assistant"),
     ("merge-group-policy-checks.yml", "cla-policy-guard"),
+    # backend-migrations' `backend migrations applied` once the plan succeeded and found no migration change: one
+    # echo, permissions {}. 2026-11-25 21:22-21:50Z: 96 of 127 queued gate-label jobs were that echo (~14 min waits).
+    ("backend-migrations.yml", "gate-no-change"),
 }
 CLA_SELECTOR = (FORK_BRANCH + "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\","
                 "\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
@@ -108,16 +114,33 @@ class RequiredGateLabelTest(unittest.TestCase):
         self.assertIn("'backend migrations applied'", gate["name"])
         self.assertNotIn("needs.plan.outputs.migrations != 'true'", str(gate["if"]))
 
+    def test_the_migrations_gate_is_on_the_pool_only_when_the_plan_found_nothing(self) -> None:
+        # Exactly one of the two jobs runs: gate (one-job VM, secrets) on every plan answer but a successful plan
+        # that found no migration change, gate-no-change (persistent pool, no permissions, one echo) on that one.
+        # An empty output (a plan that failed before writing one) or 'true' never reaches the pool job.
+        jobs = load("backend-migrations.yml")["jobs"]
+        no_change = "needs.plan.result == 'success' && needs.plan.outputs.migrations == 'false'"
+        pool, gate = jobs["gate-no-change"], jobs["gate"]
+        pool_if, gate_if = str(pool["if"]), str(gate["if"])
+        self.assertTrue(pool_if.startswith("${{ !cancelled() && ") and pool_if.endswith(" && " + no_change + " }}"), pool_if)
+        self.assertTrue(gate_if.startswith("always() && ") and gate_if.endswith(" && !(" + no_change + ")"), gate_if)
+        # The same skip conditions (ignored edits and labels, closed fix-cause labels) in both.
+        self.assertEqual(pool_if[len("${{ !cancelled() && "): -len(no_change + " }}")],
+                         gate_if[len("always() && "): -len("!(" + no_change + ")")])
+        self.assertEqual(pool["name"], gate["name"])
+        self.assertEqual(pool["permissions"], {})
+        self.assertNotIn("environment", pool)
+        for step in pool["steps"]:
+            self.assertNotIn("uses", step)
+            self.assertNotIn("secrets.", str(step))
+
     def test_every_gate_job_leads_with_the_gate_label(self) -> None:
         for (name, job_id), check in sorted(GATE_JOBS.items()):
             if (name, job_id) in STAGED:
                 continue
             with self.subTest(workflow=name, job=job_id, check=check):
                 value = runs_on(load(name)["jobs"][job_id])
-                if (name, job_id) in POOL_JOBS:
-                    self.assertEqual(value, POOL_SELECTOR)
-                    continue
-                self.assertTrue(value.startswith(FORK_BRANCH + GATE_OPERAND), value)
+                self.assertEqual(value, POOL_VALUE if (name, job_id) in POOL_JOBS else GATE_VALUE)
 
     def test_a_staged_job_keeps_the_admitted_selector_until_its_step(self) -> None:
         for (name, job_id), step in sorted(STAGED.items()):
@@ -140,22 +163,13 @@ class RequiredGateLabelTest(unittest.TestCase):
         found = {(name, job_id) for name, job_id, job in all_jobs() if GATE_LABEL in runs_on(job)}
         self.assertEqual(found, set(GATE_JOBS) - set(STAGED) - POOL_JOBS)
 
-    def test_the_switch_leaves_the_previous_selector(self) -> None:
-        for name, job_id in sorted(set(GATE_JOBS) - set(STAGED) - POOL_JOBS):
+    def test_no_gate_job_reads_a_variable_for_its_runner(self) -> None:
+        # A gate job's runner is a literal: a variable in front of it could move a required check back behind the
+        # PR backlog, or a trusted-token job onto a shared runner. The overflow switch is the one exception.
+        for name, job_id in sorted(set(GATE_JOBS) - set(STAGED)):
             with self.subTest(workflow=name, job=job_id):
-                after = runs_on(load(name)["jobs"][job_id]).replace(GATE_OPERAND, "", 1)
-                self.assertNotIn(GATE_LABEL, after)
-                self.assertTrue(after.startswith(FORK_BRANCH), after)
-                self.assertRegex(after, r"'blacksmith-\dvcpu-ubuntu-2404' }}$")
-
-    def test_the_operand_refuses_a_shared_or_variable_label(self) -> None:
-        operand = re.compile(re.escape(GATE_OPERAND))
-        for bad in ("vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || ",
-                    "vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || ",
-                    "vars.CI_GATE_SKIP_FLEET != '1' && vars.GATE_RUNNER || ",
-                    "'cmux-gcp-gate-jit-x64' || "):
-            with self.subTest(operand=bad):
-                self.assertIsNone(operand.match(bad))
+                value = runs_on(load(name)["jobs"][job_id]).replace("vars.CI_OVERFLOW_LINUX || ", "", 1)
+                self.assertNotRegex(value, r"vars\.|fromJSON")
 
 
 if __name__ == "__main__":

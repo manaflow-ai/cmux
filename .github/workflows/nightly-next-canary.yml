@@ -59,14 +59,12 @@ env:
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_CANARY != 'off' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    # A scheduled run, the one that gates Nightly, runs every job on our nightly minis, never on Blacksmith (Leo,
+    # A scheduled run, the one that gates Nightly, runs every job on our fleet, never on Blacksmith (Leo,
     # 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE RELYING ON BLACKSMITH THAT CUTS
-    # OUT"): the nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's one runner per mini that takes only nightly
-    # jobs). Its hook ranks main's scheduled canary as a nightly job (glaeda NIGHTLY_VERIFY_WORKFLOWS), re-runs
-    # included; it refuses a dispatch (which picks its own build) and a pull request's run, which keep their routes.
-    # No secrets here. A value outside glaeda-nightly-* (unset included) falls back to Blacksmith; the variable
-    # check (runner_label_policy.nightly_slot_reason) holds the variable to the slot labels.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # OUT"): this job, which reads the feed, a cache and the release notes and needs no Mac, takes the one-job
+    # cmux-gcp-nightly-jit-x64 VM (re-runs included); only the canary job takes the nightly slot, a Mac. No secrets
+    # here. A dispatch takes the same VM on its first attempt; a pull request's run takes Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -78,7 +76,7 @@ jobs:
       checked: ${{ steps.seen.outputs.cache-hit }}
       mode: ${{ steps.mode.outputs.mode }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci/nightly_next_canary_mode.py
@@ -141,7 +139,7 @@ jobs:
     name: canary ${{ needs.pick.outputs.build }}
     needs: pick
     if: ${{ !cancelled() && needs.pick.result == 'success' && needs.pick.outputs.checked != 'true' }}
-    # No secrets: this job runs the published app. A scheduled run takes the pick's nightly slot, with no runner
+    # No secrets: this job runs the published app. A scheduled run takes the nightly slot, with no runner
     # read: the slot admits only nightly jobs, so its queue moves (on 2026-10-29 the canary of build 4095550219401,
     # run 40959228667, sat on the side label behind 43 PR jobs; the slot takes no PR job). A refused attempt is
     # re-run by owned_pool_rescue.SIDE_WORKFLOW_PATHS onto the same pool. With no nightly slot named, a scheduled
@@ -164,7 +162,7 @@ jobs:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
       GH_BUDGET_WAIT_MAX_SECONDS: "900"
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       BUILD: ${{ needs.pick.outputs.build }}
       DMG_URL: ${{ needs.pick.outputs.url }}
       DMG_LENGTH: ${{ needs.pick.outputs.length }}
@@ -173,7 +171,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -186,7 +184,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -317,8 +315,8 @@ jobs:
     name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}
     needs: [pick, canary]
     if: always() && github.event_name == 'schedule' && needs.canary.outputs.verdict != ''
-    # A scheduled run's only: the pick's nightly slot.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A scheduled run's only: the pick's one-job VM (cmux-gcp-nightly-jit-x64).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     env:
       GH_BUDGET_WAIT_MAX_SECONDS: "900"
@@ -328,7 +326,7 @@ jobs:
       actions: write # dispatch nightly-next-verdict.yml
     steps:
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -402,8 +400,8 @@ jobs:
   failed:
     needs: [pick, canary]
     if: always() && github.event_name != 'pull_request' && needs.canary.outputs.verdict == 'fail'
-    # A scheduled run's on the pick's nightly slot; a dispatch's keeps Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A scheduled run's on the pick's one-job VM (cmux-gcp-nightly-jit-x64); a dispatch's keeps Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 20
     permissions:
       contents: read # check out the GitHub API wait
@@ -417,7 +415,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -430,11 +428,28 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
+      # A scheduled job's calls on the job token share the repository's per-hour installation pool with
+      # every other workflow; spent, the call ends "HTTP 403: API rate limit exceeded for installation" and
+      # the nightly silently does not run (ios-reliability-matrix 11-23/11-25, cmux#57719). The cmux bot
+      # App's token has its own hour; the job token stays the fallback when it cannot be minted.
+      # Detector: scripts/ci/cron_dispatch_token_lint.py.
+      - name: Mint the cmux bot App token
+        id: app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-contents: read
+          permission-actions: write
+          permission-issues: write
       - name: Pull the build off the feed (enforce mode)
         id: pull
         if: needs.pick.outputs.mode == 'enforce'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           BUILD: ${{ needs.pick.outputs.build }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |

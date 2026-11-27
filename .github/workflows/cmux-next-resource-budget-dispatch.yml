@@ -28,7 +28,8 @@ env:
 jobs:
   dispatch:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # It holds the cmux-bot App key, so no variable may move it (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     permissions:
       actions: write
       contents: read
@@ -41,7 +42,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -54,11 +55,30 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
+      # Two hourly REST budgets instead of one: the cmux-bot installation's, then github.token's for reads
+      # (gh_budget_wait.cjs `spare`). github.token's budget is shared with every workflow in the repo, and a
+      # rate-limited read on it alone turned main red for a day (runs 45791594489, 45809391120, 45804008279,
+      # 45831824446, 45944569896: "the budget resets in ...s, past this job's 900s left to wait").
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
+
       - name: Start the resource budget bench on feat-cmux-next unless one is pending
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SPARE_READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token && github.token || '' }}
         with:
+          github-token: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           script: |
-            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: process.env.SPARE_READ_TOKEN ? getOctokit(process.env.SPARE_READ_TOKEN) : undefined });
             const { owner, repo } = context.repo;
             const source = 'feat-cmux-next';
             const workflow = 'cmux-next-perf-bench.yml';
