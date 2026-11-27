@@ -6,7 +6,9 @@ use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
 mod resolve;
-pub(super) use resolve::{RemoteName, names_remote, remote_closed, remote_match, remote_segment};
+pub(super) use resolve::{RemoteName, remote_closed, remote_match};
+#[cfg(test)]
+pub(super) use resolve::{names_remote, remote_segment};
 #[cfg(test)]
 mod test_hooks;
 #[cfg(test)]
@@ -210,6 +212,13 @@ impl Hub {
         // link as its backup path (`peer_overlay.rs`), before its first dial.
         peer.set_explicit_route(pc.names_route());
         peer.recall_overlay();
+        // A plain ssh machine that runs the transport too gets a WireGuard route found for it
+        // (`peer_wg_learn.rs`); the one kept from an earlier run comes back now.
+        if let Some(transport) = &self.wireguard
+            && pc.wireguard.is_none()
+        {
+            peer.set_wireguard_learner(transport.clone());
+        }
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_group_override(pc.group.clone());
         peer.set_wake_hook(self.peer_wake.clone());
@@ -840,18 +849,38 @@ impl Hub {
 
     /// The row transition after a continuous outage's grace has elapsed.
     pub(super) fn mark_peer_unreachable(&self, peer: &str, generation: u64) {
+        // Each row's mark (a parse, the mark and its text written again) is built before the
+        // rows writer lock, from the rows with the epoch they go with (read first, as the list
+        // path does); under the lock they go in only if no writer changed the peer's rows since,
+        // else they are built there, as before. Built under the lock, a peer's every idle close
+        // and drop held every other peer's notices for its whole list (cosmic-gray, 2026-11-27).
+        let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
+            return;
+        };
+        let epoch = current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire);
+        let last_seen = current.link().last_seen;
+        let marks = self.remote_sessions.settled().stale_marks(peer, last_seen);
+        // Every row already as marked, and no writer since: nothing to take the lock for.
+        if marks.is_empty()
+            && current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire) == epoch
+        {
+            return;
+        }
+        drop(current);
         let changed = {
             // The rows writer lock, then the registry with no lock (`peer_table.rs`).
             let mut map = self.remote_sessions.write();
             let Some(current) = self.peers.get(peer).filter(|p| p.generation == generation) else {
                 return;
             };
-            let fence = current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire);
-            if current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire) != fence {
-                return;
-            }
-            let last_seen = current.link().last_seen;
-            let changed = map.mark_peer_stale(peer, last_seen);
+            let unchanged = current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire)
+                == epoch
+                && current.link().last_seen == last_seen;
+            let built = if unchanged { map.put_stale_marks_built_from(marks) } else { None };
+            let changed = match built {
+                Some(changed) => changed,
+                None => map.mark_peer_stale(peer, current.link().last_seen),
+            };
             if !changed.is_empty() {
                 current.remote_rows_epoch.fetch_add(1, std::sync::atomic::Ordering::Release);
             }

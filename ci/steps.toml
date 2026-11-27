@@ -162,6 +162,9 @@ export GITHUB_PATH="$CI_TOOLS/zig-path" GITHUB_ENV="$CI_TOOLS/zig-env"
 : > "$GITHUB_PATH"
 : > "$GITHUB_ENV"
 # Job-local, never sudo: a root-owned install in $CI_TOOLS failed the job at cleanup after every step passed.
+# A machine that keeps RUNNER_TOOL_CACHE between jobs (a persistent runner, a build fleet pool VM whose image holds
+# it) keeps the verified tarball there, so its next job checks the sha256 and unpacks, with no download.
+export ZIG_TARBALL_CACHE_DIR="${ZIG_TARBALL_CACHE_DIR:-${RUNNER_TOOL_CACHE:+$RUNNER_TOOL_CACHE/zig}}"
 GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 RUNNER_TEMP="$CI_TOOLS" ./scripts/install-zig-ci.sh
 mkdir -p "$CI_TOOLS/bin"
 zig_bin="$(sed -n 's/^CMUX_ZIG=//p' "$CI_TOOLS/zig-env" | tail -n 1)"
@@ -353,13 +356,22 @@ python3 tests/test_ci_cdn_user_agent.py
 [step.ci-group-guards]
 job = "linux"
 timeout = 300
-title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, routed jobs, pair scope)"
-about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict, routed job dependencies and pair-run attachment selection"
+title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, proof record and UI proof, routed jobs, pair scope)"
+about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict, the proof record and UI proof verdict, routed job dependencies and pair-run attachment selection"
 inputs = [
   ".github/workflows/**",
   "scripts/ci/ci_timing_readout.py",
   "scripts/ci/check_repo_variables.py",
   "scripts/ci/ios_fast_verdict.*",
+  "scripts/ci/proof_record.py",
+  "scripts/ci/ui_proof_verdict.py",
+  "scripts/cmux-next/hot-verify.py",
+  "scripts/ci/ios_verify.py",
+  "scripts/ci/ios-verify.sh",
+  "ci/proof-record/**",
+  "cmux-next-ios/FlowSuite/**",
+  "tests/test_ci_proof_record.py",
+  "tests/test_ci_ui_proof_verdict.py",
   "tests/test_ci_timing_readout.py",
   "tests/test_ci_check_repo_variables.py",
   "tests/test_ci_ios_fast_verdict.py",
@@ -372,6 +384,8 @@ status=0
 python3 tests/test_ci_timing_readout.py || status=1
 python3 tests/test_ci_check_repo_variables.py || status=1
 python3 tests/test_ci_ios_fast_verdict.py || status=1
+python3 -I tests/test_ci_proof_record.py || status=1
+python3 -I tests/test_ci_ui_proof_verdict.py || status=1
 python3 tests/test_ci_routed_jobs_check_needs.py || status=1
 python3 tests/test_cmux_next_pair_e2e_guards.py || status=1
 exit "$status"
@@ -604,9 +618,33 @@ python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
 exit "$rc"
 '''
 
+# cmux-tui-windows-check (cargo check --target x86_64-pc-windows-gnu) runs only in the post-merge
+# batch, so a unix-only use in acpmux reached feat-cmux-next three times (batches 45693869119,
+# 45720080410, 45726394764; fixed forward by #54573). This names the same uses on the PR in seconds.
+[step.unix-only-on-windows]
+job = "linux"
+timeout = 120
+title = "acpmux builds on Windows (unix-only uses)"
+about = "no std::os::unix, std::os::fd, net::Unix*, Windows-missing libc item, unix-only crate or main-less target in acpmux (or its dev-dependency cmux-fault) outside a cfg(unix) item or module"
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/cmux-fault/**",
+  "scripts/ci/unix_only_on_windows.py",
+  "scripts/ci/libc_windows_gnu.txt",
+  "tests/test_ci_unix_only_on_windows.py",
+]
+run = '''
+rc=0
+python3 -I tests/test_ci_unix_only_on_windows.py || rc=1
+python3 -I scripts/ci/unix_only_on_windows.py --github || rc=1
+exit "$rc"
+'''
+
 # Checks that run bun or node, each of which had a workflow, a runner and a checkout of its own (app-platform.yml,
 # ci-artifact-transport.yml, cloud-vm-image-lock.yml, mux.yml, automation-bench.yml). Those workflows keep their
-# push and dispatch runs; a pull request runs them here. `inputs` is each one's former pull_request path filter.
+# push and dispatch runs where needed; automation-bench and cloud-vm-image-lock now live only here.
+# `inputs` is each one's former pull_request path filter.
 [step.app-platform]
 job = "linux"
 timeout = 300
@@ -725,7 +763,6 @@ inputs = [
   "scripts/ci/verify-r2-canary.py",
   "scripts/ci/r2-canary-cloudflare.py",
   "tests/test_ci_r2_canary.py",
-  ".github/workflows/ci-artifact-canary.yml",
   "tests/test_ci_r2_artifact.py",
   ".github/actions/download-test-product/action.yml",
   "scripts/ci/measure-r2-artifact-run.py",
@@ -1379,7 +1416,17 @@ job = "linux"
 timeout = 300
 title = "Tooling tests 5 (measure, checkup, packaging and web routing scripts)"
 about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-ci-step-table, those the change reaches"
-inputs = ["**"]
+# `**` routes every change in the post-merge batch; on a pull request (--pr-scope) a whole-tree input routes
+# nothing, so the named inputs are what run tt-ci-step-table there when the table, a workflow or its rules change.
+inputs = [
+  "**",
+  "ci/steps.toml",
+  "ci/run",
+  ".github/workflows/*",
+  "scripts/ci/ci_steps.py",
+  "scripts/ci/web_subareas.py",
+  "tests/test_ci_step_table.py",
+]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
 sel=all
@@ -3995,7 +4042,7 @@ selected=()
 # A pure app FFI re-pin runs only the handler coverage suite (cmux_next_route.py pure_ffi_repin).
 if grep -qx 'ffi_repin=true' "$CI_TOOLS/fast-tiers.txt"; then selected=(--only "app handler coverage"); fi
 # Otherwise only the suites (and the package builds) the change reaches run; the post-merge batch runs every suite
-# (cmux-next-fast-tier-batch.yml). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
+# (cmux-next-pr-pipeline-mac-batch.yml sets it to `0`). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
 if [ ${#selected[@]} -eq 0 ] && [ "${CI_FAST_TIER_PR_SCOPE:-1}" != 0 ] && [ -n "${CI_PATHS_FILE:-}" ]; then
   selected=(--changed-files "$CI_PATHS_FILE")
 fi
