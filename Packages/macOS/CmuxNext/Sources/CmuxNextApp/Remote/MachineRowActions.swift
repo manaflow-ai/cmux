@@ -48,16 +48,6 @@ extension AcpmuxPersonLine: JoinedDialLine {}
         }
     }
 
-    /// The registered action of a joined machine's menu row (`JoinedMachineActionCatalog`).
-    static func actionID(_ action: JoinedMachineAction) -> ActionID { ActionID(rawValue: "machine.joined.\(action.rawValue)") }
-
-    /// A joined machine's "…" menu: the registry's rows for it, run on its id with the row it opened
-    /// on (`row`, where Check records its result).
-    static func joinedMenu(_ machine: JoinedMachine, rowID: String, registry: ActionRegistry) -> NSMenu {
-        registry.makeContextMenu(for: .joinedMachine, target: ActionTargetRef(kind: .machine, id: machine.id),
-                                 arguments: ["row": .string(rowID)])
-    }
-
     static func bindJoinedActions(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         bindJoinedActions(into: registry, store: { [weak services] in services?.joinedMachines },
@@ -79,7 +69,7 @@ extension AcpmuxPersonLine: JoinedDialLine {}
             return store()?.machines.first { $0.id == id }
         }
         for action in JoinedMachineAction.allCases {
-            let id = actionID(action)
+            let id = action.actionID
             // Check opens its checklist and Revoke its question on this turn; Rotate starts at once.
             // The platform's answers come later, through the store (the row's spinner and caption).
             registry.bindEffect(id, unavailable: { labsOn() ? nil : JoinedMachineAction.labsOff }, effect: { invocation in
