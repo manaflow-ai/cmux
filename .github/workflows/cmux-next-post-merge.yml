@@ -361,6 +361,8 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+      # A probe of one red leg ('gallery-health / health (8)') renders that leg alone; a batch renders every leg.
+      job: ${{ inputs.mode == 'probe' && inputs.job || '' }}
       # Judged against the last judged batch's head (a probe: its known-good commit), so only a red new since
       # then fails; the standing reds are listed by name in its summary.
       base: ${{ needs.plan.outputs.base }}
