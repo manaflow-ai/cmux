@@ -265,6 +265,28 @@ class RouterTest(unittest.TestCase):
         self.assertEqual(job["name"], u.GATE_JOB)
         self.assertIn("needs.route.outputs.ui_status == 'pending'", job["if"])
         self.assertIn("ui_proof_verdict.py gate", job["steps"][-1]["run"])
+        # The gate reads with the same pool tokens the post falls back through (a spent github.token is a 403).
+        self.assertIn("TOKENS", job["steps"][-1]["env"])
+
+    def test_gate_reads_past_a_refused_token(self) -> None:
+        """cmux#53616: github.token got 403 on every read, so the gate stayed 'not read' through reruns while
+        the pool tokens could read."""
+        seen = []
+
+        def gate(repo, pr, sha, token, bots):
+            seen.append(token)
+            if token == "spent":
+                raise OSError("HTTP Error 403: Forbidden")
+            return "success", "read with " + token
+
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "spent", "TOKENS": "spent pool1 pool2"}):
+            tokens = u.read_tokens()
+        self.assertEqual(tokens, ["spent", "pool1", "pool2"])
+        self.assertEqual(u.gate_any("r", "1", HEAD, tokens, [], gate=gate), ("success", "read with pool1"))
+        self.assertEqual(seen, ["spent", "pool1"])
+        state, desc = u.gate_any("r", "1", HEAD, ["spent"], [], gate=gate)
+        self.assertEqual(state, "error")  # every token refused: unread is never a pass
+        self.assertIn("rerun this job", desc)
 
 
 if __name__ == "__main__":

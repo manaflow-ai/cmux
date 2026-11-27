@@ -385,6 +385,31 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
     return verdict(need, body, records, ui, pr)
 
 
+def read_tokens() -> list[str]:
+    """GH_TOKEN first, then the TOKENS the status post already falls back through, each once. The job's own
+    github.token is refused (403) when the repo's GITHUB_TOKEN budget is spent; one refused token must not leave
+    the gate unread when a pool token can still read."""
+    out: list[str] = []
+    for t in [os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "",
+              *os.environ.get("TOKENS", "").split()]:
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
+def gate_any(repo: str, pr: str, sha: str, tokens: list[str], bots: list[str], gate=None) -> tuple[str, str]:
+    """gate_now with each token in turn; error (never a pass) only when every token's read failed."""
+    gate = gate or gate_now
+    last: Exception | None = None
+    for token in tokens:
+        try:
+            return gate(repo, pr, sha, token, bots)
+        except Exception as e:  # noqa: BLE001 - the next token; unread stays an error state
+            print(f"{STATUS_CONTEXT}: read refused ({type(e).__name__}: {e})", file=sys.stderr)
+            last = e
+    return "error", f"UI proof not read ({type(last).__name__ if last else 'no token'}): rerun this job"
+
+
 def rerun_gate(repo: str, sha: str) -> str:
     """Rerun the PR's ui proof status job at SHA (gh, the brokered CLI on a fleet host) so it reads a new record."""
     def gh(*args):
@@ -475,15 +500,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "gate":
         repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", ""), os.environ.get("SHA", "")
-        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+        tokens = read_tokens()
         bots = [b for b in os.environ.get("PROOF_RECORD_BOTS", proof_record.DEFAULT_BOTS).split(",") if b]
-        if not (repo and pr and sha and token):
+        if not (repo and pr and sha and tokens):
             print("error\tUI proof not read: REPO, PR, SHA and GH_TOKEN are needed")
             return 0
-        try:
-            state, desc = gate_now(repo, pr, sha, token, bots)
-        except Exception as e:  # noqa: BLE001 - unread is an error state, never a pass
-            state, desc = "error", f"UI proof not read ({type(e).__name__}): rerun this job"
+        state, desc = gate_any(repo, pr, sha, tokens, bots)
         print(f"{state}\t{desc}")
         return 0
     if args.cmd == "record":
