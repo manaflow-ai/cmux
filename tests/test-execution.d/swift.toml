@@ -34,6 +34,10 @@ path = "tests/test_swift_test_execution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_swift_test_products.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_swift_testing_require_not_nested.py"
 lane = "linux-guard"
 
