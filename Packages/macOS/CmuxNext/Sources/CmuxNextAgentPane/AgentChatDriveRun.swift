@@ -66,8 +66,9 @@ struct DriveRun {
             let before = try await Self.scrollTop(view)
             let stopped = try await wheelTicks(wheel, at: point, view: view, input: input, person: person, release: release,
                                                started: started, stop: stop)
-            // The page's own scroll, once WebKit has handled what was sent: what the ticks really moved.
-            await input.settle()
+            // The page's own scroll, once WebKit has handled what was sent: what the ticks really moved. The wait
+            // ends at `stop` too (an occluded window would run both its bounds); with none left, the page is read as is.
+            await input.settle(before: stop)
             if let before, let after = try await Self.scrollTop(view) { scrolled = after - before }
             if stopped { return }
         }
