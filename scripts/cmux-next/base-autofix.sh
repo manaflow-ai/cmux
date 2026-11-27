@@ -55,6 +55,9 @@
 #     lock stale through a path dependency: eb4f3eb1d94 (a direct push) changed
 #     cmux-tui/Cargo.toml, and cmux-app-ffi's lock failed --locked on every pull
 #     request until #40883. Only Cargo.lock files are written.
+#   - the daemon ABI surface: cmux-tui/spec/api-compat.surface.json, refreshed with --sdk
+#     by api-compat-check --write only when breaks have rules and the fixtures pass.
+#     Frozen surfaces are skipped; a failed check keeps the incoming surface.
 #   - the acpmux protocol IR and ABI surface: cmux-tui/crates/acpmux/spec/acpmux-protocol.json and
 #     acpmux-abi.surface.json, written by acpmux's own protocol tests with ACPMUX_PROTOCOL_BLESS=1
 #     (with --acpmux-ir). The surface is written only when every ABI break has a rule in
@@ -561,6 +564,32 @@ if (( locks )); then
     python3 -I "$script_dir/cargo-locks.py" fix --repo "$repo" | grep -E '^(fixed|left): ' || true
   else
     echo "left: Cargo locks not checked (no cargo on PATH)"
+  fi
+fi
+
+# 5c. The daemon ABI surface follows the same SDK schema as the bindings. Run after lock repair,
+# using the checker's write mode: it refuses uncovered breaks and invalid compatibility fixtures.
+# Keep the incoming bytes on failure, including an earlier repair or an uncommitted edit.
+if (( sdk )) && [[ -f "$repo/cmux-tui/crates/cmux-api-compat/Cargo.toml" ]]; then
+  daemon_surface=cmux-tui/spec/api-compat.surface.json
+  if frozen "$daemon_surface"; then
+    echo "skipped (frozen): $daemon_surface"
+  elif ! command -v cargo >/dev/null 2>&1; then
+    echo "left: $daemon_surface not refreshed (no cargo on PATH)"
+  elif [[ ! -f "$repo/$daemon_surface" ]]; then
+    echo "left: $daemon_surface missing (the compatibility baseline must exist before refresh)"
+  else
+    abi_before="$(mktemp)" abi_log="$(mktemp)"
+    cp "$repo/$daemon_surface" "$abi_before"
+    if (cd "$repo/cmux-tui" && cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write >"$abi_log" 2>&1); then
+      if ! cmp -s "$abi_before" "$repo/$daemon_surface"; then
+        echo "fixed: refreshed $daemon_surface"
+      fi
+    else
+      cp "$abi_before" "$repo/$daemon_surface"
+      echo "left: $daemon_surface not refreshed (api-compat-check refused; check spec/api-compat.json and spec/api-compat-fixtures.json): $(grep -m1 -E 'api-compat-check:|^error' "$abi_log" || tail -n 1 "$abi_log")"
+    fi
+    rm -f "$abi_before" "$abi_log"
   fi
 fi
 

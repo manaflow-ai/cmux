@@ -7,7 +7,7 @@ pub use crate::cli::command_harness::{CodexRuntimeCmd, HarnessCmd, SecretCmd};
 pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::command_new::NewArgs;
 pub use crate::cli::command_session::{
-    InboxArgs, InboxCmd, ListenCmd, SendNotice, SendRelay, SendThread, SessionCmd,
+    AutoSettleMode, InboxArgs, InboxCmd, ListenCmd, SendNotice, SendRelay, SendThread, SessionCmd,
     SessionInboxOpts, SessionInboxTarget,
 };
 pub use crate::cli::task::BriefsCmd;
@@ -904,6 +904,8 @@ pub enum Command {
         ttl: Option<u64>,
     },
     #[command(hide = true)]
+    UnsettleCmd { session: String },
+    #[command(hide = true)]
     SessionSearch(crate::cli::session_search::SearchArgs),
     #[command(hide = true)]
     RulesCmd {
@@ -1693,6 +1695,35 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Tag { session, assignments, remove, ttl } => {
                 Command::TagCmd { session, assignments, remove, ttl }
             }
+            // The tags `hub/auto_settle.rs` reads: archived with a reason, and the override.
+            SessionCmd::Settle { session } => Command::TagCmd {
+                session,
+                assignments: vec![
+                    format!("archived={}", crate::store::now_ms()),
+                    format!(
+                        "{}={}",
+                        crate::hub::auto_settle::SETTLED_TAG,
+                        crate::hub::auto_settle::Reason::Manual.as_str()
+                    ),
+                ],
+                remove: vec!["unsettled".into()],
+                ttl: None,
+            },
+            SessionCmd::Unsettle { session } => Command::UnsettleCmd { session },
+            SessionCmd::AutoSettle { session, mode } => match mode {
+                AutoSettleMode::Never => Command::TagCmd {
+                    session,
+                    assignments: vec!["autoSettle=never".into()],
+                    remove: vec![],
+                    ttl: None,
+                },
+                AutoSettleMode::Follow => Command::TagCmd {
+                    session,
+                    assignments: vec![],
+                    remove: vec!["autoSettle".into()],
+                    ttl: None,
+                },
+            },
             SessionCmd::Limits { session, max, clear } => {
                 Command::LimitsCmd { session, max, clear }
             }

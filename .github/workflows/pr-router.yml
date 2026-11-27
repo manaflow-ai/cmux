@@ -99,6 +99,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/cmux-machine-channel-pr-plan.sh
             scripts/ci/cmux_machine_channel_head_built.py
+            scripts/ci/gh_http.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
             scripts/ci/ios_fast_verdict.py
