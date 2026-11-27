@@ -1,0 +1,330 @@
+[package]
+name = "cmux-tui-lib"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+# The browser names the client knows (src/cli/setup/browser_import.rs).
+build = "build.rs"
+description = "The cmux-tui program as the `cmux_tui` library; the cmux-tui package holds its binaries and integration tests"
+# The sources are ../cmux-tui/src. This package owns the library, its unit tests
+# and cmux-tui-hotpatch; the cmux-tui package owns the other binaries and tests.
+autotests = false
+autobins = false
+autobenches = false
+autoexamples = false
+
+[lints]
+workspace = true
+
+[features]
+default = []
+iroh-transport = ["cmux-remote/iroh-transport"]
+# Windows only (cx-w0uha): build cmux-tui.exe as a thin launcher that loads
+# the whole program from cmux_tui.dll beside it. The DLL is the library
+# target built with `cargo rustc -p cmux-tui-lib --lib --crate-type cdylib`.
+# Windows Defender scans every large image in a new shell's process lineage
+# when PowerShell 7 starts (about 470 ms per terminal for the 41 MB daemon);
+# a loaded DLL is not scanned that way. Without this feature cmux-tui.exe is
+# the whole program on every platform (dev builds, tests).
+# The DLL is the whole daemon, so it carries the `identify` reply itself (cmux-tui-core
+# server/identify_reply.rs); the thin executable installs nothing.
+# The DLL has no cmux-tui binary to install the build identity, so it compiles it in.
+windows-thin-exe = ["cmux-tui-core/bundled-identify", "dep:cmux-build-identity"]
+# Debug only: patch the running daemon in place under `dx serve --hot-patch`
+# (cmux-tui-core/src/hotpatch.rs). No shipped build enables it.
+# It also builds cmux-terminal-client: dx 0.7.10 replays every workspace crate that
+# depends on an edited one, and fails on one its first build never compiled.
+hotpatch = [
+    "cmux-tui-core/hotpatch",
+    "cmux-tui-core/bundled-identify",
+    "dep:cmux-terminal-client",
+    "dep:cmux-build-identity",
+]
+# Measurement only: the daemon's heap by allocation site (dhat), written to the file
+# CMUX_TUI_DHAT_OUT names when it exits (src/heap_profile.rs). No shipped build enables it.
+dhat-heap = ["dep:dhat"]
+
+# The whole program. ../cmux-tui/src/main.rs stays the crate root (its dispatch
+# tables are where they always were); the cmux-tui binary (cmux-tui package) is
+# a small entry point that installs the build identity and calls
+# `cmux_tui::main`, or, with `windows-thin-exe` on Windows, loads the program
+# from cmux_tui.dll. The library is its own package so that cmux-build-identity,
+# whose build script reruns on every source edit, is not its dependency: an
+# edit to a binary relinks without recompiling it (src/build_identity.rs).
+[lib]
+name = "cmux_tui"
+path = "../cmux-tui/src/main.rs"
+
+# `hotpatch` only: the whole program compiled as one binary crate, for
+# `dx serve --hot-patch -p cmux-tui-lib --bin cmux-tui-hotpatch`. dx 0.7.10 never replays the
+# tip package's own library, so a cmux-tui binary that links the `cmux_tui`
+# library fails to patch an edit in a dependency (E0460, a stale rlib).
+[[bin]]
+name = "cmux-tui-hotpatch"
+path = "../cmux-tui/src/main.rs"
+required-features = ["hotpatch"]
+
+[dependencies]
+tempfile = "3"
+ignore.workspace = true
+cmux-json.workspace = true
+cmux-intent.workspace = true
+cmux-egress.workspace = true
+cmux-lifeline.workspace = true
+cmux-build-space.workspace = true
+cmux-cloud-client.workspace = true
+# `cmux vm new --provider gcp`'s sizes (args::create_size), the app's create's table, and
+# `cmux vm new --size` headless: the app's size ladder (args.rs CREATE_SIZES).
+cmux-cloud-handlers.workspace = true
+cmux-apps.workspace = true
+cmux-cloud-environment.workspace = true
+cmux-cloud-machine.workspace = true
+cmux-cloud-disk.workspace = true
+cmux-cloud-wire.workspace = true
+# `cmux chat --repo`: the repository spec `cloud new-machine --repo` reads (cli/chat_start/local_repo.rs).
+cmux-cloud-start-core.workspace = true
+cmux-tailnet-join.workspace = true
+ghostty-vt.workspace = true
+cmux-theme-tokens.workspace = true
+png.workspace = true
+# `slides`: a Markdown deck compiled to the deck page (cli/mcp/md_deck.rs); already linked for
+# cmux-conversation, no new crate.
+pulldown-cmark = { version = "0.13", default-features = false }
+cmux-tui-core.workspace = true
+cmux-palette-ranker.workspace = true
+cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
+# The held remote tree (session/remote/held_tree.rs).
+cmux-tag-cache.workspace = true
+# The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
+cmux-focus-core.workspace = true
+# The daemon client every SDK user shares (cli/chief/link.rs talks through it).
+cmux-sdk = { path = "../../bindings/rust", default-features = false }
+# Only for `hotpatch` (see the feature).
+cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
+cmux-git.workspace = true
+# The three-tree sync rule and the synced-revision store (link sync pull, base.rs).
+cmux-sync.workspace = true
+cmux-migrate.workspace = true
+cmux-conversation.workspace = true
+cmux-process.workspace = true
+cmux-scope.workspace = true
+# `cmux vm`: the cmux VM API CLI (workers/cmux-vm/cli), linked in process so the
+# bundle needs no cmux-vm binary. Its TLS rides this crate's rustls (ring).
+cmux-vm = { path = "../../../workers/cmux-vm/cli/crates/cmux-vm", default-features = false }
+# `cmux vm token create`'s mint rules, shared with the app (cli/vm.rs `mint_exit`).
+cmux-cloud-config.workspace = true
+# `cmux vm pool`: the CI runner pool surge and idle pause (cli/vm.rs).
+cmux-vm-pool.workspace = true
+cmux-api-compat.workspace = true
+# `cmux settings list|schema|validate`: the settings schema and owner state.
+cmux-config.workspace = true
+# `cmux pack`: theme packs read, checked, compiled and swapped.
+cmux-theme-pack.workspace = true
+cmux-customize.workspace = true
+cmux-customize-recipes.workspace = true
+# `cmux app web-pieces` (cli/app/web_pieces.rs): the signed per-piece switch file of web updates.
+cmux-web-pieces.workspace = true
+cmux-usage-patterns.workspace = true
+# `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.
+cmux-app-manifest.workspace = true
+notify.workspace = true
+# `cmux agent hooks` and the hook paths the Claude wrapper reads.
+cmux-tui-hooks.workspace = true
+# `cmux agent-config`: Claude Code's and Codex's own MCP servers, skills and slash commands.
+cmux-agent-customize.workspace = true
+cmux-tui-cdp.workspace = true
+cmux-tui-machine-agent-protocol.workspace = true
+cmux-tui-machine-protocol.workspace = true
+# `cmux server …`, the machine server verbs (plans/cmux-next/server.md).
+cmux-server.workspace = true
+cmux-server-core.workspace = true
+ratatui.workspace = true
+crossterm = { workspace = true, features = ["serde", "event-stream"] }
+crossbeam-channel.workspace = true
+anyhow.workspace = true
+dhat = { version = "0.3", optional = true }
+bytes.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+unicode-normalization.workspace = true
+serde.workspace = true
+# raw_value: `cmux mcp serve` indexes the embedded v2 catalog without parsing it into one
+# tree that each agent's server would hold for its whole life (cli/mcp/v2_tools.rs).
+serde_json = { workspace = true, features = ["raw_value"] }
+cmux-panic-log.workspace = true
+# `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
+regex.workspace = true
+# `cmux mcp serve` code mode: `cmux_exec` scripts run in an embedded engine.
+rquickjs.workspace = true
+toml.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+toml_edit.workspace = true
+glob.workspace = true
+libc.workspace = true
+# glibc arena cap at process start (malloc_arenas.rs).
+cmux-tui-platform.workspace = true
+fs4.workspace = true
+smallvec.workspace = true
+zeroize.workspace = true
+terminput.workspace = true
+terminput-crossterm.workspace = true
+parking_lot.workspace = true
+sha2.workspace = true
+# `cmux link sync pull` merges a text file both sides changed by line.
+diffy.workspace = true
+uuid.workspace = true
+wait-timeout.workspace = true
+# Verifies the signed invite-wave flags (feature_flags.rs); tests sign with it.
+ring.workspace = true
+# `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md), unix
+# only; on every platform, the tailnet CLI wrapper `remote_host` shares
+# (acpmux::tailnet). `-p acpmux` checks on Windows in the same CI job.
+# Without its `build-id` feature: this crate installs acpmux's build id at
+# start (acpmux-build-id docs), so a new stamp does not recompile acpmux.
+acpmux = { path = "../acpmux", default-features = false }
+acpmux-build-id = { path = "../acpmux-build-id" }
+# acpmux's terminal UI, its own crate (acpmux is headless): main installs it at start, so
+# `cmux acp attach` (the app's chat-in-a-terminal-tab, `acp.rs` `chat_tab_command`) and the
+# bundle's `acpmux` symlink open it (acpmux `src/tui_entry.rs`).
+acpmux-tui = { path = "../acpmux-tui" }
+cmux-autocloud = { path = "../cmux-autocloud" }
+# A device row's kind and glyph (`devices/model.rs`).
+cmux-device-kind = { path = "../cmux-device-kind" }
+
+# The hidden `__computer-use-worker` mode (computer_use_worker.rs): the Linux
+# and Windows Computer Use worker the daemon supervises. macOS runs it in the
+# signed cmux Remote host instead.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+cmux-computer-use = { workspace = true, features = ["desktop", "server"] }
+
+[target.'cfg(unix)'.dependencies]
+# The UI-loop watchdog's stack sample of the loop thread (ui_watchdog/sampler.rs); the lockfile
+# already has it through other crates.
+backtrace = "0.3"
+# The browser host and the app host run from this binary, chosen by argv[0]
+# (`cmux-browser-host`, `cmux-app-host` links beside bin/cmux; `main` in
+# src/main.rs): one copy of std, serde and QuickJS instead of three.
+cmux-browser-host = { path = "../cmux-browser-host" }
+# The app's acpmux is this binary (bin/acpmux aliases bin/cmux), so it carries acpmux's shipping
+# hub carrier here (scripts/ci/acpmux-build-features.sh); cmux-remote is below already.
+acpmux = { path = "../acpmux", default-features = false, features = ["hub-carrier"] }
+cmux-app-host = { workspace = true, features = ["engine"] }
+# `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
+cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
+cmux-cloud-api.workspace = true
+# `cmux cloud journey` (cli/cloud_journey.rs): the agent test account's password sign-in.
+cmux-stack-auth.workspace = true
+# `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
+# unix files and processes, so the crate does not build for Windows.
+cmux-automations.workspace = true
+cmux-holder.workspace = true
+# `cmux carrier supervise`: the serve socket's lease between supervisors (carrier/supervise.rs).
+cmux-file-lock.workspace = true
+cmux-install-check.workspace = true
+# Projected folders (link/sync_cli/project.rs): the manifest and the stream the machine reads through.
+cmux-projection.workspace = true
+cmux-no-checkout.workspace = true
+# `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
+cmux-vnc.workspace = true
+flate2.workspace = true
+# `cmux customize use pr:N` unpacks a published web bundle archive (cli/customize/pr.rs).
+tar.workspace = true
+# `cmux host …`, the machine supervisor and process roles (server.md 5.1).
+cmux-host.workspace = true
+# `cmux app try`: the Screen Sharing helper a live try swaps in is checked against the installed
+# helper's designated requirement, as the share host's staging checks it (cli/app/try_cmd/helper.rs).
+cmux-signed-bundle.workspace = true
+# Reads the enclosing app bundle's Info.plist (app_identity.rs).
+plist = "1.10"
+# The build identity reaches the library at run time from the binary
+# (src/build_identity.rs), so an edit does not recompile this library. Only
+# the DLL and hotpatch builds, which have no such binary, compile it in.
+cmux-build-identity = { workspace = true, optional = true }
+cmux-host-budget.workspace = true
+cmux-remote.workspace = true
+cmux-braid-path.workspace = true
+cmux-remote-protocol.workspace = true
+cmux-wg.workspace = true
+cmux-link.workspace = true
+cmux-agent-pane-policy.workspace = true
+cmux-unix-socket.workspace = true
+x25519-dalek.workspace = true
+tokio.workspace = true
+# Machine spend readout: one small JSON GET every few minutes from inside a
+# Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.
+# `stream`: attachment files upload from disk, never read whole.
+reqwest = { workspace = true, features = ["stream"] }
+tempfile = "3"
+rustls.workspace = true
+url.workspace = true
+async-trait.workspace = true
+# The cloud conversations proxy (`cloud-conversations-v1`): cmux.wire/1
+# sockets to the cmux Cloud API. Both are already in the graph via acpmux.
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+# cmux NEXT's Chief home adoption copies live SQLite databases with
+# `VACUUM INTO` (build_adopt/copy.rs); already in the graph via cmux-tui-core.
+rusqlite.workspace = true
+# `cmux machine add|list`: the platform's RFC 3339 times; already in the graph via acpmux.
+cmux-chat-index.workspace = true
+# `cmux repro` (cmuxterm-hq#23808): repro capsules, replayed on a Cloud machine by the journey.
+cmux-repro = { path = "../cmux-repro" }
+
+[target.'cfg(windows)'.dependencies]
+tokio.workspace = true
+windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
+
+# Every file in tests/ is a module of this one test binary (tests/it/main.rs): a change below
+# cmux-tui links one test binary, not one per file (#56677). Its build lists the files.
+[build-dependencies]
+serde_json.workspace = true
+
+[dev-dependencies]
+# Unit tests see the real identity, as the binary installs it (src/build_identity.rs).
+cmux-build-identity.workspace = true
+# The library's tests serve `identify` in process, with no cmux-tui binary to install it
+# (cmux-tui-core server/identify_reply.rs).
+cmux-tui-core = { workspace = true, features = ["bundled-identify"] }
+cmux-build-space = { workspace = true, features = ["testing"] }
+# cli/ext tests: the fake daemon renders a mount with the real QuickJS app host.
+cmux-app-host = { workspace = true, features = ["engine"] }
+# carrier/rd_link.rs tests: the rd host's own parser reads what the dial sends.
+cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
+# tests/carrier_dial.rs: a real relay for `cmux carrier dial`.
+axum.workspace = true
+cmux-pty.workspace = true
+cmux-relay = { path = "../cmux-relay" }
+# Paused-clock tests of the Cloud dial's handshake wait.
+tokio = { workspace = true, features = ["test-util"] }
+cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# tests/terminal_restart_settled.rs: restores a GHOSTSNP READY the way the Mac surface does.
+ghostty-vt-sys = { workspace = true }
+# `read_timeout_or_ended`: a read timeout for a test socket whose peer can have closed first.
+cmux-tui-platform = { workspace = true, features = ["test-support"] }
+rusqlite.workspace = true
+# tests/mobile_link_conditions.rs: the phone's link profiles and shaper.
+cmux-fault.workspace = true
+# tests/composer_send_duress.rs: the phone composer's keyed Send under link duress.
+cmux-composer-send.workspace = true
+# cli/apps_store.rs: what opening a pane cmux draws itself runs (the sidebar and `app.open` share it).
+cmux-layout-reducer.workspace = true
+# cli/catalog_request_tests.rs: a palette request row sends what its CLI verb sends.
+cmux-action-catalog.workspace = true
+# Seeded-secret tests: the gate sends each payload path's request to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# `cmux carrier dial`: the device's Noise key in the login Keychain (carrier/noise_key.rs).
+# All three are already in the graph through rustls-native-certs.
+core-foundation = "0.10"
+security-framework = "3"
+security-framework-sys = "2"
+# Mac Screen on cmux.rd/1 (`cmux rd serve|connect`): capture, encode, input and the secure link.
+cmux-rd-host = { path = "../cmux-rd-host", default-features = false, features = ["link"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+# tests/checkout_free_bench.rs: the write side's GitHub stand-in.
+cmux-no-checkout = { workspace = true, features = ["mock"] }

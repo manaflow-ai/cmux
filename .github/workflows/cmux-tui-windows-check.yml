@@ -304,7 +304,7 @@ jobs:
           for targets in "-p cmux-tui-core -p cmux-tui -p acpmux" \
                          "-p acpmux --all-targets" \
                          "-p cmux-tui-core --lib --tests" \
-                         "-p cmux-tui --lib --bins --tests" \
+                         "-p cmux-tui-lib -p cmux-tui --lib --bins --tests" \
                          "-p cmux-host --lib --bins --tests" \
                          "-p cmux-browser-host --lib --bins" \
                          "-p cmux-browser-host --lib --profile test"; do

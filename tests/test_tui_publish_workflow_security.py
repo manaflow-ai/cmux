@@ -137,10 +137,10 @@ def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
     # The startup tests live in the cmux_tui library (src/main.rs since the
     # Windows thin-exe split); the cmux-tui bin's test binary has the same
     # cmux_tui-<hash> name and none of them.
-    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui/Cargo.toml").read_text()
-    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "src/main.rs"', cargo_toml)
+    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui-lib/Cargo.toml").read_text()
+    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "../cmux-tui/src/main.rs"', cargo_toml)
     assert re.search(
-        r"cargo test \\\s+-p cmux-tui --lib \\\s+"
+        r"cargo test \\\s+-p cmux-tui-lib --lib \\\s+"
         r"-p ghostty-vt --test terminal \\\s+"
         r"--locked --no-run --message-format=json",
         build,

@@ -572,7 +572,7 @@ fn every_config_write_goes_through_commit() {
     // them; this also reads every file here at test time (new ones included) for a hand-built
     // write of remote.json and a `Listener::Caller` outside enable and disable. A scan cannot
     // prove no write exists; it catches the plain ways, and review covers the rest.
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/remote_host");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmux-tui/src/remote_host");
     let mut scanned = 0;
     let mut callers = 0;
     let mut restarting = std::collections::BTreeSet::new();

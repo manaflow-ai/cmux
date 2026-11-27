@@ -587,11 +587,11 @@ jobs:
           # Cargo target selectors keep this startup shard from compiling the
           # unrelated workspace test harnesses. The selected targets map to
           # the cmux_tui-* and terminal-* binaries checked below. The startup
-          # tests live in the cmux_tui library (src/main.rs); the cmux-tui
+          # tests live in the cmux_tui library (cmux-tui-lib, src/main.rs); the cmux-tui
           # bin's test binary has the same cmux_tui-<hash> name and none of
           # them, so it is not built here.
           cargo test \
-            -p cmux-tui --lib \
+            -p cmux-tui-lib --lib \
             -p ghostty-vt --test terminal \
             --locked --no-run --message-format=json \
             > target/cargo-test-binaries.jsonl
@@ -1333,7 +1333,7 @@ jobs:
             remote_cli::tests::iroh_route_candidates_keep_query_hints_isolated \
             remote_runtime::tests::route_auth_capability_is_derived_from_the_local_provider_registry
           do
-            cargo test --locked -p cmux-tui --lib --features iroh-transport \
+            cargo test --locked -p cmux-tui-lib --lib --features iroh-transport \
               "$test_name" -- --exact --color never | tee "$RUNNER_TEMP/iroh-feature-test.log"
             grep -Fq 'test result: ok. 1 passed;' "$RUNNER_TEMP/iroh-feature-test.log"
           done

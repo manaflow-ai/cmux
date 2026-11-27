@@ -10,12 +10,14 @@ use cmux_json::JsonSet as _;
 
 #[cfg(unix)]
 mod acp;
+// This build's identity, installed by the binary (cmux-tui src/bin/cmux-tui.rs).
 #[cfg(unix)]
 mod agent_browser_provider;
 #[cfg(unix)]
 mod agent_computer_use;
 #[cfg(unix)]
 mod agent_mcp_choice;
+pub mod build_identity;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
@@ -1118,7 +1120,7 @@ fn build_stamp() -> cmux_tui_core::server::BuildStamp {
     // The source commit's time (`identify {revisions: true}`): what
     // `link machine update --if-older` orders two builds by.
     #[cfg(unix)]
-    let build_time = cmux_build_identity::BUILD_TIME;
+    let build_time = crate::build_identity::time();
     #[cfg(not(unix))]
     let build_time = 0;
     // Test seam, debug builds only: a daemon that reports another build time,
@@ -1161,8 +1163,8 @@ fn version_report_json() -> serde_json::Value {
     let stamp = build_stamp();
     #[cfg(unix)]
     let (build_identity, build_time, remote_protocol) = (
-        Some(cmux_build_identity::BUILD_IDENTITY),
-        cmux_build_identity::BUILD_TIME,
+        Some(crate::build_identity::identity()),
+        crate::build_identity::time(),
         Some(u64::from(cmux_remote_protocol::REMOTE_PROTOCOL_VERSION)),
     );
     #[cfg(not(unix))]
@@ -2054,7 +2056,7 @@ fn run_main() {
     // Terminal hosts this process starts run from the slim cmux-tui-host
     // beside it when that is this build (macOS; host_exe.rs).
     #[cfg(unix)]
-    cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
+    cmux_tui_core::host_exe::use_sibling_host(crate::build_identity::identity());
     // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux in
     // this process. It needs none of the mux's provider credentials or signal handlers.
     // `cmux share screens|start|stop|move …`: the screen shares, read and changed by this

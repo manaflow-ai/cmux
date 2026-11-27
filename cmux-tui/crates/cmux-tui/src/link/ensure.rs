@@ -50,7 +50,7 @@ const STATUS_BUDGET: Duration = Duration::from_secs(3);
 
 /// The build of this binary, which a link reports in `link.status`.
 fn build() -> &'static str {
-    cmux_build_identity::BUILD_IDENTITY
+    crate::build_identity::identity()
 }
 
 /// The write end of the readiness pipe that `ensure` gave `serve`

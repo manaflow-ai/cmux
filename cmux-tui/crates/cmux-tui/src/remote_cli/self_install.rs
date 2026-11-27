@@ -61,8 +61,8 @@ pub(super) fn run_update_need(args: &[String]) -> anyhow::Result<()> {
             .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
     };
     let local = BuildFacts {
-        commit: Some(BUILD_IDENTITY.to_owned()),
-        time: cmux_build_identity::BUILD_TIME,
+        commit: Some(crate::build_identity::identity().to_owned()),
+        time: crate::build_identity::time(),
         capabilities: Some(
             cmux_tui_core::server::build_capabilities().into_iter().map(str::to_owned).collect(),
         ),
@@ -96,9 +96,9 @@ pub(super) fn run_probe(args: &[String]) -> anyhow::Result<()> {
         "version": env!("CARGO_PKG_VERSION"),
         "distribution_version": DISTRIBUTION_VERSION,
         "npm_bootstrap_version": NPM_BOOTSTRAP_VERSION,
-        "build_identity": BUILD_IDENTITY,
+        "build_identity": crate::build_identity::identity(),
         // cx-3r9mt: what `remote update-need` orders builds by.
-        "build_time": cmux_build_identity::BUILD_TIME,
+        "build_time": crate::build_identity::time(),
         "remote_protocol": REMOTE_PROTOCOL_VERSION,
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,

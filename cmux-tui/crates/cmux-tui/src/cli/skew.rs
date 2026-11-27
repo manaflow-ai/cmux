@@ -303,7 +303,7 @@ fn tunnel_ssh_destination(socket: &Path) -> Option<String> {
 }
 
 pub(super) fn own_build_id() -> &'static str {
-    cmux_build_identity::BUILD_IDENTITY
+    crate::build_identity::identity()
 }
 
 fn team_check(path: &Path) -> Result<(), String> {

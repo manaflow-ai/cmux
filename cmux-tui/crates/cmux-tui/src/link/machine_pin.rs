@@ -35,7 +35,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         .map(|runtime| {
             runtime.block_on(cmux_remote::pinned_linux_pin(
                 CLOUD_ARCH,
-                cmux_build_identity::BUILD_IDENTITY,
+                crate::build_identity::identity(),
             ))
         });
     let line = match resolved {

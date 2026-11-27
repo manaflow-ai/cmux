@@ -70,8 +70,8 @@ pub(crate) enum Outcome {
 /// This build's own facts, in the shape `remote-probe --build-facts` reports.
 pub(crate) fn own_facts() -> BuildFacts {
     BuildFacts {
-        commit: Some(cmux_build_identity::BUILD_IDENTITY.to_owned()),
-        time: cmux_build_identity::BUILD_TIME,
+        commit: Some(crate::build_identity::identity().to_owned()),
+        time: crate::build_identity::time(),
         capabilities: Some(
             cmux_tui_core::server::build_capabilities().into_iter().map(str::to_owned).collect(),
         ),

@@ -4277,7 +4277,7 @@ fn crate_sources(dir: &Path, found: &mut Vec<PathBuf>) {
 /// the client directly; production code may not.
 #[test]
 fn every_provider_mutate_call_goes_through_send_mutation() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmux-tui/src");
     let mut sources = Vec::new();
     crate_sources(&root, &mut sources);
     let mut bypasses = Vec::new();

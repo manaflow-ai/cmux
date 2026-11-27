@@ -563,7 +563,7 @@ fn a_recorded_widget_scene_is_checked_as_a_widget() {
 /// `cmux-app-host/tools/cold-model.ts`, pass registry review's design check with no warning.
 #[test]
 fn cold_model_widgets_pass_the_design_check() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cli/ext/cold_model");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../cmux-tui/src/cli/ext/cold_model");
     let mut dirs: Vec<_> = std::fs::read_dir(&root)
         .expect("the cold-model runs")
         .map(|entry| entry.expect("an entry").path())

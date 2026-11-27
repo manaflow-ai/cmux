@@ -357,7 +357,7 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
     // cmux-build-identity is a Unix-only dependency (Cargo.toml); a Windows
     // build has no stamped commit, so it installs the current NIGHTLY build.
     #[cfg(unix)]
-    let own = cmux_build_identity::BUILD_IDENTITY;
+    let own = crate::build_identity::identity();
     #[cfg(not(unix))]
     let own = "";
     let commit = if request.nightly { None } else { install_commit(own) };

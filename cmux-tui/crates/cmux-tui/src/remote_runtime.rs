@@ -1380,7 +1380,7 @@ async fn bootstrap_initial_ssh_route(
     let (destination, port) = ssh_bootstrap_destination(endpoint)?;
     let mut config = SshBootstrapConfig::defaults(
         destination,
-        cmux_build_identity::BUILD_IDENTITY,
+        crate::build_identity::identity(),
         crate::distribution::DISTRIBUTION_VERSION,
         crate::distribution::NPM_BOOTSTRAP_VERSION,
     );

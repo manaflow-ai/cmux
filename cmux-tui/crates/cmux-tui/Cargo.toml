@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "cmux-tui: tmux-like terminal multiplexer TUI backed by libghostty-vt"
+description = "cmux-tui: tmux-like terminal multiplexer TUI backed by libghostty-vt (the binaries and integration tests; the program is the cmux-tui-lib package)"
 # The integration tests are one binary, `it` (tests/it/main.rs), not one per file (#56677).
 autotests = false
 
@@ -14,50 +14,21 @@ workspace = true
 
 [features]
 default = []
-iroh-transport = ["cmux-remote/iroh-transport"]
-# Windows only (cx-w0uha): build cmux-tui.exe as a thin launcher that loads
-# the whole program from cmux_tui.dll beside it. The DLL is the library
-# target built with `cargo rustc -p cmux-tui --lib --crate-type cdylib`.
-# Windows Defender scans every large image in a new shell's process lineage
-# when PowerShell 7 starts (about 470 ms per terminal for the 41 MB daemon);
-# a loaded DLL is not scanned that way. Without this feature cmux-tui.exe is
-# the whole program on every platform (dev builds, tests).
-# The DLL is the whole daemon, so it carries the `identify` reply itself (cmux-tui-core
-# server/identify_reply.rs); the thin executable installs nothing.
-windows-thin-exe = ["cmux-tui-core/bundled-identify"]
-# Debug only: patch the running daemon in place under `dx serve --hot-patch`
-# (cmux-tui-core/src/hotpatch.rs). No shipped build enables it.
-# It also builds cmux-terminal-client: dx 0.7.10 replays every workspace crate that
-# depends on an edited one, and fails on one its first build never compiled.
-hotpatch = [
-    "cmux-tui-core/hotpatch",
-    "cmux-tui-core/bundled-identify",
-    "dep:cmux-terminal-client",
-]
-# Measurement only: the daemon's heap by allocation site (dhat), written to the file
-# CMUX_TUI_DHAT_OUT names when it exits (src/heap_profile.rs). No shipped build enables it.
-dhat-heap = ["dep:dhat"]
+# The library's features (crates/cmux-tui-lib/Cargo.toml documents them).
+# `hotpatch` is the library package's: `dx serve --hot-patch -p cmux-tui-lib --bin cmux-tui-hotpatch`.
+iroh-transport = ["cmux-tui-lib/iroh-transport"]
+windows-thin-exe = ["cmux-tui-lib/windows-thin-exe"]
+dhat-heap = ["cmux-tui-lib/dhat-heap"]
 
-# The whole program. src/main.rs stays the crate root (its dispatch tables are
-# where they always were); the cmux-tui binary is a small entry point that
-# calls `cmux_tui::main`, or, with `windows-thin-exe` on Windows, loads the
-# program from cmux_tui.dll.
-[lib]
-name = "cmux_tui"
-path = "src/main.rs"
+# The whole program is the `cmux_tui` library, in its own package
+# (crates/cmux-tui-lib; its sources stay in src/), so an edit to a binary or a
+# build identity change (cmux-build-identity's build script reruns on every
+# source edit) relinks the binaries without recompiling the library. Each
+# binary installs the identity into the library at start (src/build_identity.rs).
 
 [[bin]]
 name = "cmux-tui"
 path = "src/bin/cmux-tui.rs"
-
-# `hotpatch` only: the whole program compiled as one binary crate, for
-# `dx serve --hot-patch --bin cmux-tui-hotpatch`. dx 0.7.10 never replays the
-# tip package's own library, so a cmux-tui binary that links the `cmux_tui`
-# library fails to patch an edit in a dependency (E0460, a stale rlib).
-[[bin]]
-name = "cmux-tui-hotpatch"
-path = "src/main.rs"
-required-features = ["hotpatch"]
 
 [[bin]]
 name = "cmux-tui-hook"
@@ -75,6 +46,7 @@ name = "cmux-tui-host"
 path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
+cmux-tui-lib = { path = "../cmux-tui-lib" }
 tempfile = "3"
 ignore.workspace = true
 cmux-json.workspace = true
@@ -109,8 +81,6 @@ cmux-tag-cache.workspace = true
 cmux-focus-core.workspace = true
 # The daemon client every SDK user shares (cli/chief/link.rs talks through it).
 cmux-sdk = { path = "../../bindings/rust", default-features = false }
-# Only for `hotpatch` (see the feature).
-cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
 cmux-git.workspace = true
 # The three-tree sync rule and the synced-revision store (link sync pull, base.rs).
 cmux-sync.workspace = true
@@ -152,7 +122,6 @@ ratatui.workspace = true
 crossterm = { workspace = true, features = ["serde", "event-stream"] }
 crossbeam-channel.workspace = true
 anyhow.workspace = true
-dhat = { version = "0.3", optional = true }
 bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
@@ -247,8 +216,9 @@ cmux-host.workspace = true
 cmux-signed-bundle.workspace = true
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
-# The build identity (daemon skew, SSH re-bootstrap). Only this crate reads
-# it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
+# The build identity (daemon skew, SSH re-bootstrap). Only the binaries read
+# it and install it into the library (src/build_identity.rs), so an edit
+# recompiles neither cmux-remote nor the library (cmux-build-identity docs).
 cmux-build-identity.workspace = true
 cmux-host-budget.workspace = true
 cmux-remote.workspace = true

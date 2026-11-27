@@ -2914,7 +2914,7 @@ async fn reconnect_bootstraps_an_ssh_candidate_not_attempted_initially() {
         version: crate::distribution::DISTRIBUTION_VERSION.into(),
         distribution_version: Some(crate::distribution::DISTRIBUTION_VERSION.into()),
         npm_bootstrap_version: crate::distribution::NPM_BOOTSTRAP_VERSION.map(str::to_owned),
-        build_identity: Some(cmux_build_identity::BUILD_IDENTITY.into()),
+        build_identity: Some(crate::build_identity::identity().into()),
         remote_protocol: cmux_remote_protocol::REMOTE_PROTOCOL_VERSION,
         os: "test".into(),
         arch: "test".into(),

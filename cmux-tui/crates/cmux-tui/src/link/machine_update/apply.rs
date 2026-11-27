@@ -269,7 +269,7 @@ fn apply(args: &Args) -> (&'static str, String) {
                 .into(),
         );
     }
-    let own_build = cmux_build_identity::BUILD_IDENTITY;
+    let own_build = crate::build_identity::identity();
     if serving(|build| build == own_build, args.daemon_pid) {
         return ("updated", format!("the daemon runs {own_build}"));
     }
@@ -303,12 +303,12 @@ fn apply_store(args: &Args) -> (&'static str, String) {
             );
         }
     }
-    let build = cmux_build_identity::BUILD_IDENTITY;
+    let build = crate::build_identity::identity();
     let answer = cmux_process::Command::new("sudo")
         .args(["-n", "bash", "-c", STORE_INSTALL])
         .arg(&own)
         .arg(build)
-        .arg(cmux_build_identity::BUILD_TIME.to_string())
+        .arg(crate::build_identity::time().to_string())
         .stdin(cmux_process::Stdio::null())
         .output();
     let answer = match answer {
@@ -428,7 +428,7 @@ fn apply_in_place(
                 .into(),
         );
     }
-    let build = cmux_build_identity::BUILD_IDENTITY;
+    let build = crate::build_identity::identity();
     if !serving(|running| running == build, args.daemon_pid) {
         return restore_by("the new daemon did not serve", put_back, args.daemon_pid);
     }
@@ -883,7 +883,7 @@ fn restore_by(
         // SAFETY: as above.
         unsafe { libc::kill(pid, libc::SIGTERM) };
     }
-    let new_build = cmux_build_identity::BUILD_IDENTITY;
+    let new_build = crate::build_identity::identity();
     if serving(|build| build != new_build, old_pid) {
         ("rolled_back", format!("{why}; the previous binary serves again"))
     } else {
