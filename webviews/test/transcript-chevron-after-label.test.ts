@@ -47,7 +47,8 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     // A sender on another machine names it after its name ("codex-lane · studio-mac"), closed and
     // open, default and quiet looks: the chevron follows the machine's name, not the chip (Leo, 2026-11-27, on
     // "· gcp-agent-lane-19⌄": "these chevrons are too close dont we have any guidelines for these yet?").
-    { entry: "agent-pane.inbox-notice", variant: "notices-open" },
+    { entry: "agent-pane.message-line-look", variant: "opened" },
+    { entry: "agent-pane.message-line-look", variant: "quiet-sent-open" },
     { entry: "agent-pane.remote-sender", variant: "machine" },
     { entry: "agent-pane.remote-sender", variant: "machine-open" },
     { entry: "agent-pane.remote-sender", variant: "machine-open-quiet" },
