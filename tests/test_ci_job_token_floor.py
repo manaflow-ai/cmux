@@ -34,7 +34,9 @@ EXEMPT = {
     "nightly.yml:pick-classic-sign-runner": NIGHTLY_MAIN,
     "nightly.yml:prepare-nightly-variant": NIGHTLY_MAIN,
     "nightly.yml:publish-nightly": NIGHTLY_MAIN,
-    "actions-artifact-prune.yml:prune": "its own floor: stops at 50 calls left, deletes paced 0.4 s apart",
+    "storage-maintenance.yml:r2-binaries": "job route permits only the daily 07:53 schedule or manual dispatch; not hourly",
+    "storage-maintenance.yml:pr-media": "job route permits only the Monday 06:41 schedule or manual dispatch; not hourly",
+    "storage-maintenance.yml:actions-artifacts": "its own floor: stops at 50 calls left, deletes paced 0.4 s apart",
     "ci-cla-quota-rerun.yml:cla-quota-rerun": "its own floor: the free /rate_limit on github.token (RATE_TOKEN) "
                                               "first; reads and re-runs on it only above FLOOR_MIN while the "
                                               "glaeda-route App's hour is spent",
@@ -43,6 +45,12 @@ EXEMPT = {
     "ci-owned-pool-rescue.yml:rescue": "hosted_light_rescue.py reads the workflow token only above POOL_RESERVE",
     "ci-queue-janitor-watchdog.yml:watch": "one runs listing a tick to restart a stalled janitor",
     "cloud-journey-prod.yml:journey": "one gate read an hour and one issue write on a red journey",
+    "ci-main-full-suite.yml:dispatch": "the cmux-bot App first; github.token only on a failed mint, and its "
+    "calls (one branch read, at most one dispatch a tick) are the dispatch path the floor keeps calls for",
+    "ci-main-full-suite.yml:report": "runs on the three-hourly tick only (8 a day) and once per completed "
+    "full-suite run; its reads go out as the cmux-bot App (gh_app_token.sh --reads-only)",
+    "cmux-next-perf-cron-dispatch.yml:dispatch": "the cmux-bot App first; github.token only on a failed mint "
+    "or as spare reads (one runs listing and at most one dispatch a tick)",
     "cmux-next-post-merge-dispatch.yml:tick": "a dispatch path (two reads a tick); cmux#55829 moves it to the "
                                               "cmux bot App's own budget",
     "ios-appstore-upload.yml:decide": "one compare read an hour",

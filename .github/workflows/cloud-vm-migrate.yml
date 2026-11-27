@@ -85,7 +85,7 @@ jobs:
   migrate-staging:
     # A push has no inputs and migrates staging, then production.
     if: ${{ github.event_name == 'push' || inputs.target == 'staging' || inputs.target == 'production' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     needs: preflight
     environment: cloud-vm-staging
     defaults:
@@ -131,7 +131,7 @@ jobs:
 
   migrate-production:
     if: ${{ github.event_name == 'push' || inputs.target == 'production' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     needs: [preflight, migrate-staging]
     environment: cloud-vm-production
     defaults:

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -123,16 +124,37 @@ class GhError(subprocess.CalledProcessError):
         return f"{super().__str__()}: {(self.stderr or '').strip()[-400:]}"
 
 
+def _rate_limited(stderr: str | None) -> bool:
+    return bool(re.search(r"rate limit|secondary rate|abuse detection|HTTP 429", stderr or "", re.IGNORECASE))
+
+
 def _gh(*args: str, tries: int = 3) -> str:
     """Runs gh, retrying a failure (a 5xx, a timeout, a brief rate limit) after 5 s and 15 s.
 
+    A rate-limit refusal of the job token goes again at once on each token in GH_SPARE_TOKENS (the cmux-bot and
+    glaeda-route App tokens from .github/actions/spare-issue-tokens, each its own budget), as scripts/ci/gh-spare
+    does: run 45794727111's config step died on "API rate limit exceeded for installation" reading the
+    environment rule, so neither Apple check ran. A refused call was not applied, so a write may go again too.
     Writes pass tries=1: a create that GitHub applied but answered with an error must not run twice."""
+    spares = [t for t in os.environ.get("GH_SPARE_TOKENS", "").split() if t]
     for attempt in range(tries):
         try:
             return subprocess.run(["gh", *args], check=True, text=True, capture_output=True).stdout.strip()
         except subprocess.CalledProcessError as error:
+            last = error
+            for number, token in enumerate(spares if _rate_limited(error.stderr) else [], 1):
+                try:
+                    out = subprocess.run(["gh", *args], check=True, text=True, capture_output=True,
+                                         env={**os.environ, "GH_TOKEN": token}).stdout.strip()
+                except subprocess.CalledProcessError as spare_error:
+                    print(f"::warning::gh {' '.join(args[:2])} failed on spare token {number}: "
+                          f"{(spare_error.stderr or '').strip()[-200:]}")
+                    continue
+                print(f"::notice title=billing nightly::gh {' '.join(args[:2])} was rate limited on the job token; "
+                      f"sent it with spare token {number}")
+                return out
             if attempt == tries - 1:
-                raise GhError(error.returncode, error.cmd, error.output, error.stderr) from None
+                raise GhError(last.returncode, last.cmd, last.output, last.stderr) from None
             print(f"::warning::gh {' '.join(args[:2])} failed (try {attempt + 1} of {tries}): "
                   f"{(error.stderr or '').strip()[-200:]}; retrying")
             time.sleep(5 * 3 ** attempt)

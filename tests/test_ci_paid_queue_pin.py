@@ -76,6 +76,8 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("rcodesign-parity-proof.yml", "gatekeeper-reference"): SIGNING,
     ("rcodesign-parity-proof.yml", "sparkle"): SIGNING,
     ("signing-keychain-macos.yml", "real-import"): "imports a real certificate into a keychain to test the import itself",
+    ("cloud-mvp-nightly-readback.yml", "readback"):
+        "signs the production agent Stack account in; a secret-bearing job runs only on a throwaway VM",
     ("relay-tls.yml", "system-keychain"): "writes the System keychain's trust settings, which only a throwaway VM may",
     ("build-ghosttykit.yml", "build-ghosttykit"):
         "builds the published GhosttyKit against the macOS 15 SDK image and holds the Ghostty release token",

@@ -10,8 +10,8 @@ name: iOS App Review readiness
 # guideline lint, and the reviewer-path walk on iPhone, iPad and iPhone Duo.
 # The review-gate job dispatches that workflow on feat-cmux-next for the
 # feat-cmux-next head and takes its run's conclusion, as
-# ios-reliability-matrix.yml starts the matrix. It holds no secret: the gate
-# runs as feat-cmux-next's own run, and main's release key never reaches a
+# ios-reliability-matrix.yml starts the matrix. The dispatch uses an App token.
+# The gate runs as feat-cmux-next's own run, and main's release key never reaches a
 # workflow defined on another branch.
 #
 # A dispatched gate runs on refs/heads/feat-cmux-next, where its asc-validate
@@ -28,10 +28,15 @@ name: iOS App Review readiness
 # job ranks their JSON with the gate's report (app_review_gate.py report),
 # which blocks on every finding and on a check that left no result.
 #
-# No paths filter. One waiter at a time: a newer main push cancels the older
-# push run still waiting, and the newer run carries the verdict for the newest
-# feat-cmux-next (the gate judges feat-cmux-next's head, not the main commit,
-# so an older main push's wait answers the same question later). Until
+# No paths filter. One waiter at a time: the push run holding the group runs to
+# its verdict, and a newer main push waits pending behind it (no runner held);
+# a still newer push replaces that pending run, which ends cancelled, and the
+# pending run carries the verdict for the newest feat-cmux-next (the gate
+# judges feat-cmux-next's head, not the main commit). Until 2026-11-27 a newer
+# push cancelled the running waiter instead: main moves every few minutes and
+# a gate takes up to 2 h, so 34 of the 40 push runs to 11-27 00:11Z ended
+# cancelled, none passed, and the ios-app-store-live probe's readiness part
+# (no red on the last 10 main pushes) could never pass. Until
 # 2026-11-21 every main push held its own runner for up to 6 h polling the same
 # gate run: 28 waiters on 11-20 held 168 runner-hours and all timed out with no
 # verdict (CI 10x, T1; Leo, 2026-11-21 03:45Z: "clearly we need to be hitting a
@@ -51,7 +56,8 @@ on:
 
 concurrency:
   group: ${{ github.event_name == 'push' && 'ios-app-review-readiness-push' || format('ios-app-review-readiness-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  # Never cancel the running waiter: only the pending one is replaced (see the header).
+  cancel-in-progress: false
 
 permissions: {}
 
