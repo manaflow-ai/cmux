@@ -61,6 +61,7 @@ refuses and `swap` is the live route.
 - A PR into `feat-cmux-next` skips the gate unless it is labeled `full-ci`; the push after the merge runs it. A push or a `full-ci` PR fails only on a blocker that isn't in `known-blockers.json`. A fix removes its entry, and a PR that adds an entry is itself a blocker.
 - Every past rejection keeps a detector in `rejection-history.json`. When Apple rejects a build, add the rejection with the check that catches it.
 - `.github/workflows/ios-screenshots.yml` shoots the classic `ios/` app's listing, not the cmux-next app's.
+- How a person tests on their own iPhone (cmux INTERNAL, iPhone YOLO, cmux Dev, shake to report): [cmux-next-ios/TESTING-ON-YOUR-IPHONE.md](../../cmux-next-ios/TESTING-ON-YOUR-IPHONE.md). Send Leo or Aziz a PR preview with `-f yolo=PR` on `ios-internal-nightly-trigger.yml`.
 - TestFlight (`cmux INTERNAL`, `dev.cmux.app.internal`) builds come from `ios-internal-nightly.yml`. `cmux-next-ios/scripts/testflight-build.sh` uploads nothing without `--upload`.
 - A marketing version must be at least every version already uploaded: TestFlight orders by marketing version first, so a lower build processes but is never offered as an update.
 - Submit for App Review only when a person asks. Releasing an approved build live is a separate ask.

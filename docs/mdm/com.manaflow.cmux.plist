@@ -210,6 +210,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.</string>
+			<key>pfm_name</key>
+			<string>app.captureScreenshotGlobalHotKey</string>
+			<key>pfm_title</key>
+			<string>Capture Screenshot to Chat from Any App</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>cmux stays in the menu bar until a window opens.</string>
 			<key>pfm_name</key>
 			<string>app.hideDockIconWithoutWindows</string>
@@ -1254,6 +1266,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar.</string>
+			<key>pfm_name</key>
+			<string>computerUse.floatingPreview</string>
+			<key>pfm_title</key>
+			<string>Floating Live Preview</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock.</string>
 			<key>pfm_name</key>
 			<string>computerUse.whileLocked</string>
@@ -1511,6 +1535,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine.</string>
+			<key>pfm_name</key>
+			<string>cloud.useMyGitHubLogin</string>
+			<key>pfm_title</key>
+			<string>Use My GitHub Login on Cloud Machines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
 			<string>The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine.</string>
@@ -1542,6 +1578,18 @@
 			<string>cloud.turnCheckpoints</string>
 			<key>pfm_title</key>
 			<string>Save a Checkpoint Before Each Cloud Chat Turn</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Sources shows Add Folder, and a folder an agent asks for joins its chat. Copies are read-only; secret files never go.</string>
+			<key>pfm_name</key>
+			<string>cloud.addFolderLive</string>
+			<key>pfm_title</key>
+			<string>Add Folders to Running Cloud Chats</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1763,7 +1811,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>When one subscription runs out, a chat moves to another with the same model.</string>
 			<key>pfm_name</key>
@@ -1854,6 +1902,46 @@
 			<real>10000</real>
 			<key>pfm_title</key>
 			<string>Compact Cold Chats Above (Tokens)</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Moves a chat to Settled once every pull request it opened is merged or closed. Your next message brings it back.</string>
+			<key>pfm_name</key>
+			<string>agents.autoSettle.onMerge</string>
+			<key>pfm_title</key>
+			<string>Settle When Its Pull Request Merges</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Moves a chat to Settled once every pull request it opened was closed without a merge.</string>
+			<key>pfm_name</key>
+			<string>agents.autoSettle.onClose</string>
+			<key>pfm_title</key>
+			<string>Settle When Its Pull Request Closes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>Moves a chat to Settled after this many days with no activity. 0 never does. Running work, a pending question or a draft keeps it.</string>
+			<key>pfm_name</key>
+			<string>agents.autoSettle.idleDays</string>
+			<key>pfm_range_max</key>
+			<real>365</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Settle After Idle Days</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -2774,6 +2862,30 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>~/.cmux/worktrees</string>
+			<key>pfm_description</key>
+			<string>Where cmux makes worktrees for local chats, forks and lanes, one folder per project.</string>
+			<key>pfm_name</key>
+			<string>worktrees.location</string>
+			<key>pfm_title</key>
+			<string>Worktree Folder</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>cmux/</string>
+			<key>pfm_description</key>
+			<string>The start of each new worktree's branch name, such as cmux/.</string>
+			<key>pfm_name</key>
+			<string>worktrees.branchPrefix</string>
+			<key>pfm_title</key>
+			<string>Worktree Branch Prefix</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens.</string>
@@ -2786,7 +2898,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.</string>
 			<key>pfm_name</key>
@@ -2929,6 +3041,24 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Icon Theme</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>system</string>
+			<key>pfm_description</key>
+			<string>Light, Dark, or Match System to follow macOS. Terminals with a light/dark theme pair follow it too.</string>
+			<key>pfm_name</key>
+			<string>appearance.mode</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>system</string>
+				<string>light</string>
+				<string>dark</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Appearance</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -3276,6 +3406,15 @@
 				<string>jeong-seon-inwang</string>
 				<string>jeong-seon-geumgang</string>
 				<string>kim-hong-do-samgong</string>
+				<string>kuniyoshi-takiyasha</string>
+				<string>kuniyoshi-horyukaku</string>
+				<string>hiroshige-gotenyama</string>
+				<string>hiroshige-asukayama</string>
+				<string>hokusai-yoshino</string>
+				<string>sesshu-winter-landscape</string>
+				<string>ma-yuan-spring-path</string>
+				<string>kim-hong-do-chuseongbu</string>
+				<string>sin-yun-bok-moonlit-lovers</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Backdrop Art</string>
@@ -3330,6 +3469,7 @@
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
+				<string>kuniyoshi-takiyasha</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -3464,6 +3604,14 @@
 				<string>jeong-seon-inwang</string>
 				<string>jeong-seon-geumgang</string>
 				<string>kim-hong-do-samgong</string>
+				<string>kuniyoshi-horyukaku</string>
+				<string>hiroshige-gotenyama</string>
+				<string>hiroshige-asukayama</string>
+				<string>hokusai-yoshino</string>
+				<string>sesshu-winter-landscape</string>
+				<string>ma-yuan-spring-path</string>
+				<string>kim-hong-do-chuseongbu</string>
+				<string>sin-yun-bok-moonlit-lovers</string>
 				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
@@ -3531,6 +3679,7 @@
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
+				<string>kuniyoshi-takiyasha</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -3665,6 +3814,14 @@
 				<string>jeong-seon-inwang</string>
 				<string>jeong-seon-geumgang</string>
 				<string>kim-hong-do-samgong</string>
+				<string>kuniyoshi-horyukaku</string>
+				<string>hiroshige-gotenyama</string>
+				<string>hiroshige-asukayama</string>
+				<string>hokusai-yoshino</string>
+				<string>sesshu-winter-landscape</string>
+				<string>ma-yuan-spring-path</string>
+				<string>kim-hong-do-chuseongbu</string>
+				<string>sin-yun-bok-moonlit-lovers</string>
 				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
@@ -3714,6 +3871,7 @@
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
+				<string>kuniyoshi-takiyasha</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -3848,6 +4006,14 @@
 				<string>jeong-seon-inwang</string>
 				<string>jeong-seon-geumgang</string>
 				<string>kim-hong-do-samgong</string>
+				<string>kuniyoshi-horyukaku</string>
+				<string>hiroshige-gotenyama</string>
+				<string>hiroshige-asukayama</string>
+				<string>hokusai-yoshino</string>
+				<string>sesshu-winter-landscape</string>
+				<string>ma-yuan-spring-path</string>
+				<string>kim-hong-do-chuseongbu</string>
+				<string>sin-yun-bok-moonlit-lovers</string>
 				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
@@ -4650,6 +4816,44 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Window Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>standard</string>
+			<key>pfm_description</key>
+			<string>How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass.</string>
+			<key>pfm_name</key>
+			<string>appearance.toolbarButtonStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>standard</string>
+				<string>plain</string>
+				<string>grouped</string>
+				<string>glass</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Top Right Buttons</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>standard</string>
+			<key>pfm_description</key>
+			<string>How the cards on Home and the New Tab page draw: today's, flat, raised, or glass.</string>
+			<key>pfm_name</key>
+			<string>appearance.homeCardStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>standard</string>
+				<string>flat</string>
+				<string>raised</string>
+				<string>glass</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Home Cards</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -6398,6 +6602,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>A prompt you send moves to the top of the chat, with room below it for the reply.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sendScrollsToTop</string>
+			<key>pfm_title</key>
+			<string>Scroll Sent Prompts to Top</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Hides the running work bar. Hover the top of the composer to bring it back.</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.trayTucked</string>
@@ -6636,11 +6852,132 @@
 			<array>
 				<string>push</string>
 				<string>overlay</string>
+				<string>inline</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Session Info</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Where the chat runs: this Mac or Cloud, its folder and branch.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.sections.environment</string>
+			<key>pfm_title</key>
+			<string>Session Info: Environment</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>How full the context window is, and what fills it.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.sections.context</string>
+			<key>pfm_title</key>
+			<string>Session Info: Context</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The subagents and chats this chat started.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.sections.subagents</string>
+			<key>pfm_title</key>
+			<string>Session Info: Subagents</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The commands, servers and scheduled jobs the chat runs.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.sections.tasks</string>
+			<key>pfm_title</key>
+			<string>Session Info: Background Tasks</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The files and pages the agent read.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.sections.sources</string>
+			<key>pfm_title</key>
+			<string>Session Info: Sources</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The documents and files the chat made for you.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.sections.outputs</string>
+			<key>pfm_title</key>
+			<string>Session Info: Outputs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The chat's pull requests and their checks.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.sections.changes</string>
+			<key>pfm_title</key>
+			<string>Session Info: Pull Requests</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Tokens, cost and time this chat used.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.sections.usage</string>
+			<key>pfm_title</key>
+			<string>Session Info: Usage</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The MCP servers and connectors the chat has.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.sections.connectors</string>
+			<key>pfm_title</key>
+			<string>Session Info: Connectors</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The MCP servers and carried the chat has.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.sections.carried</string>
+			<key>pfm_title</key>
+			<string>Session Info: Carried memory</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -6675,6 +7012,25 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Chat Minimap</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>normal</string>
+			<key>pfm_description</key>
+			<string>How much a chat shows: messages only, tool rows, thoughts, or every tool's output. A chat's ··· menu sets its own.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.detail</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>messages</string>
+				<string>normal</string>
+				<string>thinking</string>
+				<string>verbose</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Chat Detail</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -6779,6 +7135,24 @@
 			<string>agentPane.display.statusVerbs.custom</string>
 			<key>pfm_title</key>
 			<string>Custom Working Verbs</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>words</string>
+			<key>pfm_description</key>
+			<string>How an agent's reply text appears as it arrives.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.streaming</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>words</string>
+				<string>lines</string>
+				<string>instant</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Reply Streaming</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -6924,6 +7298,23 @@
 			<string>Model Picker Harness Order</string>
 			<key>pfm_type</key>
 			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>list</string>
+			<key>pfm_description</key>
+			<string>List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.modelPickerStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>list</string>
+				<string>menu</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Model Picker Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -7916,6 +8307,16 @@
 			<string>boolean</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceListApp</string>
+			<key>pfm_title</key>
+			<string>Workspace List Extension</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_name</key>
@@ -7940,6 +8341,18 @@
 			<string>Group Projects By</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header.</string>
+			<key>pfm_name</key>
+			<string>sidebar.folderlessUngrouped</string>
+			<key>pfm_title</key>
+			<string>Ungroup Rows With No Folder</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -8036,7 +8449,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces.</string>
+			<string>Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs.</string>
 			<key>pfm_name</key>
 			<string>sidebar.workspacesAsTabs</string>
 			<key>pfm_title</key>
@@ -8129,6 +8542,7 @@
 				<string>claude</string>
 				<string>codex</string>
 				<string>studio</string>
+				<string>rex</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Sidebar Look</string>
@@ -8202,6 +8616,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>app</string>
+			<key>pfm_description</key>
+			<string>What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out.</string>
+			<key>pfm_name</key>
+			<string>sidebar.profileMenu.style</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>app</string>
+				<string>account</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Profile Menu</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Icons for working, waiting, error and done. Off: a spinner and a dot.</string>
@@ -8245,18 +8676,6 @@
 			<string>sidebar.showAgentSessions</string>
 			<key>pfm_title</key>
 			<string>Show Sessions Started by Agents</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.</string>
-			<key>pfm_name</key>
-			<string>sidebar.showAutomaticSessions</string>
-			<key>pfm_title</key>
-			<string>Show Automatic Sessions</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -8440,6 +8859,42 @@
 			<string>sidebar.priorityView.shown</string>
 			<key>pfm_title</key>
 			<string>Show Priority View</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>All, Waiting, Unread and Running chips with counts, and Mark All as Read.</string>
+			<key>pfm_name</key>
+			<string>sidebar.priorityView.filters</string>
+			<key>pfm_title</key>
+			<string>Priority Filters</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off, Priority lists only chats that need you or are running.</string>
+			<key>pfm_name</key>
+			<string>sidebar.priorityView.showIdle</string>
+			<key>pfm_title</key>
+			<string>Idle Chats in Priority</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Each Priority row says its state, such as Needs you or Done.</string>
+			<key>pfm_name</key>
+			<string>sidebar.priorityView.statusWords</string>
+			<key>pfm_title</key>
+			<string>Priority Status Words</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -12027,6 +12482,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Teammates you share a chat with show when they view it and when they type.</string>
+			<key>pfm_name</key>
+			<string>labs.chatMultiplayer</string>
+			<key>pfm_title</key>
+			<string>Chat Multiplayer</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Send browser and terminal comments to the chat as threads that show the agent's reply.</string>
 			<key>pfm_name</key>
 			<string>labs.commentThreads</string>
@@ -12044,6 +12511,18 @@
 			<string>labs.previousBuild</string>
 			<key>pfm_title</key>
 			<string>Go Back to Previous Build</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Show your team's compute allotment and each member's use in Settings &gt; Cloud.</string>
+			<key>pfm_name</key>
+			<string>labs.teamCompute</string>
+			<key>pfm_title</key>
+			<string>Team Compute</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -12195,6 +12674,18 @@
 			<string>experiments.composerCustomizer</string>
 			<key>pfm_title</key>
 			<string>Customize Button Under the Composer</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A web page the agent writes gets an Open beside chat button that shows the real page, with its styles and images, in a tab.</string>
+			<key>pfm_name</key>
+			<string>experiments.writtenHTMLOpenBeside</string>
+			<key>pfm_title</key>
+			<string>Open Written HTML Beside the Chat</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -12358,6 +12849,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on.</string>
+			<key>pfm_name</key>
+			<string>experiments.cloudToggle</string>
+			<key>pfm_title</key>
+			<string>Cloud Toggle</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it.</string>
 			<key>pfm_name</key>
 			<string>experiments.expandedEditsEstimate</string>
@@ -12375,6 +12878,54 @@
 			<string>experiments.introWalk</string>
 			<key>pfm_title</key>
 			<string>Intro Walk</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Make cmux Yours offers four setups, such as Calm or Dense. Try one, then keep it or put your settings back.</string>
+			<key>pfm_name</key>
+			<string>experiments.setupShelf</string>
+			<key>pfm_title</key>
+			<string>Setups in Make cmux Yours</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar.</string>
+			<key>pfm_name</key>
+			<string>experiments.appsTier</string>
+			<key>pfm_title</key>
+			<string>Publish Previews as Apps</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>While you type or a reply streams, wait for a pause before saving the chat list new tabs show.</string>
+			<key>pfm_name</key>
+			<string>experiments.chatInstantUnderLoad</string>
+			<key>pfm_title</key>
+			<string>Prioritize Chat Input</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A rule cmux pushes into a chat shows as cmux's line, never as your own message.</string>
+			<key>pfm_name</key>
+			<string>experiments.eventsAsToolCalls</string>
+			<key>pfm_title</key>
+			<string>Harness Events Read by Origin</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -12471,6 +13022,18 @@
 			<string>experiments.browserProfileCard</string>
 			<key>pfm_title</key>
 			<string>Browser Profile Card</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Show when Claude automatically compacted a chat and how to lower the context it carries between turns.</string>
+			<key>pfm_name</key>
+			<string>experiments.compactionThresholdInsight</string>
+			<key>pfm_title</key>
+			<string>Compaction Threshold Insight</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -12831,6 +13394,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>The text shown in an empty message box. Empty uses cmux's own.</string>
+			<key>pfm_name</key>
+			<string>agentPane.composerPlaceholder</string>
+			<key>pfm_title</key>
+			<string>Message Box Placeholder</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>steer</string>
 			<key>pfm_description</key>
 			<string>What Return does with a message sent while the agent is working. Command-Return does the other.</string>
@@ -12975,25 +13550,6 @@
 			<string>Add Message Relay to Claude Code</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>deepseek/deepseek-v4.1-flash-1017</string>
-			<key>pfm_description</key>
-			<string>The model new cmux model router chats start on.</string>
-			<key>pfm_name</key>
-			<string>agents.modelRouter.model</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>deepseek/deepseek-v4.1-flash-1017</string>
-				<string>deepseek/deepseek-v4.1-flash</string>
-				<string>deepseek/deepseek-v4-flash</string>
-				<string>deepseek/deepseek-v4-pro</string>
-			</array>
-			<key>pfm_title</key>
-			<string>cmux Model Router Model</string>
-			<key>pfm_type</key>
-			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -13316,6 +13872,18 @@
 			<string>Screen Sharing Bitrate Limit</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A Linux machine without a GPU encoder codes its screen for sharp text instead of speed. Text reads clearer while it changes; typing and scrolling show a little later.</string>
+			<key>pfm_name</key>
+			<string>remoteDesktop.sharpLinuxText</string>
+			<key>pfm_title</key>
+			<string>Sharper Text from Linux Machines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

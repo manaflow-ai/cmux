@@ -2,6 +2,11 @@
   "$comment": "HAND-EDITED source of the cmux.json keys cmux used to read and no longer does (cx-d5b5d). The daemon (cmux-config) embeds this file; scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RetiredKeys.generated.swift). Loading drops a retired key without a diagnostic, the schema export and Settings never list it, a write is refused as removed (reason shown), and a reset prunes it from an old file. Add an entry when a key is removed; never reuse a retired key for a new meaning. replaced_by names the row that took a key's place, and values what the old key's values read as in it (any other reads as the row's default): while the row is unset Settings and the daemon read the old key through it, and every write or reset of the row, and Reset All, removes the old key, so it never applies behind the row. A replaced_by with no values is a plain rename: the old key's value reads as is. RENAMES AND REMOVALS OVER TIME: this is also the migration table for customizations written for another cmux (cmux-config migrations::migrate). A setup, a profile, a library import or a theme file that names a key here is rewritten before it is checked: a renamed key installs under its new name, a removed key is skipped, and the install lists both. since is when the old name stopped being the setting and until the end of its deprecation window (each YYYY-MM-DD or a cmux version X.Y.Z). The window is two NEXT releases or 60 days after since, whichever is longer. Install migrates an old name for ever; past until, an author-time check (cmux setup check) reports it as an error instead of a warning. An entry is never deleted.",
   "retired": [
     {
+      "key": "agents.modelRouter.model",
+      "reason": "the cmux model router is gone; chats use your own model login or API key",
+      "why": "Leo, 2026-11-25: \"For cmux next, just rip it out for now then.\" The cmux model router profile (cmux) this row chose a model for was removed with CodeRouter (cmux#57348)."
+    },
+    {
       "key": "status.working",
       "reason": "choose the working indicator in Debug Settings",
       "why": "The app reads this preference from the current build's debug-tunables.json. A copy in the shared settings file had no effect."
@@ -260,6 +265,13 @@
       "since": "2026-11-24",
       "until": "2027-01-23",
       "why": "The agent to-do list is removed from every surface (2026-11-24): nothing is left to pin."
+    },
+    {
+      "key": "sidebar.showAutomaticSessions",
+      "reason": "the sidebar no longer folds script-started sessions into an Automatic row; they show in their list",
+      "since": "2026-11-25",
+      "until": "2027-01-24",
+      "why": "The Automatic (N) sidebar row is removed (#55721, taking back #49506; Leo 2026-11-25: \"PLS REMOVE\"); workspace auto-renaming stays as silent behaviour."
     }
   ]
 }

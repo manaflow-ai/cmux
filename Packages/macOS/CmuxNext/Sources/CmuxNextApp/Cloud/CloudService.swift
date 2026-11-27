@@ -24,11 +24,11 @@ import CmuxNextWakeups
 final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
-    @ObservationIgnored let api: CloudAPIClient
+    @ObservationIgnored let api: CloudDaemon
     /// A machine's exec and file routes: the configured cmux API Worker.
-    @ObservationIgnored let machineAPI: CloudAPIClient
+    @ObservationIgnored let machineAPI: CloudDaemon
     /// Same person and team as the machine API, at the configured platform preview origin.
-    var previewAPI: CloudAPIClient? {
+    var previewAPI: CloudDaemon? {
         configuration.platformPreviewAPIBaseURL().map { machineAPI.previewClient(baseURL: $0) }
     }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
@@ -65,6 +65,8 @@ final class CloudService {
     /// The app's `cmux-tui` (the moves', the carrier's) and its daemon's state directory (the carrier's `CMUX_TUI_STATE_DIR`).
     @ObservationIgnored let binary: URL?
     @ObservationIgnored let tuiState: URL?
+    /// Each team's last good machine list, shown at once on a cold start (``CloudLastSeenMachines``).
+    @ObservationIgnored private(set) lazy var lastSeen = CloudLastSeenMachines(stateDirectory: tuiState)
     @ObservationIgnored let desktopStreams = CloudCarrierStreams() // The account's carriers (desktop dials, streams, serves); its end or Cloud turned off ends them.
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
@@ -120,6 +122,8 @@ final class CloudService {
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
+    /// The chats moving to another machine now: each window's sidebar row for the move.
+    let chatMoves = ChatMoves()
     /// Who drives each Chief's computer (Chief computer take-over): the lease of every Cloud machine a
     /// Chief on this Mac uses, and the last answer for each Cloud Chief's own sandbox.
     @ObservationIgnored let computerControl = ChiefComputerControlStore()
@@ -173,12 +177,12 @@ final class CloudService {
         self.mainWork = mainWork
         self.work = work
         configuration = selectedConfiguration ?? .unavailable
-        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
+        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture, consentSession: SessionConsentClient.consentSession(configuration))
         let basePaths = CloudPaths.standard(bundleID: configuration.bundleID)
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
         installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
         let auth = auth
-        api = CloudAPIClient(
+        api = CloudDaemon(
             configuration: configuration,
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID })
@@ -198,7 +202,7 @@ final class CloudService {
         shareInstalls = ShareInstalls(root: paths.root, given: [(ownerAPI, identity), (shareAPI, shareDefault)], fallback: shareDefault,
                                      accepts: { [configuration] in configuration.acceptsShareAPI($0) }, make: install)
         let machineIO = auth.runningPersonCalls(on: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
-        machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
+        machineAPI = CloudDaemon.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
                                                    machineIO: machineIO, installToken: { try await identity.installToken() }, buildSpace: configuration.buildSpace)
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()), clientVersion: clientVersion,
@@ -827,6 +831,7 @@ final class CloudService {
         // signed-out branch above, after auth.signOut).
         link.beginEnding()
         dropAllMachines()
+        lastSeen.forget() // the next person on this Mac never sees this account's machines
         await link.endLink(final: false)
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {

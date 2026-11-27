@@ -31,9 +31,15 @@ extension UpdaterService {
     /// Sparkle installs as it exits, and ``UpdateRelaunchBehind`` opens the new build with
     /// `open -g`. The relaunch record (``UpdateRelaunchFocus``) is still written, so the startup
     /// refusal and hand-back stay as a safety net. Every other install lets Sparkle relaunch,
-    /// which activates the app as a click expects.
+    /// which activates the app as a click expects, except in a custom home, where the app
+    /// reopens itself in front (``reopensInLaunchHome()``).
     public func updaterQuitsForAutomaticInstall(build: String) -> Bool {
-        guard staysBehindNow, let relaunchBehind else { return false }
+        guard staysBehindNow, let relaunchBehind else {
+            guard !launchHomeOptions().isEmpty, reopenInFront != nil else { return false }
+            log.append("will install \(build)")
+            updaterWillInstallUpdate(build: build)
+            return reopensInLaunchHome()
+        }
         log.append("will install \(build)")
         updaterWillInstallUpdate(build: build)
         log.append("relaunching behind: quitting for the install, then open -g")
@@ -57,9 +63,36 @@ extension UpdaterService {
             self.updaterWillRelaunchApplication()
             return true
         }, { [weak self] in self?.quitForInstallDeclined() }, { [weak self] in
-            self?.log.append("relaunching behind: the user came into the app; Sparkle relaunches it")
-            self?.controller?.relaunchHeldInstallThroughSparkle()
+            guard let self else { return }
+            // In a custom home Sparkle's relaunch would leave it: the app reopens itself in front there.
+            if self.controller?.waitsToQuitForInstall == true, !self.launchHomeOptions().isEmpty, self.reopensInLaunchHome() { return }
+            self.log.append("relaunching behind: the user came into the app; Sparkle relaunches it")
+            self.controller?.relaunchHeldInstallThroughSparkle()
         })
+        return true
+    }
+
+    /// An automatic install the user is in the app for, in an app launched in a custom home:
+    /// Sparkle's relaunch (through LaunchServices, with launchd's environment) would bring the new
+    /// build back in the account's home, so the app quits and ``reopenInFront`` opens it in front
+    /// in its launch home, as for a click's install (``updaterQuitsForInstall(build:)``). The quit
+    /// still waits for the moment hold. False when no reopen helper is wired.
+    func reopensInLaunchHome() -> Bool {
+        guard let reopenInFront else { return false }
+        log.append("relaunching in the launch home: the user is in the app; quitting for the install, then open")
+        reopenInFront({ [weak self] in
+            guard let self else { return false }
+            guard await self.relaunchMomentHold.waitUntilClear() else {
+                // A click, a cancel or the session's end took the install over: nothing installs here.
+                self.controller?.dropQuitInstall()
+                return false
+            }
+            // A click took the install over (Sparkle relaunches it): the helper must not quit as well.
+            guard self.controller?.waitsToQuitForInstall ?? true else { return false }
+            self.controller?.commitQuitInstall()
+            self.updaterWillRelaunchApplication()
+            return true
+        }, { [weak self] in self?.quitForInstallDeclined() })
         return true
     }
 
