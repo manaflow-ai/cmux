@@ -45,6 +45,21 @@ class ReportTest(unittest.TestCase):
             self.assertIn("Duress not run on this class", text)
             self.assertTrue(any(s["series"].endswith("tool_call_ms.p95@test-class") for s in series))
 
+    def test_busy_host_reads_ms_as_noisy_not_regression(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            self.write(d, "before-1.log", row("token_ms", 7.5, 8.6) + row("thought.hidden_pane_renders_per_record", 0, 0)
+                       + row("thought_ms", 2, 3))
+            self.write(d, "after-1.log", row("token_ms", 13.8, 19.5) + row("thought.hidden_pane_renders_per_record", 1, 1)
+                       + row("thought_ms", 2, 3))
+            self.write(d, "before-1.load", "4.10\n4.80\n")
+            self.write(d, "after-1.load", "4.70\n")
+            text = "\n".join(report_mod.report(str(d), "a" * 40, "b" * 40, "c")[0])
+            self.assertIn("Host load per core over the runs: base 4.8, head 4.7. Past 1,", text)
+            self.assertIn("| token | 7.5 → 13.8 | 8.6 → 19.5 | - → - | - → - | noisy (host load 4.8 per core) |", text)
+            # A render count does not move with load: still a regression.
+            self.assertIn("**Reads as a regression:** thought.", text)
+
     def test_rounds_take_the_median(self) -> None:
         with tempfile.TemporaryDirectory() as t:
             d = Path(t)

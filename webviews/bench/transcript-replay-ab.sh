@@ -36,11 +36,16 @@ if [ "$base" != - ]; then
   sides=(before after)
   echo "=== side before at $sha"
 fi
+# The 1-minute load average per core at a run's start and end (`<side>-<round>.load`): the report reads a side's ms as
+# noise when the host was this busy, not as a regression.
+load_per_core() { awk -v n="$(nproc)" '{ printf "%.2f\n", $1 / n }' /proc/loadavg; }
 run() {
   local side="$1" round="$2" log="$out/$1-$2.log"
   echo "=== $side round $round"
+  load_per_core >"$out/$1-$2.load"
   (cd "${dirs[$side]}" && RENDERS=1 SPLIT=1 timeout 900 bun bench/transcript-replay.bench.ts --only long) \
     >"$log" 2>&1 || echo "=== $side round $round FAILED (status $?)"
+  load_per_core >>"$out/$1-$2.load"
   grep -E '^transcript-replay: (long|BUDGET MISS)' "$log" | cut -c1-200 || true
 }
 n=${#sides[@]}
