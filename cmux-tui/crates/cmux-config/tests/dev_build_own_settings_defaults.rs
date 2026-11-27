@@ -74,15 +74,22 @@ fn dev_build_own_settings_defaults_are_what_get_reports() {
 
 #[test]
 fn dev_build_own_settings_defaults_leave_other_builds_and_bad_values_alone() {
-    // NIGHTLY and stable pass nothing: the schema's default.
+    // NIGHTLY and stable pass nothing: the schema's default (on since cmux#48532, the Swift
+    // MobileSettings.allowIPhoneConnectionsDefault the schema is generated from).
     let shared = state(schema(&BTreeMap::new()), "{}");
     let row = shared.get(&Target::Key(MOBILE.into())).row.expect("the row");
-    assert_eq!(row.value, Some(json!(false)));
-    // A value the row refuses and a key no row has are ignored.
-    let odd =
-        build_defaults_from(Some(r#"{"mobile.allowIPhoneConnections":"yes","no.such.key":1}"#));
+    assert_eq!(row.value, Some(json!(true)));
+    assert_eq!(row.default, Some(json!(true)));
+    assert!(!row.customized);
+    // A value the row refuses and a key no row has are ignored: each row keeps the schema's default.
+    let shared_automatic = shared.get(&Target::Key(AUTOMATIC.into())).row.expect("the row").default;
+    let odd = build_defaults_from(Some(
+        r#"{"mobile.allowIPhoneConnections":"yes","updates.automatic":7,"no.such.key":1}"#,
+    ));
     let state = state(schema(&odd), "{}");
     let row = state.get(&Target::Key(MOBILE.into())).row.expect("the row");
-    assert_eq!(row.value, Some(json!(false)));
-    assert_eq!(row.default, Some(json!(false)));
+    assert_eq!(row.value, Some(json!(true)));
+    assert_eq!(row.default, Some(json!(true)));
+    let automatic = state.get(&Target::Key(AUTOMATIC.into())).row.expect("the row");
+    assert_eq!(automatic.default, shared_automatic);
 }
