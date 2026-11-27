@@ -10,6 +10,7 @@ import {
   SNAPSHOT_LIVE_GLOBAL,
   SNAPSHOT_MISS_GLOBAL,
   SNAPSHOT_SHOWN_GLOBAL,
+  TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE,
   type SnapshotLive,
 } from "./shared";
 import { watchLaunchSettle } from "../launchSettle";
@@ -451,6 +452,9 @@ export function watchChatSnapshot(
     // half drawn under it. The copy's going clears the root's opacity, a change the observer below
     // hears, so the write comes once the page is quiet after it.
     if (showsChatSnapshot()) return;
+    // A hidden page's transcript that let go of its rows draws none: the copy written as it hid, from
+    // the rows it drew then, stays the one kept until it shows again and draws them.
+    if (doc.querySelector(`[${TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE}]`)) return;
     const snapshot = captureSnapshot(doc, chatTheme);
     wroteAt = performance.now();
     // Too large to keep (or no chat drawn): the host forgets the older one, which no longer shows

@@ -174,6 +174,8 @@ pub enum PeerNotice {
     /// Full session list from `_acpmux/watch` or a single `session_changed`: each row's compact
     /// JSON, which the hub parses one row at a time.
     Sessions(Vec<Arc<str>>),
+    /// A whole list waiting in this peer instance’s outbox slot.
+    WaitingList(u64),
     /// What changed in the peer's list since the link's cursor (`hub/row_log.rs`): the rows
     /// changed, each as its text, and the peer's own ids of the rows that went. The rest stand as
     /// the peer last listed them.

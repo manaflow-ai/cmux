@@ -840,6 +840,8 @@ jobs:
       key: cmux-next-pure-checks
       hold_minutes: 30
       no_coalesce: ${{ format('{0}', vars.CMUX_NEXT_PURE_CHECKS_COALESCE) == '0' }}
+      # A hand push compiles on its own commit, inside a taken window too (base-coalesce.yml); lander merges coalesce.
+      run_direct_pushes: true
 
   # Why: 2026-11-24-pure-checks-coalesce-1.md, note-11
   # Why: note-pr-control-pool

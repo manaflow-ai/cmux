@@ -430,12 +430,12 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
 def land_status(event: dict, decided: tuple[str, str]) -> str:
     """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
     it on the cheap tier (or idle), `success` once it runs the full tier, lands on the affected tier (the hourly
-    full tier rule), or the land carry rule carries its previous head's success (head_tier.carried), empty where the
-    land rule does not apply."""
+    full tier rule), or the land carry rule or the full-ci base merge carry rule carries its previous head's run
+    (head_tier.carried, head_tier.full_carried), empty where the land rule does not apply."""
     if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
         return ""
     return ("success" if decided[0] == "full" or head_tier.carried(decided) or head_tier.land_affected(decided)
-            else "pending")
+            or head_tier.full_carried(decided) else "pending")
 
 
 def ios_status(event: dict, files: list[str] | None, start: list[str], land: str) -> tuple[str, str]:
@@ -516,7 +516,10 @@ def main(argv: list[str]) -> int:
             why["pr-pipeline.yml"] = why.get("pr-pipeline.yml", "") + (
                 f" (table jobs that ran green at the previous head stay off: {', '.join(sorted(rows))})")
         status = land_status(event, decided)
-        status = "pending" if status and (carried or rows) else status
+        # A rerun of the red-head base merge rule leaves the land tier to come (pending); the full-ci base merge carry
+        # rule's rerun is the land tier itself, on the label land pulsed, so it keeps success (else land pulses again).
+        held = (carried or rows) and not head_tier.full_rerun(decided)
+        status = "pending" if status and held else status
         write_outputs(start, why, files, table, status, ios_status(event, files, start, status))
         return 0
     if mode == "check":

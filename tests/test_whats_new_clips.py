@@ -2,6 +2,7 @@
 """scripts/cmux-next/media/whats-new-clips.py: specs, cutting a capture to its clip steps, the
 idle-clip refusal, the clip's length, and the highlight's clip line. Encoding (ffmpeg, img2webp)
 and the fleet capture are not run here."""
+import re
 import importlib.util, io, json, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
@@ -1160,6 +1161,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("whats-new-clips.py iphone-runs", run)
         self.assertIn('artifact --failed "$step"', run)
         self.assertLess(run.index("done < <("), run.index('"$out/plan.json"'))
+        # Bounded to its job (cmux-next-iphone-clips on 11-26: clips one after another, each with an unbounded
+        # queue wait, sat to the 240-min timeout): every clip's step starts at once, then the job waits for all,
+        # and the queue wait, cmux-ci's uncounted compile (5400 s) and the run fit the job with room to upload.
+        self.assertIn('record_one "$id" "$roles" "$before" &', run)
+        self.assertLess(run.index("record_one \"$id\""), run.index("\nwait\n"))
+        self.assertIn('--queue-timeout "$QUEUE_S" --timeout "$RUN_S"', run)
+        bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=(\d+)", run))
+        self.assertLessEqual(int(bounds["QUEUE_S"]) + 5400 + int(bounds["RUN_S"]),
+                             (jobs["record"]["timeout-minutes"] - 20) * 60)
+        self.assertIn('"$client" cancel', run)
         publish = jobs["publish"]
         self.assertEqual((publish["needs"], publish["environment"]), ("record", "pr-media"))
         self.assertIn("publish-auto", next(s for s in publish["steps"] if s.get("name") == "Publish the clips")["with"]["command"])

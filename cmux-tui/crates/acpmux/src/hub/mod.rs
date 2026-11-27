@@ -266,7 +266,6 @@ mod peer_grace;
 mod peer_grace_tests;
 mod peer_idle;
 mod peer_lease;
-mod peer_list_slot;
 #[cfg(test)]
 mod peer_list_slot_tests;
 #[cfg(test)]
@@ -774,6 +773,11 @@ pub struct HubEvent {
     /// rest (`server::deliver`). HOT PATH AUDIT area F, row A4: a streamed token is copied and
     /// encoded once, not once per attached connection.
     pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
+    /// The record's `_acpmux/event` params (`server::event_value`) for an event stream of a chat
+    /// of this daemon's own, built by the first connection that sends it and shared by the rest
+    /// (`server::deliver`): a streamed token's message is copied and converted once, not once per
+    /// attached connection, and a client that asked for compact chunks reads it in place.
+    pub event_params: Arc<std::sync::OnceLock<serde_json::Value>>,
     /// The session's row as a watcher's `_acpmux/session_changed` carries it, without and with
     /// its tools, built by the first watching connection that sends it and shared by the rest
     /// (`server::deliver`): one build per record, not one per watching connection. The ring
@@ -1284,9 +1288,6 @@ pub struct Hub {
     /// A peer cache save was put off (`save_peer_cache`): the notice loop arms its one cache
     /// deadline. With nothing put off it sets no timer (`peer_grace.rs`).
     pub(super) peer_cache_kick: Notify,
-    /// Each peer's newest whole list, waiting for its notice shard: a newer one replaces it
-    /// (`peer_list_slot.rs`, cmux#56153).
-    pub(super) peer_lists_waiting: peer_list_slot::WaitingLists,
     /// `SAVE_EVERY_MS` in tests that wait for a put-off save (`peer_cache.rs`).
     #[cfg(test)]
     pub(super) cache_test_save_every_ms: AtomicU64,
@@ -1876,7 +1877,6 @@ impl Hub {
             peer_notices_finished: AtomicBool::new(false),
             peer_notices_done: Arc::new(Notify::new()),
             peer_cache_kick: Notify::new(),
-            peer_lists_waiting: Default::default(),
             #[cfg(test)]
             cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
             model_lists: model_lists::ModelLists::default(),
@@ -2193,6 +2193,7 @@ impl Hub {
             record: Arc::new(record),
             remote: None,
             update_line: Default::default(),
+            event_params: Default::default(),
             row: Default::default(),
             list_seq: 0,
             peer_batch: false,
@@ -3448,6 +3449,7 @@ impl Hub {
                 record: Arc::new(record.clone()),
                 remote: None,
                 update_line: Default::default(),
+                event_params: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
                 peer_batch: false,

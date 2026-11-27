@@ -453,6 +453,35 @@ class ProjectionTests(unittest.TestCase):
         self.assertNotIn("exit", odd["log"])
         self.assertNotIn("10.0.0.2", json.dumps(row))
 
+    def test_an_unresolved_edge_dns_keeps_guest_facts_as_counts_and_flags_only(self):
+        # Production 2026-11-26 21:50Z, 22:15Z and 23:48Z: three cloud-chat auth.signed_out guests stayed unresolved
+        # after every kick; cmux-platform#2293 logs their DNS facts as `guest`, raw text a tenant's lookups can be in.
+        guest = {
+            "hosts": "100.64.1.7 coderouter.cmux.internal|",
+            "confd": "/run/systemd/resolved.conf.d/61-freestyle-tls.conf:[Resolve]|DNS=100.64.1.1|"
+                     "Domains=~cmux.internal|/etc/systemd/resolved.conf.d/cmux scope.conf:x|",
+            "status": "Global|resolv.conf mode: stub|Link 2 (eth0)|Current DNS Server: 100.64.1.1|"
+                      "DNS Servers: 100.64.1.1 1.1.1.1|DNS Domain: ~cmux.internal|",
+            "journal": "Using degraded feature set UDP instead of EDNS0 for DNS server 100.64.1.1.|"
+                       "Timeout while resolving secret-tenant.example.com|Started Network Name Resolution.|",
+        }
+        row = logs.line(event({"msg": "cloud.machine.edge_dns", "team": TEAM, "machine": VM, "why": "claim",
+                               "outcome": "unresolved", "exit": 3, "ms": 22606, "guest": guest}))
+        self.assertEqual(row["log"]["guest"], {
+            "hosts_lines": 1, "hosts_addr": "cgnat",
+            "confd_files": ["61-freestyle-tls.conf"], "confd_internal": True, "confd_dns_lines": 1,
+            "status_links": 1, "status_internal_scope": True, "status_current_server": True, "status_servers": 2,
+            "journal": {"lines": 3, "timed_out": 1, "degraded": 1, "started": 1},
+        })
+        text = json.dumps(row)
+        for leak in ("secret-tenant", "100.64.1.7", "1.1.1.1", "cmux scope"):
+            self.assertNotIn(leak, text)
+        kicked = logs.line(event({"msg": "cloud.machine.edge_dns", "machine": VM, "outcome": "kicked", "guest": guest}))
+        self.assertNotIn("guest", kicked["log"])
+        empty = logs.line(event({"msg": "cloud.machine.edge_dns", "machine": VM, "outcome": "unresolved",
+                                 "guest": {"hosts": ""}}))
+        self.assertEqual(empty["log"]["guest"], {"hosts_lines": 0, "hosts_addr": "none"})
+
     def test_a_spare_claim_keeps_its_skip_reasons_steps_and_path(self):
         # Production 2026-11-26 16:09Z: a claim saw one spare and created, and the row read only `spares: 1` (hq#29939).
         row = logs.line(event({"msg": "machines.spare.claim", "team": TEAM, "spares": 1,
@@ -534,10 +563,21 @@ class NeverBoundTests(unittest.TestCase):
                                          "bind_file": "x"}, "power": {"call_ms": 3}, "total_ms": 31000}))
         self.assertEqual(row["log"], {"msg": "cloud.create.trace", "machine": logs.base.tag(VM), "outcome": "ok",
                                       "attempt": 1, "total_ms": 31000,
-                                      "steps": {"driver": 400, "edge": 900, "ensure": 24800}})
+                                      "steps": {"driver": 400, "edge": 900, "ensure": 24800},
+                                      "power": {"call_ms": 3}})
         self.assertEqual(list(row["log"]["steps"]), ["driver", "edge", "ensure"])
         for msg in ("cloud.create.submit", "cloud.start.submit", "cloud.start.trace"):
             self.assertIn(msg, logs.PLATFORM_MSGS)
+
+    def test_a_slow_start_trace_keeps_its_power_split_typed(self):
+        row = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                               "steps": {"driver": 217, "power": 121058},
+                               "power": {"find_ms": 40, "call_ms": 120900, "verify_ms": "x", "provider_ms": 118000,
+                                         "vm_id": "vm_secret"}, "total_ms": 121058}))
+        self.assertEqual(row["log"]["power"], {"find_ms": 40, "call_ms": 120900, "provider_ms": 118000})
+        bare = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                                "steps": {"power": 337}, "power": "fast", "total_ms": 337}))
+        self.assertNotIn("power", bare["log"])
 
     def test_a_never_bound_line_keeps_the_probe_as_typed_facts_only(self):
         row = logs.line(event({"msg": "cloud.machine.start_overdue", "team": TEAM, "machine": VM,

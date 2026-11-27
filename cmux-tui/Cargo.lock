@@ -2846,6 +2846,7 @@ name = "cmux-rd-screen-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-rd-screen",
+ "cmux-vnc",
  "serde_json",
 ]
 

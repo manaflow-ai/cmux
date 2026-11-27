@@ -102,7 +102,7 @@ struct WebSocketIntegrationTests {
         defer { server.stop() }
         let websockify = Websockify(port: port)
         let transport = WebSocketRFBTransport(host: "localhost:6901") { websockify }
-        let client = VNCClient(endpoint: VNCEndpoint(host: "vm-test", port: 5901), transport: transport)
+        let client = VNCClient(endpoint: VNCEndpoint(host: "vm-test", port: 5901), options: VNCSessionOptions(rules: .fixture), transport: transport)
         await client.connect()
         var events = client.events.makeAsyncIterator()
         guard case let .connected(info)? = await events.next() else {

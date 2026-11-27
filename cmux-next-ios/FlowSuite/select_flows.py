@@ -16,7 +16,9 @@ regression row has a flow) and exits non-zero on a problem.
 Rules (README.md): a change is iOS-affecting iff a changed file, after
 compile.ignore, matches a compile glob (compile.paths plus the Swift packages
 and Rust crates the app links, derived from compile.swift_roots and
-compile.cargo_roots) or any flow's paths. Selected = smoke flows + flows whose
+compile.cargo_roots, plus with compile.ffi_closure every crate
+CmuxMobileLinkFFI compiles, read from its Cargo graph by
+scripts/ci/ios_link_ffi_key.py) or any flow's paths. Selected = smoke flows + flows whose
 paths match + build_for_testing flows when compile matched.
 """
 from __future__ import annotations
@@ -24,6 +26,7 @@ from __future__ import annotations
 import argparse
 import functools
 import json
+import os
 import re
 import subprocess
 import sys
@@ -116,14 +119,42 @@ def cargo_closure(roots: list[str], root: Path) -> set[str]:
     return seen
 
 
+@functools.lru_cache(maxsize=None)
+def ffi_closure(root: Path) -> tuple[list[str], list[str]]:
+    """(every crate directory CmuxMobileLinkFFI compiles, the workspace roots they sit in), from the Cargo
+    graph at ROOT's HEAD: scripts/ci/ios_link_ffi_key.py's `closure`, the walk that keys the xcframework
+    cache, so the gate and the cache can never name different crates. ([], []) outside a git checkout."""
+    sys.path.insert(0, str(root / "scripts/ci"))
+    try:
+        import ios_link_ffi_key as key
+    except ImportError:
+        return [], []
+    finally:
+        sys.path.pop(0)
+    if key.tomllib is None or not (root / ".git").exists() or not (root / key.FFI / "Cargo.toml").is_file():
+        return [], []
+    here = os.getcwd()
+    os.chdir(root)  # the walk reads git objects from the current directory's repository
+    try:
+        return key.closure("HEAD")
+    finally:
+        os.chdir(here)
+
+
 def compile_globs(manifest: dict, root: Path) -> list[str]:
     c = manifest.get("compile", {})
     globs = list(c.get("paths", []))
-    derived = swift_closure(c.get("swift_roots", []), root) | cargo_closure(c.get("cargo_roots", []), root)
+    crates, roots = ffi_closure(root) if c.get("ffi_closure") else ([], [])
+    derived = swift_closure(c.get("swift_roots", []), root) | cargo_closure(c.get("cargo_roots", []), root) | set(crates)
     for d in sorted(derived):
         g = f"{d}/**"
         if not matches(f"{d}/x", globs):
             globs.append(g)
+    for r in roots:  # a workspace root's manifest and lock, not its other members
+        for name in ("Cargo.toml", "Cargo.lock"):
+            g = f"{r}/{name}" if r not in ("", ".") else name
+            if not matches(g, globs):
+                globs.append(g)
     return globs
 
 
@@ -168,6 +199,7 @@ def select(manifest: dict, changed: list[str], root: Path = REPO) -> dict:
         "ui": union("ui"),
         "swift": union("swift"),
         "scripts": scripts,
+        "pair_e2e": union("pair_e2e"),
         "reason": reason,
     }
 
@@ -187,6 +219,8 @@ def sim_args(result: dict, shards: int) -> list[str]:
             parts.append("ui=" + ",".join(u))
         if k or u:
             lines.append(" ".join(parts))
+    if result.get("pair_e2e"):  # a paired Mac and iPhone: its own run (cmux-next-ios-sim.sh pair-e2e WORD...)
+        lines.append(" ".join(["pair-e2e", *result["pair_e2e"]]))
     return lines or ["build"]
 
 
@@ -199,6 +233,8 @@ def check(manifest: dict, root: Path = REPO) -> list[str]:
     for n in range(1, REGRESSION_ROWS + 1):
         if f"regression:{n}" not in rows:
             problems.append(f"regression row {n} has no flow")
+    if manifest.get("compile", {}).get("ffi_closure") and (root / ".git").exists() and not ffi_closure(root)[0]:
+        problems.append("compile.ffi_closure: the CmuxMobileLinkFFI Cargo graph could not be read")
     ui_dir = root / "cmux-next-ios/UITests"
     kit_dir = root / "cmux-next-ios/CmuxMobileKit/Tests"
     for f in manifest["flows"]:
@@ -228,7 +264,8 @@ def check(manifest: dict, root: Path = REPO) -> list[str]:
             base = p.split("*", 1)[0].rstrip("/")
             if base and not (root / base).exists():
                 problems.append(f"{fid}: path {p} matches nothing in the tree")
-        if not (f.get("kit") or f.get("ui") or f.get("swift") or f.get("scripts") or f.get("build_for_testing")):
+        if not (f.get("kit") or f.get("ui") or f.get("swift") or f.get("scripts") or f.get("pair_e2e")
+                or f.get("build_for_testing")):
             problems.append(f"{fid}: no check")
     return problems
 

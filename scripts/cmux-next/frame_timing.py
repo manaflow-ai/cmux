@@ -58,12 +58,15 @@ def read_lines(lines):
 
 def summarize(rows, transition=None, last=None):
     """{transition: {count, p50_ms, p95_ms, max_ms, from_event}} over `rows` (oldest first); `last` keeps each
-    transition's newest N."""
+    transition's newest N. A row with a `path` (right_split_open: `snapshot` or `live`) counts under
+    `transition/path`, so a flag's off and on runs are apart."""
     by = {}
     for row in rows:
         if transition and row["transition"] != transition:
             continue
-        by.setdefault(row["transition"], []).append(row)
+        path = row.get("path")
+        key = f"{row['transition']}/{path}" if isinstance(path, str) and path else row["transition"]
+        by.setdefault(key, []).append(row)
     out = {}
     for name, group in sorted(by.items()):
         if last:
@@ -95,7 +98,7 @@ def default_files(home=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("files", nargs="*", help="log files (default: every app's on this Mac)")
-    parser.add_argument("--transition", help="only this transition (divider_drag)")
+    parser.add_argument("--transition", help="only this transition (divider_drag, right_split_open)")
     parser.add_argument("--last", type=int, help="each transition's newest N rows only")
     parser.add_argument("--json", action="store_true", help="print JSON")
     args = parser.parse_args(argv)

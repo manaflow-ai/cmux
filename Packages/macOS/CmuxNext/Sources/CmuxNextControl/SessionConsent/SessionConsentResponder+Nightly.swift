@@ -36,7 +36,7 @@ extension SessionConsentResponder {
         request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
         request.setValue(tokens.refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.httpBody = call.body
-        guard let (body, response) = try? await CloudAPIClient.noStoreTransport.data(for: request) else { return (0, Data()) }
+        guard let (body, response) = try? await URLSession.cloudNoStore.data(for: request) else { return (0, Data()) }
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, body)
     }
 }

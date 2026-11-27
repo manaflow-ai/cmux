@@ -529,10 +529,13 @@ public final class ScreenStreamHost: @unchecked Sendable {
         self.log = log
     }
 
-    /// The loopback Screen Sharing backend (V1).
+    /// The loopback Screen Sharing backend (V1); `vncRules` answer its RFB handshake
+    /// (``VNCRules/bundled``: libcmux_rd_screen.dylib's).
     public convenience init(pairing: VNCPairing, target: VNCEndpoint, credentials: VNCCredentials,
-                            log: @escaping @Sendable (String) -> Void = { print($0) }) {
-        self.init(pairing: pairing, backend: { VNCLoopbackBackend(target: target, credentials: credentials, log: log) }, log: log)
+                            vncRules: VNCRules = .bundled, log: @escaping @Sendable (String) -> Void = { print($0) }) {
+        self.init(pairing: pairing, backend: {
+            VNCLoopbackBackend(target: target, credentials: credentials, rules: vncRules, log: log)
+        }, log: log)
     }
 
     /// Holds the pairing room open until cancelled (nothing to do without a pairing).
@@ -1080,8 +1083,10 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
     private let inputStream: AsyncStream<ScreenInput>
     private let inputSink: AsyncStream<ScreenInput>.Continuation
 
-    public init(target: VNCEndpoint, credentials: VNCCredentials, log: @escaping @Sendable (String) -> Void) {
-        client = VNCClient(endpoint: target, options: VNCSessionOptions(credentials: credentials))
+    /// `rules` answer the RFB handshake (cmux-vnc's `vnc_*` ops).
+    public init(target: VNCEndpoint, credentials: VNCCredentials, rules: VNCRules = .bundled,
+                log: @escaping @Sendable (String) -> Void) {
+        client = VNCClient(endpoint: target, options: VNCSessionOptions(credentials: credentials, rules: rules))
         self.log = log
         (inputStream, inputSink) = AsyncStream.makeStream(of: ScreenInput.self)
     }

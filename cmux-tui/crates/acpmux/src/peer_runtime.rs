@@ -752,6 +752,31 @@ impl Peer {
         self.watch_active.store(active, Ordering::Release);
     }
 
+    pub(crate) fn coalesce_lists(&self) {
+        self.notices.coalesce_lists();
+    }
+
+    pub(crate) fn take_waiting_list(&self, number: u64) -> Option<Vec<Arc<str>>> {
+        let rows = self.notices.take_waiting_list(number);
+        self.list_baseline_missing.store(rows.is_none(), Ordering::SeqCst);
+        if rows.is_none() {
+            self.rows_ready.store(false, Ordering::SeqCst);
+            self.rows_link.store(0, Ordering::SeqCst);
+        }
+        rows
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn queue_notice_for_test(
+        &self,
+        notice: PeerNotice,
+    ) -> Result<(), crate::peer_notice_outbox::Closed> {
+        if matches!(notice, PeerNotice::Listed) {
+            self.listed_links.lock_or_recover().push_back(self.link_epoch());
+        }
+        self.notices.send((self.name.clone(), self.generation, notice)).await
+    }
+
     /// The hub applied a `Listed` notice of this peer: the rows are now those its link listed
     /// last. A notice no link queued (a test's) stands for the live link.
     pub(crate) fn note_rows_applied(&self) -> bool {
@@ -762,12 +787,6 @@ impl Peer {
         }
         self.rows_link.store(link + 1, Ordering::SeqCst);
         link == self.link_epoch()
-    }
-
-    pub(crate) fn skip_superseded_list(&self) {
-        self.list_baseline_missing.store(true, Ordering::SeqCst);
-        self.rows_ready.store(false, Ordering::SeqCst);
-        self.rows_link.store(0, Ordering::SeqCst);
     }
 
     /// The link is ready and the hub applied the session list this link read (`Listed`), so

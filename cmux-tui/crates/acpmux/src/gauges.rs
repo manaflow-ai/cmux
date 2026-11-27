@@ -239,7 +239,7 @@ pub struct PeerLists {
     peak_lists: AtomicU64,
     peak_bytes: AtomicU64,
     /// Whole lists a newer list of the same peer replaced before the hub applied them
-    /// (`hub/peer_list_slot.rs`), since the daemon started.
+    /// (`peer_notice_outbox.rs`), since the daemon started.
     superseded: AtomicU64,
 }
 
