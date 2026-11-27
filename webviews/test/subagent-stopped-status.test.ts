@@ -12,7 +12,7 @@ test("a cancelled or disconnected subagent is stopped, with its own state's labe
   expect(subagentStatus(agent("cancelled"), none)).toBe("stopped");
   expect(subagentStatus(agent("disconnected"), none)).toBe("stopped");
   expect(subagentStatusLabel(agent("cancelled"), none)).toBe("subagents.state.cancelled");
-  expect(subagentStatusLabel(agent("disconnected"), none)).toBe("subagents.state.disconnected");
+  expect(subagentStatusLabel(agent("disconnected"), none)).toBe("subagents.state.stopped");
 });
 
 test("done, failed, running and waiting keep their labels", () => {

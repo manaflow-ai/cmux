@@ -30,7 +30,7 @@ import Testing
     @Test(arguments: ["downloading", "preparing"])
     func theBarSpansTheCardsInnerWidth(_ name: String) {
         let card = card(for: stage(name))
-        let pad = Metrics.space3
+        let pad = Metrics.cardPadding
         #expect(!card.track.isHidden)
         #expect(abs(card.track.frame.minX - pad) <= 0.5, "the bar does not start at the padding: \(card.track.frame)")
         #expect(abs(card.track.frame.maxX - (card.bounds.width - pad)) <= 0.5,

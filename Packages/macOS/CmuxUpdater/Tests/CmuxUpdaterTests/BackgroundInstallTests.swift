@@ -467,6 +467,9 @@ import Testing
 private final class ReopeningHost: UpdateActionDelegate {
     var reopens: Bool
     var asked: [String] = []
+    /// Whether a click's install reopens too (an app launched in a custom home).
+    var clickReopens = false
+    var clickAsked: [String] = []
     init(reopens: Bool) { self.reopens = reopens }
     func updaterRequestsRetryCheckForUpdates() {}
     func updaterWillRelaunchApplication() {}
@@ -474,6 +477,10 @@ private final class ReopeningHost: UpdateActionDelegate {
     func updaterQuitsForAutomaticInstall(build: String) -> Bool {
         asked.append(build)
         return reopens
+    }
+    func updaterQuitsForInstall(build: String) -> Bool {
+        clickAsked.append(build)
+        return clickReopens
     }
 }
 
@@ -559,6 +566,26 @@ private final class ReopeningHost: UpdateActionDelegate {
         #expect(ready.choice == .install, "a clicked install relaunches through Sparkle, which activates")
     }
 
+    /// A click in an app launched in a custom home (`cmux settings install-available-update` in the
+    /// release rollback drill): the host reopens itself in that home, so Sparkle's reply stays
+    /// unanswered (its LaunchServices relaunch would start the new build in the account's home);
+    /// a refused quit stages the update again.
+    @Test func aClickInACustomHomeLeavesTheReplyForTheHostsReopen() {
+        let harness = Harness()
+        let host = ReopeningHost(reopens: false)
+        host.clickReopens = true
+        let ready = stage(harness, host: host, automatic: false)
+        harness.controller.installStagedUpdate()
+        #expect(host.asked.isEmpty, "a click is not an automatic install")
+        #expect(host.clickAsked == ["0.64.17"])
+        #expect(ready.choice == nil, "Sparkle must not relaunch: it installs as the app exits")
+        #expect(harness.controller.waitsToQuitForInstall)
+        harness.controller.commitQuitInstall()
+        harness.controller.restageAfterDeclinedQuit()
+        #expect(ready.choice == nil)
+        #expect(harness.controller.stagedUpdate?.versionString == "0.64.17")
+    }
+
     @Test func aHostWithTheRelaunchGateIsNotAsked() {
         let harness = Harness()
         let host = ReopeningHost(reopens: true)
@@ -571,6 +598,7 @@ private final class ReopeningHost: UpdateActionDelegate {
         let ready = ChoiceBox()
         driver.showReady(toInstallAndRelaunch: { choice in MainActor.assumeIsolated { ready.choice = choice } })
         #expect(host.asked.isEmpty)
+        #expect(host.clickAsked.isEmpty)
         #expect(ready.choice == .install)
     }
 }

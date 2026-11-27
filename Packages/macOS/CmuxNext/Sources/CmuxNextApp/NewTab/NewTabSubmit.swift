@@ -86,10 +86,8 @@ extension NewTabSubmit {
     /// Chromium's own pages, CLI/MCP/script tabs are agent-driven) covers
     /// this action too.
     static func browserInvocation(_ url: URL, from invocation: ActionInvocation) -> ActionInvocation? {
-        var open = ActionInvocation(target: invocation.target, arguments: ["url": .string(url.absoluteString)],
-                                    origin: invocation.origin, focusRequested: invocation.focusRequested)
-        open.keyContext = invocation.keyContext
-        return open
+        ActionInvocation(target: invocation.target, arguments: ["url": .string(url.absoluteString)],
+                         origin: invocation.origin, focusRequested: invocation.focusRequested, keyContext: invocation.keyContext)
     }
 
     /// Runs the action in the invocation's pane.

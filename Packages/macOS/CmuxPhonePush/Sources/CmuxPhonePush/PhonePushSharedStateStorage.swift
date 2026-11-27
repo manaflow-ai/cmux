@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Storage for push state that the iOS host app writes and its notification
 /// service extension reads: the active account and pinned Mac keys.
@@ -21,7 +23,7 @@ extension Bundle {
     /// The keychain on iOS, scoped by this bundle's host access group; the
     /// Mac has no extension and keeps its existing process-local defaults.
     public var phonePushSharedStateStorage: any PhonePushSharedStateStorage {
-        #if os(iOS)
+        #if os(iOS) && canImport(Security)
         PhonePushKeychainStateStorage(
             accessGroup: PhonePushKeychainStateStorage.accessGroup(in: self)
         )
@@ -32,9 +34,8 @@ extension Bundle {
 }
 
 /// Generic-password items in the host app's keychain access group.
-public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
+public struct PhonePushKeychainStateStorage {
     static let service = "ai.manaflow.cmux.phone-push.shared-state"
-    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
 
     private let accessGroup: String?
 
@@ -61,36 +62,47 @@ public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
         else { return nil }
         return value
     }
+}
 
+// The Keychain calls need Security; on Linux the type keeps only its access-group parsing.
+#if canImport(Security)
+extension PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
+    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
+
+    // No call shows UI: each runs inside `KeychainUserInteraction.withoutUI` with a no-prompt context
+    // (`serviceQuery` carries it). One that would ask fails: a nil read, a skipped write.
     public func data(forKey key: String) -> Data? {
         let identity = itemQuery(forKey: key)
         var query = identity
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+        guard KeychainUserInteraction.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess,
               let data = result as? Data,
-              SecItemUpdate(
-                  identity as CFDictionary,
-                  [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
-              ) == errSecSuccess else { return nil }
+              KeychainUserInteraction.withoutUI({
+                  SecItemUpdate(
+                      identity as CFDictionary,
+                      [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
+                  )
+              }) == errSecSuccess else { return nil }
         return data
     }
 
     public func setData(_ data: Data?, forKey key: String) {
         let query = itemQuery(forKey: key)
         guard let data else {
-            SecItemDelete(query as CFDictionary)
+            _ = KeychainUserInteraction.withoutUI { SecItemDelete(query as CFDictionary) }
             return
         }
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: Self.keychainAccessibility,
         ]
-        guard SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecItemNotFound else {
+        // A refused update is not errSecItemNotFound, so it never adds a second item.
+        guard KeychainUserInteraction.withoutUI({ SecItemUpdate(query as CFDictionary, attributes as CFDictionary) }) == errSecItemNotFound else {
             return
         }
-        SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil)
+        _ = KeychainUserInteraction.withoutUI { SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil) }
     }
 
     public func keys(withPrefix prefix: String) -> [String] {
@@ -98,7 +110,7 @@ public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitAll
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+        guard KeychainUserInteraction.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess,
               let items = result as? [[String: Any]] else { return [] }
         return items.compactMap { $0[kSecAttrAccount as String] as? String }
             .filter { $0.hasPrefix(prefix) }
@@ -110,7 +122,7 @@ public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
             kSecAttrService as String: Self.service,
         ]
         if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
-        return query
+        return KeychainNoPromptContext.applied(to: query)
     }
 
     private func itemQuery(forKey key: String) -> [String: Any] {
@@ -119,6 +131,7 @@ public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
         return query
     }
 }
+#endif
 
 /// Process-local defaults, used by the Mac.
 public struct PhonePushUserDefaultsStateStorage: PhonePushSharedStateStorage {

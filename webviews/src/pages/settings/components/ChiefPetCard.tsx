@@ -34,29 +34,30 @@ import mascotMoonRose from "../../../agent-session/acpmux/mascots/ChiefMascotMoo
 import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
 import mascotOrbSpark from "../../../agent-session/acpmux/mascots/ChiefMascotOrbSpark.png";
 import mascotOrbHood from "../../../agent-session/acpmux/mascots/ChiefMascotOrbHood.png";
-
-export const CHIEF_PET_ENABLED = "home.chiefPetEnabled";
-export const CHIEF_PET_MASCOT = "home.chiefPetMascot";
-export const CHIEF_BUBBLE_STYLE = "home.chiefBubbleStyle";
-/** The bubble colors every chat starts with (`HomeBubbleColorsSetting`), in the schema's order. */
-export const CHIEF_BUBBLE_COLORS: readonly string[] = ["sent", "sentText", "received", "receivedText"].map(
-  (role) => `home.bubbleColors.${role}`,
-);
-/** Whether the main Chief's chat shows the Feed's notices (`HomeFeedRowsSetting`). */
-export const CHIEF_FEED_IN_CHIEF = "home.feedInChief";
-/** The rows this card draws in place of their group. */
-export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([
+import {
   CHIEF_PET_ENABLED,
   CHIEF_PET_MASCOT,
   CHIEF_BUBBLE_STYLE,
-  ...CHIEF_BUBBLE_COLORS,
+  CHIEF_BUBBLE_COLORS,
   CHIEF_FEED_IN_CHIEF,
-]);
+  CHIEF_PET_ROWS,
+} from "../cardRows";
+
+export {
+  CHIEF_PET_ENABLED,
+  CHIEF_PET_MASCOT,
+  CHIEF_BUBBLE_STYLE,
+  CHIEF_BUBBLE_COLORS,
+  CHIEF_FEED_IN_CHIEF,
+  CHIEF_PET_ROWS,
+};
 
 /** The characters in the setting's order (`HomeChiefPetSetting.mascots`: Series 1 without the orbs,
  * the animated sets, Series 2, then the orbs), with their art. Imported,
  * not `new URL(..., import.meta.url)`: the shipped page is one self-contained index.html whose CSP
- * allows `img-src data:` only, so its bundler (bundle.mjs) inlines each PNG as a data URL. */
+ * allows `img-src data:` only, so its bundler (bundle.mjs) inlines each PNG as a data URL. Each PNG is
+ * sized to the largest box it draws in, the preview's 88 x 80 at 2x (at most 176 x 160), and this card is
+ * its own chunk (cardModules.tsx), so the art loads with the Chief's section, not with the page. */
 export const CHIEF_PET_MASCOTS: ReadonlyArray<{ id: string; art: string }> = [
   { id: "fox", art: mascotFox },
   { id: "machine", art: mascotMachine },
@@ -146,7 +147,11 @@ export function ChiefPetCard({
   const feed = rowsByKey.get(CHIEF_FEED_IN_CHIEF);
   const feedRow = visibleRows === null || visibleRows.has(CHIEF_FEED_IN_CHIEF) ? feed : undefined;
   return (
-    <section className="group chief-pet ui-glass" data-card="chief-pet" data-enabled={enabled ? "true" : "false"}>
+    <section
+      className="group chief-pet ui-glass ui-glass-content"
+      data-card="chief-pet"
+      data-enabled={enabled ? "true" : "false"}
+    >
       <h3 className="group-title">{t("settingsPage.chief.look")}</h3>
       {showPetToggle && (
         <>

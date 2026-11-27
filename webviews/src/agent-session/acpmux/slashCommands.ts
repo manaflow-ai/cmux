@@ -14,12 +14,21 @@ export type SlashCommand = {
   /** A pane string that replaces `description`, for commands cmux owns. */
   descriptionKey?: StringKey;
   hint?: string;
-  /** Where the command came from. Harness commands are the default for old snapshots. */
-  source?: "agent" | "cmux" | "skill" | "prompt" | "extension";
+  /** Where the command came from. Harness commands are the default for old snapshots. `saved`: one
+   *  of the person's saved prompts (savedPrompts.ts), which a pick writes out as `body`. */
+  source?: "agent" | "cmux" | "skill" | "prompt" | "saved" | "extension";
+  /** A saved prompt's text. */
+  body?: string;
   /** An extension's command (`cmux.composer.command/1`): the text its pick writes over the `/word`. */
   insert?: string;
   /** An extension's command: the extension's name, which the menu row shows as its source. */
   extension?: string;
+  /** A row's icon (the cmux pack's name): cmux's built-in tools (toolMentions.ts). */
+  icon?: string;
+  /** A full-color picture drawn in place of `icon` (toolMentions.ts `image`). */
+  image?: string;
+  /** The row's name in place of `/name` and its source: cmux's built-in tools ("Computer Use"). */
+  label?: string;
 };
 
 /// An extension's command: picking it writes its text, so it never runs or goes as `/name`.
@@ -162,12 +171,13 @@ export function codeSpanAt(
   }
 }
 
-/// The inline code spans of `text`, in order.
-export function codeSpans(text: string): CodeSpan[] {
+/// The inline code spans of `text`, in order. `breaks`, the starts of the lines that end a paragraph,
+/// defaults to `blockBreaks`; a caller that reads the text's containers gives its own (toolMentions.ts).
+export function codeSpans(text: string, breaks?: readonly number[]): CodeSpan[] {
   const spans: CodeSpan[] = [];
   if (!text.includes("`")) return spans;
   const unclosed = new Set<number>();
-  const breaks = blockBreaks(text);
+  breaks ??= blockBreaks(text);
   for (let at = 0; at < text.length;) {
     if (text[at] !== "`") {
       at++;
@@ -356,7 +366,7 @@ export function fastModeState(options: readonly FastOption[] | undefined): "on" 
 /// The `/word` the caret ends: `query` is what follows the `/`, `length` counts from the `/` to the
 /// caret, and `leading` says the word starts the prompt as send reads it (attachments placed
 /// before it and blank lines or spaces do not count: send takes them out and trims).
-export type SlashTrigger = { query: string; length: number; leading: boolean };
+export type SlashTrigger = { query: string; length: number; leading: boolean; mark?: "$" };
 
 /// Longer words are never commands; the trigger and the token colour read no further back.
 export const SLASH_WORD_MAX = 256;
@@ -370,13 +380,19 @@ export const isSlashBoundary = (char: string | undefined) => char === "\uFFFC" |
 /// whitespace: one inside a word or a path (`src/app`, `http://x/y`) opens nothing. `lead`: where in
 /// `before` the prompt's first word starts (composer/slashTokens.ts promptLead), undefined when not
 /// in it. Mid-prompt a second `/` makes the word a path (`/usr/local`), not a command.
+/// A `$word` (Codex's skill mark, Lucas 2026-11-21: "a lot of codex people are used to that") opens
+/// the same menu wherever it sits, with only the rows that go as text: never leading, so `$5` with
+/// nothing to offer opens nothing.
 export function slashTrigger(before: string, lead: number | undefined): SlashTrigger | undefined {
   let start = before.length;
   const floor = Math.max(0, before.length - SLASH_WORD_MAX - 1);
   while (start > floor && !isSlashBoundary(before[start - 1])) start--;
   // A word that fills the whole window is longer than any command.
-  if (before[start] !== "/" || before.length - start > SLASH_WORD_MAX) return undefined;
+  const mark = before[start];
+  if ((mark !== "/" && mark !== "$") || before.length - start > SLASH_WORD_MAX) return undefined;
   const query = before.slice(start + 1);
+  if (mark === "$")
+    return query.includes("$") ? undefined : { query, length: query.length + 1, leading: false, mark: "$" };
   const leading = start === lead;
   if (!leading && query.includes("/")) return undefined;
   return { query, length: query.length + 1, leading };
@@ -393,28 +409,38 @@ export const goesAsText = (command: SlashCommand) => command.source === "skill" 
 /// The menu's rows for `trigger`: every command at the prompt's start, the ones that go as text
 /// (and an extension's, which write their text) mid-prompt.
 export function slashMatches(commands: readonly SlashCommand[], trigger: SlashTrigger): SlashMatch[] {
+  // A saved prompt is written out where it is picked, so it is offered mid-prompt too.
   return trigger.leading
     ? matchCommands([...commands], trigger.query)
     : matchCommands(
-        commands.filter((command) => goesAsText(command) || insertsText(command)),
+        commands.filter((command) => goesAsText(command) || insertsText(command) || command.source === "saved"),
         trigger.query,
         false,
       );
 }
 
 /// Whether Return picks `match`, the menu's highlighted row, for `query` (the typed word without its
-/// `/`): when the row was chosen with the arrows (`arrowed`), or when the typed word begins the row's
-/// name, unless it is that name in full and the command takes no arguments (Return then sends it).
-/// Otherwise Return does what it does with no menu: a path or a word that only resembles a command
-/// (`look in /dev`) is never rewritten. The chat and New Tab both decide by this.
-export function returnPicks(match: SlashMatch | undefined, query: string, arrowed: boolean): boolean {
+/// `/`). A listed row is always highlighted, and Return takes it as Tab does (Leo, 2026-11-20: "i
+/// click enter and it should do it"); Esc closes the list and leaves the word as typed. Only the
+/// row's name in full, for a command that takes no arguments, is sent as typed: Return runs it. A
+/// `$word` (`mark` "$") is picked only once the arrows chose its row (`arrowed`). The chat and New
+/// Tab both decide by this.
+export function returnPicks(
+  match: SlashMatch | undefined,
+  query: string,
+  arrowed = false,
+  mark?: SlashTrigger["mark"],
+): boolean {
   if (!match) return false;
+  // A `$word` is as often a price or a shell variable (`$5`, `echo $BROWSER`) as Codex's skill mark:
+  // Return picks a row only once the arrows chose it (Tab still picks), else it is the person's text.
+  if (mark === "$") return arrowed;
   const name = shownName(match.command);
   const typed = query.replace(/^\$/, "");
   // An extension's command is only its text: Return on its whole name writes the text, never sends it.
-  if (insertsText(match.command) && name === typed) return true;
-  if (name === typed && (!match.command.hint || match.command.source === "cmux")) return false;
-  return arrowed || name.toLowerCase().startsWith(typed.toLowerCase());
+  // A saved prompt typed in full is picked too: `/standup` alone means its text, never the word.
+  if ((insertsText(match.command) || match.command.source === "saved") && name === typed) return true;
+  return !(name === typed && (!match.command.hint || match.command.source === "cmux"));
 }
 
 /// The names a `/name` word is a command by: `anywhere` mid-prompt, `leading` at the prompt's start.
@@ -452,6 +478,16 @@ export function useSlashNames(commands: readonly SlashCommand[] | undefined): Sl
   const kept = useRef<{ key: string; names: SlashNames }>(undefined);
   if (kept.current?.key !== key) kept.current = { key, names: slashNames(commands) };
   return kept.current.names;
+}
+
+/// Whether `text` uses a command where the field draws one blue (`slashTokens`): its first word by
+/// any command's name, a skill or saved prompt anywhere outside code.
+export function usesCommand(text: string, names: SlashNames): boolean {
+  if (!names.leading.size) return false;
+  const lead = promptStart(text);
+  return commandWords(text).some(
+    ({ start, word }) => names.anywhere.has(word) || (start === lead && names.leading.has(word)),
+  );
 }
 
 /// The command words in `text`, one text block: each `/name` that starts the block or follows a
@@ -553,7 +589,10 @@ export function commandSplice(
 ): { back: number; forward: number; text: string } {
   const word = /^[^\s\uFFFC]*/.exec(after)?.[0] ?? "";
   if (word.length === after.length && cut) return { back: trigger.length, forward: 0, text: insert ?? `/${name} ` };
-  if (insert !== undefined) return { back: trigger.length, forward: word.length, text: insert };
+  // A row that writes its own text (a tool's `@browser-use `) keeps the punctuation that ends the word
+  // (`/brow|.` keeps the sentence's period).
+  if (insert !== undefined)
+    return { back: trigger.length, forward: word.replace(/[.,;:!?)\]"'\u201D\u2019]+$/, "").length, text: insert };
   const forward = word.length + (/^[ \t]/.test(after.slice(word.length)) ? 1 : 0);
   return { back: trigger.length, forward, text: `/${name} ` };
 }

@@ -3,7 +3,7 @@ import type { GalleryEntry } from "../src/gallery/format";
 import { SCENARIOS, scenarioFrame, selectedScenario } from "../src/gallery/parity/scenarios";
 import turnStates from "../src/gallery/parity/turnStates.gallery";
 import { GALLERY_NOW } from "../src/gallery/clock";
-import { WORKED, WORKING, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
+import { WORKED, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import fullConversation from "../src/gallery/parity/fullConversation.gallery";
 import { turnFiles } from "../src/agent-session/acpmux/diff";
 import { stackMaterialsSnapshot, STACK_QUESTION } from "../src/gallery/parity/stackMaterials.gallery";
@@ -73,7 +73,9 @@ test("focused work fixtures project real visible work headers and freeze at the 
         agentFamily: "codex",
         now,
       });
-    const header = project(GALLERY_NOW).rows.find((row) => row.kind === (name === "working" ? WORKING : WORKED));
+    const header = project(GALLERY_NOW).rows.find(
+      (row) => row.kind === WORKED && (row.turnPhase === "running") === (name === "working"),
+    );
     expect(header).toBeDefined();
     if (name !== "working") expect(header?.durationMs).toBe(15_000);
     if (name === "final-answer-streaming") {
@@ -107,7 +109,7 @@ test("the full conversation combines real turn, file, Chief, subagent and live-w
   expect(projected.rows.find((row) => row.id === "worked-tour-normal-prompt")?.durationMs).toBe(24_000);
   expect(projected.rows.find((row) => row.id === "tour-first-final")?.text).toContain("**Finding:**");
   expect(projected.rows.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(true);
-  expect(projected.rows.some((row) => row.kind === WORKING)).toBe(true);
+  expect(projected.rows.some((row) => row.turnPhase === "running")).toBe(true);
   expect(
     projected.rows.some(
       (row) => row.kind === "subagentDone" && row.subagents?.[0]?.id === "tour-settings-corner-review",

@@ -24,7 +24,8 @@ public import CmuxNextDesign
     /// - Parameter themes: The light and dark sheets' themes.
     public func show(themes: SidebarStatesPlaygroundThemes) {
         let window = window ?? SidebarStatesPlaygroundView.makeWindow(renderer: SidebarStatesPlaygroundRenderer(design: design, themes: themes),
-                                                                         sections: [GroupBackgroundPlaygroundSection().section()] + sections())
+                                                                         sections: [GroupBackgroundPlaygroundSection().section(),
+                                                                                   WorkspaceColorPlaygroundSection().section()] + sections())
         self.window = window
         window.makeKeyAndOrderFront(nil)
     }

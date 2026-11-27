@@ -15,8 +15,10 @@
  * working.
  */
 import { Context, Effect, Layer, Option, Schema } from "effect";
+import type { AgentBudget } from "../domain/agents.ts";
 import { Scope } from "../domain/scopes.ts";
 import { TenantId } from "../lib/ids.ts";
+import { parseTeamKeys } from "./team-keys.ts";
 
 const LABEL_KEY = /^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$/u;
 const LABEL_VALUE = /^[A-Za-z0-9._:/@-]{1,63}$/u;
@@ -54,6 +56,8 @@ export interface ServiceKey {
   readonly labels: Readonly<Record<string, string>>;
   /** null: any team. */
   readonly teams: ReadonlySet<TenantId> | null;
+  /** Set for a team key (src/auth/team-keys.ts): its one team's machine count and $/h budget on every create. */
+  readonly budget?: AgentBudget;
 }
 
 export interface ServiceKeysService {
@@ -135,10 +139,29 @@ export const applyServiceScopeGrants = (keys: ReadonlyArray<ServiceKey>, grants:
  * The live layer from the Worker secret. A secret that does not parse is logged (never its content) and disables
  * service keys. Invalid scope grants are logged and ignored: the keys keep exactly their secret entry's scopes.
  */
-export const serviceKeysLayer = (raw: string | undefined, rawGrants?: string): Layer.Layer<ServiceKeys> => {
+export const serviceKeysLayer = (raw: string | undefined, rawGrants?: string, rawTeamKeys?: string): Layer.Layer<ServiceKeys> => {
   const parsed = parseServiceKeys(raw);
   if (!parsed.ok) console.error("cmux-vm CMUX_VM_SERVICE_KEYS is invalid; service keys are disabled");
   const grants = parseServiceScopeGrants(rawGrants);
   if (!grants.ok) console.error("cmux-vm CMUX_VM_SERVICE_KEY_SCOPE_GRANTS is invalid; no scope is added");
-  return Layer.succeed(ServiceKeys, makeServiceKeys(applyServiceScopeGrants(parsed.keys, grants.grants)));
+  return Layer.succeed(ServiceKeys, makeServiceKeys([...applyServiceScopeGrants(parsed.keys, grants.grants), ...teamKeysOf(parsed.keys, rawTeamKeys)]));
+};
+
+/**
+ * The team keys of CMUX_VM_TEAM_KEYS (src/auth/team-keys.ts). A var that does not parse, or a row whose id or hash a
+ * service key already has, is logged (never its content) and disables every team key; service keys keep working.
+ * Scope grants never apply to them.
+ */
+export const teamKeysOf = (serviceKeys: ReadonlyArray<ServiceKey>, raw: string | undefined): ReadonlyArray<ServiceKey> => {
+  const parsed = parseTeamKeys(raw);
+  if (!parsed.ok) {
+    console.error("cmux-vm CMUX_VM_TEAM_KEYS is invalid; team keys are disabled");
+    return [];
+  }
+  const taken = new Set(serviceKeys.flatMap((key) => [key.id, key.sha256]));
+  if (parsed.keys.some((key) => taken.has(key.id) || taken.has(key.sha256))) {
+    console.error("cmux-vm CMUX_VM_TEAM_KEYS reuses a service key id or hash; team keys are disabled");
+    return [];
+  }
+  return parsed.keys;
 };

@@ -1,0 +1,12 @@
+{
+  "family": "network",
+  "ops": {
+    "network.list": {
+      "source": "cloud",
+      "owner": "cloud:UserDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "ce6466a8d38896df"
+    }
+  }
+}

@@ -74,7 +74,7 @@ lexical scope tracker (`main_actor_lines` in `check-main-actor-work.py`), and re
    (`AXUIElement*`: waits up to 6 s on an app that does not answer), `CGWindowList*` (window-server IPC),
    DNS (`getaddrinfo`), `waitpid`, `fsync`, SQLite statements, and synchronous file writes and file-system
    changes through `FileManager`. A reviewed exception needs `// main-actor-ok: <reason>`.
-3. **`guardrails.py` (pre-push only, by Lawrence's 2026-10-23 rule): the diff gate.** Refuses new raw
+3. **`guardrails.py` (pre-push only, under Lawrence's 2026-10-23 rule, since lifted): the diff gate.** Refuses new raw
    blocking primitives and new main-thread seam calls in the lines a push adds.
 
 What this change fixed in layer 1 (2026-11-15):
@@ -140,8 +140,8 @@ because a new feature's work queues behind the budget instead of extending the f
 `scripts/cmux-next/sidebar-churn-typing.py --input real`, `bench_cli_storm.py`, and the
 `perf-hot-benches.json` map from `// perf-hot:` functions to their bench. Targets: action to committed frame
 < 10 ms p95, key to frame p95 < 8 ms, max main-thread stall < 8 ms under load, motion 0 drops. Lawrence
-2026-10-23: perf runs never slow a nightly or a dev build, and are not CI gates; each agent runs them on the
-fleet before and after.
+2026-10-23: perf runs never slow a nightly or a dev build, and were not CI gates (the no-new-CI part was lifted
+2026-11-18); each agent runs them on the fleet before and after.
 
 ## 3. The other two stacks
 

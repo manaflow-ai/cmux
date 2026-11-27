@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 PREFERRED = {
     "iphone": ["iPhone 17 Pro Max", "iPhone 16 Pro Max", "iPhone 17 Pro", "iPhone 17", "iPhone 16"],
@@ -31,8 +32,25 @@ def simctl(*args: str) -> dict:
     return json.loads(subprocess.check_output(["xcrun", "simctl", "list", *args, "-j"], text=True))
 
 
+PIN_FILE = Path(__file__).resolve().parents[2] / "scripts/ci/ios-sim-runtime-pin.txt"
+
+
+def pinned_builds() -> set[str]:
+    """The fleet's pinned runtime builds (scripts/ci/ios-sim-runtime-pin.txt); empty when unreadable."""
+    try:
+        return {line.split("#", 1)[0].strip() for line in PIN_FILE.read_text().splitlines()} - {""}
+    except OSError:
+        return set()
+
+
 def version(runtime: dict) -> tuple[int, ...]:
     return tuple(int(x) for x in str(runtime.get("version", "0")).split(".") if x.isdigit())
+
+
+def order(runtimes: list[dict]) -> list[dict]:
+    """The pinned runtimes first, then newest first: a host with iOS 27 beside the pin keeps to the pin."""
+    pinned = pinned_builds()
+    return sorted(runtimes, key=lambda r: (r.get("buildversion") in pinned, version(r)), reverse=True)
 
 
 def pick(family: str) -> str:
@@ -43,7 +61,7 @@ def pick(family: str) -> str:
     ]
     devices = simctl("devices", "available")["devices"]
     for name in names:
-        for runtime in sorted(runtimes, key=version, reverse=True):
+        for runtime in order(runtimes):
             for device in devices.get(runtime["identifier"], []):
                 if device.get("name") == name and device.get("isAvailable", True):
                     return device["udid"]
@@ -52,7 +70,7 @@ def pick(family: str) -> str:
         dtype = device_types.get(name)
         if not dtype:
             continue
-        for runtime in sorted(runtimes, key=version, reverse=True):
+        for runtime in order(runtimes):
             supported = {d["identifier"] for d in runtime.get("supportedDeviceTypes", [])}
             if supported and dtype["identifier"] not in supported:
                 continue

@@ -69,6 +69,8 @@ pub(super) fn changes_tree(event: &MuxEvent) -> bool {
         | MuxEvent::FeedReportsChanged { .. }
         | MuxEvent::GitHubChanged { .. }
         | MuxEvent::KeybindingsChanged(_)
+        // A chat's link shares (agent_session_shares.rs): not in list-workspaces.
+        | MuxEvent::AgentSessionShareChanged { .. }
         | MuxEvent::CloudConversation(_)
         | MuxEvent::TerminalReaped { .. }
         | MuxEvent::ClientAttached { .. }

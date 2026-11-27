@@ -14,7 +14,7 @@ struct ClassicMigrationOutcome: Equatable {
     /// The daemon's decision for a launch's run; nil for a manual run.
     var decision: ClassicImportReply.Decision?
     var summary = ClassicImportSummary()
-    /// False when the person declined the exact plan, or nobody answered it, before it wrote anything.
+    /// False when the person declined the import or left the prompt unanswered.
     var confirmed = true
     /// What the launch's run tells the person when it made nothing (a declined preview, a classic still open).
     var notice: String?
@@ -60,11 +60,11 @@ extension AppOnboardingServices {
     ///   tree: a New Tab page workspace, closed when the migration brought workspaces
     ///   into its window, or Home, which stays.
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
-        guard classicMigrationRunsAtLaunch else { return }
+        guard classicMigrationRunsAtLaunch else { return owner.setup.classicSettled() }
         do {
-            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
-                                                   confirmation: { await self.confirmClassicImport($0, atLaunch: true) })
-            guard let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
+            let outcome = try await owner.setup.classicMigration(seam: owner.classicMigrationConfirmation, offer: \.setupOffer, dialog: { await self.confirmClassicImport($0, atLaunch: true) },
+                                                                 imported: { !$0.opened.isEmpty }) { try await migrateClassic(.automatic, firstWorkspace: firstWorkspace, confirmation: $0) }
+            guard owner.setup.classicAnswer != .declined, let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
             let registry = services.registry
             ClassicImportStrings.toast(notice, in: services.windows.active?.window,
                                        importAgain: notice == ClassicImportPreviewStrings.notImported ? { _ = registry.perform("workspace.importClassic") } : nil)
@@ -103,78 +103,98 @@ extension AppOnboardingServices {
     private func runClassicMigration(_ mode: ClassicImportMode, firstWorkspace: String?,
                                      confirmation: @escaping @MainActor (ClassicImportPreview) async -> ClassicImportAnswer,
                                      progress: (@MainActor (Double) -> Void)?) async throws -> ClassicMigrationOutcome {
-        // The daemon reads classic's save, the ledger and whether classic runs, and plans the run.
         let client = try classicImportClient()
-        let reply = try await client.plan(mode)
-        // The first contact on this Mac is recorded whatever happens, so a later
-        // launch knows the tree was fresh then (and merges) rather than in use.
-        let firstContact = mode == .automatic && reply.ledger == "none"
-        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        var outcome = ClassicMigrationOutcome(decision: reply.decision)
-        switch mode {
-        case .automatic:
-            // cmux-next was in use before this build (the tree had workspaces of the
-            // person's own): it may already hold classic's work, moved by hand or by
-            // the import action. The first run only records classic's workspaces as
-            // seen; later classic saves still merge, and the action brings any back.
-            if firstContact, firstWorkspace == nil {
-                try await client.record(.baseline)
-                outcome.decision = ClassicImportReply.Decision(decision: "skip", reason: "in_use_before")
-                // Classic's workspaces were only recorded: say so once, and where to bring them.
-                var local = reply.plan
-                if local == nil { local = try await client.plan(.manual, outline: true).plan }
-                if local?.workspaces.isEmpty == false {
-                    outcome.notice = ClassicImportStrings.inUseBefore
-                    owner.classicImportNotice = outcome.notice
-                }
-                return outcome
+        let probe = try await client.probe(mode)
+        let firstContact = mode == .automatic && probe.ledger == "none"
+        var outcome = ClassicMigrationOutcome(decision: probe.decision)
+        if let error = probe.error { throw ClassicMigrationFailure.daemon(error) }
+        if firstContact, firstWorkspace == nil {
+            // Record only the identity of the save beside an existing NEXT workspace tree.
+            try await client.record(.baseline, observed: probe.observed)
+            outcome.decision = ClassicImportReply.Decision(decision: "skip", reason: "in_use_before")
+            if probe.available {
+                outcome.notice = ClassicImportStrings.inUseBefore
+                owner.classicImportNotice = outcome.notice
             }
-            if reply.decision?.skips ?? true {
-                if firstContact {
-                    try await client.record(.seen)
-                    // The first launch beside an open classic says why nothing came over, once.
-                    if reply.decision?.reason == "classic_running", let bundle = reply.sourceBundleID {
-                        outcome.notice = ClassicImportStrings.classicOpen(ClassicImportStrings.appName(bundle))
-                        owner.classicImportNotice = outcome.notice
-                    }
-                }
-                if let error = reply.error { throw ClassicMigrationFailure.daemon(error) }
-                return outcome
-            }
-        case .manual:
-            // A newer cmux-next's ledger, an unreadable one or an unreadable save: nothing runs.
-            if let error = reply.error { throw ClassicMigrationFailure.daemon(error) }
-        }
-        guard let plan = reply.plan, let source = reply.source else {
-            outcome.decision = ClassicImportReply.Decision(decision: "skip", reason: "no_classic_session")
             return outcome
         }
-        outcome.summary.leftCloudVMs = !plan.cloudVMKeys.isEmpty
-        outcome.summary.alreadyHere = plan.alreadyMigrated
-        guard !plan.isEmpty else {
-            // Asking by hand with nothing left to bring still takes back a launch's No.
-            try await client.record(.finish(source: source, cloudVMKeys: plan.cloudVMKeys, appVersion: appVersion))
+        // A manual import may discover an old tagged palette domain whose name cannot be
+        // known without listing Preferences. Enumerating it requires the same consent.
+        guard mode == .manual || (probe.available && probe.decision?.skips == false) else {
+            if firstContact { try await client.record(.seen) }
             return outcome
         }
 
-        let preview = ClassicImportPreview(reply: reply)
-        switch await confirmation(preview) {
+        switch await confirmation(ClassicImportPreview(reply: probe)) {
         case .accepted:
             break
         case .declined:
             outcome.confirmed = false
-            // The launch's No is kept: later launches stop asking. Import Workspaces from Classic cmux still runs.
-            // A declined resume ends too (its half-made workspaces close on the next manual run).
             guard mode == .automatic else { return outcome }
-            try await client.record(.decline(source: source))
+            try await client.record(.decline(source: nil))
             outcome.notice = ClassicImportPreviewStrings.notImported
             owner.classicImportNotice = outcome.notice
             return outcome
         case .unanswered:
             outcome.confirmed = false
-            // Recorded as contact without a save read, so the next launch asks again rather than taking
-            // its own New Tab page for a tree in use and only recording classic's workspaces.
             if firstContact { try await client.record(.seen) }
+            return outcome
+        }
+
+        let reply: ClassicImportReply
+        var settingsError: (any Error)?
+        do {
+            reply = try await client.planAfterConsent(mode)
+            // A damaged settings source can be retried independently of saved workspaces.
+            do {
+                // The Swift settings merge uses the inline harness profiles this snapshot produces.
+                try await client.record(.settings)
+                try await owner.importClassicSettings?()
+            } catch { settingsError = error }
+            if let error = reply.error { throw ClassicMigrationFailure.daemon(error) }
+        } catch {
+            // The next launch must still know this tree was empty when first seen.
+            if firstContact { try await client.record(.seen) }
+            throw error
+        }
+        let restored = try await restoreClassicWorkspaces(reply, client: client, mode: mode,
+            firstContact: firstContact, firstWorkspace: firstWorkspace,
+            observed: settingsError == nil ? probe.observed : nil, progress: progress)
+        if let settingsError { throw settingsError }
+        return restored
+    }
+
+    private func restoreClassicWorkspaces(_ reply: ClassicImportReply, client: ClassicImportClient,
+                                          mode: ClassicImportMode, firstContact: Bool, firstWorkspace: String?,
+                                          observed: String?, progress: (@MainActor (Double) -> Void)?) async throws -> ClassicMigrationOutcome {
+        var outcome = ClassicMigrationOutcome(decision: reply.decision)
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        if reply.decision?.reason == "classic_running" {
+            if firstContact { try await client.record(.seen) }
+            if let bundle = reply.sourceBundleID {
+                outcome.notice = ClassicImportStrings.classicOpen(ClassicImportStrings.appName(bundle))
+                owner.classicImportNotice = outcome.notice
+            }
+            return outcome
+        }
+        guard let plan = reply.plan, let source = reply.source else {
+            if reply.settingsOnly {
+                try await client.record(.finish(source: nil, cloudVMKeys: [], appVersion: appVersion), observed: observed)
+                outcome.summary.settingsOnly = true
+                outcome.notice = ClassicImportStrings.settingsComplete
+                owner.classicImportNotice = outcome.notice
+            } else if reply.decision?.reason == "unchanged" || reply.decision?.reason == "no_classic_session" {
+                try await client.record(.finish(source: reply.source, cloudVMKeys: [], appVersion: appVersion), observed: observed)
+            } else if firstContact {
+                try await client.record(.seen)
+            }
+            return outcome
+        }
+        owner.rememberClassicFolders(in: plan)
+        outcome.summary.leftCloudVMs = !plan.cloudVMKeys.isEmpty
+        outcome.summary.alreadyHere = plan.alreadyMigrated
+        guard !plan.isEmpty else {
+            try await client.record(.finish(source: source, cloudVMKeys: plan.cloudVMKeys, appVersion: appVersion), observed: observed)
             return outcome
         }
 
@@ -215,7 +235,7 @@ extension AppOnboardingServices {
             // The hosts still connecting, waited for together (each within its connect limit).
             let waiting = Set(later.compactMap { $0.saved.remote?.sshDestination })
             let waits = waiting.compactMap { destination in
-                hosts[destination].map { daemon in Task { @MainActor in (destination, (try? await self.connected(daemon)) != nil) } }
+                hosts[destination].map { daemon in Task<(String, Bool), Never> { @MainActor in (destination, (try? await self.connected(daemon)) != nil) } }
             }
             for wait in waits {
                 let (destination, up) = await wait.value
@@ -231,9 +251,9 @@ extension AppOnboardingServices {
         }
         outcome = run.outcome
         let lastError = run.lastError, reveal = run.reveal, openedInFirstWindow = run.openedInFirstWindow
-        try await client.record(.finish(source: nil, cloudVMKeys: [], appVersion: appVersion))
-        // One workspace that did not open is logged; none opening is the run's failure.
+        // Leave a wholly failed import in progress so the next launch can resume it.
         if outcome.opened.isEmpty, let lastError { throw lastError }
+        try await client.record(.finish(source: nil, cloudVMKeys: [], appVersion: appVersion), observed: observed)
         // Set within the run, so whoever awaits the run reads it.
         if mode == .automatic, !outcome.opened.isEmpty { owner.classicImportNotice = ClassicImportStrings.notice(outcome.summary) }
 
@@ -265,7 +285,7 @@ extension AppOnboardingServices {
     fileprivate func makeClassicWorkspace(_ saved: ClassicSessionWorkspace, window index: Int, run: ClassicMigrationRunState) async throws {
         defer { run.handled() }
         let window = run.plan.windows[index]
-        let frame = index == 0 ? nil : window.frame.flatMap(Self.onScreen)
+        let frame = index == 0 ? nil : window.frame(onScreens: NSScreen.screens.map(\.visibleFrame))
         let client = run.client
         try await client.record(.workspace(key: saved.key, stage: .pending))
         var made: String?
@@ -395,33 +415,9 @@ extension AppOnboardingServices {
             services.daemon.logger.error("classic workspace look not kept: \(String(describing: error), privacy: .public)")
         }
     }
-
-    /// `frame` when some screen shows most of it, else nil (the window opens at the default place).
-    private static func onScreen(_ frame: CGRect) -> CGRect? {
-        NSScreen.screens.contains { $0.visibleFrame.intersection(frame).width >= min(200, frame.width) } ? frame : nil
-    }
 }
 
 private enum ClassicMigrationFailure: Error {
     /// The daemon read no plan: an unreadable save, or a ledger from a newer cmux-next or one it could not read.
     case daemon(String)
-}
-
-extension OnboardingService {
-    /// The local folders of classic's saved workspaces that Import Workspaces from Classic cmux
-    /// would open (an SSH or Cloud VM workspace's are another machine's), for new agent tabs.
-    /// Empty when the daemon is not up within its connect wait or has no classic save.
-    func classicProjectFolders() async -> [String] {
-        let onboarding = AppOnboardingServices(owner: self)
-        do {
-            _ = try await onboarding.connected(services.daemon)
-            guard let plan = try await onboarding.classicImportClient().plan(.manual, outline: true).plan else { return [] }
-            return plan.workspaces.filter { $0.remote == nil && $0.cloudVM == nil }.flatMap { workspace in
-                [workspace.workingDirectory] + workspace.layout.tabs.compactMap(\.workingDirectory)
-            }
-        } catch {
-            services.daemon.logger.error("classic folders not read: \(String(describing: error), privacy: .public)")
-            return []
-        }
-    }
 }

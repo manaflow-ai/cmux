@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.backdropArt.help" : {
+      "comment" : "Optional public-domain backdrop art and its museum attribution.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A painting behind the window. Lower Opacity to see it."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Gemälde hinter dem Fenster. Verringere die Deckkraft, um es zu sehen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un tableau derrière la fenêtre. Réduisez l’opacité pour le voir."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لوحة خلف النافذة. قلّل التعتيم لإظهارها."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una pintura detrás de la ventana. Reduce la opacidad para verla."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在視窗後方顯示畫作。降低不透明度即可看見。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在窗口后方显示画作。降低不透明度即可看见。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "창 뒤에 그림을 표시합니다. 불투명도를 낮추면 보입니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ウインドウの背後に絵画を表示します。不透明度を下げると見えます。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slika iza prozora. Smanjite neprozirnost da biste je vidjeli."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et maleri bag vinduet. Sænk opaciteten for at se det."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un dipinto dietro la finestra. Riduci l’opacità per vederlo."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គំនូរនៅពីក្រោយបង្អួច។ បន្ថយភាពស្រអាប់ដើម្បីមើលវា។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et maleri bak vinduet. Senk dekkevnen for å se det."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obraz za oknem. Zmniejsz krycie, aby go zobaczyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma pintura atrás da janela. Reduza a opacidade para vê-la."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Картина за окном. Уменьшите непрозрачность, чтобы её увидеть."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ภาพวาดที่อยู่ด้านหลังหน้าต่าง ลดความทึบเพื่อดูภาพวาด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pencerenin arkasında bir tablo. Görmek için opaklığı azaltın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Картина за вікном. Зменште непрозорість, щоб її побачити."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một bức tranh phía sau cửa sổ. Giảm độ mờ để nhìn thấy tranh."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -30,6 +30,9 @@ import Testing
     final class Surface: Content, PaneCommitSurface {
         private(set) var asks: [CGSize] = []
         private var ready: (@MainActor () -> Void)?
+        /// The frame ticks it asks its commits to wait for it (a page laying out at a size it took ahead); nil: the
+        /// commit's own bound.
+        var commitWaitTicks: Int?
 
         func commitWillResize(by change: CGSize, ready: @escaping @MainActor () -> Void) {
             asks.append(change)
@@ -62,6 +65,9 @@ import Testing
         /// The panes the provider counts as shown: the ones made, less the ones a close took out or the layout
         /// released, and again the ones a close gave back.
         private(set) var shown: Set<PaneID> = []
+        /// The presence the layout last reported for each pane (`panePresenceDidChange`): what its content hears, as an
+        /// app's content lifecycle hides a page or stops a terminal's drawing on it.
+        private(set) var presence: [PaneID: PanePresence] = [:]
 
         init(holds: Bool, surfaces: Bool, hosted: Bool) {
             self.holds = holds
@@ -91,6 +97,8 @@ import Testing
         func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool) {
             if retired { shown.remove(pane) } else { shown.insert(pane) }
         }
+
+        func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) { self.presence[pane] = presence }
 
         func surface(_ pane: PaneID) -> Surface? { contents[pane] as? Surface ?? (contents[pane] as? Hosting)?.inner }
     }

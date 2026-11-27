@@ -44,7 +44,10 @@ FAKE_GH = r"""#!/usr/bin/env python3
 import json, os, sys
 state = json.load(open(os.environ["FAKE_STATE"]))
 args = sys.argv[1:]
-if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
+path = next((a for a in args[1:] if a.startswith("repos/")), "")
+limited_paths = state.get("rate_limited_paths", [])
+if (os.environ.get("GH_TOKEN") in state.get("rate_limited", []) or
+        any(fragment in path for fragment in limited_paths)):
     message = "gh: API rate limit exceeded for the repo installation (HTTP 403)"
     if state.get("rate_limit_header"):
         message += f"\nx-ratelimit-reset: {state['rate_limit_header']}"
@@ -52,8 +55,8 @@ if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
 open(os.environ["FAKE_LOG"], "a").write(json.dumps(args) + "\n")
 open(os.environ["FAKE_LOG"] + ".tokens", "a").write(os.environ.get("GH_TOKEN", "") + "\n")
 if args[:2] == ["run", "rerun"]:
-    sys.exit(0 if args[2] not in state.get("rerun_fails", []) else 1)
-path = next(a for a in args[1:] if a.startswith("repos/"))
+    target = args[3] if args[2] == "--job" else args[2]
+    sys.exit(0 if target not in state.get("rerun_fails", []) else 1)
 if "-X" in args:
     if state.get("delete_fails"):
         print(state["delete_fails"], file=sys.stderr); sys.exit(1)
@@ -73,8 +76,11 @@ if "/jobs?" in path:
     if state.get("jobs_error"):
         print("HTTP 403", file=sys.stderr); sys.exit(1)
     assert "--paginate" not in args and "per_page=100" in path, args
-    # Every job fits on the first page of 100; a later page is empty.
-    jobs = [job for page in state["jobs_pages"] for job in page]
+    # Every job fits on the first page of 100; a later page is empty. run_jobs: a deferred run's own jobs.
+    run_jobs = state.get("run_jobs", {}).get(path.split("/runs/")[1].split("/")[0])
+    if run_jobs is None and "jobs_pages" not in state:
+        print("HTTP 404", file=sys.stderr); sys.exit(1)
+    jobs = run_jobs if run_jobs is not None else [job for page in state["jobs_pages"] for job in page]
     print(json.dumps({"total_count": len(jobs), "jobs": jobs if path.endswith("page=1") else []}))
     sys.exit(0)
 if "/artifacts?" in path:
@@ -141,6 +147,53 @@ class QuotaOnlyFailureTests(unittest.TestCase):
         self.assertTrue(self.quota(jobs))
 
 
+# 2026-11-23 20:45Z and 11-24 17:25Z, the build legs' logs while feat-cmux-next did not compile; re-runs of the same
+# tree failed on the same lines.
+E0599 = ("2026-11-23T20:45:31.0255786Z error[E0599]: no method named `lock_or_recover` found for struct `ChatLocks`\n"
+         "2026-11-23T20:45:31.0263638Z error: could not compile `acpmux` (lib) due to 1 previous error\n")
+E0062 = ("2026-11-24T17:25:47.1285855Z error[E0062]: field `permissions` specified more than once\n"
+         "2026-11-24T17:25:47.1289663Z error: could not compile `acpmux` (lib) due to 1 previous error\n")
+
+
+class CompileErrorFailureTests(unittest.TestCase):
+    def compile_error(self, jobs, logs):
+        return handoff.compile_error_failure(jobs, lambda j: logs.get(j["id"]))
+
+    def test_a_build_leg_that_failed_to_compile(self):
+        for text in (E0599, E0062):
+            jobs = [job(1, "build-linux / build x86_64-unknown-linux-musl", "failure", "Build"),
+                    job(2, "build / build aarch64-apple-darwin", "failure", "Build"),
+                    job(3, "cmux_next_ daemon tests", "failure", "cargo test")]
+            self.assertTrue(self.compile_error(jobs, {1: text}))
+
+    def test_one_leg_is_enough(self):
+        # The darwin leg timed out, the linux leg did not compile: the tree cannot publish from this source.
+        jobs = [job(1, "build-linux / build aarch64-unknown-linux-musl", "failure", "Build"),
+                job(2, "build / build aarch64-apple-darwin", "failure", "Build")]
+        self.assertTrue(self.compile_error(jobs, {1: E0062, 2: "The operation was canceled."}))
+
+    def test_a_killed_or_starved_rustc_is_the_runners(self):
+        for fault in ("process didn't exit successfully: `rustc` (signal: 9, SIGKILL: kill)",
+                      "No space left on device (os error 28)", "memory allocation of 4096 bytes failed"):
+            jobs = [job(1, "build-linux / build x86_64-unknown-linux-musl", "failure", "Build")]
+            self.assertFalse(self.compile_error(jobs, {1: E0599 + fault}), fault)
+
+    def test_a_missing_crate_is_the_runners_cache(self):
+        text = "error[E0463]: can't find crate for `core`\nerror: could not compile `libc`\n"
+        self.assertFalse(self.compile_error([job(1, "build / build aarch64-apple-darwin", "failure", "Build")], {1: text}))
+
+    def test_needs_both_rustcs_code_and_cargos_verdict(self):
+        jobs = [job(1, "build / build aarch64-apple-darwin", "failure", "Build")]
+        self.assertFalse(self.compile_error(jobs, {1: "error[E0599]: quoted in a test name\n"}))
+        self.assertFalse(self.compile_error(jobs, {1: "error: could not compile `x` due to a lint\n"}))
+
+    def test_only_build_legs_and_readable_logs_count(self):
+        # A daemon test that did not compile, or an unreadable leg log, is no evidence: the hand-off goes ahead.
+        self.assertFalse(self.compile_error([job(3, "cmux_next_ daemon tests", "failure", "cargo test")], {3: E0599}))
+        self.assertFalse(self.compile_error([job(1, "build / build aarch64-apple-darwin", "failure", "Build")], {}))
+        self.assertFalse(self.compile_error([job(1, "build / build aarch64-apple-darwin", "success")], {1: E0599}))
+
+
 class CandidateTests(unittest.TestCase):
     def test_order_skips_self_and_expired(self):
         artifacts = [marker(1, 10, "lane/x"), marker(2, 11), marker(3, 12), marker(4, 13, expired=True), marker(5, 99)]
@@ -202,6 +255,18 @@ class CommandTests(unittest.TestCase):
         self.assertIn("tree hand-off skipped", result.stdout)
         self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
 
+    def test_an_owner_that_did_not_compile_hands_nothing_off(self):
+        state = {"jobs_pages": [[job(1, "build-linux / build x86_64-unknown-linux-musl", "failure", "Build"),
+                                 job(2, "build / build aarch64-apple-darwin", "failure", "Build")]],
+                 "logs": {"1": E0599, "2": E0599},
+                 "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Rust compile error", result.stdout)
+        self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
+        # Each log is read once though both checks read it.
+        self.assertEqual(sum(1 for c in calls if c[-1].endswith("/jobs/1/logs")), 1)
+
     # 2026-11-13: f8a39fdd's run 43425734678 deferred tree 77865e8e to its owner at attempt 3, built nothing,
     # and the owner published only its own commit's manifest: f8a39fdd answered 404. A published tree
     # re-runs every run that deferred to it (not one), past the build hand-off's cap, so each writes its
@@ -222,7 +287,34 @@ class CommandTests(unittest.TestCase):
         run_lists = [c for c in calls if c[0] == "api" and "/actions/workflows/cmux-tui-artifacts.yml/runs?" in " ".join(c)]
         self.assertEqual(len(run_lists), 1, "all deferred run records come from one bounded list")
         # The published hand-off does not read the owner's jobs: it re-runs whether or not the owner failed.
-        self.assertFalse(any("/jobs?" in c[-1] for c in calls if c[0] == "api"))
+        self.assertFalse(any("/runs/99/jobs?" in c[-1] for c in calls if c[0] == "api"))
+
+    # 2026-11-21: 827 manifest re-runs on 11-20 re-ran whole runs (about 7 jobs each, 5,286 runner-min) to
+    # write one manifest. A deferred run whose adopt job ran re-runs that job alone; one whose adopt job
+    # never ran (skipped) is re-run whole.
+    def test_published_reruns_only_the_adopt_job_when_it_ran(self):
+        adopt = handoff.ADOPT_JOB_NAME
+        state = {"artifacts": [marker(31, 12), marker(32, 13), marker(33, 14)],
+                 "runs": {"12": {"status": "completed", "run_attempt": 1},
+                          "13": {"status": "completed", "run_attempt": 1},
+                          "14": {"status": "completed", "run_attempt": 1}},
+                 "run_jobs": {"12": [job(501, "cmux-tui tree preflight", "success"), job(502, adopt, "success")],
+                              "13": [job(601, adopt, "skipped")],
+                              "14": [job(701, adopt, "failure")]}}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        reruns = sorted(c[2:-2] for c in calls if c[:2] == ["run", "rerun"])
+        self.assertEqual(reruns, [["--job", "502"], ["--job", "701"], ["13"]])
+        self.assertIn("job 502", result.stdout)
+        self.assertIn("the whole run", result.stdout)
+
+    def test_published_job_rerun_failure_fails_the_step(self):
+        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
+                 "run_jobs": {"12": [job(502, handoff.ADOPT_JOB_NAME, "success")]}, "rerun_fails": ["502"]}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(["run", "rerun", "--job", "502", "--repo", "o/r"], calls)
+        self.assertFalse(any(c[:3] == ["run", "rerun", "12"] for c in calls))
 
     def test_published_page_miss_reads_candidate_by_id_without_repository_paging(self):
         other_ids = list(range(1000, 1100))
@@ -309,6 +401,17 @@ class CommandTests(unittest.TestCase):
         self.assertNotIn("installation ID", result.stdout)
         self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
 
+    def test_published_candidate_metadata_rate_limit_names_the_deferred_run(self):
+        state = {"rate_limited_paths": ["/actions/workflows/cmux-tui-artifacts.yml/runs?"],
+                 "artifacts": [marker(31, 12)],
+                 "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("[quota-only]", result.stdout)
+        self.assertIn("published tree; run 12; no attempt before ", result.stdout)
+        self.assertNotIn("published tree; run 99;", result.stdout)
+        self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
+
     def test_rate_limit_reset_header_wins_over_full_hour_fallback(self):
         now = datetime(2026, 11, 17, 4, 55, 31, tzinfo=timezone.utc)
         self.assertEqual(handoff.quota_retry_before("x-ratelimit-reset: 1794891631", now), "05:01Z")
@@ -385,8 +488,11 @@ class WorkflowTests(unittest.TestCase):
         steps = notify["steps"]
         step = next(s for s in steps if s.get("name") == "Hand the key to a run that deferred to this one")
         self.assertNotIn("continue-on-error", step, "a hand-off that could not run is the job's red, not a warning")
-        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
-        self.assertEqual(step["env"]["GH_TOKEN_SPARE"], "${{ steps.cmux-bot-token.outputs.token }}")
+        # The CI pool App's token first, the workflow token without it (#51604); the bot App's token, or the
+        # workflow token behind a pool token, is the spare.
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ env.CI_POOL_GH_TOKEN || github.token }}")
+        self.assertEqual(step["env"]["GH_TOKEN_SPARE"],
+                         "${{ steps.cmux-bot-token.outputs.token || env.CI_POOL_GH_TOKEN && github.token || '' }}")
         mint = next(s for s in steps if s.get("id") == "cmux-bot-token")
         self.assertLess(steps.index(mint), steps.index(step))
         self.assertEqual(mint["uses"], "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1")

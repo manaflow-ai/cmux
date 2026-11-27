@@ -1,0 +1,142 @@
+// l10n-allow-file: test fixture text, not shipped UI.
+// A finished turn folds to its reply and one "Worked for", whatever started it (cmux#49592: "sometimes
+// we are still showing too much tool calls and stuff, it's not fully collapsed"). A turn the agent ran
+// on its own after a background task or a subagent finished drew every run of calls, its thinking and
+// its wrap-up call as rows beside its reply, while the person's turns above folded theirs. The shape
+// is the coordinator's chat in the report: a prompt's turn, then wake turns, each with calls, short
+// notes and a reply, the last one still running.
+import { expect, test } from "bun:test";
+import type { AcpmuxRow } from "../model";
+import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { hiddenRowFolds, toggleTurnFold, turnView } from "./turns";
+
+let at = 0;
+const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+  id,
+  kind,
+  version: 1,
+  at: (at += 1_000),
+  ...extra,
+});
+const calls = (id: string, titles: string[], inBackground?: string) =>
+  row(id, "activity", {
+    ...(inBackground && { inBackground }),
+    toolCount: titles.length,
+    items: titles.map((title, index) => ({
+      kind: "tool" as const,
+      text: title,
+      tool: { id: `${id}-${index}`, title, kind: "execute", status: "completed" },
+    })),
+  });
+const woke = (id: string, cause: NonNullable<AcpmuxRow["background"]>["cause"], extra = {}) =>
+  row(backgroundTurnRowId(id), BACKGROUND_TURN, {
+    background: { id, trigger: "task_notification", running: false, quiet: false, hasRows: true, cause, ...extra },
+  });
+const shell = (summary: string) => ({ kind: "shell", status: "completed", weight: "result" as const, summary });
+const subagent = (summary: string) => ({ kind: "subagent", status: "completed", weight: "result" as const, summary });
+
+/// The person's turn, a subagent's report and a background task's end that each woke the agent, and
+/// (`running`) a third wake still at work.
+function chat(running = false): AcpmuxRow[] {
+  at = 0;
+  const rows = [
+    row("prompt", "user", { text: "Push the fix and start the fleet tests" }),
+    calls("push", ["git push", "cmux-ci test"]),
+    row("pushed", "assistant", { text: "The new head is pushed and the fleet tests started." }),
+    row("summary", "turnSummary", { status: "completed", durationMs: 18_000, seq: 10, toolCount: 2 }),
+    woke("review", subagent("Re-review hand-off ask ahead finished")),
+    calls("review-read", ["gh pr view", "rg ask", "sed -n 1,80p"], "review"),
+    row("review-note", "assistant", { text: "Reading the review.", inBackground: "review" }),
+    calls("review-fix", ["git commit", "git push"], "review"),
+    row("review-reply", "assistant", { text: "Fixed the one should-fix and pushed it.", inBackground: "review" }),
+    row("review-summary", "turnSummary", {
+      status: "completed",
+      durationMs: 9_000,
+      seq: 20,
+      toolCount: 5,
+      inBackground: "review",
+    }),
+    woke("build", shell("Background task finished: Dev build m of the scratch tree")),
+    calls("build-check", ["cmux-ci status", "tail build.log", "curl backend"], "build"),
+    row("build-reply", "assistant", {
+      text: "Transient: the backend answers now. Resubmitting.",
+      inBackground: "build",
+    }),
+    calls("build-again", ["cmux-ci submit"], "build"),
+    row("build-wait", "assistant", { text: "The build will bring me back when it ends.", inBackground: "build" }),
+    row("build-summary", "turnSummary", {
+      status: "completed",
+      durationMs: 6_000,
+      seq: 30,
+      toolCount: 4,
+      inBackground: "build",
+    }),
+  ];
+  if (running)
+    rows.push(
+      woke("install", shell("Background task finished: Rerun build m's install"), { running: true, quiet: undefined }),
+      row("install-note", "assistant", { text: "Installed. Launching and checking sign-in.", inBackground: "install" }),
+      calls("install-launch", ["bash launch-verify.sh"], "install"),
+    );
+  return rows;
+}
+
+const WORK = ["review-read", "review-fix", "build-check", "build-again"];
+const drawnIds = (rows: readonly AcpmuxRow[]) => rows.map((entry) => entry.id);
+
+for (const agentFamily of ["claude", "codex", undefined])
+  test(`${agentFamily ?? "default"}: each finished wake turn folds its work under one closed Worked for`, () => {
+    const view = turnView(chat(), new Set(), { now: 60_000, agentFamily });
+    const ids = drawnIds(view);
+    // No call of a finished wake turn draws at rest.
+    for (const id of WORK) expect(ids).not.toContain(id);
+    for (const background of ["review", "build"]) {
+      const worked = view.filter((entry) => entry.id === `worked-${backgroundTurnRowId(background)}`);
+      expect(worked).toHaveLength(1);
+      expect(worked[0]).toMatchObject({ kind: "worked", foldOpen: false, status: "completed" });
+    }
+    // Each one's final reply stays in sight, under its line.
+    expect(ids.indexOf("review-reply")).toBeGreaterThan(ids.indexOf(`worked-${backgroundTurnRowId("review")}`));
+    expect(ids.indexOf("build-wait")).toBeGreaterThan(ids.indexOf(`worked-${backgroundTurnRowId("build")}`));
+    // Each one keeps its footer, with its reply to copy.
+    expect(view.find((entry) => entry.id === "build-summary")).toMatchObject({
+      kind: "turnSummary",
+      text: "The build will bring me back when it ends.",
+    });
+  });
+
+test("the finished wake turns fold the same while a later one runs", () => {
+  const idle = turnView(chat(), new Set(), { now: 60_000, agentFamily: "claude" });
+  const running = turnView(chat(true), new Set(), { now: 90_000, agentFamily: "claude", working: true });
+  const settled = (rows: readonly AcpmuxRow[]) => drawnIds(rows).slice(0, drawnIds(rows).indexOf("build-summary") + 1);
+  expect(settled(running)).toEqual(settled(idle));
+  for (const id of WORK) expect(drawnIds(running)).not.toContain(id);
+  // The running one is not folded yet: its work shows as it happens, on its live line.
+  expect(drawnIds(running)).not.toContain(`worked-${backgroundTurnRowId("install")}`);
+});
+
+test("opening a wake turn's Worked for shows its work, and closing it folds it again", () => {
+  const rows = chat();
+  const id = `worked-${backgroundTurnRowId("build")}`;
+  const opened = toggleTurnFold(rows, new Set(), id);
+  const view = turnView(rows, opened, { now: 60_000, agentFamily: "claude" });
+  expect(view.find((entry) => entry.id === id)).toMatchObject({ foldOpen: true });
+  expect(drawnIds(view)).toContain("build-check");
+  // Only that turn opens: the subagent's wake stays folded.
+  expect(drawnIds(view)).not.toContain("review-read");
+  const closed = toggleTurnFold(rows, opened, id);
+  expect(drawnIds(turnView(rows, closed, { now: 60_000, agentFamily: "claude" }))).not.toContain("build-check");
+});
+
+test("Find opens the Worked for that hides a wake turn's call", () => {
+  const rows = chat();
+  const drawn = turnView(rows, new Set(), { now: 60_000, agentFamily: "claude" });
+  const folds = hiddenRowFolds(
+    rows,
+    drawn,
+    rows.findIndex((entry) => entry.id === "review-read"),
+  );
+  expect(folds[0]).toBe(`worked-${backgroundTurnRowId("review")}`);
+  const view = turnView(rows, new Set(folds), { now: 60_000, agentFamily: "claude" });
+  expect(drawnIds(view)).toContain("review-read");
+});

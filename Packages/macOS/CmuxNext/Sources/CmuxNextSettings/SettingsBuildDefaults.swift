@@ -1,6 +1,9 @@
+import Foundation
+
 /// Defaults that depend on the running build rather than the schema. They fill keys that no layer
 /// sets (the file, MDM, the team policy), in the effective root only: cmux-next.json is shared by
-/// every channel, so a NIGHTLY or DEV default written there would become stable's value too.
+/// NIGHTLY, cmux NEXT, RC and stable, so a NIGHTLY default written there would become stable's value too
+/// (a DEV build has a file of its own, `BuildStatePaths`, and starts it empty).
 /// Settings shows them as the value in effect, and Reset returns to them.
 public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
     public var values: [[String]: JSONValue]
@@ -11,17 +14,48 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
         self.values = values
     }
 
-    /// `updates.downloadAutomatically` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
-    /// on for cmux NEXT's nightly ring (Leo 2026-11-10: "the nightly automatically downloads and
-    /// installs/unpacks and you simply click and it restarts"), filled here; off (the schema's
-    /// default, `.none`) on every other channel.
-    public static func channel(downloadsAutomatically: Bool) -> SettingsBuildDefaults {
-        downloadsAutomatically ? SettingsBuildDefaults(values: [UpdatesSettings.downloadAutomaticallyPath: .bool(true)]) : .none
+    /// `updates.automatic` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
+    /// Download Automatically (the schema's default) on every channel since Leo 2026-11-07 ("Yeah,
+    /// let's do that, man"), so the value it fills matches the schema; a channel whose default is
+    /// Notify Only would differ here.
+    ///
+    /// `mobile.allowIPhoneConnections` is on in a DEV build (`BuildStatePaths.isolatesSharedState`): DEV builds
+    /// pair with the person's iPhone by default, so a fresh one is reachable from the phone without a trip to
+    /// Settings. Its own file starts empty, so this is the value in effect until someone sets the key there;
+    /// NIGHTLY and stable keep the schema's off.
+    ///
+    /// `updates.automatic` is Install When Idle in cmux NEXT's NIGHTLY (`UpdateTrack.installsWhenIdleByDefault`;
+    /// Leo 2026-11-22: "cosmic-gray was supposed to auto-update when i was away from the keyboard. like, auto be
+    /// de facto able to click the restart button") and off (the schema's default) in release.
+    public static func channel(downloadsAutomatically: Bool, devBuild: Bool = false, installsWhenIdle: Bool = false) -> SettingsBuildDefaults {
+        var values: [[String]: JSONValue] = [:]
+        if installsWhenIdle {
+            values[UpdatesSettings.automaticPath] = .string(UpdatesAutomaticSetting.idle.rawValue)
+        } else if downloadsAutomatically {
+            values[UpdatesSettings.automaticPath] = .string(UpdatesAutomaticSetting.download.rawValue)
+        }
+        if devBuild { values[MobileSettings.allowIPhoneConnectionsPath] = .bool(true) }
+        return SettingsBuildDefaults(values: values)
     }
 
-    /// `root` with every build default whose key it leaves unset.
+    /// The value of `CMUX_NEXT_SETTINGS_BUILD_DEFAULTS` (``BuildStatePaths/settingsBuildDefaultsKey``) for this
+    /// build's Rust children: nil when the build has none.
+    public var childEnvironmentValue: String? {
+        guard !values.isEmpty else { return nil }
+        let dotted = Dictionary(uniqueKeysWithValues: values.map { ($0.key.joined(separator: "."), $0.value) })
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(dotted)).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    /// `root` with every build default whose key it leaves unset. A key an old key it replaced still
+    /// answers for (``RenamedSettingKeys``: `updates.downloadAutomatically: false` reads as Notify Only) is
+    /// not unset: the person's old pick wins over the build's default.
     func filling(_ root: JSONValue) -> JSONValue {
-        values.reduce(root) { root, entry in root.value(at: entry.key) == nil ? root.setting(entry.value, at: entry.key) : root }
+        values.reduce(root) { root, entry in
+            root.value(at: entry.key) == nil && RenamedSettingKeys.legacyValue(for: entry.key, in: root) == nil
+                ? root.setting(entry.value, at: entry.key) : root
+        }
     }
 }
 
@@ -45,7 +79,9 @@ extension SettingsController {
         guard let stored = descriptor.storedValue(in: fileRoot) else { return false }
         // A value kept over the active theme file is the person's even at the default: Reset returns
         // to the file's value (#44894).
-        if ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id), setsInThemeFile(descriptor.id) { return true }
+        if setsInThemeFile(descriptor.id), ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id) { return true }
+        // Resetting an explicit group style returns ownership to the sidebar look.
+        if descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath, layerBelowFileSets(descriptor.id) { return true }
         return stored != defaultValue(of: descriptor)
     }
 }

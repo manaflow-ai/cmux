@@ -69,7 +69,6 @@ export function SubagentLimitStepper({
               type="button"
               className="acpmux-subagent-limit__reset"
               aria-label={t("sessionInfo.subagents.limit.resetLabel")}
-              title={t("sessionInfo.subagents.limit.resetLabel")}
               onClick={() => controller.reset()}
             >
               {t("sessionInfo.subagents.limit.reset")}

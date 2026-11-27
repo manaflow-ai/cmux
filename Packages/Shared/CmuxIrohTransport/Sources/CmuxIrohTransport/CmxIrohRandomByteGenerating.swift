@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Injectable cryptographic randomness boundary for one-use invitation proofs.
 public protocol CmxIrohRandomByteGenerating: Sendable {
@@ -14,6 +16,7 @@ public struct CmxIrohSystemRandomByteGenerator: CmxIrohRandomByteGenerating {
         guard count > 0 else {
             throw CmxIrohOfflinePairingSessionError.randomnessUnavailable
         }
+        #if canImport(Security)
         var bytes = Data(count: count)
         let status = bytes.withUnsafeMutableBytes { buffer in
             guard let base = buffer.baseAddress else { return errSecAllocate }
@@ -23,5 +26,10 @@ public struct CmxIrohSystemRandomByteGenerator: CmxIrohRandomByteGenerating {
             throw CmxIrohOfflinePairingSessionError.randomnessUnavailable
         }
         return bytes
+        #else
+        // Platforms without Security.framework: the system CSPRNG (getrandom on Linux).
+        var generator = SystemRandomNumberGenerator()
+        return Data((0 ..< count).map { _ in UInt8.random(in: .min ... .max, using: &generator) })
+        #endif
     }
 }

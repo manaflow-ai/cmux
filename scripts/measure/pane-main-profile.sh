@@ -16,13 +16,26 @@ CMUX_PANE_TRANSPORT_BENCH=1 ./scripts/ci/package-test-lane.sh suite Packages/mac
 DEVELOPER_DIR="$(sed -n 's/^Xcode: //p' "$lane_log" | tail -n 1)"
 export DEVELOPER_DIR
 trace="$work/prompt.trace"
-xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 180s --output "$trace" --no-prompt &
+rec_log="$work/xctrace-record.log"
+xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 180s --output "$trace" --no-prompt \
+  >"$rec_log" 2>&1 &
 recorder=$!
-sleep 5 # let the recorder start (a measurement script, not runtime code)
+# Wait until xctrace says it is recording (its "Starting recording ... Ctrl-C to stop" line).
+for _ in $(seq 600); do
+  grep -qE 'Ctrl-C to stop|Starting recording' "$rec_log" && break
+  kill -0 "$recorder" 2>/dev/null || break
+  sleep 0.1
+done
+cat "$rec_log" >&2
+if ! grep -qE 'Ctrl-C to stop|Starting recording' "$rec_log"; then
+  echo "pane-main-profile: xctrace never reported recording in 60 s" >&2
+  exit 1
+fi
 CMUX_PANE_TRANSPORT_BENCH=1 swift test --package-path Packages/macOS/CmuxNext --skip-build \
   --filter aTwentyMegabytePromptOnTheMainThread 2>&1 | grep -E "PANE-MAIN|passed|failed" || true
 kill -INT "$recorder"
 wait "$recorder" || true
+tail -n 5 "$rec_log" >&2
 xcrun xctrace export --input "$trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' > "$work/tp.xml"
 python3 - "$work/tp.xml" <<'PY'
 import sys, collections, xml.etree.ElementTree as ET

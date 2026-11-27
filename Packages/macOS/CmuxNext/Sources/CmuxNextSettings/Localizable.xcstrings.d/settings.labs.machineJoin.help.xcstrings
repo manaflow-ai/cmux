@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.machineJoin.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض مشاركة الشاشة والتحكم في الإعدادات > الأجهزة بعد انضمام هذا الـ Mac."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikazuje Dijeljenje ekrana i Kontrolu u Postavke > Uređaji kada se ovaj Mac pridruži."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser skærmdeling og styring i Indstillinger > Enheder, når denne Mac er føjet til."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigt „Bildschirmfreigabe“ und „Steuerung“ unter Einstellungen > Geräte, sobald dieser Mac beigetreten ist."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows Screen sharing and Control in Settings > Devices once this Mac joins."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Muestra Compartir pantalla y Control en Ajustes > Dispositivos cuando este Mac se une."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Affiche Partage d’écran et Contrôle dans Réglages > Appareils une fois que ce Mac a rejoint vos machines."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra Condivisione schermo e Controllo in Impostazioni > Dispositivi quando questo Mac si unisce."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "この Mac が参加すると、設定 > デバイスに画面共有と操作を表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញការចែករំលែកអេក្រង់ និងការគ្រប់គ្រងនៅក្នុង ការកំណត់ > ឧបករណ៍ បន្ទាប់ពី Mac នេះចូលរួម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 Mac이 참여하면 설정 > 기기에 화면 공유 및 제어를 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser Skjermdeling og Kontroll i Innstillinger > Enheter når denne Macen er koblet til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazuje Udostępnianie ekranu i Sterowanie w Ustawienia > Urządzenia, gdy ten Mac dołączy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra Compartilhamento de tela e Controle em Ajustes > Dispositivos depois que este Mac entrar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывает «Общий экран» и «Управление» в Настройки > Устройства, когда этот Mac подключён."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงการแชร์หน้าจอและการควบคุมใน การตั้งค่า > อุปกรณ์ เมื่อ Mac เครื่องนี้เข้าร่วมแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu Mac katıldığında Ayarlar > Aygıtlar'da Ekran paylaşımı ve Denetim'i gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показує «Спільний екран» і «Керування» в Параметри > Пристрої, щойно цей Mac приєднається."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiển thị Chia sẻ màn hình và Điều khiển trong Cài đặt > Thiết bị khi máy Mac này đã tham gia."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此 Mac 加入后，在“设置 > 设备”中显示“屏幕共享”和“控制”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "這台 Mac 加入後，在「設定 > 裝置」中顯示「螢幕共享」和「控制」。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

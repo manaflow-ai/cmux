@@ -25,6 +25,7 @@ fails. Kills only the app it started.
 import argparse, glob, json, os, plistlib, signal, socket, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -87,6 +88,14 @@ def same(a, b, tolerance=1.0):
     return a is not None and b is not None and all(abs(x - y) <= tolerance for x, y in zip(a, b))
 
 
+def frame_settled(what):
+    """Until the window frame (and whether it shows) reads the same four times in a row; logged when it never does."""
+    value = wait_stable(lambda: json.dumps([frame(), visible()]), what, timeout=10, interval=0.05, reads=4,
+                        raise_on_timeout=False)
+    if value is None:
+        safe_print(f"note: {what} did not hold still in 10 s", flush=True)
+
+
 def launch(mode):
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
@@ -107,8 +116,10 @@ def points():
     run, of the main area's widest one (empty tab-strip space), and a split divider's handle (a
     press there is the divider's: the window must stay put whatever the setting)."""
     rpc("debug.window_frame", {"frame": START})
-    time.sleep(0.8)
-    band = rpc("debug.layers", {"titlebar_band": True})["titlebar_band"]
+    frame_settled("the window frame after the reset")
+    # The band itself laid out at the new frame: the same runs four reads in a row.
+    band = json.loads(wait_stable(lambda: json.dumps(rpc("debug.layers", {"titlebar_band": True})["titlebar_band"]),
+                                  "the titlebar band", timeout=10, interval=0.1, reads=4))
     row = min(band["rows"], key=lambda r: abs(r["y"] - 12))
     report["band_row"] = row
     moving = [r for r in row["runs"] if r["moves"] and r["hit"] not in ("DividerHandleView", "SidebarResizeHandle")]
@@ -126,11 +137,20 @@ def points():
 def check(mode, name, x, y):
     """Double-clicks window point (x, y) from a fresh window frame; returns the case record."""
     rpc("debug.window_frame", {"frame": START})
-    time.sleep(0.8)
+    frame_settled("the window frame after the reset")
     before = frame()
     clicked = rpc("debug.mouse", {"action": "double_click", "x": x, "y": y})
-    time.sleep(0.6)
+    if mode in ("zoom", "minimize"):
+        # The double-click took: the frame moved or the window hid, then the zoom or minimize animation ended.
+        if not wait_until(lambda: not same(before, frame(), 4) or visible() is False,
+                          f"the {mode} after the double-click on {name}", timeout=5, interval=0.05, raise_on_timeout=False):
+            safe_print(f"note: no {mode} 5 s after the double-click on {name}", flush=True)
+        frame_settled(f"the window after the {mode}")
+    else:
+        # sleep-ok: the window must stay put; nothing to wait for, so 0.6 s is the window a wrong move would show in.
+        time.sleep(0.6)
     soon, shown_soon = frame(), visible()
+    # sleep-ok: the second look 1.5 s later is the check itself (a window that zooms twice ends where it started).
     time.sleep(1.5)
     late, shown_late = frame(), visible()
     if mode == "zoom":
