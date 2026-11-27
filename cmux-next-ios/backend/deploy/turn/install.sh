@@ -72,6 +72,6 @@ systemctl enable eturnal >/dev/null
 systemctl restart eturnal
 sleep 3
 systemctl is-active --quiet eturnal || { journalctl -u eturnal -n 30 --no-pager >&2; exit 1; }
-echo "eturnal $VERSION is up on $RELAY_PUBLIC_IPV4: udp+tcp 3478, tls 443."
-echo "Open udp+tcp 3478, tcp 443, udp 49152-65535 in the firewall. Then set the Worker's secrets:"
-echo "  TURN_SELF_SECRET=<the same secret>  TURN_SELF_URLS=turn:${RELAY_DOMAIN:-$RELAY_PUBLIC_IPV4}:3478?transport=udp,turn:${RELAY_DOMAIN:-$RELAY_PUBLIC_IPV4}:3478?transport=tcp,turns:${RELAY_DOMAIN:-$RELAY_PUBLIC_IPV4}:443?transport=tcp"
+echo "eturnal $VERSION is up on $RELAY_PUBLIC_IPV4: udp+tcp 3478, udp+tls 443."
+echo "Open udp+tcp 3478, udp+tcp 443, udp 49152-65535 in the firewall. Then set the Worker's secrets:"
+echo "  TURN_SELF_SECRET=<the same secret>  TURN_SELF_URLS=turn:${RELAY_DOMAIN:-$RELAY_PUBLIC_IPV4}:3478?transport=udp,turn:${RELAY_DOMAIN:-$RELAY_PUBLIC_IPV4}:3478?transport=tcp,turn:${RELAY_DOMAIN:-$RELAY_PUBLIC_IPV4}:443?transport=udp,turns:${RELAY_DOMAIN:-$RELAY_PUBLIC_IPV4}:443?transport=tcp"
