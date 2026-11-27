@@ -51,6 +51,7 @@ import type { NewChatPrewarm } from "../newChatPrewarm";
 import type { CloudTypingPrewarm } from "../cloudTypingPrewarm";
 import { harnessProfiles } from "../harnessProfiles";
 import { setStartModeSource } from "../startMode";
+import { setAttachmentView } from "../composerSettings";
 import { setStartRecoveryPreview } from "../startRecoveryPreview";
 import { setComputerUsePreviewControls } from "../computerUse/computerUsePreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
@@ -151,7 +152,6 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
-  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
@@ -159,8 +159,9 @@ import {
   HOST_WAKE_EVENTS,
   hostWakeAsks,
   lostRetryStep,
+  hostPlannedRestart,
 } from "../hostRetry";
-import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import { acpmuxSendsReady, heldStartStop, sendsHeldForHost, untilHostAnswers, paneSends } from "../sendWhenReady";
 import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
@@ -211,6 +212,7 @@ import {
 import { fetchScrollAnchor, postScrollAnchor } from "./scrollAnchorHost";
 import { readWake } from "./wake";
 import { togglePlace, togglePromptRow } from "../conversation/togglePlace";
+import { putToggleDraft, takeToggleDraft, toggleDraft } from "../conversation/toggleDraft";
 
 /// What the chat-list stores read of a snapshot (newtab/chatStore.ts `publishSessions`,
 /// newtab/warmSnapshot.ts `publishWarmNewTab`, newtab/recentProject.ts `rememberRecentFolders`), and
@@ -830,6 +832,9 @@ export function paneSnapshotEffect({
       const rowId = at === null ? null : togglePromptRow(counted.current.transcriptRows, at);
       return rowId !== undefined && (placeTranscript.current?.(rowId) ?? false);
     },
+    toggleDraft: () => toggleDraft(composerHandle.current?.draft()),
+    takeToggleDraft: (text, until) => takeToggleDraft(composerHandle.current ?? undefined, text, until),
+    putToggleDraft: (text, until) => putToggleDraft(composerHandle.current ?? undefined, text, until),
     applyCustomization(customization) {
       if ("themeCSS" in customization) {
         applyPaneThemeCSS(customization.themeCSS ?? "");
@@ -1230,11 +1235,13 @@ export function paneSnapshotEffect({
       // The page opens its own WebSocket only on the dev slot (hostRetry.ts `quickRetry`).
       browserSocket = !mock && !bridge;
       if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
-        // A host with no daemon to reach has nothing left to fail.
+        // A host with no daemon to reach has nothing left to fail, and no send waits for it.
+        paneSends.noAcpmux = true;
         setHostError(undefined);
         setHostErrorShown(false);
         return;
       }
+      paneSends.noAcpmux = false;
       // Native chats never load the in-page daemon or its fixture transcripts. Keep this
       // await in the mock branch so the native handshake still starts in the same turn.
       const mockModule = mock ? (preparedMockTransport() ?? (await import("../mock"))) : undefined;
@@ -2400,6 +2407,9 @@ export function paneSnapshotEffect({
         "chat.menu.saveImage": () => actOnReportedImage("image.save"),
         "chat.menu.quickLookImage": () => actOnReportedImage("image.quickLook"),
         "chat.menu.revealImage": () => actOnReportedImage("image.reveal"),
+        // Its Attachments Inline / Attachments at Top on a prompt I sent: `agentPane.attachmentView`,
+        // written as the composer's right-click writes it, so every bubble redraws at once.
+        "chat.menu.attachmentView": async ({ view }) => setAttachmentView(view === "inline" ? "inline" : "strip"),
         // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
         "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
         // A fork and a started Continue In… open in a tab of their own, so the chat keeps its tab
@@ -2910,6 +2920,8 @@ export function paneSnapshotEffect({
         return sendPrompt(params);
       };
       notifyDraftActionsChanged();
+      // Sends made while the page connected go now, in their order (sendWhenReady.ts).
+      acpmuxSendsReady();
       harnessSwitch.setHandlers({
         restore: (text, attachments) => {
           // A failed New Tab start never surrendered this draft. Restoring it into the future
