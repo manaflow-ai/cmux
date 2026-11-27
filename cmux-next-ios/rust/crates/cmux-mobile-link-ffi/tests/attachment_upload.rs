@@ -245,6 +245,59 @@ async fn cancel_mid_upload_returns_at_once_and_wakes_the_waiter() {
     assert_eq!(uploads.progress(id).unwrap().stage, UploadStage::Cancelled);
 }
 
+/// Stop while a picked video is still being re-encoded (stage `Compressing`, before any byte
+/// moved): the upload ends `Cancelled` at once, its waiter wakes, and the export finishing
+/// afterwards sends nothing to the Mac (Leo: "a 1-minute 4K video sends from iPhone on LTE with
+/// visible progress and can be cancelled mid-send").
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancel_while_a_video_compresses_stops_it_and_nothing_reaches_the_mac() {
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("IMG_0001.mov");
+    patterned_file(&source, 8 * MIB);
+    let (uploads, recorder) = engine(Timings::default());
+    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
+    let id = uploads.reserve(spec(&rig, "IMG_0001.mov"));
+    let waiter = tokio::spawn({
+        let (uploads, id) = (uploads.clone(), id.clone());
+        async move { uploads.wait(id).await }
+    });
+    uploads.compress_progress(id.clone(), 0.4);
+    assert_eq!(uploads.progress(id.clone()).unwrap().stage, UploadStage::Compressing);
+    let started = Instant::now();
+    uploads.cancel(id.clone());
+    assert!(started.elapsed() < Duration::from_millis(50), "cancel took {:?}", started.elapsed());
+    let answer =
+        tokio::time::timeout(Duration::from_secs(2), waiter).await.expect("the waiter woke").unwrap();
+    assert!(
+        matches!(&answer, Err(CmuxMobileError::Refused { code, .. }) if code == "cancelled"),
+        "{answer:?}"
+    );
+    // The encoder's late callbacks: its progress, then its finished file.
+    uploads.compress_progress(id.clone(), 0.9);
+    uploads.file_ready_as(id.clone(), source.to_str().unwrap().into(), "IMG_0001.mp4".into());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let progress = uploads.progress(id).unwrap();
+    assert_eq!(progress.stage, UploadStage::Cancelled);
+    assert_eq!((progress.sent_bytes, progress.acked_bytes), (0, 400));
+    let stages = recorder.stages();
+    assert_eq!(stages, vec![UploadStage::Compressing, UploadStage::Cancelled], "{stages:?}");
+    let mut landed = walk(&rig.root);
+    landed.extend(walk(&rig._dirs.path().join("uploads")));
+    assert!(landed.is_empty(), "the Mac got {landed:?}");
+}
+
+fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    entries
+        .flatten()
+        .flat_map(|e| {
+            let path = e.path();
+            if path.is_dir() { walk(&path) } else { vec![path] }
+        })
+        .collect()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_replaced_link_resumes_the_upload() {
     let rig = upload_rig(Transport::WireGuard).await;

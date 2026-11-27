@@ -167,6 +167,7 @@ public final class ListPullToRefresh {
         slide = Slide(from: held, to: inset, start: CACurrentMediaTime(), top: top,
                       fromOffset: scrollView.contentOffset.y, written: scrollView.contentOffset.y)
         let link = CADisplayLink(target: SlideTarget(self), selector: #selector(SlideTarget.tick(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         slideLink = link
     }
