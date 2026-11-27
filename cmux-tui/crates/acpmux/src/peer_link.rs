@@ -5,6 +5,7 @@
 //! `reconnecting` with its last-known sessions, never dropped.
 
 use crate::rpc::RpcError;
+use acpmux_list_types::resume::ResumeErrorClass;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -31,6 +32,10 @@ pub struct LinkTimings {
     pub ping_misses: u32,
     /// `ACPMUX_PEER_PING_SECS` was set: the silence budget stays `silence_budget()`.
     pub fixed_silence: bool,
+    /// The checks of a silent link scale with its measured round trip
+    /// (`peer_link_quality::probe_wait`, `silence_floor`): on in every daemon. Off, they keep the
+    /// fixed constants, which the link-quality tests measure against.
+    pub rtt_adaptive: bool,
     /// `ACPMUX_PEER_REPLACE_SECS`: a silent link dials its replacement (while it still reads)
     /// after this much silence, when that is under the silence budget. Off (`None`) by
     /// default: the replacement dials when the budget runs out. The link is still dropped at
@@ -70,6 +75,7 @@ impl Default for LinkTimings {
             ping_every: Duration::from_secs(2),
             ping_misses: 3,
             fixed_silence: false,
+            rtt_adaptive: true,
             replace_after: None,
             send: Duration::from_secs(80),
             stable_after: Duration::from_secs(60),
@@ -735,6 +741,25 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> 
     ) -> std::task::Poll<std::io::Result<()>> {
         std::task::ready!(self.drain(cx))?;
         std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// What one connect attempt's end means to the link's resume (`acpmux_list_types::resume`),
+/// from typed facts, never its error text: `clean` when it ended with no error (a restart's
+/// Close 1012, a move to another path, a stop), `refused` when the remote refused the ssh login
+/// or the token (`login_refused`, HTTP 401/403), `timed_out` when the connect or the handshake
+/// ran past its [`LinkTimings`] deadline. Any other failure is the network's or the socket's.
+/// The class goes to the log only: the link's bound is its park schedule
+/// ([`Link::park_at_start`], [`Link::retry_delay`]).
+pub fn link_end_class(clean: bool, refused: bool, timed_out: bool) -> ResumeErrorClass {
+    if refused {
+        ResumeErrorClass::Auth
+    } else if clean {
+        ResumeErrorClass::CleanClose
+    } else if timed_out {
+        ResumeErrorClass::DeadlineExceeded
+    } else {
+        ResumeErrorClass::Transient
     }
 }
 

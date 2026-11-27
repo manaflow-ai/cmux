@@ -916,7 +916,10 @@ struct TaskComposerSettingsMenus: View {
         if !efforts.isEmpty {
             picker("Effort", id: "effort", current: pick.effort, choices: efforts) { value in update { $0.effort = value } }
         }
-        if harness.modes.count > 1 {
+        // The mode the chat starts in is named before the first send, also when it is the only
+        // one a phone may start (Leo, 2026-11-22: "dont make it show mode if auto is the default").
+        // `pick` is `settled`, which Start sends too: the pill names what the chat runs.
+        if !harness.modes.isEmpty {
             picker("Mode", id: "mode", current: pick.mode, choices: harness.modes) { value in update { $0.mode = value } }
         }
         // A terminal launch passes the model, effort and mode on the CLI's command line, not the
