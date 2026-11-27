@@ -797,7 +797,8 @@ impl Hub {
         // Claude Code keeps the prompt cache one hour only on a Claude
         // subscription, five minutes on an API key or any other endpoint:
         // acpmux starts it on the cache `agents.promptCache` names (one
-        // hour by default, prompt_cache_env.rs). A profile's own value wins.
+        // hour by default, prompt_cache_env.rs; a trusted project's
+        // `.cmux/cmux-next.json` over the user's). A profile's own value wins.
         // The login shell's values are applied after this env (agent/command.rs), so one it
         // sets counts as set; a remote-origin chat gets no login env.
         if crate::agent_tools::is_claude_code(&meta.harness, profile) {
@@ -809,7 +810,7 @@ impl Hub {
             };
             crate::prompt_cache_env::apply(
                 &mut p.env,
-                crate::prompt_cache_env::PromptCache::current(),
+                crate::prompt_cache_env::PromptCache::for_cwd(std::path::Path::new(&meta.cwd)),
                 &login,
             );
             // Per-turn context in the user turn, not a trailing system message the
