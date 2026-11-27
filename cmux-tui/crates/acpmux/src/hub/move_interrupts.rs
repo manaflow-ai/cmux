@@ -17,7 +17,7 @@
 
 use super::*;
 use crate::bg_run::Record;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::BTreeMap;
 
 /// The answer's schema. A field added later keeps v1; a field whose meaning changes is v2.
 pub(crate) const SCHEMA: &str = "acpmux.move-interrupts.v1";
@@ -217,44 +217,11 @@ pub(crate) fn lines(p: &Parts) -> Vec<String> {
 }
 
 /// The TCP ports the processes under `roots` listen on; `None` where this cannot be read
-/// (not Linux). A bounded walk from the roots, never a scan of the machine.
+/// (not Linux). The command sampler's bounded walk down from the held roots, never a scan of
+/// the machine (`placement::command_sampler::listening_under`).
 fn tree_ports(roots: &[u32]) -> Option<Vec<Port>> {
-    #[cfg(target_os = "linux")]
-    {
-        let mut pids = BTreeSet::new();
-        for &root in roots {
-            pids.extend(crate::cpu_class::own_tree(root));
-        }
-        let mut listening: HashMap<u64, u16> = HashMap::new();
-        for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
-            if let Ok(text) = std::fs::read_to_string(table) {
-                crate::placement::command_sampler::parse_listening(&text, &mut listening);
-            }
-        }
-        let mut out = Vec::new();
-        if listening.is_empty() {
-            return Some(out);
-        }
-        for pid in pids {
-            let Ok(dir) = std::fs::read_dir(format!("/proc/{pid}/fd")) else { continue };
-            for link in dir.flatten().filter_map(|e| std::fs::read_link(e.path()).ok()) {
-                let inode = link
-                    .to_str()
-                    .and_then(|l| l.strip_prefix("socket:["))
-                    .and_then(|l| l.strip_suffix(']'))
-                    .and_then(|l| l.parse::<u64>().ok());
-                if let Some(port) = inode.and_then(|i| listening.get(&i)) {
-                    out.push(Port { port: *port, pid: Some(pid) });
-                }
-            }
-        }
-        Some(out)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (roots, BTreeSet::<u32>::new(), HashMap::<u64, u16>::new());
-        None
-    }
+    let found = crate::placement::command_sampler::listening_under(roots)?;
+    Some(found.into_iter().map(|(port, pid)| Port { port, pid: Some(pid) }).collect())
 }
 
 /// The checkout's unsynced state at `cwd`: changed files (`git status --porcelain`) and commits
