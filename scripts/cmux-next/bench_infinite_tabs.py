@@ -533,6 +533,13 @@ def run(argv: list[str]) -> int:
                 hibernate(app, sock, made[-1 - args.lag], tally)
             if (index + 1) % 20 == 0:
                 now = bm.sample(pid, bundle, f"build-{index + 1}", index + 1)
+                # The biggest renderer as the build goes: whether a renderer's peak (the chat page's reached
+                # 724 MB footprint, then settled at 196 MB with 652 MB still resident) comes with the chats
+                # (the first --chats workspaces) or with the tabs after them.
+                big = sorted((r for r in now["processes"] if r["kind"] == "cef-renderer"),
+                             key=lambda r: r["footprint_mb"], reverse=True)[:2]
+                print("INFTABS-BUILD-RENDERER " + f"workspaces={index + 1} " + " ".join(
+                    f"pid={r['pid']}:rss={r['rss_mb']}:fp={r['footprint_mb']}:peak={r.get('max_footprint_mb')}" for r in big), flush=True)
                 print(f"INFTABS-BUILD workspaces={index + 1} made={len(made)} pages={sum(len(e['pages']) for e in made)} "
                       f"elapsed_s={round(time.monotonic() - started)} total_rss_mb={now['total_rss_mb']} "
                       f"renderers={now['kinds'].get('cef-renderer', {}).get('count', 0)} counts={json.dumps(counts(sock))}", flush=True)
