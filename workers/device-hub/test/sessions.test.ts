@@ -48,7 +48,7 @@ describe("session flow", () => {
     const { host, viewer } = await setup();
     await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "full" });
-    expect(res.json.session).toMatchObject({ state: "pending", scope: "full" });
+    expect(res.json.session).toMatchObject({ state: "pending", scope: "full", hubApproval: "requested" });
     const sid = res.json.session.id;
     const req = await host.user!.next((f) => f.type === "session.request");
     expect(req.session).toEqual({ id: sid, viewerId: viewer.id, viewerName: "Laptop", viewerKeyFingerprint: await keyFingerprint(viewer.signingKey), scope: "full" });

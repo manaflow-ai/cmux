@@ -69,8 +69,8 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
-        # Eight since #49284 added sign-live-code-variant; nine since #56641 added nightly-next-pkg.
-        self.assertEqual(len(JOBS), 9)
+        # Ten since #57000 moved post-feed deltas into their own signing job.
+        self.assertEqual(len(JOBS), 10)
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)
@@ -122,7 +122,9 @@ class SigningOnCmux15Test(unittest.TestCase):
                     # Except a nightly-next-only job on another track: the one-job JIT VM (NIGHTLY_NEXT_ONLY_OWNED).
                     other_track = name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next"
                     with self.subTest(job=name, event=event, ref=ref, mode="one-mini"):
-                        self.assertEqual(route(name, context), JIT_LABEL if other_track else LABEL)
+                        expected = ([LABEL, "glaeda-nightly-mini"] if name == "nightly-next-deltas"
+                                    else JIT_LABEL if other_track else LABEL)
+                        self.assertEqual(route(name, context), expected)
 
     def test_the_release_uploads_leave_the_signer(self) -> None:
         for name in UPLOADS:
@@ -175,6 +177,9 @@ class SigningOnCmux15Test(unittest.TestCase):
                 with self.subTest(job=name, context=context):
                     self.assertTrue(labels)
                     self.assertEqual(labels[0], LABEL, "a pin always starts with the literal signer label")
+                    if name == "nightly-next-deltas" and context["vars.CI_NIGHTLY_MINI"]:
+                        self.assertEqual(labels, [LABEL, "glaeda-nightly-mini"])
+                        continue
                     for label in labels:
                         self.assertFalse(shared.match(str(label)), label)
                         # A signer runner: cmux15's, or ultra1's (nightly-next-one's second signer, note-33).
