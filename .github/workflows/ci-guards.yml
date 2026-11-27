@@ -945,6 +945,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/ci/install-actionlint.sh
+          ACTIONLINT="$RUNNER_TEMP/actionlint" python3 tests/test_ci_workflow_start_lint.py
           "$RUNNER_TEMP/actionlint"
 
       # zizmor over the workflows and composite actions this change adds or edits, at its base and its head: a
@@ -1399,6 +1400,7 @@ jobs:
         run: |
           python3 tests/test_machine_channel_cargo_seed_due.py
           python3 tests/test_nightly_warm_checkout_bounded.py
+          python3 tests/test_nightly_next_web_bundles_gate.py
           python3 tests/test_publication_guard_release_read.py
 
       - name: Validate every workflow guard is wired
