@@ -608,6 +608,37 @@ describe("claude proxy failover across accounts", () => {
     expect((await response.json()).id).toBe("msg-after-metadata");
   });
 
+  // The shared vocabulary (services/upstreamError.ts, ask-616b73f6bc): an `api_error` whose
+  // message says the provider is overloaded fails over like an `overloaded_error`. Before, only
+  // the two error types were read, so this streamed its refusal to the guest.
+  test("fails over an api_error SSE event whose message says overloaded", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+    const responses = [
+      () => new Response(
+        'event: error\ndata: {"type":"error","error":{"type":"api_error","message":"HTTP 529 Overloaded"}}\n\n',
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+      () => Response.json({ id: "msg-api-error-2", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+    ];
+    upstreamResponse = () => responses.shift()!();
+    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+    expect(response.status).toBe(200);
+    expect(fetchCalls).toHaveLength(2);
+    expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
+  });
+
+  test("returns a client error SSE event that mentions overloaded untouched", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+    const body = 'event: error\ndata: {"type":"error","error":{"type":"invalid_request_error","message":"tool overloaded_tool is not defined"}}\n\n';
+    upstreamResponse = () => new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+    expect(fetchCalls).toHaveLength(1);
+    expect(cooldowns).toEqual([]);
+    expect(await response.text()).toBe(body);
+  });
+
   test("aborts an idle Claude probe when the request is cancelled", async () => {
     let resolveFetch: (() => void) | undefined;
     const fetchStarted = new Promise<void>((resolve) => { resolveFetch = resolve; });

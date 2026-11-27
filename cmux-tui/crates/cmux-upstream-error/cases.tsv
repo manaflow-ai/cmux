@@ -1,0 +1,15 @@
+# The matrix every reader of an upstream error is held to: this crate (lib.rs), OptChat, and the
+# TypeScript port (web/services/upstreamError.ts, web/tests/upstream-error.test.ts). One row per line,
+# tab-separated: message, is_capacity, is_account_limit, retry_after seconds ("-" for none).
+API Error: 529 {"type":"overloaded_error"}	true	false	-
+HTTP 529 overloaded_error; retry-after: 30	true	false	30
+API error: 503 no non-exhausted accounts; retry after 3596s	true	false	3596
+503 Service Unavailable	true	false	-
+502 the gateway is at its call limit; retry	true	false	-
+Selected model is at capacity	true	false	-
+{"code":529,"reason":"overloaded"}	true	false	-
+{"error":{"type":"overloaded_error"},"retry_after":12}	true	false	12
+API Error: 429 rate_limit_error	false	true	-
+Too Many Requests; retry-after 90	false	true	90
+waited 2503s for the build	false	false	-
+API Error: 400 invalid_request_error	false	false	-

@@ -1,3 +1,7 @@
+import {
+  isAccountLimit as isUpstreamAccountLimit,
+  isCapacity as isUpstreamCapacity,
+} from "../../../../web/services/upstreamError";
 import { agentKey } from "../shared/agentKey";
 import { currentLanguage, type Translate } from "./i18n";
 import { resetTime } from "./usageLimits";
@@ -68,7 +72,7 @@ const TEAM_CAP = /\bteam\.cap_reached\b|team reached its (?:spending|monthly usa
 /// The account behind the chat's own API key has no credit left: Anthropic's "credit balance is too
 /// low", OpenAI's `insufficient_quota` ("You exceeded your current quota") and
 /// `billing_hard_limit_reached`, a gateway's "insufficient credits". Not a rate limit: waiting does not
-/// help, and OpenAI sends it as a 429, so it goes before RATE.
+/// help, and OpenAI sends it as a 429, so it goes before the rate check (saysRateLimited).
 const NO_CREDIT =
   /credit balance (?:is )?too low|billing[ _-]hard[ _-]limit|exceeded your current quota|\binsufficient credits?\b|payment required/i;
 /// `insufficient_quota` alone is weaker: the cmux model router types its own rate limits with it (a
@@ -111,8 +115,14 @@ const ADC_WORDS = /application[ _-]default|aiplatform\.googleapis|\bvertex\b|CLA
 /// (Leo's sustained chats hit it by definition). Not "too many tokens", which is a per-minute limit.
 const CONTEXT_FULL =
   /prompt is too long|input is too long|context[ _-]?length[ _-]?exceeded|maximum context length|exceeds? (?:the )?(?:model's )?(?:maximum )?context(?: window| length| limit)?|context (?:window|limit) (?:is )?(?:full|exceeded)/i;
-const RATE =
-  /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable/i;
+/// Capacity (503, 529, overloaded, at capacity, "no non-exhausted", "at its call limit") and an
+/// account's rate limit (429, rate limit, too many requests) are read by the vocabulary every surface
+/// shares (web/services/upstreamError.ts, the port of the cmux-upstream-error crate), so the card
+/// reads a string the way acpmux, OptChat and CodeRouter do. RATE_WORDS is this card's own wider net.
+const RATE_WORDS = /rate.?limit|usage limit|quota|service unavailable/i;
+function saysRateLimited(message: string): boolean {
+  return isUpstreamCapacity(message) || isUpstreamAccountLimit(message) || RATE_WORDS.test(message);
+}
 const UNREACHABLE =
   /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|fetch failed|socket hang up|connection (?:refused|reset|closed|error)|could not (?:connect|resolve)|network (?:error|is unreachable)|\bunreachable\b|timed out/i;
 /// The connection-drop words acpmux retries by itself (`hub/turn_errors.rs` `says_connection_dropped`)
@@ -310,7 +320,7 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (!ROUTER_CODE.test(message) && USAGE_LIMIT.test(message)) return "usage-limit";
   if (cloudSignIn(message)) return "cloud-auth-expired";
   // Capacity and network first: their messages often mention authentication or keys in passing.
-  if (RATE.test(message)) return "rate-limited";
+  if (saysRateLimited(message)) return "rate-limited";
   // Connection words count only outside addresses: a URL's path or query (`…/oauth/token`,
   // `?error=ETIMEDOUT`) names what was asked, not what happened.
   const words = message.replace(ADDRESSES, " ");

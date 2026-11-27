@@ -220,6 +220,19 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
   ])
     expect(failureKind(message, claude), message).toBe("rate-limited");
   expect(failureKind(undefined, claude, "rate_limited")).toBe("rate-limited");
+  // Read by the vocabulary every surface shares (web/services/upstreamError.ts, ask-616b73f6bc):
+  // the worker gateway's "at its call limit" is capacity (was "other"), and a status after an
+  // underscore is a status as the crate reads it (was "other").
+  for (const message of [
+    "502 the gateway is at its call limit; retry",
+    "502 the gateway is at its call limit; retry-after: 5",
+    "upstream status_529",
+    "HTTP_429",
+  ])
+    expect(failureKind(message, claude), message).toBe("rate-limited");
+  // ... and a number that only contains 503/529 is not one.
+  for (const message of ["waited 2503s for the build", "request id 5290 failed"])
+    expect(failureKind(message, claude), message).not.toBe("rate-limited");
   expect(failureKind("Not enough cmux credits for this call. Add credits or use your own API key.")).toBe(
     "needs-credits",
   );

@@ -72,6 +72,7 @@ import {
   type CapacityHoldRuntime,
 } from "./capacityHold";
 import { signAwsRequest } from "./awsSigV4";
+import { isAccountLimit, isCapacity } from "../upstreamError";
 import {
   anthropicErrorFromBedrock,
   bedrockEventStreamToSse,
@@ -907,9 +908,18 @@ function classifyClaudeStreamPrefix(text: string): "waiting" | "output" | "overl
     const data = block.match(/^data:\s*(.*)$/m)?.[1]?.trim();
     if (!data) continue;
     try {
-      const event = JSON.parse(data) as { type?: unknown; error?: { type?: unknown } };
-      const errorType = String(event.error?.type ?? "").toLowerCase();
-      if (errorType === "overloaded_error" || errorType === "rate_limit_error") return "overloaded";
+      const event = JSON.parse(data) as { type?: unknown; error?: { type?: unknown; message?: unknown } };
+      if (event.error && typeof event.error === "object") {
+        // Read by the vocabulary every surface shares (upstreamError.ts): the
+        // type (`overloaded_error`, `rate_limit_error`), and for a generic or
+        // untyped error its message too, so an `api_error` saying "Overloaded"
+        // or "HTTP 529" fails over like an `overloaded_error`. A client error's
+        // message (`invalid_request_error`, ...) is the guest's and is not read.
+        const type = String(event.error.type ?? "");
+        const generic = type === "" || type.toLowerCase() === "api_error";
+        const words = generic ? `${type} ${String(event.error.message ?? "")}` : type;
+        if (isCapacity(words) || isAccountLimit(words)) return "overloaded";
+      }
       // Anthropic sends message_start, pings, and block start/stop metadata
       // before the first content delta. Keep probing through those records so
       // a provider error that follows metadata can still fail over safely.
@@ -949,7 +959,10 @@ function classifyAttempt(attempt: Attempt): Verdict {
     };
   }
   const { status, headers } = attempt.response;
-  if (status === 429) {
+  // The status read by the shared vocabulary (upstreamError.ts): 429 is the
+  // account's own limit, 503 and 529 are the provider's capacity.
+  const statusWords = `HTTP ${status}`;
+  if (isAccountLimit(statusWords)) {
     return { kind: "failover", cooldownMs: rateLimitDelay(headers), failureCode: "rate_limited", stage: "upstream_response" };
   }
   if (status === 401 || status === 403) {
@@ -960,7 +973,7 @@ function classifyAttempt(attempt: Attempt): Verdict {
       stage: "upstream_response",
     };
   }
-  if (status === 408 || status === 409 || status === 500 || status === 502 || status === 503 || status === 529) {
+  if (isCapacity(statusWords) || status === 408 || status === 409 || status === 500 || status === 502) {
     return {
       kind: "failover",
       cooldownMs: UPSTREAM_UNAVAILABLE_COOLDOWN_MS,
