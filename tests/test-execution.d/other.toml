@@ -252,18 +252,15 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ext_prompt_checks.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ext_prompt_checks.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ext_prompt_composer.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ext_prompt_composer.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ext_prompt_palette.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ext_prompt_palette.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_fake_socket_env.py"
