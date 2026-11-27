@@ -15,7 +15,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { SubagentHarnessContext, ticking } from "../subagents/subagentGroupModel";
-import { type Subagent } from "../subagents/subagentFold";
+import { awaitsOwnWork, type Subagent } from "../subagents/subagentFold";
 import { Elapsed } from "../subagents/Elapsed";
 
 import { retrying, retryLabel, sessionRetry, sessionRetryKey } from "../subagents/retryState";
@@ -126,7 +126,7 @@ export function SubagentStatusList({
           time={
             <Elapsed
               since={agent.startedAt}
-              until={ticking(agent) ? undefined : agent.endedAt}
+              until={awaitsOwnWork(agent) ? undefined : agent.endedAt}
               ended={!ticking(agent) && agent.endedAt === undefined}
             />
           }
