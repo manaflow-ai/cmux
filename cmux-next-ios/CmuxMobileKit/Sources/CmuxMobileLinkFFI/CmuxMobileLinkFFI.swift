@@ -11896,6 +11896,163 @@ public func FfiConverterTypeLocalTxt_lower(_ value: LocalTxt) -> RustBuffer {
 
 
 /**
+ * What `mac_reachability_resolve` reads.
+ */
+public struct MacReachabilityInput: Equatable, Hashable {
+    /**
+     * What the cmux service lists.
+     */
+    public var isOnline: Bool
+    /**
+     * The Mac's heartbeat quiet past the bound (`mac_reachability_late_quiet`), in ms.
+     */
+    public var quietMs: Int64?
+    /**
+     * Nil: not linked.
+     */
+    public var connection: MacLinkState?
+    public var failure: MacLinkFailureKind?
+    /**
+     * False in mock mode, where presence alone decides.
+     */
+    public var live: Bool
+    /**
+     * The device has no network.
+     */
+    public var phoneOffline: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * What the cmux service lists.
+         */isOnline: Bool, 
+        /**
+         * The Mac's heartbeat quiet past the bound (`mac_reachability_late_quiet`), in ms.
+         */quietMs: Int64?, 
+        /**
+         * Nil: not linked.
+         */connection: MacLinkState?, failure: MacLinkFailureKind?, 
+        /**
+         * False in mock mode, where presence alone decides.
+         */live: Bool, 
+        /**
+         * The device has no network.
+         */phoneOffline: Bool) {
+        self.isOnline = isOnline
+        self.quietMs = quietMs
+        self.connection = connection
+        self.failure = failure
+        self.live = live
+        self.phoneOffline = phoneOffline
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MacReachabilityInput: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacReachabilityInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacReachabilityInput {
+        return
+            try MacReachabilityInput(
+                isOnline: FfiConverterBool.read(from: &buf), 
+                quietMs: FfiConverterOptionInt64.read(from: &buf), 
+                connection: FfiConverterOptionTypeMacLinkState.read(from: &buf), 
+                failure: FfiConverterOptionTypeMacLinkFailureKind.read(from: &buf), 
+                live: FfiConverterBool.read(from: &buf), 
+                phoneOffline: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MacReachabilityInput, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.isOnline, into: &buf)
+        FfiConverterOptionInt64.write(value.quietMs, into: &buf)
+        FfiConverterOptionTypeMacLinkState.write(value.connection, into: &buf)
+        FfiConverterOptionTypeMacLinkFailureKind.write(value.failure, into: &buf)
+        FfiConverterBool.write(value.live, into: &buf)
+        FfiConverterBool.write(value.phoneOffline, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacReachabilityInput_lift(_ buf: RustBuffer) throws -> MacReachabilityInput {
+    return try FfiConverterTypeMacReachabilityInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacReachabilityInput_lower(_ value: MacReachabilityInput) -> RustBuffer {
+    return FfiConverterTypeMacReachabilityInput.lower(value)
+}
+
+
+public struct MacRecoveryAttemptState: Equatable, Hashable {
+    public var step: MacRecoveryStep
+    public var result: MacRecoveryResult?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(step: MacRecoveryStep, result: MacRecoveryResult?) {
+        self.step = step
+        self.result = result
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MacRecoveryAttemptState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacRecoveryAttemptState: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacRecoveryAttemptState {
+        return
+            try MacRecoveryAttemptState(
+                step: FfiConverterTypeMacRecoveryStep.read(from: &buf), 
+                result: FfiConverterOptionTypeMacRecoveryResult.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MacRecoveryAttemptState, into buf: inout [UInt8]) {
+        FfiConverterTypeMacRecoveryStep.write(value.step, into: &buf)
+        FfiConverterOptionTypeMacRecoveryResult.write(value.result, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryAttemptState_lift(_ buf: RustBuffer) throws -> MacRecoveryAttemptState {
+    return try FfiConverterTypeMacRecoveryAttemptState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryAttemptState_lower(_ value: MacRecoveryAttemptState) -> RustBuffer {
+    return FfiConverterTypeMacRecoveryAttemptState.lower(value)
+}
+
+
+/**
  * What the host's answer says about its screen.
  */
 public struct MacScreenAnswer: Equatable, Hashable {
@@ -17883,6 +18040,655 @@ public func FfiConverterTypeLinkPath_lower(_ value: LinkPath) -> RustBuffer {
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Why this phone's last try at a Mac failed, as far as the phone can tell.
+ */
+
+public enum MacLinkFailureKind: Equatable, Hashable {
+    
+    /**
+     * The phone dialed and the Mac never answered.
+     */
+    case hostUnreachable
+    /**
+     * The link opened, but cmux on the Mac did not answer or sent no workspaces.
+     */
+    case serviceDown
+    /**
+     * The cmux service refused this account's session.
+     */
+    case authRequired
+    /**
+     * The Mac refused this iPhone.
+     */
+    case notAllowed
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacLinkFailureKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacLinkFailureKind: FfiConverterRustBuffer {
+    typealias SwiftType = MacLinkFailureKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacLinkFailureKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .hostUnreachable
+        
+        case 2: return .serviceDown
+        
+        case 3: return .authRequired
+        
+        case 4: return .notAllowed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacLinkFailureKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .hostUnreachable:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .serviceDown:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .authRequired:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .notAllowed:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacLinkFailureKind_lift(_ buf: RustBuffer) throws -> MacLinkFailureKind {
+    return try FfiConverterTypeMacLinkFailureKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacLinkFailureKind_lower(_ value: MacLinkFailureKind) -> RustBuffer {
+    return FfiConverterTypeMacLinkFailureKind.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * This phone's link to the Mac.
+ */
+
+public enum MacLinkState: Equatable, Hashable {
+    
+    case connecting
+    case connected
+    case failed
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacLinkState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacLinkState: FfiConverterRustBuffer {
+    typealias SwiftType = MacLinkState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacLinkState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .connecting
+        
+        case 2: return .connected
+        
+        case 3: return .failed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacLinkState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .connecting:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .connected:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .failed:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacLinkState_lift(_ buf: RustBuffer) throws -> MacLinkState {
+    return try FfiConverterTypeMacLinkState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacLinkState_lower(_ value: MacLinkState) -> RustBuffer {
+    return FfiConverterTypeMacLinkState.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The Mac's state. Swift attaches the Mac's last-seen date to `Offline` and `NoAnswer`.
+ */
+
+public enum MacReachabilityKind: Equatable, Hashable {
+    
+    case connected
+    case connecting
+    /**
+     * Online, the link is not on it (another Mac is linked).
+     */
+    case notConnected
+    /**
+     * Listed online, its heartbeat quiet this long.
+     */
+    case slow(quietSeconds: Int64
+    )
+    /**
+     * The service says it is offline; nothing dialed it since.
+     */
+    case offline
+    /**
+     * This phone dialed it and it never answered.
+     */
+    case noAnswer(listedOnline: Bool
+    )
+    case serviceDown
+    case authRequired
+    case notAllowed
+    case phoneOffline
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacReachabilityKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacReachabilityKind: FfiConverterRustBuffer {
+    typealias SwiftType = MacReachabilityKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacReachabilityKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .connected
+        
+        case 2: return .connecting
+        
+        case 3: return .notConnected
+        
+        case 4: return .slow(quietSeconds: try FfiConverterInt64.read(from: &buf)
+        )
+        
+        case 5: return .offline
+        
+        case 6: return .noAnswer(listedOnline: try FfiConverterBool.read(from: &buf)
+        )
+        
+        case 7: return .serviceDown
+        
+        case 8: return .authRequired
+        
+        case 9: return .notAllowed
+        
+        case 10: return .phoneOffline
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacReachabilityKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .connected:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .connecting:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .notConnected:
+            writeInt(&buf, Int32(3))
+        
+        
+        case let .slow(quietSeconds):
+            writeInt(&buf, Int32(4))
+            FfiConverterInt64.write(quietSeconds, into: &buf)
+            
+        
+        case .offline:
+            writeInt(&buf, Int32(5))
+        
+        
+        case let .noAnswer(listedOnline):
+            writeInt(&buf, Int32(6))
+            FfiConverterBool.write(listedOnline, into: &buf)
+            
+        
+        case .serviceDown:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .authRequired:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .notAllowed:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .phoneOffline:
+            writeInt(&buf, Int32(10))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacReachabilityKind_lift(_ buf: RustBuffer) throws -> MacReachabilityKind {
+    return try FfiConverterTypeMacReachabilityKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacReachabilityKind_lower(_ value: MacReachabilityKind) -> RustBuffer {
+    return FfiConverterTypeMacReachabilityKind.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The one thing a Mac's view offers when the phone can't use it.
+ */
+
+public enum MacRecoveryActionKind: Equatable, Hashable {
+    
+    case retry
+    case signIn
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacRecoveryActionKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacRecoveryActionKind: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryActionKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacRecoveryActionKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .retry
+        
+        case 2: return .signIn
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacRecoveryActionKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .retry:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .signIn:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryActionKind_lift(_ buf: RustBuffer) throws -> MacRecoveryActionKind {
+    return try FfiConverterTypeMacRecoveryActionKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryActionKind_lower(_ value: MacRecoveryActionKind) -> RustBuffer {
+    return FfiConverterTypeMacRecoveryActionKind.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What the link shows while the attempt runs.
+ */
+
+public enum MacRecoveryObservation: Equatable, Hashable {
+    
+    case dialing
+    /**
+     * The link is up; the Mac's workspaces have not come yet.
+     */
+    case linked
+    /**
+     * The Mac's workspaces came over the link.
+     */
+    case live
+    case failed(failure: MacLinkFailureKind
+    )
+    /**
+     * The dial ended with the Mac offline.
+     */
+    case offline
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacRecoveryObservation: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacRecoveryObservation: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryObservation
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacRecoveryObservation {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .dialing
+        
+        case 2: return .linked
+        
+        case 3: return .live
+        
+        case 4: return .failed(failure: try FfiConverterTypeMacLinkFailureKind.read(from: &buf)
+        )
+        
+        case 5: return .offline
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacRecoveryObservation, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .dialing:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .linked:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .live:
+            writeInt(&buf, Int32(3))
+        
+        
+        case let .failed(failure):
+            writeInt(&buf, Int32(4))
+            FfiConverterTypeMacLinkFailureKind.write(failure, into: &buf)
+            
+        
+        case .offline:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryObservation_lift(_ buf: RustBuffer) throws -> MacRecoveryObservation {
+    return try FfiConverterTypeMacRecoveryObservation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryObservation_lower(_ value: MacRecoveryObservation) -> RustBuffer {
+    return FfiConverterTypeMacRecoveryObservation.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum MacRecoveryResult: Equatable, Hashable {
+    
+    case connected
+    /**
+     * Stopped at this step.
+     */
+    case failed(step: MacRecoveryStep
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacRecoveryResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacRecoveryResult: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryResult
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacRecoveryResult {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .connected
+        
+        case 2: return .failed(step: try FfiConverterTypeMacRecoveryStep.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacRecoveryResult, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .connected:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .failed(step):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeMacRecoveryStep.write(step, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryResult_lift(_ buf: RustBuffer) throws -> MacRecoveryResult {
+    return try FfiConverterTypeMacRecoveryResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryResult_lower(_ value: MacRecoveryResult) -> RustBuffer {
+    return FfiConverterTypeMacRecoveryResult.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * One Retry's steps, in order.
+ */
+
+public enum MacRecoveryStep: Equatable, Hashable {
+    
+    /**
+     * Asking the cmux service (the relay) for the Mac's presence.
+     */
+    case service
+    /**
+     * Dialing the Mac.
+     */
+    case mac
+    /**
+     * The link is up; cmux on the Mac sends its workspaces and sessions.
+     */
+    case session
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacRecoveryStep: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacRecoveryStep: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryStep
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacRecoveryStep {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .service
+        
+        case 2: return .mac
+        
+        case 3: return .session
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacRecoveryStep, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .service:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .mac:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .session:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryStep_lift(_ buf: RustBuffer) throws -> MacRecoveryStep {
+    return try FfiConverterTypeMacRecoveryStep.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryStep_lower(_ value: MacRecoveryStep) -> RustBuffer {
+    return FfiConverterTypeMacRecoveryStep.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
 public enum MailboxAction: Equatable, Hashable {
     
@@ -20828,6 +21634,30 @@ fileprivate struct FfiConverterOptionTypeLastPlaceRecord: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeMacRecoveryAttemptState: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryAttemptState?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMacRecoveryAttemptState.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMacRecoveryAttemptState.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePhoneWorkspaceGroup: FfiConverterRustBuffer {
     typealias SwiftType = PhoneWorkspaceGroup?
 
@@ -21108,6 +21938,102 @@ fileprivate struct FfiConverterOptionTypeLastPlaceScreen: FfiConverterRustBuffer
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeLastPlaceScreen.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeMacLinkFailureKind: FfiConverterRustBuffer {
+    typealias SwiftType = MacLinkFailureKind?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMacLinkFailureKind.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMacLinkFailureKind.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeMacLinkState: FfiConverterRustBuffer {
+    typealias SwiftType = MacLinkState?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMacLinkState.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMacLinkState.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeMacRecoveryActionKind: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryActionKind?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMacRecoveryActionKind.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMacRecoveryActionKind.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeMacRecoveryResult: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryResult?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMacRecoveryResult.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMacRecoveryResult.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -21878,6 +22804,31 @@ fileprivate struct FfiConverterSequenceTypeLocalTxt: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeLocalTxt.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeMacRecoveryAttemptState: FfiConverterRustBuffer {
+    typealias SwiftType = [MacRecoveryAttemptState]
+
+    public static func write(_ value: [MacRecoveryAttemptState], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeMacRecoveryAttemptState.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MacRecoveryAttemptState] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [MacRecoveryAttemptState]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeMacRecoveryAttemptState.read(from: &buf))
         }
         return seq
     }
@@ -23302,6 +24253,75 @@ public func localLinkWantsResolve(instance: String, txt: [LocalTxt]) -> Bool  {
 })
 }
 /**
+ * Retry or Sign In; nil while it is connected or on its way.
+ */
+public func macReachabilityAction(state: MacReachabilityKind) -> MacRecoveryActionKind?  {
+    return try!  FfiConverterOptionTypeMacRecoveryActionKind.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_reachability_action(
+        FfiConverterTypeMacReachabilityKind_lower(state),$0
+    )
+})
+}
+/**
+ * `quiet_ms` as the Mac's row keeps it: only past the bound, rounded down to 10 s.
+ */
+public func macReachabilityLateQuiet(quietMs: Int64?) -> Int64?  {
+    return try!  FfiConverterOptionInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_reachability_late_quiet(
+        FfiConverterOptionInt64.lower(quietMs),$0
+    )
+})
+}
+public func macReachabilityResolve(input: MacReachabilityInput) -> MacReachabilityKind  {
+    return try!  FfiConverterTypeMacReachabilityKind_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_reachability_resolve(
+        FfiConverterTypeMacReachabilityInput_lower(input),$0
+    )
+})
+}
+/**
+ * "45 s", "3 min", "2 h".
+ */
+public func macReachabilitySpan(seconds: Int64) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_reachability_span(
+        FfiConverterInt64.lower(seconds),$0
+    )
+})
+}
+/**
+ * The attempt after the link showed `observation`, once the service step passed.
+ */
+public func macRecoveryAdvanced(attempt: MacRecoveryAttemptState, observation: MacRecoveryObservation) -> MacRecoveryAttemptState  {
+    return try!  FfiConverterTypeMacRecoveryAttemptState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_recovery_advanced(
+        FfiConverterTypeMacRecoveryAttemptState_lower(attempt),
+        FfiConverterTypeMacRecoveryObservation_lower(observation),$0
+    )
+})
+}
+/**
+ * One Retry over several Macs (All Macs): running while any runs, at the furthest step any
+ * reached; connected once one connected; else failed at the furthest step. Nil with none.
+ */
+public func macRecoveryCombined(attempts: [MacRecoveryAttemptState]) -> MacRecoveryAttemptState?  {
+    return try!  FfiConverterOptionTypeMacRecoveryAttemptState.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_recovery_combined(
+        FfiConverterSequenceTypeMacRecoveryAttemptState.lower(attempts),$0
+    )
+})
+}
+/**
+ * The attempt when its deadline passed with no result: failed where it stood.
+ */
+public func macRecoveryTimedOut(attempt: MacRecoveryAttemptState) -> MacRecoveryAttemptState  {
+    return try!  FfiConverterTypeMacRecoveryAttemptState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_recovery_timed_out(
+        FfiConverterTypeMacRecoveryAttemptState_lower(attempt),$0
+    )
+})
+}
+/**
  * Whether the mailbox can carry an item of `kind`: a trusted box key, and for `send` and
  * `compose` the Mac listed `mailbox-send-v1` on its last link.
  */
@@ -24283,6 +25303,27 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_wants_resolve() != 31019) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_reachability_action() != 9011) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_reachability_late_quiet() != 16234) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_reachability_resolve() != 46047) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_reachability_span() != 52256) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_recovery_advanced() != 61462) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_recovery_combined() != 49049) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_recovery_timed_out() != 35581) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_available() != 25455) {
