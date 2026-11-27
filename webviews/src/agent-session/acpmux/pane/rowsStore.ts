@@ -5,9 +5,10 @@
 // the pane's `setSnapshot`. Nothing reads it to draw yet, so the pane behaves as before. Later stages
 // move the row derivations under it (find, marks, cards, minimap, header counts) and then let a
 // record that changes only the rows skip the pane's own render.
-import { createContext, useCallback, useContext, useRef, useSyncExternalStore } from "react";
+import { createContext, useContext, useMemo, useRef, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import { acpmuxPerf } from "../perf";
+import { settledRead, whenSettled } from "../paneSettle";
 
 export type RowsStore = {
   /// The newest rows the client published; assigning publishes (a `RefObject` for existing callers).
@@ -21,9 +22,12 @@ export type RowsStore = {
   readersFollow: boolean;
 };
 
+let stores = 0;
+
 export function createRowsStore(initial: readonly AcpmuxRow[] = []): RowsStore {
   let rows = initial;
   const listeners = new Set<() => void>();
+  const key = `rows:${(stores += 1)}`;
   const snapshot = () => rows;
   return {
     get current() {
@@ -33,7 +37,11 @@ export function createRowsStore(initial: readonly AcpmuxRow[] = []): RowsStore {
       // The same array is no news: a subscriber renders only when the rows did change.
       if (next === rows) return;
       rows = next;
-      for (const listener of [...listeners]) listener();
+      // Not while the pane's draw is pending: a reader's update then restarted that render
+      // (paneSettle.ts).
+      whenSettled(key, () => {
+        for (const listener of [...listeners]) listener();
+      });
     },
     subscribe(listener) {
       listeners.add(listener);
@@ -75,17 +83,22 @@ export function useRowsValue<T>(
   label = "",
 ): T {
   const kept = useRef<{ rows: readonly AcpmuxRow[]; select: typeof select; value: T } | undefined>(undefined);
-  const read = useCallback(() => {
-    const newest = store.snapshot();
-    const rows = newest === client ? shown : newest;
-    const last = kept.current;
-    if (last && last.rows === rows && last.select === select) return last.value;
-    const value = select(rows);
-    if (acpmuxPerf.enabled && last && !same(last.value, value)) acpmuxPerf.render(`rows-value:${label}`);
-    // The same value as before keeps its object: React sees no change and does not render.
-    kept.current = { rows, select, value: last && same(last.value, value) ? last.value : value };
-    return kept.current.value;
-  }, [store, select, same, shown, client, label]);
+  // While the pane's draw is pending a reader keeps the value it read (paneSettle.ts `settledRead`).
+  const read = useMemo(
+    () =>
+      settledRead(() => {
+        const newest = store.snapshot();
+        const rows = newest === client ? shown : newest;
+        const last = kept.current;
+        if (last && last.rows === rows && last.select === select) return last.value;
+        const value = select(rows);
+        if (acpmuxPerf.enabled && last && !same(last.value, value)) acpmuxPerf.render(`rows-value:${label}`);
+        // The same value as before keeps its object: React sees no change and does not render.
+        kept.current = { rows, select, value: last && same(last.value, value) ? last.value : value };
+        return kept.current.value;
+      }),
+    [store, select, same, shown, client, label],
+  );
   return useSyncExternalStore(store.subscribe, read, read);
 }
 
