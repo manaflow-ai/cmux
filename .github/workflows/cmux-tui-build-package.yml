@@ -139,6 +139,13 @@ on:
         required: false
         default: "mac"
         type: string
+      # A commit of the base branch whose scripts/ci/macos-stubs lay over this tree's (a PR head built on
+      # older stubs links what the base added since). Empty: this tree's own stubs.
+      macos_stubs_ref:
+        description: "Base-branch commit whose framework stubs are merged into this tree's before the Linux cross link"
+        required: false
+        default: ""
+        type: string
     # The R2 cargo cache's write credentials. A called workflow sees only the secrets its caller passes, so with
     # none declared the save steps read empty values and saved nothing (run 45200352920, 2026-11-23). Optional:
     # cmux-tui-artifacts.yml passes them on feat-cmux-next only, every other caller and ref only reads. A secret
@@ -1089,12 +1096,22 @@ jobs:
           WARM_DISK: ${{ steps.pool-warm-darwin.outputs.disk || '/home/runner/cmux-tui-fat-warm' }}
           # An exact R2 hit (its key holds the toolchain stamp) seeds a new pool tree as built.
           MACHINE_CHANNEL_WARM_SEED_EXACT: ${{ steps.r2-cargo-target.outputs.cache-hit == 'true' }}
+          MACOS_STUBS_REF: ${{ inputs.macos_stubs_ref }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
+          # DARWIN_STUBS_FROM_BASE: a retry of a link that failed on a symbol the base branch's stubs
+          # already hold. Merge them over this tree's (the build's output is unchanged: stubs only name symbols).
+          if [[ -n "${MACOS_STUBS_REF:-}" ]]; then
+            newer="$(mktemp -d)"
+            gh api "repos/$GITHUB_REPOSITORY/contents/scripts/ci/macos-stubs?ref=$MACOS_STUBS_REF" --jq '.[] | select(.type=="file") | .name' |
+              while read -r f; do gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/macos-stubs/$f?ref=$MACOS_STUBS_REF" > "$newer/$f"; done
+            python3 scripts/ci/macos_stubs.py merge scripts/ci/macos-stubs "$newer"
+          fi
           # Start from the shipped legs' warm target (mounted on feat-cmux-next pushes only);
           # "Record the warm target", after "Stage binary", prunes and records it. Without a
           # mounted disk (or a pool runner's own directory) restore does nothing.
@@ -1444,6 +1461,19 @@ jobs:
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
 
+      # Last in the job: a pool host short of disk drops the darwin leg's pool tree only after every
+      # step that reads cmux-tui/target through its link (the workspace delta's pack, the strip, the
+      # R2 dependency save). Dropped in "Record the warm target", the darwin leg saved neither
+      # (job 140189679068). scripts/ci/machine-channel-warm-target.sh release.
+      - name: Release the pool warm target
+        if: ${{ always() && steps.pool-warm-darwin.outputs.disk != '' }}
+        continue-on-error: true
+        env:
+          WARM_TARGET: ${{ matrix.build_target }}
+          POOL_DISK: ${{ steps.pool-warm-darwin.outputs.disk }}
+        shell: bash
+        run: scripts/ci/machine-channel-warm-target.sh release "$POOL_DISK" "$WARM_TARGET"
+
   # The Windows daemon is built on Linux (scripts/ci/windows-gnu-cross-build.sh): the
   # same reviewed MinGW-Builds runtime (package-notices.json windows_gnu, sha256-checked),
   # clang for the C code, lld to link. Only the checks that must run on Windows
@@ -1517,12 +1547,6 @@ jobs:
 
       - name: Install Rust target
         run: rustup target add x86_64-pc-windows-gnu
-
-      - name: Cache the reviewed MinGW-Builds sysroot
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
-          key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
 
       # The sysroot must be the reviewed archive (sha256) with mingw-w64 13.0.0, UCRT and GCC
       # 15.2.0's runtime (package_notices.py check-windows-sysroot), and every binary may name
