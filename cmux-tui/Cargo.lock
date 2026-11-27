@@ -253,6 +253,7 @@ dependencies = [
  "libc",
  "pulldown-cmark",
  "ratatui",
+ "regex",
  "serde_json",
  "syntect",
  "tokio",
@@ -2362,6 +2363,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",
@@ -2847,6 +2849,7 @@ name = "cmux-rd-screen-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-rd-screen",
+ "cmux-vnc",
  "serde_json",
 ]
 

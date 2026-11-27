@@ -14,6 +14,8 @@ pub mod input;
 pub mod ledger;
 pub mod link;
 pub mod loss;
+#[cfg(feature = "app")]
+pub mod mac_screen;
 pub mod pacer;
 pub mod packetize;
 pub mod policy;
