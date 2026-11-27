@@ -239,6 +239,8 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         agent_session_id,
         host_build,
         handle,
+        // `set_mesh_book` sets `updatedAt` itself, from this or its own reading.
+        updated_at: _,
     } = *fields;
     json!({
         "sessionId": session_id,
