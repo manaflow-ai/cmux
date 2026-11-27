@@ -19,12 +19,22 @@ fn asks_and_answers_round_trip() {
     }
     assert_eq!(Ask::read(&mut input).unwrap(), None);
 
-    let parts = vec![Part::ok(b"abc".to_vec()), Part::status(CHANGED)];
+    let stat = Restat { size: 1 << 40, mtime_ns: -5, mode: 0o755 };
+    let parts =
+        vec![Part::ok(b"abc".to_vec()), Part::status(CHANGED), Part::restated(stat, b"new bytes")];
     let mut bytes = Vec::new();
     write_answer(&mut bytes, 7, &parts).unwrap();
     let mut input = bytes.as_slice();
-    assert_eq!(read_answer(&mut input).unwrap(), Some((7, parts)));
+    let (ask, read) = read_answer(&mut input).unwrap().unwrap();
+    assert_eq!((ask, &read), (7, &parts));
+    assert_eq!(read[2].restat(), Some((stat, &b"new bytes"[..])));
+    assert_eq!(read[0].restat(), None);
     assert_eq!(read_answer(&mut input).unwrap(), None);
+    let mut trimmed = read[2].clone();
+    trimmed.keep_stat_only();
+    assert_eq!(trimmed.restat(), Some((stat, &[][..])));
+    // A part too short to hold a stat is not one.
+    assert_eq!(Part { status: RESTATED, bytes: vec![1, 2, 3] }.restat(), None);
 }
 
 #[test]

@@ -16,6 +16,7 @@ import socket
 import sys
 import tempfile
 import textwrap
+import threading
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -49,7 +50,7 @@ class BudgetTable(unittest.TestCase):
                             {"g2g": [20.0, 30.0, 40.0]}, label="after", rev="abc")
         rows = rows_named(b)
         self.assertEqual([r["row"] for r in b["rows"]],
-                         ["Input", "Screen", "Capture", " Gate wait", " Readback", "Encode", "Send", "Network", "Reassembly",
+                         ["Input", "Screen", "Capture", " Frame lead", " Gate wait", " Readback", "Encode", "Send", "Network", "Reassembly",
                           "Decode", "Present", "Total"])
         self.assertEqual(rows["Input"]["cmux"]["source"], "up + inject")
         self.assertEqual(sorted([rows["Input"]["cmux"]["p50"], rows["Input"]["cmux"]["p95"]]), [1.5, 3.5])
@@ -453,6 +454,116 @@ class RfbLeg(unittest.TestCase):
         finally:
             a.close()
             b.close()
+
+
+class RfbViewerLeg(unittest.TestCase):
+    """rfb-bench without cua-vnc: the in-repo rfb-viewer.py client against a fake Apple RFB server."""
+    CELL, W = 32, 32 * 24
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        pw = os.path.join(self.dir.name, "pw")
+        with open(pw, "w") as f:
+            f.write("secret\n")
+        os.chmod(pw, 0o600)
+        self.env = {"VNC_USERNAME": "u", "VNC_PASSWORD_FILE": pw}
+        os.environ.update(self.env)
+        self.lsock = socket.socket()
+        self.lsock.bind(("127.0.0.1", 0))
+        self.lsock.listen(1)
+        self.events = []
+        self.thread = threading.Thread(target=self.serve, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        for k in self.env:
+            os.environ.pop(k, None)
+        sys.modules.pop("rfb_viewer", None)
+        self.lsock.close()
+        self.dir.cleanup()
+
+    def serve(self):
+        import struct
+        conn, _ = self.lsock.accept()
+        f = conn.makefile("rb")
+        counter, wanted, shown, focused, pressed = 7, None, None, False, False
+
+        def frame(rect):
+            x, y, w, h = rect
+            bits = [(counter >> i) & 1 == 1 for i in range(16)] + [True, False, True, False]
+            row = bytearray()
+            for px in range(x, x + w):
+                i = px // self.CELL
+                row += b"\xff\xff\xff\x00" if i < len(bits) and bits[i] else b"\x00\x00\x00\x00"
+            conn.sendall(struct.pack("!BxH", 0, 1) + struct.pack("!HHHHi", x, y, w, h, 0) + bytes(row) * h)
+
+        try:
+            conn.sendall(b"RFB 003.889\n")
+            f.read(12)
+            conn.sendall(b"\x01\x1e")
+            self.events.append(("security", f.read(1)[0]))
+            prime = (0xFFFFFFFFFFFFFFC5).to_bytes(8, "big")
+            conn.sendall(struct.pack("!HH", 2, 8) + prime + (5).to_bytes(8, "big"))
+            f.read(128 + 8)
+            conn.sendall(b"\0\0\0\0")
+            f.read(1)
+            conn.sendall(struct.pack("!HH", self.W, self.CELL) + bytes(16) + struct.pack("!I", 0))
+            f.read(20)
+            n = struct.unpack("!xxH", f.read(4))[0]
+            f.read(4 * n)
+            while True:
+                kind = f.read(1)
+                if not kind:
+                    return
+                if kind[0] == 3:
+                    inc, *rect = struct.unpack("!BHHHH", f.read(9))
+                    wanted = tuple(rect)
+                    if not inc:
+                        shown = None
+                elif kind[0] == 4:
+                    down, sym = struct.unpack("!BxxI", f.read(7))
+                    self.events.append(("key", down))
+                    if down and focused:
+                        counter = (counter + 1) & 0xFFFF
+                elif kind[0] == 5:
+                    mask, x, y = struct.unpack("!BHH", f.read(5))
+                    self.events.append(("pointer", x, y, mask))
+                    if mask and not pressed and x >= self.CELL * vs.CELLS:
+                        focused = True
+                        counter = (counter + 1) & 0xFFFF
+                    pressed = bool(mask)
+                if wanted and counter != shown:
+                    frame(wanted)
+                    wanted, shown = None, counter
+        except OSError:
+            pass
+        finally:
+            conn.close()
+
+    def test_keys_are_timed_through_rfb_viewer_without_cua_vnc(self):
+        args = argparse.Namespace(cua_vnc=None, rfb_viewer=vs.RFB_VIEWER, host="127.0.0.1",
+                                  port=self.lsock.getsockname()[1], origin=[0, 0], cell=self.CELL,
+                                  mode="key", input="key", samples=4, duration_s=0.3)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            vs.cmd_rfb_bench(args)
+        rep = json.loads(out.getvalue().strip().splitlines()[-1])
+        self.assertNotIn("error", rep)
+        self.assertEqual(rep["security_type"], 30)
+        self.assertTrue(rep["focus_click"])
+        self.assertEqual((rep["lost"], len(rep["key_to_frame_ms"])), (0, 4))
+        self.assertEqual(self.events[0], ("security", 30))
+        self.assertEqual(self.events[1], ("pointer", 32 * 22, 16, 1))
+
+    def test_a_missing_cua_vnc_falls_back_to_rfb_viewer(self):
+        args = argparse.Namespace(cua_vnc=os.path.join(self.dir.name, "absent"), rfb_viewer=None,
+                                  host="127.0.0.1", port=self.lsock.getsockname()[1], origin=[0, 0],
+                                  cell=self.CELL, mode="key", input="click", samples=2, duration_s=0.3)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            vs.cmd_rfb_bench(args)
+        rep = json.loads(out.getvalue().strip().splitlines()[-1])
+        self.assertEqual((rep.get("error"), rep["lost"]), (None, 0))
 
 
 class TailnetHostIpTests(unittest.TestCase):
