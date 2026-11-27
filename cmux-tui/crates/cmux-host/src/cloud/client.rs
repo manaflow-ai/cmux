@@ -571,7 +571,7 @@ impl<H: Http> CloudClient<H> {
     /// A bearer token, cached until one minute before it expires.
     /// `now_wall_ms` is wall-clock time (the server's `expires_at` is).
     pub fn token(&mut self, now_wall_ms: u64) -> Result<String, String> {
-        if self.bound.api_origin != self.bound.env.api_origin() {
+        if !self.bound.env.allows_api_origin(&self.bound.api_origin) {
             self.cached = None;
             return Err("Cloud origin differs from the original environment".into());
         }
@@ -679,14 +679,16 @@ impl<H: Http> CloudClient<H> {
         Ok((status, serde_json::from_value(value).map_err(|_| malformed())?))
     }
 
-    /// A bounded GET with the response's `Retry-After` (the carrier keyset fetch): only to the
-    /// bound environment's own API origin, and at most 1 MiB.
+    /// A bounded GET with the response's `Retry-After` (the carrier keyset fetch): only to an
+    /// API origin the bound environment allows, and at most 1 MiB.
     pub(super) fn request_with_headers(
         &self,
         path: &str,
         deadline: &RequestDeadline,
     ) -> Result<cmux_server::cloud_http::Response, String> {
-        if self.bound.api_origin != self.bound.env.api_origin() || deadline.remaining().is_none() {
+        if !self.bound.env.allows_api_origin(&self.bound.api_origin)
+            || deadline.remaining().is_none()
+        {
             return Err("bounded Cloud request unavailable".into());
         }
         let response = self

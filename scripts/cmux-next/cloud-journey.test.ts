@@ -9,14 +9,14 @@ import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineSt
 import { rpcFailureReason } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
+import { oidcSignIn, ownerKindGated, startAfterOwnerKind, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -488,6 +488,28 @@ describe("cloud journey", () => {
     expect(readyMs(steps.filter((s) => s.step !== "first exec"))).toBeNull();
     expect(probeRow("p", [st("create machine", 5, "fail")], undefined, at)).not.toHaveProperty("ready_ms");
   });
+  test("agent_ready_ms is labeled warm or cold and the summary reports M17, G1 warm and M3 without failing the run", () => {
+    const at = new Date("2026-11-04T11:00:00Z");
+    const st = (step: string, ms: number, status: "pass" | "fail" | "skip" = "pass") => ({ step, status, ms, detail: "" });
+    // Production run 45100377818: create 4037 + login 1503 + start agent 1980, send 4118 + reply 959.
+    const steps = [st("create machine", 4037), st("running (status)", 0), st("first exec", 0), st("pass Claude login", 1503), st("start agent (claude)", 1980), st("send chat", 4118), st("reply", 959)];
+    expect(spareTaken({ spare_fallback: "none_ready" })).toBe(false);
+    expect(spareTaken({ spare_fallback: null, claimed_behind: false })).toBe(true);
+    expect(spareTaken({ claimed_spare: null })).toBeNull();
+    expect(agentReady(steps, true)).toEqual({ agent_ready_ms: 7520, agent_ready_path: "warm", first_reply_ms: 5077 });
+    expect(milestoneLines(steps, true)).toEqual([
+      "agent_ready_ms: 7520 (warm); first_reply_ms: 5077",
+      "- M17 click to agent ready, warm: fail (7520 ms, <= 1000 ms)",
+      "- G1 first reply, warm: fail (5077 ms, < 3000 ms)",
+      "- M3 agent started step: pass (1980 ms, <= 4000 ms)",
+    ]);
+    expect(milestoneLines(steps, false)[1]).toBe("- M17 click to agent ready, warm: not judged: a cold start");
+    expect(milestoneLines(steps, null)[2]).toBe("- G1 first reply, warm: not judged: a warm-or-cold unknown start");
+    const md = summaryMarkdown(resolveBackend("staging"), steps, {}, true);
+    expect(md.split("\n")[0]).toMatch(/^PASS: /);
+    expect(md).toContain("- M3 agent started step: pass (1980 ms, <= 4000 ms)");
+    expect(probeRow("p", steps, undefined, at, undefined, { spare_fallback: null, claimed_behind: false })).toMatchObject({ outcome: "ok", agent_ready_ms: 7520, agent_ready_path: "warm" });
+  });
   test("the journey's stub script is valid for the shared model stub and its reply repeats the tool output", () => {
     expect(readFileSync(MODEL_STUB_PY, "utf8")).toContain("--ready-file");
     expect(JOURNEY_STUB_SCRIPT.steps[0].shell).not.toContain("{{nonce}}-tool");
@@ -641,6 +663,45 @@ describe("cloud journey: login preflight", () => {
     const unread = async () => ({ code: 255, stdout: "", stderr: "" });
     await expect(waitOwnerKind(unread, 0, 0, noPause)).rejects.toThrow(/reads unread \(exit 255\)/);
   });
+
+  test("the owner read rides the start's exec: one trip on an owner record, the old wait and a lone start otherwise", async () => {
+    // Real leg 45563753386 / 45571173365: the owner read was its own exec, 1.6 to 2.3 s before the start's.
+    const seen: string[] = [];
+    let kindMs: number | null | undefined;
+    const owner = async (command: string) => { seen.push(command); return { code: 0, stdout: "vm-kind=owner\n@@kind_ms 12\n@@session s\n@@prompted\n@@guest_ms 40\n", stderr: "" }; };
+    let waited = 0;
+    const r = await startAfterOwnerKind(owner, "START", 120_000, async () => { waited++; }, (ms) => { kindMs = ms; });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].indexOf(OWNER_KIND_PROGRAM)).toBeGreaterThanOrEqual(0);
+    expect(seen[0].indexOf(OWNER_KIND_PROGRAM)).toBeLessThan(seen[0].indexOf("START"));
+    expect(waited).toBe(0);
+    expect(kindMs).toBe(12);
+    expect(r.stdout).toContain("@@prompted");
+    // Not owner yet: the gate keeps the start from running, the journey's wait runs, then the start alone.
+    const seen2: string[] = [];
+    const team = async (command: string) => { seen2.push(command); return seen2.length === 1 ? { code: OWNER_KIND_GATE_EXIT, stdout: "vm-kind=team\n@@kind_ms 9\n", stderr: "" } : { code: 0, stdout: "@@session s\n", stderr: "" }; };
+    await startAfterOwnerKind(team, "START", 120_000, async () => { waited++; }, () => { throw new Error("not owner"); });
+    expect(waited).toBe(1);
+    expect(seen2).toHaveLength(2);
+    expect(seen2[1]).not.toContain(OWNER_KIND_PROGRAM);
+    // A wait that fails fails the start as before, with no start run.
+    const seen3: string[] = [];
+    const none = async (command: string) => { seen3.push(command); return { code: OWNER_KIND_GATE_EXIT, stdout: "vm-kind=team\n", stderr: "" }; };
+    await expect(startAfterOwnerKind(none, "START", 120_000, async () => { throw new Error("vm-kind reads team"); }, () => {})).rejects.toThrow(/vm-kind reads team/);
+    expect(seen3).toHaveLength(1);
+    // The gate itself, in a shell: a record that is not owner stops before the start.
+    const dir = mkdtempSync(join(tmpdir(), "owner-gate-"));
+    const program = (kind: string) => ownerKindGated(`echo STARTED`).replaceAll("/etc/cmux/vm-kind", join(dir, kind)).replaceAll("/usr/local/bin/cmux-vm-kind-sync", join(dir, "no-sync"));
+    writeFileSync(join(dir, "owner"), "owner\n");
+    writeFileSync(join(dir, "team"), "team\n");
+    const ran = spawnSync("bash", ["-c", program("owner")], { encoding: "utf8" });
+    expect(ran.status).toBe(0);
+    expect(ran.stdout).toMatch(/vm-kind=owner\n@@kind_ms \d+\nSTARTED/);
+    const gated = spawnSync("bash", ["-c", program("team")], { encoding: "utf8" });
+    expect(gated.status).toBe(OWNER_KIND_GATE_EXIT);
+    expect(gated.stdout).not.toContain("STARTED");
+    rmSync(dir, { recursive: true });
+  });
 });
 
 describe("cloud journey: app cli", () => {
@@ -655,6 +716,25 @@ describe("cloud journey: leaked machine sweep", () => {
   const now = Date.UTC(2026, 10, 9, 12, 0, 0);
   const tagAt = (ms: number) => `jr-${ms.toString(36)}`;
   const ids = (rows: any[], at = now) => staleJourneyMachines(rows, at).map((m) => m.id);
+
+  test("a failed drill machine is taken once its run is FAILED_JOURNEY_MS old, not after LONG_JOURNEY_MS (run 45979891007 left six)", () => {
+    const t20 = tagAt(now - 20 * 60_000);
+    const t5 = tagAt(now - 5 * 60_000);
+    expect(FAILED_JOURNEY_MS).toBe(15 * 60_000);
+    expect(ids([
+      { id: "dead_long", name: `cloud journey auto ${t20} long`, status: "failed", last_active_at: now - 60_000 },
+      { id: "dead_move", name: `cloud journey auto ${t20} long move B`, status: "failed" },
+      { id: "young", name: `cloud journey auto ${t5} long`, status: "failed" },
+      { id: "live", name: `cloud journey auto ${t20} long`, status: "running" },
+      { id: "kept", name: `cloud journey ${t20}`, status: "failed" },
+      { id: "theirs", name: `fp-${t20}`, status: "failed" },
+    ])).toEqual(["dead_long", "dead_move"]);
+  });
+
+  test("machinesByState counts each state, most first", () => {
+    expect(machinesByState([{ status: "paused" }, { status: "failed" }, { status: "paused" }, {}])).toBe("paused 2, failed 1, ? 1");
+    expect(machinesByState([])).toBe("none");
+  });
 
   test("takes only an auto-named journey machine (and gateway) older than any journey run, in any state", () => {
     const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
@@ -975,6 +1055,16 @@ describe("opRetryable", () => {
     expect(opRetryable({ ok: false, error: { code: "cloud.provider.unavailable", retryable: true } })).toBe(false);
     expect(opRetryable({ ok: true, value: {} })).toBe(false);
     expect(opRetryable("vm_unavailable")).toBe(false);
+  });
+});
+
+describe("deleteRetryable", () => {
+  test("a delete retries an owner reset as well as a cut-off provider call (drill run 45979891007 leaked six)", () => {
+    expect(deleteRetryable({ ok: false, error: { code: "owner.unreachable", message: "Error: Durable Object storage operation exceeded timeout which caused object to be reset.", retryable: true } })).toBe(true);
+    expect(deleteRetryable({ ok: false, error: { code: "mutation.indeterminate", retryable: true } })).toBe(true);
+    expect(deleteRetryable({ ok: false, error: { code: "owner.unreachable", retryable: false } })).toBe(false);
+    expect(deleteRetryable({ ok: false, error: { code: "cloud.machine.not_found", retryable: false } })).toBe(false);
+    expect(deleteRetryable({ ok: true, value: {} })).toBe(false);
   });
 });
 

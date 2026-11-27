@@ -27,6 +27,10 @@ const fn mask(n: u32) -> u64 {
 
 const GEAR: [u64; 256] = gear();
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "i starts at zero and the loop bounds it by the 256-element table"
+)]
 const fn gear() -> [u64; 256] {
     let mut table = [0u64; 256];
     let mut state = 0u64;
@@ -48,33 +52,32 @@ pub fn cut(data: &[u8]) -> usize {
     if n <= MIN {
         return n;
     }
-    let normal = n.min(AVG);
     let end = n.min(MAX);
     let mut hash = 0u64;
-    let mut i = MIN;
-    while i < normal {
-        hash = (hash << 1).wrapping_add(GEAR[usize::from(data[i])]);
-        if hash & MASK_S == 0 {
+    for (i, byte) in data.iter().enumerate().take(end).skip(MIN) {
+        hash = (hash << 1).wrapping_add(gear_entry(*byte));
+        let mask = if i < AVG { MASK_S } else { MASK_L };
+        if hash & mask == 0 {
             return i + 1;
         }
-        i += 1;
-    }
-    while i < end {
-        hash = (hash << 1).wrapping_add(GEAR[usize::from(data[i])]);
-        if hash & MASK_L == 0 {
-            return i + 1;
-        }
-        i += 1;
     }
     end
+}
+
+#[allow(
+    clippy::indexing_slicing,
+    reason = "a u8 indexes every entry of the 256-element gear table"
+)]
+fn gear_entry(byte: u8) -> u64 {
+    GEAR[usize::from(byte)]
 }
 
 /// The chunks of `data`, in order, as `(offset, len)`.
 pub fn chunks(data: &[u8]) -> Vec<(usize, usize)> {
     let mut out = Vec::with_capacity(data.len() / AVG + 1);
     let mut at = 0;
-    while at < data.len() {
-        let len = cut(&data[at..]);
+    while let Some(rest) = data.get(at..).filter(|rest| !rest.is_empty()) {
+        let len = cut(rest);
         out.push((at, len));
         at += len;
     }
