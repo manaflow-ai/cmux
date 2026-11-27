@@ -10,8 +10,10 @@ dispatch step must use it (`steps.<id>.outputs.token`, from actions/create-githu
 allowed only as the fallback (`steps.app-token.outputs.token || github.token`). cmux#57719 and this lint's PR moved
 every such step; this keeps new ones from coming back.
 
-A step dispatches when its `run:` (or a repository script it names, one level) has `gh workflow run`, a REST call
-to `.../dispatches`, or `createWorkflowDispatch`. It is fine when any of these holds:
+A step dispatches when its `run:` (or a repository script it names, or a Python module beside that script the script
+imports) has `gh workflow run`, a REST call to `.../dispatches`, or `createWorkflowDispatch`. The imported modules
+count since nightly-next-feed-watch.yml's resume step ran nightly_next_unsigned_resume.py, whose dispatch is
+nightly_next_feed_watch.py's, on the job token: the lint passed and the resume read 403 (run 45961586372). It is fine when any of these holds:
 - its GH_TOKEN / GITHUB_TOKEN (the step's env, else the job's, else the workflow's) names an App token output;
 - another env value of the step names one (a script that takes the App token in its own variable, as
   hosted_light_rescue.py's HOSTED_LIGHT_TOKEN);
@@ -60,17 +62,28 @@ def scheduled(workflow: dict) -> bool:
     return isinstance(on, dict) and "schedule" in on
 
 
+IMPORT = re.compile(r"^\s*(?:from\s+([A-Za-z_]\w*)\s+import\b|import\s+([A-Za-z_]\w*)\b)", re.MULTILINE)
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(errors="replace") if path.is_file() else ""
+    except OSError:
+        return ""
+
+
 def dispatches(run: str, root: Path) -> bool:
     if DISPATCH.search(run):
         return True
     for rel in SCRIPT.findall(run):
         path = root / rel.removeprefix("./")
-        if path.is_file():
-            try:
-                if DISPATCH.search(path.read_text(errors="replace")):
+        text = _read(path)
+        if DISPATCH.search(text):
+            return True
+        if path.suffix == ".py":
+            for match in IMPORT.finditer(text):
+                if DISPATCH.search(_read(path.with_name(f"{match.group(1) or match.group(2)}.py"))):
                     return True
-            except OSError:
-                pass
     return False
 
 
