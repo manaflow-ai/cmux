@@ -143,8 +143,10 @@ pub fn summary(request: &Value) -> String {
         .map(|line| visible(&scrub(&line)).trim().to_owned())
         .filter(|line| !line.is_empty())
         .collect();
-    let unique =
-        if lines.len() == 2 && lines[0] == lines[1] { vec![lines[0].clone()] } else { lines };
+    let unique = match lines.as_slice() {
+        [first, second] if first == second => vec![first.clone()],
+        _ => lines,
+    };
     cut(&unique.join("\n"), 300)
 }
 

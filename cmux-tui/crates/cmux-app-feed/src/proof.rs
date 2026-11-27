@@ -194,10 +194,8 @@ pub fn keys(value: &Value) -> BTreeMap<String, Key> {
 /// A JWT's claims (the middle of three non-empty dot-separated parts), as `split(".")` reads it.
 fn claims(token: &str) -> Option<Value> {
     let parts: Vec<&str> = token.split('.').filter(|part| !part.is_empty()).collect();
-    if parts.len() != 3 {
-        return None;
-    }
-    let claims: Value = serde_json::from_slice(&base64_url(parts[1])?).ok()?;
+    let [_, payload, _] = parts.as_slice() else { return None };
+    let claims: Value = serde_json::from_slice(&base64_url(payload)?).ok()?;
     claims.is_object().then_some(claims)
 }
 

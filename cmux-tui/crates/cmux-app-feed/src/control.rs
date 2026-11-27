@@ -4,7 +4,7 @@
 
 use crate::json::{obj_at, str_at};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// The longest `feed.request` waits for an answer (seconds).
 pub const MAX_WAIT: i64 = 120;
@@ -87,13 +87,13 @@ pub fn request_result(read: &Value, wait: i64) -> Value {
 pub fn cancel(params: &Value) -> Result<Value, ControlError> {
     let item =
         str_at(params, "item").ok_or_else(|| ControlError::invalid("feed.cancel needs `item`"))?;
-    let mut body = json!({"item": item});
+    let mut body = Map::from_iter([("item".into(), item.into())]);
     let reason = str_at(params, "reason");
     if let Some(reason) = reason {
-        body["reason"] = reason.into();
+        body.insert("reason".into(), reason.into());
     }
     if let Some(note) = str_at(params, "note") {
-        body["note"] = note.into();
+        body.insert("note".into(), note.into());
     }
     let key = str_at(params, "idempotency_key")
         .map_or_else(|| format!("cancel:{item}:{}", reason.unwrap_or("poster")), str::to_owned);

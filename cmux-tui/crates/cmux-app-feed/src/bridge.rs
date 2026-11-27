@@ -40,19 +40,18 @@ impl Default for Strings {
 pub fn fill(template: &str, values: &[(&str, &str)]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
-    'scan: while let Some(open) = rest.find('{') {
-        out.push_str(&rest[..open]);
-        let tail = &rest[open..];
+    'scan: while let Some((before, tail)) = rest.split_once('{') {
+        out.push_str(before);
         for (key, value) in values {
-            let placeholder = format!("{{{key}}}");
-            if tail.starts_with(&placeholder) {
+            let placeholder = format!("{key}}}");
+            if let Some(after) = tail.strip_prefix(&placeholder) {
                 out.push_str(value);
-                rest = &tail[placeholder.len()..];
+                rest = after;
                 continue 'scan;
             }
         }
         out.push('{');
-        rest = &tail[1..];
+        rest = tail;
     }
     out.push_str(rest);
     out
@@ -128,8 +127,10 @@ pub fn post_body(
         "thread": prefix(&format!("acpmux:{session}"), 200),
         "poster": {"label": strings.poster},
     });
-    if let Some(command) = command.as_deref().filter(|command| !command.is_empty()) {
-        params["body"] = cut(command, 4096).into();
+    if let Some(command) = command.as_deref().filter(|command| !command.is_empty())
+        && let Some(params) = params.as_object_mut()
+    {
+        params.insert("body".into(), cut(command, 4096).into());
     }
     wrap(params, &key)
 }
@@ -351,6 +352,7 @@ mod tests {
             "{text} asks: hi"
         );
         assert_eq!(fill("Allow {name}? {x}", &[("name", "ls")]), "Allow ls? {x}");
+        assert_eq!(fill("é{{名}} {unknown} {", &[("名", "界")]), "é{界} {unknown} {");
     }
 
     #[test]

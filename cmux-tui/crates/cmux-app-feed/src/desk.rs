@@ -147,15 +147,18 @@ pub fn deny_reply(
             request_id: Some(prompt.permission.clone()),
         });
     }
-    let mut reply = json!({"sessionId": prompt.session, "permissionId": prompt.permission});
+    let mut reply = Map::from_iter([
+        ("sessionId".into(), prompt.session.clone().into()),
+        ("permissionId".into(), prompt.permission.clone().into()),
+    ]);
     let option = match question {
         Some(question) => question.decline_option.clone(),
         None => prompt::option(false, &prompt::offered(&prompt.request)),
     };
     if let Some(option) = option {
-        reply["optionId"] = option.into();
+        reply.insert("optionId".into(), option.into());
     }
-    Ok(reply)
+    Ok(Value::Object(reply))
 }
 
 /// One question item's answer: the chosen options and any other text.
@@ -215,7 +218,9 @@ fn target<'a>(
         [item.id.as_str(), item.prompt.as_str(), item.header.as_deref().unwrap_or("")]
     };
     for (split, _) in selection.match_indices('=') {
-        let key = trim_inline(&selection[..split]);
+        let Some((key, value)) = selection.split_at_checked(split) else { continue };
+        let Some(value) = value.strip_prefix('=') else { continue };
+        let key = trim_inline(key);
         let item = question.items.iter().find(|item| names(item).contains(&key)).or_else(|| {
             question.items.iter().find(|item| {
                 names(item)
@@ -224,7 +229,7 @@ fn target<'a>(
             })
         });
         if let Some(item) = item {
-            return Ok((item, trim_inline(&selection[split + 1..]).to_owned()));
+            return Ok((item, trim_inline(value).to_owned()));
         }
     }
     match question.items.as_slice() {
@@ -267,6 +272,17 @@ pub fn app_ask_answered(id: &str, reply: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn answer_preserves_unicode_and_equals_in_item_names_and_values() {
+        let question: Question = serde_json::from_value(json!({"items": [
+            {"id": "名=前", "allows_other": true},
+            {"id": "別"}
+        ]}))
+        .unwrap();
+        let selected = answer(&["名=前=値=あり".into()], &question).unwrap();
+        assert_eq!(selected.get("名=前").unwrap().other.as_deref(), Some("値=あり"));
+    }
 
     #[test]
     fn app_ask_choice_is_the_part_after_the_first_equals() {
