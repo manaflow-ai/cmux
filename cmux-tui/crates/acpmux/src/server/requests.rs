@@ -4172,7 +4172,10 @@ async fn dispatch_request_with_identity(
         | method::MUX_TEAM_LISTEN
         | method::MUX_TEAM_NAVIGATOR
         | method::MUX_TEAM_PICK
-        | method::MUX_TEAM_SESSION_INFO => super::team::handle(hub, conn, m, &params).await,
+        | method::MUX_TEAM_SESSION_INFO
+        | method::MUX_TEAM_CUSTOMIZATION
+        | method::MUX_TEAM_CUSTOMIZE
+        | method::MUX_TEAM_HANDOFF => super::team::handle(hub, conn, m, &params).await,
         method::MUX_REGISTER => {
             // Only a process of this machine, by the pid the kernel gave at accept: the session
             // registered is the one that process runs under, never one it names.

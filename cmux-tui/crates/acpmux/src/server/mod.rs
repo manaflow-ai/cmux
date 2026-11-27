@@ -254,6 +254,7 @@ pub mod tailnet_ingress;
 pub(crate) mod tailnet_service;
 mod team;
 mod team_directory;
+mod team_settings;
 mod trigger_authority;
 mod trigger_chat;
 pub(crate) mod trust_gate;
