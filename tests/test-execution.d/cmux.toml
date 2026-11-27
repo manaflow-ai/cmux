@@ -571,3 +571,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_vmd_autocloud_template.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_vmd_host_artifacts.py"
+lane = "linux-guard"
