@@ -937,19 +937,21 @@ impl LinkShares {
         let mut ended = self.ended.lock().unwrap_or_else(|e| e.into_inner());
         let mut rebound = self.rebound.lock().unwrap_or_else(|e| e.into_inner());
         for was in start.iter().filter(|s| s.live().is_ok()) {
-            let is = now.iter().find(|s| s.share_id == was.share_id);
-            if is.is_none_or(|s| s.live().is_err()) {
+            let Some(is) = now.iter().find(|s| s.share_id == was.share_id && s.live().is_ok())
+            else {
                 ended.push((was.share_id.clone(), None));
                 continue;
-            }
+            };
             for guest in was.guests.iter().filter(|g| g.state == GuestState::Active) {
                 let still = is
-                    .into_iter()
-                    .flat_map(|s| &s.guests)
+                    .guests
+                    .iter()
                     .find(|g| g.guest_id == guest.guest_id && g.state == GuestState::Active);
                 match still {
                     None => ended.push((was.share_id.clone(), Some(guest.guest_id.clone()))),
-                    Some(still) if role_of(still) != role_of(guest) => {
+                    Some(still)
+                        if role_of(still, &is.invitees) != role_of(guest, &was.invitees) =>
+                    {
                         rebound.push(format!("{}.{}", was.share_id, guest.guest_id));
                     }
                     Some(_) => {}
