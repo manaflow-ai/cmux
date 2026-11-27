@@ -27,6 +27,8 @@ cmux-braid-path.workspace = true
 cmux-build-space.workspace = true
 cmux-bundle.workspace = true
 cmux-egress.workspace = true
+# The system proxy, CONNECT/SOCKS5 tunnels and the OS trust store (src/egress re-exports it).
+cmux-proxy.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
 # The phone's viewport sync receiver (src/viewport.rs) renders its screens as VT bytes.
@@ -45,10 +47,6 @@ p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
 reqwest.workspace = true
 rcgen = { version = "0.13", optional = true }
 rustls.workspace = true
-# The OS trust store for the link's own TLS (signaling, `/v1/ice`, TURN over TLS): the Apple
-# Security framework on iOS and macOS, so a root an MDM profile installed (a company network that
-# inspects TLS) is trusted like Safari trusts it (src/egress/tls.rs).
-rustls-platform-verifier = "0.7"
 serde.workspace = true
 serde_json.workspace = true
 # The local ad's key tag (local.rs); already in the graph.
@@ -70,12 +68,6 @@ webpki-roots = "1"
 webrtc.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
-
-[target.'cfg(target_vendor = "apple")'.dependencies]
-# The system's proxy settings (manual, PAC, WPAD, MDM) through CFNetwork (src/egress/apple.rs);
-# already in the graph through rustls-platform-verifier.
-core-foundation = "0.10"
-core-foundation-sys = "0.8"
 
 [dev-dependencies]
 cmux-fault.workspace = true
