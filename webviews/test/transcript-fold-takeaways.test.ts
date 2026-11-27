@@ -3,7 +3,7 @@
 // final assistant message should be collapsed"). The arms that keep every reply in sight (Leo, 2026-11-06) are tested in
 // turn-fold-keeps-replies.test.ts.
 // Short narration between steps folds with them. While running, intermediate dialogue remains visible.
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, expect, test, beforeEach } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { isTakeaway, turnFoldFor, turnView, toggleTurnFold } from "../src/agent-session/acpmux/conversation/turns";
 
@@ -191,8 +191,15 @@ test("a running turn draws as before: nothing folds", () => {
   expect(shaped).toContain("assistant:first");
 });
 
-test("a turn with only its answer draws no fold", () => {
-  expect(drawn([row("u", "user"), answer("only"), summary()])).toEqual(["user:u", "assistant:only", "turnSummary:end"]);
+// Its Worked for line stays, closed over nothing, where its Working for stood (turns.ts `holdsHeader`, #51896);
+// nothing folds under it. Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways so it disappearing means there's multiple problems".
+test("a turn with only its answer keeps its Worked for line, and nothing folds under it", () => {
+  expect(drawn([row("u", "user"), answer("only"), summary()])).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "assistant:only",
+    "turnSummary:end",
+  ]);
 });
 
 test("an empty last message never takes the answer's place", () => {
