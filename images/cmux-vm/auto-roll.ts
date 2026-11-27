@@ -485,6 +485,31 @@ function behindTip(pin: string, pinned: string): string {
   return `cmux-tui ${pin.slice(0, 12)} is older than the tip's pinned ${pinned.slice(0, 12)}: a newer roll landed while this one baked`;
 }
 
+/**
+ * The newest published cmux-tui build (files.cmux.com's latest manifest) when a push roll may pin it: on TIP, newer
+ * than PINNED and carrying other binaries. Otherwise pin "" (keep the lock's), with why. Never throws: a push roll
+ * whose lookup fails still bakes its image change on the pinned build, as before.
+ */
+function newestPublished(pinned: string, tip: string, lock: string): { pin: string; why: string } {
+  const keep = (why: string) => ({ pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (${why})` });
+  const r = spawnSync("bun", [path.join(ROOT, "images/cmux-vm/pin-cmux-tui.ts"), "--latest", "--lock", lock], { encoding: "utf8", timeout: 180_000 });
+  if (r.status !== 0) return keep(`latest build unreadable: ${(r.stderr ?? "").trim().split("\n").pop() ?? ""}`);
+  let latest: { commit?: unknown; unchanged?: unknown };
+  try {
+    latest = JSON.parse(r.stdout) as { commit?: unknown; unchanged?: unknown };
+  } catch {
+    return keep("latest build answered no JSON");
+  }
+  const commit = typeof latest.commit === "string" ? latest.commit : "";
+  if (!/^[0-9a-f]{40}$/u.test(commit)) return keep("latest build names no commit");
+  if (commit === pinned || latest.unchanged === true) return keep(`latest build ${commit.slice(0, 12)} carries the pinned binaries`);
+  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") return keep("shallow checkout");
+  if (!gitOk(["cat-file", "-e", `${pinned}^{commit}`]) || !gitOk(["cat-file", "-e", `${commit}^{commit}`])) return keep(`latest build ${commit.slice(0, 12)} or the pin is not in this checkout`);
+  if (!gitOk(["merge-base", "--is-ancestor", commit, tip])) return keep(`latest build ${commit.slice(0, 12)} is not on ${tip}`);
+  if (gitOk(["merge-base", "--is-ancestor", commit, pinned])) return keep(`latest build ${commit.slice(0, 12)} is not newer`);
+  return { pin: commit, why: `cmux-tui ${commit.slice(0, 12)}, the newest published build (pinned ${pinned.slice(0, 12)})` };
+}
+
 async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string }): Promise<Plan> {
   const mode = modeOf(readFileSync(MODE_FILE, "utf8"));
   const dryRun = opts.dryRun === "true" ? true : opts.dryRun === "false" ? false : mode !== "live";
@@ -493,11 +518,17 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
   if (mode === "off" && opts.event !== "dispatch") return none("images/cmux-vm/auto-roll.json says off");
 
   if (opts.event === "push") {
-    // An image change landed (the trigger's paths); the cmux-tui pin stays.
+    // An image change landed (the trigger's paths). The bake also takes the newest published cmux-tui build when it
+    // is on the tip and newer than the pin: a push roll that kept the pin re-baked a stale build. 2026-11-26: the
+    // lock pinned 99de33e5 (13:23Z) while builds to 97bd0527 (16:35Z) were published, the 16:52Z push roll promoted
+    // 99de33e5 again, and push roll 45862819601 failed its Agent tools probe on that old acpmux; NOW's Cloud
+    // image lag sat past its bound until a dispatch roll re-pinned. Any doubt about the newer build keeps the pin.
     const range = /^[0-9a-f]{40}$/u.test(opts.before) && !/^0+$/u.test(opts.before) ? `${opts.before}..${opts.commit}` : `${opts.commit}~1..${opts.commit}`;
     const fixes = fixCommits(range, IMAGE_PATHS);
     if (fixes.length === 0) return none(`no commit in ${range} changes the image inputs`);
-    return { roll: true, reason: `image inputs changed in ${range}`, pin: "", cmuxTui: pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
+    const newer = newestPublished(pinned, opts.tip, opts.lock);
+    const reason = `image inputs changed in ${range}; ${newer.why}`;
+    return { roll: true, reason, pin: newer.pin, cmuxTui: newer.pin || pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
   }
   if (opts.commit === "") {
     if (opts.event !== "dispatch") return none("no commit");
