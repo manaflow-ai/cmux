@@ -59,8 +59,6 @@ impl Default for Limits {
     }
 }
 
-/// Calls and docs searches in one script.
-const MAX_CALLS: usize = 2_000;
 /// Calls a result lists one by one; the rest are only counted.
 const MAX_CALL_RECORDS: usize = 200;
 /// The longest tool name a script may call (the longest real one is under 60).
@@ -466,6 +464,11 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
     if !guides.is_empty() {
         answer.set("guides", json!(guides));
     }
+    // The cmux NEXT guide pages that answer it, read in a terminal with `cmux docs guide SLUG`.
+    let pages = super::super::docs::guide_pages(query);
+    if !pages.is_empty() {
+        answer.set("pages", json!(pages));
+    }
     answer
 }
 
@@ -622,6 +625,15 @@ fn exec_mode(
     for message in &from_script {
         match message {
             ToServer::Request(request, reply) => {
+                // The wrap-up's box, for the agent pane to draw from the transcript: built from
+                // the call's own input, because its answer no longer echoes it back to the agent
+                // (`acpmux_mcp_wrap_up.rs`, RFD 0087).
+                let drawn = match &request {
+                    Request::Call { name, arguments } if name.as_str() == WRAP_UP => {
+                        acpmux::acpmux_mcp::wrap_up_box(&Value::Object(arguments.clone()))
+                    }
+                    _ => None,
+                };
                 let name = match &request {
                     Request::Call { name, .. } => Some(name.clone()),
                     Request::ActivityStart { kind, .. } => Some(kind.clone()),
@@ -642,13 +654,8 @@ fn exec_mode(
                         if let Some(key) = answered["error"]["idempotency_key"].as_str() {
                             record.set("idempotency_key", json!(key));
                         }
-                        // The wrap-up's box, for the agent pane to draw from the transcript.
-                        if ok
-                            && name == WRAP_UP
-                            && let Some(shown) =
-                                answered.get("value").filter(|value| value.is_object())
-                        {
-                            record.set("shown", shown.clone());
+                        if ok && let Some(shown) = drawn {
+                            record.set("shown", shown);
                         }
                         records.push(record);
                     }
@@ -985,26 +992,16 @@ fn run_script(
         Ok(context) => context,
         Err(error) => return failed(format!("engine: {error}")),
     };
-    let calls = Rc::new(RefCell::new(0usize));
     let mut workflow_poll: Option<Persistent<Function<'static>>> = None;
     let evaluated = context.with(|ctx| -> Result<(), String> {
         let native = Object::new(ctx.clone()).map_err(|e| e.to_string())?;
-        let count = calls.clone();
         let request = {
             let to_server = to_server.clone();
             let progress = progress.clone();
             move |request: Request| -> String {
-                let mut used = count.borrow_mut();
-                // The workflow journal counts fresh activities after replay
-                // lookup. Its budget resets per resume; only internal waits are free.
-                if !workflow_mode && *used >= MAX_CALLS {
-                    return failure(
-                        "script.too_many_calls",
-                        &format!("a script makes at most {MAX_CALLS} calls and docs searches"),
-                    );
-                }
-                *used += 1;
-                drop(used);
+                // No count limit: a call waits for its answer before the next, so the
+                // script's time and memory limits bound it, and past MAX_CALL_RECORDS a
+                // call is only counted.
                 if !workflow_mode && started.elapsed() > limits.total {
                     return failure(
                         "script.timeout",

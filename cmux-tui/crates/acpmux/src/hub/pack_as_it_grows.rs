@@ -132,22 +132,37 @@ impl Hub {
     /// Brings chat `id`'s pack up to its log (module docs). `None` when the chat is not one
     /// packed here.
     pub(in crate::hub) fn seal_pack(&self, id: &str) -> anyhow::Result<Option<Sealed>> {
+        // The turn comes first, so a seal already running for this chat cannot put back the
+        // entry this one drops below.
+        let _turn = PackTurn::take(id);
         let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
-        let Some(session) = session else { return Ok(None) };
+        let Some(session) = session else {
+            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+            return Ok(None);
+        };
         if session.purged.load(Ordering::SeqCst)
             || session.read_meta(|m| m.moved_to.is_some())
             || self.history_awaited(id).is_some()
         {
+            // Its entry goes with it: a purged or moved chat's id is not kept for the daemon's
+            // life, and a chat that comes back (a history that arrived) is packed whole.
+            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
             return Ok(None);
         }
-        let _turn = PackTurn::take(id);
         // Every record stored by now; one whose append is under way waits for the next seal.
         let through = session.read_meta(|m| m.last_seq);
         if through == 0 {
             return Ok(None);
         }
-        let store = self.pack_store(id)?;
-        let stamp = self.store.log_stamp(id)?;
+        let opened = self.pack_store(id).and_then(|store| Ok((store, self.store.log_stamp(id)?)));
+        let (store, stamp) = match opened {
+            Ok(opened) => opened,
+            Err(error) => {
+                // As any failed seal below: the next one trusts nothing.
+                self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+                return Err(error);
+            }
+        };
         let checked =
             self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(id) == Some(&stamp);
         let work = store.root().join(format!("work-{}", uuid::Uuid::now_v7().simple()));
@@ -159,6 +174,10 @@ impl Hub {
             Ok(Sealed { manifest, stats, extended: false })
         })();
         let _ = crate::home_fs::remove_dir_all(&work);
+        if sealed.is_err() {
+            // Whatever failed, the next seal trusts nothing: it packs whole and re-verifies.
+            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        }
         let sealed = sealed?;
         self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), stamp);
         Ok(Some(sealed))

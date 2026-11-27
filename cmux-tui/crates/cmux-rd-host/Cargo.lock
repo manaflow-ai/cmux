@@ -595,6 +595,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-class"
+version = "0.1.0"
+
+[[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "cmux-transport",
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-codecs"
 version = "0.1.0"
 dependencies = [
@@ -654,6 +667,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",
@@ -691,6 +705,7 @@ dependencies = [
 name = "cmux-rd-host"
 version = "0.2.9"
 dependencies = [
+ "async-io",
  "cc",
  "cmux-codecs",
  "cmux-computer-use",
@@ -703,6 +718,7 @@ dependencies = [
  "cmux-rd-link",
  "cmux-rd-proto",
  "cmux-wg",
+ "futures-lite",
  "getrandom 0.3.4",
  "libc",
  "openh264",
@@ -729,6 +745,7 @@ dependencies = [
  "md-5",
  "sha1",
  "snow",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -755,6 +772,8 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-braid-class",
+ "cmux-braid-path",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",

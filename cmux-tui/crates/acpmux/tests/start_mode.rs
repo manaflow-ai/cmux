@@ -193,6 +193,45 @@ async fn a_new_chat_starts_in_each_harness_full_access_mode() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A cold Claude Code start in full access is spawned in that mode
+/// (`--permission-mode`), so session/new does not wait on a `set_permission_mode`
+/// that Claude Code answers only once booted (849-958 ms of every Cloud start;
+/// Leo: "blazingly fast cloud."). The mode still counts as set by cmux.
+#[tokio::test]
+async fn a_full_access_claude_start_spawns_in_its_mode_and_sends_no_set_mode() {
+    let dir = home("spawn-mode", json!({"defaultPermissionMode": "fullAccess"}));
+    let controls = dir.join("controls.log");
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["claude"]["env"] =
+        json!({"FAKE_CLAUDE_CONTROL_LOG": controls.to_str().unwrap()});
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    let (claude, mode) = app.chat(&dir, "claude").await;
+    assert_eq!(mode, "bypassPermissions");
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": claude, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let sent = std::fs::read_to_string(&controls).unwrap_or_default();
+    assert!(!sent.lines().any(|l| l.trim() == "set_permission_mode"), "{sent}");
+    // An explicit ask start is unchanged: it spawns in `default`.
+    let r = app
+        .call(
+            "session/new",
+            json!({"cwd": dir.join("work"), "mcpServers": [],
+                   "_meta": {"acpmux": {"harness": "claude", "policy": "ask"}}}),
+        )
+        .await;
+    assert_eq!(r["result"]["modes"]["currentModeId"], "default", "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A mode picked in a chat holds for that chat only: new chats, on every
 /// harness and after a restart, start in the default (Leo 2026-10-21: "the
 /// default for new chats != whatever u just temp set in an existing running
@@ -1446,6 +1485,11 @@ async fn a_repeated_read_and_command_are_stubbed_and_counted_on_the_turn_result(
     if std::env::var("ACPMUX_HM_DEDUPE").is_ok_and(|v| v == "0") {
         return;
     }
+    // Off by default (Leo, 2026-11-26: "only do it for our personal fleet situation"): this test
+    // turns it on the way a daemon's environment does. Another test that sees it on meanwhile
+    // allows a dedupe callback.
+    // SAFETY: only this test writes the variable; the others read it through `enabled`.
+    unsafe { std::env::set_var("ACPMUX_HM_DEDUPE", "1") };
     let dir = home("hm-dedupe", json!({"defaultPermissionMode": "fullAccess"}));
     let log = dir.join("auto.log");
     let daemon = hub_with(&dir, |cfg| {
@@ -1840,6 +1884,8 @@ async fn harnesses_report_the_startup_probes_choices_before_any_chat() {
         .filter_map(|m| m["id"].as_str())
         .collect();
     assert_eq!(ids, ["normal", "strict"], "the probe's answer, with no chat yet: {reported}");
+    // The mode the agent starts a chat in when acpmux sets none: the probe's `currentModeId`.
+    assert_eq!(reported["startModeId"], "normal", "{reported}");
     let model = reported["configOptions"]
         .as_array()
         .unwrap()

@@ -18,15 +18,18 @@ pub(crate) use send_async::{list_lines as sent_list_lines, status_line as sent_s
 
 mod extra;
 pub(crate) mod fanout;
+mod history_upkeep;
 pub(crate) mod launch;
 pub(crate) mod ls;
-mod ls_archived;
+pub(crate) mod ls_archived;
 mod ls_leads;
 mod ls_pages;
 mod ls_tools;
 pub use ls::LsArgs;
 mod move_end;
 mod parent;
+mod rebalance;
+mod route_death;
 mod send_async;
 pub(crate) mod session_move;
 pub(crate) use session_move::move_auto;
@@ -61,16 +64,16 @@ pub(crate) async fn session_info(client: &Client, key: &str, row_will_do: bool) 
             e
         }
     }) {
-        Ok(v) => return Ok(v),
+        Ok(v) => Ok(v),
         // A row `ls` lists from the send relay (`send_relay.rs`) is no session here: the refusal
         // says what reaches it and carries its row.
         Err(e) if crate::cli::send_relay::no_such_session(&e) => {
             use crate::cli::send_relay::{Lookup, listed_refusal, listed_row, unknown_refusal};
-            return Err(match listed_row(&key).await {
+            Err(match listed_row(&key).await {
                 Lookup::Listed(row) => listed_refusal(&key, row).into(),
                 Lookup::NotListed => e,
                 Lookup::Unknown(why) => unknown_refusal(&key, e, &why),
-            });
+            })
         }
         Err(e) => Err(e),
     }

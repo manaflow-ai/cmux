@@ -197,6 +197,33 @@ fn a_rewritten_log_is_packed_whole_again() {
     assert_eq!(again.stats.kept_segments, 2, "{:?}", again.stats);
 }
 
+/// A seal that failed is not trusted: the next one packs whole and re-verifies, it does not try
+/// the same extension again.
+#[test]
+fn a_failed_seal_is_followed_by_a_whole_pack() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let hub = hub(&sessions);
+    let id = "pack-grows-c";
+    let session = chat(&hub, id);
+    let mut text = Text(11);
+    grow(&hub, &session, &sessions, (4 << 20) + (1 << 20), &mut text);
+    assert!(!hub.seal_pack(id).unwrap().unwrap().extended);
+    grow(&hub, &session, &sessions, (8 << 20) + (1 << 20), &mut text);
+    assert!(hub.seal_pack(id).unwrap().unwrap().extended);
+    // The manifest cannot be read, so the extension fails.
+    let path = hub.pack_store(id).unwrap().root().join("sessions").join(format!("{id}.json"));
+    let good = std::fs::read(&path).unwrap();
+    std::fs::write(&path, b"{ not a manifest").unwrap();
+    grow(&hub, &session, &sessions, (9 << 20) + (512 << 10), &mut text);
+    assert!(hub.seal_pack(id).is_err());
+    assert!(!hub.pack_checked.lock().unwrap().contains_key(id), "a failed seal is forgotten");
+    std::fs::write(&path, good).unwrap();
+    let again = hub.seal_pack(id).unwrap().unwrap();
+    assert!(!again.extended, "the seal after a failed one is whole");
+    assert_eq!(again.stats.kept_segments, 2, "{:?}", again.stats);
+}
+
 /// The duress number (`--ignored`, prints): each append's time through the hub on a chat whose
 /// log grows to 56 MB, with no pack worker and with it sealing every 4 MiB.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -237,4 +264,25 @@ async fn append_latency_with_and_without_sealing() {
     for row in rows {
         println!("{row}");
     }
+}
+
+/// A chat that is purged is not packed, and what the hub remembered of its pack goes with it.
+#[test]
+fn a_purged_chat_is_not_packed_and_is_forgotten() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let hub = hub(&sessions);
+    let id = "pack-grows-d";
+    let session = chat(&hub, id);
+    let mut text = Text(13);
+    grow(&hub, &session, &sessions, (4 << 20) + (1 << 20), &mut text);
+    assert!(hub.seal_pack(id).unwrap().is_some());
+    assert!(hub.pack_checked.lock().unwrap().contains_key(id));
+    session.purged.store(true, Ordering::SeqCst);
+    assert!(hub.seal_pack(id).unwrap().is_none(), "a purged chat is not packed");
+    assert!(!hub.pack_checked.lock().unwrap().contains_key(id), "and its entry is dropped");
+    // A chat gone from the session map loses its entry too.
+    hub.pack_checked.lock().unwrap().insert("no-such-chat".to_owned(), 1);
+    assert!(hub.seal_pack("no-such-chat").unwrap().is_none());
+    assert!(!hub.pack_checked.lock().unwrap().contains_key("no-such-chat"));
 }

@@ -11,7 +11,18 @@
 // Prints one JSON verdict line at the end (and writes it to --out when given).
 //
 //   bun scripts/cmux-next/cloud-fork-placement.ts [--backend staging] [--sign-in password|oidc]
-//       [--team TEAM] [--runs N] [--duress N] [--out FILE]
+//       [--team TEAM] [--runs N] [--duress N] [--out FILE] [--risky] [--divergence]
+//
+// --risky (RFD 0163 row 25, acpmux fork_risky.rs): "Fork first" before a risky step. The parent's
+// checkout gets uncommitted work; the fork is taken with a `risky-` clientKey, as the daemon takes it
+// before it lets the step run; then the step runs on the parent (`git reset --hard && git clean
+// -fdx`), and the run checks the parent lost the work and the copy, the checkpoint, kept it.
+// `fork_call_ms` is then the time the person's Fork first holds the step.
+//
+// --divergence (cmux-platform Divergence.ts, the dirty-byte meter): after parity, wait for the copy's
+// baseline disk read, write DIVERGENCE_WRITE_MB on the copy, wait past one periodic read, pause the copy
+// and compare its `paused_hourly_rate_usd` (billed at what it wrote) with its parent's (its whole disk).
+// The copy's id is in the row, so its `cloud.divergence.read` log lines and usage rows can be read after.
 //
 // Credentials: CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the staging agent test
 // account), or --sign-in oidc in a GitHub Actions job the API trusts.
@@ -42,6 +53,30 @@ const arg = (name: string, fallback?: string) => {
 const MARKER = "/tmp/cmux-fork-marker";
 const REPO = "/tmp/cmux-fork-repo";
 const COUNTER = "/tmp/cmux-fork-counter";
+const WORK = `${REPO}/uncommitted-work.txt`;
+
+/** --risky: uncommitted work in the checkout, which the risky step drops. Prints its sha256. */
+export function dirtyCommand(nonce: string): string {
+  return [`printf '%s' 'work-${nonce}' > ${WORK}`, `echo "work=$(sha256sum ${WORK} | cut -d' ' -f1)"`].join("\n");
+}
+
+/** The risky step the person allows after Fork first: drops every uncommitted change. */
+export const RISKY_STEP = `cd ${REPO} && git reset -q --hard && git clean -qfdx`;
+
+/** The work file's sha256 now, or empty when it is gone. */
+export function workCommand(): string {
+  return `echo "work=$(sha256sum ${WORK} 2>/dev/null | cut -d' ' -f1)"`;
+}
+
+/** cmux-platform's answer for a machine it does not know (yet). */
+export function notFound(status: number, body: any): boolean {
+  return status === 404 && (body?.code === "machine.not_found" || body?._tag === "MachineNotFound");
+}
+
+/** Whether the checkpoint held: the parent lost the work and the copy kept it. */
+export function checkpointKept(before: string | undefined, parent: string | undefined, copy: string | undefined) {
+  return { parent_lost_work: !!before && !parent, copy_kept_work: !!before && copy === before };
+}
 
 export type Parity = { marker: boolean; head: boolean; process_alive: boolean; process_counting: boolean };
 export type RunRow = {
@@ -55,13 +90,34 @@ export type RunRow = {
   parity: Parity | null;
   child_cost: unknown;
   agent: string;
+  divergence?: Divergence | null;
   error: string | null;
   cleanup: string[];
+  /** How many times the fork answered 404 machine.not_found before it answered for good. */
+  fork_not_found_retries?: number;
+  /** --risky only: the step's exit on the parent and whether the copy kept what it dropped. */
+  risky?: { step_exit: number; parent_lost_work: boolean; copy_kept_work: boolean } | null;
   /** --split: the fork's steps done one at a time on the same parent (see splitPhases). */
   split?: SplitRow | null;
   /** The copy's create trace (GET /v1/machines/{id}?include=trace): where its restore's time went. */
   create_trace?: unknown;
 };
+
+/**
+ * No PR or dispatch run of this drill reached a verdict on 11-26/27: 20 of 21 measure jobs ran into the
+ * job's timeout (40 min, 60 on lane/fork-native-drill), about 15 runner-hours a day, and wrote no
+ * fork-placement.json. Every timed run's fork call answered 404 machine.not_found (past the 60 s retry),
+ * 401 or 503, or the run failed before its fork call, and each run still spent 2-15 min on a
+ * parent (jobs 140215233872, 140362817873). Once the first DEAD_DRILL_RUNS timed runs have all failed,
+ * the rest would only spend the timeout: the drill stops there, skips duress, and writes its failing
+ * verdict with the reason. A drill whose fork worked once keeps every run, so its numbers stay whole.
+ */
+export const DEAD_DRILL_RUNS = 2;
+export function deadDrill(rows: RunRow[], asked: number): string | null {
+  if (rows.length < DEAD_DRILL_RUNS || rows.length >= asked || rows.some((r) => r.error === null)) return null;
+  const seen = rows.map((r) => (r.fork_status === null ? "no fork call" : `fork HTTP ${r.fork_status}`)).join(", ");
+  return `stopped after ${rows.length} of ${asked} runs: every run so far failed (${seen})`;
+}
 
 /** --duress N: N forks of one parent at once; each fork's call and fork-to-first-exec, then every copy deleted. */
 export type DuressRow = { forks: number; parent: string | null; fork_call_ms: number[]; fork_to_first_exec_ms: number[]; errors: string[]; cleanup: string[] };
@@ -89,6 +145,51 @@ export type SplitRow = {
   restore_timings: unknown;
   error: string | null;
 };
+
+/** What a copy pauses at after writing DIVERGENCE_WRITE_MB, against its parent (a whole-disk machine). */
+export type Divergence = {
+  written_mb: number;
+  write_ms: number | null;
+  child_running: { paused_hourly_rate_usd: number | null } | null;
+  child_paused: { status: string | null; paused_hourly_rate_usd: number | null } | null;
+  parent: { paused_hourly_rate_usd: number | null } | null;
+  /** child_paused's rate over the parent's: about written / disk when the copy is billed by divergence. */
+  ratio: number | null;
+  billed_as_diverged: boolean;
+};
+
+export const DIVERGENCE_WRITE_MB = 1024;
+/** The first read of a snapshot-made machine is due at once (Divergence.ts divergenceDueAt); the alarm takes it. */
+export const DIVERGENCE_BASELINE_WAIT_MS = 120_000;
+/** DIVERGENCE_READ_EVERY_MS (10 min) plus a minute for the alarm. */
+export const DIVERGENCE_PERIODIC_WAIT_MS = 11 * 60_000;
+const DIVERGE_FILE = "$HOME/cmux-fork-diverge";
+
+/** Writes `mb` MiB of random bytes (so no layer can dedupe or compress them) and syncs them to the disk. */
+export function divergenceWriteCommand(mb = DIVERGENCE_WRITE_MB): string {
+  return `set -e; dd if=/dev/urandom of=${DIVERGE_FILE} bs=1M count=${mb} conv=fsync status=none; sync; echo written=$(du -m ${DIVERGE_FILE} | cut -f1)`;
+}
+
+const rate = (m: any): number | null => (typeof m?.paused_hourly_rate_usd === "number" ? m.paused_hourly_rate_usd : null);
+
+/**
+ * Billed as diverged: the paused copy's rate is below its parent's. A copy billed at its whole disk pauses at
+ * exactly the parent's rate (same size), so any drop is the divergence meter; the ratio says by how much.
+ */
+export function divergenceVerdict(written_mb: number, write_ms: number | null, childRunning: any, childPaused: any, parent: any): Divergence {
+  const c = rate(childPaused);
+  const p = rate(parent);
+  const ratio = c !== null && p !== null && p > 0 ? Number((c / p).toFixed(4)) : null;
+  return {
+    written_mb,
+    write_ms,
+    child_running: childRunning ? { paused_hourly_rate_usd: rate(childRunning) } : null,
+    child_paused: childPaused ? { status: typeof childPaused.status === "string" ? childPaused.status : null, paused_hourly_rate_usd: c } : null,
+    parent: parent ? { paused_hourly_rate_usd: p } : null,
+    ratio,
+    billed_as_diverged: ratio !== null && ratio < 1 && childPaused?.status === "paused",
+  };
+}
 
 /** The setup command: marker, one-commit repo, a detached counter. Prints marker sha, HEAD, pid. */
 export function setupCommand(nonce: string): string {
@@ -141,7 +242,8 @@ const median = (xs: number[]) => {
 };
 
 export function verdict(rows: RunRow[], meta: Record<string, unknown>) {
-  const ok = rows.filter((r) => r.parity && Object.values(r.parity).every(Boolean));
+  const kept = (r: RunRow) => r.risky === undefined || (!!r.risky && r.risky.step_exit === 0 && r.risky.parent_lost_work && r.risky.copy_kept_work);
+  const ok = rows.filter((r) => r.parity && Object.values(r.parity).every(Boolean) && kept(r) && (r.divergence === undefined || r.divergence?.billed_as_diverged === true));
   const nums = (k: "fork_call_ms" | "fork_to_first_exec_ms") => rows.map((r) => r[k]).filter((v): v is number => typeof v === "number");
   return {
     kind: "cloud-fork-placement",
@@ -155,7 +257,7 @@ export function verdict(rows: RunRow[], meta: Record<string, unknown>) {
   };
 }
 
-async function firstExec(exec: Exec, budgetMs: number): Promise<number> {
+export async function firstExec(exec: Exec, budgetMs: number): Promise<number> {
   const t0 = Date.now();
   let last = "";
   while (Date.now() - t0 < budgetMs) {
@@ -172,7 +274,7 @@ async function firstExec(exec: Exec, budgetMs: number): Promise<number> {
 }
 
 /** A cmux access token for a fresh install (P-256 key, challenge, signed nonce): what the app sends the platform. */
-async function mintInstallToken(api: Api, apiBase: string, userId: string, tag: string, team?: string): Promise<{ id: string; token: string; renew: () => Promise<string> }> {
+export async function mintInstallToken(api: Api, apiBase: string, userId: string, tag: string, team?: string): Promise<{ id: string; token: string; renew: () => Promise<string> }> {
   const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
   const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
   const inst = await api.op("install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: `cloud journey jr-${tag.slice(3)}`, device_name: "cloud fork placement", platform: "linux" }, `${tag}-install`);
@@ -249,7 +351,9 @@ async function splitPhases(api: Api, parent: string, tag: string, run: number, j
 async function main(): Promise<number> {
   const backend = resolveBackend(arg("--backend", "staging")!);
   const runs = Math.max(1, Math.min(10, Number(arg("--runs", "1"))));
+  const divergence = process.argv.includes("--divergence");
   const team = arg("--team") || undefined;
+  const risky = process.argv.includes("--risky");
   const secrets: string[] = [];
   const api = new Api(backend.api, team);
   if (arg("--sign-in", "password") === "oidc") api.bearer = (await oidcSignIn(backend.api, process.env, secrets)).token;
@@ -279,8 +383,9 @@ async function main(): Promise<number> {
   const platformHeaders = () => ({ authorization: `Bearer ${bearer}`, ...(team ? { "x-cmux-team": team } : {}) });
   const journey = { secrets };
   const rows: RunRow[] = [];
+  let stopped: string | null = null;
   for (let run = 1; run <= runs; run++) {
-    const row: RunRow = { run, parent: null, child: null, parent_ready_ms: null, fork_call_ms: null, fork_status: null, fork_to_first_exec_ms: null, parity: null, child_cost: null, agent: "not tried", error: null, cleanup: [] };
+    const row: RunRow = { run, parent: null, child: null, parent_ready_ms: null, fork_call_ms: null, fork_status: null, fork_to_first_exec_ms: null, parity: null, child_cost: null, agent: "not tried", error: null, cleanup: [], ...(risky ? { risky: null } : {}) };
     try {
       if (run > 1) await renewToken();
       const t0 = Date.now();
@@ -296,21 +401,68 @@ async function main(): Promise<number> {
       const before = facts(setup.stdout);
       const expect = createHash("sha256").update(nonce).digest("hex");
       if (before.marker !== expect) throw new Error(`the parent's marker is not the nonce's sha256 (${before.marker})`);
-      const f0 = Date.now();
-      const forked = await http("POST", `${platform}/v1/machines/${encodeURIComponent(row.parent)}/fork`, { clientKey: `${tag}-fork-${run}` }, platformHeaders(), 180_000, true);
+      let work: string | undefined;
+      if (risky) {
+        const dirty = await parentExec(dirtyCommand(nonce), 30_000);
+        work = facts(dirty.stdout).work;
+        if (!work) throw new Error(`no uncommitted work on the parent: exit ${dirty.code}`);
+      }
+      const clientKey = risky ? `risky-${tag}-${run}` : `${tag}-fork-${run}`;
+      // cmux-platform answered 404 machine.not_found for a parent the API had just reported running, on runs
+      // 1, 3 and 5 of run 45456177673: it had not learned the machine yet. Ask again with the same clientKey
+      // (idempotent) for up to 60 s; fork_call_ms times the call that answered, fork_not_found_retries counts.
+      let forked: Awaited<ReturnType<typeof http>>;
+      let f0 = Date.now();
+      const deadline = Date.now() + 60_000;
+      row.fork_not_found_retries = 0;
+      for (;;) {
+        f0 = Date.now();
+        forked = await http("POST", `${platform}/v1/machines/${encodeURIComponent(row.parent)}/fork`, { clientKey }, platformHeaders(), 180_000, true);
+        if (!notFound(forked.status, forked.body) || Date.now() > deadline) break;
+        row.fork_not_found_retries++;
+        await new Promise((r) => setTimeout(r, 3_000));
+      }
       row.fork_call_ms = Date.now() - f0;
       row.fork_status = forked.status;
       if (forked.status !== 200 || typeof forked.body?.id !== "string") throw new Error(`fork: HTTP ${forked.status} ${JSON.stringify(forked.body).slice(0, 300)}`);
       row.child = forked.body.id as string;
       const childExec = directExec(api, row.child, journey);
+      if (risky) {
+        // The fork answered: the person's allow goes through now, and the step runs on the parent.
+        const step = await parentExec(RISKY_STEP, 60_000);
+        const left = facts((await parentExec(workCommand(), 30_000)).stdout).work;
+        row.risky = { step_exit: step.code, ...checkpointKept(work, left, undefined) };
+      }
       row.fork_to_first_exec_ms = row.fork_call_ms + (await firstExec(childExec, 180_000));
       const after = await childExec(parityCommand(), 60_000);
       row.parity = parity(before, facts(after.stdout));
+      if (row.risky) {
+        const kept = facts((await childExec(workCommand(), 30_000)).stdout).work;
+        row.risky = { ...row.risky, copy_kept_work: checkpointKept(work, undefined, kept).copy_kept_work };
+      }
       // An agent on the copy: the cheap check is that the guest's acpmux answers there.
       const agent = await childExec("command -v acpmux >/dev/null && acpmux ls >/dev/null 2>&1 && echo up || echo down", 30_000).catch((e) => ({ code: 1, stdout: "", stderr: String((e as Error).message) }));
       row.agent = agent.stdout.includes("up") ? "acpmux answers on the copy" : `acpmux did not answer: ${(agent.stderr || agent.stdout).slice(0, 200)}`;
       const read = await http("GET", `${platform}/v1/machines/${encodeURIComponent(row.child)}?include=trace`, undefined, platformHeaders(), 15_000);
       row.child_cost = read.status === 200 ? { route: "GET {platform}/v1/machines/{id} cost", cost: read.body?.cost ?? null } : { route: "GET {platform}/v1/machines/{id}", status: read.status };
+      if (divergence) {
+        row.divergence = null;
+        say(`divergence: copy ${row.child}, parent ${row.parent}; baseline wait ${DIVERGENCE_BASELINE_WAIT_MS / 1000} s`);
+        await sleep(DIVERGENCE_BASELINE_WAIT_MS);
+        const w0 = Date.now();
+        const wrote = await childExec(divergenceWriteCommand(), 300_000);
+        if (wrote.code !== 0) throw new Error(`divergence write on the copy: exit ${wrote.code} ${wrote.stderr.slice(0, 300)}`);
+        const writeMs = Date.now() - w0;
+        say(`divergence: wrote ${facts(wrote.stdout).written ?? "?"} MiB in ${writeMs} ms; periodic wait ${DIVERGENCE_PERIODIC_WAIT_MS / 1000} s`);
+        await sleep(DIVERGENCE_PERIODIC_WAIT_MS);
+        const running = await api.read("cloud.machine.get", { machine: row.child });
+        await api.op("cloud.machine.pause", { machine: row.child }, `${tag}-pause-child-${run}`);
+        const paused = await waitMachine(api, row.child, (m) => m?.status === "paused", 180_000);
+        // A minute paused, so the meter bills a stored stretch at the divergence before the delete.
+        await sleep(60_000);
+        const parentRow = await api.read("cloud.machine.get", { machine: row.parent });
+        row.divergence = divergenceVerdict(DIVERGENCE_WRITE_MB, writeMs, running, paused, parentRow);
+      }
       row.create_trace = read.status === 200 ? read.body?.createTrace ?? read.body?.trace ?? null : null;
       if (process.argv.includes("--split")) row.split = await splitPhases(api, row.parent, tag, run, journey, row.cleanup);
     } catch (e) {
@@ -329,8 +481,13 @@ async function main(): Promise<number> {
     }
     say({ row });
     rows.push(row);
+    stopped = deadDrill(rows, runs);
+    if (stopped) {
+      say(stopped);
+      break;
+    }
   }
-  const duressN = Math.max(0, Math.min(8, Number(arg("--duress", "0"))));
+  const duressN = stopped ? 0 : Math.max(0, Math.min(8, Number(arg("--duress", "0"))));
   let duress: DuressRow | null = null;
   if (duressN > 0) {
     const d: DuressRow = { forks: duressN, parent: null, fork_call_ms: [], fork_to_first_exec_ms: [], errors: [], cleanup: [] };
@@ -371,7 +528,10 @@ async function main(): Promise<number> {
     duress = d;
   }
   await api.op("install.revoke", { install: install.id }, `${tag}-install-revoke`).catch((e) => say(`install ${install.id} not revoked: ${String((e as Error).message).slice(0, 200)}`));
-  const v = { ...verdict(rows, { backend: backend.name, platform, at: new Date().toISOString() }), ...(duress ? { duress: { ...duress, fork_call_p50: median(duress.fork_call_ms), fork_call_p95: p95(duress.fork_call_ms), first_exec_p50: median(duress.fork_to_first_exec_ms), first_exec_p95: p95(duress.fork_to_first_exec_ms) } } : {}) };
+  const v = {
+    ...verdict(rows, { backend: backend.name, platform, at: new Date().toISOString(), mode: divergence ? "divergence" : risky ? "risky" : "placement", runs_asked: runs, stopped }),
+    ...(duress ? { duress: { ...duress, fork_call_p50: median(duress.fork_call_ms), fork_call_p95: p95(duress.fork_call_ms), first_exec_p50: median(duress.fork_to_first_exec_ms), first_exec_p95: p95(duress.fork_to_first_exec_ms) } } : {}),
+  };
   const line = scrub(JSON.stringify(v), secrets);
   const out = arg("--out");
   if (out) writeFileSync(out, `${line}\n`);

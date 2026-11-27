@@ -24,11 +24,15 @@
 //! text area reports are answered here in host cells
 //! ([`Projection::take_replies`]).
 
+pub mod fit_policy;
 pub mod held;
 pub mod project;
+pub mod relayout;
 pub mod style;
+pub mod sync;
 pub mod terminal;
 pub mod unicode;
+pub mod zoom;
 
 pub use project::{Paint, View};
 pub use terminal::Terminal;
@@ -219,10 +223,16 @@ impl Projection {
         self.paint().into_iter().collect()
     }
 
-    /// The next paint starts the phone's terminal over.
+    /// The next paint starts the phone's terminal over: the host's replay
+    /// (its whole scrollback again) follows. Rows the replay pushes are not
+    /// rows the phone missed, so that paint holds the tail window (and
+    /// [`View::keep_from`]), not every replayed row: a phone whose empty grid
+    /// painted before the attach's replay held all 3,000 lines of it (#51584's
+    /// reach from the last paint; #43189: the phone holds a window).
     pub fn request_reset(&mut self) {
         if let Some(view) = &mut self.view {
             view.request_reset();
+            view.pushed_at_paint = None;
         }
     }
 
@@ -283,8 +293,11 @@ impl Projection {
                 segments.push(Segment::Raw(raw));
                 self.term.passthrough.clear();
                 segments.push(Segment::Alternate(false));
-                // The phone's primary screen was drawn at another grid meanwhile.
-                self.request_reset();
+                // The phone's primary screen was drawn at another grid meanwhile
+                // (rows pushed since the last paint still reach the phone).
+                if let Some(view) = &mut self.view {
+                    view.request_reset();
+                }
             }
         }
         if let Some(start) = raw_start {
@@ -437,6 +450,37 @@ impl Projection {
     /// Bytes painted and resets since creation.
     pub fn stats(&self) -> (u64, u64) {
         self.view.as_ref().map_or((0, 0), |v| (v.bytes_out, v.resets))
+    }
+
+    /// Where a daemon `terminal-find` cell (`host_from_bottom`: 1 is the
+    /// host's last row; `host_column`) lands on the phone's re-wrapped rows
+    /// ([`project::locate`]). None: the model does not hold that row.
+    pub fn locate(&self, host_from_bottom: usize, host_column: usize) -> Option<project::Located> {
+        let cols = self.viewport()?.0;
+        project::locate(&self.term, cols, self.compact, host_from_bottom, host_column)
+    }
+
+    /// The host cell under a phone cell (`phone_from_bottom`: 1 is the
+    /// phone's last re-wrapped row) ([`project::host_cell`]), as host rows
+    /// from the bottom and a host column. None: no viewport, or the model
+    /// does not hold that row.
+    pub fn host_cell(
+        &self,
+        phone_from_bottom: usize,
+        phone_column: usize,
+    ) -> Option<(usize, usize)> {
+        let cols = self.viewport()?.0;
+        project::host_cell(&self.term, cols, self.compact, phone_from_bottom, phone_column)
+    }
+
+    /// On the alternate screen with rows held: the held rows and the app's
+    /// screen as one document ([`held::paint_document`]): its bytes, rows
+    /// and the row the app's screen begins at. None otherwise.
+    pub fn alt_document(&self) -> Option<(Vec<u8>, usize, usize)> {
+        if !self.term.is_alternate() || self.term.held.is_empty() {
+            return None;
+        }
+        Some(held::paint_document(&self.term, &self.term.held))
     }
 
     pub fn terminal(&self) -> &Terminal {

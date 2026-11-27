@@ -73,9 +73,39 @@ pub struct PrWaitArgs {
     /// What to wait for.
     #[arg(long, value_enum, default_value = "checks")]
     pub until: Until,
-    /// Give up after this many seconds (exit 3).
-    #[arg(long, default_value_t = 3600)]
+    /// Give up after this long (exit 3): seconds (`3600`), or a duration (`90s`, `45m`,
+    /// `2h`, `1h30m`).
+    #[arg(long, default_value_t = 3600, value_parser = timeout_secs)]
     pub timeout: u64,
+}
+
+/// `--timeout`'s value in seconds: a bare number of seconds, or a duration of `s`, `m`, `h` and
+/// `d` parts (`1h30m`).
+pub(crate) fn timeout_secs(text: &str) -> std::result::Result<u64, String> {
+    let text = text.trim();
+    if let Ok(secs) = text.parse::<u64>() {
+        return Ok(secs);
+    }
+    let bad = || format!("invalid --timeout {text:?}: use seconds (3600) or a duration (45m, 2h)");
+    let (mut total, mut number) = (0u64, None::<u64>);
+    for c in text.chars() {
+        if let Some(d) = c.to_digit(10) {
+            number = Some(number.unwrap_or(0).checked_mul(10).ok_or_else(bad)? + u64::from(d));
+            continue;
+        }
+        let unit = match c.to_ascii_lowercase() {
+            's' => 1,
+            'm' => 60,
+            'h' => 3600,
+            'd' => 86_400,
+            _ => return Err(bad()),
+        };
+        total = total.saturating_add(number.take().ok_or_else(bad)?.saturating_mul(unit));
+    }
+    if number.is_some() || total == 0 && text.is_empty() {
+        return Err(bad());
+    }
+    Ok(total)
 }
 
 /// What every waiter of one key reads: the newest answer and when the next poll may run.
@@ -198,13 +228,13 @@ pub(crate) struct Ctx {
 }
 
 /// Where the shared state lives: `ACPMUX_PR_WAIT_DIR`, else the user cache folder's
-/// `cmux/pr-wait`. Regenerable: deleting it costs one poll.
+/// `cmux/pr-wait` (`cmux-next/pr-wait` on macOS, `cmux_config::NEXT_DIR`). Regenerable: deleting it costs one poll.
 fn state_dir() -> Result<PathBuf> {
     if let Some(dir) = std::env::var_os("ACPMUX_PR_WAIT_DIR") {
         return Ok(PathBuf::from(dir));
     }
     let cache = dirs::cache_dir().ok_or_else(|| anyhow!("no cache folder for pr-wait's state"))?;
-    Ok(cache.join("cmux").join("pr-wait"))
+    Ok(cache.join(cmux_config::NEXT_DIR).join("pr-wait"))
 }
 
 fn read_shared(path: &Path) -> Shared {

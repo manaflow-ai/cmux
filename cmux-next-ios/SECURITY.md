@@ -503,9 +503,23 @@ from the admitted `wg-init` / `wg-resp` exchange.
   and encrypts every datagram between the phone and the Mac. TLS to the TURN
   server only hides from the local network that the datagrams are WireGuard;
   the TURN operator sees the same ciphertext it sees over UDP. The TLS server
-  name is the `turns:` URL's host, verified against the public web PKI
-  (webpki roots, ring); a certificate that does not verify fails the
-  allocation, and the dial goes on without that path.
+  name is the `turns:` URL's host, verified against the OS trust store
+  (`rustls-platform-verifier`, ring), as are the signaling WebSocket and the
+  HTTP API; a certificate the OS does not trust fails the allocation, and the
+  dial goes on without that path. The OS store includes any root an MDM
+  profile or the person installed, so a company network that inspects TLS
+  (PROTOCOL.md "Corporate networks") can read and change this TLS. That gives
+  it nothing on the link: WireGuard's keys come from the admitted `wg-init` /
+  `wg-resp` exchange and the phone pins the Mac's identity key, so the proxy
+  sees the ciphertext, addresses and short-lived TURN credentials it would see
+  on the wire anyway, plus the bearer token it already sees in the app's
+  URLSession API calls through the same proxy.
+- **The system's proxy** carries the link's TCP connections where the
+  settings name one (`CONNECT` or SOCKS5), with the user name and password the
+  settings hold for it (HTTP Basic, SOCKS5). Those credentials go only to that
+  proxy, never to the destination, and are never logged; a proxy that wants
+  NTLM or Kerberos fails the dial with a sentence, nothing is retried with
+  other credentials.
 - **TURN credentials** come only from `/v1/ice` (short-lived Cloudflare TURN
   credentials, 1 h), never stored, and are the same ones WebRTC uses.
 - **The TeamHub carries no data** (the session's WebSocket relay, below, is a
@@ -524,8 +538,11 @@ from the admitted `wg-init` / `wg-resp` exchange.
   (its network drops UDP) or a debug option asks for one. The allocation
   relays only to the addresses the Mac sends to (TURN permissions), and the
   Mac's tunnel accepts nothing that does not authenticate.
-- **Debug "Block UDP"** (`block_udp`, simulator `CMUX_MOBILE_DEV_BLOCK_UDP`) only
-  narrows the phone's own paths. A Release build ignores the setting; the
+- **Debug "Block UDP", "Proxy only" and "Drop WireGuard"** (`block_udp`,
+  `proxy_only`, `drop_wireguard`; simulator `CMUX_MOBILE_DEV_BLOCK_UDP`,
+  `CMUX_MOBILE_DEV_PROXY_ONLY`, `CMUX_MOBILE_DEV_DROP_WIREGUARD`, and
+  `CMUX_MOBILE_DEV_PROXY` for the proxy itself) only narrow the phone's own
+  paths (hostd reads the same variables for its own). A Release build ignores the setting; the
   environment variable is read by the shared Rust core, so it is a test
   hook for whoever launches the app with it, never a way to reach a Mac.
 
@@ -550,10 +567,22 @@ Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux
   sizes, timing, plus the two device ids it already knows from signaling.
 - **Who can join.** Only a device that the caller's own hub (one per user and
   build space) bound to that session at its first admitted signal, with that
-  user's Stack token; a third device of the same user, another user, or a
-  session id no signal opened gets `403`. Each device gets one socket (a
-  newer join replaces it). The object is named by the verified owner key,
+  user's Stack token and that device's own relay ticket: a random value the
+  hub made for each device of the session and stamped only on the signals it
+  forwarded to that device's own signaling socket. Another user, a session id
+  no signal opened, and a third device of the same user that names a party's
+  device id get `403`, since none of them holds that device's ticket. The
+  boundary is as strong as signaling's device identity, not stronger: the
+  service has no per-device key, so a client holding the user's token could
+  take over a device's signaling socket (closing the real one with 4000) and
+  receive its ticket from the next signal. Each device gets one relay socket
+  (a newer join replaces it). The object is named by the verified owner key,
   space and session id, so two users or two dev builds never share one.
+- **Live sockets end with their session.** The hub closes a session's relay
+  sockets when the session ends (`bye`, even to an offline peer, and its 24 h
+  TTL, 4001), when one of its devices or the account is removed (4002), and
+  the kill switch closes every live socket at its next frame (4003), not only
+  new joins.
 - **No impersonation.** The relay overwrites the frame's peer field with the
   sender's authenticated device id; a receiving side drops frames that name
   anyone but its session's peer. Frames go only to the other party's socket.
@@ -561,9 +590,16 @@ Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux
   WireGuard, so the relay can never confirm a route (the retired relay's
   marker was authenticated only by the backend, which is why it went).
 - **Bounded.** Frames are 16 KiB at most, `datagrams` only, rate limited per
-  socket; the object keeps no storage. `LINK_RELAY_MODE=off` refuses every
-  join (`503 relay_off`); clients then fall back to their other paths and
-  report the relay as off.
+  socket (1500 frames, 8 MiB a second) and per user: what a socket relays is
+  granted by the user's hub (64 KiB, doubling to 1 MiB per grant) from one
+  budget across all of that user's sessions (480 MiB a minute by default),
+  so opening more sessions buys no more bandwidth. The budget fails closed: a
+  refusal holds for the hub's retry-after and a hub error grants nothing for
+  1 s, so neither an over-budget sender nor an overloaded hub gets frames
+  through or one hub call per frame, and the budget survives a hub wake. The
+  relay object keeps no storage. `LINK_RELAY_MODE=off` refuses every join (`503 relay_off`) and
+  closes live sockets; clients then fall back to their other paths and report
+  the relay as off.
 - **Debug "Relay via cmux (HTTPS) only"** (`force_relay`, simulator
   `CMUX_MOBILE_DEV_FORCE_RELAY`) only narrows the phone's own paths, like
   Block UDP.
@@ -623,6 +659,18 @@ the Mac.
   tab stays on the phone (it remembers the last tab per workspace). The phone
   never sends `select-tab` or `report-focus` for its own navigation, because
   both move the Mac's view for the person sitting at it.
+- **Close Tab in one round trip** (trace-ios; Leo, 2026-11-25: "are we also doing more work on
+  perf while we're here? for the app especially?"): `close-tabs {surfaces, end_terminals}` is on
+  the allowlist (hostd's `ALLOWED_COMMANDS` and the Swift mirror, its fields generated from the
+  daemon schema). It is the same authority as `close-surface` followed by `close-terminal` of each
+  terminal whose views all close, which the phone already had, done in one daemon commit
+  (`batch-close-v1`). It names no program, folder or environment; `end_terminals` ends only
+  terminals no other view keeps. A Mac that refuses it gets the old two commands.
+- **Trace id (`_meta`)**: any line command may carry `_meta: {"traceId": ID}`, the W3C trace id
+  that ties the phone's spans to the Mac's (cmux#55505's format). The ID is 1 to 128 ASCII letters,
+  digits or `-`; any other `_meta` member or shape is refused (`trace_meta_refusal` in hostd,
+  `traceMetaRefusal` in the Swift mirror). The daemon ignores it. It grants and reads nothing.
+  Tests: `close_tabs_takes_a_trace_id_only` (policy), `DaemonLanePolicyCloseTabsTests`.
 - **Agent chat tabs:** `new-conversation-tab` is new on the allowlist, and
   `DaemonPolicy::agent_tab_verdict` narrows it to one shape. Rule 2 answers:
 
@@ -1082,6 +1130,30 @@ sent as an ACP `resource_link` to that path.
   the `upload` cases in `tests/host.rs`: a plain upload, a workspace folder, a
   folder that is no tab's and outside the roots (`forbidden`), and
   `an_upload_past_the_old_100_mib_cap_is_saved_whole` (no size cap).
+- Resumable uploads (`upload_id`) use the authenticated device identity across
+  link sessions. Parts stay inside the authorized publish directory in a
+  device-keyed `.parts-<sha256(device)>` directory (0700); files are 0600.
+  The staging directory cannot be a symlink. Knowing another device's upload ID
+  does not permit resuming or truncating its bytes. Cleanup visits only that
+  device's staging directory, never the publish directory's parent.
+- Completion receipts bind the upload ID, declared name and size to the published
+  inode and content digest, including uploads satisfied by deduplication. A retry
+  after a lost final reply returns the same path without another copy. Publication
+  interrupted before its receipt is recovered by matching the retained part inode. Receipts expire with partial uploads after 24 hours; replaced files are
+  refused, as are same-inode content changes. Receipts are written atomically.
+  `upload_completion_recovers_interrupted_publication_and_checks_bytes` covers
+  crash recovery and changed bytes. `resumable_upload_reports_have_acks_and_path` checks replay at three
+  offsets, ID reuse with another name, and replacement of the published inode.
+- Legacy development receipts without a content digest, and partial authoritative
+  receipts from the earlier writer, fail closed without changing the receipt or
+  published file. They are not migrated from the current file's bytes. A phone
+  encountering one must start a new upload ID; retrying that old ID remains an
+  error. `upload_completion_refuses_legacy_hashless_and_partial_receipts` checks
+  this policy with and without a supplied digest.
+- **Regression detectors:** `another_phone_cannot_resume_an_earlier_upload_part`,
+  `resumable_upload_reopens_from_the_last_ack`,
+  `resumable_upload_root_alias_does_not_clean_workspace_parent`, and the
+  `upload_parts_*` unit tests cover isolation, redial, confinement and permissions.
 - **Open:** there is no total quota per phone, and old uploads are not
   cleaned up. Both are bounded only by the person's disk.
 
@@ -1345,6 +1417,19 @@ for anyone but a developer who launches their own DEBUG build with it. The e2e
 rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
 simulator; it never clicks Allow and never writes `paired-devices.json`.
 
+## A delivered session in simulator builds (`CMUX_MOBILE_STACK_REFRESH_TOKEN`)
+
+A fleet step's own session (hq build-fleet `sign_in`, `scripts/lib/fleet-signin-session.sh`) reaches
+the app as `CMUX_MOBILE_STACK_REFRESH_TOKEN` in one `simctl launch` environment.
+`CmuxMobileAuthModel.launchTokenStore` adopts it, while the app's own store holds no session, in DEBUG
+builds and in a simulator build of any configuration, so a probe can sign in a Production simulator
+build. The gate is compile time (`#if DEBUG || targetEnvironment(simulator)`): no device binary
+(TestFlight, App Store, a signed development install) contains the read. The build's Stack project
+is unchanged, so a Production build takes only a production session. The token goes only to the
+app's keychain store, is never logged and never in argv, and becomes the app's own session, which
+a sign-out revokes. Whoever can set a simulator app's launch environment already owns its container
+and keychain, so this gives them nothing new.
+
 ## Dev auto-approve (DEBUG tagged dev builds)
 
 A tagged dev Mac pairs its own tag's iPhone app without the person-only "Allow “<phone>” to
@@ -1380,7 +1465,14 @@ going first) and never take one of the places that cap real prompts, so dev phon
 the next real phone's prompt. A signed-in phone dials the Macs it lists, which can be another build on the same
 computer, and that prompt was one the person never meant to answer (2026-11-17: an `ios-onboard`
 phone asked a running `cu-all` build, which had no code and prompted). A false claim here gains
-nothing: it only hides a request from the prompt.
+nothing: it only hides a request from the prompt. The person's own Approve Phone Requests
+Automatically (`mobile.autoApprovePhones`) never pairs such a request either: with the setting on,
+another build's dev iPhone app still waits quietly, so only the person's Allow in Settings > Mobile
+pairs it there (route audit, 2026-11-24). Every other phone of the account, the App Store and
+TestFlight apps included, pairs with the setting on as before, and so do the iPhone apps with no build
+space on a NIGHTLY, RC or release Mac: the Production configuration (`dev.cmux.mobile.prod`), the shared
+Demo build (`dev.cmux.mobile.demo`) and cmux Dev (`dev.cmux.mobile.dev`), whose Mac that is. Their names
+are reserved tags, so no tagged dev build has them.
 
 ## End-of-task hand-off: pairing through dev auto-approve, and a readiness receipt (DEBUG builds)
 
@@ -1521,3 +1613,20 @@ link request.
   until approved.
 - None for the service: production builds use the production Worker
   (`https://mobile-api.cmux.dev`), and development builds use the dev Worker.
+
+## Not from a phone: API tokens (Settings > Developer, RFD 0183)
+
+The Mac's Settings > Developer page makes, lists and revokes personal and team API tokens (`cmux_pat_`) and team
+GitHub Actions rules (cmux#56806). Its page ops, `cmux.settings.tokens.state` and `cmux.settings.tokens.run`, are
+served only by the Mac's settings page bridge (`CmuxNextAgentIntegrations/SettingsDeveloperTokens.swift`), which runs
+the bundled `cmux token ... --json`. No link service carries them: they are on neither the daemon allowlist
+(`policy.rs`, `DaemonLanePolicy.swift`) nor any other service's, so a phone request for them is refused as any
+unlisted op is.
+
+Why it is kept off the phone: a token lasts up to a year (or never expires), holds account scopes beyond any
+one Mac and is shown once. A paired phone is trusted to act on its owner's Mac, not to issue account credentials. Offering
+minting from the phone would let a stolen or borrowed phone make lasting credentials that outlive revoking the phone's pairing.
+That is a new trust class, so it needs its own section here before any phone surface. Revocation alone is the likely first
+candidate (it only removes access), and it would talk to Cloud with the account's sign-in, not through the Mac.
+
+Parity row: `verify/parity-mac/2026-11-25-developer-api-tokens.md` (not from a phone).

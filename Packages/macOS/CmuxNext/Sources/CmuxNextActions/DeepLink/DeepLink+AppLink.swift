@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 extension DeepLink {
     /// The scheme the Chief and its documents write, whatever the build.
@@ -132,6 +133,29 @@ extension DeepLink {
             self.id = id
             self.arguments = arguments
         }
+
+        /// Logs that the clicked link `url` ran this action (its id, its argument keys, done or refused;
+        /// category app.links, which the onboarding walk's turn-on row reads) and returns `done`.
+        public func ran(from url: URL, done: Bool) -> Bool {
+            let keys = arguments.keys.sorted().joined(separator: ",")
+            Logger(subsystem: "com.cmuxterm.app.next", category: "app.links")
+                .notice("app link \(url.host ?? "", privacy: .public)\(url.path, privacy: .public) ran \(id.rawValue, privacy: .public) \(keys, privacy: .public): \(done ? "done" : "refused", privacy: .public)")
+            return done
+        }
+    }
+
+    /// A line of the app.links log for a link `CmuxAppLinks.open` took past its action (an action logs its
+    /// own, ``LinkAction/ran(from:done:)``): "app link host/path what: done|refused" (hq's link_log matches
+    /// "app link"; goal agent-shortcut-found: run 45968907489's press logged nothing).
+    public static func linkLine(_ url: URL, _ what: String, done: Bool) -> String {
+        "app link \(url.host ?? "")\(url.path) \(what): \(done ? "done" : "refused")"
+    }
+
+    /// Logs ``linkLine(_:_:done:)`` in category app.links and returns `done`.
+    @discardableResult
+    public static func noteLink(_ url: URL, _ what: String, _ done: Bool) -> Bool {
+        Logger(subsystem: "com.cmuxterm.app.next", category: "app.links").notice("\(linkLine(url, what, done: done), privacy: .public)")
+        return done
     }
 
     /// The action a settings link runs: `cmux://settings/background` (Chief's first-launch welcome
@@ -157,7 +181,12 @@ extension DeepLink {
     /// (`#/settings/models`), `cmux://settings/models/add` its Add a Connection
     /// (`#/settings/models?focus=models.add`). `cmux://settings/cloud` is Settings > Cloud, and
     /// `cmux://settings/cloud/claude`, `/cloud/chatgpt` and `/cloud/api-key` open it on that row of
-    /// Models for Cloud (``cloudRoute(row:)``). Nil for any other URL.
+    /// Models for Cloud (``cloudRoute(row:)``). `cmux://settings/integrations` (or `/connections`) is
+    /// Settings > Integrations, where a connector's sign-in returns (`?connected=` or `?error=` are left
+    /// to the page's own refresh). `cmux://settings/connections/github` (or `/github`,
+    /// `/accounts/github`) is the GitHub connection on Settings > Accounts. Every other settings path
+    /// passes through to the page (``settingsPassThrough(_:)``); nil for an action path
+    /// (``settingsRoutes``) or another URL.
     public static func settingsRoute(for url: URL, linkScheme: String) -> String? {
         guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
               url.host?.lowercased() == "settings" else { return nil }
@@ -168,8 +197,30 @@ extension DeepLink {
         case "/cloud/claude", "/cloud/claude/": return cloudRoute(row: "claude")
         case "/cloud/chatgpt", "/cloud/chatgpt/": return cloudRoute(row: "chatgpt")
         case "/cloud/api-key", "/cloud/api-key/": return cloudRoute(row: "apiKey")
-        default: return nil
+        case "/integrations", "/integrations/", "/connections", "/connections/": return "#/settings/integrations"
+        case "/github", "/github/", "/connections/github", "/connections/github/", "/accounts/github", "/accounts/github/":
+            return "#/settings/accounts?focus=connection.github"
+        default: return settingsPassThrough(url.path)
         }
+    }
+
+    /// Any other settings link reaches the page as written, and the page's one registry resolves it
+    /// (webviews settingsLinks.ts): `cmux://settings/<a>` is `#/settings/<a>`, `cmux://settings/<a>/<b>`
+    /// `#/settings/<a>?focus=<b>` (more segments join with dots). So every category, alias, card,
+    /// setting key and connection has a link (`cmux://settings/terminal.fontSize`,
+    /// `cmux://settings/accounts/machines`, `cmux://settings/connections/linear`), and a name the page
+    /// does not know is named there instead of nothing opening. `cmux://settings` alone opens the page.
+    /// The action paths (``settingsRoutes``) stay actions.
+    static func settingsPassThrough(_ path: String) -> String? {
+        if settingsRoutes[path.lowercased()] != nil { return nil }
+        let segments = path.split(separator: "/").map(String.init)
+        guard let section = segments.first else { return "#/settings" }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        guard let first = section.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        guard segments.count > 1 else { return "#/settings/\(first)" }
+        guard let focus = segments.dropFirst().joined(separator: ".").addingPercentEncoding(withAllowedCharacters: allowed)
+        else { return nil }
+        return "#/settings/\(first)?focus=\(focus)"
     }
 
     /// Settings > Cloud (`#/settings/cloud`), opened on a row of its Models for Cloud card

@@ -197,6 +197,13 @@ async fn a_bundle_of_a_move_the_log_ended_does_not_freeze_the_chat_again() {
     assert_eq!(moving.1.as_deref(), Some(bundles[1].1.as_str()), "a running move was not frozen");
 }
 
+/// The move a `transfer.moving` refusal names and the begin token it hands back (null when
+/// none); the refusal also says how long its driver has been idle and when a takeover is allowed.
+fn handed_back(refused: &RpcError) -> (Value, Value) {
+    let data = refused.data.clone().unwrap_or_default();
+    (data["transferId"].clone(), data.get("beginToken").cloned().unwrap_or(Value::Null))
+}
+
 /// A client that lost its begin answer asks again: the `transfer.moving` refusal hands back the
 /// token it began the move with, also once the daemon restarted (the log restores the move and
 /// its bundle folder keeps the token), so that client alone can tell the frozen move is its own
@@ -228,7 +235,7 @@ async fn a_moving_refusal_hands_back_the_begin_token_across_a_restart() {
     let again = json!({"sessionId": session.id, "beginToken": "tok_pump_2"});
     let refused = hub.transfer_request("_acpmux/transfer_begin", &again).await.unwrap_err();
     assert!(refused.message.starts_with("transfer.moving"), "{}", refused.message);
-    assert_eq!(refused.data, Some(json!({"transferId": transfer, "beginToken": token})));
+    assert_eq!(handed_back(&refused), (json!(transfer), json!(token)));
 
     // A restart: the chat is loaded again, its move restored from the log and its bundle.
     *session.moving.lock().unwrap() = None;
@@ -236,7 +243,7 @@ async fn a_moving_refusal_hands_back_the_begin_token_across_a_restart() {
     hub.watch_transfers();
     assert_eq!(session.moving().as_deref(), Some(transfer.as_str()));
     let refused = hub.transfer_request("_acpmux/transfer_begin", &again).await.unwrap_err();
-    assert_eq!(refused.data, Some(json!({"transferId": transfer, "beginToken": token})));
+    assert_eq!(handed_back(&refused), (json!(transfer), json!(token)));
 
     // The client ends it and begins anew; a begin with no token leaves none to hand back.
     let abort = json!({"sessionId": session.id, "transferId": transfer, "epoch": begun["epoch"]});
@@ -244,7 +251,7 @@ async fn a_moving_refusal_hands_back_the_begin_token_across_a_restart() {
     let plain = json!({"sessionId": session.id});
     let begun = hub.transfer_request("_acpmux/transfer_begin", &plain).await.unwrap();
     let refused = hub.transfer_request("_acpmux/transfer_begin", &again).await.unwrap_err();
-    assert_eq!(refused.data, Some(json!({"transferId": begun["transferId"]})));
+    assert_eq!(handed_back(&refused), (begun["transferId"].clone(), Value::Null));
     let abort = json!({"sessionId": session.id, "transferId": begun["transferId"],
                        "epoch": begun["epoch"]});
     hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();

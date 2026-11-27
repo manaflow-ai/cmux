@@ -164,7 +164,10 @@ fn origin(value: Option<String>) -> Result<String> {
             && parsed.fragment().is_none(),
         "hub origin must contain only scheme, host and port"
     );
-    Ok(parsed.origin().ascii_serialization())
+    let origin = parsed.origin().ascii_serialization();
+    // A hub the person or the app named (a preview or self-hosted platform): a host they name.
+    cmux_egress::allow_named(&origin);
+    Ok(origin)
 }
 
 fn local_name(name: Option<String>) -> String {
@@ -435,7 +438,7 @@ fn configure_mesh_relay_at(config_path: &std::path::Path, hub: &str) -> Result<(
 }
 
 /// Adds the `sameUser` entry to a joined `meshRelay` that has none, or marks the one an older
-/// join wrote with its `maxPolicy` ([`upgrade_join_entries`]). True when it changed config.json.
+/// join wrote with its `maxPolicy` ([`crate::mesh_relay_config::upgrade_join_entries`]). True when it changed config.json.
 /// A relay that is not the join's, or none, is left alone.
 fn add_same_user_control() -> Result<bool> {
     let _lock = join_lock()?;
@@ -444,7 +447,7 @@ fn add_same_user_control() -> Result<bool> {
     if relay.credential.as_deref() != Some("join") {
         return Ok(false);
     }
-    let upgraded = upgrade_join_entries(&mut relay.control_from);
+    let upgraded = crate::mesh_relay_config::upgrade_join_entries(&mut relay.control_from);
     if relay.control_from.iter().any(|entry| entry.same_user) {
         if upgraded {
             config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))?;
@@ -463,23 +466,11 @@ fn joined_control_from(
     previous: Option<crate::mesh_http::MeshRelayConfig>,
 ) -> Vec<crate::mesh_http::MeshControlFrom> {
     let mut control_from = previous.map(|relay| relay.control_from).unwrap_or_default();
-    upgrade_join_entries(&mut control_from);
+    crate::mesh_relay_config::upgrade_join_entries(&mut control_from);
     if !control_from.iter().any(|entry| entry.same_user) {
         control_from.push(crate::mesh_http::MeshControlFrom::same_user());
     }
     control_from
-}
-
-/// The `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its owner) becomes
-/// the one a join writes now, so the person's own machines keep starting chats on each other in
-/// the policy they name. An entry the owner changed keeps its choice. True when one changed.
-fn upgrade_join_entries(control_from: &mut [crate::mesh_http::MeshControlFrom]) -> bool {
-    let mut changed = false;
-    for entry in control_from.iter_mut().filter(|entry| entry.is_unmarked_join_entry()) {
-        *entry = crate::mesh_http::MeshControlFrom::same_user();
-        changed = true;
-    }
-    changed
 }
 
 fn mesh_relay_configured() -> bool {
@@ -797,6 +788,7 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     if json_out {
         crate::cli::output::print_json(&out);
     } else if out["joinIncomplete"] == true {
+        // retry-prompt-ok: join resumes a side-effecting enrollment the person started.
         println!("join incomplete, rerun join");
     } else if cloned {
         println!("cloned: {CLONED_HINT}");
@@ -817,6 +809,32 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
 /// this Mac's admin (`consent_admin.rs`). A plain shell has no person key and no admin proof.
 pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Consent> {
     authority()?.set(surface, granted)
+}
+
+/// Grants "control for my other signed-in machines" for `account`, the account a control
+/// approval was admitted for (`share_host/approval.rs`: the owner's tap on their own device,
+/// signed by its device key). It holds only for the account this machine is joined as, so an
+/// approval for any other account, or a machine with no join, grants nothing.
+pub(crate) fn grant_signed_in_machines_for(account: &str) -> std::result::Result<(), String> {
+    grant_signed_in_machines_as(account, machine_user_id().as_deref(), |user| {
+        authority()?.set_as(SIGNED_IN_MACHINES, true, Some(user))?;
+        Ok(())
+    })
+}
+
+/// [`grant_signed_in_machines_for`], given the account this machine is joined as and the writer.
+pub(crate) fn grant_signed_in_machines_as(
+    account: &str,
+    joined_as: Option<&str>,
+    write: impl FnOnce(String) -> Result<()>,
+) -> std::result::Result<(), String> {
+    match joined_as {
+        None => Err("this Mac is not joined to an account".into()),
+        Some(joined) if joined != account => {
+            Err("this Mac is joined as another account than the one that allowed it".into())
+        }
+        Some(joined) => write(joined.to_owned()).map_err(|e| e.to_string()),
+    }
 }
 
 /// This machine's consent and the account it is joined as, read now (blocking file reads).
@@ -889,6 +907,25 @@ mod tests {
     }
 
     use super::{MachineCredential, MachineIdentity, origin, parse_token_text};
+
+    /// A control approval's grant is written only for the account this machine is joined as.
+    #[test]
+    fn a_carried_control_grant_is_only_for_the_joined_account() {
+        let written = std::cell::RefCell::new(Vec::new());
+        let write = |user: String| {
+            written.borrow_mut().push(user);
+            Ok(())
+        };
+        assert!(super::grant_signed_in_machines_as("user-1", None, write).is_err());
+        assert!(super::grant_signed_in_machines_as("user-1", Some("user-2"), write).is_err());
+        assert!(written.borrow().is_empty(), "nothing written for another account or no join");
+        assert_eq!(super::grant_signed_in_machines_as("user-1", Some("user-1"), write), Ok(()));
+        assert_eq!(*written.borrow(), ["user-1"]);
+        let failed = super::grant_signed_in_machines_as("user-1", Some("user-1"), |_| {
+            Err(anyhow::anyhow!("consent store unavailable"))
+        });
+        assert_eq!(failed.unwrap_err(), "consent store unavailable");
+    }
 
     #[test]
     fn join_token_is_shell_safe_after_shared_line_reader() {
@@ -1501,6 +1538,8 @@ mod tests {
     /// Harness for the write loop: an idle joined daemon heartbeats every 10 s; count the
     /// rewrites of `machine-credential.json` (a new inode per atomic replace) over 10 minutes.
     #[test]
+    #[cfg(unix)] // counts inodes
+    #[cfg(unix)]
     fn ten_idle_minutes_of_heartbeats_rewrite_the_credential_twenty_times_not_sixty() {
         use std::os::unix::fs::MetadataExt as _;
         let dir = tempfile::tempdir().unwrap();

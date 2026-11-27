@@ -92,19 +92,26 @@ struct WriterState {
     saved: Option<Saved>,
 }
 
-/// A save, as the shutdown compares it: the SHA-256 of the metadata's JSON without its large parts
-/// (what `session.json` holds), and the parts themselves as the shared copies the chat holds (an
-/// `Arc` each, never a copy of the value). Holding them keeps their memory from being reused, so
-/// a changed part is a different copy or different content, never the same one. Equal metadata
+/// A save, as the shutdown compares it. `Store`: the digest the store returned for what it wrote
+/// ([`crate::store::Store::save_digest`], the journal's), compared with the store's digest of
+/// memory: the save made it from the hashes it computes for its patch anyway, so a save costs
+/// nothing more. Before it (#57984) every save serialized the chat a second time and hashed that
+/// with SHA-256, about half of a save's CPU (`meta_save_bench.rs`), only for this compare.
+/// `Own`, for a store that keeps no digest: the SHA-256 of the metadata's JSON without its large
+/// parts (what `session.json` holds), and the parts themselves as the shared copies the chat holds
+/// (an `Arc` each, never a copy of the value). Holding them keeps their memory from being reused,
+/// so a changed part is a different copy or different content, never the same one. Equal metadata
 /// gives an equal `Saved`; a map in a `Value` field may serialize in another order than an equal
 /// one, which reads as a change and only costs a save. `None` when the metadata cannot be
-/// serialized, which reads as a change too. Hashing only the small part keeps each save's extra
-/// work to what the store already serializes for `session.json`.
+/// serialized, which reads as a change too.
 #[derive(Debug, PartialEq)]
-pub(super) struct Saved {
-    digest: [u8; 32],
-    commands: Option<crate::store::SharedValue>,
-    rows: crate::store::SharedRows,
+pub(super) enum Saved {
+    Store(crate::store::MetaDigest),
+    Own {
+        digest: [u8; 32],
+        commands: Option<crate::store::SharedValue>,
+        rows: crate::store::SharedRows,
+    },
 }
 
 impl Saved {
@@ -122,11 +129,19 @@ impl Saved {
         }
         let mut hashing = Hashing(Sha256::new());
         crate::store::to_writer_without_parts(&mut hashing, meta).ok()?;
-        Some(Self {
+        Some(Self::Own {
             digest: hashing.0.finalize().into(),
             commands: meta.available_commands.clone(),
             rows: meta.tools.rows.clone(),
         })
+    }
+
+    /// Whether `meta` is what this save held.
+    fn holds(&self, meta: &SessionMeta, store: &dyn crate::store::Store) -> bool {
+        match self {
+            Self::Store(digest) => store.digest(meta).as_ref() == Some(digest),
+            Self::Own { .. } => Self::of(meta).as_ref() == Some(self),
+        }
     }
 }
 
@@ -138,22 +153,26 @@ pub(super) enum Wait {
 }
 
 impl MetaWriter {
-    pub(super) fn note_saved(&self, meta: &SessionMeta) {
-        let saved = Saved::of(meta);
+    /// A successful save of `meta`, with the digest the store returned for it, if any.
+    pub(super) fn note_saved(&self, meta: &SessionMeta, digest: Option<crate::store::MetaDigest>) {
+        let saved = match digest {
+            Some(digest) => Some(Saved::Store(digest)),
+            None => Saved::of(meta),
+        };
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).saved = saved;
     }
 
     /// A writer in flight must get a later version even if memory matches the last save:
     /// its older copy may differ from a change made and then taken back meanwhile.
     /// Successful kept copies are synced by the final store flush, without another save.
-    pub(super) fn needs_flush(&self, session: &Session) -> bool {
+    pub(super) fn needs_flush(&self, session: &Session, store: &dyn crate::store::Store) -> bool {
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.writing
             || state.requested > state.durable
             || state
                 .saved
                 .as_ref()
-                .is_none_or(|saved| session.read_meta(Saved::of).as_ref() != Some(saved))
+                .is_none_or(|saved| !session.read_meta(|meta| saved.holds(meta, store)))
     }
 
     /// Takes the next version for the change the caller just made, and commits it: as the
@@ -429,12 +448,9 @@ impl Hub {
             let _ = arrived.send(());
             let _ = release.recv();
         }
-        let saved = match keep {
-            ShowAfter::Durable => self.store.save(&meta),
-            ShowAfter::Written => self.store.save_kept(&meta),
-        };
-        if saved.is_ok() {
-            session.meta_writer.note_saved(&meta);
+        let saved = self.store.save_digest(&meta, keep);
+        if let Ok(digest) = saved {
+            session.meta_writer.note_saved(&meta, digest);
         }
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)
@@ -442,7 +458,7 @@ impl Hub {
         {
             tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
         }
-        saved
+        saved.map(drop)
     }
 }
 

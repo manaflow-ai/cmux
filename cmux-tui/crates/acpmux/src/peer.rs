@@ -7,7 +7,7 @@
 use crate::no_panic::LockExt;
 use crate::peer_link::{
     Backoff, Heard, Link, LinkTimings, PeerState, SilenceBudget, SleepWatch, WAKE_PROBE,
-    write_deadline,
+    write_within,
 };
 use crate::rpc::{Message, RpcError, method};
 use cmux_json::JsonSet as _;
@@ -42,7 +42,13 @@ pub use features::{PEER_FEATURES, PeerFeature, gating as features_gating};
 pub(crate) mod health;
 #[path = "peer_overlay.rs"]
 pub(crate) mod overlay;
+#[path = "peer_tailnet.rs"]
+mod tailnet_path;
+#[path = "peer_wg_learn.rs"]
+pub(crate) mod wg_learn;
 
+#[path = "peer_demand.rs"]
+mod demand;
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
 mod hub_path;
@@ -54,6 +60,8 @@ mod ssh_errors;
 mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
+pub use demand::DIAL_AT_START_ENV;
+pub(crate) use demand::{lazily, saved};
 use wanted::BackoffWait;
 pub use wanted::{WAKE_ENV, WakeHook};
 #[path = "peer_controls.rs"]
@@ -64,8 +72,10 @@ mod list_read;
 mod runtime;
 #[path = "peer_runtime_io.rs"]
 mod runtime_io;
+#[path = "peer_runtime_requests.rs"]
+mod runtime_requests;
 pub(crate) use runtime_io::{
-    ATTACH_RETRY_AFTER, lends_over, page_max_seq, refuses_attach, replayable,
+    ATTACH_RETRY_AFTER, attach_failure_class, lends_over, page_max_seq, refuses_attach, replayable,
 };
 
 #[cfg(test)]
@@ -89,6 +99,11 @@ mod handshake_tests;
 #[cfg(test)]
 #[path = "peer_hub_behind_tests.rs"]
 mod hub_behind_tests;
+#[cfg(test)]
+#[path = "peer_link_quality_tests.rs"]
+mod link_quality_tests;
+#[path = "peer_liveness.rs"]
+pub mod liveness;
 #[cfg(test)]
 #[path = "peer_liveness_tests.rs"]
 mod liveness_tests;
@@ -156,11 +171,16 @@ pub enum PeerNotice {
     /// (`Peer::lists_after_ready`).
     Listed,
     Disconnected(String),
+    /// The link closed because nothing used it (`LinkEnd::Idle`): its rows are last-known now,
+    /// with no outage; the next use dials again.
+    Idle,
     /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
     Restarting,
     /// Full session list from `_acpmux/watch` or a single `session_changed`: each row's compact
     /// JSON, which the hub parses one row at a time.
     Sessions(Vec<Arc<str>>),
+    /// A whole list waiting in this peer instance’s outbox slot.
+    WaitingList(u64),
     /// What changed in the peer's list since the link's cursor (`hub/row_log.rs`): the rows
     /// changed, each as its text, and the peer's own ids of the rows that went. The rest stand as
     /// the peer last listed them.
@@ -296,6 +316,9 @@ enum LinkEnd {
     /// The link ended to move to another path of this peer (`peer_carriers.rs`): no outage,
     /// the next connect runs at once and its chats resume from their cursors.
     Switching,
+    /// Nothing used the link for `peer_demand::IDLE_CLOSE_AFTER`: it closes, and the next use
+    /// dials again. No outage, no failed attempt.
+    Idle,
 }
 
 pub struct Peer {
@@ -306,13 +329,18 @@ pub struct Peer {
     /// Unique per `Peer` instance; a replacement under the same name gets a
     /// new one.
     pub generation: u64,
+    /// Fixed before registry publication; leased instances must never persist session rows.
+    pub(crate) leased: bool,
     pub url: String,
     token: Option<String>,
     /// The peer's peer token (`server/peer_auth.rs`), sent with `token`.
     peer_token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
-    wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
+    /// Test transport belongs to this instance, even when another peer has the same name.
+    #[cfg(test)]
+    ssh_mux_override: std::sync::OnceLock<wanted::SshMux>,
+    wireguard: StdMutex<Option<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>>,
     /// The daemon's hub carrier and the hub `daemonId` this peer's config names (its WireGuard
     /// key), if any (`peer_hub.rs`).
     #[cfg(feature = "hub-carrier")]
@@ -322,6 +350,12 @@ pub struct Peer {
     /// The peer's config names its own route (`wireguard` or `linkHost`): no overlay path is
     /// found or recalled for it (`peer_overlay.rs`).
     explicit_route: AtomicBool,
+    /// The daemon's WireGuard transport, for a plain `ssh://` peer that may get a route found
+    /// for it at runtime (`peer_wg_learn.rs`), and whether a find is running.
+    wg_learner: std::sync::OnceLock<Arc<crate::wireguard::Transport>>,
+    wg_learning: AtomicBool,
+    /// The opt-in tailnet path (`peer_tailnet.rs`).
+    tailnet: StdMutex<tailnet_path::State>,
     /// The cmux link's socket when known ahead of its registration (tests); else read per dial.
     link_socket: std::sync::OnceLock<std::path::PathBuf>,
     /// The peer's paths and which one carries the link (`peer_paths.rs`), made on first use.
@@ -384,6 +418,9 @@ pub struct Peer {
     /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
     /// hub's `Disconnected`, and from its `Connected` until this link's list is in.
     pub rows_ready: AtomicBool,
+    /// The shard skipped a superseded whole list. Relative patches and their completions
+    /// cannot establish a baseline before the replacement list reaches its turn.
+    pub(crate) list_baseline_missing: AtomicBool,
     /// One more than the link epoch whose session list the hub applied last (its `Listed`
     /// notice), 0 before any: the rows are that link's ([`Self::rows_current`]).
     rows_link: AtomicU64,
@@ -415,6 +452,8 @@ pub struct Peer {
     /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
+    /// `PeerConfig` `group`: the person's own placing of this machine (`own` or `agent`).
+    group_override: StdMutex<Option<String>>,
     /// The daemon's `peerWake` command, shared by every peer and swapped on a config reload
     /// (`Peer::wake` runs it once per wake window).
     wake_hook: std::sync::OnceLock<WakeHook>,
@@ -460,6 +499,8 @@ pub struct Peer {
     session_resume_link: AtomicU64,
     /// The peer lists `session-messages-v1`: its prompt acceptances name the message they kept.
     session_messages: AtomicBool,
+    /// The peer serves agent byte channels (`server/channels.rs`, `agent-channels-v1`).
+    agent_channels: AtomicBool,
     /// The peer lists `personStop` (`server/requests/person_stop.rs`).
     pub(crate) person_stop: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
@@ -481,6 +522,10 @@ pub struct Peer {
     /// (a key or password it does not take, a host key that does not match): the next attempts
     /// wait minutes (`Backoff::login_refused`), and no ask or open chat cuts the wait.
     login_refused: AtomicBool,
+    /// The last connect attempt ran past a `LinkTimings` deadline: every path's dial past
+    /// `connect` (`DIAL_TIMED_OUT`), or the handshake past `handshake`. Typed, so the link's
+    /// end is classified by what it means, not by its error text (`Peer::link_end_class`).
+    link_timed_out: AtomicBool,
     /// From the WebSocket opening until `stale_token` cleared it: callers'
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
@@ -536,6 +581,12 @@ pub struct Peer {
     /// How long this peer's links may stay silent: longer for one that answers late. Made from
     /// `timings` at the first link, so a test can set them first.
     silence: StdMutex<Option<SilenceBudget>>,
+    /// How good the link is, from its pings' round trips and late ticks (`peer_link_quality.rs`):
+    /// `quality` in `_acpmux/peers`. Kept across links, like `silence`.
+    quality: StdMutex<crate::peer_link_quality::LinkQuality>,
+    /// A link dialed while the last one sat silent past its budget, and opened first
+    /// (`Peer::serve_heard`): the next connect serves it instead of dialing.
+    replacement: StdMutex<Option<(crate::peer_paths::Via, carriers::Opened)>>,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
     /// The last successful cache write still records an outage that Connected must clear.
@@ -589,6 +640,9 @@ pub struct Peer {
     /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
     /// text (more when the peer compresses them, `frame_compress.rs`).
     received: ReceivedBytes,
+    /// The current link's transport read progress (`Heard::read`), from its open: a read
+    /// forwarded on it waits while bytes keep arriving (`Peer::link_read`).
+    link_read: StdMutex<cmux_deadline::Progress>,
 }
 
 /// What a link received: frame bytes and JSON text bytes, from its open.
@@ -596,12 +650,79 @@ pub struct Peer {
 pub struct ReceivedBytes {
     frames: AtomicU64,
     text: AtomicU64,
+    /// Of `text`: replay pages' records (`replay_chat`), and their count.
+    replay: AtomicU64,
+    replay_events: AtomicU64,
+    /// Of `text`: live records of a chat still replaying, carried and dropped (the replay
+    /// carries them again), and their count.
+    gated: AtomicU64,
+    gated_events: AtomicU64,
+    /// Of `text`: (bytes, messages) by what they were: a notification's method, `reply`, or
+    /// `list` (the v2 list stream's frames). Names which source a slow resume carried.
+    kinds: StdMutex<std::collections::BTreeMap<String, (u64, u64)>>,
 }
 
 impl ReceivedBytes {
     fn reset(&self) {
-        self.frames.store(0, Ordering::SeqCst);
-        self.text.store(0, Ordering::SeqCst);
+        for n in [
+            &self.frames,
+            &self.text,
+            &self.replay,
+            &self.replay_events,
+            &self.gated,
+            &self.gated_events,
+        ] {
+            n.store(0, Ordering::SeqCst);
+        }
+        self.kinds.lock_or_recover().clear();
+    }
+
+    pub(crate) fn add_kind(&self, kind: &str, text: usize) {
+        let mut kinds = self.kinds.lock_or_recover();
+        let row = match kinds.get_mut(kind) {
+            Some(row) => row,
+            None => kinds.entry(kind.to_owned()).or_default(),
+        };
+        row.0 = row.0.saturating_add(u64::try_from(text).unwrap_or(u64::MAX));
+        row.1 += 1;
+    }
+
+    /// `patch`'s bytes by field path, three levels deep, as kinds `patch:a.b.c`.
+    pub(crate) fn add_patch_fields(&self, patch: &serde_json::Value) {
+        fn walk(r: &ReceivedBytes, v: &serde_json::Value, path: &str, depth: usize) {
+            let serde_json::Value::Object(o) = v else { return };
+            for (k, child) in o {
+                let at = if path.is_empty() { format!("patch:{k}") } else { format!("{path}.{k}") };
+                r.add_kind(&at, serde_json::to_string(child).map_or(0, |s| s.len()));
+                if depth < 3 {
+                    walk(r, child, &at, depth + 1);
+                }
+            }
+        }
+        walk(self, patch, "", 1);
+    }
+
+    pub(crate) fn add_replay(&self, text: usize) {
+        self.replay.fetch_add(u64::try_from(text).unwrap_or(u64::MAX), Ordering::SeqCst);
+        self.replay_events.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub(crate) fn add_gated(&self, text: usize) {
+        self.gated.fetch_add(u64::try_from(text).unwrap_or(u64::MAX), Ordering::SeqCst);
+        self.gated_events.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Where this link's received bytes went, for the peer's summary.
+    pub fn split(&self) -> serde_json::Value {
+        let r = |n: &AtomicU64| n.load(Ordering::SeqCst);
+        serde_json::json!({
+            "frames": r(&self.frames), "text": r(&self.text),
+            "replay": r(&self.replay), "replayEvents": r(&self.replay_events),
+            "gatedLive": r(&self.gated), "gatedLiveEvents": r(&self.gated_events),
+            "kinds": self.kinds.lock_or_recover().iter()
+                .map(|(k, (b, n))| (k.clone(), serde_json::json!({"bytes": b, "count": n})))
+                .collect::<serde_json::Map<_, _>>(),
+        })
     }
 
     fn add(&self, frame: usize, text: usize) {
@@ -810,6 +931,11 @@ fn too_large(e: &RpcError) -> bool {
 const SSH_CONNECT_SECS: u64 = 3;
 const SSH_CONNECT_SLOW_SECS: u64 = 20;
 
+/// ssh's own keepalive on the tunnel (`tunnel_argv`): a probe each interval, the tunnel ends after
+/// this many unanswered. A backstop under the link's 2 s ping (`peer::liveness`).
+const SSH_ALIVE_INTERVAL_SECS: u64 = 15;
+const SSH_ALIVE_COUNT_MAX: u64 = 3;
+
 /// An attempt still connecting this long after it began is begun again when a client asks for
 /// the peer (`Peer::connect_once`): one sent into a network that was down waits out TCP's
 /// retransmit backoff, while a new one connects at once.
@@ -835,7 +961,7 @@ struct Outbound {
 /// is stalled. It was not sent, so retrying it never runs it twice.
 fn queue_timed_out(name: &str, waited: Duration) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: the link to {name} took no new request for {}s; the request was not sent; run `acpmux machine ls` and retry",
+        "peer_unreachable: the link to {name} took no new request for {}s, so the request was not sent; `acpmux machine ls` shows the link's state",
         waited.as_secs()
     ))
     .with_data(json!({
@@ -853,20 +979,27 @@ pub(crate) fn waits_on_turn(m: &str) -> bool {
     matches!(m, method::SESSION_PROMPT | method::MUX_WAIT)
 }
 
+tokio::task_local! {
+    /// Set when a dial of the link's connect (`Peer::open_first`) runs past its deadline
+    /// ([`connect_timed_out`]). A probe's dial runs outside its scope and is never counted.
+    static DIAL_TIMED_OUT: Arc<AtomicBool>;
+}
+
 fn connect_timed_out(after: Duration) -> String {
+    let _ = DIAL_TIMED_OUT.try_with(|timed_out| timed_out.store(true, Ordering::SeqCst));
     format!("connect timed out after {}s", after.as_secs())
 }
 
 fn stopped_reading(budget: Duration) -> String {
-    format!("peer stopped reading (a send waited {}s)", budget.as_secs())
+    format!("peer stopped reading (a send moved no byte for {}s)", budget.as_secs())
 }
 
-/// Why a write that timed out (`write_deadline`) dropped the link: a wake probe whose deadline
+/// Why a write that timed out (`write_within`) dropped the link: a wake probe whose deadline
 /// passed, else the send budget.
 fn write_late(budget: Duration, wake_probe: Option<tokio::time::Instant>) -> String {
     match wake_probe {
         Some(probe) if probe <= tokio::time::Instant::now() => {
-            format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs())
+            "no answer to the wake probe after this computer woke".to_owned()
         }
         _ => stopped_reading(budget),
     }
@@ -966,18 +1099,15 @@ fn check_ssh_part(part: &str, what: &'static str) -> Result<(), &'static str> {
 /// so the destination is never read as one.
 /// `connect_secs` is ssh's ConnectTimeout (`Peer::ssh_connect_secs`).
 pub fn tunnel_argv(destination: &str, port: u16, connect_secs: u64) -> Vec<String> {
-    let mut argv: Vec<String> = [
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ServerAliveInterval=15",
-        "-o",
-        "ServerAliveCountMax=3",
-        "-o",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+    let mut argv: Vec<String> = vec![
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "-o".into(),
+        format!("ServerAliveInterval={SSH_ALIVE_INTERVAL_SECS}"),
+        "-o".into(),
+        format!("ServerAliveCountMax={SSH_ALIVE_COUNT_MAX}"),
+        "-o".into(),
+    ];
     argv.push(format!("ConnectTimeout={connect_secs}"));
     argv.push("-W".into());
     argv.push(format!("127.0.0.1:{port}"));

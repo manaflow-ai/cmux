@@ -46,9 +46,6 @@ import Testing
         let home = try HomePinnedRowAlignmentTests.item(list, SidebarLeadingEdgeTests.home.id)
         out.append(("Home's house", list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home),
                     SidebarLeadingEdgeTests.x(list, home.titleFrame.minX, in: home)))
-        let pinRow = try HomePinnedRowAlignmentTests.item(list, SidebarLeadingEdgeTests.pins[0].id)
-        out.append(("a pin", list.convert(try #require(pinRow.pinInkFrame, "no pin drew"), from: pinRow),
-                    SidebarLeadingEdgeTests.x(list, pinRow.titleFrame.minX, in: pinRow)))
         for (name, id) in [("a margined favicon (an app icon)", SidebarLeadingEdgeTests.web), ("a symbol (the globe's kind)", SidebarLeadingEdgeTests.symbol)] {
             let row = try HomePinnedRowAlignmentTests.row(list, id)
             let ink = try #require(try inkBox(row.icon), "\(name) drew nothing")
@@ -81,14 +78,14 @@ import Testing
             // the others, so the room after its slender ink is wider by design. The gap holds for the glyphs that fill
             // the column's width: Home's house, a favicon, a symbol.
             let glyphs = try Self.glyphs(list).filter { $0.name != "a pin" }
-            // A glyph wider than tall (Home's house at the rows' glyph height) spills evenly past its column: measure its
-            // gap from the column's end, its ink's end less that spill.
+            // A glyph wider than tall (Home's house at the rows' glyph height) starts on its column and spills past its
+            // trailing edge only: measure its gap from the column's end, its ink's end less that spill.
             // A favicon fills its tab's larger side from the same leading edge (#49583), so it ends that much nearer its
             // title: measure its gap from the end of the glyphs' square, as the others'.
             let side = SidebarStyle.rowGlyphOpticalSide, faviconGrowth = SidebarStyle.rowFaviconOpticalSide - side
             let gaps = glyphs.map { g -> (String, CGFloat) in
                 let own = g.name.contains("favicon") ? SidebarStyle.rowFaviconOpticalSide : side
-                return (g.name, g.titleX - (g.ink.maxX - max(0, (g.ink.width - own) / 2)) + (g.name.contains("favicon") ? faviconGrowth : 0))
+                return (g.name, g.titleX - (g.ink.maxX - max(0, g.ink.width - own)) + (g.name.contains("favicon") ? faviconGrowth : 0))
             }
             let first = try #require(gaps.first).1
             // Each glyph's frame snaps its origin and its size to whole pixels (`SidebarOpticalGlyph`, a crisp bitmap), up

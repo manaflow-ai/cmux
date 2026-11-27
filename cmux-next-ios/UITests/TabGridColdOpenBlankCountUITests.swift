@@ -31,21 +31,41 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
 
     @MainActor
     func testColdOpenedGridHasNoBlankCardsOrFavicons() throws {
+        try run(drops: false)
+    }
+
+    /// Leo, 2026-11-24: "too many empty previews in the safari grid ... capture them before they get hibernated
+    /// ... things shift, things lag." The mock Mac pushes its rows, then pushes them again with no thumbnail,
+    /// favicon or screen (a tab it hibernated, a hostd that restarted) and lets go of the blobs no row names.
+    /// No card with a picture of its tab may draw a blank face, in that launch or in a cold one after it.
+    @MainActor
+    func testGridKeepsPicturesWhenTheMacDropsThem() throws {
+        try run(drops: true)
+    }
+
+    @MainActor
+    private func run(drops: Bool) throws {
         // Launch 1: the mock Mac pushes its records; the phone draws and keeps its agent pictures.
-        let first = Self.makeApp(macCards: true)
+        let first = Self.makeApp(macCards: true, drops: drops)
         first.launch()
         Self.passTeamChooser(first)
-        let seeded = Self.wait(first, timeout: 90) { $0.grid && $0.macSeeded >= Self.expectedMacRows }
+        let seeded = Self.wait(first, timeout: 90) { $0.grid && $0.macSeeded >= Self.expectedMacRows && (!drops || $0.macDropped) }
+        if drops { XCTAssertTrue(seeded.macDropped, "launch 1: the mock Mac's pictureless rows were not written: \(seeded.raw)") }
         print("CMUX_TAB_BLANK launch1 seeded: \(seeded.raw)")
         XCTAssertGreaterThanOrEqual(seeded.macSeeded, Self.expectedMacRows,
                                     "launch 1: the mock Mac's records (\(Self.expectedMacRows)) were not written to disk: \(seeded.raw)")
         Self.scrollThrough(first)
         let written = Self.state(first)
         print("CMUX_TAB_BLANK launch1 end: \(written.raw)")
+        if drops {
+            // The rows lost their pictures while the cards were up: none went blank.
+            let blankNow = written.faces.filter { Self.kind($0.key) != "agent" && ["nothing", "placeholder", "connecting"].contains($0.value.now) }
+            XCTAssertEqual(blankNow.keys.sorted(), [], "launch 1: cards went blank when the Mac's rows dropped their pictures: \(written.raw)")
+        }
         first.terminate()
 
         // Launch 2: cold. Nothing pushed and no picture drawn in this launch.
-        let second = Self.makeApp(macCards: false)
+        let second = Self.makeApp(macCards: false, drops: false)
         second.launch()
         Self.passTeamChooser(second)
         let shown = Self.wait(second, timeout: 90) { $0.grid }
@@ -74,8 +94,10 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
             let blank: Bool
             switch kind {
             case "agent": blank = tab == Self.activeTab ? false : !(face == "lastKnown" || face == "picture")
-            case "terminal": blank = face == "placeholder" || face == "connecting"
-            default: blank = face == "placeholder"
+            // A card with nothing known draws "nothing" (the stand-ins it drew before were
+            // "placeholder" and "connecting"; any of them is a blank card).
+            case "terminal": blank = ["nothing", "placeholder", "connecting"].contains(face)
+            default: blank = face == "nothing" || face == "placeholder"
             }
             if blank {
                 blankCards.append(tab)
@@ -138,7 +160,7 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
     // MARK: Launch setup
 
     @MainActor
-    private static func makeApp(macCards: Bool) -> XCUIApplication {
+    private static func makeApp(macCards: Bool, drops: Bool) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_LIST_SCREEN"] = "tabs"
@@ -146,11 +168,15 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
         if macCards {
             app.launchEnvironment["CMUX_MOBILE_LIST_MAC_CARDS"] = "1"
+            if drops { app.launchEnvironment["CMUX_MOBILE_LIST_MAC_CARDS_DROP"] = "1" }
         } else {
             app.launchEnvironment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] = "1"
         }
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
-                                "-cmux-mobile-card-face-probe"]
+                                "-cmux-mobile-card-face-probe",
+                                // Every pane, browsers included: the grid hides browsers by default (#56982's
+                                // pane filter), and these cards are what this test counts.
+                                "-cmux.mobile.overview.paneFilter", "agents+terminals+browsers"]
         return app
     }
 
@@ -174,6 +200,7 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
         var raw: String
         var grid = false
         var macSeeded = 0
+        var macDropped = false
         var saved: Set<String> = []
         /// Per tab: the face its card drew first in the launch, and the face it draws now.
         var faces: [String: (first: String, now: String)] = [:]
@@ -189,6 +216,7 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
                 switch parts[0] {
                 case "grid": grid = parts[1] == "1"
                 case "macseeded": macSeeded = Int(parts[1]) ?? 0
+                case "macdropped": macDropped = parts[1] == "1"
                 case "saves": break
                 case "saved": saved = parts[1] == "-" ? [] : Set(parts[1].split(separator: ",").map(String.init))
                 case let key where key.hasPrefix("icon:"):

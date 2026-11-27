@@ -54,6 +54,8 @@ pub(super) const MAX_ROOT_BYTES: usize = 4096;
 /// The largest stored comment, serialized.
 pub(super) const MAX_COMMENT_BYTES: usize = 64 * 1024;
 /// The most comments one root keeps.
+/// Measured: the bytes of one save; a root's comments are one JSON file rewritten whole on each
+/// change, so 500 × MAX_COMMENT_BYTES (64 KiB) bounds that write at 32 MiB.
 pub(super) const MAX_COMMENTS: usize = 500;
 /// The most ids one delete names.
 pub(super) const MAX_DELETE_IDS: usize = 500;

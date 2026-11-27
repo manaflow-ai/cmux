@@ -50,6 +50,7 @@ impl Mux {
             session_name: self.session.clone(),
             generation: topology.generation,
             revision: topology.revision,
+            journal_head: registry.session_journal_head()?,
         })
     }
 
@@ -473,6 +474,16 @@ impl Mux {
     /// The surface a client's tab shows `terminal_id` in ([`State::terminal_view_surface`]):
     /// what an agent event names, not the runtime id a key or a renderer routes by.
     pub(crate) fn agent_view_surface_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<SurfaceId> {
+        self.view_surface_for_terminal(terminal_id)
+    }
+
+    /// The surface a client's tab shows `terminal_id` in ([`State::terminal_view_surface`]): the
+    /// view an identity-only `attach-surface` attaches to, so its stream names the surface the
+    /// client's tab has. After a reopen or a projection that is not the runtime's catalog id.
+    pub(crate) fn view_surface_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
     ) -> Option<SurfaceId> {

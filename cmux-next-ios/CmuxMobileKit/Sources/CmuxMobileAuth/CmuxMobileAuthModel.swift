@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxEgress
 import AuthenticationServices
 import CMUXAuthCore
 import CmuxAuthRuntime
@@ -113,12 +114,13 @@ public final class CmuxMobileAuthModel {
 
     /// Builds the live model for this process. Non-DEBUG builds (Release,
     /// Production) use the production Stack project and its
-    /// `https://cmux.com/auth/callback`, and never read launch overrides.
+    /// `https://cmux.com/auth/callback`, and on a device never read launch overrides.
     /// Reads launch overrides from the environment (DEBUG only): `CMUX_MOBILE_CLEAR_AUTH=1` starts signed out,
     /// `CMUX_MOBILE_MOCK_AUTH=1` (or Settings → Developer → Mock) signs in a
     /// local mock user, and
     /// `CMUX_MOBILE_STACK_EMAIL` / `CMUX_MOBILE_STACK_PASSWORD` auto-login a Stack test account, and
-    /// `CMUX_MOBILE_STACK_REFRESH_TOKEN` restores a session made elsewhere (``launchTokenStore(primary:environment:)``).
+    /// `CMUX_MOBILE_STACK_REFRESH_TOKEN` restores a session made elsewhere (``launchTokenStore(primary:environment:)``,
+    /// DEBUG or any simulator build).
     /// `devTag` is the build's Info.plist `CmuxMobileDevTag` (set only by the Debug configuration,
     /// project.yml); a usable one makes ``buildSpace``. `devBuild`: the app was built with the Debug
     /// configuration (not Demo), so it must have a tag of its own.
@@ -244,17 +246,23 @@ public final class CmuxMobileAuthModel {
         return model
     }
 
-    /// The token store a launch uses: the app's own, which a DEBUG build fills, while it holds no
-    /// session, from `CMUX_MOBILE_STACK_REFRESH_TOKEN`. That is a fleet step's own session (hq
+    /// The token store a launch uses: the app's own, which a DEBUG or simulator build fills, while it
+    /// holds no session, from `CMUX_MOBILE_STACK_REFRESH_TOKEN`. That is a fleet step's own session (hq
     /// build-fleet `sign_in`): its submitter signs the test account in on their Mac, the step gets
     /// only the refresh token and the submitter revokes it when the step ends, so no password reaches
     /// the simulator or the fleet. A sign-out revokes it like any session of this app's. Only the
-    /// keychain store is Swift's here; non-DEBUG builds never read the variable.
+    /// keychain store is Swift's here.
+    ///
+    /// A simulator build of a shipping configuration (Production) reads it too, so an end-to-end probe
+    /// signs the shipped configuration in, against its own production Stack project: the build's
+    /// project is unchanged, so only a session of that project refreshes. It is a compile-time gate:
+    /// a device binary (TestFlight, App Store, a signed development install) contains no read, and
+    /// whoever sets a simulator app's launch environment already owns its container and keychain.
     nonisolated static func launchTokenStore(
         primary: any StackAuthTokenStoreProtocol,
         environment: [String: String]
     ) -> any StackAuthTokenStoreProtocol {
-        #if DEBUG
+        #if DEBUG || targetEnvironment(simulator)
         if let session = ImportedTokenPair(accessToken: nil, refreshToken: environment["CMUX_MOBILE_STACK_REFRESH_TOKEN"]) {
             return ImportingTokenStore(primary: primary, sources: [{ session }], sharesSessions: false)
         }
@@ -345,10 +353,18 @@ public final class CmuxMobileAuthModel {
         isMock ? [] : teamList.teams
     }
 
+    /// A display cache scoped to the signed-in account, Stack project and backend data space.
+    public func lastKnownList(screen: String, teamID: String? = nil, context: [String] = []) -> LastKnownList? {
+        guard isSignedIn, let user, !isMock, !isReviewDemo, buildSpace.refusal == nil else { return nil }
+        return LastKnownListStore.standard.list(accountID: user.id, teamID: teamID, screen: screen,
+                                                context: [stackProjectID ?? "", apiBaseURL?.absoluteString ?? "",
+                                                          buildSpace.childEnvironmentValue ?? ""] + context)
+    }
+
     /// The account's team list as it loads: setup shows a loading state, not
     /// Create Team, until it is `.loaded` (SPEC 7.1).
     public var teamList: TeamListState {
-        var state = fetchedTeams
+        var state = teamsUserID == user?.id ? fetchedTeams : TeamListState()
         state.published(coordinator?.availableTeams.map { AppStore.AccountTeam(id: $0.id, name: $0.displayName) } ?? [])
         return state
     }
@@ -357,23 +373,36 @@ public final class CmuxMobileAuthModel {
     /// tolerates a failed fetch silently, so it cannot tell "no teams" from
     /// "not loaded".
     private var fetchedTeams = TeamListState()
-    @ObservationIgnored private var teamsUserID: String?
+    private var teamsUserID: String?
+    private var keptTeams: [AppStore.AccountTeam]?
+
+    /// The sidebar can draw an old list while setup and live discovery still wait for Stack.
+    public var hasKnownTeams: Bool { teamList.isLoaded || (teamsUserID == user?.id && keptTeams != nil) }
+
+    public func teamsForDisplay() -> [AppStore.AccountTeam]? {
+        restoreTeams()
+        let list = teamList
+        if !isMock, list.isLoaded, list.teams != keptTeams {
+            keptTeams = list.teams
+            lastKnownList(screen: "teams")?.save(list.teams)
+        }
+        return list.isLoaded ? teams : keptTeams
+    }
+
+    private func restoreTeams() {
+        guard teamsUserID != user?.id else { return }
+        teamsUserID = user?.id
+        fetchedTeams.reset()
+        keptTeams = lastKnownList(screen: "teams")?.read([AppStore.AccountTeam].self)
+    }
 
     /// Loads the signed-in account's teams (once per account; again after a
     /// failure). DEBUG mock mode takes `CMUX_MOBILE_MOCK_TEAMS_DELAY` seconds, to
     /// record the loading state.
     public func loadTeams() async {
-        guard let user else {
-            teamsUserID = nil
-            fetchedTeams.reset()
-            return
-        }
-        if teamsUserID != user.id {
-            teamsUserID = user.id
-            fetchedTeams.reset()
-        } else if fetchedTeams.isLoaded {
-            return
-        }
+        restoreTeams()
+        guard let user, !fetchedTeams.isLoaded else { return }
+        let session = coordinator?.authSessionGeneration
         fetchedTeams.retry()
         if isMock {
             #if DEBUG
@@ -390,15 +419,17 @@ public final class CmuxMobileAuthModel {
         }
         guard let stack else { return }
         do {
-            guard let account = try await stack.getUser(or: .returnNull) else { return }
+            guard let account = try await stack.getUser(or: .returnNull), await account.id == user.id else { return }
             var list: [AppStore.AccountTeam] = []
             for team in try await account.listTeams() {
                 list.append(AppStore.AccountTeam(id: team.id, name: await team.displayName))
             }
-            guard teamsUserID == user.id else { return }
+            guard !Task.isCancelled, coordinator?.authSessionGeneration == session,
+                  self.user?.id == user.id, teamsUserID == user.id else { return }
             fetchedTeams.fetched(list)
         } catch {
-            guard teamsUserID == user.id else { return }
+            guard !Task.isCancelled, coordinator?.authSessionGeneration == session,
+                  self.user?.id == user.id, teamsUserID == user.id else { return }
             authModelLog.error("team list failed: \(String(describing: type(of: error)), privacy: .public)")
             fetchedTeams.failed("Couldn't load your teams.")
         }
@@ -417,7 +448,7 @@ public final class CmuxMobileAuthModel {
             return [you]
             #endif
         }
-        guard let stack, let account = try await stack.getUser(or: .throw),
+        guard let stack, let account = try await stack.getUser(or: .throw), await account.id == user.id,
               let team = try await account.getTeam(id: teamID) else { throw AuthError.unauthorized }
         let profiles = try await team.listUsers().map { (userID: $0.id, displayName: $0.teamProfile.displayName) }
         return TeamMember.list(profiles, you: (user.id, user.name))
@@ -526,7 +557,7 @@ public final class CmuxMobileAuthModel {
         case .mobileService(let apiBase):
             let creation = ServiceTeamCreation(apiBase: apiBase, buildSpace: buildSpace)
             let tokens = try await coordinator.currentTokens()
-            let (data, response) = try await URLSession.shared.data(for: creation.request(accessToken: tokens.accessToken, name: name))
+            let (data, response) = try await CmuxEgress.shared(site: "CmuxMobileAuth.CmuxMobileAuthModel").data(for: creation.request(accessToken: tokens.accessToken, name: name))
             team = try creation.team(from: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
         case .unavailable:
             throw ServiceTeamCreation.Failure.unavailable
@@ -580,7 +611,7 @@ public final class CmuxMobileAuthModel {
         guard let apiBase, let coordinator else { throw InviteError.serviceUnavailable }
         let tokens = try await coordinator.currentTokens()
         let request = try Self.inviteRequest(apiBase: apiBase, teamID: teamID, accessToken: tokens.accessToken, buildSpace: buildSpace)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await CmuxEgress.shared(site: "CmuxMobileAuth.CmuxMobileAuthModel").data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200,
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let string = object["url"] as? String, let url = URL(string: string) else {
@@ -627,7 +658,7 @@ public final class CmuxMobileAuthModel {
                 }
             },
             storeKitEnvironment: { await LiveStoreKitClient.appStoreEnvironment() },
-            session: URLSession(configuration: .default)
+            session: CmuxEgress.session(site: "CmuxMobileAuth.CmuxMobileAuthModel", configuration: .default)
         )
         return BillingModel(api: api, store: LiveStoreKitClient(), analytics: nil, bundleIdentifier: bundleIdentifier)
     }
@@ -647,14 +678,19 @@ public final class CmuxMobileAuthModel {
     /// still runs, in the background, so the next read has a new token).
     /// Otherwise, and with `forceRefresh` (the service answered 401), Stack's
     /// own read on the main actor, as before. verify/perf-latency.md.
-    public nonisolated func serviceAccessToken(forceRefresh: Bool = false) async throws -> String {
-        if !forceRefresh, let stack, let stored = await stack.getStoredAccessToken(),
-           AccessTokenExpiry(token: stored).isUsable() {
-            // Not awaited: the main actor may be busy, and the token is good now.
-            Task { @MainActor [weak self] in self?.refreshInBackground() }
-            return stored
+    public nonisolated func serviceAccessToken(forceRefresh: Bool = false, forAccount accountID: String? = nil) async throws -> String {
+        if !forceRefresh, let stack, let stored = await stack.getStoredAccessToken() {
+            let claims = AccessTokenExpiry(token: stored)
+            if claims.isUsable(), accountID == nil || accountID == claims.accountID {
+                // Not awaited: the main actor may be busy, and the token is good now.
+                Task { @MainActor [weak self] in self?.refreshInBackground() }
+                return stored
+            }
         }
-        return try await accessToken(forceRefresh: forceRefresh)
+        let token = try await accessToken(forceRefresh: forceRefresh)
+        // A retry from the old coordinator must never send its request with the next user's token.
+        if let accountID, accountID != AccessTokenExpiry(token: token).accountID { throw AuthError.unauthorized }
+        return token
     }
 
     /// Lets Stack refresh a stored token that was handed out as is (one at a time).
@@ -723,6 +759,7 @@ public final class CmuxMobileAuthModel {
                 try await purgeServiceData()
             } catch {
                 authModelLog.error("account deletion: service data purge failed: \(String(describing: error), privacy: .public)")
+                // retry-prompt-ok: account deletion is permanent; asking again is the person's choice
                 throw AccountDeletionError.serviceData("Couldn't remove your devices from the cmux service. Check your connection and try again.")
             }
         }
@@ -731,16 +768,18 @@ public final class CmuxMobileAuthModel {
             authModelLog.info("account deleted (\(result == .completed ? "complete" : "cleanup pending", privacy: .public))")
         } catch let error as AccountDeletionRequestError {
             authModelLog.error("account deletion failed: \(String(describing: error), privacy: .public)")
+            // retry-prompt-ok: account deletion is permanent; asking again is the person's choice
             switch error {
             case .localTransportFailure:
                 throw AccountDeletionError.account("You're offline. Connect to the internet and try again.")
-            case .completionUnknown, .timedOut:
+            case .completionUnknown, .timedOut: // retry-prompt-ok: account deletion, the person's choice
                 throw AccountDeletionError.account("Couldn't confirm the account was deleted. Try again in a moment.")
-            default:
+            default: // retry-prompt-ok: account deletion, the person's choice
                 throw AccountDeletionError.account("Your account couldn't be deleted. Try again, or contact support from cmux.com.")
             }
         } catch {
             authModelLog.error("account deletion failed: \(String(describing: error), privacy: .public)")
+            // retry-prompt-ok: account deletion is permanent; asking again is the person's choice
             throw AccountDeletionError.account("Your account couldn't be deleted. Try again.")
         }
         let hook = willSignOut
@@ -758,6 +797,7 @@ public final class CmuxMobileAuthModel {
             await BoundedWait(.seconds(3)).run { await willSignOut() }
         }
         teamsUserID = nil
+        keptTeams = nil
         fetchedTeams.reset()
         if isMock {
             mockSignedIn = false
@@ -772,10 +812,12 @@ public final class CmuxMobileAuthModel {
     public static func message(for error: any Error, provider: Provider) -> String? {
         if let error = error as? ASAuthorizationError, error.code == .canceled { return nil }
         if error is CancellationError { return nil }
+        // retry-prompt-ok: signing in needs the person (the provider's sheet, their account)
         switch AuthError(displaySafe: error) {
         case .cancelled: return nil
         case .offline: return "You're offline. Check your connection and try again."
-        case .networkError: return "Couldn't reach the sign-in service. Check your connection and try again."
+        case .networkError: return "Couldn't reach the sign-in service. Check your connection and try again." // retry-prompt-ok: sign-in needs the person
+        // retry-prompt-ok: signing in needs the person (the provider's sheet, their account)
         case .timedOut: return "Sign-in timed out. Check your connection and try again."
         default: return "Couldn't sign in with \(provider.displayName). Try again."
         }
@@ -794,6 +836,7 @@ public final class CmuxMobileAuthModel {
         case .invalidName: return "Team names are 1 to 120 characters."
         case .failed, nil: break
         }
+        // retry-prompt-ok: a sign-in or team creation the person made; doing it again is theirs
         return "Something went wrong. Try again."
     }
 }

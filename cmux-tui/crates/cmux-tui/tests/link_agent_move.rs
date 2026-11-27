@@ -22,6 +22,8 @@ use serde_json::{Value, json};
 
 const SURFACE: u64 = 7;
 const SESSION: &str = "acp_chat_1";
+/// The public id of tab [`SURFACE`], which outlives a restart of the source daemon.
+const TAB: &str = "tab_0000000000000000000000000000000a";
 
 /// What a fake daemon does with one request line.
 enum Reply {
@@ -126,12 +128,61 @@ struct Source {
     began_staged: bool,
     /// Every `prepare_id` a begin named, in order.
     begin_prepares: Vec<Value>,
+    /// Answers the tab's public id ([`TAB`]) and takes `tab` for `surface` (else an older
+    /// daemon, which refuses `tab` as an unknown field).
+    tab_ids: bool,
+    /// The daemon restarted: its tabs are back in new slots, so [`SURFACE`] names none.
+    restarted: bool,
+    /// The next read is lost as the daemon restarts (and `restarted` is set).
+    restart_at_read: bool,
+    /// The daemon is killed as it takes this command (the request is lost, `restarted` is set):
+    /// for the next [`OUTAGE`] requests after it, it is not back yet.
+    restart_at: Option<&'static str>,
+    /// The daemon is killed right after a begin whose answer is lost.
+    restart_after_lost_begin: bool,
+    /// After a restart the tab is back in this slot (else in none that `--surface` names).
+    slot: Option<u64>,
+    /// Requests left that find the daemon still restarting: lost, or (for a tab named by its
+    /// public id) "not an agent tab" while its restore has not run.
+    outage: u32,
 }
+
+/// How many requests find a killed source still restarting.
+const OUTAGE: u32 = 3;
 
 impl Source {
     fn handle(&mut self, request: &Value) -> Reply {
         let cmd = request["cmd"].as_str().unwrap_or_default();
-        if request.get("surface").is_some() && request["surface"] != json!(SURFACE) {
+        if self.restart_at == Some(cmd) {
+            self.restart_at = None;
+            self.restarted = true;
+            self.outage = OUTAGE;
+            return Reply::Drop;
+        }
+        if self.outage > 0 {
+            self.outage -= 1;
+            return if request.get("tab").is_some() && self.outage % 2 == 1 {
+                Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into())
+            } else {
+                Reply::Drop
+            };
+        }
+        let slot = if self.restarted { self.slot } else { Some(SURFACE) };
+        if request
+            .get("surface")
+            .is_some_and(|surface| Some(surface) != slot.map(|slot| json!(slot)).as_ref())
+        {
+            return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
+        }
+        if let Some(tab) = request.get("tab") {
+            if !self.tab_ids {
+                return Reply::Error("agent_transfer.bad_request", "unknown field tab".into());
+            }
+            if tab != &json!(TAB) {
+                return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
+            }
+        } else if self.restarted && self.slot.is_none() && request.get("surface").is_some() {
+            // The tab is restored in another slot.
             return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
         }
         let transfer = request["transfer_id"].as_str().map(str::to_string);
@@ -176,7 +227,11 @@ impl Source {
             }
             "agent-transfer-source" => {
                 let session = self.rebound.clone().unwrap_or_else(|| SESSION.to_string());
-                Reply::Data(json!({"session": session}))
+                let mut answer = json!({"session": session});
+                if self.tab_ids {
+                    answer["tab"] = json!(TAB);
+                }
+                Reply::Data(answer)
             }
             "agent-transfer-begin" => {
                 self.interrupts.push(request["interrupt"].clone());
@@ -207,6 +262,10 @@ impl Source {
                     None
                 };
                 if std::mem::take(&mut self.lose_begin_answer) {
+                    if self.restart_after_lost_begin {
+                        self.restarted = true;
+                        self.outage = OUTAGE;
+                    }
                     return Reply::Drop;
                 }
                 let files: Vec<Value> = self
@@ -217,6 +276,9 @@ impl Source {
                 let mut answer = json!({"transfer_id": id, "source_session": SESSION, "manifest": {
                     "schema": "acpmux.transfer.v1", "transferId": id, "sessionId": SESSION,
                     "files": files, "session": {"sessionId": SESSION, "harness": "claude"}}});
+                if self.tab_ids {
+                    answer["tab"] = json!(TAB);
+                }
                 if self.began_staged {
                     answer["staged"] = json!(true);
                     answer["history_later"] = json!(true);
@@ -224,6 +286,10 @@ impl Source {
                 Reply::Data(answer)
             }
             "agent-transfer-read" => {
+                if std::mem::take(&mut self.restart_at_read) {
+                    self.restarted = true;
+                    return Reply::Drop;
+                }
                 let files = match transfer.as_deref() {
                     Some("pre_1") if self.later => self.prefix.clone(),
                     Some("pre_h") if self.later => self.history.clone(),
@@ -295,6 +361,9 @@ enum Finish {
     /// The answer is lost while the finish still runs: the next receive-aborts answer "cannot
     /// say yet" (the real daemon's answer during a finish), then the chat lands.
     DropStillFinishing,
+    /// The machine's processes are killed before the chat lands: the daemon is back at once,
+    /// its acpmux a moment later, so the next receive-aborts answer `agent_transfer.unavailable`.
+    KilledRestarting,
 }
 
 struct Receive {
@@ -322,8 +391,14 @@ struct Target {
     takes_vm_kind: bool,
     /// The `vm_kind` of each receive and finish, in order.
     vm_kinds: Vec<Value>,
+    /// Serves `agent-transfer-credentials-v1` too.
+    takes_credentials: bool,
+    /// Every request's text, as the target read it.
+    requests: Vec<String>,
     /// Receive-aborts still answered "cannot say yet" before the running finish lands the chat.
     finishing_asks: u32,
+    /// Receive-aborts still answered `agent_transfer.unavailable` while acpmux restarts.
+    restarting_asks: u32,
     /// Serves `agent-transfer-history-later-v1` and its acpmux can.
     later: bool,
     /// The stage each receive took, in order.
@@ -341,7 +416,10 @@ impl Target {
         if cmd == "agent-transfer-receive" || cmd == "agent-transfer-finish" {
             self.vm_kinds.push(request["vm_kind"].clone());
         }
+        self.requests.push(request.to_string());
         match cmd {
+            "identify" if self.takes_credentials => Reply::Data(json!({"capabilities":
+                ["agent-transfer-v1", "agent-transfer-vm-kind-v1", "agent-transfer-credentials-v1"]})),
             "identify" if self.later => Reply::Data(json!({"capabilities":
                 ["agent-transfer-v1", "agent-transfer-history-later-v1"]})),
             "agent-transfer-history-ready" => Reply::Data(json!({"history_later": self.later})),
@@ -418,6 +496,13 @@ impl Target {
                     return Reply::Error("agent_transfer.unknown_receive", "no receive".into());
                 };
                 let (transfer, session) = (receive.transfer_id.clone(), receive.session_id.clone());
+                if self.restarting_asks > 0 {
+                    self.restarting_asks -= 1;
+                    return Reply::Error(
+                        "agent_transfer.unavailable",
+                        "this daemon has no acpmux or host to move chats with".into(),
+                    );
+                }
                 if self.finishing_asks > 0 {
                     self.finishing_asks -= 1;
                     if self.finishing_asks == 0 {
@@ -518,6 +603,10 @@ impl Target {
                 self.finishing_asks = 3;
                 return Reply::Drop;
             }
+            Finish::KilledRestarting => {
+                self.restarting_asks = 3;
+                return Reply::Drop;
+            }
             _ => {}
         }
         receive.finished = true;
@@ -552,6 +641,8 @@ struct World {
     target: Arc<Mutex<Target>>,
     target_down: Arc<AtomicBool>,
     log: Log,
+    /// The `--surface` a run names.
+    surface: std::sync::atomic::AtomicU64,
 }
 
 /// A chat bundle with a file larger than one page and an empty one.
@@ -595,6 +686,7 @@ impl World {
             target,
             target_down,
             log,
+            surface: SURFACE.into(),
             _dir: dir,
         }
     }
@@ -606,18 +698,28 @@ impl World {
 
     /// `run_move` with `extra` flags.
     fn run_move_with(&self, extra: &[&str]) -> (i32, Value) {
-        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        self.run_move_stdin(extra, b"")
+    }
+
+    /// `run_move_with`, `stdin` on its stdin.
+    fn run_move_stdin(&self, extra: &[&str], stdin: &[u8]) -> (i32, Value) {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["link", "agent", "move", "--from-socket"])
             .arg(&self.from)
-            .args(["--surface", &SURFACE.to_string(), "--to-socket"])
+            .args(["--surface", &self.surface.load(Ordering::SeqCst).to_string(), "--to-socket"])
             .arg(&self.to)
             .args(["--cwd", &self.cwd, "--state-dir"])
             .arg(&self.state)
             .args(extra)
             // Tail first only when a test asks for it.
             .env_remove("ACPMUX_MOVE_HISTORY_LATER")
-            .output()
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
             .unwrap();
+        child.stdin.take().unwrap().write_all(stdin).unwrap();
+        let output = child.wait_with_output().unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<&str> = stdout.lines().collect();
         assert_eq!(
@@ -762,6 +864,231 @@ mod agent_move {
     }
 
     #[test]
+    fn a_source_daemon_that_restarts_mid_copy_gives_the_chat_back_by_its_tab() {
+        // kill-mid-move drill `cloud-cloud after-receive` (run 45389153532): the source VM's
+        // daemon restarted under the move, its restore gave the tab a new surface slot, and the
+        // give back by `--surface` was refused "not an agent tab": the chat stayed frozen there.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at_read = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("source_unreachable"), "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here: {answer}");
+        assert!(source.moving.is_none() && source.committed.is_none());
+    }
+
+    #[test]
+    fn a_rerun_after_the_source_daemon_restarted_commits_by_the_tab() {
+        // The chat landed with the target gone before it answered; then the source daemon
+        // restarted (new surface slots). The rerun confirms the chat and closes it by its tab.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        world.source.lock().unwrap().tab_ids = true;
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+
+        world.source.lock().unwrap().restarted = true;
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_1"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"));
+        assert_eq!(source.begun, 1);
+    }
+
+    #[test]
+    fn a_rerun_by_the_tabs_new_slot_after_a_source_restart_closes_the_landed_chat() {
+        // kill-mid-move drill off-src, run 45907132927 (local-cloud after-finish, cloud-local
+        // before-finish): the chat landed, the source was powered off before its commit, and its
+        // restart restored the tab in a new surface slot (52 -> 67). The rerun by that slot found
+        // no record under the old one and began a second move: the chat stayed open in two
+        // places and its queued prompt ran on both.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.slot = Some(SURFACE + 60);
+        }
+        world.surface.store(SURFACE + 60, Ordering::SeqCst);
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_1"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"), "closed here: {answer}");
+        assert_eq!(source.begun, 1, "no second move of the landed chat");
+        assert!(source.aborted.is_empty());
+        assert_eq!(world.target.lock().unwrap().landed.len(), 1, "landed once");
+    }
+
+    #[test]
+    fn a_rerun_by_a_third_slot_after_a_rerun_by_the_old_one_finds_one_record() {
+        // The alias the tab-filed record leaves for its first slot is followed and kept whole:
+        // a rerun by the old slot (no tab answered) saves through it, and a later rerun by the
+        // tab's next slot reads that same record, not an older copy.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let files = |world: &World| {
+            let mut names: Vec<String> = std::fs::read_dir(&world.state)
+                .map(|dir| {
+                    dir.filter_map(Result::ok)
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .filter(|name| name.ends_with(".json"))
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        };
+        let before = files(&world);
+        assert_eq!(before.len(), 2, "the tab's record and its slot alias: {before:?}");
+
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.slot = Some(SURFACE + 60);
+        }
+        world.surface.store(SURFACE + 60, Ordering::SeqCst);
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(world.source.lock().unwrap().committed.as_deref(), Some("xfer_1"));
+        assert!(
+            std::fs::read_dir(&world.state)
+                .unwrap()
+                .filter_map(Result::ok)
+                .all(|entry| std::fs::read(entry.path()).is_err()
+                    || !entry.file_name().to_string_lossy().ends_with(".json")),
+            "the ended move leaves no record: {:?}",
+            files(&world)
+        );
+    }
+
+    #[test]
+    fn a_source_still_restarting_when_the_chat_is_given_back_is_waited_for() {
+        // kill-mid-move drill kill-src (run 45435064422): the source was killed mid-copy, the
+        // give back found its daemon still down (connection refused), and the chat stayed frozen.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at = Some("agent-transfer-read");
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("source_unreachable"), "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here: {answer}");
+        assert!(source.moving.is_none() && source.committed.is_none());
+    }
+
+    #[test]
+    fn a_source_killed_as_the_chat_lands_is_waited_for_to_close_it() {
+        // Drill kill-src before-finish/after-finish: the chat landed on the target, the commit
+        // found the source killed, and the chat stayed open in two places.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at = Some("agent-transfer-commit");
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"), "closed here: {answer}");
+    }
+
+    #[test]
+    fn a_rerun_waits_for_the_source_that_restarts_and_closes_the_landed_chat() {
+        // The immediate rerun of the drill found the source still restarting and said "cannot
+        // confirm the tab still shows the chat this move took; nothing was ended".
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        world.source.lock().unwrap().tab_ids = true;
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.outage = OUTAGE;
+        }
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(world.source.lock().unwrap().committed.as_deref(), Some("xfer_1"));
+    }
+
+    #[test]
+    fn a_rerun_after_a_source_killed_at_its_begin_names_the_tab_and_moves_the_chat() {
+        // Drill kill-src before-begin: the begin's answer was lost with the source daemon. The
+        // rerun asked by the old surface slot ("not an agent tab") and never learned the move.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+            source.lose_begin_answer = true;
+            source.restart_after_lost_begin = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the unanswered begin's freeze is ended");
+        assert_eq!(source.committed.as_deref(), Some("xfer_2"));
+    }
+
+    #[test]
+    fn an_older_source_without_tab_ids_is_named_by_surface() {
+        let world = World::new(Target { finish: Finish::DropWithoutLanding, ..Target::default() });
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_failed"), "{answer}");
+        assert_eq!(world.source.lock().unwrap().aborted, ["xfer_1"]);
+    }
+
+    #[test]
+    fn a_target_killed_before_the_finish_is_waited_for_then_the_chat_is_given_back() {
+        // kill-mid-move drill `local-cloud before-finish kill-dst` (run 45389153532): the
+        // target's daemon came back at once but its acpmux did not, the receive-abort was
+        // answered `agent_transfer.unavailable` and the pump (and its rerun 264 ms later)
+        // said "cannot say": the chat stayed frozen here and its queued prompt never ran.
+        let world = World::new(Target { finish: Finish::KilledRestarting, ..Target::default() });
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_failed"), "{answer}");
+        assert_eq!(world.count("target:agent-transfer-receive-abort"), 4);
+        assert!(world.target.lock().unwrap().forgotten.contains("xfer_1"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here");
+        assert!(source.moving.is_none() && source.committed.is_none());
+    }
+
+    #[test]
     fn a_lost_finish_answer_for_a_chat_that_did_not_land_aborts_the_source() {
         let world = World::new(Target { finish: Finish::DropWithoutLanding, ..Target::default() });
         let (code, answer) = world.run_move();
@@ -856,6 +1183,73 @@ mod agent_move {
         let (code, answer) = mac.run_move();
         assert_eq!(code, 0, "a target the caller says is a Mac needs no kind: {answer}");
         assert_eq!(mac.target.lock().unwrap().vm_kinds, [Value::Null, Value::Null]);
+    }
+
+    /// `--login-stdin`: the owner's login goes to the target with the finish alone, and never
+    /// reaches the answer line, stderr or the move's record. Without `--vm-kind owner`, or to a
+    /// target without `agent-transfer-credentials-v1`, or unreadable, the move stops before the
+    /// chat freezes with a reason that names the step.
+    #[test]
+    fn the_owners_login_goes_with_the_finish_alone_and_nowhere_else() {
+        const TOKEN: &str = "sk-ant-oat01-move-test-token";
+        let login = format!(r#"{{"env":{{"CLAUDE_CODE_OAUTH_TOKEN":"{TOKEN}"}}}}"#);
+        let world = World::new(Target { takes_credentials: true, ..Target::default() });
+        let (code, answer) =
+            world.run_move_stdin(&["--vm-kind", "owner", "--login-stdin"], login.as_bytes());
+        assert_eq!(code, 0, "{answer}");
+        assert!(!answer.to_string().contains(TOKEN), "{answer}");
+        {
+            let target = world.target.lock().unwrap();
+            let carrying: Vec<&String> =
+                target.requests.iter().filter(|request| request.contains(TOKEN)).collect();
+            assert_eq!(carrying.len(), 1, "{carrying:?}");
+            let finish: Value = serde_json::from_str(carrying[0]).unwrap();
+            assert_eq!(finish["cmd"], json!("agent-transfer-finish"));
+            assert_eq!(finish["credentials"], json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": TOKEN}}));
+        }
+        for entry in walk(&world.state) {
+            let text = std::fs::read(&entry).unwrap_or_default();
+            assert!(!String::from_utf8_lossy(&text).contains(TOKEN), "{}", entry.display());
+        }
+
+        let refusals: [(&[&str], Target, &str, Option<&str>); 3] = [
+            (
+                &["--login-stdin"],
+                Target { takes_credentials: true, ..Target::default() },
+                "agent_session.owner_only",
+                None,
+            ),
+            (
+                &["--vm-kind", "owner", "--login-stdin"],
+                Target { takes_vm_kind: true, ..Target::default() },
+                "machine_outdated",
+                Some("target"),
+            ),
+            (
+                &["--vm-kind", "team", "--login-stdin"],
+                Target { takes_credentials: true, ..Target::default() },
+                "agent_session.owner_only",
+                None,
+            ),
+        ];
+        for (flags, target, code_name, side) in refusals {
+            let world = World::new(target);
+            let (code, answer) = world.run_move_stdin(flags, login.as_bytes());
+            assert_eq!(code, 1, "{answer}");
+            assert_eq!(answer["error_code"], json!(code_name), "{answer}");
+            assert_eq!(answer["side"].as_str(), side, "{answer}");
+            assert!(answer["error"].as_str().unwrap().contains("agent login"), "{answer}");
+            assert!(!answer.to_string().contains(TOKEN), "{answer}");
+            assert_eq!(world.count("source:agent-transfer-begin"), 0, "the chat froze");
+        }
+        let world = World::new(Target { takes_credentials: true, ..Target::default() });
+        let bad = format!(r#"{{"env":"{TOKEN}"}}"#);
+        let (code, answer) =
+            world.run_move_stdin(&["--vm-kind", "owner", "--login-stdin"], bad.as_bytes());
+        assert_eq!(code, 1, "{answer}");
+        assert_eq!(answer["error_code"], json!("agent_session.login_unreadable"), "{answer}");
+        assert!(!answer.to_string().contains(TOKEN), "{answer}");
+        assert_eq!(world.count("source:agent-transfer-begin"), 0, "the chat froze");
     }
 
     /// `--to-pid`: the owner word belongs to the link process the caller read
@@ -1112,7 +1506,7 @@ mod agent_move {
         }
     }
 
-    /// `cargo test -p cmux-tui --test link_agent_move -- --ignored tail_first_bench --nocapture`:
+    /// `cargo test -p cmux-tui --test it -- --ignored link_agent_move::agent_move::tail_first_bench --nocapture`:
     /// a `CMUX_MOVE_BENCH_MB` (55) chat through the pump over loopback, off and on.
     #[test]
     #[ignore = "a bench: run it by name"]
@@ -1140,4 +1534,17 @@ mod agent_move {
             answer_on["phases"]
         );
     }
+}
+
+/// Every file under `dir`, recursively; none when it does not exist.
+fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(next) = todo.pop() {
+        for entry in std::fs::read_dir(&next).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() { todo.push(path) } else { files.push(path) }
+        }
+    }
+    files
 }

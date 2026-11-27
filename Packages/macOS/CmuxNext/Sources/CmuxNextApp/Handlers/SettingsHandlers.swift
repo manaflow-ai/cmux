@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAppCore
 import CmuxNextAppTry
@@ -87,6 +88,7 @@ enum SettingsHandlers {
             try FeatureFlagsPage(services: services).open(invocation)
         })
         UpgradeToPro.bind(into: registry, context: context)
+        SettingsHistoryPage.bindUndo(into: registry, daemon: context.services.daemon) // Undo Settings Change
     }
 
     private static func openEffect(_ url: URL, _ context: AppActionContext) -> ActionEffect {
@@ -124,7 +126,7 @@ enum SettingsHandlers {
 
     private static func logsDirectory(_ context: AppActionContext) -> URL {
         context.services.errorJournal?.journal.directory
-            ?? ErrorJournalService.directory(bundleID: context.services.environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app")
+            ?? ErrorJournalService.directory(bundleID: context.services.environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next")
     }
 
     static func requireSettings(_ context: AppActionContext) throws -> SettingsController {

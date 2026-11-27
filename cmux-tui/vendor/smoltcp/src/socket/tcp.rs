@@ -182,6 +182,9 @@ struct RttEstimator {
     timestamp: Option<(Instant, TcpSeqNumber)>,
     max_seq_sent: Option<TcpSeqNumber>,
     rto_count: u8,
+    /// cmux patch: the latest raw RTT sample in ms, for a controller that
+    /// keeps its own minimum (BBR's min_rtt), which the smoothed RTT hides.
+    latest: Option<u32>,
 }
 
 impl Default for RttEstimator {
@@ -196,6 +199,7 @@ impl Default for RttEstimator {
             timestamp: None,
             max_seq_sent: None,
             rto_count: 0,
+            latest: None,
         }
     }
 }
@@ -220,7 +224,14 @@ impl RttEstimator {
         if self.have_measurement { self.srtt } else { 0 }
     }
 
+    /// cmux patch: the latest raw RTT sample, if any since the last reset.
+    #[cfg(feature = "socket-tcp-bbr")]
+    fn latest_sample(&self) -> Option<u32> {
+        self.latest
+    }
+
     fn sample(&mut self, new_rtt: u32) {
+        self.latest = Some(new_rtt);
         if self.have_measurement {
             // RFC 6298 (2.3) When a subsequent RTT measurement R' is made, a host MUST set (...)
             let diff = (self.srtt as i32 - new_rtt as i32).unsigned_abs();
@@ -249,7 +260,11 @@ impl RttEstimator {
     }
 
     fn on_send(&mut self, timestamp: Instant, seq: TcpSeqNumber) {
-        if self.max_seq_sent.map(|max_seq_sent| seq > max_seq_sent).unwrap_or(true) {
+        if self
+            .max_seq_sent
+            .map(|max_seq_sent| seq > max_seq_sent)
+            .unwrap_or(true)
+        {
             self.max_seq_sent = Some(seq);
             if self.timestamp.is_none() {
                 self.timestamp = Some((timestamp, seq));
@@ -432,6 +447,126 @@ impl SackScoreboard {
     }
 }
 
+/// cmux patch: how many first transmissions RACK remembers the send time of.
+const RACK_TX_LEN: usize = 32;
+/// cmux patch: RACK's reorder window is srtt/4 times this, which grows by one
+/// each time a DSACK shows a retransmission was spurious (RFC 8985 6.2).
+const RACK_REO_MULT_MAX: u8 = 4;
+
+/// cmux patch: RACK time-based loss detection (RFC 8985). Remembers when each
+/// run of new data was first sent, so that a segment still unacknowledged
+/// srtt + a reorder window after it was sent, while data sent LATER was
+/// SACKed, is marked lost without waiting for three duplicate ACKs. With
+/// keystroke-sized segments those never come in time: the third duplicate
+/// ACK needs three more keystrokes, which at 20 ms apart is 60 ms later.
+/// (Upstreaming note: this is the RACK-TLP half of RFC 8985 that smoltcp's
+/// tail-loss probe lacks; the scoreboard and recovery entry are the existing
+/// SACK ones.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Rack {
+    /// `(start, end, last sent at, lost)`, in sequence order. `lost`: the
+    /// time rule declared this record's latest transmission lost and it was
+    /// not sent again since, so its bytes are due whatever `sack_high_rxt`
+    /// says (a lost repair is repaired again).
+    tx: [(TcpSeqNumber, TcpSeqNumber, Instant, bool); RACK_TX_LEN],
+    len: usize,
+    /// The end of the newest recorded data: only data above it is new.
+    high_tx: Option<TcpSeqNumber>,
+    /// Reorder window multiplier, 1..=RACK_REO_MULT_MAX.
+    reo_mult: u8,
+}
+
+/// cmux patch: RFC 8985's RACK_sent_after, inverted: `a` (send time, end
+/// sequence) went out before `b`. Segments sent in the same poll share a
+/// timestamp; the lower end sequence went first.
+fn rack_sent_before(a: (Instant, TcpSeqNumber), b: (Instant, TcpSeqNumber)) -> bool {
+    a.0 < b.0 || (a.0 == b.0 && a.1 < b.1)
+}
+
+impl Default for Rack {
+    fn default() -> Self {
+        Self {
+            tx: [(
+                TcpSeqNumber::default(),
+                TcpSeqNumber::default(),
+                Instant::ZERO,
+                false,
+            ); RACK_TX_LEN],
+            len: 0,
+            high_tx: None,
+            reo_mult: 1,
+        }
+    }
+}
+
+impl Rack {
+    fn clear(&mut self) {
+        self.len = 0;
+        self.high_tx = None;
+    }
+
+    /// Note that `[start, end)` was sent at `now`. New data is appended;
+    /// retransmitted data restarts the clock of the records it overlaps and
+    /// is in flight again, not lost. A record only partly resent is split
+    /// first (while there is room), so its other bytes keep their clock.
+    fn on_send(&mut self, start: TcpSeqNumber, end: TcpSeqNumber, now: Instant) {
+        if end <= start {
+            return;
+        }
+        let high = self.high_tx.unwrap_or(start);
+        if end <= high {
+            let mut i = 0;
+            while i < self.len {
+                let rec = self.tx[i];
+                if rec.0 < end && start < rec.1 {
+                    if rec.0 < start && self.insert(i, (rec.0, start, rec.2, rec.3)) {
+                        i += 1;
+                        self.tx[i].0 = start;
+                    }
+                    let rec = self.tx[i];
+                    if end < rec.1 && self.insert(i + 1, (end, rec.1, rec.2, rec.3)) {
+                        self.tx[i].1 = end;
+                    }
+                    self.tx[i].2 = now;
+                    self.tx[i].3 = false;
+                }
+                i += 1;
+            }
+            return;
+        }
+        let from = start.max(high);
+        if self.len == RACK_TX_LEN {
+            self.tx.copy_within(1.., 0);
+            self.len -= 1;
+        }
+        self.tx[self.len] = (from, end, now, false);
+        self.len += 1;
+        self.high_tx = Some(end);
+    }
+
+    /// Put `rec` at `at`, if there is room.
+    fn insert(&mut self, at: usize, rec: (TcpSeqNumber, TcpSeqNumber, Instant, bool)) -> bool {
+        if self.len == RACK_TX_LEN {
+            return false;
+        }
+        self.tx.copy_within(at..self.len, at + 1);
+        self.tx[at] = rec;
+        self.len += 1;
+        true
+    }
+
+    fn prune(&mut self, una: TcpSeqNumber) {
+        let gone = self.tx[..self.len]
+            .iter()
+            .take_while(|r| r.1 <= una)
+            .count();
+        if gone > 0 {
+            self.tx.copy_within(gone..self.len, 0);
+            self.len -= gone;
+        }
+    }
+}
+
 /// cmux patch: the scoreboard's verdict for a sender in SACK loss recovery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SackScan {
@@ -444,16 +579,30 @@ struct SackScan {
     congestion: bool,
 }
 
+impl SackScan {
+    /// `[from, to)` is lost and due; ranges come lowest first.
+    fn add_lost(&mut self, from: TcpSeqNumber, to: TcpSeqNumber) {
+        self.lost_bytes += to - from;
+        match &mut self.next_retransmit {
+            None => self.next_retransmit = Some((from, to - from)),
+            Some((start, len)) if *start + *len == from => *len += to - from,
+            Some(_) => {}
+        }
+    }
+}
+
 impl Timer {
     fn new() -> Timer {
-        Timer::Idle { keep_alive_at: None }
+        Timer::Idle {
+            keep_alive_at: None,
+        }
     }
 
     fn should_keep_alive(&self, timestamp: Instant) -> bool {
         match *self {
-            Timer::Idle { keep_alive_at: Some(keep_alive_at) } if timestamp >= keep_alive_at => {
-                true
-            }
+            Timer::Idle {
+                keep_alive_at: Some(keep_alive_at),
+            } if timestamp >= keep_alive_at => true,
             _ => false,
         }
     }
@@ -483,8 +632,12 @@ impl Timer {
 
     fn poll_at(&self) -> PollAt {
         match *self {
-            Timer::Idle { keep_alive_at: Some(keep_alive_at) } => PollAt::Time(keep_alive_at),
-            Timer::Idle { keep_alive_at: None } => PollAt::Ingress,
+            Timer::Idle {
+                keep_alive_at: Some(keep_alive_at),
+            } => PollAt::Time(keep_alive_at),
+            Timer::Idle {
+                keep_alive_at: None,
+            } => PollAt::Ingress,
             Timer::ZeroWindowProbe { expires_at, .. } => PollAt::Time(expires_at),
             Timer::Retransmit { expires_at, .. } => PollAt::Time(expires_at),
             Timer::FastRetransmit => PollAt::Now,
@@ -494,7 +647,9 @@ impl Timer {
     }
 
     fn set_for_idle(&mut self, timestamp: Instant, interval: Option<Duration>) {
-        *self = Timer::Idle { keep_alive_at: interval.map(|interval| timestamp + interval) }
+        *self = Timer::Idle {
+            keep_alive_at: interval.map(|interval| timestamp + interval),
+        }
     }
 
     fn set_keep_alive(&mut self) {
@@ -524,7 +679,9 @@ impl Timer {
             | Timer::Retransmit { .. }
             | Timer::TailLossProbe { .. }
             | Timer::ZeroWindowProbe { .. } => {
-                *self = Timer::Retransmit { expires_at: timestamp + delay }
+                *self = Timer::Retransmit {
+                    expires_at: timestamp + delay,
+                }
             }
             Timer::Close { .. } => (),
         }
@@ -536,8 +693,10 @@ impl Timer {
         match *self {
             Timer::Close { .. } => (),
             _ => {
-                *self =
-                    Timer::TailLossProbe { expires_at: timestamp + probe, rto_at: timestamp + rto }
+                *self = Timer::TailLossProbe {
+                    expires_at: timestamp + probe,
+                    rto_at: timestamp + rto,
+                }
             }
         }
     }
@@ -547,17 +706,25 @@ impl Timer {
     }
 
     fn set_for_close(&mut self, timestamp: Instant) {
-        *self = Timer::Close { expires_at: timestamp + CLOSE_DELAY }
+        *self = Timer::Close {
+            expires_at: timestamp + CLOSE_DELAY,
+        }
     }
 
     fn set_for_zero_window_probe(&mut self, timestamp: Instant, delay: Duration) {
-        *self = Timer::ZeroWindowProbe { expires_at: timestamp + delay, delay }
+        *self = Timer::ZeroWindowProbe {
+            expires_at: timestamp + delay,
+            delay,
+        }
     }
 
     fn rewind_zero_window_probe(&mut self, timestamp: Instant) {
         if let Timer::ZeroWindowProbe { mut delay, .. } = *self {
             delay = (delay * 2).min(Duration::from_millis(RTTE_MAX_RTO as _));
-            *self = Timer::ZeroWindowProbe { expires_at: timestamp + delay, delay }
+            *self = Timer::ZeroWindowProbe {
+                expires_at: timestamp + delay,
+                delay,
+            }
         }
     }
 
@@ -608,6 +775,12 @@ pub enum CongestionControl {
 
     #[cfg(feature = "socket-tcp-cubic")]
     Cubic,
+
+    /// cmux patch: a BBR-style model-based controller (RFD 0142 O1): its
+    /// window follows the measured bottleneck rate and minimum RTT, so random
+    /// loss does not shrink it.
+    #[cfg(feature = "socket-tcp-bbr")]
+    Bbr,
 }
 
 /// A Transmission Control Protocol socket.
@@ -694,6 +867,15 @@ pub struct Socket<'a> {
     sack_high_rxt: TcpSeqNumber,
     /// cmux patch: this recovery episode already cut the congestion window.
     sack_window_cut: bool,
+    /// cmux patch: the head hole's last SACK resend, as (the head, the
+    /// highest sequence sent when it went out). The head still
+    /// unacknowledged once three segments of data sent after it were SACKed
+    /// (Linux's `tcp_mark_lost_retrans`) means the resend was lost too: it
+    /// goes again at once, instead of after an RTO that Karn's backoff can
+    /// stretch past the user timeout.
+    sack_head_rxt: Option<(TcpSeqNumber, TcpSeqNumber)>,
+    /// cmux patch: RACK time-based loss detection state.
+    rack: Rack,
     /// cmux patch: the largest segment our own path takes (the interface MTU
     /// less headers), learned at the handshake. SACK recovery counts and
     /// admits repairs in min(this, remote MSS), the segments actually sent.
@@ -707,6 +889,9 @@ pub struct Socket<'a> {
     /// cmux patch: lower the segment size when full segments keep timing out
     /// ([set_black_hole_fallback](#method.set_black_hole_fallback)).
     black_hole_fallback: bool,
+    /// cmux patch: the most data in the network at once, below the congestion
+    /// window ([set_send_window_cap](#method.set_send_window_cap)).
+    send_window_cap: Option<usize>,
     /// cmux patch: retransmission timeouts in a row, with no ACK of new data
     /// between them, of a head segment larger than the base.
     black_hole_rtos: u8,
@@ -750,9 +935,30 @@ pub struct Socket<'a> {
     /// If this is set, we will not send a SYN|ACK until this is unset.
     #[cfg(feature = "socket-tcp-pause-synack")]
     synack_paused: bool,
+
+    /// cmux patch: data on the SYN (`set_syn_data`).
+    syn_data: bool,
+    /// cmux patch: this listening socket took data from the peer's SYN; it is
+    /// in the receive buffer and the SYN|ACK acknowledges it.
+    syn_data_in: bool,
+    /// cmux patch: the SYN|ACK acknowledging `syn_data_in` has been sent.
+    syn_data_acked: bool,
+    /// cmux patch: how long a connecting socket with `syn_data` holds its
+    /// SYN for the first write (`set_syn_data_hold`).
+    syn_data_hold: Duration,
+    /// cmux patch: until when this connect's SYN waits for that write.
+    syn_hold_until: Option<Instant>,
+    /// cmux patch: the peer acknowledged this connect's SYN data on a segment
+    /// that reached us before its SYN|ACK. The SYN goes again at once, and
+    /// bare: the peer has the data.
+    syn_data_taken: bool,
 }
 
 const DEFAULT_MSS: usize = 536;
+
+/// cmux patch: the most option bytes our SYN carries (MSS, window scale,
+/// SACK permitted, timestamps, padding), kept free when data rides on it.
+const SYN_OPTIONS_MAX: usize = 40;
 
 /// cmux patch: the IP packet size every IPv6 path carries (RFC 8200's minimum
 /// link MTU). Black-hole fallback sends segments that fit it.
@@ -826,11 +1032,14 @@ impl<'a> Socket<'a> {
             sack_scoreboard: SackScoreboard::default(),
             sack_recovery_point: None,
             sack_high_rxt: TcpSeqNumber::default(),
+            sack_head_rxt: None,
             sack_window_cut: false,
+            rack: Rack::default(),
             local_mss: usize::MAX,
             path_change_retransmit: false,
             retransmit_paused: false,
             black_hole_fallback: false,
+            send_window_cap: None,
             black_hole_rtos: 0,
             path_mss_cap: None,
             repaired_below: None,
@@ -850,6 +1059,13 @@ impl<'a> Socket<'a> {
 
             #[cfg(feature = "socket-tcp-pause-synack")]
             synack_paused: false,
+
+            syn_data: false,
+            syn_data_in: false,
+            syn_data_acked: false,
+            syn_data_hold: Duration::ZERO,
+            syn_data_taken: false,
+            syn_hold_until: None,
         }
     }
 
@@ -894,6 +1110,9 @@ impl<'a> Socket<'a> {
 
             #[cfg(feature = "socket-tcp-cubic")]
             CongestionControl::Cubic => AnyController::Cubic(cubic::Cubic::new()),
+
+            #[cfg(feature = "socket-tcp-bbr")]
+            CongestionControl::Bbr => AnyController::Bbr(bbr::Bbr::new()),
         }
     }
 
@@ -909,6 +1128,9 @@ impl<'a> Socket<'a> {
 
             #[cfg(feature = "socket-tcp-cubic")]
             AnyController::Cubic(_) => CongestionControl::Cubic,
+
+            #[cfg(feature = "socket-tcp-bbr")]
+            AnyController::Bbr(_) => CongestionControl::Bbr,
         }
     }
 
@@ -990,6 +1212,58 @@ impl<'a> Socket<'a> {
     #[cfg(feature = "socket-tcp-pause-synack")]
     pub fn pause_synack(&mut self, pause: bool) {
         self.synack_paused = pause;
+    }
+
+    /// cmux patch: carry data on the SYN, both ways.
+    ///
+    /// Connecting, bytes sent before the SYN goes out ride on it (up to a
+    /// segment). A peer that takes them acknowledges them in its SYN|ACK; one
+    /// that ignores them acknowledges only the SYN, and they are sent again
+    /// as ordinary data once the connection is established.
+    ///
+    /// Listening, data on a peer's SYN is kept and acknowledged by the
+    /// SYN|ACK. Once the SYN|ACK has gone out ([`Socket::syn_data_acked`]),
+    /// the data can be read and replies sent, before the handshake's last
+    /// ACK arrives. The peer is authenticated by the tunnel below, so no
+    /// cookie (RFC 7413) guards it.
+    pub fn set_syn_data(&mut self, enabled: bool) {
+        self.syn_data = enabled;
+    }
+
+    /// cmux patch: whether data on the SYN is enabled (`set_syn_data`).
+    pub fn syn_data(&self) -> bool {
+        self.syn_data
+    }
+
+    /// cmux patch: with `syn_data`, a connect holds its SYN up to `hold`
+    /// for the first write so the write rides on it. Zero (the default)
+    /// sends the SYN at once.
+    pub fn set_syn_data_hold(&mut self, hold: Duration) {
+        self.syn_data_hold = hold;
+    }
+
+    /// cmux patch: the connect's SYN is waiting for the first write
+    /// (`set_syn_data_hold`).
+    fn syn_held(&self, now: Instant) -> Option<Instant> {
+        match self.syn_hold_until {
+            Some(until) if self.syn_data_open() && self.tx_buffer.is_empty() && now < until => {
+                Some(until)
+            }
+            _ => None,
+        }
+    }
+
+    /// cmux patch: a listening socket took data from the peer's SYN and its
+    /// SYN|ACK, which acknowledges that data, has been sent. The data may be
+    /// read, and replies sent, from now on.
+    pub fn syn_data_acked(&self) -> bool {
+        self.state == State::SynReceived && self.syn_data_acked
+    }
+
+    /// cmux patch: the socket connects with data on its SYN and the SYN is
+    /// not out yet, so a write now rides on it.
+    fn syn_data_open(&self) -> bool {
+        self.state == State::SynSent && self.syn_data && self.remote_last_seq == self.local_seq_no
     }
 
     /// Return the current window field value, including scaling according to RFC 1323.
@@ -1106,13 +1380,17 @@ impl<'a> Socket<'a> {
             let mss = self.sack_segment();
             self.congestion_controller.inner_mut().set_mss(mss);
         }
-        let in_flight =
-            matches!(self.timer, Timer::Retransmit { .. } | Timer::TailLossProbe { .. });
+        let in_flight = matches!(
+            self.timer,
+            Timer::Retransmit { .. } | Timer::TailLossProbe { .. }
+        );
         if !in_flight || matches!(self.state, State::Closed | State::Listen | State::TimeWait) {
             return;
         }
         self.path_change_retransmit = true;
-        self.timer = Timer::Retransmit { expires_at: Instant::from_micros(0) };
+        self.timer = Timer::Retransmit {
+            expires_at: Instant::from_micros(0),
+        };
     }
 
     /// cmux patch: hold or resume retransmission.
@@ -1153,7 +1431,9 @@ impl<'a> Socket<'a> {
         if let Some((controller, _)) = self.window_before_cut.take() {
             net_debug!("undoing a window cut: the link repairs losses now");
             self.congestion_controller = controller;
-            self.congestion_controller.inner_mut().set_remote_window(self.remote_win_len);
+            self.congestion_controller
+                .inner_mut()
+                .set_remote_window(self.remote_win_len);
         }
     }
 
@@ -1161,7 +1441,10 @@ impl<'a> Socket<'a> {
     /// was sent before the link began repairing losses: no cut. Otherwise
     /// remembers the controller so [`Self::link_repairs_losses`] can undo the cut.
     fn loss_cuts_window(&mut self) -> bool {
-        if self.repaired_below.is_some_and(|bound| self.local_seq_no < bound) {
+        if self
+            .repaired_below
+            .is_some_and(|bound| self.local_seq_no < bound)
+        {
             net_debug!("loss of data sent before the link repaired losses: no window cut");
             return false;
         }
@@ -1172,10 +1455,17 @@ impl<'a> Socket<'a> {
     /// cmux patch: forget the marks of [`Self::link_repairs_losses`] and of the last
     /// window cut once the cumulative ACK passes them.
     fn prune_loss_marks(&mut self) {
-        if self.repaired_below.is_some_and(|bound| self.local_seq_no >= bound) {
+        if self
+            .repaired_below
+            .is_some_and(|bound| self.local_seq_no >= bound)
+        {
             self.repaired_below = None;
         }
-        if self.window_before_cut.as_ref().is_some_and(|(_, until)| self.local_seq_no >= *until) {
+        if self
+            .window_before_cut
+            .as_ref()
+            .is_some_and(|(_, until)| self.local_seq_no >= *until)
+        {
             self.window_before_cut = None;
         }
     }
@@ -1252,12 +1542,31 @@ impl<'a> Socket<'a> {
         if !enabled {
             self.sack_scoreboard.clear();
             self.sack_recovery_point = None;
+            self.rack.clear();
         }
     }
 
     /// cmux patch: whether SACK loss recovery is on.
     pub fn sack_recovery(&self) -> bool {
         self.sack_recovery
+    }
+
+    /// cmux patch: the most data the connection keeps in the network at
+    /// once (bytes sent and neither acknowledged nor known lost), below the
+    /// congestion window. The receive window bounds how much a connection
+    /// could use; this bounds how much it does, so an owner that measures
+    /// the path can keep a large buffer for long paths without a whole
+    /// buffer of data queued in front of every segment on short ones.
+    /// Retransmissions and zero window probes do not wait for it.
+    ///
+    /// `None` (the default) leaves the congestion and remote windows alone.
+    pub fn set_send_window_cap(&mut self, cap: Option<usize>) {
+        self.send_window_cap = cap;
+    }
+
+    /// cmux patch: the cap [set_send_window_cap](#method.set_send_window_cap) set.
+    pub fn send_window_cap(&self) -> Option<usize> {
+        self.send_window_cap
     }
 
     /// cmux patch: turn black-hole fallback (RFC 4821 section 7.7, Linux's
@@ -1294,7 +1603,8 @@ impl<'a> Socket<'a> {
     /// cmux patch: the largest segment this socket sends on a path whose
     /// interface takes `interface_mss`, after any black-hole fallback.
     fn capped_mss(&self, interface_mss: usize) -> usize {
-        self.path_mss_cap.map_or(interface_mss, |cap| interface_mss.min(cap))
+        self.path_mss_cap
+            .map_or(interface_mss, |cap| interface_mss.min(cap))
     }
 
     /// cmux patch: at a retransmission timeout, count it toward black-hole
@@ -1383,7 +1693,11 @@ impl<'a> Socket<'a> {
     /// cmux patch: walk the holes between the cumulative ACK and the SACKed
     /// ranges, lowest first.
     fn sack_scan(&self) -> SackScan {
-        let mut scan = SackScan { next_retransmit: None, lost_bytes: 0, congestion: false };
+        let mut scan = SackScan {
+            next_retransmit: None,
+            lost_bytes: 0,
+            congestion: false,
+        };
         let ranges = self.sack_scoreboard.ranges();
         let high_rxt = if self.sack_recovery_point.is_some() {
             self.sack_high_rxt.max(self.local_seq_no)
@@ -1398,18 +1712,30 @@ impl<'a> Socket<'a> {
             // resending a higher hole first would move it past the lower one
             // and leave that hole to the probe and the RTO once it is lost.
             if hole_start < start {
-                let Some(congestion) =
-                    self.sack_hole_is_lost(hole_start, sacked_above, ranges.len() - i)
-                else {
+                let rule = self.sack_hole_is_lost(hole_start, sacked_above, ranges.len() - i);
+                // What the rule leaves out (all of the hole when it does not
+                // apply, what was resent already when it does): RACK's lost
+                // records, a resend that was itself lost included. Only
+                // those records' bytes: a later one in the same hole may
+                // still be inside its reorder window.
+                let rack_to = match rule {
+                    Some(_) => hole_start.max(high_rxt).min(start),
+                    None => start,
+                };
+                for &(r_start, r_end, _, lost) in &self.rack.tx[..self.rack.len] {
+                    let (from, to) = (r_start.max(hole_start), r_end.min(rack_to));
+                    if lost && from < to {
+                        scan.congestion = true;
+                        scan.add_lost(from, to);
+                    }
+                }
+                let Some(congestion) = rule else {
                     break;
                 };
                 scan.congestion |= congestion;
                 let from = hole_start.max(high_rxt);
                 if from < start {
-                    scan.lost_bytes += start - from;
-                    if scan.next_retransmit.is_none() {
-                        scan.next_retransmit = Some((from, start - from));
-                    }
+                    scan.add_lost(from, start);
                 }
             }
             sacked_above -= end - start;
@@ -1440,19 +1766,100 @@ impl<'a> Socket<'a> {
     /// and the congestion window has room (the head is always allowed, as a
     /// fast retransmit is).
     fn sack_retransmit_due(&self) -> Option<(TcpSeqNumber, usize)> {
-        if !self.sack_active() || self.sack_recovery_point.is_none() || self.tx_buffer.is_empty() {
+        // A held connection resends nothing, whatever an ACK says.
+        if self.retransmit_paused
+            || !self.sack_active()
+            || self.sack_recovery_point.is_none()
+            || self.tx_buffer.is_empty()
+        {
             return None;
         }
         let scan = self.sack_scan();
         let (start, len) = scan.next_retransmit?;
         // Only buffered bytes can be resent (a FIN is the RTO's to resend).
-        let len = len.min(self.tx_buffer.len().checked_sub(start - self.local_seq_no)?);
+        let len = len.min(
+            self.tx_buffer
+                .len()
+                .checked_sub(start - self.local_seq_no)?,
+        );
         if len == 0 {
             return None;
         }
         let window = self.congestion_controller.inner().window();
         let room = self.sack_pipe(&scan) + self.sack_segment().min(len) <= window;
         (room || start == self.local_seq_no).then_some((start, len))
+    }
+
+    /// cmux patch: RACK's reorder window (RFC 8985 6.2): a quarter of the
+    /// smoothed RTT, times the DSACK-driven multiplier.
+    fn rack_reo_wnd(&self) -> Duration {
+        Duration::from_millis(self.rtte.srtt as u64 / 4 * self.rack.reo_mult as u64)
+    }
+
+    /// cmux patch: the send time and end of the most recently sent SACKed
+    /// data (RACK.xmit_ts and RACK.end_seq), which any unSACKed data sent
+    /// before it is judged against.
+    fn rack_delivered(&self) -> Option<(Instant, TcpSeqNumber)> {
+        let ranges = self.sack_scoreboard.ranges();
+        self.rack.tx[..self.rack.len]
+            .iter()
+            .filter(|&&(_, end, _, _)| ranges.iter().any(|&(s, e)| s < end && end <= e))
+            .map(|&(_, end, ts, _)| (ts, end))
+            .reduce(|a, b| if rack_sent_before(a, b) { b } else { a })
+    }
+
+    /// cmux patch: the time at which `ts`-sent data counts as lost.
+    fn rack_expiry(&self, ts: Instant) -> Instant {
+        ts + Duration::from_millis(self.rtte.srtt as u64) + self.rack_reo_wnd()
+    }
+
+    /// cmux patch: RACK's loss rule (RFC 8985 6.2). Returns true when it
+    /// declared a record lost. A segment is lost when later-sent data was
+    /// SACKed and it has been out for srtt plus the reorder window.
+    fn rack_update(&mut self, now: Instant) -> bool {
+        if !self.sack_active() || !self.rtte.have_measurement {
+            return false;
+        }
+        self.rack.prune(self.local_seq_no);
+        let Some(delivered) = self.rack_delivered() else {
+            return false;
+        };
+        let ranges = self.sack_scoreboard.ranges();
+        let mut declared = false;
+        for i in 0..self.rack.len {
+            let (_, end, ts, lost) = self.rack.tx[i];
+            let sacked = ranges.iter().any(|&(s, e)| s < end && end <= e);
+            if !lost
+                && !sacked
+                && rack_sent_before((ts, end), delivered)
+                && self.rack_expiry(ts) <= now
+            {
+                self.rack.tx[i].3 = true;
+                declared = true;
+            }
+        }
+        declared
+    }
+
+    /// cmux patch: when RACK next has to look: the earliest expiry of
+    /// unSACKed data sent before the newest SACKed data. `None` if nothing
+    /// is waiting on the clock.
+    fn rack_deadline(&self) -> Option<Instant> {
+        if !self.sack_active() || !self.rtte.have_measurement {
+            return None;
+        }
+        let delivered = self.rack_delivered()?;
+        let ranges = self.sack_scoreboard.ranges();
+        self.rack.tx[..self.rack.len]
+            .iter()
+            .filter(|&&(_, end, ts, lost)| {
+                !lost
+                    && rack_sent_before((ts, end), delivered)
+                    && end > self.local_seq_no
+                    && !ranges.iter().any(|&(s, e)| s < end && end <= e)
+            })
+            .map(|&(_, _, ts, _)| self.rack_expiry(ts))
+            .min()
     }
 
     /// cmux patch: read the SACK blocks of an acceptable ACK, then enter or
@@ -1467,11 +1874,24 @@ impl<'a> Socket<'a> {
         // alone accept a block that spans more than half the sequence space.
         let una = self.local_seq_no.0 as u32;
         let flight = self.remote_last_seq - self.local_seq_no;
+        // The highest edge SACKed by this ACK, as an offset into the flight:
+        // a full scoreboard drops its highest ranges, so its last one can lag.
+        let mut sacked_high = 0;
+        // RFC 2883 DSACK: a first block below the cumulative ACK says data
+        // arrived twice, so a retransmission was spurious: reorder more.
+        if let Some((_, right)) = repr.sack_ranges[0]
+            && (right.wrapping_sub(una) as i32) <= 0
+            && self.rack.reo_mult < RACK_REO_MULT_MAX
+        {
+            self.rack.reo_mult += 1;
+        }
         for &(left, right) in repr.sack_ranges.iter().flatten() {
             let start = left.wrapping_sub(una) as usize;
             let end = right.wrapping_sub(una) as usize;
             if 0 < start && start < end && end <= flight {
-                self.sack_scoreboard.insert(self.local_seq_no + start, self.local_seq_no + end);
+                self.sack_scoreboard
+                    .insert(self.local_seq_no + start, self.local_seq_no + end);
+                sacked_high = sacked_high.max(end);
             }
         }
         if let Some(point) = self.sack_recovery_point
@@ -1486,9 +1906,33 @@ impl<'a> Socket<'a> {
         if self.sack_recovery_point.is_none() || self.sack_high_rxt < self.local_seq_no {
             self.sack_high_rxt = self.local_seq_no;
         }
+        // The head's resend is lost once the peer SACKed three segments of
+        // data sent after it: mark the head lost again (resending what was
+        // resent below `sack_high_rxt` along with it).
+        if let Some((head, sent_high)) = self.sack_head_rxt {
+            let threshold = SACK_DUP_THRESH * self.sack_segment();
+            if self.sack_recovery_point.is_none() || head != self.local_seq_no {
+                self.sack_head_rxt = None;
+            } else if sent_high - self.local_seq_no + threshold <= sacked_high {
+                net_debug!("SACK resend of {} lost, resending", head);
+                self.sack_head_rxt = None;
+                self.sack_high_rxt = self.local_seq_no;
+            }
+        }
+        self.rack_update(cx.now());
+        self.sack_evaluate(cx);
+    }
+
+    /// cmux patch: enter SACK recovery if a hole is lost, and cut the window
+    /// once per episode on a congestion signal.
+    fn sack_evaluate(&mut self, cx: &mut Context) {
         let scan = self.sack_scan();
         if self.sack_recovery_point.is_none() && scan.next_retransmit.is_some() {
-            net_debug!("SACK recovery from {} to {}", self.local_seq_no, self.remote_last_seq);
+            net_debug!(
+                "SACK recovery from {} to {}",
+                self.local_seq_no,
+                self.remote_last_seq
+            );
             self.sack_recovery_point = Some(self.remote_last_seq);
             self.sack_high_rxt = self.local_seq_no;
             self.sack_window_cut = false;
@@ -1501,7 +1945,9 @@ impl<'a> Socket<'a> {
             if self.loss_cuts_window() {
                 self.sack_window_cut = true;
                 let in_flight = self.flight_size();
-                self.congestion_controller.inner_mut().on_sack_loss(cx.now(), in_flight);
+                self.congestion_controller
+                    .inner_mut()
+                    .on_sack_loss(cx.now(), in_flight);
             }
         }
     }
@@ -1651,13 +2097,19 @@ impl<'a> Socket<'a> {
         self.sack_scoreboard.clear();
         self.sack_recovery_point = None;
         self.sack_high_rxt = TcpSeqNumber::default();
+        self.sack_head_rxt = None;
         self.sack_window_cut = false;
+        self.rack = Rack::default();
         self.local_mss = usize::MAX;
         self.path_change_retransmit = false;
         self.black_hole_rtos = 0;
         self.path_mss_cap = None;
         self.repaired_below = None;
         self.window_before_cut = None;
+        self.syn_data_in = false;
+        self.syn_data_acked = false;
+        self.syn_hold_until = None;
+        self.syn_data_taken = false;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
 
@@ -1788,13 +2240,19 @@ impl<'a> Socket<'a> {
         }
 
         self.reset();
-        self.tuple = Some(Tuple { local: local_endpoint, remote: remote_endpoint });
+        self.tuple = Some(Tuple {
+            local: local_endpoint,
+            remote: remote_endpoint,
+        });
         self.set_state(State::SynSent);
 
         let seq = Self::random_seq_no(cx);
         self.local_seq_no = seq;
         self.remote_last_seq = seq;
         self.remote_rewound = 0;
+        if self.syn_data && self.syn_data_hold > Duration::ZERO {
+            self.syn_hold_until = Some(cx.now() + self.syn_data_hold);
+        }
         Ok(())
     }
 
@@ -1913,6 +2371,10 @@ impl<'a> Socket<'a> {
             // In CLOSE-WAIT, the remote endpoint has closed our receive half of the connection
             // but we still can transmit indefinitely.
             State::CloseWait => true,
+            // cmux patch: data written before the SYN goes out rides on it,
+            // and a listener that took SYN data may reply before the last ACK.
+            State::SynSent => self.syn_data_open(),
+            State::SynReceived => self.syn_data_acked(),
             _ => false,
         }
     }
@@ -1932,6 +2394,12 @@ impl<'a> Socket<'a> {
             // In FIN-WAIT-1/2, we have closed our transmit half of the connection but
             // we still can receive indefinitely.
             State::FinWait1 | State::FinWait2 => true,
+            // cmux patch: a connection opened with SYN data is handed to its
+            // owner before it is established; its receive half is open.
+            // Until the SYN|ACK acknowledging SYN data is out, that data
+            // stays put: the stale-SYN rule (`recv_error_check`) holds.
+            State::SynSent if self.syn_data => true,
+            State::SynReceived => self.syn_data_acked(),
             // If we have something in the receive buffer, we can receive that.
             _ if self.can_recv() => true,
             _ => false,
@@ -1997,7 +2465,11 @@ impl<'a> Socket<'a> {
             }
 
             #[cfg(any(test, feature = "verbose"))]
-            tcp_trace!("tx buffer: enqueueing {} octets (now {})", size, old_length + size);
+            tcp_trace!(
+                "tx buffer: enqueueing {} octets (now {})",
+                size,
+                old_length + size
+            );
         }
         Ok(result)
     }
@@ -2052,7 +2524,11 @@ impl<'a> Socket<'a> {
         self.remote_seq_no += size;
         if size > 0 {
             #[cfg(any(test, feature = "verbose"))]
-            tcp_trace!("rx buffer: dequeueing {} octets (now {})", size, _old_length - size);
+            tcp_trace!(
+                "rx buffer: dequeueing {} octets (now {})",
+                size,
+                _old_length - size
+            );
         }
         Ok(result)
     }
@@ -2125,8 +2601,11 @@ impl<'a> Socket<'a> {
     /// cmux patch: after `remote_last_seq` moved, keep SND.MAX at
     /// `send_max` (or at `remote_last_seq`, once that passes it).
     fn keep_send_max(&mut self, send_max: TcpSeqNumber) {
-        self.remote_rewound =
-            if send_max > self.remote_last_seq { send_max - self.remote_last_seq } else { 0 };
+        self.remote_rewound = if send_max > self.remote_last_seq {
+            send_max - self.remote_last_seq
+        } else {
+            0
+        };
     }
 
     /// Number of octets transmitted but not yet ACKed.
@@ -2144,7 +2623,9 @@ impl<'a> Socket<'a> {
         } else {
             self.flight_size()
         };
-        self.congestion_controller.inner().window().saturating_sub(in_network)
+        let window = self.congestion_controller.inner().window();
+        let window = self.send_window_cap.map_or(window, |cap| window.min(cap));
+        window.saturating_sub(in_network)
     }
 
     /// Return the amount of octets queued in the receive buffer. This value can be larger than
@@ -2216,8 +2697,9 @@ impl<'a> Socket<'a> {
 
     fn ack_reply(&mut self, ip_repr: &IpRepr, repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
         let (mut ip_reply_repr, mut reply_repr) = Self::reply(ip_repr, repr);
-        reply_repr.timestamp =
-            repr.timestamp.and_then(|tcp_ts| tcp_ts.generate_reply(self.tsval_generator));
+        reply_repr.timestamp = repr
+            .timestamp
+            .and_then(|tcp_ts| tcp_ts.generate_reply(self.tsval_generator));
 
         // From RFC 793:
         // [...] an empty acknowledgment segment containing the current send-sequence number
@@ -2379,7 +2861,14 @@ impl<'a> Socket<'a> {
             (State::Listen, _, Some(_)) => unreachable!(),
             // SYN|ACK in the SYN-SENT state must have the exact ACK number.
             (State::SynSent, TcpControl::Syn, Some(ack_number)) => {
-                if ack_number != self.local_seq_no + 1 {
+                // cmux patch: with data on our SYN the SYN|ACK acknowledges the
+                // SYN alone (a peer that ignored the data) or some or all of it.
+                let acceptable = if self.syn_data {
+                    ack_number >= self.local_seq_no + 1 && ack_number <= self.send_max()
+                } else {
+                    ack_number == self.local_seq_no + 1
+                };
+                if !acceptable {
                     net_debug!("unacceptable SYN|ACK in response to initial SYN");
                     return Some(Self::rst_reply(ip_repr, repr));
                 }
@@ -2389,11 +2878,29 @@ impl<'a> Socket<'a> {
             // simultaneous open attempts (MUST-10)."
             (State::SynSent, TcpControl::Syn, None) => (),
             // ACKs in the SYN-SENT state are invalid.
-            (State::SynSent, TcpControl::None, Some(ack_number)) => {
+            (State::SynSent, TcpControl::None | TcpControl::Psh, Some(ack_number)) => {
                 // If the sequence number matches, ignore it instead of RSTing.
                 // I'm not sure why, I think it may be a workaround for broken TCP
                 // servers, or a defense against reordering. Either way, if Linux
                 // does it, we do too.
+                // cmux patch: or one acknowledging data on our SYN: a reply the
+                // peer sent after its SYN|ACK, which was lost or is behind it.
+                // The reply comes again. Our SYN goes again now, once and
+                // bare, rather than at our RTO: a peer that lost its SYN|ACK
+                // resends it, and the replies behind it, on our SYN.
+                if self.syn_data
+                    && ack_number > self.local_seq_no + 1
+                    && ack_number <= self.send_max()
+                {
+                    if !core::mem::replace(&mut self.syn_data_taken, true) {
+                        net_debug!("SYN data acknowledged before the SYN|ACK, resending the SYN");
+                        let send_max = self.send_max();
+                        self.remote_last_seq = self.local_seq_no;
+                        self.keep_send_max(send_max);
+                        self.rtte.on_retransmit();
+                    }
+                    return None;
+                }
                 if ack_number == self.local_seq_no + 1 {
                     net_debug!(
                         "expecting a SYN|ACK, received an ACK with the right ack_number, ignoring."
@@ -2411,6 +2918,17 @@ impl<'a> Socket<'a> {
                 net_debug!("expecting a SYN|ACK");
                 return None;
             }
+            // cmux patch: the peer sent its SYN again, so our SYN|ACK did not
+            // reach it, nor did the replies behind it (`set_syn_data`). They
+            // go again now rather than at our RTO.
+            (State::SynReceived, TcpControl::Syn, None) if self.syn_data_acked() => {
+                net_debug!("SYN again after SYN data, resending the SYN|ACK");
+                let send_max = self.send_max();
+                self.remote_last_seq = self.local_seq_no;
+                self.keep_send_max(send_max);
+                self.rtte.on_retransmit();
+                return None;
+            }
             // Every packet after the initial SYN must be an acknowledgement.
             (_, _, None) => {
                 net_debug!("expecting an ACK");
@@ -2418,7 +2936,14 @@ impl<'a> Socket<'a> {
             }
             // ACK in the SYN-RECEIVED state must have the exact ACK number, or we RST it.
             (State::SynReceived, _, Some(ack_number)) => {
-                if ack_number != self.local_seq_no + 1 {
+                // cmux patch: after SYN data the listener may have sent replies
+                // before this ACK; it may acknowledge them too.
+                let acceptable = if self.syn_data_in {
+                    ack_number >= self.local_seq_no + 1 && ack_number <= self.send_max()
+                } else {
+                    ack_number == self.local_seq_no + 1
+                };
+                if !acceptable {
                     net_debug!("unacceptable ACK in response to SYN|ACK");
                     return Some(Self::rst_reply(ip_repr, repr));
                 }
@@ -2437,7 +2962,12 @@ impl<'a> Socket<'a> {
                 }
 
                 if ack_number < ack_min {
-                    net_debug!("duplicate ACK ({} not in {}...{})", ack_number, ack_min, ack_max);
+                    net_debug!(
+                        "duplicate ACK ({} not in {}...{})",
+                        ack_number,
+                        ack_min,
+                        ack_max
+                    );
                     return None;
                 }
 
@@ -2462,6 +2992,9 @@ impl<'a> Socket<'a> {
         let segment_start = repr.seq_number;
         let segment_end = repr.seq_number + repr.payload.len();
 
+        // cmux patch: set when a segment past a closed receive window still
+        // counts for its ACK (below); `Some(true)` if it carried data.
+        let mut zero_window_reply: Option<bool> = None;
         let (payload, payload_offset) = match self.state {
             // In LISTEN and SYN-SENT states, we have not yet synchronized with the remote end.
             State::Listen | State::SynSent => (&[][..], 0),
@@ -2532,6 +3065,28 @@ impl<'a> Socket<'a> {
                         &repr.payload[overlap_start - segment_start..overlap_end - segment_start],
                         overlap_start - window_start,
                     )
+                } else if window_start == window_end
+                    && segment_start >= window_start
+                    && repr.ack_number.is_some()
+                    && matches!(repr.control, TcpControl::None | TcpControl::Psh)
+                    && matches!(
+                        self.state,
+                        State::Established | State::CloseWait | State::FinWait1 | State::FinWait2
+                    )
+                {
+                    // cmux patch: our receive window is closed, so the
+                    // segment's data is dropped, but not its ACK (RFC 9293
+                    // 3.10.7.4: "special allowance should be made to accept
+                    // valid ACKs"). The remote acknowledges what we send on
+                    // the segments it sends us: its data, or a pure ACK past
+                    // the data we dropped. Dropping those whole left our
+                    // send queue unacknowledged and the user timeout counting
+                    // from the last segment we did take, so a connection whose
+                    // peer kept acknowledging was reset after one timeout.
+                    // The ACK (and window) is processed with no payload, and
+                    // the reply the segment drew before is still sent.
+                    zero_window_reply = Some(!repr.payload.is_empty());
+                    (&[][..], 0)
                 } else {
                     // Out-of-window RSTs are silently dropped, per RFC 9293
                     // (3.10.7.4) and RFC 5961 (3.2): no reply is sent, and the
@@ -2540,6 +3095,27 @@ impl<'a> Socket<'a> {
                     if repr.control == TcpControl::Rst {
                         net_debug!("dropping out-of-window RST");
                         return None;
+                    }
+
+                    // cmux patch: a keep-alive probe (one octet, or none, just
+                    // below the window) proves the remote is alive as well as
+                    // the ACK it elicits proves us alive to it. Count it for
+                    // the timeout. The passive side (it listened) also pushes
+                    // its own probe a quarter interval past the remote's
+                    // next one: on an idle connection only the active side
+                    // then probes, half the datagrams, and its probes keep
+                    // our timeout as our own did. One side only: probes
+                    // that cross would defer both alike, and both would
+                    // still fire together.
+                    if repr.control == TcpControl::None
+                        && repr.payload.len() <= 1
+                        && segment_start + 1 == window_start
+                    {
+                        self.remote_last_ts = Some(cx.now());
+                        if self.listen_endpoint.port != 0 {
+                            let defer = self.keep_alive.map(|interval| interval + interval / 4);
+                            self.timer.rewind_keep_alive(cx.now(), defer);
+                        }
                     }
 
                     // If we're in the TIME-WAIT state, restart the TIME-WAIT timeout, since
@@ -2636,6 +3212,13 @@ impl<'a> Socket<'a> {
             // reason is TCP simultaneous open).
             (State::SynReceived, TcpControl::Rst) if self.listen_endpoint.port != 0 => {
                 tcp_trace!("received RST");
+                // cmux patch: a connection that took SYN data may already be
+                // its owner's; it ends instead of listening again.
+                if self.syn_data_in {
+                    self.set_state(State::Closed);
+                    self.tuple = None;
+                    return None;
+                }
                 self.tuple = None;
                 // cmux patch: the next SYN is a new connection: it gets the default
                 // MSS and a fresh controller (initial window), not this peer's.
@@ -2664,9 +3247,13 @@ impl<'a> Socket<'a> {
                 }
                 // cmux patch: size the congestion window in the segments this socket
                 // actually sends, min(local, remote) MSS, also when the peer sent none.
-                let local_mss = cx.ip_mtu().saturating_sub(ip_repr.header_len() + TCP_HEADER_LEN);
+                let local_mss = cx
+                    .ip_mtu()
+                    .saturating_sub(ip_repr.header_len() + TCP_HEADER_LEN);
                 self.local_mss = local_mss;
-                self.congestion_controller.inner_mut().set_mss(local_mss.min(self.remote_mss));
+                self.congestion_controller
+                    .inner_mut()
+                    .set_mss(local_mss.min(self.remote_mss));
 
                 self.tuple = Some(Tuple {
                     local: IpEndpoint::new(ip_repr.dst_addr(), repr.dst_port),
@@ -2674,6 +3261,13 @@ impl<'a> Socket<'a> {
                 });
                 self.local_seq_no = Self::random_seq_no(cx);
                 self.remote_seq_no = repr.seq_number + 1;
+                // cmux patch: keep data on the SYN (`set_syn_data`). What fits
+                // is enqueued; the SYN|ACK acknowledges exactly that, and the
+                // peer sends the rest again.
+                if self.syn_data && !repr.payload.is_empty() {
+                    let taken = self.rx_buffer.enqueue_slice(repr.payload);
+                    self.syn_data_in = taken > 0;
+                }
                 self.remote_last_seq = self.local_seq_no;
                 self.remote_rewound = 0;
                 self.remote_has_sack = repr.sack_permitted;
@@ -2720,9 +3314,13 @@ impl<'a> Socket<'a> {
                 }
                 // cmux patch: size the congestion window in the segments this socket
                 // actually sends, min(local, remote) MSS, also when the peer sent none.
-                let local_mss = cx.ip_mtu().saturating_sub(ip_repr.header_len() + TCP_HEADER_LEN);
+                let local_mss = cx
+                    .ip_mtu()
+                    .saturating_sub(ip_repr.header_len() + TCP_HEADER_LEN);
                 self.local_mss = local_mss;
-                self.congestion_controller.inner_mut().set_mss(local_mss.min(self.remote_mss));
+                self.congestion_controller
+                    .inner_mut()
+                    .set_mss(local_mss.min(self.remote_mss));
 
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no + 1;
@@ -2829,7 +3427,9 @@ impl<'a> Socket<'a> {
         let is_window_update = new_remote_win_len != self.remote_win_len;
         self.remote_win_len = new_remote_win_len;
 
-        self.congestion_controller.inner_mut().set_remote_window(new_remote_win_len);
+        self.congestion_controller
+            .inner_mut()
+            .set_remote_window(new_remote_win_len);
 
         if ack_len > 0 {
             // Dequeue acknowledged octets.
@@ -2867,7 +3467,11 @@ impl<'a> Socket<'a> {
                         "received duplicate ACK for seq {} (duplicate nr {}{})",
                         ack_number,
                         self.local_rx_dup_acks,
-                        if self.local_rx_dup_acks == u8::MAX { "+" } else { "" }
+                        if self.local_rx_dup_acks == u8::MAX {
+                            "+"
+                        } else {
+                            ""
+                        }
                     );
 
                     // cmux patch: with SACK, process_sack below decides what is
@@ -2951,9 +3555,17 @@ impl<'a> Socket<'a> {
                     self.arm_retransmit_timer(cx.now());
                 }
             }
-            Timer::Idle { .. } => {
+            Timer::Idle { keep_alive_at } => {
                 // any packet on idle refresh the keepalive timer.
-                self.timer.set_for_idle(cx.now(), self.keep_alive);
+                // cmux patch: but never earlier than a probe the remote's
+                // keep-alive deferred (above): the ACK to a probe of ours
+                // that crossed it would undo the deferral.
+                let fresh = self.keep_alive.map(|interval| cx.now() + interval);
+                let at = match (keep_alive_at, fresh) {
+                    (Some(deferred), Some(fresh)) => Some(deferred.max(fresh)),
+                    (_, fresh) => fresh,
+                };
+                self.timer = Timer::Idle { keep_alive_at: at };
             }
             _ => {}
         }
@@ -2976,13 +3588,20 @@ impl<'a> Socket<'a> {
 
         let payload_len = payload.len();
         if payload_len == 0 {
-            return None;
+            // cmux patch: the reply a segment past a closed window draws.
+            return match zero_window_reply {
+                Some(true) => Some(self.ack_reply(ip_repr, repr)),
+                Some(false) => self.challenge_ack_reply(cx, ip_repr, repr),
+                None => None,
+            };
         }
 
         let assembler_was_empty = self.assembler.is_empty();
 
         // Try adding payload octets to the assembler.
-        let Ok(contig_len) = self.assembler.add_then_remove_front(payload_offset, payload_len)
+        let Ok(contig_len) = self
+            .assembler
+            .add_then_remove_front(payload_offset, payload_len)
         else {
             net_debug!(
                 "assembler: too many holes to add {} octets at offset {}",
@@ -2993,7 +3612,11 @@ impl<'a> Socket<'a> {
         };
 
         // Place payload octets into the buffer.
-        tcp_trace!("rx buffer: receiving {} octets at offset {}", payload_len, payload_offset);
+        tcp_trace!(
+            "rx buffer: receiving {} octets at offset {}",
+            payload_len,
+            payload_offset
+        );
         let len_written = self.rx_buffer.write_unallocated(payload_offset, payload);
         debug_assert!(len_written == payload_len);
 
@@ -3080,7 +3703,11 @@ impl<'a> Socket<'a> {
         };
 
         // The effective max segment size, taking into account the options and the local and remote limits.
-        let options_len = if self.tsval_generator.is_some() { 12 } else { 0 };
+        let options_len = if self.tsval_generator.is_some() {
+            12
+        } else {
+            0
+        };
 
         let local_mss = self.capped_mss(cx.ip_mtu() - ip_header_len - TCP_HEADER_LEN);
         let effective_mss = local_mss.min(self.remote_mss).saturating_sub(options_len);
@@ -3090,12 +3717,23 @@ impl<'a> Socket<'a> {
 
         // If we want to send a SYN and we haven't done so, do it!
         if matches!(self.state, State::SynSent | State::SynReceived) && !data_in_flight {
-            return true;
+            // cmux patch: unless the SYN waits for the first write.
+            return self.syn_held(cx.now()).is_none();
         }
+
+        // cmux patch: past its SYN, a handshake sends data only as a listener
+        // that took SYN data (`set_syn_data`), behind its unacknowledged
+        // SYN|ACK, which takes one sequence number before the data.
+        let syn_len = match self.state {
+            State::SynSent => return false,
+            State::SynReceived if !self.syn_data_acked() => return false,
+            State::SynReceived => 1,
+            _ => 0,
+        };
 
         // max sequence number we can send.
         let max_send_seq =
-            self.local_seq_no + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
+            self.local_seq_no + syn_len + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
 
         // Max amount of octets we can send.
         let capped_send_seq = if max_send_seq >= self.remote_last_seq {
@@ -3228,7 +3866,14 @@ impl<'a> Socket<'a> {
             self.remote_last_ts = Some(cx.now());
         }
 
-        self.congestion_controller.inner_mut().pre_transmit(cx.now());
+        self.congestion_controller
+            .inner_mut()
+            .pre_transmit(cx.now());
+
+        // cmux patch: RACK's reorder timer may have declared data lost.
+        if !self.retransmit_paused && self.rack_update(cx.now()) {
+            self.sack_evaluate(cx);
+        }
 
         // Check if any state needs to be changed because of a timer.
         if self.timed_out(cx.now()) {
@@ -3262,7 +3907,9 @@ impl<'a> Socket<'a> {
                 // Inform the congestion controller that we're retransmitting and should enter the slow start state
                 let in_flight = self.flight_size();
                 if self.loss_cuts_window() {
-                    self.congestion_controller.inner_mut().on_rto(cx.now(), in_flight);
+                    self.congestion_controller
+                        .inner_mut()
+                        .on_rto(cx.now(), in_flight);
                 }
 
                 // Rewind "last sequence number sent", as if we never
@@ -3278,6 +3925,8 @@ impl<'a> Socket<'a> {
                 self.sack_scoreboard.clear();
                 self.sack_recovery_point = None;
                 self.sack_high_rxt = self.local_seq_no;
+                self.sack_head_rxt = None;
+                self.rack.clear();
 
                 if core::mem::take(&mut self.path_change_retransmit) {
                     // cmux patch: the path changed; the loss was the old
@@ -3297,7 +3946,9 @@ impl<'a> Socket<'a> {
                 // Inform the congestion controller that we're doing a fast retransmit and should enter the fast recovery state
                 let in_flight = self.flight_size();
                 if self.loss_cuts_window() {
-                    self.congestion_controller.inner_mut().on_loss(cx.now(), in_flight);
+                    self.congestion_controller
+                        .inner_mut()
+                        .on_loss(cx.now(), in_flight);
                 }
 
                 self.pending_fast_retransmit = true;
@@ -3404,6 +4055,33 @@ impl<'a> Socket<'a> {
             // We never transmit anything in the LISTEN state.
             State::Listen => return Ok(()),
 
+            // cmux patch: a listener that took SYN data sends replies after its
+            // SYN|ACK, before the handshake's last ACK (`set_syn_data`).
+            State::SynReceived
+                if self.syn_data_acked() && self.remote_last_seq != self.local_seq_no =>
+            {
+                let options_len = repr.header_len() - TCP_HEADER_LEN;
+                let local_mss =
+                    self.capped_mss(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN);
+                let effective_mss = local_mss.min(self.remote_mss).saturating_sub(options_len);
+                // The SYN|ACK takes the sequence number before the first byte.
+                let offset = self.remote_last_seq - (self.local_seq_no + 1);
+                let win_right_edge = self.local_seq_no + 1 + self.remote_win_len;
+                let win_limit = if win_right_edge >= self.remote_last_seq {
+                    win_right_edge - self.remote_last_seq
+                } else {
+                    0
+                };
+                let size = win_limit
+                    .min(effective_mss)
+                    .min(self.cwnd_remaining())
+                    .min(self.tx_buffer.len().saturating_sub(offset));
+                repr.payload = self.tx_buffer.get_allocated(offset, size);
+                if !repr.payload.is_empty() && offset + size == self.tx_buffer.len() {
+                    repr.control = TcpControl::Psh;
+                }
+            }
+
             // We transmit a SYN in the SYN-SENT state.
             // We transmit a SYN|ACK in the SYN-RECEIVED state.
             State::SynSent | State::SynReceived => {
@@ -3415,6 +4093,17 @@ impl<'a> Socket<'a> {
                     repr.ack_number = None;
                     repr.window_scale = Some(self.remote_win_shift);
                     repr.sack_permitted = true;
+                    // cmux patch: data written before the SYN rides on it, up
+                    // to a segment less the SYN's options (`set_syn_data`).
+                    if self.syn_data && !self.syn_data_taken && !self.tx_buffer.is_empty() {
+                        let local_mss =
+                            self.capped_mss(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN);
+                        // Both ends sit on the same tunnel, so its MTU, not
+                        // the 536-byte default, bounds the peer's segment.
+                        let room = local_mss.saturating_sub(SYN_OPTIONS_MAX);
+                        let size = room.min(self.tx_buffer.len());
+                        repr.payload = self.tx_buffer.get_allocated(0, size);
+                    }
                 } else {
                     repr.sack_permitted = self.remote_has_sack;
                     repr.window_scale = self.remote_win_scale.map(|_| self.remote_win_shift);
@@ -3670,9 +4359,24 @@ impl<'a> Socket<'a> {
         };
         self.remote_last_ack = repr.ack_number;
         self.remote_last_win = repr.window_len;
+        // cmux patch: the SYN|ACK acknowledging SYN data is out (`set_syn_data`).
+        if repr.control == TcpControl::Syn && repr.ack_number.is_some() {
+            self.syn_data_acked |= self.syn_data_in;
+        }
+
+        if !repr.payload.is_empty() {
+            self.rack.on_send(
+                repr.seq_number,
+                repr.seq_number + repr.payload.len(),
+                cx.now(),
+            );
+        }
 
         if is_sack_retransmit {
             self.sack_high_rxt = self.sack_high_rxt.max(repr.seq_number + repr.payload.len());
+            if repr.seq_number == self.local_seq_no {
+                self.sack_head_rxt = Some((self.local_seq_no, self.remote_last_seq));
+            }
             // Karn: no RTT sample from a retransmitted segment.
             self.rtte.on_retransmit();
             // Resending the head restarts the retransmit timer, probe
@@ -3695,8 +4399,11 @@ impl<'a> Socket<'a> {
         }
 
         if repr.segment_len() > 0 {
-            self.rtte.on_send(cx.now(), repr.seq_number + repr.segment_len());
-            self.congestion_controller.inner_mut().post_transmit(cx.now(), repr.segment_len());
+            self.rtte
+                .on_send(cx.now(), repr.seq_number + repr.segment_len());
+            self.congestion_controller
+                .inner_mut()
+                .post_transmit(cx.now(), repr.segment_len());
         }
 
         if repr.segment_len() > 0 && !self.timer.is_retransmit() {
@@ -3731,6 +4438,9 @@ impl<'a> Socket<'a> {
         } else if self.state == State::Closed {
             // Socket was aborted, we have an RST packet to transmit.
             PollAt::Now
+        } else if let Some(until) = self.syn_held(cx.now()) {
+            // cmux patch: the SYN waits for the first write, or until then.
+            PollAt::Time(until)
         } else if self.seq_to_transmit(cx) {
             // We have a data or flag packet to transmit.
             PollAt::Now
@@ -3769,11 +4479,22 @@ impl<'a> Socket<'a> {
                 _ => self.timer.poll_at(),
             };
 
+            // cmux patch: and for RACK's reorder timer.
+            let rack_poll_at = match self.rack_deadline() {
+                Some(t) if !self.retransmit_paused => PollAt::Time(t),
+                _ => PollAt::Ingress,
+            };
+
             // We wait for the earliest of our timers to fire.
-            *[timer_poll_at, timeout_poll_at, delayed_ack_poll_at]
-                .iter()
-                .min()
-                .unwrap_or(&PollAt::Ingress)
+            *[
+                timer_poll_at,
+                timeout_poll_at,
+                delayed_ack_poll_at,
+                rack_poll_at,
+            ]
+            .iter()
+            .min()
+            .unwrap_or(&PollAt::Ingress)
         }
     }
 }
@@ -3781,7 +4502,11 @@ impl<'a> Socket<'a> {
 impl<'a> fmt::Write for Socket<'a> {
     fn write_str(&mut self, slice: &str) -> fmt::Result {
         let slice = slice.as_bytes();
-        if self.send_slice(slice) == Ok(slice.len()) { Ok(()) } else { Err(fmt::Error) }
+        if self.send_slice(slice) == Ok(slice.len()) {
+            Ok(())
+        } else {
+            Err(fmt::Error)
+        }
     }
 }
 
@@ -3802,8 +4527,14 @@ mod test {
 
     const LOCAL_PORT: u16 = 80;
     const REMOTE_PORT: u16 = 49500;
-    const LISTEN_END: IpListenEndpoint = IpListenEndpoint { addr: None, port: LOCAL_PORT };
-    const TUPLE: Tuple = Tuple { local: LOCAL_END, remote: REMOTE_END };
+    const LISTEN_END: IpListenEndpoint = IpListenEndpoint {
+        addr: None,
+        port: LOCAL_PORT,
+    };
+    const TUPLE: Tuple = Tuple {
+        local: LOCAL_END,
+        remote: REMOTE_END,
+    };
     const LOCAL_SEQ: TcpSeqNumber = TcpSeqNumber(10000);
     const REMOTE_SEQ: TcpSeqNumber = TcpSeqNumber(-10001);
 
@@ -3950,16 +4681,18 @@ mod test {
         socket.cx.set_now(timestamp);
 
         let mut sent = 0;
-        let result = socket.socket.dispatch(&mut socket.cx, |_, _, (ip_repr, tcp_repr)| {
-            assert_eq!(ip_repr.next_header(), IpProtocol::Tcp);
-            assert_eq!(ip_repr.src_addr(), LOCAL_ADDR.into());
-            assert_eq!(ip_repr.dst_addr(), REMOTE_ADDR.into());
-            assert_eq!(ip_repr.payload_len(), tcp_repr.buffer_len());
+        let result = socket
+            .socket
+            .dispatch(&mut socket.cx, |_, _, (ip_repr, tcp_repr)| {
+                assert_eq!(ip_repr.next_header(), IpProtocol::Tcp);
+                assert_eq!(ip_repr.src_addr(), LOCAL_ADDR.into());
+                assert_eq!(ip_repr.dst_addr(), REMOTE_ADDR.into());
+                assert_eq!(ip_repr.payload_len(), tcp_repr.buffer_len());
 
-            net_trace!("recv: {}", tcp_repr);
-            sent += 1;
-            Ok(f(Ok(tcp_repr)))
-        });
+                net_trace!("recv: {}", tcp_repr);
+                sent += 1;
+                Ok(f(Ok(tcp_repr)))
+            });
         match result {
             Ok(()) => assert_eq!(sent, 1, "Exactly one packet should be sent"),
             Err(e) => f(Err(e)),
@@ -4052,7 +4785,10 @@ mod test {
         let tx_buffer = SocketBuffer::new(vec![0; tx_len]);
         let mut socket = Socket::new(rx_buffer, tx_buffer);
         socket.set_ack_delay(None);
-        TestSocket { socket, cx: iface.inner }
+        TestSocket {
+            socket,
+            cx: iface.inner,
+        }
     }
 
     fn socket_syn_received_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
@@ -4116,7 +4852,9 @@ mod test {
         s.state = State::Closing;
         s.remote_last_seq = LOCAL_SEQ + 1 + 1;
         s.remote_seq_no = REMOTE_SEQ + 1 + 1;
-        s.timer = Timer::Retransmit { expires_at: Instant::from_millis_const(1000) };
+        s.timer = Timer::Retransmit {
+            expires_at: Instant::from_millis_const(1000),
+        };
         s
     }
 
@@ -4127,7 +4865,9 @@ mod test {
         if from_closing {
             s.remote_last_ack = Some(REMOTE_SEQ + 1 + 1);
         }
-        s.timer = Timer::Close { expires_at: Instant::from_secs(1) + CLOSE_DELAY };
+        s.timer = Timer::Close {
+            expires_at: Instant::from_secs(1) + CLOSE_DELAY,
+        };
         s
     }
 
@@ -4176,7 +4916,10 @@ mod test {
         let mut s = socket();
         assert_eq!(s.state, State::Closed);
 
-        let tcp_repr = TcpRepr { control: TcpControl::Syn, ..SEND_TEMPL };
+        let tcp_repr = TcpRepr {
+            control: TcpControl::Syn,
+            ..SEND_TEMPL
+        };
         assert!(!s.socket.accepts(&mut s.cx, &SEND_IP_TEMPL, &tcp_repr));
     }
 
@@ -4186,7 +4929,10 @@ mod test {
         s.listen(LOCAL_END).unwrap();
         s.close();
 
-        let tcp_repr = TcpRepr { control: TcpControl::Syn, ..SEND_TEMPL };
+        let tcp_repr = TcpRepr {
+            control: TcpControl::Syn,
+            ..SEND_TEMPL
+        };
         assert!(!s.socket.accepts(&mut s.cx, &SEND_IP_TEMPL, &tcp_repr));
     }
 
@@ -4414,6 +5160,241 @@ mod test {
     // Tests for the SYN-RECEIVED state.
     // =========================================================================================//
 
+    // cmux patch: data on the SYN, end to end between two sockets.
+
+    fn owned(tcp: &TcpRepr) -> TcpRepr<'static> {
+        TcpRepr {
+            src_port: tcp.src_port,
+            dst_port: tcp.dst_port,
+            control: tcp.control,
+            seq_number: tcp.seq_number,
+            ack_number: tcp.ack_number,
+            window_len: tcp.window_len,
+            window_scale: tcp.window_scale,
+            max_seg_size: tcp.max_seg_size,
+            sack_permitted: tcp.sack_permitted,
+            sack_ranges: tcp.sack_ranges,
+            timestamp: tcp.timestamp,
+            payload: Box::leak(tcp.payload.to_vec().into_boxed_slice()),
+        }
+    }
+
+    /// Move the next segment `from` sends to `to` (and `to`'s immediate
+    /// reply back). Returns the segment's control and payload, if one went.
+    fn hop(from: &mut TestSocket, to: &mut TestSocket) -> Option<(TcpControl, Vec<u8>)> {
+        let mut out: Option<(IpRepr, TcpRepr<'static>)> = None;
+        let _ = from.socket.dispatch(&mut from.cx, |_, _, (ip, tcp)| {
+            out = Some((ip, owned(&tcp)));
+            Ok::<(), ()>(())
+        });
+        let (ip, tcp) = out?;
+        if to.socket.accepts(&mut to.cx, &ip, &tcp)
+            && let Some((reply_ip, reply)) = to.socket.process(&mut to.cx, &ip, &tcp)
+        {
+            let reply = owned(&reply);
+            if from.socket.accepts(&mut from.cx, &reply_ip, &reply) {
+                let _ = from.socket.process(&mut from.cx, &reply_ip, &reply);
+            }
+        }
+        Some((tcp.control, tcp.payload.to_vec()))
+    }
+
+    fn syn_data_pair(server_takes_it: bool) -> (TestSocket, TestSocket) {
+        let mut client = socket_syn_sent();
+        client.socket.set_syn_data(true);
+        let mut server = socket();
+        let mut addrs = heapless::Vec::<IpCidr, IFACE_MAX_ADDR_COUNT>::new();
+        addrs.push(IpCidr::new(REMOTE_ADDR.into(), 24)).unwrap();
+        server.cx.set_ip_addrs(addrs);
+        server.socket.set_syn_data(server_takes_it);
+        // As cmux-wg's sockets: Nagle would hold a reply behind the SYN|ACK.
+        server.socket.set_nagle_enabled(false);
+        client.socket.set_nagle_enabled(false);
+        server.socket.listen(REMOTE_PORT).unwrap();
+        (client, server)
+    }
+
+    fn drain(socket: &mut TestSocket) -> Vec<u8> {
+        let mut got = vec![];
+        while socket.socket.can_recv() {
+            let mut buffer = [0u8; 64];
+            let count = socket.socket.recv_slice(&mut buffer).unwrap();
+            got.extend_from_slice(&buffer[..count]);
+        }
+        got
+    }
+
+    #[test]
+    fn test_syn_data_peer_ignores_it_falls_back_without_double_delivery() {
+        let (mut client, mut server) = syn_data_pair(false);
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        // The data rides on the SYN; the peer acknowledges only the SYN.
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"hello".to_vec()));
+        assert_eq!(server.socket.state(), State::SynReceived);
+        assert_eq!(server.socket.recv_queue(), 0);
+        let syn_ack = hop(&mut server, &mut client).unwrap();
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert_eq!(client.socket.state(), State::Established);
+        // Sent again as ordinary data, once.
+        let resent = hop(&mut client, &mut server).unwrap();
+        assert_eq!(resent.1, b"hello".to_vec());
+        for _ in 0..8 {
+            hop(&mut server, &mut client);
+            hop(&mut client, &mut server);
+        }
+        assert_eq!(server.socket.state(), State::Established);
+        assert_eq!(drain(&mut server), b"hello".to_vec());
+        assert!(client.socket.tx_buffer.is_empty());
+        assert_eq!(client.socket.local_seq_no, LOCAL_SEQ + 1 + 5);
+    }
+
+    #[test]
+    fn test_syn_data_peer_takes_it_and_replies_before_the_last_ack() {
+        let (mut client, mut server) = syn_data_pair(true);
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"hello".to_vec()));
+        // Kept, but not readable until the SYN|ACK acknowledging it is out.
+        assert_eq!(server.socket.state(), State::SynReceived);
+        assert!(!server.socket.syn_data_acked());
+        assert!(server.socket.recv_slice(&mut [0u8; 8]).is_err());
+        assert!(
+            !client.socket.may_send(),
+            "the SYN is out: later writes wait"
+        );
+        let syn_ack = hop(&mut server, &mut client).unwrap();
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert!(server.socket.syn_data_acked());
+        assert_eq!(client.socket.state(), State::Established);
+        assert!(
+            client.socket.tx_buffer.is_empty(),
+            "the SYN|ACK acknowledged it"
+        );
+        assert_eq!(drain(&mut server), b"hello".to_vec());
+        // The listener replies before the handshake's last ACK arrives.
+        assert_eq!(server.socket.send_slice(b"world"), Ok(5));
+        let reply = hop(&mut server, &mut client).unwrap();
+        assert_eq!(reply.1, b"world".to_vec());
+        assert_eq!(server.socket.state(), State::SynReceived);
+        for _ in 0..8 {
+            hop(&mut client, &mut server);
+            hop(&mut server, &mut client);
+        }
+        assert_eq!(server.socket.state(), State::Established);
+        assert_eq!(drain(&mut client), b"world".to_vec());
+        assert_eq!(drain(&mut server), b"");
+        assert!(server.socket.tx_buffer.is_empty());
+        // Nothing was sent twice.
+        assert_eq!(client.socket.remote_last_seq, LOCAL_SEQ + 1 + 5);
+    }
+
+    /// The next segment `from` sends, lost on the way.
+    fn lose(from: &mut TestSocket) -> Option<(TcpControl, Vec<u8>)> {
+        let mut out = None;
+        let _ = from.socket.dispatch(&mut from.cx, |_, _, (_, tcp)| {
+            out = Some((tcp.control, tcp.payload.to_vec()));
+            Ok::<(), ()>(())
+        });
+        out
+    }
+
+    #[test]
+    fn test_syn_data_lost_syn_ack_is_resent_on_the_reply_not_the_rto() {
+        let (mut client, mut server) = syn_data_pair(true);
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        hop(&mut client, &mut server).unwrap();
+        // The SYN|ACK is lost; the reply behind it arrives.
+        assert_eq!(lose(&mut server).unwrap().0, TcpControl::Syn);
+        assert_eq!(drain(&mut server), b"hello".to_vec());
+        assert_eq!(server.socket.send_slice(b"world"), Ok(5));
+        let reply = hop(&mut server, &mut client).unwrap();
+        assert_eq!(reply.1, b"world".to_vec());
+        assert_eq!(client.socket.state(), State::SynSent);
+        // With no clock moving (no RTO), the client sends its SYN again,
+        // bare, and the server its SYN|ACK and the reply.
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, vec![]));
+        let syn_ack = hop(&mut server, &mut client).unwrap();
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert_eq!(client.socket.state(), State::Established);
+        assert!(client.socket.tx_buffer.is_empty());
+        for _ in 0..8 {
+            hop(&mut server, &mut client);
+            hop(&mut client, &mut server);
+        }
+        assert_eq!(server.socket.state(), State::Established);
+        // Each byte once, each way.
+        assert_eq!(drain(&mut client), b"world".to_vec());
+        assert_eq!(drain(&mut server), b"");
+        assert!(server.socket.tx_buffer.is_empty());
+        assert_eq!(client.socket.local_seq_no, LOCAL_SEQ + 1 + 5);
+    }
+
+    #[test]
+    fn test_syn_data_resent_syn_draws_the_syn_ack_again() {
+        let (mut client, mut server) = syn_data_pair(true);
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        hop(&mut client, &mut server).unwrap();
+        // The SYN|ACK and the reply are both lost.
+        lose(&mut server).unwrap();
+        assert_eq!(server.socket.send_slice(b"world"), Ok(5));
+        assert_eq!(lose(&mut server).unwrap().1, b"world".to_vec());
+        // The client's RTO resends its SYN, data and all; the server answers
+        // at once, not at its own RTO.
+        client.cx.set_now(client.cx.now() + Duration::from_secs(4));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"hello".to_vec()));
+        let syn_ack = hop(&mut server, &mut client).unwrap();
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert_eq!(client.socket.state(), State::Established);
+        for _ in 0..8 {
+            hop(&mut server, &mut client);
+            hop(&mut client, &mut server);
+        }
+        assert_eq!(server.socket.state(), State::Established);
+        assert_eq!(drain(&mut client), b"world".to_vec());
+        assert_eq!(drain(&mut server), b"hello".to_vec());
+    }
+
+    #[test]
+    fn test_syn_data_hold_waits_for_the_first_write() {
+        let (mut client, mut server) = syn_data_pair(true);
+        let start = client.cx.now();
+        client.socket.syn_hold_until = Some(start + Duration::from_millis(20));
+        // Held: no SYN until a write or the hold's end.
+        assert!(hop(&mut client, &mut server).is_none());
+        assert_eq!(
+            client.socket.poll_at(&mut client.cx),
+            PollAt::Time(start + Duration::from_millis(20))
+        );
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"hello".to_vec()));
+    }
+
+    #[test]
+    fn test_syn_data_hold_ends_with_a_bare_syn() {
+        let (mut client, mut server) = syn_data_pair(true);
+        let start = client.cx.now();
+        client.socket.syn_hold_until = Some(start + Duration::from_millis(20));
+        assert!(hop(&mut client, &mut server).is_none());
+        client.cx.set_now(start + Duration::from_millis(20));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, vec![]));
+    }
+
+    #[test]
+    fn test_syn_data_off_keeps_the_plain_handshake() {
+        let mut client = socket_syn_sent();
+        assert!(!client.socket.may_send());
+        assert!(client.socket.send_slice(b"hello").is_err());
+        let mut server = socket();
+        server.socket.listen(REMOTE_PORT).unwrap();
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, vec![]));
+    }
+
     #[test]
     fn test_syn_received_ack() {
         let mut s = socket_syn_received();
@@ -4429,7 +5410,11 @@ mod test {
         );
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         assert_eq!(s.state, State::Established);
         sanity!(s, socket_established());
@@ -4457,7 +5442,11 @@ mod test {
         );
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         assert_eq!(s.state, State::Established);
     }
@@ -4685,15 +5674,18 @@ mod test {
     fn test_connect_validation() {
         let mut s = socket();
         assert_eq!(
-            s.socket.connect(&mut s.cx, REMOTE_END, (IpvXAddress::UNSPECIFIED, 0)),
+            s.socket
+                .connect(&mut s.cx, REMOTE_END, (IpvXAddress::UNSPECIFIED, 0)),
             Err(ConnectError::Unaddressable)
         );
         assert_eq!(
-            s.socket.connect(&mut s.cx, REMOTE_END, (IpvXAddress::UNSPECIFIED, 1024)),
+            s.socket
+                .connect(&mut s.cx, REMOTE_END, (IpvXAddress::UNSPECIFIED, 1024)),
             Err(ConnectError::Unaddressable)
         );
         assert_eq!(
-            s.socket.connect(&mut s.cx, (IpvXAddress::UNSPECIFIED, 0), LOCAL_END),
+            s.socket
+                .connect(&mut s.cx, (IpvXAddress::UNSPECIFIED, 0), LOCAL_END),
             Err(ConnectError::Unaddressable)
         );
         s.socket
@@ -4706,7 +5698,9 @@ mod test {
     fn test_connect() {
         let mut s = socket();
         s.local_seq_no = LOCAL_SEQ;
-        s.socket.connect(&mut s.cx, REMOTE_END, LOCAL_END.port).unwrap();
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
         assert_eq!(s.tuple, Some(TUPLE));
         recv!(
             s,
@@ -4738,7 +5732,9 @@ mod test {
     fn test_connect_synack_tiny_mss_is_clamped() {
         let mut s = socket();
         s.local_seq_no = LOCAL_SEQ;
-        s.socket.connect(&mut s.cx, REMOTE_END, LOCAL_END.port).unwrap();
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
         recv!(
             s,
             [TcpRepr {
@@ -4770,7 +5766,9 @@ mod test {
     fn test_connect_synack_zero_mss_is_ignored() {
         let mut s = socket();
         s.local_seq_no = LOCAL_SEQ;
-        s.socket.connect(&mut s.cx, REMOTE_END, LOCAL_END.port).unwrap();
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
         recv!(
             s,
             [TcpRepr {
@@ -4807,14 +5805,20 @@ mod test {
     #[test]
     fn test_connect_specified_local() {
         let mut s = socket();
-        assert_eq!(s.socket.connect(&mut s.cx, REMOTE_END, (REMOTE_ADDR, 80)), Ok(()));
+        assert_eq!(
+            s.socket.connect(&mut s.cx, REMOTE_END, (REMOTE_ADDR, 80)),
+            Ok(())
+        );
     }
 
     #[test]
     fn test_connect_twice() {
         let mut s = socket();
         assert_eq!(s.socket.connect(&mut s.cx, REMOTE_END, 80), Ok(()));
-        assert_eq!(s.socket.connect(&mut s.cx, REMOTE_END, 80), Err(ConnectError::InvalidState));
+        assert_eq!(
+            s.socket.connect(&mut s.cx, REMOTE_END, 80),
+            Err(ConnectError::InvalidState)
+        );
     }
 
     #[test]
@@ -4853,7 +5857,11 @@ mod test {
         );
         recv!(
             s,
-            [TcpRepr { seq_number: LOCAL_SEQ + 1, ack_number: Some(REMOTE_SEQ + 1), ..RECV_TEMPL }]
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                ..RECV_TEMPL
+            }]
         );
         recv_nothing!(s, time 1000);
         assert_eq!(s.state, State::Established);
@@ -5379,7 +6387,10 @@ mod test {
         let actually_peeked = s.peek_slice(&mut peeked_buf[..]).unwrap();
         let mut recv_buf = [0u8; BUF_SIZE];
         let actually_recvd = s.recv_slice(&mut recv_buf[..]).unwrap();
-        assert_eq!(&mut peeked_buf[..actually_peeked], &mut recv_buf[..actually_recvd]);
+        assert_eq!(
+            &mut peeked_buf[..actually_peeked],
+            &mut recv_buf[..actually_recvd]
+        );
     }
 
     #[test]
@@ -5398,7 +6409,10 @@ mod test {
         let actually_peeked = s.peek_slice(&mut peeked_buf[..]).unwrap();
         let mut recv_buf = [0u8; BUF_SIZE];
         let actually_recvd = s.recv_slice(&mut recv_buf[..]).unwrap();
-        assert_eq!(&mut peeked_buf[..actually_peeked], &mut recv_buf[..actually_recvd]);
+        assert_eq!(
+            &mut peeked_buf[..actually_peeked],
+            &mut recv_buf[..actually_recvd]
+        );
     }
 
     fn setup_rfc2018_cases() -> (TestSocket, Vec<u8>) {
@@ -5521,7 +6535,11 @@ mod test {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(TcpSeqNumber(-4)),
                 window_len: 64,
-                sack_ranges: [Some(((-4_i32 + 10) as u32, (-4_i32 + 20) as u32,)), None, None,],
+                sack_ranges: [
+                    Some(((-4_i32 + 10) as u32, (-4_i32 + 20) as u32,)),
+                    None,
+                    None,
+                ],
                 ..RECV_TEMPL
             })
         );
@@ -5854,7 +6872,14 @@ mod test {
     #[test]
     fn test_established_no_ack() {
         let mut s = socket_established();
-        send!(s, TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: None, ..SEND_TEMPL });
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: None,
+                ..SEND_TEMPL
+            }
+        );
     }
 
     #[test]
@@ -5873,7 +6898,11 @@ mod test {
         // Data not yet transmitted.
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 10), ..SEND_TEMPL },
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 10),
+                ..SEND_TEMPL
+            },
             Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
@@ -6118,7 +7147,9 @@ mod test {
         let mut s = socket();
         s.set_tsval_generator(Some(|| 1));
         s.local_seq_no = LOCAL_SEQ;
-        s.socket.connect(&mut s.cx, REMOTE_END, LOCAL_END.port).unwrap();
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
         recv!(
             s,
             [TcpRepr {
@@ -6622,7 +7653,12 @@ mod test {
             ack_number: Some(REMOTE_SEQ + 1 + 1),
             ..RECV_TEMPL
         }));
-        assert_eq!(s.timer, Timer::Close { expires_at: Instant::from_secs(5) + CLOSE_DELAY });
+        assert_eq!(
+            s.timer,
+            Timer::Close {
+                expires_at: Instant::from_secs(5) + CLOSE_DELAY
+            }
+        );
     }
 
     #[test]
@@ -6873,7 +7909,11 @@ mod test {
         );
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         assert_eq!(s.state(), State::Established);
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
@@ -7310,6 +8350,38 @@ mod test {
 
     #[test]
     #[cfg(feature = "socket-tcp-reno")]
+    fn test_send_window_cap_limits_data_in_flight_below_cwnd() {
+        let mut s = socket_established_with_buffer_sizes(8192, 64);
+        s.set_congestion_control(CongestionControl::Reno);
+        s.remote_win_len = 65535;
+        s.remote_mss = 1024;
+        // Reno's initial window is 2048 bytes; the cap allows one segment.
+        s.set_send_window_cap(Some(1024));
+        assert_eq!(s.send_window_cap(), Some(1024));
+
+        let data = [b'x'; 8192];
+        s.send_slice(&data[..]).unwrap();
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &data[..1024],
+            ..RECV_TEMPL
+        }));
+        recv_nothing!(s, time 0);
+
+        // Lifting the cap lets the congestion window's second segment out.
+        s.set_send_window_cap(None);
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 1024,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &data[..1024],
+            ..RECV_TEMPL
+        }));
+        recv_nothing!(s, time 0);
+    }
+
+    #[test]
+    #[cfg(feature = "socket-tcp-reno")]
     fn test_congestion_window_doesnt_limit_fast_retransmit() {
         let mut s = socket_established_with_buffer_sizes(8192, 64);
         s.set_congestion_control(CongestionControl::Reno);
@@ -7450,7 +8522,9 @@ mod test {
         s.cx.set_now(Instant::from_millis(1001));
         s.remote_win_len = 0;
         s.socket.ack_delay_timer = AckDelayTimer::Immediate;
-        s.socket.remote_last_ack = None;
+        // An ACK is owed: the last one sent lags what was received. (`None`
+        // owes nothing: `ack_to_transmit` is false for it.)
+        s.socket.remote_last_ack = Some(REMOTE_SEQ);
         let _ = s.socket.dispatch(&mut s.cx, |_, _, (_, repr)| {
             if repr.payload.is_empty() {
                 acks.push(repr.seq_number);
@@ -7600,7 +8674,11 @@ mod test {
         }));
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         assert_eq!(s.state(), State::Established);
         s.send_slice(b"abcdef").unwrap();
@@ -7631,7 +8709,11 @@ mod test {
         // ACK nothing new
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         // Retransmit
         recv!(s, time 4000, Ok(TcpRepr {
@@ -7909,17 +8991,29 @@ mod test {
         // Normal ACK of previously received segment
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         // First duplicate
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         // Second duplicate
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
 
         assert_eq!(s.local_rx_dup_acks, 2, "duplicate ACK counter is not set");
@@ -7967,17 +9061,29 @@ mod test {
         // Normal ACK of previously received segment
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         // First duplicate
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         // Second duplicate
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
 
         assert_eq!(s.local_rx_dup_acks, 2, "duplicate ACK counter is not set");
@@ -8186,7 +9292,10 @@ mod test {
 
         // Ensure an RTO timer is set in the future (not immediately to avoid a busy loop).
         recv_nothing!(s, time 1051);
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(2050)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(2050))
+        );
     }
 
     #[test]
@@ -8491,7 +9600,10 @@ mod test {
 
         let (interface, _, _) =
             crate::tests::segmentation_offload::setup_segmenting(crate::phy::Medium::Ip);
-        let mut s = TestSocket { cx: interface.inner, ..socket_listen() };
+        let mut s = TestSocket {
+            cx: interface.inner,
+            ..socket_listen()
+        };
         s.tx_buffer = SocketBuffer::new(vec![0; 2 * MAX_SEGMENTABLE_SIZE]);
 
         send!(
@@ -9282,7 +10394,8 @@ mod test {
         // Arm the probe timer. (Set directly because the ACK above carries no
         // new data; in real traffic this state is reached e.g. when the
         // controller shrinks cwnd below the flight size while probing.)
-        s.timer.set_for_zero_window_probe(Instant::from_millis(10), Duration::from_millis(100));
+        s.timer
+            .set_for_zero_window_probe(Instant::from_millis(10), Duration::from_millis(100));
 
         // The probe must carry 1 byte of data past the window edge even though
         // the congestion window is exhausted: an empty probe occupies no
@@ -9501,13 +10614,19 @@ mod test {
             ..SEND_TEMPL
         });
         // Retransmit timer is armed (RFC 6298 (5.3)).
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(1100)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(1100))
+        );
 
         recv_nothing!(s, time 1099);
         // Retransmit timer fires but the window is closed so nothing is received.
         recv_nothing!(s, time 1100);
         // Zero-window probe timer is armed (RFC 9293 §3.8.6.1)
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(3100)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(3100))
+        );
 
         // Reopen the window.
         send!(s, time 2000, TcpRepr {
@@ -9527,7 +10646,10 @@ mod test {
             ..RECV_TEMPL
         }), exact);
         // Retransmit timer is armed.
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(4000)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(4000))
+        );
     }
 
     #[test]
@@ -9544,7 +10666,10 @@ mod test {
         }), exact);
 
         // Retransmit timer is armed.
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(1000)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(1000))
+        );
 
         // Close the window, no ack.
         send!(s, time 600, TcpRepr {
@@ -9554,14 +10679,20 @@ mod test {
             ..SEND_TEMPL
         });
         // Retransmit timer is untouched as nothing was Ack'ed.
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(1000)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(1000))
+        );
 
         recv_nothing!(s, time 999);
         // Timer expires, but window is closed.
         recv_nothing!(s, time 1000);
 
         // Expect a zero-window probe to be scheduled.
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(3000)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(3000))
+        );
 
         // Per RFC 9293 §3.8.6.1 we expect a 1 byte probe to be sent.
         recv!(s, time 3000, Ok(TcpRepr {
@@ -9571,7 +10702,10 @@ mod test {
             ..RECV_TEMPL
         }), exact);
         // Exponential backoff of the zero-window probe timer.
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(7000)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(7000))
+        );
         recv!(s, time 7000, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -9596,7 +10730,10 @@ mod test {
             ..RECV_TEMPL
         }), exact);
         // The retransmit timer is armed again.
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(10000)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(10000))
+        );
     }
 
     // =========================================================================================//
@@ -9614,7 +10751,9 @@ mod test {
     fn test_connect_timeout() {
         let mut s = socket();
         s.local_seq_no = LOCAL_SEQ;
-        s.socket.connect(&mut s.cx, REMOTE_END, LOCAL_END.port).unwrap();
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
         s.set_timeout(Some(Duration::from_millis(100)));
         recv!(s, time 150, Ok(TcpRepr {
             control:    TcpControl::Syn,
@@ -9626,7 +10765,10 @@ mod test {
             ..RECV_TEMPL
         }));
         assert_eq!(s.state, State::SynSent);
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(250)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(250))
+        );
         recv!(s, time 250, Ok(TcpRepr {
             control:    TcpControl::Rst,
             seq_number: LOCAL_SEQ + 1,
@@ -9642,7 +10784,10 @@ mod test {
         let mut s = socket_established();
         s.set_timeout(Some(Duration::from_millis(2000)));
         recv_nothing!(s, time 250);
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(2250)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(2250))
+        );
         s.send_slice(b"abcdef").unwrap();
         assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Now);
         recv!(s, time 255, Ok(TcpRepr {
@@ -9651,20 +10796,169 @@ mod test {
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }));
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(1255)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(1255))
+        );
         recv!(s, time 1255, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }));
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(2255)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(2255))
+        );
         recv!(s, time 2255, Ok(TcpRepr {
             control:    TcpControl::Rst,
             seq_number: LOCAL_SEQ + 1 + 6,
             ack_number: Some(REMOTE_SEQ + 1),
             ..RECV_TEMPL
         }));
+        assert_eq!(s.state, State::Closed);
+    }
+
+    /// cmux patch: what the socket sends at `ms`, as (seq, payload length,
+    /// control), every segment it has.
+    fn sent_at(s: &mut TestSocket, ms: i64) -> Vec<(TcpSeqNumber, usize, TcpControl)> {
+        s.cx.set_now(Instant::from_millis(ms));
+        let mut out = Vec::new();
+        while out.len() < 64 {
+            let mut got = None;
+            let _ = s.socket.dispatch(&mut s.cx, |_, _, (_, repr)| {
+                got = Some((
+                    repr.seq_number,
+                    repr.payload.len(),
+                    repr.control.quash_psh(),
+                ));
+                Ok::<(), ()>(())
+            });
+            match got {
+                Some(segment) => out.push(segment),
+                None => break,
+            }
+        }
+        out
+    }
+
+    /// cmux patch: the user timeout (60 s, the link's) counts from the last
+    /// segment the remote sent, so a transfer it keeps acknowledging for
+    /// longer than that is never aborted, and one it stops acknowledging is
+    /// aborted exactly 60 s after the first unacknowledged send.
+    #[test]
+    fn test_timeout_is_not_a_cap_on_an_acked_transfer() {
+        let mut s = socket_established();
+        s.set_timeout(Some(Duration::from_secs(60)));
+        let mut acked = 0;
+        for round in 0..15 {
+            let at = 1_000 + round * 10_000;
+            s.send_slice(b"abcdef").unwrap();
+            let sent = sent_at(&mut s, at);
+            assert_eq!(sent, vec![(LOCAL_SEQ + 1 + acked, 6, TcpControl::None)]);
+            acked += 6;
+            send!(s, time at + 50, TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1 + acked),
+                ..SEND_TEMPL
+            });
+            assert_eq!(s.send_queue(), 0);
+            assert_eq!(
+                s.state,
+                State::Established,
+                "aborted at {at} ms with bytes acked"
+            );
+        }
+        // 141 s of acknowledged transfer. Now the remote goes silent.
+        let start = 160_000;
+        s.send_slice(b"abcdef").unwrap();
+        for at in (start..start + 60_000)
+            .step_by(1_000)
+            .chain([start + 59_999])
+        {
+            let sent = sent_at(&mut s, at);
+            assert!(
+                sent.iter()
+                    .all(|(_, _, control)| *control != TcpControl::Rst)
+            );
+            assert_eq!(s.state, State::Established, "aborted early, at {at} ms");
+        }
+        let sent = sent_at(&mut s, start + 60_000);
+        assert_eq!(sent, vec![(LOCAL_SEQ + 1 + acked + 6, 0, TcpControl::Rst)]);
+        assert_eq!(s.state, State::Closed);
+    }
+
+    /// cmux patch: with our receive window closed, the remote's ACKs of our
+    /// data ride on segments past that window (its own data). Their data is
+    /// dropped and their ACK still counts, for the send queue and for the
+    /// user timeout: past 60 s the connection lives while they acknowledge,
+    /// and is aborted 60 s after they stop.
+    #[test]
+    fn test_timeout_counts_acks_past_a_zero_window() {
+        let mut s = socket_established_with_buffer_sizes(64, 6);
+        s.set_timeout(Some(Duration::from_secs(60)));
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"abcdef"[..],
+                ..SEND_TEMPL
+            }
+        );
+        recv!(
+            s,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 6),
+                window_len: 0,
+                ..RECV_TEMPL
+            }]
+        );
+        let mut acked = 0;
+        for round in 0..15 {
+            let at = 1_000 + round * 10_000;
+            s.send_slice(b"abcdef").unwrap();
+            let sent = sent_at(&mut s, at);
+            assert_eq!(sent, vec![(LOCAL_SEQ + 1 + acked, 6, TcpControl::None)]);
+            acked += 6;
+            // The remote's next data, past our closed window, acknowledges ours:
+            // its data is dropped (the reply still advertises no window), its
+            // ACK is taken.
+            send!(s, time at + 50, TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 6,
+                ack_number: Some(LOCAL_SEQ + 1 + acked),
+                payload: &b"123456"[..],
+                ..SEND_TEMPL
+            }, Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1 + acked,
+                ack_number: Some(REMOTE_SEQ + 1 + 6),
+                window_len: 0,
+                ..RECV_TEMPL
+            }));
+            assert_eq!(s.send_queue(), 0, "the ACK past the window was not taken");
+            assert_eq!(s.recv_queue(), 6);
+            assert_eq!(
+                s.state,
+                State::Established,
+                "aborted at {at} ms with bytes acked"
+            );
+        }
+        let start = 160_000;
+        s.send_slice(b"abcdef").unwrap();
+        for at in (start..start + 60_000)
+            .step_by(1_000)
+            .chain([start + 59_999])
+        {
+            let sent = sent_at(&mut s, at);
+            assert!(
+                sent.iter()
+                    .all(|(_, _, control)| *control != TcpControl::Rst)
+            );
+            assert_eq!(s.state, State::Established, "aborted early, at {at} ms");
+        }
+        let sent = sent_at(&mut s, start + 60_000);
+        assert_eq!(sent, vec![(LOCAL_SEQ + 1 + acked + 6, 0, TcpControl::Rst)]);
         assert_eq!(s.state, State::Closed);
     }
 
@@ -9680,13 +10974,19 @@ mod test {
             ..RECV_TEMPL
         }));
         recv_nothing!(s, time 100);
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(150)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(150))
+        );
         send!(s, time 105, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
             ..SEND_TEMPL
         });
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(155)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(155))
+        );
         recv!(s, time 155, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -9694,7 +10994,10 @@ mod test {
             ..RECV_TEMPL
         }));
         recv_nothing!(s, time 155);
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(205)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(205))
+        );
         recv_nothing!(s, time 200);
         recv!(s, time 205, Ok(TcpRepr {
             control:    TcpControl::Rst,
@@ -9769,12 +11072,148 @@ mod test {
         let mut s = socket_established();
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL },
+            TcpRepr {
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            },
             Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
                 ..RECV_TEMPL
             })
+        );
+    }
+
+    // cmux patch: the remote's keep-alive counts for the timeout and defers
+    // our own probe past its next one.
+    #[test]
+    fn test_remote_keep_alive_defers_ours_and_counts_as_heard() {
+        let mut s = socket_established();
+        // The passive side: it listened.
+        s.listen_endpoint = LISTEN_END;
+        s.set_keep_alive(Some(Duration::from_millis(100)));
+        s.set_timeout(Some(Duration::from_millis(400)));
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &[0],
+            ..RECV_TEMPL
+        }));
+        send!(s, time 50, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(150))
+        );
+        // The remote probes first: it gets its ACK, and ours waits 125 ms.
+        send!(
+            s,
+            time 140,
+            TcpRepr {
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"\x00"[..],
+                ..SEND_TEMPL
+            },
+            Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                ..RECV_TEMPL
+            })
+        );
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(265))
+        );
+        recv_nothing!(s, time 260);
+        assert_eq!(s.remote_last_ts, Some(Instant::from_millis(140)));
+        // Silent past it: our probe goes out as before.
+        recv!(s, time 265, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &[0],
+            ..RECV_TEMPL
+        }));
+    }
+
+    // cmux patch: probes that crossed. The ACK to ours, arriving after the
+    // remote's probe deferred our next one, does not pull it back.
+    #[test]
+    fn test_remote_keep_alive_deferral_survives_a_crossing_ack() {
+        let mut s = socket_established();
+        s.listen_endpoint = LISTEN_END;
+        s.set_keep_alive(Some(Duration::from_millis(100)));
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &[0],
+            ..RECV_TEMPL
+        }));
+        send!(
+            s,
+            time 5,
+            TcpRepr {
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"\x00"[..],
+                ..SEND_TEMPL
+            },
+            Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                ..RECV_TEMPL
+            })
+        );
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(130))
+        );
+        send!(s, time 10, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(130))
+        );
+    }
+
+    // cmux patch: the active side counts the remote's keep-alive but keeps
+    // its own beat, so probes that cross do not defer both sides alike.
+    #[test]
+    fn test_remote_keep_alive_leaves_the_active_sides_beat() {
+        let mut s = socket_established();
+        s.set_keep_alive(Some(Duration::from_millis(100)));
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &[0],
+            ..RECV_TEMPL
+        }));
+        send!(
+            s,
+            time 60,
+            TcpRepr {
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"\x00"[..],
+                ..SEND_TEMPL
+            },
+            Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                ..RECV_TEMPL
+            })
+        );
+        assert_eq!(s.remote_last_ts, Some(Instant::from_millis(60)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(100))
         );
     }
 
@@ -9792,7 +11231,10 @@ mod test {
             ..RECV_TEMPL
         }));
 
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(100)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(100))
+        );
         recv_nothing!(s, time 95);
         recv!(s, time 100, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
@@ -9801,7 +11243,10 @@ mod test {
             ..RECV_TEMPL
         }));
 
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(200)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(200))
+        );
         recv_nothing!(s, time 195);
         recv!(s, time 200, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
@@ -9815,7 +11260,10 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             ..SEND_TEMPL
         });
-        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Time(Instant::from_millis(350)));
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(350))
+        );
         recv_nothing!(s, time 345);
         recv!(s, time 350, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
@@ -10610,7 +12058,11 @@ mod test {
 
     #[test]
     fn test_rtt_estimator_min_rto() {
-        let mut r = RttEstimator { min_rto: 10, initial_rto: 10, ..Default::default() };
+        let mut r = RttEstimator {
+            min_rto: 10,
+            initial_rto: 10,
+            ..Default::default()
+        };
 
         // Imitate a sub-millisecond link which samples as 0ms.
         r.sample(0);
@@ -11230,7 +12682,10 @@ mod test {
         assert_eq!(board.ranges().len(), SACK_SCOREBOARD_LEN);
         assert_eq!(board.ranges()[0], (seq(0), seq(5)));
         let last = (SACK_SCOREBOARD_LEN - 1) * 10;
-        assert_eq!(board.ranges()[SACK_SCOREBOARD_LEN - 1], (seq(last), seq(last + 5)));
+        assert_eq!(
+            board.ranges()[SACK_SCOREBOARD_LEN - 1],
+            (seq(last), seq(last + 5))
+        );
     }
 
     #[test]
@@ -11248,6 +12703,35 @@ mod test {
     }
 
     #[test]
+    fn test_sack_lost_resend_of_the_head_goes_again_once_later_data_is_sacked() {
+        let mut s = socket_sacking_with(CongestionControl::None, 18);
+        // The second segment was lost; the third arrived.
+        send!(s, time 50, sack_ack(6, [sack_block(12, 18), None, None]));
+        recv!(s, time 50, sack_resent(6));
+        recv_nothing!(s, time 50);
+        // New data goes out after the resend.
+        s.send_slice(&SACK_DATA[18..]).unwrap();
+        for offset in [18, 24, 30] {
+            recv!(s, time 51, Ok(TcpRepr {
+                seq_number: sack_seq(offset),
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    &SACK_DATA[offset..offset + 6],
+                ..RECV_TEMPL
+            }));
+        }
+        // Two segments sent after the resend arrived: not yet proof.
+        send!(s, time 100, sack_ack(6, [sack_block(12, 30), None, None]));
+        recv_nothing!(s, time 100);
+        // Three did, and the head is still missing: the resend was lost too.
+        send!(s, time 101, sack_ack(6, [sack_block(12, 36), None, None]));
+        recv!(s, time 101, sack_resent(6));
+        recv_nothing!(s, time 101);
+        // Once: the same proof does not resend it again.
+        send!(s, time 102, sack_ack(6, [sack_block(12, 36), None, None]));
+        recv_nothing!(s, time 102);
+    }
+
+    #[test]
     fn test_sack_resending_the_head_restarts_the_rto() {
         let mut s = socket_sacking();
         send!(s, time 50, sack_ack(6, [None, None, None]));
@@ -11255,7 +12739,12 @@ mod test {
         send!(s, time 400, sack_ack(6, [sack_block(12, 36), None, None]));
         recv!(s, time 400, sack_resent(6));
         let rto = s.rtte.retransmission_timeout();
-        assert_eq!(s.timer, Timer::Retransmit { expires_at: Instant::from_millis(400) + rto });
+        assert_eq!(
+            s.timer,
+            Timer::Retransmit {
+                expires_at: Instant::from_millis(400) + rto
+            }
+        );
     }
 
     #[test]
@@ -11455,6 +12944,134 @@ mod test {
         recv_nothing!(s, time 50);
     }
 
+    /// [`socket_sacking`] with a measured 80 ms RTT and the six segments
+    /// first sent 20 ms apart (0, 20, ..., 100 ms), as a typing user would.
+    fn socket_racking() -> TestSocket {
+        let mut s = socket_sacking();
+        s.rtte.have_measurement = true;
+        s.rtte.srtt = 80;
+        assert_eq!(s.rack.len, 6);
+        for i in 0..6 {
+            s.rack.tx[i].2 = Instant::from_millis(i as i64 * 20);
+        }
+        s
+    }
+
+    #[test]
+    fn test_rack_resends_a_segment_out_longer_than_the_rtt_before_three_dup_acks() {
+        let mut s = socket_racking();
+        // The second segment arrived (sent at 20 ms), the first did not.
+        // Only one segment's worth is SACKed: no duplicate threshold applies.
+        send!(s, time 90, sack_ack(0, [sack_block(6, 12), None, None]));
+        recv_nothing!(s, time 90);
+        assert_eq!(s.sack_recovery_point, None);
+        // Out for srtt (80) + srtt/4 (20) = 100 ms: lost, resent at once.
+        assert_eq!(s.rack_deadline(), Some(Instant::from_millis(100)));
+        recv!(s, time 100, sack_resent(0));
+        recv_nothing!(s, time 100);
+        assert!(s.sack_recovery_point.is_some());
+    }
+
+    #[test]
+    fn test_rack_does_not_resend_data_sent_after_what_was_delivered() {
+        let mut s = socket_racking();
+        // Segment 1 went out again at 110 ms (a probe, say), after segment 2
+        // (sent at 40 ms) did.
+        s.rack.tx[1].2 = Instant::from_millis(110);
+        // Segment 2 arrives, out of order: segments 0 and 1 are outstanding
+        // below it and 3 to 5 above it.
+        send!(s, time 300, sack_ack(0, [sack_block(12, 18), None, None]));
+        assert_eq!(s.sack_scoreboard.ranges(), &[(sack_seq(12), sack_seq(18))]);
+        // Segment 0, sent before segment 2, is lost and resent. Segment 1 is
+        // out longer than srtt + the reorder window too, but its latest
+        // transmission went after segment 2's: segment 2 says nothing of it.
+        recv!(s, time 300, sack_resent(0));
+        recv_nothing!(s, time 300);
+        // Data sent after segment 2 is not waiting on the clock either.
+        assert_eq!(s.rack_deadline(), None);
+    }
+
+    #[test]
+    fn test_rack_resends_only_the_records_whose_window_expired() {
+        let mut s = socket_racking();
+        // The path now takes bigger segments: a resend could cover the hole.
+        s.remote_mss = 60;
+        // Segment 3 (sent at 60 ms) arrived; 0, 1 and 2 are one hole.
+        send!(s, time 110, sack_ack(0, [sack_block(18, 24), None, None]));
+        // Only segment 0 has been out past srtt + the reorder window (100
+        // ms); 1 (sent at 20 ms) is due at 120 ms, 2 at 140 ms.
+        recv!(s, time 110, sack_resent(0));
+        recv_nothing!(s, time 110);
+        assert_eq!(s.rack_deadline(), Some(Instant::from_millis(120)));
+        recv_nothing!(s, time 119);
+        recv!(s, time 120, sack_resent(6));
+        recv_nothing!(s, time 120);
+        recv!(s, time 140, sack_resent(12));
+        recv_nothing!(s, time 140);
+    }
+
+    #[test]
+    fn test_rack_orders_a_burst_sent_at_once_by_sequence() {
+        // All six segments went out in the same poll, at 0 ms.
+        let mut s = socket_sacking();
+        s.rtte.have_measurement = true;
+        s.rtte.srtt = 80;
+        // The second arrived: the first, sent before it in that burst, is
+        // lost once out srtt + the reorder window.
+        send!(s, time 50, sack_ack(0, [sack_block(6, 12), None, None]));
+        recv_nothing!(s, time 50);
+        assert_eq!(s.rack_deadline(), Some(Instant::from_millis(100)));
+        recv!(s, time 100, sack_resent(0));
+        recv_nothing!(s, time 100);
+    }
+
+    #[test]
+    fn test_rack_resends_a_lost_repair_again() {
+        // Five segments at 0 ms; all but the first arrive, so it is resent
+        // at once (the duplicate threshold) and `sack_high_rxt` passes it.
+        let mut s = socket_sacking_with(CongestionControl::None, 30);
+        s.rtte.have_measurement = true;
+        s.rtte.srtt = 80;
+        send!(s, time 90, sack_ack(0, [sack_block(6, 30), None, None]));
+        recv!(s, time 90, sack_resent(0));
+        recv_nothing!(s, time 90);
+        // New data goes out after the repair, and arrives; the repair does
+        // not. It is lost once out srtt + the reorder window, at 190 ms.
+        s.send_slice(&SACK_DATA[30..36]).unwrap();
+        recv!(s, time 100, sack_resent(30));
+        send!(s, time 150, sack_ack(0, [sack_block(6, 36), None, None]));
+        recv_nothing!(s, time 150);
+        assert_eq!(s.rack_deadline(), Some(Instant::from_millis(190)));
+        recv!(s, time 190, sack_resent(0));
+        recv_nothing!(s, time 190);
+    }
+
+    #[test]
+    fn test_rack_resends_nothing_while_retransmission_is_paused() {
+        let mut s = socket_racking();
+        s.set_retransmit_paused(true);
+        // A SACK arrives during the hold, past segment 0's reorder window.
+        send!(s, time 110, sack_ack(0, [sack_block(6, 12), None, None]));
+        recv_nothing!(s, time 110);
+        recv_nothing!(s, time 200);
+        // Back: resent from the oldest unacknowledged byte.
+        s.set_retransmit_paused(false);
+        recv!(s, time 300, sack_resent(0));
+    }
+
+    #[test]
+    fn test_rack_reorder_window_grows_on_a_dsack() {
+        let mut s = socket_racking();
+        assert_eq!(s.rack.reo_mult, 1);
+        // The cumulative ACK passes a first block below it: a duplicate.
+        send!(s, time 10, sack_ack(12, [sack_block(0, 6), None, None]));
+        assert_eq!(s.rack.reo_mult, 2);
+        assert_eq!(
+            s.rack_reo_wnd(),
+            Duration::from_millis(s.rtte.srtt as u64 / 4 * 2)
+        );
+    }
+
     #[cfg(feature = "socket-tcp-cubic")]
     #[test]
     fn test_sack_counts_in_the_segments_actually_sent() {
@@ -11613,7 +13230,10 @@ mod test {
         let mut s = socket_established();
         s.remote_has_sack = true;
         let block = |from: usize, to: usize| {
-            Some(((REMOTE_SEQ + 1 + from).0 as u32, (REMOTE_SEQ + 1 + to).0 as u32))
+            Some((
+                (REMOTE_SEQ + 1 + from).0 as u32,
+                (REMOTE_SEQ + 1 + to).0 as u32,
+            ))
         };
         for (i, offset) in [10usize, 20, 30].into_iter().enumerate() {
             let reply = send(
@@ -11716,7 +13336,9 @@ mod test {
             }
         );
         assert_eq!(s.state, State::SynReceived);
-        s.congestion_controller.inner_mut().on_rto(Instant::from_millis(0), 10 * 1000);
+        s.congestion_controller
+            .inner_mut()
+            .on_rto(Instant::from_millis(0), 10 * 1000);
         send!(
             s,
             TcpRepr {
@@ -11741,7 +13363,9 @@ mod test {
         let mut s = socket_established();
         s.set_congestion_control(CongestionControl::Cubic);
         let fresh = s.congestion_controller.inner().window();
-        s.congestion_controller.inner_mut().on_rto(Instant::from_millis(0), fresh);
+        s.congestion_controller
+            .inner_mut()
+            .on_rto(Instant::from_millis(0), fresh);
         assert!(s.congestion_controller.inner().window() < fresh);
 
         s.reset();
@@ -11835,7 +13459,11 @@ mod test {
         );
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         assert_eq!(s.state(), State::Established);
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
@@ -11872,7 +13500,11 @@ mod test {
         );
         send!(
             s,
-            TcpRepr { seq_number: REMOTE_SEQ + 1, ack_number: Some(LOCAL_SEQ + 1), ..SEND_TEMPL }
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
         );
         assert_eq!(s.state(), State::Established);
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
@@ -11885,7 +13517,9 @@ mod test {
         s.set_tsval_generator(Some(|| 1));
         assert!(s.timestamp_enabled());
         s.local_seq_no = LOCAL_SEQ;
-        s.socket.connect(&mut s.cx, REMOTE_END, LOCAL_END.port).unwrap();
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
         assert_eq!(s.tuple, Some(TUPLE));
         recv!(
             s,
@@ -11932,7 +13566,9 @@ mod test {
         // s.set_timestamp(false); // commented to alert if the default state changes
         assert!(!s.timestamp_enabled());
         s.local_seq_no = LOCAL_SEQ;
-        s.socket.connect(&mut s.cx, REMOTE_END, LOCAL_END.port).unwrap();
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
         assert_eq!(s.tuple, Some(TUPLE));
         recv!(
             s,

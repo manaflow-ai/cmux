@@ -33,6 +33,8 @@ public final class TerminalSession {
     public let view: TerminalHostView
     /// The find bar over this terminal and the search it drives.
     public let find = TerminalFindController()
+    /// The daemon's whole-history search for this terminal (set by its owner); nil searches only the screen.
+    public var historyFind: (any TerminalFindHistory)?
     public weak var delegate: (any TerminalSessionDelegate)? {
         didSet { linkCheck = delegate?.terminalSessionLinkCheck(self) }
     }
@@ -89,7 +91,7 @@ public final class TerminalSession {
         }
     }
     /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
-    nonisolated let frameChanges = TerminalFrameChanges()
+    public nonisolated let frameChanges = TerminalFrameChanges()
     /// ``close()`` ran: the launch frame keeper forgets this terminal.
     private(set) var isClosed = false
 
@@ -149,7 +151,7 @@ public final class TerminalSession {
 
     let io: any TerminalIO
     private let ioMode: ghostty_surface_io_mode_e
-    private let input: TerminalInputSink
+    let input: TerminalInputSink
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
@@ -191,10 +193,13 @@ public final class TerminalSession {
     /// - Parameter localEcho: The app's `terminal.predictiveLocalEcho`, which ``predictsLocalEcho`` starts from and
     ///   follows; nil predicts.
     /// - Parameter blankClock: The clock of the blank-pane check after a reveal; tests pass a manual clock.
+    /// - Parameter historyFind: The daemon's whole-history search that Cmd-F uses; nil searches the screen only.
     public init(io: any TerminalIO, ownsGeometry: Bool = true, localEcho: TerminalLocalEchoPreference? = nil,
-                blankClock: any Clock<Duration> = ContinuousClock()) {
+                blankClock: any Clock<Duration> = ContinuousClock(), historyFind: (any TerminalFindHistory)? = nil) {
         self.io = io
         predictsLocalEcho = localEcho?.predicts ?? true
+        // Settings > Experiments > Terminal History Find, on by default (Leo's ask, cmux#53180): turned off keeps Ghostty's screen search.
+        self.historyFind = DesignSettings.shared.experiment("terminalHistoryFind") ? historyFind : nil
         blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
@@ -438,7 +443,11 @@ public final class TerminalSession {
     public func shownFrameInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         switch frameHold.heldFrame {
         case nil:
-            return await snapshotInBackground(maxPixelSize: maxPixelSize)
+            if let image = await snapshotInBackground(maxPixelSize: maxPixelSize) { return image }
+            // Its frame was purged while it was hidden: the picture taken as it paused.
+            guard let picture = surfaceView.pausedPicture else { return nil }
+            guard CGFloat(max(picture.width, picture.height)) > maxPixelSize else { return picture }
+            return await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(picture, maxPixelSize: maxPixelSize) }.value
         case .image(let image)?:
             guard CGFloat(max(image.width, image.height)) > maxPixelSize else { return image }
             return await Task.detached(priority: .utility) {

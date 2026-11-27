@@ -34,11 +34,12 @@ import { automationHookPath, automationHookSecret } from "./ingress/automation-h
 import { codeRefOf } from "./code-check.ts"
 import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
-import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
+import { isProvider, providers, scopesToRequest, ProviderError } from "./integrations/providers.ts";
 import { integrationCallbackUrl, signState, verifyState, type ConnectState } from "./integrations/state.ts"
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
+import { vmEdgeMintCheck } from "./vm-edge-mint.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
 import { pairInvite } from "./pair-invite-routes.ts"
 import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } from "./home-routes.ts"
@@ -48,6 +49,7 @@ import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSessio
 import { platformCloud } from "./platform-cloud.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
+import { approveInOneCall, liveApproveDeps, type ApproveOutcome, type ApproveParams } from "./integrations/approve-one-call.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
 import { listUserTeams, personalPrincipal, principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
@@ -120,7 +122,7 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
 
 /** The stream a read answers from (Home conversations are keyed by params, inbox reads by the user). */
 const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
-  op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
+  op.startsWith("appkv.") ? `appkv:${p.user}` : op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
 /**
  * NEXT Cloud's ops (owner cloud:CloudDO) are cmux-platform's: platformForward (platform-forward.ts) sends every one of
@@ -289,6 +291,9 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
         const refusedMint = gate.refusal ?? versionRefusal(request.headers["x-cmux-client-version"] ?? null, rules)
         if (refusedMint) return yield* new PolicyRefused(refusedMint)
         const { token, expires_at } = yield* Effect.promise(() => mintAccessToken(requestEnv(), r))
+        // T17: a machine that signs in through its platform edge never mints with its own (copyable) install key.
+        const edge = yield* Effect.promise(() => vmEdgeMintCheck(requestEnv(), requestEnv().CLOUD_API_ORIGIN ?? "https://platform", r, token))
+        if (edge.refused) return yield* new Forbidden({ code: "auth.forbidden", message: edge.message })
         return { access_token: token, token_type: "Bearer" as const, expires_at, user: r.user, team: r.team, install: r.install, grant: r.grant }
       })
     )
@@ -313,6 +318,14 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           idempotency_key: payload.idempotency_key,
           origin: payload.origin ?? "cli",
           ...(payload.expected_revision ? { expected_revision: payload.expected_revision } : {})
+        }
+        // G8 in one call (approve-one-call.ts): the checks, the feed answer and the approved run's reply; staging flag.
+        if (payload.op === "integration.approval.approve") {
+          const reply = (r: ApproveOutcome) => ({ ok: r.ok, op: payload.op, ...(r.ok ? { value: r.value } : { error: { code: r.code, message: r.message, retryable: r.retryable, ...(r.details === undefined ? {} : { details: r.details }) } }), transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `feed:${principal.user ?? ""}`, sequence: 0 })
+          if (requestEnv().CLOUD_APPROVE_ONE_CALL !== "1") return reply({ ok: false, code: "approval.one_call_off", message: "answer through feed.answer on this deployment", retryable: false })
+          const resolved = yield* principalFor("cloud:ConnectionDO", principal)
+          const p = (payload.params ?? {}) as ApproveParams
+          return reply(yield* Effect.tryPromise({ try: () => approveInOneCall(liveApproveDeps(requestEnv(), resolved), principal, p, frame.idempotency_key), catch: unreachable }))
         }
         if (payload.op === "participant.avatar.set") return yield* Effect.tryPromise({ try: () => avatarSetRoute(requestEnv(), principal, frame), catch: unreachable }) // Participant avatars (home-avatar-routes.ts).
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
@@ -453,6 +466,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const mux = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.submit(agent, p, { t: "op", ...frame })), catch: unreachable })
           return toResponse(payload.op, mux.frames)
         }
+        // Synced app storage (storage:synced) runs on UserDO's `appkv:` stream (user-appkv.ts).
+        if (payload.op.startsWith("appkv.")) {
+          const p = yield* principalFor(def.owner, principal)
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(userStub(p.user!).submitAppKv(p.user!, p, { t: "op", ...frame })), catch: unreachable })
+          return toResponse(payload.op, r.frames)
+        }
         if (def.owner === "cloud:ConversationDO" || payload.op.startsWith("inbox.")) {
           const p = yield* principalFor(def.owner, principal)
           const home = yield* Effect.tryPromise({
@@ -471,6 +490,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const c = response.value as Connection
           const impl = providers[c.provider]
           const asked = connectAsk(payload.params)
+          const connections = () => requestEnv().CONNECTION_DO.get(requestEnv().CONNECTION_DO.idFromName(c.owner))
+          // An installation that has not accepted the App's updated permissions: Connect opens its page, where an
+          // owner accepts them (GitHub's "Review request"), never the install or authorize page.
+          const accept = c.provider === "github" && (c.status === "active" || !asked.repo)
+            ? yield* Effect.promise(() => rpc<string | null>(connections().githubConnectAccept(c.owner, principal, asked.repo)).catch(() => null))
+            : null
+          if (accept) return { ...response, value: { connection: c, authorize_url: accept, permissions_pending: true as const } }
           // Reuse before asking: the owner answered an active connection that already covers the repository.
           if (asked.repo && c.status === "active") return { ...response, value: { connection: c, connected: true as const } }
           const target = asked.repo && c.provider === "github"
@@ -478,7 +504,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
             : undefined
           const state = yield* Effect.promise(() => signState(requestEnv(), { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider, ...(asked.return_to ? { return_to: asked.return_to } : {}), ...(target?.kind === "installed" ? { installation: target.installation, repo: asked.repo!, configure_url: target.configure_url } : {}) }))
           const scopes = scopesToRequest(requestEnv(), impl, c.scopes_requested)
-          const authorizeUrl = target ? githubConnectUrl(requestEnv(), target, state, callbackUrl()) : yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(requestEnv(), state, scopes, callbackUrl(), c.id)))
+          // GitHub's install URL names the App's slug as GitHub answers it now (providers.ts githubAppSlug), so it is async.
+          const authorizeUrl = yield* Effect.promise(() => Promise.resolve(target ? githubConnectUrl(requestEnv(), target, state, callbackUrl()) : impl.authorizeUrl(requestEnv(), state, scopes, callbackUrl(), c.id)).catch((e: unknown) => e instanceof ProviderError ? e : Promise.reject(e)))
+          if (authorizeUrl instanceof ProviderError) return { ok: false, op: payload.op, error: { code: authorizeUrl.code, message: authorizeUrl.message, retryable: true }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }
         }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
@@ -551,6 +579,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         const r = yield* Effect.tryPromise({
           try: (): Promise<ReadResult> => {
             if (def.owner === "cloud:ConversationDO") return conversationRead(requestEnv(), reader, payload.op, payload.params) as Promise<ReadResult>
+            if (payload.op.startsWith("appkv.")) return rpc<ReadResult>(userStub(reader.user!).readAppKv(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
             if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
             if (payload.op === "user.teams.list") return listUserTeams(requestEnv(), shape.stack_session ? { ...reader, stack_session: shape.stack_session } : reader) // user-teams.ts; the session id answers each team's SSO rule
             const route = ownerRoute(owner, reader)

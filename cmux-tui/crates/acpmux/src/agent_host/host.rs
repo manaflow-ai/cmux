@@ -219,8 +219,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
-    // Never at background class while it starts (`cpu_class.rs`): the daemon lowers it once its
-    // session's start is over.
+    // Never at background class or this host's utility disk tier (`cpu_class.rs`): the daemon
+    // lowers a `background` session's harness once its start is over.
     crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
     let _ = crate::home_fs::remove_file(&spec.socket);
@@ -331,6 +331,9 @@ enum Event {
     /// With no controller: a wait (its generation) ended, or its census answered (`Some`,
     /// `host/orphan.rs`).
     Orphan(u64, Option<bool>),
+    /// The Claude translator has stdin replies it worked out off the stdout reader (a
+    /// repo-sync hook's answer, `claude_stdio/hook_callback.rs`): write them now.
+    ClaudeReplies,
 }
 
 /// How long a pooled host waits for its first controller. A daemon may be
@@ -863,6 +866,19 @@ impl Started {
             });
         }
 
+        if let Some(tr) = &state.translator {
+            let ready = tr.replies_ready();
+            let tx = events_tx.clone();
+            // Ends with the event loop (its channel closes) or the translator.
+            tr.scope().spawn_until_cancelled("claude-replies-ready", async move {
+                loop {
+                    ready.notified().await;
+                    if tx.send(Event::ClaudeReplies).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
         state.orphan_follow(&events_tx).await; // Its wait starts with no event (`host/orphan.rs`).
         while let Some(event) = events.recv().await {
             match event {
@@ -924,6 +940,7 @@ impl Started {
                         state.maybe_push_exit();
                     }
                 }
+                Event::ClaudeReplies => state.write_late_claude_replies().await,
                 Event::OwnerWaitOver => {
                     if pooled_without_owner(still_pooled(&state.spec), state.last_owner) {
                         tracing::warn!("no daemon attached to this pooled host; ending it");
@@ -1030,6 +1047,9 @@ impl Started {
         super::tree::kill_still_running(&state.under);
         remove_own_artifacts(&state.spec.hosts_dir, &state.record);
         remove_promoted(&state.spec.hosts_dir, &state.record);
+        // What double-forked away after that look is still in the host's scope: end it there,
+        // the host with it, when switched on (`scope_kill.rs`). Nothing after this runs then.
+        super::scope_kill::end_own_scope();
         Ok(())
     }
 }
@@ -1438,6 +1458,15 @@ impl State {
         });
     }
 
+    /// The translator's stdin replies worked out off the stdout reader ([`Event::ClaudeReplies`]).
+    async fn write_late_claude_replies(&mut self) {
+        let Some(tr) = self.translator.clone() else { return };
+        match contained(tr.take_stdin_replies()).await {
+            Ok(replies) => replies.into_iter().for_each(|l| self.write_claude_line(l)),
+            Err(why) => self.translator_panicked("Claude", &why),
+        }
+    }
+
     fn write_claude_line(&mut self, line: Value) {
         self.push(Entry::Tap {
             dir: TapDir::Out,
@@ -1566,6 +1595,9 @@ impl State {
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
                 exited,
+                launch_credential: super::LaunchCredential(
+                    crate::agent_credentials::launched_with(&self.spec.env),
+                ),
             });
             self.controller = Some(Controller { id, tx, resumed: false });
             self.last_owner = Some(id);
@@ -1809,73 +1841,5 @@ fn can_enter(dir: &std::path::Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    /// A pooled host ends at the end of its wait only when no controller
-    /// ever said `Hello`; a session's host never ends this way.
-    #[test]
-    fn only_a_pooled_host_with_no_controller_yet_ends_after_its_wait() {
-        assert!(super::pooled_without_owner(true, None));
-        assert!(!super::pooled_without_owner(true, Some(1)));
-        assert!(!super::pooled_without_owner(false, None));
-    }
-
-    /// The leader is waited for without being reaped: while it is a zombie
-    /// its process group id cannot be reused, so ending the group then can
-    /// never signal another process group.
-    #[test]
-    fn waiting_for_the_leader_leaves_it_unreaped() {
-        let mut child =
-            std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
-        let pid = child.id() as i32;
-        assert!(super::wait_exit_unreaped(pid), "the wait failed");
-        // SAFETY: signal 0 to this test's own child only checks existence.
-        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
-        assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
-    }
-
-    /// An entry too big for one frame is kept as a frame that fits, never as an empty one:
-    /// an answer whose id alone is over the limit becomes a stderr note, which a next daemon
-    /// does not need.
-    #[test]
-    fn an_entry_whose_replacement_is_over_the_limit_too_is_kept_as_a_note() {
-        use super::{Entry, encode_entry};
-        let answer = Entry::In { msg: serde_json::json!({"id": "x".repeat(300), "result": {}}) };
-        let (bytes, needed) = encode_entry(5, &answer, 200).expect("a note fits");
-        assert!(!needed, "a stderr note keeps no orphaned host waiting");
-        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
-        assert_eq!(body["h"], 5);
-        assert_eq!(body["e"]["line"], "[entry 5 over the frame limit dropped]", "{body}");
-
-        let small = Entry::In { msg: serde_json::json!({"id": 1, "result": "y".repeat(300)}) };
-        let (bytes, needed) = encode_entry(6, &small, 200).expect("the error answer fits");
-        assert!(needed, "an answer is logged by a next daemon");
-        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
-        assert_eq!(body["e"]["msg"]["id"], 1, "{body}");
-        assert!(body["e"]["msg"]["error"].is_object(), "{body}");
-
-        assert!(encode_entry(7, &small, 20).is_none(), "nothing fits: no empty frame");
-    }
-
-    /// An entry too big for one frame is replaced, not dropped with its connection: an
-    /// answer by an error answer to the same id, anything else by a stderr note.
-    #[test]
-    fn an_entry_over_the_frame_limit_is_answered_or_noted() {
-        use super::{Entry, TapDir, over_frame_limit};
-        let answer =
-            Entry::In { msg: serde_json::json!({"jsonrpc": "2.0", "id": 7, "result": {}}) };
-        let Entry::In { msg } = over_frame_limit(3, &answer) else { panic!("not an answer") };
-        assert_eq!(msg["id"], 7);
-        assert_eq!(msg["error"]["message"], "agent answer was over the frame limit");
-        assert!(msg.get("result").is_none());
-
-        let update =
-            serde_json::json!({"jsonrpc": "2.0", "method": "session/update", "params": {}});
-        for entry in [
-            Entry::In { msg: update },
-            Entry::Tap { dir: TapDir::In, msg: serde_json::json!({"id": 1, "result": {}}) },
-        ] {
-            let Entry::Err { line } = over_frame_limit(4, &entry) else { panic!("not a note") };
-            assert_eq!(line, "[entry 4 over the frame limit dropped]");
-        }
-    }
-}
+#[path = "host_tests.rs"]
+mod tests;

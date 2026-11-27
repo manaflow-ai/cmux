@@ -3,7 +3,7 @@ import CmuxNextCompat
 public import Foundation
 
 /// `appearance.themeFile` in cmux-next.json: the theme file whose look applies, by name. A theme file
-/// is `~/.config/cmux/themes/<name>.json` (beside cmux-next.json): a partial overlay of the look
+/// is `~/.config/cmux-next/themes/<name>.json` (beside cmux-next.json): a partial overlay of the look
 /// settings (`ThemeFileOverlay`), so a person rices the whole app from a dotfile with no build.
 /// Unset (the default) applies none, so nothing changes until a person picks one.
 public nonisolated struct ThemeFileSetting: Sendable {
@@ -20,11 +20,9 @@ public nonisolated struct ThemeFileSetting: Sendable {
 
     /// Whether `name` can name a theme file: a plain file name with no `/`, no leading dot, no
     /// surrounding spaces or control characters, and no `.json` (the setting holds the bare name).
+    /// Rust answers (`theme.valid_name`).
     public static func isValidName(_ name: String) -> Bool {
-        !name.isEmpty && name.utf8.count <= 200 && name == name.trimmingCharacters(in: .whitespaces)
-            && !name.hasPrefix(".") && !name.contains("/") && !name.contains(":")
-            && !name.lowercased().hasSuffix(".\(fileExtension)")
-            && !name.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+        SettingsRust.answer("theme.valid_name", .object(["name": .string(name)]))["valid"]?.boolValue ?? false
     }
 
     /// `<config directory>/themes`.
@@ -46,9 +44,9 @@ public nonisolated struct ThemeFileSetting: Sendable {
     }
 
     /// The theme file `root` names, nil when unset or not a valid name (the schema check reports it).
+    /// Rust answers (`theme.name`).
     public static func name(in root: JSONValue) -> String? {
-        guard let name = root.value(at: configPath)?.stringValue, isValidName(name) else { return nil }
-        return name
+        SettingsRust.answer("theme.name", .object(["root": root.keeping([configPath])]))["name"]?.stringValue
     }
 
     /// The names of the theme files in the folder and the shipped ones, each once, sorted as Finder

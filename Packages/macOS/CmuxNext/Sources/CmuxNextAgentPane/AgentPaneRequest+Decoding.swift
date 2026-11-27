@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Foundation
 
 extension AgentPaneRequest {
-    private static let maximumUploadStageChunk = 512 * 1024
+    private nonisolated static let maximumUploadStageChunk = 512 * 1024
 
     /// A Cloud environment id as the platform makes them (`env_` and up to 64 letters, digits, `_`
     /// or `-`): the only `environment` `action.run` passes on.
@@ -26,6 +26,18 @@ extension AgentPaneRequest {
             && token.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
     }
 
+    /// `action.run`'s `sessions`: Evacuate and Bring Back name 1...500 chats; a chat-list row's place pick, Cancel or
+    /// Retry names exactly one, and never with `session` (the tab's own chat). Each id is usable and has no comma
+    /// (the app's handlers read the list comma-joined).
+    static func areSessionTargets(_ sessions: [String], id: String, alongside session: String?) -> Bool {
+        let usable = sessions.allSatisfy { !$0.isEmpty && $0.count <= 256 && !$0.contains(",") }
+        switch id {
+        case "cloudEvacuate", "cloudBringBackAll": return usable && (1...500).contains(sessions.count)
+        case "chatPlace.set", "chatPriority.set", "chatMove.cancel", "chatMove.retry": return usable && sessions.count == 1 && session == nil
+        default: return false
+        }
+    }
+
     /// A GitHub repository's full name (webviews githubConnect.ts `isGitHubRepo`): an owner of 1 to 39
     /// letters, digits and inner dashes, a name of 1 to 100 letters, digits, `.`, `_` and `-`, never
     /// `.` or `..`. Connect GitHub passes only such a one on.
@@ -36,7 +48,13 @@ extension AgentPaneRequest {
         return name != "." && name != ".."
     }
 
-    private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
+    /// A GitHub account or org name: 1 to 39 letters, digits and inner dashes (webviews githubConnect.ts
+    /// `isGitHubOwner`, acpmux `settings_ask`).
+    static func isGitHubOwner(_ value: String) -> Bool {
+        value.utf8.count <= 39 && value.range(of: #"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"#, options: .regularExpression) != nil
+    }
+
+    nonisolated static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
         case "chat.upload.begin":
@@ -142,6 +160,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "chat.cloudStartQueue":
+            if let text = params?["text"] as? String {
+                self = .cloudStartQueue(text)
+            } else {
+                self = .unsupported(method)
+            }
         case "chat.unsentDraft":
             if let text = params?["text"] as? String {
                 self = .unsentDraft(text)
@@ -163,6 +187,12 @@ extension AgentPaneRequest {
         case "pane.checkpointAvailability":
             if let available = params?["available"] as? Bool {
                 self = .checkpointAvailability(available)
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.composerFilled":
+            if let filled = params?["filled"] as? Bool {
+                self = .composerFilled(filled)
             } else {
                 self = .unsupported(method)
             }
@@ -372,6 +402,8 @@ extension AgentPaneRequest {
             self = .touched
         case "newTab.context":
             self = .newTabContext
+        case "newTab.cloudPick":
+            self = .newTabCloudPick
         case "newTab.warm":
             // The page's own JSON text (newtab/warmSnapshot.ts), kept as it is: one list has one text, so the pages of one
             // list share one part (``AgentPaneNewTabShared``). No parse and sorted re-encode of up to 512 KB on main.
@@ -401,6 +433,11 @@ extension AgentPaneRequest {
                 var pick = AgentPaneRememberedPick(agent: "")
                 pick.started = started
                 self = .rememberNewTab(pick)
+            } else if let cloud = params?["cloudStarted"] as? String, AgentPaneRememberedPick.isCloudPick(cloud) {
+                // The folder or repository of a Cloud chat the person started (Cloud's own default, cmux#53226).
+                var pick = AgentPaneRememberedPick(agent: "")
+                pick.cloudStarted = cloud
+                self = .rememberNewTab(pick)
             } else if params?["harnessHint"] as? String == "dismissed" {
                 // Integrate a harness dismissed for good (a page choice like the agent pick).
                 var pick = AgentPaneRememberedPick(agent: "")
@@ -426,6 +463,8 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
+        case "cloud.forkFirst":
+            if let fork = AgentPaneForkFirst(params: params) { self = .cloudForkFirst(fork) } else { self = .unsupported(method) }
         case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
         case "cloud.plan.subscribe":
             // Only the plans the cards may name; anything else is refused here.
@@ -435,10 +474,13 @@ extension AgentPaneRequest {
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
         case "cloud.setUp":
             // The start's key, one of the card's ways in and the family it waits for (CloudSetup).
-            if let key = params?["key"] as? String, UUID(uuidString: key) != nil, let action = params?["action"] as? String,
+            // The picker's set up button sends no key; a key that is sent must be a start's.
+            let key = params?["key"] as? String
+            if key.map({ UUID(uuidString: $0) != nil }) ?? (params?["key"] == nil), let action = params?["action"] as? String,
                CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.families.contains(family) {
                 self = .cloudSetUp(key: key, action: action, family: family)
             } else { self = .unsupported(method) }
+        case "cloud.setupState": self = .cloudSetupState
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
@@ -601,6 +643,11 @@ extension AgentPaneRequest {
         case "pane.tabRowTools.set":
             if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
             else { self = .unsupported(method) }
+        case "customizations.menu":
+            if let point = params?["point"] as? [String: Any],
+               let x = (point["x"] as? NSNumber)?.doubleValue, let y = (point["y"] as? NSNumber)?.doubleValue,
+               x.isFinite, y.isFinite { self = .customizationsMenu(x: x, y: y) }
+            else { self = .unsupported(method) }
         case "pane.tabRowTools.openMenu":
             guard let id = params?["id"] as? String, id == "chat-menu",
                   let rawMenuItemID = params?["menuItemId"], !(rawMenuItemID is NSNull) else {
@@ -642,6 +689,8 @@ extension AgentPaneRequest {
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case AgentPaneTryAnotherApproach.method:
             self = AgentPaneTryAnotherApproach(params: params).map(AgentPaneRequest.tryAnotherApproach) ?? .unsupported(method)
+        case AgentPaneModel.cloudFolderAddMethod:
+            self = .cloudFolderAdd
         case AgentPaneCloudTurnRewind.checkpointMethod, AgentPaneCloudTurnRewind.rewindMethod:
             self = AgentPaneCloudTurnRewind(method: method, params: params).map(AgentPaneRequest.cloudTurnRewind) ?? .unsupported(method)
         case "chat.openTab":
@@ -680,19 +729,36 @@ extension AgentPaneRequest {
             // An `app` is the editor id of a folder action that opens one (Open in Editor, Open In ▸); any other
             // is refused, never dropped (which would open the default editor instead).
             let app = params?["app"].map { $0 as? String }
+            // A `mode` is Chat Place's only (`chatPlace.set`): where the chat runs (local, cloud or auto); any other is refused.
+            let mode = params?["mode"].map { $0 as? String }
+            // A `priority` is Keep Running's only (`chatPriority.set`): high or normal; any other is refused.
+            let priority = params?["priority"].map { $0 as? String }
+            // `queued` and `hasDraft` are what the page knows of the chat's cargo (Chat Place's set and retry only); any other is refused.
+            let queued = params?["queued"].map { $0 as? Int }
+            let hasDraft = params?["hasDraft"].map { $0 as? Bool }
+            // `sessions` names the chats a chat-list row or Evacuate acts on (never the tab's own chat, so the
+            // shown-chat guard does not bind it): 1...500 usable ids, Evacuate, Bring Back and a row's place pick only.
+            let sessions = params?["sessions"].map { $0 as? [String] }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
                environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
                handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true,
-               app.map({ $0.map { AgentPaneModel.editorActions.contains(id) && AgentPaneRequest.isEditorID($0) } ?? false }) ?? true {
+               app.map({ $0.map { AgentPaneModel.editorActions.contains(id) && AgentPaneRequest.isEditorID($0) } ?? false }) ?? true,
+               mode.map({ $0.map { id == "chatPlace.set" && ["local", "cloud", "auto"].contains($0) } ?? false }) ?? true,
+               priority.map({ $0.map { id == "chatPriority.set" && ["high", "normal"].contains($0) } ?? false }) ?? true,
+               queued.map({ $0.map { ["chatPlace.set", "chatMove.retry"].contains(id) && (0...100_000).contains($0) } ?? false }) ?? true,
+               hasDraft.map({ $0 != nil && ["chatPlace.set", "chatMove.retry"].contains(id) }) ?? true,
+               sessions.map({ $0.map { AgentPaneRequest.areSessionTargets($0, id: id, alongside: session ?? nil) } ?? false }) ?? true {
                 // Connect GitHub's card names the failed call's repository and the chat's link: a
                 // malformed one is dropped (Connect still runs, as from the palette); the link is
                 // checked against this build's links where it runs (AgentPaneModel+Actions.swift).
                 let github = id == "accounts.githubConnect"
                 let repo = (params?["repo"] as? String).flatMap { github && AgentPaneRequest.isGitHubRepo($0) ? $0 : nil }
                 let returnTo = (params?["returnTo"] as? String).flatMap { github && $0.utf8.count <= 512 ? $0 : nil }
+                let org = (params?["org"] as? String).flatMap { github && AgentPaneRequest.isGitHubOwner($0) ? $0 : nil }
                 self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, app: app ?? nil,
-                                  repo: repo, returnTo: returnTo)
+                                  repo: repo, returnTo: returnTo, org: org,
+                                  mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil, sessions: sessions ?? nil, priority: priority ?? nil)
             } else {
                 self = .unsupported(method)
             }
@@ -767,6 +833,12 @@ extension AgentPaneRequest {
         case "transport.close":
             if let connection = params?["connection"] as? Int {
                 self = .transportClose(connection: connection)
+            } else {
+                self = .unsupported(method)
+            }
+        case "transport.ack":
+            if let connection = params?["connection"] as? Int, let seq = params?["seq"] as? Int {
+                self = .transportAck(connection: connection, seq: seq, inputPending: params?["inputPending"] as? Bool ?? false)
             } else {
                 self = .unsupported(method)
             }
