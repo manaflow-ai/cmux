@@ -3,7 +3,7 @@
 // A click on a line shows the chat; its menu opens it in a new tab.
 //
 // This was cmux's built-in "Console" New Tab template. It no longer ships in Settings: it is now
-// yours to edit. Install: copy this folder to ~/.config/cmux/customize (cmux reloads it on each
+// yours to edit. Install: copy this folder to the views folder from `cmux customize paths` (cmux reloads it on each
 // save), then run `cmux settings set tabs.newTabApp local/customize`. To get cmux's own page
 // back: `cmux settings unset tabs.newTabApp`.
 //

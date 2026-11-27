@@ -42,7 +42,7 @@
       "platform": "web",
       "selector": ".acpmux-composer-box, .acpmux-composer-bar",
       "size": "reserved",
-      "moves": ["resize", "composer-growth"]
+      "moves": ["resize", "composer-growth", "enter"]
     },
     {
       "id": "popup",

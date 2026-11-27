@@ -104,6 +104,7 @@ public final class CloudChatRelay {
         let generation = generation
         linkID = ObjectIdentifier(link)
         error = nil
+        hub.onStall = nil
         binding?.cancel()
         binding = Task { [weak self] in
             guard let self, self.generation == generation, !Task.isCancelled else { return }
@@ -119,6 +120,11 @@ public final class CloudChatRelay {
                 }
                 // Files on this VM must never use the relay Mac's file/upload
                 // services. Leave macLink unset; ACP still carries chat text.
+                hub.onStall = { [weak self] in
+                    guard let self, !self.isRetired, self.generation == generation else { return }
+                    self.bind(link, force: true)
+                    await self.binding?.value
+                }
                 await hub.bind(channel)
                 guard self.generation == generation else { return }
                 if !hub.isReady { error = "Couldn't connect." }
@@ -134,6 +140,7 @@ public final class CloudChatRelay {
         generation += 1
         let generation = generation
         linkID = nil
+        hub.onStall = nil
         binding?.cancel()
         binding = nil
         hub.cancelWaiters()
