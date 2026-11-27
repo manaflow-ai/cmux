@@ -16,6 +16,7 @@ import type {
 } from "./ops";
 import { agentFamily } from "../shared/signIn/ProviderReadiness";
 import type { ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
+import type { WalkTraits } from "./walkLook";
 
 function svg(body: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${body}</svg>`)}`;
@@ -522,12 +523,19 @@ export interface WalkBundle {
   name: string;
   line: string;
   sets: string[];
-  traits: { glass?: boolean; twoTone?: boolean; solid?: boolean; dense?: boolean };
+  traits: WalkTraits;
 }
 
-/** The five bundles the walk's look step offers (House is the control: today's defaults). */
+/** The six bundles the walk's look step offers (House is the control: today's defaults). */
 export const WALK_BUNDLES: readonly WalkBundle[] = [
   { id: "house", name: "House", line: "Today's cmux, as it ships.", sets: [], traits: {} },
+  {
+    id: "codex",
+    name: "Desktop Agent",
+    line: "The desktop coding agent look: one line per chat, a round composer.",
+    sets: ["agentPane.display.presentation: messages", "agentPane.composerLook: studio", "sidebar.groupBy: folder"],
+    traits: { messages: true, round: true },
+  },
   {
     id: "glasshouse",
     name: "Glasshouse",
@@ -536,11 +544,16 @@ export const WALK_BUNDLES: readonly WalkBundle[] = [
     traits: { glass: true },
   },
   {
-    id: "twoToneStudio",
-    name: "Two-Tone Studio",
-    line: "Sidebar and tab bar in a second color from your theme.",
-    sets: ["appearance.twoTone: auto"],
-    traits: { twoTone: true },
+    id: "studio",
+    name: "Studio",
+    line: "A black sidebar of threads by project and one round composer.",
+    sets: [
+      "agentPane.composerLook: studio",
+      "agentPane.emptyChatComposerPosition: center",
+      "sidebar.groupBy: folder",
+      "appearance.twoTone: auto",
+    ],
+    traits: { twoTone: true, round: true, centered: true },
   },
   {
     id: "quietSolid",

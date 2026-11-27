@@ -49,7 +49,8 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
 
     /// Every other path the intro walk writes: looks (two-tone, calm, motion), trust (permission, Computer Use),
-    /// noise (banners, sound), the finish chime, Tidy (archiving, settling) and chat feel (send pop, sent prompt to top).
+    /// noise (banners, sound), the finish chime, Tidy (archiving, settling), chat feel (send pop, sent prompt to top) and the
+    /// desktop agent and Studio look tiles (composer, chat and sidebar).
     /// Read at open with the picks' paths, so Skip puts them back too.
     nonisolated static let walkPaths: [[String]] = [
         ["agents", "defaultPermissionMode"], ["computerUse", "mode"], ["agentPane", "display", "finishSound"], ["agentPane", "display", "sendPop"],
@@ -57,6 +58,11 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         ["appearance", "twoTone"], ["ui", "calm"], ["ui", "animations", "enabled"],
         ["agents", "chats", "archiveInactive"], ["workspaces", "autoArchive", "style"], ["sidebar", "settleFinished"],
         ["agentPane", "display", "sendScrollsToTop"],
+        // The desktop agent and Studio look tiles. Presentation and sidebar density are in setupPaths too, but
+        // those are allowed only with the setups shelf on, so the tiles list them here.
+        ["agentPane", "composerLook"], ["agentPane", "emptyChatComposerPosition"], ["agentPane", "display", "presentation"],
+        ["sidebar", "groupBy"], ["sidebar", "density"], ["sidebar", "showTimestamps"], ["sidebar", "drawnMenus"],
+        ["sidebar", "workspaceRow", "directory"],
     ]
 
     /// Every path the setups shelf may write (`experiments.setupShelf`, hq design dp-9eedbe44e5): the

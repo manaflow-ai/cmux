@@ -89,9 +89,9 @@ describe("make cmux yours", () => {
     expect(words).toContain("Continue");
     expect(words).not.toContain("lassic");
     // One checked radio per group: GUI-first, Default, no background; no material set.
-    // The look screen first, its five tiles each with a light and a dark face.
+    // The look screen first, its six tiles each with a light and a dark face.
     const look = renderScreen(makeItYoursState("fresh", WALK), "look");
-    expect(look.match(/name="look"/g)?.length).toBe(5);
+    expect(look.match(/name="look"/g)?.length).toBe(6);
     expect(look.match(/data-face="light"/g)?.length).toBe(5);
     expect(look.match(/data-face="dark"/g)?.length).toBe(5);
     expect(look).not.toContain('name="density"');

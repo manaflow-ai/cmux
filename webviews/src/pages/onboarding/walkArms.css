@@ -127,9 +127,26 @@
     radial-gradient(circle at 78% 26%, color-mix(in srgb, var(--ds-color-attention) 55%, transparent), transparent 42%),
     linear-gradient(160deg, color-mix(in srgb, var(--ds-color-accent) 55%, Canvas), color-mix(in srgb, CanvasText 55%, Canvas));
 }
-/* Two-Tone Studio: sidebar and bar in a second tone. */
+/* Studio: sidebar and bar in a second tone. */
 .onb-walk-mini[data-two-tone] {
   --onb-walk-side: color-mix(in srgb, var(--ds-color-attention) 30%, Canvas);
+}
+/* Codex and Studio: one round composer. */
+.onb-walk-mini[data-round] .onb-walk-mini-composer {
+  border-radius: 999px;
+}
+/* Codex: the chat as messages, yours a filled bubble at the right. */
+.onb-walk-mini[data-messages] .onb-walk-mini-line[data-mine] {
+  align-self: flex-end;
+  flex-basis: 10%;
+  width: 46%;
+  border-radius: 999px;
+  background: color-mix(in srgb, CanvasText 16%, transparent);
+}
+/* Studio: a new chat's composer waits in the middle of the pane. */
+.onb-walk-mini[data-centered] .onb-walk-mini-composer {
+  margin-top: 6%;
+  margin-bottom: auto;
 }
 /* Quiet Solid: opaque, one surface, no hairlines. */
 .onb-walk-mini[data-solid] {

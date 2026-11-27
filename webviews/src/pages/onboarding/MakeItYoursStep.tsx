@@ -190,7 +190,7 @@ const NOISE_KEYS = {
   bannersSound: "onboarding.makeItYours.noise.bannersSound",
 } as const;
 
-/** Screen 1: the five look tiles (House, what the person has, first) and Tidy, off unless already set. */
+/** Screen 1: the six look tiles (Studio, our pick, badged) (House, what the person has, first) and Tidy, off unless already set. */
 function LookScreen({ opened, current }: { opened: WalkValues; current: WalkValues }) {
   const { strings } = useOnboarding();
   const walk = useWalk();
@@ -224,7 +224,12 @@ function LookScreen({ opened, current }: { opened: WalkValues; current: WalkValu
                 />
                 <Faces bundle={bundle} />
                 <span className="onb-walk-look-text">
-                  <span className="onb-walk-look-name">{strings.t(bundle.nameKey)}</span>
+                  <span className="onb-walk-look-name">
+                    {strings.t(bundle.nameKey)}
+                    {bundle.pick && (
+                      <span className="onb-make-badge">{strings.t("onboarding.makeItYours.bundle.pick")}</span>
+                    )}
+                  </span>
                   <span className="onb-walk-line">{strings.t(bundle.lineKey)}</span>
                 </span>
               </label>

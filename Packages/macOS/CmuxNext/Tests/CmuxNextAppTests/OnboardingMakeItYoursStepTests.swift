@@ -340,6 +340,8 @@ import Testing
             ["path": "appearance.density", "value": "ultraCompact"],
             ["path": "agents.defaultPermissionMode", "value": "ask"],
             ["path": "notifications.sound", "value": .null],
+            ["path": "agentPane.composerLook", "value": "studio"],
+            ["path": "sidebar.groupBy", "value": "folder"],
         ])]
         _ = try await provider.call("cmux.onboarding.makeItYours.walk", params: bundle, context: clicked(650))
         await source.settled()
@@ -348,6 +350,8 @@ import Testing
         #expect(file.value(at: ["appearance", "twoTone"])?.stringValue == "auto")
         #expect(file.value(at: ["ui", "calm"])?.stringValue == "calm")
         #expect(file.value(at: ["agents", "defaultPermissionMode"])?.stringValue == "ask")
+        #expect(file.value(at: ["agentPane", "composerLook"])?.stringValue == "studio", "the Studio tile's composer")
+        #expect(file.value(at: ["sidebar", "groupBy"])?.stringValue == "folder", "the Studio tile's sidebar")
         #expect(file.value(at: ["appearance", "customDensity"]) == nil, "a bundle's density carries its linked edit")
         await Self.until { model.makeItYours.choices.density == "ultraCompact" }
         #expect(model.makeItYours.walk["appearance.twoTone"]?.stringValue == "auto")
