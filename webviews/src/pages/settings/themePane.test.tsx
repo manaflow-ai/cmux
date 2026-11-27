@@ -20,7 +20,13 @@ afterEach(() => {
 
 const card = (page: Rendered) => page.container.querySelector<HTMLElement>('[data-card="theme"]')!;
 const themeRow = (page: Rendered, kind: string) => card(page).querySelector<HTMLElement>(`[data-theme-row="${kind}"]`);
-const STUDIO_KEYS = ["appearance.theme", "appearance.appTheme", "appearance.accent", "appearance.themeFile"];
+const STUDIO_KEYS = [
+  "appearance.theme",
+  "appearance.appTheme",
+  "appearance.accent",
+  "appearance.selection",
+  "appearance.themeFile",
+];
 
 /** The keys the page wrote (`cmux.settings.set`), in order. */
 const setKeys = (page: Rendered) => ops(page.provider, "cmux.settings.set").map((op) => (op as { key: string }).key);

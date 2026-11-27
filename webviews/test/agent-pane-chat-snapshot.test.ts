@@ -70,10 +70,14 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
       { length: 100 },
       (_, at) => `<article class="acpmux-row" data-row-id="r${at}" style="top:${at * 40}px">row ${at}</article>`,
     ).join("");
+    // `withPrompt`: the composer also has the live editor's empty prompt, which the copy's field stands in for.
+    const prompt = withPrompt
+      ? `<div class="acpmux-composer-prompt" style="position:absolute;left:320px;top:0;width:300px;height:40px"><div class="acpmux-md-root"><div contenteditable="true"></div></div></div>`
+      : "";
     const stack = dock
       ? `<div class="acpmux-dock">${dock === "ask" ? '<div class="ask">Trust this folder?</div>' : ""}<div class="acpmux-composer"></div></div>`
       : "";
-    return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer">${rows}</div></div>${stack}<div class="composer"><div class="hat"><span class="hat-label">5 subagents running</span><span class="hat-tuck">^</span></div><div class="prompt" contenteditable="true"></div><textarea></textarea><div class="foot"><span class="mode-pill">Bypass permissions</span><span class="foot-gap"></span><span class="ring"></span><span class="model-pill">Opus 5.5 Medium</span></div></div>`;
+    return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer">${rows}</div></div>${stack}<div class="composer"><div class="hat"><span class="hat-label">5 subagents running</span><span class="hat-tuck">^</span></div><div class="prompt" contenteditable="true"></div><textarea></textarea>${prompt}<div class="foot"><span class="mode-pill">Bypass permissions</span><span class="foot-gap"></span><span class="ring"></span><span class="model-pill">Opus 5.5 Medium</span></div></div>`;
   };
   /// The live page's first draw of a kept tail cut inside one busy turn: its last three rows, at the
   /// bottom of a view they do not fill (VirtualTranscript keeps a short tail at the view's end), with
@@ -87,6 +91,7 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
       .join("");
     return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer" style="height:472px">${rows}</div></div><div class="composer"><div class="prompt" contenteditable="true"></div><textarea></textarea></div>`;
   };
+  let withPrompt = false;
   /// The person's theme.css, which the page adds once the host sends it (paneTheme.ts).
   const USER_CSS = "#root .header { height: 52px; }";
   const HTML_ATTRIBUTES = `data-look="roomy" style="--cmux-surface: rgb(10, 20, 30);"`;
@@ -473,6 +478,49 @@ requestAnimationFrame(() => {
     await page.keyboard.press("Enter");
     expect(await page.evaluate(() => (window as any).keys)).toEqual(["keydown Enter", "keyup Enter"]);
     await context.close();
+  });
+
+  test("the copy's prompt takes a click and typing, never sends, and hands its text to the live prompt", async () => {
+    // Leo, 2026-11-22: "a composer that's TECHNICALLY not wholly interactive as in it'd send data but you can
+    // click around on it and type in it, that's enough".
+    withPrompt = true;
+    try {
+      const context = await newContext(800, 600);
+      const before = await written(await context.newPage());
+      const page = await context.newPage();
+      await relaunched(page, before.snapshot, "theme-1", { holdDraw: true });
+      await page.evaluate(() => {
+        const w = window as any;
+        w.sent = [];
+        document.getElementById("root")!.addEventListener("keydown", (event) => w.sent.push(event.key), true);
+      });
+      const field = page.locator("[data-cmux-snapshot-skeleton]");
+      expect(await field.count()).toBe(1);
+      // Drawn over the copy's prompt, and focused: nothing else had focus.
+      const box = await field.boundingBox();
+      expect([box!.x, box!.width, box!.height]).toEqual([320, 300, 40]);
+      expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-cmux-snapshot-skeleton"))).toBe(true);
+      await page.mouse.click(400, box!.y + box!.height / 2);
+      await page.keyboard.type("fix the");
+      await page.keyboard.press("Enter");
+      await page.keyboard.type(" build");
+      // The copy stays, the field holds the words, Enter added no line and reached nothing under the copy.
+      expect(await page.evaluate(() => !!document.querySelector("cmux-chat-snapshot"))).toBe(true);
+      expect(await field.textContent()).toBe("fix the build");
+      expect(await page.evaluate(() => (window as any).sent)).toEqual([]);
+      // The live page draws the chat and takes over: the words are in the live prompt, the caret with them.
+      await page.evaluate(() => ((window as any).holdDraw = false));
+      await page.waitForFunction(() => (window as any).afterSwap !== undefined);
+      expect(await page.evaluate(() => !!document.querySelector("[data-cmux-snapshot-skeleton]"))).toBe(false);
+      const live = await page.evaluate(() => {
+        const prompt = document.querySelector('#root .acpmux-composer-prompt [contenteditable="true"]')!;
+        return { text: prompt.textContent, focused: document.activeElement === prompt };
+      });
+      expect(live).toEqual({ text: "fix the build", focused: true });
+      await context.close();
+    } finally {
+      withPrompt = false;
+    }
   });
 
   test("once the live page took over, the first press reaches it", async () => {

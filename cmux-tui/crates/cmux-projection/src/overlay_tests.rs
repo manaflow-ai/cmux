@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 
+use super::errno::ENOSPC;
 use super::*;
 use crate::lower::ExtendError;
 use crate::manifest::Item;
@@ -17,13 +18,18 @@ pub(crate) struct Fake {
     pub bytes: HashMap<u32, Vec<u8>>,
     pub calls: AtomicUsize,
     pub batches: Mutex<Vec<Vec<u32>>>,
-    pub away: bool,
+    pub away: AtomicBool,
+    /// Reads at or past this offset fail (a link that drops in the middle of a big file).
+    pub fail_from: Option<u64>,
 }
 
 impl Fetch for Fake {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
-        if self.away {
+        if self.away.load(Ordering::Relaxed) {
+            return Err(FetchError::Away);
+        }
+        if self.fail_from.is_some_and(|from| offset >= from) {
             return Err(FetchError::Away);
         }
         let bytes = self.bytes.get(&entry).ok_or(FetchError::Failed)?;
@@ -38,7 +44,7 @@ impl Fetch for Fake {
         entries
             .iter()
             .map(|entry| {
-                if self.away {
+                if self.away.load(Ordering::Relaxed) {
                     Err(FetchError::Away)
                 } else {
                     self.bytes.get(entry).cloned().ok_or(FetchError::Failed)
@@ -84,7 +90,7 @@ fn setup(away: bool) -> (tempfile::TempDir, Arc<Manifest>, Arc<Fake>) {
         link: Some("README.md".into()),
     });
     let manifest = Arc::new(Manifest::build(1, items).unwrap());
-    let mut fake = Fake { away, ..Fake::default() };
+    let mut fake = Fake { away: AtomicBool::new(away), ..Fake::default() };
     for (path, bytes) in files {
         fake.bytes.insert(manifest.resolve(path).unwrap(), bytes);
     }
@@ -246,6 +252,18 @@ fn reads_while_the_mac_is_away_make_one_report_naming_them() {
 }
 
 #[test]
+fn a_cached_read_survives_the_mac_going_away() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 0, 10).unwrap(), b"readme");
+    fake.away.store(true, Ordering::Relaxed);
+    assert_eq!(overlay.read(readme, 0, 10).unwrap(), b"readme");
+    assert!(overlay.stats().cache_hits >= 1);
+    assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
+}
+
+#[test]
 fn a_file_made_read_only_is_still_written_through_its_create() {
     // git makes each loose object 0444 and writes it through the descriptor create returned.
     let (state, manifest, fake) = setup(false);
@@ -254,6 +272,117 @@ fn a_file_made_read_only_is_still_written_through_its_create() {
     overlay.write(made.ino, 0, b"blob").unwrap();
     assert_eq!(overlay.read(made.ino, 0, 10).unwrap(), b"blob");
     assert_eq!(overlay.getattr(made.ino).unwrap().mode, 0o444);
+}
+
+fn scratch_bytes(state: &Path) -> u64 {
+    fs::read_dir(state.join("scratch"))
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.metadata().unwrap().len())
+        .sum()
+}
+
+/// A copy-up that fails half way (the link dropped after the first chunk of a big file; a full
+/// disk fails the same way) leaves nothing in the scratch folder: a partial copy there held its
+/// space until the next mount, so a disk that filled once stayed full after the agent freed it.
+#[test]
+fn a_copy_up_that_fails_half_way_leaves_no_partial_file() {
+    let (state, manifest, _) = setup(false);
+    let mut fake = Fake { fail_from: Some(CHUNK), ..Fake::default() };
+    fake.bytes.insert(manifest.resolve("big.bin").unwrap(), big_bytes());
+    let fake = Arc::new(fake);
+    let overlay = open(state.path(), &manifest, &fake);
+    let big = path_ino(&overlay, "big.bin");
+    assert_eq!(overlay.write(big, BIG - 1, b"!"), Err(FetchError::Away.errno()));
+    assert_eq!(scratch_bytes(state.path()), 0, "a failed copy-up left a partial file behind");
+    assert!(!overlay.upper_dir().join("big.bin").exists());
+    // The first chunk it fetched stays cached, whole.
+    assert_eq!(overlay.read(big, 0, 16).unwrap(), big_bytes()[..16]);
+}
+
+/// A delete whose record cannot be saved (a full disk) fails and changes nothing: the file is still
+/// there now, as it is after a reopen. It was hidden in memory only, so it came back on a remount.
+#[test]
+fn a_delete_whose_record_cannot_be_saved_changes_nothing() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let src = path_ino(&overlay, "src");
+    // The record's place is taken by a folder: saving it fails as a full disk would.
+    fs::create_dir(state.path().join("whiteouts")).unwrap();
+    assert!(overlay.unlink(src, "b.rs").is_err());
+    assert!(overlay.lookup(src, "b.rs").is_ok(), "a failed delete hid the file anyway");
+    assert!(overlay.whiteouts().is_empty());
+    assert_eq!(scratch_bytes(state.path()), 0);
+    fs::remove_dir(state.path().join("whiteouts")).unwrap();
+    overlay.unlink(src, "b.rs").unwrap();
+    assert_eq!(overlay.lookup(src, "b.rs"), Err(ENOENT));
+}
+
+/// A cache that cannot keep what it fetched (a full disk) turns directory readahead off: each read
+/// fetched its whole folder again, so reading a folder of N files cost N batches of N files
+/// (1.7 GB fetched for 2,000 reads of a 48 MiB machine disk in the fault matrix).
+#[test]
+fn a_cache_that_cannot_keep_bytes_fetches_one_file_per_read() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    // Nothing can be kept: the cache's folder is gone and a file holds its name.
+    fs::remove_dir_all(state.path().join("cache")).unwrap();
+    fs::write(state.path().join("cache"), b"").unwrap();
+    let src = path_ino(&overlay, "src");
+    let a = overlay.lookup(src, "a.rs").unwrap().ino;
+    let b = overlay.lookup(src, "b.rs").unwrap().ino;
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), b"fn a() {}");
+    assert_eq!(overlay.read(b, 0, 100).unwrap(), b"fn b() {}");
+    let batches = fake.batches.lock().unwrap().clone();
+    // The base may serve the second read from its content store (one batch) or fetch again; what
+    // must never happen is a later read fetching its whole folder again.
+    assert!(
+        batches.iter().skip(1).all(|batch| batch.len() == 1),
+        "a read with a failing cache fetched its folder again: {batches:?}"
+    );
+    assert_eq!(scratch_bytes(state.path()), 0);
+}
+
+/// A write that runs out of disk empties the cache and goes again: the cache holds only bytes the
+/// Mac still has, and on a full machine it had taken the room the agent's own writes needed (the
+/// fault matrix's 48 MiB disk: 44 MB of cache, and every write after the agent freed its own files
+/// failed with "No space left on device").
+#[test]
+fn a_write_out_of_disk_empties_the_cache_and_goes_again() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 0, 100).unwrap(), b"readme");
+    let cached = |state: &Path| {
+        fs::read_dir(state.join("cache"))
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name() != "manifest-id")
+            .count()
+    };
+    assert!(cached(state.path()) > 0);
+    let tries = AtomicUsize::new(0);
+    let wrote = overlay
+        .with_room(|| if tries.fetch_add(1, Ordering::Relaxed) == 0 { Err(ENOSPC) } else { Ok(7) });
+    assert_eq!(wrote, Ok(7));
+    assert_eq!(cached(state.path()), 0);
+    assert!(state.path().join("cache/manifest-id").exists());
+    // The bytes come back from the Mac on the next read.
+    assert_eq!(overlay.read(readme, 0, 100).unwrap(), b"readme");
+    // With nothing left to free, a full disk is the agent's answer.
+    let overlay_empty = open(state.path(), &manifest, &fake);
+    overlay_empty.free_cache();
+    assert_eq!(overlay_empty.with_room(|| Err::<(), _>(ENOSPC)), Err(ENOSPC));
+}
+
+/// The cache never takes the disk's last room: bytes that would leave less than the reserve free
+/// are served but not kept.
+#[test]
+fn the_cache_keeps_nothing_into_the_disks_reserve() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert!(overlay.cache_has_room(1));
+    assert!(!overlay.cache_has_room(u64::MAX / 2));
 }
 
 #[test]
@@ -894,7 +1023,11 @@ fn a_pinned_folder_reads_with_the_mac_away_and_survives_the_cap() {
     drop(overlay);
 
     // A new daemon with the Mac away reads every pinned file from disk, and the pin is on record.
-    let away = Arc::new(Fake { away: true, bytes: fake.bytes.clone(), ..Fake::default() });
+    let away = Arc::new(Fake {
+        away: AtomicBool::new(true),
+        bytes: fake.bytes.clone(),
+        ..Fake::default()
+    });
     let overlay = open(state.path(), &manifest, &away).with_cache_max(4);
     assert_eq!(overlay.pins(), vec!["src".to_owned()]);
     assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");
@@ -1235,6 +1368,125 @@ fn the_content_store_keeps_its_floor_of_free_disk() {
     assert!(fake.calls.load(Ordering::Relaxed) > asked, "evicted blobs came from nowhere");
 }
 
+/// 20 files in each of folders `a` and `b`.
+fn two_folders() -> Vec<String> {
+    let mut paths = Vec::new();
+    for folder in ["a", "b"] {
+        for n in 0..20 {
+            paths.push(format!("{folder}/f{n:02}.rs"));
+        }
+    }
+    paths
+}
+
+fn read_path(overlay: &Overlay, path: &str) -> Vec<u8> {
+    overlay.read(path_ino(overlay, path), 0, 100).unwrap()
+}
+
+#[test]
+fn a_session_records_first_reads_in_order_and_the_next_start_fetches_them_in_batches() {
+    let paths = two_folders();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let (manifest, fake) = served(&refs);
+    let state = tempfile::tempdir().unwrap();
+    // Read in this order, b's files backwards then a's, each twice.
+    let order: Vec<&str> = refs[20..].iter().rev().chain(&refs[..20]).copied().collect();
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        assert!(overlay.replay_list().is_empty());
+        for path in order.iter().chain(&order) {
+            assert_eq!(read_path(&overlay, path), format!("<{path}>").into_bytes());
+        }
+    }
+    let list = fs::read(state.path().join("replay/start")).unwrap();
+    let listed: Vec<&str> = list
+        .split(|b| *b == 0)
+        .filter(|p| !p.is_empty())
+        .map(|p| std::str::from_utf8(p).unwrap())
+        .collect();
+    assert_eq!(listed, order);
+
+    // A new listing's start: nothing cached, the whole list comes in one batch, in id order.
+    fs::remove_dir_all(state.path().join("cache")).unwrap();
+    fs::remove_dir_all(state.path().join("content")).unwrap();
+    let (_, fresh) = served(&refs);
+    let overlay = open(state.path(), &manifest, &fresh).with_replay("start");
+    assert_eq!(overlay.replay_list(), order);
+    let report = overlay.replay_prefetch();
+    assert_eq!((report.listed, report.asked, report.fetched, report.batches), (40, 40, 40, 1));
+    let batch = fresh.batches.lock().unwrap()[0].clone();
+    let mut sorted = batch.clone();
+    sorted.sort_unstable();
+    assert_eq!(batch, sorted);
+    for path in &order {
+        assert_eq!(read_path(&overlay, path), format!("<{path}>").into_bytes());
+    }
+    assert_eq!(fresh.calls.load(Ordering::Relaxed), 1);
+    // A second prefetch finds everything cached and asks for nothing.
+    assert_eq!(overlay.replay_prefetch().asked, 0);
+}
+
+#[test]
+fn with_a_list_a_fault_reads_no_folder_ahead_until_a_scan_is_detected() {
+    let paths = two_folders();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let (manifest, fake) = served(&refs);
+    let state = tempfile::tempdir().unwrap();
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        for path in &refs[..replay::MIN_FILES] {
+            read_path(&overlay, path);
+        }
+    }
+    fs::remove_dir_all(state.path().join("cache")).unwrap();
+    fs::remove_dir_all(state.path().join("content")).unwrap();
+    let (_, fresh) = served(&refs);
+    let overlay = open(state.path(), &manifest, &fresh).with_replay("start");
+    // Folder b is not in the list: each fault asks for its own file alone.
+    for path in &refs[20..20 + replay::SCAN_MISSES - 1] {
+        read_path(&overlay, path);
+    }
+    let batches = fresh.batches.lock().unwrap().clone();
+    assert_eq!(batches.len(), replay::SCAN_MISSES - 1);
+    assert!(batches.iter().all(|batch| batch.len() == 1));
+    // One more miss makes a scan: the rest of b comes with it.
+    read_path(&overlay, refs[20 + replay::SCAN_MISSES - 1]);
+    let last = fresh.batches.lock().unwrap().last().unwrap().clone();
+    assert_eq!(last.len(), 20 - (replay::SCAN_MISSES - 1));
+}
+
+#[test]
+fn a_start_that_reads_almost_nothing_keeps_the_last_list() {
+    let paths = two_folders();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let (manifest, fake) = served(&refs);
+    let state = tempfile::tempdir().unwrap();
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        for path in &refs[..replay::MIN_FILES + 2] {
+            read_path(&overlay, path);
+        }
+    }
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        read_path(&overlay, refs[30]);
+    }
+    let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+    assert_eq!(overlay.replay_list().len(), replay::MIN_FILES + 2);
+    // Another key has a list of its own.
+    let other = open(tempfile::tempdir().unwrap().path(), &manifest, &fake).with_replay("build");
+    assert!(other.replay_list().is_empty());
+}
+
+#[test]
+fn without_replay_nothing_is_recorded() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    read_path(&overlay, "src/a.rs");
+    drop(overlay);
+    assert!(!state.path().join("replay").exists());
+}
+
 /// RFD 0065 piece 6: a listing entry's hash lets the store answer by content, so a file that moved
 /// and was touched (another path, size kept, another mtime) is read with no fetch, where without
 /// the hash the same listing fetches it.
@@ -1317,4 +1569,57 @@ fn warm_with_the_mac_away_stops_at_the_first_absence_and_pins_nothing() {
     assert_eq!(report.first_error, Some(FetchError::Away.errno()));
     assert_eq!(report.failed, 1);
     assert!(overlay.pins().is_empty());
+}
+
+#[test]
+fn bulk_copy_brings_the_whole_tree_local_in_path_order_and_a_second_run_asks_nothing() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let options = bulk::BulkOptions { pause: Duration::ZERO, ..Default::default() };
+    let stop = AtomicBool::new(false);
+    let report = overlay.bulk_copy(&options, &stop);
+    assert!(report.complete && !report.full && !report.away, "{report:?}");
+    // Five small files in batches (a big file flushes the run before it), each in id order, and
+    // the big one by chunk.
+    assert_eq!(report.files, 6);
+    let batches = fake.batches.lock().unwrap().clone();
+    assert_eq!(batches.iter().map(Vec::len).sum::<usize>(), 5);
+    let flat: Vec<u32> = batches.concat();
+    assert!(flat.windows(2).all(|pair| pair[0] < pair[1]));
+    let asked = fake.calls.load(Ordering::Relaxed);
+    // Every read now comes off the disk.
+    let big = path_ino(&overlay, "big.bin");
+    assert_eq!(overlay.read(big, 0, 64).unwrap(), big_bytes()[..64]);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 0, 100).unwrap(), b"readme");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), asked);
+    let again = overlay.bulk_copy(&options, &stop);
+    assert!(again.complete);
+    assert_eq!((again.files, again.requests), (0, 0));
+    assert_eq!(fake.calls.load(Ordering::Relaxed), asked);
+}
+
+#[test]
+fn bulk_copy_stops_short_of_the_cache_cap_and_evicts_nothing() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(64);
+    let options = bulk::BulkOptions { pause: Duration::ZERO, ..Default::default() };
+    let report = overlay.bulk_copy(&options, &AtomicBool::new(false));
+    assert!(report.full && !report.complete, "{report:?}");
+    assert_eq!(overlay.cache_evicted(), 0);
+    assert!(overlay.cache_bytes() <= 64);
+}
+
+#[test]
+fn bulk_copy_stops_when_the_mac_is_away_and_when_told_to() {
+    let (state, manifest, fake) = setup(true);
+    let overlay = open(state.path(), &manifest, &fake);
+    let options = bulk::BulkOptions { pause: Duration::ZERO, ..Default::default() };
+    let report = overlay.bulk_copy(&options, &AtomicBool::new(false));
+    assert!(report.away && !report.complete, "{report:?}");
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let report = overlay.bulk_copy(&options, &AtomicBool::new(true));
+    assert_eq!(report, bulk::BulkReport::default());
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0);
 }

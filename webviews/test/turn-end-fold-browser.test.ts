@@ -381,10 +381,15 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       // between the runs stay outside the fold as the agent's own paragraphs (#42279, #42247) and
       // the turn's footer and edits card come in under the answer, so the fold's height shows as
       // the prompt coming down and the answer going up together.
-      expect(after.prompt - before.prompt).toBeGreaterThan(8);
+      // On the 20px row metric (rowMetric.ts) the folded work is shorter than on the 22px rows it was
+      // first measured on, so the prompt comes down less far (6 here, over several frames).
+      expect(after.prompt - before.prompt).toBeGreaterThan(4);
       expect(after.prompt - before.prompt + (after.answer - before.answer)).toBeGreaterThan(40);
+      // Since the exit lead (#48554), the asides staying out of the fold and the 20px row metric, the
+      // prompt's own move is about 6 px; a margin of 1 px or more at each end leaves a window one
+      // dropped frame on a loaded runner could cut to two frames. Every frame drawn part way counts.
       const between = folding.filter(
-        (sample) => sample.prompt > before.prompt + 2 && sample.prompt < after.prompt - 2,
+        (sample) => sample.prompt > before.prompt + 0.5 && sample.prompt < after.prompt - 0.5,
       ).length;
       expect(between).toBeGreaterThanOrEqual(3);
       const steps = folding.slice(1).map((sample, index) => sample.prompt - folding[index]!.prompt);
@@ -396,6 +401,8 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       // few frames' length drew 0 to 2 part-faded samples from run to run.
       expect(samples[from]!.work).toBeGreaterThan(0.5);
       expect(Math.max(...folding.map((sample) => sample.fadeMs))).toBeGreaterThanOrEqual(2 * (1000 / 60));
+      for (const sample of folding)
+        if (Math.abs(sample.prompt - before.prompt) > 0.5) expect(sample.work).toBeLessThan(0.05);
       expect(after.work).toBe(0);
       // The bottom stays pinned on every frame of the fold: the view stays at its end.
       for (const sample of folding) expect(sample.gap).toBeLessThanOrEqual(2);

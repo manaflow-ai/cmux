@@ -32,6 +32,11 @@ pub const REPORT_VERSION: u32 = 1;
 /// How long the owner must have been away before work is placed here: host-presence's bar.
 pub const DEFAULT_IDLE_SECS: u64 = 600;
 
+/// `_meta.acpmux.placedBy` on a `session/new` AutoCloud placed on an enrolled machine, kept as
+/// the session's `placedBy` there: it runs at the background class and moves off or pauses when
+/// the owner comes back (`hub/owner_return.rs`).
+pub const PLACED_BY_AUTOCLOUD: &str = "autoCloud";
+
 /// Capabilities only a Mac has: work that needs one of them goes to this Mac or an enrolled
 /// Mac, never to the cloud (enrolled Macs are AutoCloud's Mac tier).
 pub const MAC_CAPS: [&str; 3] = ["macos", "xcode", "ios-simulator"];
