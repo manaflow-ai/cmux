@@ -440,6 +440,14 @@ jobs:
       contents: read
       id-token: write
 
+  cmux-next-sidebar-bench:
+    name: cmux-next sidebar bench
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-sidebar-bench.yml') }}
+    uses: ./.github/workflows/cmux-next-sidebar-bench.yml
+    permissions:
+      contents: read
+
   swift-logic-ratchet:
     name: Swift logic ratchet
     needs: route
