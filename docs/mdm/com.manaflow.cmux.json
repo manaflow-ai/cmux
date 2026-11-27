@@ -428,6 +428,17 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.streaming" : {
+      "default" : "words",
+      "description" : "How an agent's reply text appears as it arrives.",
+      "enum" : [
+        "words",
+        "lines",
+        "instant"
+      ],
+      "title" : "Reply Streaming",
+      "type" : "string"
+    },
     "agentPane.display.subagentOf" : {
       "default" : false,
       "description" : "In a subagent's own pane, show which chat it belongs to beside its name in the header.",
