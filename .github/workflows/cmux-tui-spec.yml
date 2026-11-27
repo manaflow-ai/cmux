@@ -138,6 +138,10 @@ on:
         description: Run only this job id (a bisect probe); empty runs every job.
         type: string
         default: ""
+      base:
+        description: "clippy job only: the commit the window starts at (the post-merge plan's base: the last judged batch's head, or a probe's known-good commit); empty lints the whole workspace"
+        type: string
+        default: ""
     # Base-side callers (post-merge batch, feat-cmux-next pushes) pass the R2 write secrets so base-comparison
     # logs go to R2: the GitHub cache is over its 10 GB cap and evicts them before pull requests read them.
     # Pull request callers pass none; they only read, which needs no credentials.
@@ -1541,8 +1545,9 @@ jobs:
   # So #23163 and #23372 landed clippy reds in cmux-tui/crates/cmux-tui/tests/ and broke
   # base clippy for everyone. This lints, with --all-targets, each
   # cmux-tui workspace package the change touches and each member depending on one
-  # (the whole workspace when the
-  # workspace manifest, lockfile, clippy config or toolchain pin changes). Only compile
+  # (a lockfile or workspace manifest change counts for the members it reaches; the whole
+  # workspace when another workspace table, the clippy config or toolchain pin changes,
+  # or there is no base; a post-merge call passes its plan's base). Only compile
   # errors fail it: lints run under --cap-lints warn and become ::warning annotations and a
   # step-summary list, fixed forward (Leo, 2026-11-20: "WHY IS LINT EVEN STOPPING SHIT
   # INSTEAD OF JUST BEING OOPS"). The panic ratchet step below still fails on a new panic
@@ -1615,6 +1620,8 @@ jobs:
         id: base
         env:
           EVENT_NAME: ${{ github.event_name }}
+          # A post-merge call (its event is the batch's workflow_dispatch) passes its plan's base: without it every
+          # call linted the whole workspace (225 members, 11.6 and 15.8 min in jobs 140465633373 and 140499897736).
           BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event_name == 'workflow_dispatch' && inputs.base || '' }}
         run: |
           if [[ "$EVENT_NAME" == pull_request ]]; then
