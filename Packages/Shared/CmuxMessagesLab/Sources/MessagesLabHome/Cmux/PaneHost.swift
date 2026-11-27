@@ -282,8 +282,6 @@ final class HostView: NSView {
         super.viewWillStartLiveResize()
         windowLiveResize = true
         syncLiveResize()
-        // The paths may be on already, from the pane's resize the layout told first: the window's resize pauses a fade.
-        if liveApplied { takeClipMaskOff() }
     }
 
     override func viewDidEndLiveResize() {
@@ -294,8 +292,12 @@ final class HostView: NSView {
     }
 
     private func syncLiveResize() {
-        guard liveApplied != isLiveResizing else { return }
-        if isLiveResizing { liveResizeBegan() } else { liveResizeEnded() }
+        if liveApplied != isLiveResizing {
+            if isLiveResizing { liveResizeBegan() } else { liveResizeEnded() }
+        }
+        // The window's own resize pauses a fade, whichever call turned the paths on first (the pane resize the layout
+        // tells before this view's `viewWillStartLiveResize`, or a move into a window mid-resize).
+        if liveApplied, windowLiveResize { takeClipMaskOff() }
     }
 
     /// A live resize began: the clip's mask comes off and the chrome draws its nine-part border. A divider drag alone
