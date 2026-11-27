@@ -3,7 +3,7 @@
   "snapshot": "230b66b08dd88ab66fea47a6827b26d92d593e5e",
   "measurement": "repo_tree(repo=cmux, ref=230b66b08dd88ab66fea47a6827b26d92d593e5e, path=.github/workflows), include every .yml/.yaml entry",
   "before": 316,
-  "target_budget": 119,
+  "target_budget": 123,
   "implemented_after": null,
   "runner_minutes_per_day": {
     "before": null,
@@ -16,8 +16,10 @@
     "app-ffi-release.yml",
     "app-store-shelf.yml",
     "auto-resume-nightly-notarization.yml",
+    "backend.yml",
     "billing-nightly.yml",
     "cloud-mvp-nightly-readback.yml",
+    "cloud-vm-image-graduate.yml",
     "cloud-vm-image-promote.yml",
     "cmux-art-publish.yml",
     "cmux-browser-host-release.yml",
@@ -37,6 +39,8 @@
     "ios-internal-submit.yml",
     "ios-testflight.yml",
     "iroh-release-gate.yml",
+    "mobile-worker-dev-deploy.yml",
+    "mobile-worker-prod-deploy.yml",
     "nightly-interaction-latency.yml",
     "nightly-next-canary.yml",
     "nightly-next-feed-watch.yml",
@@ -71,16 +75,17 @@
   ],
   "groups": {
     "delivery-protected": {
-      "before": 70,
-      "target_budget": 70,
+      "before": 74,
+      "target_budget": 74,
       "owner": "release/nightly owners; no edits in this lane",
-      "migration": "Retain byte-identical entrypoints and static reusable closure. Includes dev and publication paths. Expand on dynamic/external caller discovery before any cut.",
+      "migration": "Retain byte-identical release/nightly/promote/dev/publication entrypoints, static reusable closure, and protected deployment/dev/promotion entrypoints. backend.yml owns staging/production/promote/rollback/chief-off; mobile Worker dev/prod deploys own environment credentials; cloud VM image graduate is a protected dev image-promotion surface. No edits in this consolidation lane.",
       "files": [
         "accounts-nightly-probe.yml",
         "app-ffi-release.yml",
         "app-store-shelf.yml",
         "auto-resume-nightly-notarization.yml",
         "backend-migrations.yml",
+        "backend.yml",
         "billing-nightly.yml",
         "billing.yml",
         "ci-cloud-overflow-probe.yml",
@@ -88,6 +93,7 @@
         "cloud-journey-prod.yml",
         "cloud-mvp-nightly-readback.yml",
         "cloud-vm-image-bake.yml",
+        "cloud-vm-image-graduate.yml",
         "cloud-vm-image-promote.yml",
         "cloud-vm-image-roll.yml",
         "cmux-art-publish.yml",
@@ -113,6 +119,8 @@
         "ios-screenshots.yml",
         "ios-testflight.yml",
         "iroh-release-gate.yml",
+        "mobile-worker-dev-deploy.yml",
+        "mobile-worker-prod-deploy.yml",
         "nightly-interaction-latency.yml",
         "nightly-next-canary.yml",
         "nightly-next-feed-watch.yml",
@@ -147,7 +155,7 @@
         "tui-publish-pypi.yml",
         "update-homebrew.yml"
       ],
-      "status": "proposed; semantics and caller migration not yet proven"
+      "status": "protected closure corrected from caller audit; byte identity and dynamic/external caller audit remain required before any future cut"
     },
     "classic-frozen": {
       "before": 1,
@@ -194,12 +202,11 @@
       "status": "proposed; semantics and caller migration not yet proven"
     },
     "cloud-backend": {
-      "before": 35,
+      "before": 31,
       "target_budget": 8,
       "owner": "backend/cloud helper",
-      "migration": "Separate dispatchers for backend checks, chief, cloud journeys, app proofs, operations, VM static checks, fleet operations and mobile deployments. Keep credentials/job permissions distinct; image-graduate moves into operations only after promotion caller audit.",
+      "migration": "Separate dispatchers for backend checks, chief, cloud journeys, app proofs, operations, VM static checks and fleet operations. backend.yml and mobile/image deployment entrypoints are protected in delivery; keep credentials/job permissions distinct for remaining candidates.",
       "files": [
-        "backend.yml",
         "billing-e2e.yml",
         "cloud-capture-provision.yml",
         "cloud-chat-proof.yml",
@@ -220,7 +227,6 @@
         "cloud-surge-proof.yml",
         "cloud-vm-dogfood.yml",
         "cloud-vm-guest-install.yml",
-        "cloud-vm-image-graduate.yml",
         "cloud-vm-migrate.yml",
         "cloud-wake-echo.yml",
         "cloudflare-relay.yml",
@@ -229,13 +235,11 @@
         "cmux-vm-cloud.yml",
         "cmux-vm-secrets-seal.yml",
         "fleet-artifact-cdn.yml",
-        "mobile-worker-dev-deploy.yml",
-        "mobile-worker-prod-deploy.yml",
         "platform-billing-test-secrets.yml",
         "platform-fleet-inventory.yml",
         "vm-hassle.yml"
       ],
-      "status": "proposed; semantics and caller migration not yet proven"
+      "status": "candidate grouping after protected-entrypoint correction; dynamic caller audit incomplete"
     },
     "performance-gallery-docs": {
       "before": 15,
@@ -600,8 +604,8 @@
     },
     {
       "path": ".github/workflows/backend.yml",
-      "area": "cloud-backend",
-      "disposition": "consolidate-or-retire-after-proof",
+      "area": "delivery-protected",
+      "disposition": "retain-protected-entrypoint",
       "telemetry_30d": "not established by this plan"
     },
     {
@@ -888,8 +892,8 @@
     },
     {
       "path": ".github/workflows/cloud-vm-image-graduate.yml",
-      "area": "cloud-backend",
-      "disposition": "consolidate-or-retire-after-proof",
+      "area": "delivery-protected",
+      "disposition": "retain-protected-entrypoint",
       "telemetry_30d": "not established by this plan"
     },
     {
@@ -1878,14 +1882,14 @@
     },
     {
       "path": ".github/workflows/mobile-worker-dev-deploy.yml",
-      "area": "cloud-backend",
-      "disposition": "consolidate-or-retire-after-proof",
+      "area": "delivery-protected",
+      "disposition": "retain-protected-entrypoint",
       "telemetry_30d": "not established by this plan"
     },
     {
       "path": ".github/workflows/mobile-worker-prod-deploy.yml",
-      "area": "cloud-backend",
-      "disposition": "consolidate-or-retire-after-proof",
+      "area": "delivery-protected",
+      "disposition": "retain-protected-entrypoint",
       "telemetry_30d": "not established by this plan"
     },
     {
@@ -2410,5 +2414,8 @@
       "disposition": "consolidate-or-retire-after-proof",
       "telemetry_30d": "not established by this plan"
     }
-  ]
+  ],
+  "goal_target_max": 119,
+  "supportable_target_budget": 123,
+  "budget_note": "Protected deployment/dev/promotion closure is 75 files (74 delivery + 1 classic), leaving a supportable conditional budget of 123. The user goal remains fewer than 120; at least four additional proven merges are still required. Do not manufacture them by deleting protected coverage."
 }

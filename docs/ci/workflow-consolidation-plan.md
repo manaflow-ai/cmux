@@ -2,18 +2,18 @@
 
 Leo: "where's the ci unification and simplification and speedups?"
 
-The current plan is **316 → 119 workflow files** at `manaflow-ai/cmux@230b66b08dd88ab66fea47a6827b26d92d593e5e`. The 119 is a proposed end-state budget, not an implemented result or proof that every merger is safe. No inactive workflow is declared dead solely from an empty or capped run sample. This is the action plan for the revised stop condition: consolidation plan plus first PRs; retention documentation alone does not complete it.
+The current plan is **316 → fewer than 120 workflow files** at `manaflow-ai/cmux@230b66b08dd88ab66fea47a6827b26d92d593e5e`. The user target is fewer than 120; the corrected currently supportable conditional budget is 123, not an implemented result or proof that every merger is safe. No inactive workflow is declared dead solely from an empty or capped run sample. This is the action plan for the revised stop condition: consolidation plan plus first PRs; retention documentation alone does not complete it.
 
-The companion `workflow-consolidation-inventory.json` assigns all 316 paths to exactly one purpose area. The earlier 304/311 counts describe different snapshots. A `repo_files` call at this same SHA returns only 315 because it hides `classic-frozen-guard.yml`; `repo_tree` returns all 316. Count `.yml` and `.yaml`, including frozen paths. The measurement receipt is `repo_tree(repo="cmux", ref="230b66b08dd88ab66fea47a6827b26d92d593e5e", path=".github/workflows")`.
+The companion `ci-workflow-consolidation-inventory.json` assigns all 316 paths to exactly one purpose area. The earlier 304/311 counts describe different snapshots. A `repo_files` call at this same SHA returns only 315 because it hides `classic-frozen-guard.yml`; `repo_tree` returns all 316. Count `.yml` and `.yaml`, including frozen paths. The measurement receipt is `repo_tree(repo="cmux", ref="230b66b08dd88ab66fea47a6827b26d92d593e5e", path=".github/workflows")`.
 
 ## Area budgets
 
 | Area | Snapshot files | Proposed files | Owner / migration lane |
 | --- | ---: | ---: | --- |
-| delivery-protected | 70 | 70 | release/nightly owners; no edits in this lane |
+| delivery-protected | 74 | 74 | release/nightly owners; no edits in this lane |
 | classic-frozen | 1 | 1 | frozen classic owner |
 | app-platform | 25 | 7 | app/platform helper |
-| cloud-backend | 35 | 8 | backend/cloud helper |
+| cloud-backend | 31 | 8 | backend/cloud helper |
 | performance-gallery-docs | 15 | 7 | hygiene/bench helper |
 | storage | 5 | 1 | storage helper |
 | pr-routing-guards | 29 | 6 | PR/guards helper |
@@ -24,11 +24,11 @@ The companion `workflow-consolidation-inventory.json` assigns all 316 paths to e
 | journeys-reliability | 33 | 3 | journey/reliability helper (assign owner) |
 | ci-maintenance | 24 | 3 | maintenance/guards helper |
 | infrastructure-operations | 11 | 2 | operations helper (assign owner) |
-| **Total** | **316** | **119** | **197 fewer files; design target, not landed** |
+| **Total** | **316** | **123** | **193 fewer files; conditional budget, not landed** |
 
-The 70 delivery files include release, nightly, promote, dev, package publication, their static reusable closure, and protected deployment entrypoints from the cloud lane. They remain byte-identical. The frozen classic guard adds one unchanged file. This leaves 245 candidate files with a proposed budget of 48. The target has only one file of headroom below 120: an additional protected or externally called entrypoint requires finding another proven consolidation, not deleting coverage to preserve the number.
+The 74 delivery files include release, nightly, promote, dev, package publication, their static reusable closure, and protected deployment/dev/promotion entrypoints moved from the cloud lane. `backend.yml` exposes staging/production/promote/rollback/chief-off; the mobile Worker dev/prod deploys own environment credentials; and `cloud-vm-image-graduate.yml` is a protected dev image-promotion surface. They remain byte-identical. The frozen classic guard adds one unchanged file. This leaves 241 candidate files with a proposed budget of 48, for a supportable conditional budget of 123. The user target remains fewer than 120: at least four additional proven merges are required after dynamic-caller and required-check audits; do not delete protected coverage to force the number.
 
-Original helper drafts were app/platform 27→9, cloud/backend 49→19, benchmark/support 17→10, and storage 5→1. Those are **not additive**: fleet-compile/test/RD-host occur in app and cloud, measure-swift-typecheck occurs in app and benchmark, and docs-deploy-reusable occurs in cloud and benchmark. This plan assigns delivery protection first, then app, cloud, benchmark and storage, so each path is counted once. The revised smaller area budgets below are candidate architecture designs, not a claim those helpers already implemented them.
+Original helper drafts were app/platform 27→9, cloud/backend 49→19, benchmark/support 17→10, and storage 5→1. Those are **not additive**: fleet-compile/test/RD-host occur in app and cloud, measure-swift-typecheck occurs in app and benchmark, and docs-deploy-reusable occurs in cloud and benchmark. This plan assigns delivery protection first, then app, cloud, benchmark and storage, so each path is counted once. The revised smaller area budgets below are candidate architecture designs, not a claim those helpers already implemented them. The corrected protected closure makes 123 the currently supportable conditional budget; the <120 goal needs four more proven merges.
 
 ## Concrete migrations
 
@@ -36,9 +36,9 @@ Original helper drafts were app/platform 27→9, cloud/backend 49→19, benchmar
 
 Native checks, iOS validation, fleet manual build gateways, platform build and cache seed dispatchers; protected iOS entrypoints stay in delivery group. Delete fleet-test-compile only with exact caller/coverage proof.
 
-### cloud-backend: 35 → 8
+### cloud-backend: 31 → 8
 
-Separate dispatchers for backend checks, chief, cloud journeys, app proofs, operations, VM static checks, fleet operations and mobile deployments. Keep credentials/job permissions distinct; image-graduate moves into operations only after promotion caller audit.
+Separate dispatchers for backend checks, chief, cloud journeys, app proofs, operations, VM static checks and fleet operations. `backend.yml`, both mobile Worker deploys and `cloud-vm-image-graduate.yml` are protected in delivery; keep credentials/job permissions distinct for the remaining candidates. The dynamic caller audit is incomplete.
 
 ### performance-gallery-docs: 15 → 7
 
@@ -80,12 +80,16 @@ Separate PR lifecycle cleanup, CI health/repair, and generated/base repair dispa
 
 One read-only diagnostics and one explicitly selected maintenance dispatcher; preserve job-level environments, credentials and destructive-input defaults. Signing-keychain is protected on any delivery reachability finding.
 
+## Protection correction and open audit
+
+`backend.yml` is protected because its dispatch inputs include staging, production, promote, rollback and chief-off (not a disposable cloud candidate). `mobile-worker-dev-deploy.yml`, `mobile-worker-prod-deploy.yml` and `cloud-vm-image-graduate.yml` are likewise retained as protected dev/deployment surfaces. Static `workflow_call` edges are inventoried, but dynamic CLI/API dispatchers, required-check references and cross-repository callers are not fully audited; the 123 budget is therefore conditional. The <120 stop condition is not yet achieved.
+
 ## First PRs and the parallel sequence
 
 - PR/guards lane: [#61914](https://github.com/manaflow-ai/cmux/pull/61914), `322777aff39c2f1ec31fee2284bb115e94706544`, combines PR cleanup entrypoints, pinned branch count 315→314. It is open, not merged in this plan's evidence. Targeted cleanup units passed; broader audit attribution and exact-head review/landing remain its owner's work.
-- PR/guards lane: Swift reusable consolidation at `4645726bf3e6bec0b045b2f245aaf77a22890451`, based on `0d5f50bedc2439ea335e9be71a5e0a4c7db3af46`, pinned count 315→314. Retains registered `swift-acpmux-protocol.yml`; ratchet caller selects `check: ratchet`, post-merge selects `check: acpmux`. Opened as [#61885](https://github.com/manaflow-ai/cmux/pull/61885); exact-head code review is SHIP, CI/landing is pending. This plan supplies no merge claim.
+- PR/guards lane: Swift reusable consolidation at `4645726bf3e6bec0b045b2f245aaf77a22890451`, based on `0d5f50bedc2439ea335e9be71a5e0a4c7db3af46`, pinned count 315→314. Retains registered `swift-acpmux-protocol.yml`; ratchet caller selects `check: ratchet`, post-merge selects `check: acpmux`. Publication/review is in progress; this plan supplies no merge claim.
 - App/platform + PR/guards: retire superseded `fleet-test-compile.yml` only after retaining planner tests and post-merge coverage, and migrating metadata. One deletion belongs to one lane and must not be counted twice.
-- Cloud lane: combine the first two compatible manual probes, area 2→1. Land only after exact dispatch and registration migration. The larger 35→8 budget is the subsequent dispatcher work, not this first patch.
+- Cloud lane: combine the first two compatible manual probes, area 2→1. Land only after exact dispatch and registration migration. The larger 31→8 budget is the subsequent dispatcher work, not this first patch.
 - Benchmark lane: merge manual web-performance/stress dispatchers, area 2→1, preserving selected suite and concurrency behavior. Remaining benchmark/gallery/report grouping follows separately.
 - Storage lane: five active maintenance wrappers → one dispatcher, with main-first then paired NEXT PR because schedules execute default-branch definitions. Preserve seven runnable jobs, four schedules and all destructive-input semantics. Offline route/payload proofs exist in the helper; pin and attach them to the actual PR head before landing.
 
