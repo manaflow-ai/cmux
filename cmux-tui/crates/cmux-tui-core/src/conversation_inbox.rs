@@ -42,7 +42,7 @@ pub(crate) struct InboxState {
 /// `conversation-inbox-op` `op`: the same shapes as the Cloud owner's
 /// `inbox.pin` and `inbox.mark_unread` params, tagged by `kind`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(tag = "kind", deny_unknown_fields)]
+#[serde(tag = "kind")]
 pub(crate) enum InboxOp {
     /// Pin (at `position`, else the existing position, else after the last
     /// pin) or unpin.
@@ -140,7 +140,7 @@ fn state(position: Option<i64>, unread: i64) -> InboxState {
     InboxState { pinned: pin_position.is_some(), pin_position, marked_unread: unread != 0 }
 }
 
-fn load(
+pub(super) fn load(
     connection: &Connection,
     participant: &str,
     conversation: &str,

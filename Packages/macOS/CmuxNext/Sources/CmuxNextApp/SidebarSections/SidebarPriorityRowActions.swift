@@ -1,19 +1,8 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
-import CmuxNextAgentPane
-import CmuxNextPalette
+import CmuxNextDesign
 import CmuxNextSidebar
-
-extension AgentPriorityChats {
-    /// The app's Priority chats: this Mac's acpmux and the Chief home's, archived over their sockets.
-    @MainActor static let app = makeApp()
-
-    // A function, not the property's initial value: the archive closure is nonisolated, the stores main-actor.
-    private static func makeApp() -> AgentPriorityChats {
-        AgentPriorityChats(marks: .shared, stores: [.shared, .chief],
-                           archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) })
-    }
-}
 
 /// A Priority row's actions on its chat (an `agent-chat:` target): Mark Chat as Read…, Pin/Unpin Chat in Priority…,
 /// Snooze Chat for 1 Hour…, Move Chat Earlier/Later in Priority… (the palette asks which chat), and Archive Chat. The
@@ -26,10 +15,17 @@ struct SidebarPriorityRowActions {
     static let snooze: ActionID = "sidebar.priority.snooze"
     /// A row's archive is Archive Chat on the row's chat, not an action of its own.
     static let archive: ActionID = "agentPane.archiveChat"
+    /// Restore on an archived chat (the Archived fold's rows): it lists again. Its menu row shows only for an archived chat,
+    /// whose menu leaves out Pin, Snooze and Archive.
+    static let restore: ActionID = "sidebar.priority.restore"
 
     let chats: AgentPriorityChats
     /// Why the row actions cannot run now (the view is off); nil while they can.
     var unavailable: @MainActor () -> String? = { nil }
+    /// Where an archive's Undo toast shows (toasts v2): the app's active window. Nil: no toast.
+    var toastWindow: @MainActor () -> NSWindow? = { nil }
+    /// The presenter; its ``CmuxToastCenter/v2`` decides whether an archive offers Undo (tests pass their own).
+    var toasts: CmuxToastCenter = .shared
 
     /// Why the row actions cannot run in the app: the Priority view is off (`SidebarPriorityFeed`
     /// binds the other three with the same check).
@@ -50,13 +46,21 @@ struct SidebarPriorityRowActions {
         case .togglePin(let id): (Self.togglePin, id)
         case .snooze(let id): (Self.snooze, id)
         case .archive(let id): (Self.archive, id)
-        case .open, .setCollapsed, .toggleShown, .place, .answer: nil
+        case .restore(let id): (Self.restore, id)
+        case .open, .setCollapsed, .toggleShown, .place, .answer, .setFilter, .markAllRead, .openArchived, .setArchivedFolded,
+             .showMoreArchived: nil
         }
     }
 
     /// Runs a row button's action through the registry, as its menu row does.
     static func perform(_ action: SidebarPriorityAction, in registry: ActionRegistry) {
         guard let (id, chat) = route(action) else { return }
+        // Restore is new to the Rust action catalog; until the app's pinned FFI catalog lists it
+        // (docs/ci/app-ffi-release.md), the Archived fold's button restores straight through the chats.
+        if id == Self.restore, registry.action(for: id) == nil {
+            _ = AgentPriorityChats.app.restore(chat)
+            return
+        }
         registry.perform(id, invocation: ActionInvocation(target: target(chat), origin: .user))
     }
 
@@ -80,52 +84,38 @@ struct SidebarPriorityRowActions {
         ActionTargetTitles.set(Self.togglePin, in: registry) { invocation in
             Self.chat(invocation).flatMap { chats.entry($0) }?.pinTitle
         }
+        // Restore runs on any surface for an archived chat; the Priority view being off does not stop it (the chat
+        // lists again wherever it listed). An archived chat's menu is Restore, not the ranked rows' actions.
+        registry.bindEffect(Self.restore, effect: { Self.chat($0).map(chats.restore) == true ? .done : .refused(SidebarSectionStrings.noSuchPriorityChat) })
+        ActionTargetVisibility.hide(Self.restore, in: registry) { invocation in
+            Self.chat(invocation).map { !chats.isArchived($0) } ?? true
+        }
+        for id in [Self.togglePin, Self.snooze] {
+            ActionTargetVisibility.hide(id, in: registry) { invocation in Self.chat(invocation).map(chats.isArchived) ?? false }
+        }
     }
 
     /// Binds Archive Chat: a row's chat archives here (hidden at once, then archived in its acpmux)
     /// and, like the other row actions, not while `unavailable` gives a reason; any other run is the
     /// focused chat's own Archive (`otherwise`), which the Priority view's setting does not touch.
     func bindArchive(into registry: ActionRegistry, otherwise: @escaping @MainActor (ActionInvocation) throws -> Void) {
-        let chats = chats, unavailable = unavailable
+        let chats = chats, unavailable = unavailable, toasts = toasts, toastWindow = toastWindow
         registry.bind(Self.archive, run: { invocation in
             guard invocation.target?.kind == .agentChat else { return try otherwise(invocation) }
-            try Self.run(chats.archive, invocation)
+            // Toasts v2: the archive offers Undo, which unarchives the chat. Off: the archive alone.
+            try Self.run({ toasts.v2 ? chats.archive($0, undo: toasts, in: toastWindow(), message: SidebarSectionStrings.archivedChat) : chats.archive($0) },
+                         invocation)
         })
         ActionTargetReasons.set(Self.archive, in: registry) { invocation in
             invocation.target?.kind == .agentChat ? unavailable() : nil
+        }
+        // An archived chat's row (the Archived fold) offers Restore instead.
+        ActionTargetVisibility.hide(Self.archive, in: registry) { invocation in
+            invocation.target?.kind == .agentChat && Self.chat(invocation).map(chats.isArchived) == true
         }
     }
 
     private static func run(_ change: (String) -> Bool, _ invocation: ActionInvocation) throws {
         guard let id = chat(invocation), change(id) else { throw ActionFailure.invalidTarget(SidebarSectionStrings.noSuchPriorityChat) }
-    }
-}
-
-/// The palette's list of Priority chats for a row action's `chat` argument, in rank order. Other
-/// kinds fall through to `next`.
-final class PriorityChatTargetSource: PaletteTargetSource {
-    private let chats: AgentPriorityChats
-    private let next: any PaletteTargetSource
-
-    init(chats: AgentPriorityChats, next: any PaletteTargetSource) {
-        self.chats = chats
-        self.next = next
-    }
-
-    func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
-        guard kind == .agentChat else { return next.targets(of: kind) }
-        return chats.entries().map { entry in
-            let place = [entry.project, entry.machine].compactMap(\.self).joined(separator: " · ")
-            return PaletteTargetOption(id: entry.id, title: entry.title, subtitle: place.isEmpty ? nil : place, symbol: "bubble.left")
-        }
-    }
-
-    func title(of target: ActionTargetRef) -> String? {
-        guard target.kind == .agentChat else { return next.title(of: target) }
-        return chats.entry(target.id)?.title
-    }
-
-    func currentDescription(of target: ActionTargetRef) -> String? {
-        next.currentDescription(of: target)
     }
 }

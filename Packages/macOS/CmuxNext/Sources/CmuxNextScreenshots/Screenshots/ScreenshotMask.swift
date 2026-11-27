@@ -32,18 +32,45 @@ public struct ScreenshotMask {
         /// Whether `view` covers whatever sits inside it, so no view under it has its own image
         /// painted back in (``isCovered(_:rules:)``): a browser chrome, whose page area is a mask.
         public let coversContents: @MainActor (NSView) -> Bool
+        /// What a covered view or area is, as one machine word (`home`, `chat`, `browser`), so a
+        /// capture can say what its grey areas are and nobody reads one as a blank pane.
+        public let name: @MainActor (NSView) -> String
 
         public init(covers: @escaping @MainActor (NSView) -> Bool, area: @escaping @MainActor (NSView) -> NSView?,
-                    isAppPage: @escaping @MainActor (NSView) -> Bool, coversContents: @escaping @MainActor (NSView) -> Bool) {
+                    isAppPage: @escaping @MainActor (NSView) -> Bool, coversContents: @escaping @MainActor (NSView) -> Bool,
+                    name: @escaping @MainActor (NSView) -> String = { _ in "area" }) {
             self.covers = covers
             self.area = area
             self.isAppPage = isAppPage
             self.coversContents = coversContents
+            self.name = name
         }
     }
 
     /// The areas to cover, in window coordinates.
     public var regions: [NSRect] = []
+    /// Each area's name (``Rules/name``), one per entry of ``regions``, in the same order.
+    public var names: [String] = []
+
+    /// One area a capture covers: what it is (``Rules/name``) and where, in window coordinates.
+    public struct Area: Equatable, Sendable {
+        public let name: String
+        public let rect: NSRect
+
+        public init(name: String, rect: NSRect) {
+            self.name = name
+            self.rect = rect
+        }
+
+        /// The names of `areas` that show in `crop` (the whole window when nil), each once, sorted:
+        /// what a capture's `masked_areas` lists.
+        public static func names(_ areas: [Area], in crop: NSRect?) -> [String] {
+            Set(areas.filter { area in crop.map(area.rect.intersects) ?? true }.map(\.name)).sorted()
+        }
+    }
+
+    /// Every area with its name.
+    public var areas: [Area] { zip(names, regions).map { Area(name: $0, rect: $1) } }
     /// False when an area or a view holding it was animating (its pixels are not where its frame
     /// says), an area moved or resized between readings, or the window changed size between
     /// readings.
@@ -85,7 +112,10 @@ public struct ScreenshotMask {
         guard let root = window.contentView?.superview ?? window.contentView else { return mask }
         func add(_ view: NSView) {
             let rect = view.convert(view.bounds, to: nil)
-            if rect.width > 0, rect.height > 0, !mask.regions.contains(rect) { mask.regions.append(rect) }
+            if rect.width > 0, rect.height > 0, !mask.regions.contains(rect) {
+                mask.regions.append(rect)
+                mask.names.append(rules.name(view))
+            }
             mask.frames[ObjectIdentifier(view)] = rect
             if isMoving(view) || view.superview.map({ sequence(first: $0, next: \.superview).contains(where: movesChildren) }) == true {
                 mask.isSettled = false
@@ -179,7 +209,10 @@ public struct ScreenshotMask {
         /// One reading now.
         public func sample() {
             let now = ScreenshotMask.read(window, rules: rules)
-            for rect in now.regions where !mask.regions.contains(rect) { mask.regions.append(rect) }
+            for (rect, name) in zip(now.regions, now.names) where !mask.regions.contains(rect) {
+                mask.regions.append(rect)
+                mask.names.append(name)
+            }
             if !now.isSettled || window.frame.size != size { mask.isSettled = false }
             // An area that moved or resized between two readings (a divider drag, a layout pass)
             // may have shown its pixels between the two frames, which no reading covers: refuse.

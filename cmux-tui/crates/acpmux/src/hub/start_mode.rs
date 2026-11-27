@@ -531,6 +531,49 @@ impl Hub {
             && self.start_level(agent).await.0 == DefaultMode::FullAccess
     }
 
+    /// Whether a plain new chat of Claude Code profile `agent` (no folder profile, a profile that
+    /// does not pin its mode) may start in `mode` without the person because it is Claude Code's own
+    /// mode (`claude_stdio::OWN_MODE`, Auto) and the person's start level covers it: full access or
+    /// the harness's own (`standard`), as `may_move_without_person` lets a running chat move to it.
+    /// Auto asks less than Manual and more than full access. The start gate grants a request that
+    /// names it (`start_gate.rs` `names_start_level`; a Cloud start the person picked Auto for,
+    /// Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness"); the
+    /// started session is checked again with `may_move_without_person`.
+    pub(super) async fn plain_own_start_is(
+        &self,
+        agent: &str,
+        profile: &HarnessProfile,
+        folder: bool,
+        mode: &str,
+    ) -> bool {
+        if folder || profile_sets_mode(profile) || mode != crate::claude_stdio::OWN_MODE {
+            return false;
+        }
+        let ids: Vec<String> =
+            self.known_modes(agent, profile).into_iter().map(|(id, _)| id).collect();
+        let claude = crate::config::derive_family(agent, profile) == "claude"
+            || crate::claude_stdio::MODES.iter().all(|(id, ..)| ids.iter().any(|m| m == id));
+        claude
+            && ids.iter().any(|m| m == mode)
+            && matches!(
+                self.start_level(agent).await.0,
+                DefaultMode::FullAccess | DefaultMode::Standard
+            )
+    }
+
+    /// `plain_own_start_is` for a chat that started: Claude Code's own mode, which the chat may
+    /// move to without the person (`may_move_without_person`), and the argv it started with does
+    /// not pin its mode.
+    pub(super) async fn plain_own_session_is(
+        &self,
+        meta: &crate::store::SessionMeta,
+        mode: &str,
+    ) -> bool {
+        mode == crate::claude_stdio::OWN_MODE
+            && !argv_sets_mode(&meta.harness_argv)
+            && self.may_move_without_person(meta, mode).await
+    }
+
     /// `plain_start_is` for a chat that started: the mode is the full-access one it offers and
     /// its profile's chats start in (`is_start_full_access`), and the argv it started with does
     /// not pin its mode.
@@ -582,22 +625,44 @@ impl Hub {
     /// The mode a new chat on `session` starts in (module docs), or `None`
     /// to keep the harness's own.
     pub(super) async fn start_mode(&self, session: &Session) -> Option<String> {
-        let meta = session.meta();
-        let offered = available(&meta);
+        self.start_mode_of(&session.meta()).await
+    }
+
+    /// The start mode a fresh Claude Code chat on `session` spawns in (`--permission-mode`), by
+    /// the rules of `start_mode` over Claude Code's own mode list (`claude_stdio::MODES`), or
+    /// `None` when it has a mode already or keeps Claude Code's own. Set after the spawn, the
+    /// mode was a `set_permission_mode` that Claude Code answers only once it has booted: every
+    /// full-access start (a Cloud chat's) waited that boot out in `session/new` (849 to 958 ms
+    /// on a Linux lane VM, where an asking start, spawned in its mode, took 114 to 145 ms).
+    pub(super) async fn claude_spawn_start_mode(&self, session: &Session) -> Option<String> {
+        let mut meta = session.meta();
+        if crate::web_modes::mode_of(&meta).is_some() {
+            return None;
+        }
+        let modes: Vec<Value> = crate::claude_stdio::MODES
+            .iter()
+            .map(|(id, ..)| serde_json::json!({"id": id}))
+            .collect();
+        meta.modes = Some(serde_json::json!({ "availableModes": modes }));
+        self.start_mode_of(&meta).await
+    }
+
+    async fn start_mode_of(&self, meta: &crate::store::SessionMeta) -> Option<String> {
+        let offered = available(meta);
         if offered.is_empty() {
             return None;
         }
         // A chat with its own policy narrower than approve-all runs in the mode that keeps it
         // (`policy_mode.rs`), never in the start level.
         let default = self.config.read().await.permission_policy;
-        let mode = match Self::mode_for_policy(&meta, &offered, default) {
+        let mode = match Self::mode_for_policy(meta, &offered, default) {
             Some(mode) => mode,
             None => {
                 let (level, _) = self.start_level(&meta.harness).await;
-                mode_for(level, &crate::web_modes::family_of(&meta), &offered)
+                mode_for(level, &crate::web_modes::family_of(meta), &offered)
             }
         };
-        mode.filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+        mode.filter(|m| crate::web_modes::mode_of(meta).as_deref() != Some(m.as_str()))
     }
 
     /// `start_mode` for a chat an agent started: at its starter's level (module docs, "Inherit"),
@@ -806,7 +871,7 @@ impl Hub {
         if Self::host_record_live(&session.id) {
             self.end_unadopted_host(session).await;
         }
-        self.set_status(session, SessionStatus::Idle);
+        self.set_status(session, NotWaiting::Idle);
         self.append(session, "mux", event, record);
     }
 
@@ -1059,7 +1124,20 @@ impl Hub {
         if modes.is_empty() && options.is_empty() {
             return None;
         }
-        Some(json!({"modes": modes, "configOptions": options}))
+        let mut reported = json!({"modes": modes, "configOptions": options});
+        // The mode the harness's own `session/new` starts a chat in when acpmux sets none (its
+        // startup probe sets nothing; a chat's current mode is that chat's): Antigravity's
+        // `default`, which a new chat's Mode chip names where acpmux has no start mode for it.
+        if let Some(own) = probed
+            .as_ref()
+            .and_then(|(modes, _)| {
+                modes.as_ref()?.get("currentModeId")?.as_str().map(str::to_owned)
+            })
+            .filter(|own| modes.iter().any(|m| m.get("id").and_then(Value::as_str) == Some(own)))
+        {
+            reported.set("startModeId", json!(own));
+        }
+        Some(reported)
     }
 
     /// Tells local watchers a new chat's start mode may have changed

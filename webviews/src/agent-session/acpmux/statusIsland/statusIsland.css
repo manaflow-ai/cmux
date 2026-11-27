@@ -1,0 +1,268 @@
+/* The agent status island (StatusIsland.tsx, experiment `agent-status-island`): one layer of the
+   shared floating glass at the top centre of the chat. The box's width, height and radius follow
+   its content's measured size on the house spring (--cmux-ease-spring over the large step: no
+   overshoot), so the pill grows into the card and back in place. The content sits at the box's
+   top-left at its own size and fades in after a swap. The mark is the pane's own: the needs-you
+   dot for an ask, the failure colour, the accent for running work, muted when idle. */
+
+.acpmux-status-island {
+  --acpmux-status-island-mark: var(--agent-muted);
+  position: absolute;
+  z-index: var(--layer-overlay);
+  /* Under the 28 px header, with a 12 px gap (as the Steer queue). */
+  top: 40px;
+  left: 50%;
+  translate: -50% 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  /* Compact: a capsule, half the pill's height; the card takes the popup radius, so the corners
+     morph with the box. */
+  border-radius: calc(var(--ds-control-primary) / 2);
+  color: var(--agent-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
+  transition:
+    width var(--cmux-motion-large) var(--cmux-ease-spring),
+    height var(--cmux-motion-large) var(--cmux-ease-spring),
+    border-radius var(--cmux-motion-large) var(--cmux-ease-spring);
+}
+.acpmux-status-island[data-tone="running"] {
+  --acpmux-status-island-mark: var(--agent-accent);
+}
+.acpmux-status-island[data-tone="attention"] {
+  --acpmux-status-island-mark: var(--acpmux-needs-you-mark);
+}
+.acpmux-status-island[data-tone="error"] {
+  --acpmux-status-island-mark: var(--agent-danger, var(--agent-text));
+}
+.acpmux-status-island[data-expanded] {
+  border-radius: var(--ds-radius-popup);
+}
+
+.acpmux-status-island__content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  animation: acpmux-status-island-in var(--cmux-motion-micro) var(--cmux-ease-spring) both;
+}
+@keyframes acpmux-status-island-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.acpmux-status-island__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: var(--ds-control-primary);
+  padding: 0 var(--ds-space-3);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+.acpmux-status-island__pill:disabled {
+  color: var(--agent-muted);
+}
+.acpmux-status-island__pill:focus-visible,
+.acpmux-status-island__action:focus-visible,
+.acpmux-status-island__collapse:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--agent-text);
+  outline-offset: calc(-1 * var(--cmux-focus-ring-width));
+  border-radius: var(--ds-radius-control);
+}
+
+.acpmux-status-island__dot {
+  flex: none;
+  width: 8px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--acpmux-status-island-mark);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--acpmux-status-island-mark) 18%, transparent);
+}
+.acpmux-status-island[data-tone="idle"] .acpmux-status-island__dot {
+  box-shadow: none;
+}
+
+.acpmux-status-island__label {
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-status-island__count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* The running mark beside another state (an ask, an error): the island's running dot, small, in the
+   accent, so the number needs no word. */
+.acpmux-status-island__count-dot {
+  flex: none;
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-accent);
+}
+
+.acpmux-status-island__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 24px));
+  /* Never taller than the pane has room for under the island's top (StatusIsland.tsx measures it
+     into --acpmux-status-island-room; the window's height until it has), less the gap the island
+     keeps at the top: a short split pane scrolls the card, so every answer stays reachable. */
+  max-height: calc(var(--acpmux-status-island-room, 100vh) - var(--ds-space-3));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
+}
+/* The card scrolls; its rows keep their height (a clipped ask line would otherwise shrink to
+   nothing under the height cap instead of scrolling). */
+.acpmux-status-island__card > * {
+  flex-shrink: 0;
+}
+.acpmux-status-island__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-compact);
+}
+.acpmux-status-island__name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-status-island__harness {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-status-island__head .acpmux-status-island__count {
+  margin-left: auto;
+}
+.acpmux-status-island__collapse {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--agent-muted);
+}
+.acpmux-status-island__count + .acpmux-status-island__collapse {
+  margin-left: 0;
+}
+.acpmux-status-island__collapse:hover {
+  background: var(--ds-color-hover);
+  color: var(--agent-text);
+}
+
+.acpmux-status-island__ask {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-status-island__detail {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* A command is what Allow runs: shown whole, never clipped to two lines (a long command scrolls in
+   its box), so the person approves exactly what they read. */
+.acpmux-status-island__detail[data-command] {
+  display: block;
+  max-height: calc(var(--ds-space-6) * 4);
+  overflow: auto;
+  white-space: pre-wrap;
+  -webkit-line-clamp: unset;
+  font-family: var(--font-mono);
+}
+.acpmux-status-island__error {
+  margin: 0;
+  color: var(--agent-danger, var(--agent-text));
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+/* Allow and Deny sit in one row at the right; a row that runs out of room wraps, never clips. A
+   question's choices (up to four, any length) stack one per row across the card, each label wrapping,
+   so every answer stays clickable inside the island's clipped box (the card scrolls in a short pane). */
+.acpmux-status-island__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-1);
+}
+.acpmux-status-island__actions[data-choices] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--ds-space-1);
+}
+.acpmux-status-island__action {
+  min-height: var(--ds-control-compact);
+  padding: var(--grid-half-step) var(--ds-space-3);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-surface-inset);
+  color: var(--agent-text);
+  font: inherit;
+  white-space: nowrap;
+}
+.acpmux-status-island__actions[data-choices] .acpmux-status-island__action {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+.acpmux-status-island__action[data-tone="allow"] {
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, var(--agent-text));
+}
+.acpmux-status-island__action:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.acpmux-status-island__action:disabled {
+  opacity: 0.5;
+}
+
+/* Reduce Motion, and the shared motion gate (Calm Mode sets `data-cmux-motion="reduced"`, Off sets
+   `off` on the root): the island swaps between the pill and the card in one frame. */
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-status-island {
+    transition: none;
+  }
+  .acpmux-status-island__content {
+    animation: none;
+  }
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-status-island {
+  transition: none;
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-status-island__content {
+  animation: none;
+}

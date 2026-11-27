@@ -15,6 +15,7 @@ fn empty_state() -> State {
         workspaces: Vec::new(),
         workspace_index_by_id: HashMap::new(),
         workspace_id_by_key: HashMap::new(),
+        workspace_name_numbers: Default::default(),
         workspace_revision: 0,
         pane_revision: 0,
         resource_revision: 0,

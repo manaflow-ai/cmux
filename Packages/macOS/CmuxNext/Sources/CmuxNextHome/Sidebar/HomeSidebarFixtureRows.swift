@@ -23,11 +23,29 @@ public struct HomeSidebarFixtureRows: Sendable {
     }
 
     /// One DM per name, an hour apart.
-    /// - Parameter count: How many of ``names`` get a DM.
-    public func rows(count: Int) -> [InboxRow] {
-        inbox(Self.names.prefix(count).enumerated().map { i, name in
+    /// - Parameters:
+    ///   - count: How many of ``names`` get a DM.
+    ///   - edgeText: The text edge cases on them (``edgeText(_:)``).
+    public func rows(count: Int, edgeText: Bool = false) -> [InboxRow] {
+        let rows = inbox(Self.names.prefix(count).enumerated().map { i, name in
             summary("conv_fixture_\(i)", "", Participant(id: ParticipantID("user_fixture_\(i)"), kind: .human, displayName: name), back: 3600 * (i + 1))
         })
+        return edgeText ? Self.edgeText(rows) : rows
+    }
+
+    /// The text edge cases on `rows` (`debug.home.sidebar_fixture` `edge_text`), in turn: a long name, a preview
+    /// that wraps to two lines, a one-word preview, emoji, a long unbroken word; every third row unread.
+    public static func edgeText(_ rows: [InboxRow]) -> [InboxRow] {
+        let previews = ["Can you look at the deploy logs from last night? The build passed but the app does not start on the staging Mac.",
+                        "ok", "🚀🔥 shipped it 🎉", "https://github.com/manaflow-ai/cmux/pull/53185/files#diff-averyveryverylongunbrokenanchor",
+                        "Sounds good, talk tomorrow.", "I pushed a fix for the sidebar glow and the search field outline, can you check it?"]
+        return rows.enumerated().map { i, row in
+            var row = row
+            if i % 4 == 0 { row.title = row.title + " Montgomery-Alexander (Design)" }
+            row.preview = previews[i % previews.count]
+            if i % 3 == 0 { row.unread = max(row.unread, 1) }
+            return row
+        }
     }
 
     /// One DM with each Chief, a minute apart.

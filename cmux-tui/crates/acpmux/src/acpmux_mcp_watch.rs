@@ -14,23 +14,26 @@ pub(super) const TOOLS: &[&str] = &["watch_add", "watch_ls", "watch_rm"];
 
 /// The instruction the server gives with the tools.
 pub(super) const STEER: &str = "To learn when other sessions finish or get blocked, call \
-watch_add once with them instead of polling them with ls, last or info: the daemon wakes this chat \
-with one message when one of them is done, even across restarts.";
+watch_add once instead of polling ls, last or info.";
 
 pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "watch_add",
-            "description": "Wake a chat once, with one ordinary message, when one of these sessions ends a turn, asks for permission or closes: a coordinator's way to learn a worker is done or blocked without polling. The daemon keeps the watch and the wake it owes across restarts and a recipient's outage, and removes the watch after its wake is delivered. Returns the watch id.",
+            "description": "Wake a chat once, with one message, when one of these sessions ends a turn, asks for permission or closes: learn a worker is done or blocked without polling. Or, with at or every and a prompt (no sessions), wake it with that prompt at a time. Watches and owed wakes survive restarts. Returns the watch id.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "sessions": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The sessions to watch: names, ids or host/name."},
                     "to": {"type": "string", "description": "The session to wake (default: this chat)."},
                     "until": {"type": "array", "items": {"type": "string", "enum": ["ready", "permission", "done", "closed"]}, "description": "States that wake it (default ready and permission)."},
-                    "match": {"type": "string", "description": "Only a turn whose transcript contains this text wakes it, such as BLOCKER."}
-                },
-                "required": ["sessions"]
+                    "match": {"type": "string", "description": "Only a turn whose transcript contains this text wakes it, such as BLOCKER. A turn that had ended before the watch was added never matches."},
+                    "matchIn": {"type": "string", "enum": ["turn", "reply", "replyStart"], "description": "Where match is looked for: turn (default, any reply text of the turn), reply (only the turn's final reply, after its last tool call: interim text never spends it), replyStart (the final reply begins with it)."},
+                    "at": {"type": "string", "description": "Wake at this time: RFC 3339 or +30m. With every, the first fire."},
+                    "every": {"type": "string", "description": "Wake every period, such as 30m or 1d."},
+                    "end": {"type": "string", "description": "With every: stop after this time."},
+                    "prompt": {"type": "string", "description": "The message a time watch sends."}
+                }
             }
         }),
         json!({
@@ -63,17 +66,40 @@ pub(super) fn request(name: &str, args: &Value) -> Result<(&'static str, Value),
         }
     };
     match name {
+        "watch_add" if arg(args, "at").is_some() || arg(args, "every").is_some() => {
+            if !strings("sessions")?.is_empty()
+                || arg(args, "match").is_some()
+                || arg(args, "matchIn").is_some()
+            {
+                return Err("a time watch (at, every) takes no sessions and no match".to_owned());
+            }
+            let params = crate::cli::watch::time_params(
+                arg(args, "to").map(str::to_owned),
+                arg(args, "at"),
+                arg(args, "every"),
+                arg(args, "end"),
+                arg(args, "prompt").map(str::to_owned),
+                crate::store::now_ms(),
+            )?;
+            Ok((method::MUX_WATCH_ADD, params))
+        }
         "watch_add" => {
             let sessions = strings("sessions")?;
             if sessions.is_empty() {
-                return Err("sessions is required: the sessions to watch".to_owned());
+                return Err(
+                    "sessions is required: the sessions to watch (or at or every for a time watch)"
+                        .to_owned(),
+                );
             }
-            let params = crate::cli::watch::add_params(
+            let mut params = crate::cli::watch::add_params(
                 sessions,
                 arg(args, "to").map(str::to_owned),
                 strings("until")?,
                 arg(args, "match").map(str::to_owned),
             );
+            if let Some(m) = arg(args, "matchIn") {
+                params["matchIn"] = json!(m);
+            }
             Ok((method::MUX_WATCH_ADD, params))
         }
         "watch_rm" => {

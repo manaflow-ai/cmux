@@ -50,15 +50,14 @@ class CheckClassTests(unittest.TestCase):
                 if kind == "blocks":
                     self.assertTrue(reason.strip(), f"{check} blocks the nightly without a reason")
 
-    def test_the_type_check_and_the_protocol_check_still_block(self):
+    def test_the_type_check_still_blocks(self):
         self.assertEqual(checks.CHECK_CLASSES["typecheck"][0], "blocks")
-        self.assertEqual(checks.CHECK_CLASSES["acpmux-protocol:check"][0], "blocks")
         self.assertEqual(checks.CHECK_CLASSES["check:design-tokens"][0], "lint")
 
 
 class AdvisoryOutTests(unittest.TestCase):
     def run_main(self, red: dict[str, str], *flags: str) -> int:
-        def run_check(_webviews, check):
+        def run_check(_webviews, check, fixit=False):
             return (1, red[check] + "\n") if check in red else (0, "")
 
         with mock.patch.object(checks, "run_check", run_check), contextlib.redirect_stdout(io.StringIO()) as out:
@@ -236,7 +235,7 @@ class WorkflowTests(unittest.TestCase):
                                    "hold the publish")
         sites = {job_id for job_id, job in doc["jobs"].items() for step in job.get("steps", []) or []
                  if "fast_gate_webviews_checks.py" in str(step.get("run", ""))}
-        self.assertEqual(sites, {"check-nightly-webviews", "nightly-next-one"})
+        self.assertEqual(sites, {"check-nightly-webviews", "early-nightly-webviews", "nightly-next-one"})
 
     def test_the_report_job_only_writes_issues(self):
         import yaml

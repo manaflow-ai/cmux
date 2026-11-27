@@ -3,13 +3,13 @@
 // bottom ... it just didn't go to the bottom"). Every prompt on screen (the band) must draw whole
 // inside the rail's list: the rail is never shorter than the band, and when the list's edge fades
 // and the band compete for room, the fades give way. Where the pane has room, the band also stays
-// clear of the transcript's own faded edges (18 px at both the top and foot).
+// clear of the transcript's own faded edges (24 px at the top, 18 px kept at the foot).
 // Pure geometry (model.ts), so it sweeps every case; thread-minimap-tiny.test.tsx renders a sample.
 import { expect, test } from "bun:test";
 import { railHeight, railScrollTop, railTop, ROW_PITCH } from "../src/agent-session/acpmux/threadMinimap/model";
 
 /// The transcript mask's bands at their widest (conversation.css .acpmux-scroll[data-fade-*]).
-const MASK_TOP = 18;
+const MASK_TOP = 24;
 const MASK_BOTTOM = 18;
 const MAX_BAND = 4;
 

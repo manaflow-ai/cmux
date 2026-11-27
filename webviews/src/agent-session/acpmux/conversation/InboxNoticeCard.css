@@ -143,3 +143,22 @@
 .cv-inbox__drill > .cv-inbox__message {
   margin-top: 4px;
 }
+
+/* A tool's notice on its inbox line (noticeRowLook.ts): the detector's name, plain, no chip to open
+   (it is no chat here); the repeats of its condition muted after the title. */
+.cv-inbox__detector {
+  color: var(--cv-text);
+  font-weight: 600;
+}
+.cv-inbox__severity {
+  display: inline-flex;
+  align-items: center;
+}
+.cv-inbox__notice[data-notice-look="tint"][data-notice-severity="fire"] > .cv-agentmsg__line {
+  background: color-mix(in srgb, var(--agent-status-failure) 9%, transparent);
+  border-radius: 6px;
+}
+.cv-inbox__notice[data-notice-look="tint"][data-notice-severity="warn"] > .cv-agentmsg__line {
+  background: color-mix(in srgb, var(--agent-status-warning) 9%, transparent);
+  border-radius: 6px;
+}

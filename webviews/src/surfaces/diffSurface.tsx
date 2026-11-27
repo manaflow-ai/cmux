@@ -47,6 +47,8 @@ function readEmbeddedConfig(): DiffViewerConfig | null {
  */
 export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
   markDiffOpen("boot");
+  // The chrome follows the app density (pages/shared/pageDensity.css, diff-viewer/density.ts).
+  document.documentElement.dataset.pageDensity = "";
   const embedded = readEmbeddedConfig();
   if (embedded) {
     return renderDiffSurface(rootElement, embedded, embedded.payload?.languages);

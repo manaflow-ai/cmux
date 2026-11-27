@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "permission.error.readResult" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اقرأ النتيجة الحالية قبل إعادة محاولة رد الإذن هذا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pročitajte trenutni rezultat prije ponovnog pokušaja ovog odgovora na dozvolu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Læs det aktuelle resultat, før du prøver dette tilladelsessvar igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lies das aktuelle Ergebnis, bevor du diese Berechtigungsantwort erneut versuchst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read the current result before retrying this permission answer."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lee el resultado actual antes de reintentar esta respuesta de permiso."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lisez le résultat actuel avant de réessayer cette réponse d'autorisation."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leggi il risultato corrente prima di riprovare questa risposta di autorizzazione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この権限回答を再試行する前に現在の結果を取得してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សូមអានលទ្ធផលបច្ចុប្បន្នមុនពេលព្យាយាមចម្លើយការអនុញ្ញាតនេះម្តងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 권한 응답을 다시 시도하기 전에 현재 결과를 읽으세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les gjeldende resultat før du prøver dette tillatelsessvaret igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przed ponowieniem tej odpowiedzi na żądanie uprawnienia odczytaj bieżący wynik."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leia o resultado atual antes de tentar novamente esta resposta de permissão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Прочитайте текущий результат перед повтором этого ответа на запрос разрешения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "อ่านผลลัพธ์ปัจจุบันก่อนลองคำตอบเรื่องสิทธิ์นี้อีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu izin yanıtını yeniden denemeden önce geçerli sonucu okuyun."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перед повторною спробою цієї відповіді щодо дозволу прочитайте поточний результат."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hãy đọc kết quả hiện tại trước khi thử lại câu trả lời quyền này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "重试此权限回复前，请先读取当前结果。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "重試此權限回覆前，請先讀取目前的結果。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

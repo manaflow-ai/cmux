@@ -14,12 +14,34 @@ import SwiftUI
 final class GridScrollTracker {
     /// Scroll offset (content offset plus the top inset).
     var offset: CGFloat = 0
-    /// Origin of the grid's scroll content in the screen's coordinate space
-    /// (nil until the grid has reported it).
-    var contentOrigin: CGPoint?
+    /// The scroll view's top content inset and horizontal content offset
+    /// (both 0 for the full-screen grid): with `offset` they place the content.
+    var insetTop: CGFloat = 0
+    var offsetX: CGFloat = 0
 
-    /// Where content point (0, 0) is on screen now.
-    var screenOrigin: CGPoint { contentOrigin ?? CGPoint(x: 0, y: -offset) }
+    /// Where content point (0, 0) is on screen now, at the grid's resting
+    /// scale. It is the scroll view's own content offset (the grid's scroll
+    /// view fills the screen from its origin), never a frame read through
+    /// the grid's zoom scale: the grid grows from 1.06 to 1 under the zoom,
+    /// and a content frame read through that scale put the zoom's card end
+    /// up to 26 pt off its cell and moving, one frame late, until the zoom
+    /// ended (Leo, 2026-11-24: "things shift, things lag"). Setting `offset`
+    /// moves it at once, so a reveal before the zoom aims at the new slot.
+    var screenOrigin: CGPoint { CGPoint(x: -offsetX, y: insetTop - offset) }
+
+    /// A scroll geometry reading: the offset as the grid counts it and the
+    /// inset that turns it into the content's screen origin.
+    struct Reading: Equatable {
+        var offset: CGFloat
+        var insetTop: CGFloat
+        var offsetX: CGFloat
+    }
+
+    func apply(_ r: Reading) {
+        if offset != r.offset { offset = r.offset }
+        if insetTop != r.insetTop { insetTop = r.insetTop }
+        if offsetX != r.offsetX { offsetX = r.offsetX }
+    }
 }
 
 /// Places a view at `origin`: screen coordinates, or grid content

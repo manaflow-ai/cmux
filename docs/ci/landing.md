@@ -57,9 +57,7 @@ Leo and every agent:
 - Never move a nightly job to Blacksmith, a GitHub-hosted runner or a Mac without
   that label, and never split one nightly across Macs, also not "only for this run".
 - Never cancel a nightly run, a nightly job or the nightly queue to make room or
-  to speed up a proof. A queued nightly waits its turn; the sign yield
-  (`scripts/ci/nightly_sign_yield.py`) hands an older build's slot to a newer
-  one without cancelling anything.
+  to speed up a proof. A queued nightly waits its turn.
 - When a signing Mac is short of capacity or a nightly is slow, report it and
   fix that Mac or the workflow on it. Do not reroute the nightly.
 
@@ -120,6 +118,12 @@ Leo and every agent:
   a BLOCK at the head and merge freezes hold it. Follow
   [dogfood, re-dogfood and merge receipts](../../skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
+- To skip `update_branch` re-tests, add the `merge-train` label to a ready `feat-cmux-next` PR. next-autoland
+  stacks up to 12 labelled PRs onto the base and pushes the combined tip to `lane/merge-train`. That branch's
+  standing PR ("merge-train: combined tip (never merged)") runs CI once for all of them. On green, each member
+  lands pinned to its head. On red, the train bisects, the culprit gets a `merge-train` failure status and the
+  rest land. A PR that changes `.github/workflows/` can't board.
+  Source: `tools/fleet-reconcilers/merge_train.py` in cmuxterm-hq. `MERGE_TRAIN=0` turns it off.
 - A red base (it doesn't compile, or CI is red on every PR) is priority zero: fix it directly in
   its own PR, which lands at once; don't note it and leave it for an owner. Two fixes that are
   each red on the other's red get combined into one PR. A base lint red also skips the tests
@@ -130,12 +134,58 @@ Leo and every agent:
   cancelled or infrastructure run (rerun the same SHA). A push supersedes earlier CI and review
   results. Gallery captures and full webview sweeps are advisory
   ([check progression](../contributor-verification.md#pr-check-progression)).
+  `scripts/ci-why` does this classification for you ([below](#is-this-red-mine)).
+
+## Is this red mine?
+
+`scripts/ci-why [PR]` (no PR: the current branch's) reads your PR's head once with your own `gh` login
+and prints what is red and what is still running. For each red it asks `scripts/ci/base_red_excuse.py`,
+the same classifier the merge tooling uses, whether that check fails the same way on the base branch:
+
+```
+manaflow-ai/cmux#48655 at bd0c091020 into feat-cmux-next: 195 green, 6 red (2 base, 2 yours to act on), 12 waiting
+  base red  tooling-tests: feat-cmux-next run 44879637435 at 5b8a9aec2c (the newest feat-cmux-next verdict ...) fails the same way ...
+  yours     cmux-next CI guard group: guard steps red on this change and not on feat-cmux-next run 44878773973 ...
+  not yet   fast gates: has no feat-cmux-next verdict at or after this PR's merge-base yet ...
+  waiting   web / react-apps-check (x10)
+```
+
+| Verdict | Meaning | What to do |
+|---|---|---|
+| `base red` | The same job fails with the same failed steps and tests on the base | Nothing: it is not yours and does not hold your PR |
+| `yours` | It fails only on your PR | Fix it; the link is the failing job |
+| `rerun` | Cancelled, timed out, lost its runner or refused at setup | Rerun the same commit (`gh run rerun RUN --failed`) |
+| `update` | The base has fixed it since you branched | Merge the base (`scripts/merge-main.sh`) |
+| `not yet` | The base has no run to compare with yet, or a read was cut short | Ask again later |
+
+It exits 1 when something is yours to act on, else 0. `--status` skips the base comparison (green, red
+and waiting only, a few requests); `--json` prints one object. Reads are conditional (ETag) and kept under
+`~/.cache/cmux-ci-why`, so asking again about an unchanged PR costs almost nothing against your rate limit.
+It never polls, comments, labels, reruns or merges: run it when you want an answer. A full comparison takes
+a few minutes on a PR with several reds, since each is compared against the base's recent runs.
+
+Where things are:
+
+- Checks: `cmux-next checks (...)` and `cmux-next CI guard group` are the repo's lint and policy guards;
+  `tooling-tests` the script tests; `web / ...` the webview typecheck and test shards; `cmux-next/compile`
+  the app compile. Which suites run is chosen from your diff ([PR CI coverage](../../skills/cmux-testing/references/pr-ci-coverage.md)).
+- Runners: most Linux jobs on our own branches run on the one `cmux-linux` label since 2026-11-22
+  (cmux#48644; fork PRs use `ubuntu-24.04`), and the rest pick from the fleet's
+  Linux pool (`RUNNER_POOLS`). Mac jobs on our own Mac minis by
+  capability label ([runner labels](../ci-runner-capability-labels.md), [runners](../ci-runners.md)).
+  A job queued for long is a capacity problem, not your PR's.
+- Rerun one job from its page or with `gh run rerun RUN --failed`. Don't push an empty commit to rerun CI.
+- Merging: the rules below. Agents merge pinned to the head (`--match-head-commit`) through a check that
+  refuses only the PR's own red (base reds and flakes never hold it); you can merge the same way.
+- Ask in the team's engineering channel when a red is `yours` but your diff can't cause it: that is often
+  a new base red the classifier has not seen yet.
 - **Waiting on CI is never the goal.** "NEVER AGAIN" guards what gets published (shipped builds, the
   nightly, releases, public text): a change that reaches those runs the CI that tests it. Stopping on a
   stuck, irrelevant or trivial check is the failure (Leo, 2026-11-19). The agents' merge gate already
   skips a pinned docs-only PR in any repo (`docs_only`); for any other stuck or irrelevant check, merge
-  past it with `MERGE_HOLD_OVERRIDE="<reason>" gh pr merge N --squash --match-head-commit <full head sha>`.
-  The override is logged and stays pinned; never `--admin`.
+  past it with `LAND_JUDGE_OVERRIDE="<reason>" gh pr merge N --squash --match-head-commit <full head sha>`.
+  The override is logged and stays pinned; never `--admin`. `MERGE_HOLD_OVERRIDE` is the same switch
+  under its old name.
 - **Into `feat-cmux-next`, merge it yourself** with a squash pinned to the head
   (`gh pr merge N --squash --match-head-commit <full head sha>`). The `ready-to-land` label is only a
   fallback hand-off for a PR its owner can't land: a label older than the head's last push doesn't count.
@@ -152,3 +202,13 @@ Leo and every agent:
   `gh-merge-green` refuses a PR that touches a path an open
   `merge-freeze` issue freezes, or when the freeze state can't be read; only the freeze owner's
   `freeze-ok` label lets that PR through ([merge freezes](merge-freeze.md)).
+
+## A unittest test's own output is never a crash
+
+`scripts/ci/test_reds.py` reads a log for crashes. A `unittest -v` test prints its verdict after whatever it printed,
+so the indented lines (and the rest of the `name (mod.Cls.name) ... ` line) are that test's output. A probe that quotes
+`crash report x.ips: EXC_BAD_ACCESS` there is not the process dying. Only the quoted-diagnostic patterns (`SIGNALED`,
+`CRASH_AT_START`) are muted in that span; `Fatal Python error`, a signal exit status and a shell kill still count, and a
+crash, cut-short or truncated log is never excused. hq#26226 (run 45717138906, job 139565977393): 4 named
+`FAILED module` lines read as "the test process crashed (no signal named)" and land-judge refused a normal exit 1.
+Test: `tests/test_test_reds.py::UnittestOutputQuotingADiagnosticIsNotACrash`.

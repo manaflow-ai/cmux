@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chief.subagentSidebarShowWords.help" : {
+      "comment" : "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Words that put a subagent in the sidebar, added to the built-in ones."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "サブエージェントをサイドバーに入れる語句です。組み込みの語句に追加されます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كلمات تضع الوكيل الفرعي في الشريط الجانبي، تُضاف إلى الكلمات المدمجة."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wörter, die einen Subagenten in die Seitenleiste einordnen, zusätzlich zu den eingebauten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Palabras que llevan un subagente a la barra lateral, además de las integradas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mots qui placent un sous-agent dans la barre latérale, en plus de ceux intégrés."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "하위 에이전트를 사이드바에 두는 단어로, 기본 단어에 추가됩니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "让子代理进入边栏的词语，添加在内置词语之外。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "讓子代理進入側邊欄的字詞，會加入內建字詞。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Riječi koje stavljaju podagenta na bočnu traku, uz ugrađene."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ord, der placerer en underagent i sidepanelet, ud over de indbyggede."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Parole che mettono un subagente nella barra laterale, in aggiunta a quelle integrate."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពាក្យដែលដាក់ភ្នាក់ងាររងក្នុងរបារចំហៀង បន្ថែមលើពាក្យដែលមានស្រាប់។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ord som legger en underagent i sidepanelet, i tillegg til de innebygde."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Słowa, które umieszczają podagenta na pasku bocznym, oprócz wbudowanych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Palavras que colocam um subagente na barra lateral, somadas às integradas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Слова, которые помещают субагента на боковую панель, в дополнение к встроенным."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คำที่ทำให้เอเจนต์ย่อยไปอยู่ในแถบด้านข้าง เพิ่มจากคำในตัว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir alt ajanı kenar çubuğuna koyan sözcükler; yerleşik olanlara eklenir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Слова, що поміщають субагента на бічну панель, на додачу до вбудованих."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các từ đưa tác tử phụ vào thanh bên, thêm vào các từ có sẵn."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

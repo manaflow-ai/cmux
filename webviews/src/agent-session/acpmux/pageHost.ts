@@ -2,9 +2,7 @@
 // AgentPageProvider): the old `agentSession` methods become `cmux.agent.*` pane-protocol calls, and
 // the scripts the old host evaluated become events of the stream `cmux.agent.host.events`.
 import { deliverHandoffFailure } from "./dictation";
-import { createPageClient, isPageError, RECEIVE_NAME, type PageClient } from "../../pages/shared/pageClient";
-import { installNativeMenu } from "../../ui/nativeMenu";
-import { NativeError } from "./nativeError";
+import type { PageClient } from "../../pages/shared/pageClient";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
 import { receiveModelCatalog } from "./modelCatalogHost";
 import { setEditedFilesSettings } from "./turnChanges/settings";
@@ -24,9 +22,10 @@ import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
-import { setSessionStatus } from "./sessionStatus";
+import { setExperimentSwitches } from "../../experiments/switches";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
+import { setComputerUseState } from "./computerUse/computerUseState";
 import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
@@ -34,83 +33,57 @@ import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-
 import { addCloudPreviewPort, seedCloudPreviewPorts } from "./cloudPreviewPorts";
 import { noteChatTheme, SNAPSHOT_WRITE_EVENT } from "./chatSnapshot/live";
 
+import { scopedPageClient } from "./paneView";
+import { bridgeFor } from "./pane/viewBridges";
+
+export { agentPageOp, callPageHost, pageHostClient, resetPageHostClientForTests } from "./pageHostClient";
+
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
 export const FOCUS_LOCATION = "acpmux-focus-location";
 
-const RENAMED: Record<string, string> = {
-  ready: "handshake",
-  "chat.persistSession": "session.persist",
-};
-
-/// The `cmux.agent` op of an old bridge method.
-export function agentPageOp(method: string): string {
-  return `cmux.agent.${RENAMED[method] ?? method}`;
-}
-
-let client: PageClient | null = null;
-
-/// The page host client when the page runs on the shared page host, else null (the old host).
-export function pageHostClient(): PageClient | null {
-  // Only a found client is kept: it owns the page's receive hook, so there is one per page.
-  client ??= createPageClient();
-  return client;
-}
-
-/// Tests: the page starts again with no page host client, as a new page does. A test that installs
-/// a fake `cmuxPage` handler calls it in its teardown, so a later test file's requests do not go to
-/// that fake through the kept client (its native menu and receive hook go with it).
-export function resetPageHostClientForTests(): void {
-  if (!client) return;
-  client = null;
-  installNativeMenu(null);
-  delete (globalThis as Record<string, unknown>)[RECEIVE_NAME];
-}
-
-/// Calls `method` on the page host. Rejects with a `NativeError` as the old bridge did: the host's
-/// code, message, retryable, and the `origin` and `details` the host put in the error's details. A
-/// request the host refused before it reached the pane is origin `native`, with the protocol's own
-/// code in `details.protocol` (`cmux.protocol.unknown_op`: this host has no such op); a lost link
-/// leaves code and origin unset, because nothing tells whether the request ran.
-export async function callPageHost<T>(
-  page: PageClient,
-  method: string,
-  params: Record<string, unknown> = {},
-): Promise<T> {
-  try {
-    return await page.call<T>(agentPageOp(method), params);
-  } catch (error) {
-    if (!isPageError(error)) throw new NativeError(undefined, String(error));
-    if (error.code === "cmux.protocol.unknown_op" || error.code === "cmux.protocol.invalid_params")
-      throw new NativeError({
-        code: "native.invalid_request",
-        origin: "native",
-        userMessage: error.message,
-        details: { protocol: error.code },
-      });
-    if (error.code.startsWith("cmux.protocol.")) throw new NativeError({ userMessage: error.message });
-    const details = (error as { details?: { origin?: unknown; details?: unknown } }).details;
-    throw new NativeError({
-      code: error.code,
-      userMessage: error.message,
-      retryable: error.retryable,
-      origin: details?.origin,
-      details: details?.details,
-    });
-  }
-}
-
 export type HostEvent = { kind: string; value?: unknown };
+
+/// The host events that belong to one chat, not the document (goal memory-per-chat, paneView.ts):
+/// in a shared pane document each view subscribes with its `view` filter and these land in that
+/// view's store (paneViewStore.ts), so two chats never draw each other's header, row or cards. Every
+/// other kind is the app's (theme, settings, catalogs) and applies to the whole document. Not yet
+/// per view, so still the document's: Session Info. Transport and uploads need none: their events
+/// name a connection or an upload, each one chat's.
+/// The chat's bridge commands go to its view's bridge (viewBridges.ts).
+export const VIEW_EVENT_KINDS: ReadonlySet<string> = new Set([
+  "command",
+  "cloudPreviewPort",
+  "cloudPreviewPortsKnown",
+  "stopTurn",
+  "sideQuestion",
+  "revealTurn",
+  "dictation",
+  "designSelection",
+  "cloudStartProgress",
+  "headerState",
+  "tabRow",
+  "floatingState",
+  "paneNotices",
+  "toolCards",
+  "computerUsePreview",
+]);
 
 /// Runs one host event in the page: the same `cmuxAcpmuxBridge` function the old host's script ran.
 /// The user's registry.js is not an event: the host evaluates it, since the page's CSP
-/// (script-src 'self') refuses a script element the page makes.
-export function applyHostEvent(event: HostEvent): void {
+/// (script-src 'self') refuses a script element the page makes. `view` is the pane view whose
+/// subscription brought it (null: the page's own); only VIEW_EVENT_KINDS read it.
+export function applyHostEvent(event: HostEvent, view: string | null = null): void {
   const bridge = window.cmuxAcpmuxBridge;
+  // The chat's own bridge: its view's in a shared document, the document's on a page of its own.
+  const chat = bridgeFor(view);
   const value = event.value as never;
   switch (event.kind) {
     case "imessage.changed":
       window.dispatchEvent(new Event("cmux-imessage-changed"));
+      return;
+    case "projectPalette":
+      window.dispatchEvent(new CustomEvent("cmux-project-palette", { detail: event.value }));
       return;
     case "github.changed":
       window.dispatchEvent(new Event("cmux-github-changed"));
@@ -132,20 +105,22 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "liveTree":
+      return bridge?.applyLiveTree?.(event.value === true);
     case "workflowLabs":
       // Separate from the existing preview environment toggle. The host can opt the
       // experimental workflow summary in without changing preview semantics.
       return bridge?.applyWorkflowLabs?.(event.value === true);
     case "sidebarPreviewVariant":
       return configureNativeSidebarPreviewVariant(event.value);
-    case "sessionStatus":
-      // Direct, like editedFiles: a push before the chat mounts is kept.
-      return setSessionStatus(event.value);
+    case "experiments":
+      // Direct: a push before a component mounts is kept.
+      return setExperimentSwitches(event.value);
     case "machineLink":
       return setMachineLink(event.value);
     case "paneNotices":
       // Direct, like remoteControl: a push before the composer mounts is kept.
-      return setPaneNotices(event.value);
+      return setPaneNotices(event.value, view);
     case "remoteControl":
       // Direct, like machineLink: a push before Session Info mounts is kept.
       return setRemoteControl(event.value);
@@ -183,40 +158,43 @@ export function applyHostEvent(event: HostEvent): void {
       return updateLinkPlaces(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
-      return setToolCards(event.value);
+      return setToolCards(event.value, view);
     case "planScopeDrift":
       // Direct, like toolCards: a push before the composer mounts is kept.
       return setPlanScopeDrift(event.value);
     case "computerUsePreview":
       // Direct, like toolCards: a push before the chat mounts is kept.
-      return setComputerUsePreview(event.value);
+      return setComputerUsePreview(event.value, view);
+    case "computerUseState":
+      // Computer Use on this Mac, for a send that names `@computer-use` (computerUse/computerUseState.ts).
+      return setComputerUseState(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "headerState":
-      return setHeaderState(event.value);
+      return setHeaderState(event.value, view);
     case "tabRowToolInvoked":
       return receiveNativeRowToolInvocation(event.value);
     case "tabRow":
-      return setTabRow(event.value);
+      return setTabRow(event.value, view);
     case "floatingState":
-      return setFloatingState(event.value);
+      return setFloatingState(event.value, view);
     case "dictation":
-      return bridge?.dictation?.(value);
+      return chat?.dictation?.(value);
     case "dictationHandoff":
       return deliverHandoffFailure(event.value);
     case "designSelection":
-      return bridge?.designSelection?.(value);
+      return chat?.designSelection?.(value);
     case "cloudStartProgress":
       // How a Cloud start goes (cloudStartProgress.ts): the page checks every field.
-      return bridge?.cloudStartProgress?.(event.value);
+      return chat?.cloudStartProgress?.(event.value);
     case "revealTurn":
-      return bridge?.revealTurn?.(String(event.value));
+      return chat?.revealTurn?.(String(event.value));
     case "command":
-      return bridge?.command?.(String(event.value));
+      return chat?.command?.(String(event.value));
     case "stopTurn":
-      return bridge?.command?.("stopTurn", String(event.value));
+      return chat?.command?.("stopTurn", String(event.value));
     case "sideQuestion":
-      return bridge?.command?.("sideQuestion", String(event.value));
+      return chat?.command?.("sideQuestion", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;
@@ -229,7 +207,7 @@ export function applyHostEvent(event: HostEvent): void {
     case "models.catalog":
       return receiveModelCatalog(event.value);
     case "cloudPreviewPort":
-      return void addCloudPreviewPort(event.value);
+      return void addCloudPreviewPort(event.value, view);
     case "cloudPreviewPortsKnown": {
       const value = event.value;
       const ports =
@@ -238,27 +216,35 @@ export function applyHostEvent(event: HostEvent): void {
           : Array.isArray(value)
             ? value
             : [];
-      return seedCloudPreviewPorts(ports);
+      return seedCloudPreviewPorts(ports, view);
     }
   }
 }
 
-const subscribed = new WeakMap<PageClient, Promise<void>>();
+const subscribed = new WeakMap<PageClient, Map<string | null, Promise<void>>>();
 
-/// Subscribes to host events once per client, after the page installed `cmuxAcpmuxBridge`.
-export async function startHostEvents(page: PageClient): Promise<void> {
-  let ready = subscribed.get(page);
+/// Subscribes to host events once per client and view, after the page installed `cmuxAcpmuxBridge`.
+/// A view's subscription carries its `view` filter (scopedPageClient), so the host sends it that
+/// chat's events; the page's own (null view) is today's one subscription a page.
+export async function startHostEvents(page: PageClient, view: string | null = null): Promise<void> {
+  let byView = subscribed.get(page);
+  if (!byView) {
+    byView = new Map();
+    subscribed.set(page, byView);
+  }
+  let ready = byView.get(view);
   if (!ready) {
-    ready = page
-      .subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event))
+    const views = byView;
+    ready = scopedPageClient(page, view)
+      .subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event, view))
       .then(
         () => undefined,
         (error) => {
-          subscribed.delete(page);
+          views.delete(view);
           throw error;
         },
       );
-    subscribed.set(page, ready);
+    byView.set(view, ready);
   }
   await ready;
 }

@@ -180,6 +180,16 @@ pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 /// older holder that does not know it still starts.
 pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
 
+/// The environment variable that names the session's `holder.token` file
+/// (`<host root>/holder.token`). An orphaned holder whose file is gone or
+/// names another token can never be linked again: it ends its terminals
+/// after [`holder::UNADOPTABLE_GRACE`]. An environment variable, so an older
+/// holder that does not know it still starts.
+pub const TOKEN_FILE_ENV: &str = "CMUX_HOLDER_TOKEN_FILE";
+
+/// A shorter [`holder::UNADOPTABLE_GRACE`] in milliseconds, for tests.
+pub const UNADOPTABLE_GRACE_ENV: &str = "CMUX_HOLDER_UNADOPTABLE_GRACE_MS";
+
 /// How long a holder or terminal host goes with no daemon before it ends its
 /// terminals in every build, normal installs included: no cmux has shown
 /// them for a week, so no daemon will adopt them again (a renamed tag's or
@@ -266,6 +276,8 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     let child_open_file_limit =
         std::env::var(NOFILE_SOFT_ENV).ok().and_then(|value| value.parse::<u64>().ok());
     let orphan_grace = orphan_grace_from(std::env::var(ORPHAN_GRACE_ENV).ok().as_deref());
+    let token_file =
+        std::env::var_os(TOKEN_FILE_ENV).filter(|value| !value.is_empty()).map(PathBuf::from);
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
@@ -291,6 +303,12 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
     holder.set_orphan_grace(Some(orphan_grace));
+    holder.set_token_file(token_file);
+    if let Some(millis) =
+        std::env::var(UNADOPTABLE_GRACE_ENV).ok().and_then(|value| value.trim().parse::<u64>().ok())
+    {
+        holder.set_unadoptable_grace(std::time::Duration::from_millis(millis));
+    }
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }
@@ -337,7 +355,7 @@ fn hold_copy_in_use() {
     }
 }
 
-fn parse_token(hex: &str) -> Option<[u8; 32]> {
+pub(crate) fn parse_token(hex: &str) -> Option<[u8; 32]> {
     if hex.len() != 64 {
         return None;
     }
@@ -353,38 +371,5 @@ fn invalid(message: &str) -> io::Error {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_version_line_names_the_wire_range_and_parses_back() {
-        assert_eq!(version_line(), format!("cmux-holder wire 1-{}", wire::VERSION));
-        assert_eq!(parse_version_line(&version_line()), Some((1, wire::VERSION)));
-        assert_eq!(parse_version_line("cmux-holder wire 2-3\n"), Some((2, 3)));
-        assert_eq!(parse_version_line("cmux-tui-host 1.2.3"), None);
-        assert_eq!(parse_version_line("cmux-holder wire 4-3"), None);
-    }
-
-    #[test]
-    fn a_holder_ends_terminals_no_daemon_linked_for_a_week() {
-        assert_eq!(orphan_grace_from(None), ABANDONED_GRACE);
-        assert_eq!(orphan_grace_from(Some("0")), ABANDONED_GRACE);
-        assert_eq!(orphan_grace_from(Some("600000")), std::time::Duration::from_secs(600));
-        assert_eq!(orphan_grace_from(Some(&u64::MAX.to_string())), ABANDONED_GRACE);
-    }
-
-    #[test]
-    fn spawn_request_round_trips() {
-        let request = SpawnRequest {
-            id: [7; 16],
-            cols: 80,
-            rows: 24,
-            px_w: 640,
-            px_h: 384,
-            cwd: b"/tmp".to_vec(),
-            argv: vec![b"/bin/sh".to_vec(), b"-l".to_vec()],
-            env: vec![b"TERM=xterm-256color".to_vec()],
-        };
-        assert_eq!(SpawnRequest::decode(&request.encode()).unwrap(), request);
-    }
-}
+#[path = "tests.rs"]
+mod tests;

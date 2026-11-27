@@ -352,7 +352,7 @@ body {
 
 .md-prose code {
   padding: 0.1em 0.35em;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--cmux-md-code-background);
   font-family: var(--cmux-md-code-font-family);
   font-size: var(--cmux-md-code-inline-size);
@@ -376,6 +376,36 @@ body {
 
 .md-prose li > p {
   margin: 0;
+}
+
+/* Each top-level block is its own layout root, so a keystroke lays out the block it is in, not
+   the blocks around it (bench/markdown-keystroke.bench.ts, 10,000 lines: keydown to paint p95
+   about a quarter lower, a resize step about a fifth). Layout and style containment only:
+   nothing is clipped or skipped, so comment markers, find and scrolling read real boxes. A
+   contained block's children's margins no longer collapse through it, so a top-level list takes
+   its items' margins itself and its first and last items (at any depth) drop theirs:
+   the spacing is what it was without containment. A blockquote's children have margins of every
+   kind, so it stays uncontained. */
+.md-prose > :not(blockquote) {
+  contain: layout style;
+}
+
+.md-prose > :is(ul, ol),
+.md-prose > :first-child:is(ul, ol) {
+  margin-top: var(--cmux-md-list-spacing);
+  margin-bottom: max(var(--cmux-md-paragraph-spacing), var(--cmux-md-list-spacing));
+}
+
+/* An element whose margin collapsed out through the list's top or bottom edge without containment:
+   it starts (ends) its parent, and so does each ancestor up to the top-level list, at any depth.
+   "No ancestor inside the list that is not first (last)" says that without one selector per
+   level, which left the deepest item's margin inside the list from six levels down. */
+.md-prose > :is(ul, ol) :first-child:not(.md-prose > :is(ul, ol) :not(:first-child) *) {
+  margin-top: 0;
+}
+
+.md-prose > :is(ul, ol) :last-child:not(.md-prose > :is(ul, ol) :not(:last-child) *) {
+  margin-bottom: 0;
 }
 
 .md-prose li[data-item-type="task"] {
@@ -459,21 +489,27 @@ body {
    expand?"). A top-level table's box reaches from the pane's left padding to its right padding:
    the box starts `--md-table-breakout` left of the column and keeps that much padding, so the
    table itself starts where the text does and grows right up to the pane's padding before it
-   scrolls. When the column fills the pane (a narrow pane, Full Width) the breakout is 0. The pane
-   is the size container (`.md-scroll`), so 100cqw is its width without its scrollbar.
+   scrolls. When the column fills the pane (a narrow pane, Full Width) the breakout is 0.
+   `--md-pane-width` is the pane's (`.md-scroll`) width without its scrollbar, kept by
+   MarkdownPage.tsx (`paneWidth`); the pane is no size container, which laid out every block of the
+   document on each keystroke.
    The box's thin sideways scrollbar (scrollers.ts SIDEWAYS_SCROLLER_ATTRIBUTE, set by tables.ts)
    shows that it scrolls, with the overlay scrollbar hidden too, and so does the edge fade below. */
-.md-scroll {
-  container-type: inline-size;
-}
-
 .md-prose > .tableWrapper {
-  --md-table-breakout: max(0px, (100cqw - 2 * var(--cmux-md-page-padding) - 100%) / 2);
+  --md-table-breakout: max(0px, (var(--md-pane-width, 100%) - 2 * var(--cmux-md-page-padding) - 100%) / 2);
   box-sizing: border-box;
   width: calc(100% + 2 * var(--md-table-breakout));
   max-width: none;
   margin-left: calc(-1 * var(--md-table-breakout));
   padding-left: var(--md-table-breakout);
+}
+/* Only the top-level table boxes read the pane width: every other block, and what is in a table
+   box, takes neither variable, so a resize writing it restyles the table boxes, not every element
+   of the document (bench/markdown-keystroke.bench.ts, resize: 318 ms a frame at 10,000 lines). */
+.md-prose > :not(.tableWrapper),
+.md-prose > .tableWrapper > * {
+  --md-pane-width: initial;
+  --md-table-breakout: initial;
 }
 
 /* The edge with more table past it fades out (tables.ts sets `data-more-left` once the table is
@@ -870,7 +906,8 @@ body {
   border: 0;
   padding: 0 0 2px;
   background: transparent;
-  color: var(--cmux-md-faint-color);
+  /* A button's label is text: the muted ink (4.5:1), not the faint hint (3:1). */
+  color: var(--cmux-md-muted-color);
   font-size: var(--cmux-md-toolbar-font-size);
   cursor: default;
 }
@@ -909,6 +946,56 @@ body {
 .md-raw-definition.md-active .md-raw-label,
 .md-raw-source .md-raw-label {
   display: inline-block;
+}
+
+/* Front matter reads as a key and value table (frontmatter.ts) until it opens for editing: the
+   label's chevron or a click on the table shows the source, which is what a save writes. */
+.md-raw-frontmatter.md-raw-has-preview:not(.md-open):not(.md-active) .md-raw-preview {
+  display: block;
+  cursor: text;
+}
+
+.md-raw-frontmatter.md-raw-has-preview:is(.md-open, .md-active) .md-raw-preview {
+  display: none;
+}
+
+.md-frontmatter-table {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: var(--cmux-md-code-radius);
+  font-size: var(--cmux-md-toolbar-font-size);
+  line-height: 1.45;
+}
+
+.md-frontmatter-table th,
+.md-frontmatter-table td {
+  padding: var(--ds-space-1) var(--ds-space-3);
+  border-top: 1px solid var(--cmux-md-border-color);
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.md-frontmatter-table tr:first-child > * {
+  border-top: 0;
+}
+
+.md-frontmatter-table th {
+  width: 1%;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--cmux-md-muted-color);
+  background: var(--cmux-md-code-background);
+}
+
+.md-frontmatter-item {
+  display: inline-block;
+  margin: 0 var(--ds-space-1) var(--grid-half-step) 0;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  background: var(--cmux-md-accent-background);
 }
 
 .md-raw-preview img {
@@ -1313,7 +1400,7 @@ body {
 .md-reading-segments {
   grid-column: 1 / -1;
   display: flex;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--page-hover);
   padding: 2px;
 }
@@ -1322,7 +1409,7 @@ body {
   flex: 1 1 0;
   min-width: 0;
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
@@ -1454,7 +1541,7 @@ body {
   margin-inline: 0;
   padding: 0.6em 0.9em;
   border-left: 3px solid var(--md-callout-color);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: color-mix(in srgb, var(--md-callout-color) 9%, transparent);
   color: var(--cmux-md-text-color);
 }
@@ -1622,4 +1709,174 @@ body {
 
 .cmux-comment-delete:hover {
   color: var(--cmux-md-text-color);
+}
+
+/* The heading outline (OutlineRail.tsx): a rail of dashes over the pane's left edge, under the
+   toolbar, that takes no room from the document (the host has no height, as the find pill's).
+   A dash per heading, shorter and further in a level down; the current section's dash is in the
+   text color. Pointing at the rail opens the contents beside it. On a narrow pane the rail sits
+   in the page padding, over nothing but margin. */
+.md-outline-host {
+  position: relative;
+  height: 0;
+  z-index: var(--layer-raised);
+}
+
+.md-outline {
+  position: absolute;
+  top: var(--ds-space-6);
+  left: var(--ds-space-1);
+  display: flex;
+  align-items: flex-start;
+  max-height: calc(100vh - var(--ds-space-6) * 3);
+}
+
+.md-outline-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  width: var(--ds-space-5);
+  max-height: inherit;
+  padding: var(--ds-space-2) var(--ds-space-1);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  cursor: default;
+}
+
+.md-outline[data-open] .md-outline-rail {
+  background: var(--cmux-md-accent-background);
+}
+
+/* Each depth sets its dash's inset (`--md-dash-inset`); the dash fills the rest of the rail. */
+.md-outline-dash {
+  --md-dash-inset: 0%;
+  flex: 0 0 auto;
+  height: var(--grid-half-step);
+  width: calc(100% - var(--md-dash-inset));
+  margin-left: var(--md-dash-inset);
+  border-radius: 999px;
+  background: var(--cmux-md-faint-color);
+  opacity: 0.7;
+}
+
+.md-outline-dash[data-depth="1"] {
+  --md-dash-inset: 25%;
+}
+
+.md-outline-dash[data-depth="2"],
+.md-outline-dash[data-depth="3"] {
+  --md-dash-inset: 50%;
+}
+
+/* The current section: the accent color, thicker, and reaching 4px further left than its level's
+   dash, so it reads at a glance in light and dark. The thickness scales, so the rail never moves. */
+.md-outline-dash[data-active] {
+  transform: scaleY(1.5);
+  width: calc(100% - var(--md-dash-inset) + 4px);
+  margin-left: calc(var(--md-dash-inset) - 4px);
+  background: var(--cmux-md-link-color);
+  opacity: 1;
+}
+
+.md-outline-panel {
+  margin: 0 0 0 var(--ds-space-1);
+  padding: var(--ds-space-1);
+  list-style: none;
+  width: max-content;
+  min-width: calc(var(--ds-space-6) * 6);
+  max-width: min(320px, calc(100vw - var(--ds-space-6) * 2));
+  max-height: inherit;
+  overflow: hidden auto;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: var(--ds-radius-popup);
+  background: var(--cmux-md-popover-background);
+  box-shadow: var(--cmux-md-popover-shadow);
+  font-size: var(--cmux-md-popover-font-size);
+  user-select: none;
+}
+
+.md-outline-item {
+  display: block;
+  width: 100%;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--cmux-md-muted-color);
+  font: inherit;
+  text-align: start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.md-outline-item[data-depth="1"] {
+  padding-left: calc(var(--ds-space-2) + var(--ds-space-3));
+}
+
+.md-outline-item[data-depth="2"],
+.md-outline-item[data-depth="3"] {
+  padding-left: calc(var(--ds-space-2) + var(--ds-space-3) * 2);
+}
+
+.md-outline-item:hover {
+  background: var(--cmux-md-accent-background);
+  color: var(--cmux-md-text-color);
+}
+
+.md-outline-item[aria-current] {
+  color: var(--cmux-md-text-color);
+  font-weight: 600;
+}
+
+/* Print or Save as PDF: the rendered document alone, on white, at its full length. The toolbar,
+   banners, the outline, find and the link overlays stay off paper; front matter prints as its
+   table. */
+@media print {
+  .md-page {
+    display: block;
+    height: auto;
+  }
+
+  .md-toolbar-host,
+  .md-banner,
+  .md-note,
+  .md-find-host,
+  .md-outline-host,
+  .md-link-bubble,
+  .md-run,
+  .md-raw-label {
+    display: none !important;
+  }
+
+  .md-scroll {
+    overflow: visible;
+    container-type: normal;
+  }
+
+  .md-doc {
+    max-width: none;
+    padding: 0;
+  }
+
+  .md-prose .tableWrapper,
+  .md-prose pre {
+    overflow: visible;
+    white-space: pre-wrap;
+    mask-image: none;
+  }
+
+  .md-prose h1,
+  .md-prose h2,
+  .md-prose h3 {
+    break-after: avoid;
+  }
+
+  .md-prose pre,
+  .md-prose table,
+  .md-prose img {
+    break-inside: avoid;
+  }
 }

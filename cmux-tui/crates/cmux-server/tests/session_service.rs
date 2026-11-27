@@ -5,6 +5,7 @@
 
 mod common;
 
+use sha2::Digest as _;
 use std::path::{Path, PathBuf};
 
 use cmux_server::cli::{Context, dispatch, parse};
@@ -19,6 +20,7 @@ struct Env {
     fetcher: MapFetcher,
     exec: RecordingExec,
     keys: bool,
+    terminal_socket: Option<PathBuf>,
 }
 
 impl Env {
@@ -29,6 +31,7 @@ impl Env {
             fetcher: MapFetcher::default(),
             exec: RecordingExec::default(),
             keys: true,
+            terminal_socket: None,
         };
         std::fs::write(env.exe(), b"#!/bin/sh\necho cmux build A\n").unwrap();
         // systemd knows no cmux-server.service here (tests answer otherwise).
@@ -37,6 +40,39 @@ impl Env {
             Output {
                 code: Some(0),
                 stdout: b"LoadState=not-found\nFragmentPath=\nTransient=no\n".to_vec(),
+                ..Output::default()
+            },
+        );
+        // The uninstall sweep's daemon: started here, then stopped.
+        env.runner.answer_always(
+            "daemon ensure",
+            Output {
+                code: Some(0),
+                stdout: br#"{"status":"started","session":"main","pid":777}"#.to_vec(),
+                ..Output::default()
+            },
+        );
+        env.runner.answer_always(
+            "--end-terminals",
+            Output {
+                code: Some(0),
+                stdout: br#"{"status":"stopped","session":"main","pid":777}"#.to_vec(),
+                ..Output::default()
+            },
+        );
+        // launchd has no com.cmux.server loaded here.
+        env.runner
+            .answer_always("launchctl print", Output { code: Some(113), ..Output::default() });
+        // Every unit systemd is asked about is stopped.
+        env.runner.answer_always(
+            "--property=ActiveState",
+            Output { code: Some(0), stdout: b"inactive\n".to_vec(), ..Output::default() },
+        );
+        env.runner.answer_always(
+            "--property=ControlGroup,TasksCurrent",
+            Output {
+                code: Some(0),
+                stdout: b"ControlGroup=\nTasksCurrent=[not set]\n".to_vec(),
                 ..Output::default()
             },
         );
@@ -62,6 +98,7 @@ impl Env {
             env: env_for(self.home()),
             now_ms: NOW_MS,
             self_exe: Some(self.exe()),
+            terminal_socket: self.terminal_socket.clone(),
         }
     }
 
@@ -222,6 +259,80 @@ fn uninstall_removes_the_session_unit_and_keeps_the_binary() {
     env.run("uninstall").unwrap();
     assert!(!Path::new(&unit).exists());
     assert!(env.binary().exists(), "the binary stays: cmux clients reuse it over SSH");
+}
+
+/// Uninstall renews every unit file right before it stops the service. For
+/// the session service that must be the session unit cmux renders, never
+/// the store's unit of the same name: had uninstall then failed, the
+/// service would start another program at the next login.
+#[test]
+fn uninstall_stops_the_session_unit_as_cmux_wrote_it() {
+    if skip_as_root() {
+        return;
+    }
+    let env = Env::new();
+    let unit = env.run("install --binary --json").unwrap()["unit"].as_str().unwrap().to_owned();
+    let installed = std::fs::read_to_string(&unit).unwrap();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let at_stop = std::sync::Arc::clone(&seen);
+    let path = PathBuf::from(&unit);
+    let stop = if cfg!(target_os = "macos") { "launchctl bootout" } else { "disable --now" };
+    env.runner.on_run(stop, move || {
+        *at_stop.lock().unwrap() = std::fs::read_to_string(&path).ok();
+    });
+    env.run("uninstall").unwrap();
+    let seen = seen.lock().unwrap().clone().expect("uninstall never stopped the service");
+    assert_eq!(seen, installed, "the unit at the stop is not the one cmux wrote");
+    let parsed = parse_session_unit(&seen).expect("not a session unit");
+    assert_eq!(parsed.session, "main");
+    assert_eq!(Path::new(&parsed.binary), env.binary());
+}
+
+/// Run in a terminal of the session it uninstalls, uninstall would end that
+/// terminal, and itself with it (SIGHUP), halfway through. It refuses before
+/// it changes anything; so it does in a terminal whose socket is not one of
+/// the default socket paths (a daemon run with `--socket` of its own), since
+/// cmux cannot tell that terminal's session. In a terminal of another session
+/// it runs.
+#[test]
+fn uninstall_refuses_to_run_in_a_terminal_of_the_session() {
+    if skip_as_root() {
+        return;
+    }
+    let uid = unsafe { libc::getuid() };
+    let mut env = Env::new();
+    let unit = env.run("install --binary --json").unwrap()["unit"].as_str().unwrap().to_owned();
+    let installed = std::fs::read(&unit).unwrap();
+    let digest = format!("{:x}", sha2::Sha256::digest(b"main"));
+    let refused = [
+        (format!("/tmp/cmux-tui-{uid}/main.sock"), "runs in a terminal of session \"main\""),
+        (
+            format!("/run/user/{uid}/cmux-tui-{uid}/main.sock"),
+            "runs in a terminal of session \"main\"",
+        ),
+        (
+            format!("/tmp/cmux-tui-hashed-{uid}/{digest}.sock"),
+            "runs in a terminal of session \"main\"",
+        ),
+        (
+            format!("/tmp/cmux-tui-invalid-{uid}/{digest}.sock"),
+            "runs in a terminal of session \"main\"",
+        ),
+        ("/tmp/custom.sock".to_owned(), "cannot tell"),
+        (format!("/tmp/cmux-tui-{}/other.sock", uid + 1), "cannot tell"),
+        (format!("/tmp/cmux-tui-hashed-{uid}/other.sock"), "cannot tell"),
+    ];
+    for (socket, says) in &refused {
+        env.terminal_socket = Some(socket.into());
+        let before = env.runner.lines().len();
+        let err = env.run("uninstall").unwrap_err().to_string();
+        assert!(err.contains(says) && err.contains("nothing was changed"), "{socket}: {err}");
+        assert_eq!(env.runner.lines().len(), before, "it ran {:?}", &env.runner.lines()[before..]);
+        assert_eq!(std::fs::read(&unit).unwrap(), installed);
+    }
+    env.terminal_socket = Some(format!("/tmp/cmux-tui-{uid}/other.sock").into());
+    env.run("uninstall").unwrap();
+    assert!(!Path::new(&unit).exists());
 }
 
 #[cfg(unix)]

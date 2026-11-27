@@ -9,6 +9,7 @@ import { PresentationContext } from "./presentationContextModel";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { UserBubble } from "./UserBubble";
 import { PromptActions } from "./MessageActions";
+import { attachmentRetry } from "../../../pages/shared/attachmentRetry";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { resendsAttachments, restoreInline } from "../inlinePrompt";
 
@@ -231,6 +232,18 @@ test("an image-only prompt still hides retry while its send is pending", async (
   expect(container.querySelector(`button[aria-label="${translate("turn.retry")}"]`)).toBeNull();
 });
 
+// Leo, 2026-11-24: "yeah we prev had it for both my sent messages and the agent". A sent prompt's
+// footer keeps its time, shown on hover, its full date in its title.
+test("a sent prompt's footer keeps its hover time with the full date in its title", async () => {
+  const at = Date.UTC(2026, 10, 24, 6, 15);
+  const container = await render({ ...baseRow(), images: undefined, text: "ship it", at }, {}, "transcript");
+  const time = container.querySelector<HTMLTimeElement>(".cv-user__actions time.cv-user__time");
+  expect(time).not.toBeNull();
+  expect(time!.dateTime).toBe(new Date(at).toISOString());
+  expect(time!.title).toContain("2026");
+  expect(time!.title).toMatch(/Nov 24, 2026/);
+});
+
 for (const kind of ["image", "document", "audio", "text", "pasted", "link"] as const) {
   test(`a retained ${kind} attachment keeps its footer and remains resendable without inline Retry`, async () => {
     const attachment: ComposerAttachment = {
@@ -298,6 +311,58 @@ for (const [label, part] of [
   });
 }
 
+// Leo, 2026-11-06: "why does it not retry this? The screenshots, or whatever, or any sort of
+// attachment when it fails, like you can't simply just do nothing about it."
+const PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+/// Yields macrotasks (the tries again wait 0 ms here) until `check` holds, or fails after 200.
+const until = async (check: () => boolean) => {
+  for (let turn = 0; turn < 200 && !check(); turn++)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  expect(check()).toBe(true);
+};
+
+test("a sent screenshot whose read fails for a moment is read again on its own and draws", async () => {
+  attachmentRetry.delaysMs = [0, 0, 0];
+  let reads = 0;
+  const promptImage = async () => {
+    reads += 1;
+    if (reads < 3) throw new Error("socket closed");
+    return PNG;
+  };
+  const container = await render({ ...baseRow(), images: [{ ...image, id: "retry-moment" }] }, { promptImage });
+  await until(() => container.querySelector("img.cv-user__image") !== null);
+  expect(reads).toBe(3);
+  expect(container.querySelector("img.cv-user__image")?.getAttribute("src")).toBe(PNG);
+});
+
+test("a sent screenshot that still fails says so with Retry, and Retry draws it", async () => {
+  attachmentRetry.delaysMs = [0, 0, 0];
+  let failing = true;
+  let reads = 0;
+  const promptImage = async () => {
+    reads += 1;
+    if (failing) throw new Error("socket closed");
+    return PNG;
+  };
+  const container = await render({ ...baseRow(), images: [{ ...image, id: "retry-button" }] }, { promptImage });
+  await until(() => container.querySelector(".cv-user__image-failed") !== null);
+  expect(reads).toBe(4);
+  // Never nothing: the slot says it failed and offers Retry.
+  expect(container.querySelector(".cv-user__image-failed")).not.toBeNull();
+  const retry = container.querySelector<HTMLButtonElement>(
+    `.cv-user__image-failed button[aria-label="${translate("composer.retryAttachment")}"]`,
+  );
+  expect(retry).not.toBeNull();
+  failing = false;
+  await act(async () => retry!.click());
+  await until(() => container.querySelector("img.cv-user__image") !== null);
+  expect(container.querySelector("img.cv-user__image")?.getAttribute("src")).toBe(PNG);
+  expect(container.querySelector(".cv-user__image-failed")).toBeNull();
+});
+
 for (const presentation of ["messages", "transcript"] as const)
   test(`${presentation}: ordinary prompt actions have no inline resend or model picker`, async () => {
     const row = { ...baseRow(), images: undefined, text: "Review the changes" };
@@ -321,3 +386,52 @@ for (const presentation of ["messages", "transcript"] as const)
     expect(container.querySelector(".cv-message-retry")).toBeNull();
     expect(container.querySelector('[aria-haspopup="menu"]')).toBeNull();
   });
+
+// The < n/m > between a prompt's versions (VersionSwitcher.tsx): one control in two slots, the look
+// (conversation.css `data-fork-switcher-look`) shows one; a step opens the neighbouring chat.
+test("a prompt with versions steps to the neighbouring chat from its switcher", async () => {
+  const row: AcpmuxRow = { ...baseRow(), text: "Now cover it with two tests", images: undefined };
+  const opened: string[] = [];
+  const container = await render(row, {
+    branches: {
+      of: new Map([[row.id, { index: 1, sessions: ["parent", "fork-1", "fork-2"] }]]),
+      running: new Set(["fork-1"]),
+      open: (sessionId) => void opened.push(sessionId),
+    },
+  });
+  const slots = [...container.querySelectorAll<HTMLElement>(".cv-user__versions")].map((el) => el.dataset.versionSlot);
+  expect(slots).toEqual(["head", "footer"]);
+  const footer = container.querySelector<HTMLElement>('.cv-user__versions[data-version-slot="footer"]')!;
+  expect(footer.querySelector(".cv-user__version-count")?.textContent).toBe("2/3");
+  // The open chat is the working one: its count carries the spinner.
+  expect(footer.querySelector(".cv-user__version-count svg")).not.toBeNull();
+  const [previous, next] = footer.querySelectorAll<HTMLButtonElement>("button");
+  await act(async () => previous!.click());
+  await act(async () => next!.click());
+  expect(opened).toEqual(["parent", "fork-2"]);
+});
+
+const arrowsAt = async (index: number) => {
+  const row: AcpmuxRow = { ...baseRow(), text: "Now cover it with two tests", images: undefined };
+  const container = await render(row, {
+    branches: { of: new Map([[row.id, { index, sessions: ["a", "b", "c"] }]]), open: () => {} },
+  });
+  const [previous, next] = container.querySelectorAll<HTMLButtonElement>(
+    '.cv-user__versions[data-version-slot="footer"] button',
+  );
+  return [previous!.disabled, next!.disabled];
+};
+
+test("the first version turns off the arrow that goes before it", async () => {
+  expect(await arrowsAt(0)).toEqual([true, false]);
+});
+
+test("the last version turns off the arrow that goes past it", async () => {
+  expect(await arrowsAt(2)).toEqual([false, true]);
+});
+
+test("a prompt with one version has no switcher", async () => {
+  const row: AcpmuxRow = { ...baseRow(), text: "Now cover it with two tests", images: undefined };
+  const container = await render(row, {});
+  expect(container.querySelector(".cv-user__versions")).toBeNull();
+});

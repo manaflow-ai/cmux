@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextHibernation
@@ -52,6 +53,11 @@ struct NewTabKeyAgentsEnvironmentTests {
     /// One New Tab key, so the pane has a page; then `keys` New Tab keys, each with a hidden page in the pane before
     /// it, and a frame after each; then one pass of the plan over the hidden pages. The count of the asks is 0 for a
     /// few keys and for more keys alike.
+    ///
+    /// The row needs a hidden page for each key. The tab of a New Tab key takes the page view of the untouched New
+    /// Tab tab that its pane leaves (`AgentTabStore.idlePage`), and then the pane has one page view for all its keys.
+    /// So the row counts each New Tab page as used before each key (`NewTabOpenFramesTests.useEachNewTabPage`), as
+    /// after a click in the page: each key's tab then gets a page view of its own at its frame.
     @Test(arguments: [3, 8])
     func newTabKeysAndThePlanOverTheirHiddenPagesAskNoAgentsEnvironment(keys: Int) async throws {
         try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-keys-ask-no-environment-\(keys)") { services, _, pane, _ in
@@ -75,6 +81,7 @@ struct NewTabKeyAgentsEnvironmentTests {
             await NewTabPageAtItsFrameTests.frame(services)
             var asksInTheKeysTurns = 0
             for _ in 0..<keys {
+                NewTabOpenFramesTests.useEachNewTabPage(services)
                 let asks = Self.environmentAsks { NewTabPage.open(in: pane, seed: nil) }
                 let made = try #require(asks, "the count of a key's asks is not whole")
                 asksInTheKeysTurns += made
@@ -113,6 +120,30 @@ struct NewTabKeyAgentsEnvironmentTests {
             #expect(asksInThePass == 0,
                     "one pass of the plan asked the agents environment \(asksInThePass) times for \(asked.count) questions of \(hidden.count) hidden pages")
             #expect(asksInTheKeysTurns == 0, "\(keys) New Tab keys asked the agents environment \(asksInTheKeysTurns) times in their own turns")
+        }
+    }
+
+    /// The second form of the keys' own turns (`NewTabHoldMovesItsPageTests+IdleStart.swift`): no page counts as
+    /// used, so each key's tab takes the page view of the untouched New Tab tab that its pane leaves. That each key
+    /// took that view is a condition of the setup. Want: 0 asks of the agents environment in the keys' own turns.
+    ///
+    /// The pass of the plan has the first form only: with one page view for all its keys the pane has no hidden page.
+    @Test(arguments: [3])
+    func newTabKeysThatTakeAnIdlePageViewAskNoAgentsEnvironment(keys: Int) async throws {
+        try await NewTabHoldMovesItsPageTests.row("cn-keys-idle-ask-no-environment") { services, pane, _, _ in
+            let tabs = services.agentTabs
+            var asksInTheKeysTurns = 0, took = 0
+            for _ in 0..<keys {
+                let left = pane.currentTabKey, idle = left.flatMap { tabs.existingView($0) }
+                let asks = Self.environmentAsks { NewTabPage.open(in: pane, seed: nil) }
+                asksInTheKeysTurns += try #require(asks, "the count of a key's asks is not whole")
+                if let idle, pane.currentTabKey != left, pane.currentTabKey.flatMap({ tabs.existingView($0) }) === idle { took += 1 }
+                await NewTabPageAtItsFrameTests.frame(services)
+            }
+            print("asks-of-test: NewTabKeyAgentsEnvironmentTests the second form, \(keys) keys: \(took) keys took the page view of the tab "
+                + "that the pane left, \(asksInTheKeysTurns) asks in the keys' turns")
+            try #require(took == keys, "setup: \(took) of \(keys) New Tab keys took the page view of the tab that the pane left")
+            #expect(asksInTheKeysTurns == 0, "\(keys) New Tab keys that took an idle page view asked the agents environment \(asksInTheKeysTurns) times in their own turns")
         }
     }
 }

@@ -23,6 +23,37 @@ function report(minutes: number, from?: string) {
     : user(REPORT, minutes);
 }
 
+/// The report from a chat someone gave a name (`acpmux rename @ Mango --handle`): acpmux stamps it
+/// as `fromDisplayName` beside the session it sent from (prompt_provenance.rs).
+function namedReport(minutes: number, sessionId: string, fromName: string) {
+  const provenance = {
+    kind: "agent_message",
+    from: `acp:${sessionId}`,
+    fromName,
+    fromDisplayName: "Mango",
+    fromHarness: "claude",
+    to: SESSION_ID,
+  };
+  const incoming = incomingPrompt(REPORT, { client: CLIENT, _meta: { provenance } });
+  return incoming?.kind === "message"
+    ? user(incoming.message.text, minutes, { incoming, resend: REPORT, untyped: true })
+    : user(REPORT, minutes);
+}
+
+/// Mango is the coordinator chat `coordinator-old` on studio-mac.
+const mangoSessions = (displayName?: string) => [
+  session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" }),
+  session({
+    sessionId: "coordinator-old-1",
+    title: "coordinator-old",
+    name: "studio-mac/coordinator-old",
+    peer: "studio-mac",
+    host: "studio-mac",
+    hostKind: "cloud",
+    ...(displayName && { displayName }),
+  }),
+];
+
 const TASK_CARD =
   'Task t-1a2b3c4d "Land #24927" done: Merged at squash 6f0c2d1 after a Codex xhigh SHIP\nPR: https://github.com/example/app/pull/24927\nSHA: 6f0c2d1';
 
@@ -115,6 +146,22 @@ export default agentPaneEntry({
       note: "Play: the machine opens a menu of the chats on studio-mac (archived ones left out), each opening beside this chat, and Copy machine name.",
       snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
       play: openMachine,
+    },
+    "given-name": {
+      note: "The sender has a given name (acpmux rename @ Mango --handle): the line reads Mango, and its machine, studio-mac, follows.",
+      snapshot: snapshot(
+        undefined,
+        namedReport(3, "coordinator-old-1", "studio-mac/coordinator-old"),
+        mangoSessions("Mango"),
+      ),
+    },
+    "given-name-unlisted": {
+      note: "A given name from a chat this Mac does not list: the message carries the name (fromDisplayName), and the line reads Mango.",
+      snapshot: snapshot(undefined, namedReport(3, "unlisted-9", "studio-mac/coordinator-old")),
+    },
+    "given-name-old-peer": {
+      note: "The same chat listed by a peer on an older acpmux, with no displayName in its row: the message's own name still reads Mango.",
+      snapshot: snapshot(undefined, namedReport(3, "coordinator-old-1", "studio-mac/coordinator-old"), mangoSessions()),
     },
     "task-result": {
       note: "codex-lane ended its task with acpmux task done: one card from the lane, its PR and squash under the summary.",

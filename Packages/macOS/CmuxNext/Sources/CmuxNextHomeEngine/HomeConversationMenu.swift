@@ -51,17 +51,14 @@ public struct HomeConversationMenu {
     public var deletableChief: (InboxRow) -> String?
     /// Chief Usage's action and menu title, nil in a build without this Mac's Chiefs.
     public var usage: (action: ActionID, title: String)?
-    /// Import Memories… (`chief.importMemories`).
-    public var importMemories: ActionID
 
     public init(registry: ActionRegistry, directory: HomeDirectory, groupActions: HomeGroupActions,
-                deletableChief: @escaping (InboxRow) -> String?, usage: (action: ActionID, title: String)?, importMemories: ActionID) {
+                deletableChief: @escaping (InboxRow) -> String?, usage: (action: ActionID, title: String)?) {
         self.registry = registry
         self.directory = directory
         self.groupActions = groupActions
         self.deletableChief = deletableChief
         self.usage = usage
-        self.importMemories = importMemories
     }
 
     /// The actions a row's menu or the compose menu may run (what `cmux.home.messages.perform` takes).
@@ -69,7 +66,7 @@ public struct HomeConversationMenu {
         var actions: Set<ActionID> = [
             "home.conversationInfo", "home.muteConversation", "home.unmuteConversation", "home.renameConversation",
             "home.addMembers", "home.leaveConversation", "home.chatColors", "home.archiveChief", "home.deleteChief",
-            "home.hideConversation", importMemories,
+            "home.hideConversation",
         ]
         actions.formUnion(HomePageMenus.composeActions)
         if let usage { actions.insert(usage.action) }
@@ -88,15 +85,12 @@ public struct HomeConversationMenu {
             let usage = usage.map { item($0.action, $0.title) } ?? []
             // Delete for any Chief but the default one; Archive for a cloud Chief (this Mac's have no archive).
             let delete = deletableChief(row).map { item("home.deleteChief", nil, ["chief": .string($0)]) } ?? []
-            // Import Memories…: into this Mac's Chief, or into the Cloud Chief the row is.
-            let cloudChief = row.summary.participants.lazy.compactMap({ directory.chief(for: $0.id) }).first
-            let bring = item(importMemories, nil, cloudChief.map { ["chief": .string($0.id)] } ?? [:])
-            if let chief = cloudChief {
+            if let chief = row.summary.participants.lazy.compactMap({ directory.chief(for: $0.id) }).first {
                 // A Cloud Chief's conversation is shared with teammates from its info (Add People…).
-                items = item("home.conversationInfo", nil, conversation) + usage + bring
+                items = item("home.conversationInfo", nil, conversation) + usage
                     + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
             } else {
-                items = usage + bring + delete
+                items = usage + delete
             }
         } else {
             if row.kind == .group { items += item("home.conversationInfo", HomeGroupInfo.groupInfoMenuTitle, conversation) }

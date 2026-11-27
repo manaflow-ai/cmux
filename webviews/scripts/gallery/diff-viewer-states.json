@@ -1,0 +1,215 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "split-small",
+      "entry": "pages.diff",
+      "variant": "small-split",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "unified-small",
+      "entry": "pages.diff",
+      "variant": "unified",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "large-file",
+      "entry": "pages.diff",
+      "variant": "large-file",
+      "width": 1000,
+      "height": 760,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "many-files",
+      "entry": "pages.diff",
+      "variant": "many-files",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "big-review",
+      "entry": "pages.diff",
+      "variant": "big-review",
+      "width": 1000,
+      "height": 760,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "no-changes",
+      "entry": "pages.diff",
+      "variant": "no-changes",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "loading",
+      "entry": "pages.diff",
+      "variant": "loading",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "error",
+      "entry": "pages.diff",
+      "variant": "error",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "renamed-binary",
+      "entry": "pages.diff",
+      "variant": "renamed-binary",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "long-lines",
+      "entry": "pages.diff",
+      "variant": "long-lines",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "deleted",
+      "entry": "pages.diff",
+      "variant": "deleted",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "word-diff",
+      "entry": "pages.diff",
+      "variant": "word-diff",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "collapsed-files",
+      "entry": "pages.diff",
+      "variant": "collapsed-files",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "toolbar",
+      "entry": "pages.diff",
+      "variant": "small-split",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2,
+      "clip": "#toolbar",
+      "margin": 8
+    },
+    {
+      "name": "toolbar-hover",
+      "entry": "pages.diff",
+      "variant": "small-split",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2,
+      "hover": "#layout-toggle",
+      "clip": "#toolbar",
+      "margin": 40
+    },
+    {
+      "name": "file-header-hover",
+      "entry": "pages.diff",
+      "variant": "small-split",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2,
+      "hover": ".file-header",
+      "clip": ".file-header",
+      "margin": 24
+    },
+    {
+      "name": "options-menu",
+      "entry": "pages.diff",
+      "variant": "small-split",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2,
+      "setup": "document.querySelector('#options-button')?.click()"
+    },
+    {
+      "name": "jump-to-file",
+      "entry": "pages.diff",
+      "variant": "jump-file-overflow",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "narrow",
+      "entry": "pages.diff",
+      "variant": "small-split",
+      "width": 560,
+      "height": 640,
+      "widthName": "narrow",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "compact-density",
+      "entry": "pages.diff",
+      "variant": "density-compact",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "cloud-offline",
+      "entry": "pages.diff",
+      "variant": "cloud-offline",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "review-comments",
+      "entry": "pages.diff",
+      "variant": "review-comments",
+      "width": 1000,
+      "height": 640,
+      "widthName": "normal",
+      "deviceScaleFactor": 2
+    }
+  ]
+}

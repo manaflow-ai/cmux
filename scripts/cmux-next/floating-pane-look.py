@@ -43,6 +43,9 @@ import tempfile
 import time
 import zlib
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
+
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", default="")
@@ -62,7 +65,7 @@ TILED_TEXT = "clear; for i in $(seq 1 45); do echo \"TILED-$i " + "#" * 150 + "\
 FLOAT_TEXT = "clear; for i in 1 2 3; do echo \"FLOATING PANE TEXT $i\"; done\r"
 PAGE = "<!doctype html><title>floating pane look</title><h1>FLOATING PAGE PANE</h1><p>A page in a floating pane.</p>\n"
 REPORT = {"tag": TAG, "host": os.uname().nodename, "opacity": opts.opacity, "frame": FRAME, "steps": [], "pictures": []}
-STATE = {"scratch": None, "app": None, "workspace_open": False, "pane": None, "stopping": False}
+STATE = {"scratch": None, "app": None, "workspace_open": False, "pane": None, "stopping": False, "last_picture": None}
 
 
 def line_json(path, request, timeout=30):
@@ -212,7 +215,8 @@ def launch():
     STATE["app"] = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         stop(3, "the tagged app did not come up")
-    time.sleep(2)  # test script: the first workspace
+    # The first workspace: the app's panes stop changing.
+    wait_stable(app_panes, "the first workspace's panes", timeout=15, interval=0.2, raise_on_timeout=False)
 
 
 def knob(value):
@@ -220,8 +224,25 @@ def knob(value):
     step(f"knob {value}", rpc("debug.tunables", {"action": "set", "key": KNOB, "value": value}))
 
 
+def window_hash():
+    """A hash of the app's own picture of its window right now (a probe file in the scratch folder)."""
+    probe = os.path.join(scratch(), "probe.png")
+    if os.path.exists(probe):
+        os.remove(probe)
+    reply = rpc("debug.window_snapshot", {"path": probe}, timeout=60) or {}
+    if reply.get("error") or not os.path.exists(probe):
+        raise RuntimeError(f"no probe picture: {reply}")
+    return hashlib.sha256(open(probe, "rb").read()).hexdigest()
+
+
 def picture(name, kind, value, background):
-    time.sleep(2.5)  # test script: the config reload, the layout and the paint end before the picture
+    # The config reload, the layout and the paint end before the picture: the window's pixels change from the
+    # last picture's (each state after the first differs from the one before), then stop changing.
+    previous = STATE["last_picture"]
+    if previous and not wait(lambda: window_hash() != previous, 10, pause=0.2):
+        print(f"FLOATING-PANE-LOOK {name}: the window looked the same as the last picture for 10 s", flush=True)
+    STATE["last_picture"] = wait_stable(window_hash, f"the window's pixels before {name}", timeout=15, interval=0.25,
+                                        reads=3, raise_on_timeout=False)
     path = os.path.join(OUT, name + ".png")
     reply = step(f"picture {name}", rpc("debug.window_snapshot", {"path": path}, timeout=60))
     REPORT["pictures"].append({"name": name, "kind": kind, "knob": value, "background_picture": background,
@@ -289,7 +310,8 @@ def main():
     came = wait(lambda: any(p.get("focused") and p.get("kind") == "terminal" and p.get("workspace") not in earlier
                             for p in app_panes()), 30)
     step("the look's terminal pane came", bool(came))
-    time.sleep(1.5)  # test script: the shell starts
+    # The shell starts: the daemon's tree of the screens stops changing.
+    wait_stable(screens, "the look's workspace in the daemon", timeout=10, interval=0.2, raise_on_timeout=False)
     action("terminal.sendText", {"text": TILED_TEXT})
     before = pane_ids()
     step("daemon pane ids before the split", sorted(before, key=str))
@@ -300,16 +322,21 @@ def main():
     if not new:
         stop(3, f"no new pane id in the daemon's list after the split (before: {len(before)} ids)")
     pane = new[0]
-    time.sleep(1.5)  # test script: the new pane's shell starts
+    # The new pane's shell starts: the daemon's tree of the screens stops changing.
+    wait_stable(screens, "the split in the daemon", timeout=10, interval=0.2, raise_on_timeout=False)
     action("terminal.sendText", {"text": FLOAT_TEXT})
+    chrome_before = rpc("debug.pane_chrome") or {}
     reply = step("float-pane on", daemon(dict({"cmd": "float-pane", "pane": pane, "mode": "on"}, **FRAME)))
     if not reply.get("ok"):
         stop(3, f"the daemon refused float-pane: {json.dumps(reply)[:300]}")
     STATE["pane"] = pane
     floating = wait(lambda: next((s.get("floating") for s in screens() if s.get("floating")), None), 10)
     step("the screen's floating list", floating)
-    time.sleep(1.0)  # test script: the app shows the card
-    chrome = rpc("debug.pane_chrome") or {}
+    # The app shows the card: its pane chrome changes from before the float, then settles.
+    if not wait(lambda: (rpc("debug.pane_chrome") or {}) != chrome_before, 10, pause=0.1):
+        print("FLOATING-PANE-LOOK the pane chrome did not change after float-pane within 10 s", flush=True)
+    chrome = wait_stable(lambda: rpc("debug.pane_chrome") or {}, "the pane chrome with the card", timeout=10,
+                         interval=0.1, raise_on_timeout=False) or {}
     keys = ("pane", "cell", "border", "first_cell")
     REPORT["windows"] = [{"scale": w.get("scale"), "main_pane": w.get("main_pane"),
                           "panes": [{k: p.get(k) for k in keys} for p in w.get("panes") or []]}
@@ -326,7 +353,9 @@ def main():
     picture("04-terminal-picture-knob-1", "terminal", 1, True)
     knob(opts.opacity)
     action("openBrowser.chromium", {"url": "file://" + os.path.join(scratch(), "page.html")})
-    time.sleep(4)  # test script: the page loads and paints
+    # The page's pane comes (the paint is waited on by picture()).
+    if not wait(lambda: any(p.get("kind") != "terminal" for p in app_panes()), 20):
+        print("FLOATING-PANE-LOOK no page pane within 20 s", flush=True)
     step("app panes after the page", [{k: v for k, v in p.items() if isinstance(v, (str, int, float, bool))}
                                       for p in app_panes()])
     picture("05-page-picture-knob-below-1", "page", opts.opacity, True)

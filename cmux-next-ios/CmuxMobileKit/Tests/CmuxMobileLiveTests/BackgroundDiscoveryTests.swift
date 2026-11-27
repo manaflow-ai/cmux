@@ -137,11 +137,13 @@ import Testing
         ServiceStub.install(host: host) { _ in nil }
         let clock = LinkTestClock()
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-bg-quiet-\(UUID().uuidString)")
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let userID = "user-\(UUID().uuidString)"
         let live = LiveCoordinator(
-            store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory()),
+            store: store,
             api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
             identity: DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString),
-            userID: "user-\(UUID().uuidString)", deviceName: "iPhone", transport: .wireGuard, dialer: MockDialer(fail: false),
+            userID: userID, deviceName: "iPhone", transport: .wireGuard, dialer: MockDialer(fail: false),
             feedStore: FeedStore(items: []), snapshots: LiveSnapshotStore(directory: directory), clock: clock,
             watchesConnectivity: false
         )
@@ -149,7 +151,14 @@ import Testing
             live.stop()
             clock.stop()
         }
+        // Until Stack answers, the sidebar shows the cached roster without starting discovery.
+        LiveCoordinator.showAccountTeams([], selectedID: nil, userID: userID, in: store)
+        #expect(store.activeTeamID == "personal-\(userID)")
+        LiveCoordinator.showAccountTeams([AppStore.AccountTeam(id: "kept", name: "Kept")], selectedID: "kept", userID: userID, in: store)
+        #expect(store.teams.map(\.id) == ["kept", "personal-\(userID)"])
+        #expect(!live.discovery.isRunning)
         live.applyAccountTeams([AppStore.AccountTeam(id: "t1", name: "One")], selectedID: "t1")
+        #expect(store.teams.map(\.id) == ["t1", "personal-\(userID)"])
         #expect(live.discovery.isRunning)
         live.background()
         #expect(!live.discovery.isRunning)

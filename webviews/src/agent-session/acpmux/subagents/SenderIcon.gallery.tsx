@@ -8,11 +8,16 @@
 // real received lines and a digest head of one sender, then the same four senders enlarged. Before:
 // the badge off, the family's mark alone and the robot for a sender with none (today's lines).
 // Reference: claude/live/transcript-tool-rows-and-task-list (the icon column).
+// The third strip is a Claude chat's own subagents (Claude's Task names no harness). Leo, 2026-11-22:
+// "when did we decide to omit the claude/codex or whatever icons and only do the diamonds?": they
+// drew the sparkle alone (`subagents-before`); they now wear the chat's mark with their badge.
 import { useState } from "react";
 import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import { IncomingMessageLine } from "../conversation/IncomingMessageCard";
 import type { IncomingMessage } from "../conversation/incomingMessage";
 import { MessageGroupHead } from "../conversation/MessageGroupHead";
+import { AgentIdentity } from "./AgentIdentity";
+import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
 import { SenderIcon } from "./SenderIcon";
 import {
@@ -48,9 +53,20 @@ const SENDERS: IncomingMessage[] = [
   { name: "picker-lane", sessionId: "s-picker", text: "Picked up the handoff issue.", raw: "" },
 ];
 
-type Props = { look: SenderIconLook };
+/// A Claude chat's own subagents and one Codex subagent a shell call started.
+const SUBAGENTS: { id: string; name: string; harness?: string }[] = [
+  { id: "a-explore", name: "Explore: find the icon code" },
+  { id: "a-plan", name: "Plan: the badge change" },
+  { id: "a-review", name: "Review the diff" },
+  { id: "a-codex", name: "codex exec: second opinion", harness: "codex" },
+];
+const CHAT_HARNESS = "claude";
 
-function SenderIconLooks({ look }: Props) {
+/// `subagentsBefore`: the subagent strip as it drew before 2026-11-22, the chat's own subagents with
+/// no harness, so the sparkle alone.
+type Props = { look: SenderIconLook; subagentsBefore?: boolean };
+
+function SenderIconLooks({ look, subagentsBefore }: Props) {
   // Each stage is its own frame: the look is set once, before any icon draws.
   useState(() =>
     configureSenderIconLook({
@@ -84,24 +100,42 @@ function SenderIconLooks({ look }: Props) {
           </figure>
         ))}
       </section>
+      <section className="sender-icon-gallery__large" aria-label="A Claude chat's subagents, enlarged">
+        {SUBAGENTS.map((agent) => (
+          <figure key={agent.id}>
+            <AgentIdentity
+              harness={subagentsBefore ? agent.harness : foreignHarness(agent.harness, CHAT_HARNESS, look.badge)}
+              tone={agentTone(agent.id)}
+              size={32}
+              glyphSize={32}
+              fallback={SUBAGENT_FALLBACK}
+            />
+            <figcaption>{agent.name}</figcaption>
+          </figure>
+        ))}
+      </section>
     </main>
   );
 }
 
-const variant = (look: SenderIconLook, note: string): ComponentVariant<Props> => ({ note, props: { look } });
+const variant = (look: SenderIconLook, note: string, subagentsBefore?: boolean): ComponentVariant<Props> => ({
+  note,
+  props: { look, subagentsBefore },
+});
 
 export default componentEntry<Props>({
   id: "agent-pane.sender-icon",
   title: "Sender icons: the model family's mark and the session's badge",
   area: "Agent pane",
   pane: true,
-  height: 300,
+  height: 320,
   widths: { narrow: 420, normal: 640, wide: 900 },
   covers: [
     "agent-session/acpmux/subagents/SenderIcon.tsx",
     "agent-session/acpmux/subagents/SenderIcon.css",
     "agent-session/acpmux/subagents/senderIconLook.ts",
     "agent-session/acpmux/subagents/AgentIdentity.tsx",
+    "agent-session/acpmux/subagents/agentIdentityModel.ts",
   ],
   styles: () =>
     Promise.all([
@@ -113,9 +147,14 @@ export default componentEntry<Props>({
   load: async () => SenderIconLooks,
   keywords: ["sender", "icon", "badge", "diamond", "robot", "model", "family", "claude", "codex", "session", "tone"],
   variants: {
+    "subagents-before": variant(
+      { lead: "family", badge: "diamond", corner: "bottom-right" },
+      "Before (to 2026-11-22): a Claude chat's own subagents name no harness, so they drew the session's diamond alone, big, with no Claude mark; only the Codex one showed its family.",
+      true,
+    ),
     "family-diamond-bottom-right": variant(
       { lead: "family", badge: "diamond", corner: "bottom-right" },
-      "Chosen (the default): the family's mark big, the session's diamond small at its bottom right, in the session's tone. Two Claude sessions read as Claude and as two; a sender with no family draws its diamond alone.",
+      "Chosen (the default): the family's mark big, the session's diamond small at its bottom right, in the session's tone. Two Claude sessions read as Claude and as two; a chat's own subagents wear its mark too; only a sender with no family at all draws its diamond alone.",
     ),
     "family-diamond-bottom-left": variant(
       { lead: "family", badge: "diamond", corner: "bottom-left" },

@@ -131,7 +131,7 @@ impl PtySurface {
 
     pub(super) fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
         cmux_flow_trace::hop_on_traced("daemon.output.attach", self.flow_terminal_id());
-        self.snapshot_position.add_output(bytes.len());
+        self.snapshot_position.add_output(bytes);
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {
             return false;
@@ -356,6 +356,13 @@ impl PtySurface {
     pub(super) fn request_frame_from_reader(&self, generation: u64) {
         self.frame_requests.request(generation, false);
         self.mark_output_dirty();
+        // `SurfaceOutput` is published once until a renderer takes the
+        // output; the held screen detector's watch needs every output.
+        if crate::mux::journal_plugin_demand_tapped()
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.note_journal_plugin_demand_output(self.event_surface_id);
+        }
     }
 
     /// Apply one replacement to the terminal stream and publish its revision.
@@ -440,7 +447,7 @@ impl PtySurface {
     /// terminal lock is held.
     pub(super) fn build_producer_frame(
         &self,
-        mut term: RankedGuard<'_, Box<Terminal>>,
+        mut term: MirrorGuard<'_>,
         generation: u64,
     ) -> ghostty_vt::Result<bool> {
         let built = self.build_frame_locked(&mut term, generation, true);
@@ -600,12 +607,12 @@ impl PtySurface {
     /// `Mux::state` (mux events take it). Render taps already got the move,
     /// ordered before the frame. Returns whether the geometry changed.
     pub(super) fn publish_geometry_commit(&self, commit: GeometryCommit) -> bool {
-        if let Some((offset, at_bottom)) = commit.scroll
+        if commit.scroll.is_some()
             && let Some(mux) = self.mux.upgrade()
         {
-            // Not output's move: it replaces a position output deferred to
-            // the next frame, so that older one is never published after it.
-            self.frame_requests.publish_scroll_now(&mux, self.event_surface_id, offset, at_bottom);
+            // The move was recorded under the terminal lock. Publish the
+            // newest recorded position, including any intervening scroll.
+            self.frame_requests.flush_scroll(&mux, self.event_surface_id);
         }
         commit.changed
     }
@@ -778,13 +785,13 @@ impl PtySurface {
         });
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, true);
-        // A direct PTY's reader publishes the bus event, in order with the
-        // output events it publishes: this caller may hold `Mux::state`.
+        // A direct PTY's reader schedules the frame producer to flush the
+        // recorded position: this caller may hold `Mux::state`.
         #[cfg(unix)]
         if let Some(output) = local_output.as_mut()
-            && let Some(position) = scroll.take()
+            && scroll.take().is_some()
         {
-            output.queue_scroll_changed(generation, position);
+            output.queue_scroll_changed(generation);
         }
         if let Some(replay) = replay {
             let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
