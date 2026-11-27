@@ -291,19 +291,31 @@ class SimStepRoutingTest(unittest.TestCase):
     def test_run_step_asks_for_the_xcode_label(self):
         seen = {}
 
-        def fake_run(cmd, **kw):
+        def fake_stream(cmd, tag):
             seen["cmd"] = cmd
-            return type("P", (), {"returncode": 0, "stdout": "step: abcdef123456", "stderr": ""})()
+            return 0, "step: abcdef123456"
 
-        real = ios_verify.subprocess.run
-        ios_verify.subprocess.run = fake_run
+        real = ios_verify.stream
+        ios_verify.stream = fake_stream
         try:
             ios_verify.run_step({"name": "sim 1/1", "mode": "test", "worker": "cmux22", "args": ["test"]}, HEAD, 7, True)
         finally:
-            ios_verify.subprocess.run = real
+            ios_verify.stream = real
         cmd = seen["cmd"]
         self.assertEqual(cmd[cmd.index("--label") + 1], ios_verify.xcode_label())
         self.assertIn("--pin-strict", cmd)
+
+    def test_stream_echoes_lines_and_returns_output(self):
+        import io
+        err, real = io.StringIO(), ios_verify.sys.stderr
+        ios_verify.sys.stderr = err
+        try:
+            code, text = ios_verify.stream([sys.executable, "-c", "print('queued'); print('step: abc'); raise SystemExit(3)"], "sim 1/1")
+        finally:
+            ios_verify.sys.stderr = real
+        self.assertEqual(code, 3)
+        self.assertEqual(text, "queued\nstep: abc\n")
+        self.assertIn("[sim 1/1] queued\n", err.getvalue())
 
     def test_key_names_head_and_pin_mode(self):
         step = {"mode": "test", "worker": "cmux22", "name": "sim 1/1: test"}
