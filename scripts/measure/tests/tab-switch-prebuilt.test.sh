@@ -75,4 +75,90 @@ with open(sys.argv[1], 'wb') as handle:
     plistlib.dump(info, handle)
 PY
 check 'person bundle is not accepted as a dedicated test tag' 3 'dedicated tagged DEV bundle' "app=$app"
+# Managed jobs never select a feed or compile path, including malformed and failed receipts.
+job=0123456789abcdef01234567
+check 'artifact job needs full ID' 2 'full job ID' artifact-job=short "build=$sha"
+check 'artifact job needs explicit exact head' 2 'requires build=<full SHA>' "artifact-job=$job"
+check 'artifact and local app are exclusive' 2 'excludes app=/dmg=' "artifact-job=$job" "build=$sha" "app=$app"
+check 'artifact and DMG are exclusive' 2 'excludes app=/dmg=' "artifact-job=$job" "build=$sha" dmg=https://example.invalid/app.dmg
+check 'managed selection skips credentials' 97 PAST_PREBUILT_SELECTION "artifact-job=$job" "build=$sha"
+
+cat > "$tmp/bin/cmux-ci" <<'PY_CI'
+#!/usr/bin/env python3
+import hashlib, json, os, pathlib, sys
+mode = os.environ['ARTIFACT_CASE']
+with open(os.environ['ARTIFACT_CALLS'], 'a') as log:
+    log.write(sys.argv[1] + '\n')
+if sys.argv[1] == 'status':
+    row = dict(id=sys.argv[2], kind='cmux', state='done', ref=os.environ['ARTIFACT_SHA'],
+               artifact='sha256:' + hashlib.sha256(b'managed app zip').hexdigest())
+    if mode in ('queued', 'running', 'failed', 'cancelled'):
+        row['state'] = mode
+    if mode == 'wrong-job': row['id'] = '0' * 24
+    if mode == 'wrong-kind': row['kind'] = 'ci-step'
+    if mode == 'wrong-ref': row['ref'] = 'f' * 40
+    if mode == 'no-artifact': row.pop('artifact')
+    print(json.dumps(row))
+elif sys.argv[1] == 'artifact':
+    if mode == 'download-failed': sys.exit(19)
+    pathlib.Path(sys.argv[3]).write_bytes(b'wrong bytes' if mode == 'wrong-digest' else b'managed app zip')
+else:
+    sys.exit('unexpected cmux-ci call')
+PY_CI
+cat > "$tmp/bin/ditto" <<'PY_DITTO'
+#!/usr/bin/env python3
+import os, pathlib, plistlib, shutil, sys
+mode = os.environ['ARTIFACT_CASE']
+dest = pathlib.Path(sys.argv[-1])
+if mode == 'extract-failed': sys.exit(18)
+if mode == 'no-app': sys.exit(0)
+app = dest / 'cmux DEV artifact.app'
+shutil.copytree(os.environ['ARTIFACT_APP_FIXTURE'], app)
+with (app / 'Contents/Info.plist').open('rb') as handle: info = plistlib.load(handle)
+info['CFBundleIdentifier'] = 'com.cmuxterm.app.debug.test'
+if mode == 'dirty': info['CMUXCommitDirty'] = True
+if mode == 'wrong-app-head': info['CMUXCommit'] = 'e' * 40
+if mode == 'nightly': info['CFBundleIdentifier'] = 'com.cmuxterm.app'
+with (app / 'Contents/Info.plist').open('wb') as handle: plistlib.dump(info, handle)
+if mode == 'two-apps': shutil.copytree(app, dest / 'second.app')
+PY_DITTO
+chmod +x "$tmp/bin/cmux-ci" "$tmp/bin/ditto"
+artifact_check() {
+  local mode="$1" want="$2" message="$3" expected_calls="$4" got rc
+  : > "$tmp/artifact-calls"
+  set +e
+  got="$(
+    exec 2>&1
+    cd "$repo"
+    export PATH="$tmp/bin:$PATH" ARTIFACT_CASE="$mode" ARTIFACT_SHA="$sha"
+    export ARTIFACT_CALLS="$tmp/artifact-calls" ARTIFACT_APP_FIXTURE="$app" ARTIFACT_TEST_ROOT="$tmp"
+    source scripts/measure/tab-switch.sh
+    # The real temporary directory is owned by this runner and its EXIT trap.
+    mktemp() { command /usr/bin/mktemp -d "$ARTIFACT_TEST_ROOT/managed.XXXXXX"; }
+    # Stop after provenance validation, before any platform probes, preflight or launch.
+    chmod() { if [[ "$1" == 0755 ]]; then echo PAST_ARTIFACT_SELECTION; exit 97; fi; command chmod "$@"; }
+    require_cef_read_credentials() { echo UNEXPECTED_CREDENTIAL_CHECK; exit 91; }
+    tsw_build_app() { echo UNEXPECTED_APP_BUILD; exit 91; }
+    frames_main "artifact-job=$job" "build=$sha" load=idle
+  )"
+  rc=$?
+  set -e
+  [[ "$rc" == "$want" && "$got" == *"$message"* ]] || { echo "FAIL artifact $mode: $rc: $got"; exit 1; }
+  [[ "$(tr '\n' ',' < "$tmp/artifact-calls")" == "$expected_calls" ]] || { echo "FAIL unexpected artifact calls: $mode"; exit 1; }
+  [[ -z "$(command /usr/bin/find "$tmp" -maxdepth 1 -name 'managed.*' -print)" ]] || { echo "FAIL owned temp leaked: $mode"; exit 1; }
+  echo "ok   managed artifact $mode; owned temp cleaned"
+}
+artifact_check success 97 PAST_ARTIFACT_SELECTION status,artifact,
+for state in queued running failed cancelled wrong-job wrong-kind wrong-ref; do
+  artifact_check "$state" 3 'completed cmux build' status,
+done
+artifact_check no-artifact 3 'no SHA256 app artifact' status,
+artifact_check download-failed 3 'non-zero exit status 19' status,artifact,
+artifact_check wrong-digest 3 'does not match the build receipt' status,artifact,
+artifact_check extract-failed 3 'non-zero exit status 18' status,artifact,
+artifact_check no-app 3 'exactly one app bundle' status,artifact,
+artifact_check two-apps 3 'exactly one app bundle' status,artifact,
+artifact_check dirty 3 'clean full CMUXCommit' status,artifact,
+artifact_check wrong-app-head 3 'does not match build=' status,artifact,
+artifact_check nightly 3 'dedicated tagged DEV bundle' status,artifact,
 echo 'tab-switch-prebuilt: passed'

@@ -20,6 +20,10 @@
 #                   ditto -x -k cmux.app.zip DEST, then pass app=DEST/<tagged name>.app.
 #                   build=SHA additionally checks its CMUXCommit; the report labels the actual bundle commit.
 #                   Use a dedicated test tag: the harness launches this bundle directly, without copying it.
+#    artifact-job=ID a completed cmux-ci build's app zip; requires build=<full SHA>, excludes app=/dmg=.
+#                   Downloads with installed cmux-ci, verifies the job and archive, then applies app= validation.
+#                   For a host-bound display: cmux-ci run --class light --display --target-worker WORKER
+#                   --pin-strict --script scripts/measure/tab-switch.sh --ref SHA --arg=artifact-job=ID --arg=build=SHA.
 #    dmg=https://   one DMG instead of the feed
 #    rounds=N       switches per scenario and load (1 to 20, default 5)
 #    load=LIST      idle,cpu,agents (default), or the instant-at-any-load modes L0 (idle), L1 (the focused chat
@@ -338,12 +342,52 @@ PY_APP
   fi
 }
 
+# Fetch only a finished managed build. TMP belongs to frames_main and its EXIT cleanup.
+# One status snapshot, no waiting or local build fallback. ARTIFACT_APP is validated by app_under_test.
+tsw_artifact_app() {
+  local job="$1" expected="$2" tmp="$3"
+  ARTIFACT_APP="$(python3 - "$job" "$expected" "$tmp" <<'PY_ARTIFACT'
+import hashlib, json, pathlib, re, subprocess, sys
+job, expected, folder = sys.argv[1:]
+root = pathlib.Path(folder)
+try:
+    receipt = json.loads(subprocess.check_output(["cmux-ci", "status", job], timeout=60, text=True))
+    if (not isinstance(receipt, dict) or receipt.get("id") != job or receipt.get("kind") != "cmux"
+            or receipt.get("state") != "done" or receipt.get("ref") != expected):
+        raise ValueError("artifact-job needs a completed cmux build at build=SHA")
+    digest = receipt.get("artifact", "")
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise ValueError("completed build has no SHA256 app artifact")
+    archive = root / "managed-app.zip"
+    subprocess.run(["cmux-ci", "artifact", job, str(archive)], check=True, timeout=900, stdout=sys.stderr)
+    actual = hashlib.sha256()
+    with archive.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            actual.update(chunk)
+    if "sha256:" + actual.hexdigest() != digest:
+        raise ValueError("managed app archive does not match the build receipt")
+    destination = root / "managed-app"
+    destination.mkdir()
+    subprocess.run(["ditto", "-x", "-k", str(archive), str(destination)], check=True, timeout=180,
+                   stdout=sys.stderr)
+    apps = [p for pattern in ("*.app", "*/*.app") for p in destination.glob(pattern) if p.is_dir()]
+    if len(apps) != 1:
+        raise ValueError("managed artifact must contain exactly one app bundle")
+    print(f"TSW managed artifact job={job} build={expected} artifact={digest}", file=sys.stderr)
+    print(apps[0])
+except (OSError, ValueError, subprocess.SubprocessError) as error:
+    sys.exit(f"TSW managed artifact: {error}")
+PY_ARTIFACT
+)" || return 3
+}
+
 frames_main() {
   local build=nightly rounds=5 load=idle,cpu,agents scenarios="" gate=1 turns=200 agents=4 dmg="" config=release arg
-  local record="" rows="" scale=none launch_record="" chat_perf=0 app=""
+  local record="" rows="" scale=none launch_record="" chat_perf=0 app="" artifact_job=""
   for arg in "$@"; do
     case "$arg" in
       build=*) build="${arg#build=}" ;;
+      artifact-job=*) artifact_job="${arg#artifact-job=}"; [[ "$artifact_job" =~ ^[0-9a-f]{24}$ ]] || { echo "tab-switch: artifact-job= takes a full job ID" >&2; exit 2; } ;;
       app=*) app="${arg#app=}"; [[ -n "$app" ]] || { echo "tab-switch: app= takes a bundle path" >&2; exit 2; } ;;
       rounds=*) rounds="${arg#rounds=}" ;;
       load=*) load="${arg#load=}" ;;
@@ -369,7 +413,11 @@ frames_main() {
   [[ -z "$launch_record" || "$launch_record" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "tab-switch: launch_record= takes seconds" >&2; exit 2; }
   [[ "$load" =~ ^[A-Za-z0-9+,-]+$ && "$scenarios" =~ ^[a-z0-9,-]*$ ]] || { echo "tab-switch: load= and scenarios= take names" >&2; exit 2; }
   [[ "$build" == nightly || "$build" == head || "$build" =~ ^[0-9a-f]{40}$ ]] || { echo "tab-switch: build= is nightly, head or a 40-hex commit" >&2; exit 2; }
-  if [[ -n "$app" ]]; then
+  if [[ -n "$artifact_job" ]]; then
+    [[ "$build" =~ ^[0-9a-f]{40}$ && -z "$app" && -z "$dmg" ]] || {
+      echo "tab-switch: artifact-job= requires build=<full SHA> and excludes app=/dmg=" >&2; exit 2;
+    }
+  elif [[ -n "$app" ]]; then
     app_under_test "$build" "$config" "$dmg" "" "$PWD" tabswitch TSW "$app" || exit 3
   elif [[ "$build" != nightly ]]; then
     require_cef_read_credentials
@@ -383,6 +431,11 @@ frames_main() {
   trap 'git -C "$TSW_ROOT" worktree remove --force "$TSW_TMP/src" >/dev/null 2>&1 || true; rm -rf -- "$TSW_TMP"' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  if [[ -n "$artifact_job" ]]; then
+    tsw_artifact_app "$artifact_job" "$build" "$tmp" || exit 3
+    app="$ARTIFACT_APP"
+    app_under_test "$build" "$config" "" "$tmp" "$root" tabswitch TSW "$app" || exit 3
+  fi
   chmod 0755 "$tmp" # the harness runs as the console user (console-session.sh): it reads the tools and the DMG here
   echo "TSW host chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername) load=\"$(sysctl -n vm.loadavg)\""
   # The pixels come from CuaDriver, the recorder the fleet grants Screen Recording to (a binary compiled here never holds
@@ -439,7 +492,7 @@ if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
   return 0
 fi
 
-if [[ "${1:-}" =~ ^(app|build|rounds|load|scenarios|gate|turns|agents|dmg|config|record|rows)= ]]; then
+if [[ "${1:-}" =~ ^(artifact-job|app|build|rounds|load|scenarios|gate|turns|agents|dmg|config|record|rows)= ]]; then
   frames_main "$@"
 fi
 
