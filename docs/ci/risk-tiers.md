@@ -186,3 +186,17 @@ BLOCK comment beats a SHIP in the description. The newest verdict on the head
 decides, read as one timeline with approvals and change requests of the head commit: a later BLOCK
 or change request beats an earlier SHIP or approval, a BLOCK wins a tie, and any push needs a new
 receipt. The label counts only while no verdict names the head.
+
+## Provider quota is not a grade
+
+A GitHub 403/429 with `x-ratelimit-remaining: 0` or `retry-after` keeps the check red
+and ungraded. `risk_tier.py` reads the HTTP envelope from `gh api --include`, waits
+at most 90 seconds across the job, then emits `risk-evidence.rate-limited` with a
+JSON endpoint, HTTP status, reset timestamp and `graded: false`. It never reports
+ready after a quota refusal, including a refusal during an optional evidence read.
+
+`base_red_excuse.py` accepts that marker only from the failed `Grade the pull request`
+step of `risk evidence`, without another error or failed test. It returns the existing
+retryable job-rate-limited outcome, naming when to rerun; it does not excuse the check
+as green or attribute it to the PR. `RiskEvidenceQuotaJobRed` and `GhFailureTests`
+exercise the producer-to-classifier handoff and reject stderr-only imitations.
