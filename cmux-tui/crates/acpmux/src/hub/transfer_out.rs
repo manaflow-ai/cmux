@@ -547,6 +547,56 @@ impl Hub {
         None
     }
 
+    /// A saved local ChatGPT plan has no portable account binding in a move bundle.
+    async fn transfer_has_local_chatgpt_plan(&self, session: &Session) -> bool {
+        let meta = session.meta();
+        let config = self.config.read().await;
+        let profile =
+            super::resolve::session_profile(&config, &meta.harness, &meta.cwd, meta.remote_origin)
+                .ok();
+        let family = profile
+            .as_ref()
+            .map(|profile| crate::config::derive_family(&meta.harness, profile))
+            .or_else(|| meta.family.clone())
+            .unwrap_or_else(|| meta.harness.clone());
+        if crate::agent_credentials::Family::of_harness(&family)
+            != Some(crate::agent_credentials::Family::Codex)
+        {
+            return false;
+        }
+        let (dir, state) = crate::routes::places(&config);
+        drop(config);
+        let bindings = crate::routes::bindings(&state);
+        let env = profile.map(|profile| profile.env).unwrap_or_default();
+        let selected = crate::routes::spawn_route(
+            dir.as_deref(),
+            &bindings,
+            &session.id,
+            meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
+            &family,
+            &env,
+        );
+        if selected.is_some_and(|(id, _)| crate::chatgpt::is_chatgpt_route(dir.as_deref(), &id)) {
+            return true;
+        }
+        let uses_local_plan = session
+            .launch_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|env| env.contains_key(crate::chatgpt::LOCAL_EXPIRY_ENV));
+        if let Some(uses_local_plan) = uses_local_plan {
+            return uses_local_plan;
+        }
+        session
+            .child
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|child| child.host_record())
+            .is_some_and(|record| record.local_chatgpt_expiry.is_some())
+    }
+
     /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
     /// running turn is neither refused nor stopped: the move first waits (that long) for the
     /// turn lock, unfrozen, so the turn ends on its own and every prompt sent meanwhile queues
@@ -678,6 +728,12 @@ impl Hub {
             }
             e
         };
+        if self.transfer_has_local_chatgpt_plan(session).await {
+            return Err(unfreeze(
+                transfer_error("account", super::credentials::credential_needed().message),
+                None,
+            ));
+        }
         // No turn may run while the bundle is made: one that runs stops only if asked.
         if let Some(running) = session.turn().map(|t| t.turn_id) {
             match cut {
