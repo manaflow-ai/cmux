@@ -78,7 +78,7 @@ fn an_empty_library_lists_nothing_and_names_no_entry() {
             other => panic!("{other:?}"),
         }
     }
-    let collection = customize.library_export("mine", "", false).unwrap();
+    let collection = customize.library_export("mine", "", false, "cli").unwrap();
     assert!(collection.entries.is_empty());
     assert_eq!(home.read("cmux-next.json").unwrap(), PLAIN);
 }
@@ -263,7 +263,7 @@ fn a_collection_exports_and_imports_off_unless_asked_and_conflicts_show() {
     mine.write("cmux-next.json", PLAIN);
     let customize = mine.customize();
     ask_and_apply(&customize, &mine, "make it compact", &settings("compact"), 10);
-    let collection = customize.library_export("my set", "small things", false).unwrap();
+    let collection = customize.library_export("my set", "small things", false, "cli").unwrap();
     let text = serde_json::to_string(&collection).unwrap();
     assert!(text.contains("\"cmuxCollection\":1") && text.contains("\"cmuxProfile\":1"));
     assert!(!text.contains("added_ms") && !text.contains("generation"), "local fields stay home");
@@ -633,4 +633,20 @@ fn the_commit_refresh_ran_on_is_kept() {
     assert!(customize.generations().unwrap().generations.is_empty());
     let text = fs::read_to_string(customize.roots().state_dir.join("library.json")).unwrap();
     assert!(text.contains("\"refreshed_on\": \"8815f4c\""), "{text}");
+}
+
+#[test]
+fn an_agents_export_keeps_only_what_the_settings_read_shows_of_a_command() {
+    use serde_json::json;
+    let mut settings: std::collections::BTreeMap<String, serde_json::Value> = [
+        ("actions.prs".to_owned(), json!({"title": "PRs", "command": "TOKEN=abc gh pr list"})),
+        ("actions".to_owned(), json!({"r": {"type": "agent", "agent": "claude", "args": "-p x"}})),
+        ("appearance.density".to_owned(), json!("compact")),
+    ]
+    .into_iter()
+    .collect();
+    cmux_customize::library::withhold_action_commands(&mut settings);
+    assert_eq!(settings["actions.prs"], json!({"title": "PRs"}));
+    assert_eq!(settings["actions"], json!({"r": {"type": "agent", "agent": "claude"}}));
+    assert_eq!(settings["appearance.density"], json!("compact"));
 }

@@ -795,23 +795,25 @@ impl Customize {
     }
 
     /// The library (or the entries that are on) as a collection to share.
+    /// For an agent (`origin` [`AGENT_ORIGIN`]) palette commands keep only
+    /// what the MCP settings read shows: [`withhold_action_commands`].
     pub fn library_export(
         &self,
         name: &str,
         description: &str,
         only_on: bool,
+        origin: &str,
     ) -> Result<Collection, Error> {
         let library = self.read_library()?;
         let entries = library
             .entries
             .into_iter()
             .filter(|entry| !only_on || entry.on)
-            .map(|entry| Entry {
-                added_ms: None,
-                generation: None,
-                on_ms: None,
-                until_ms: None,
-                ..entry
+            .map(|mut entry| {
+                if origin == AGENT_ORIGIN {
+                    withhold_action_commands(&mut entry.profile.settings);
+                }
+                Entry { added_ms: None, generation: None, on_ms: None, until_ms: None, ..entry }
             })
             .collect();
         Ok(Collection {
@@ -1504,4 +1506,29 @@ fn on_names(entries: &[Entry]) -> Vec<String> {
         .filter(|entry| entry.on && entry.code.is_none())
         .map(|entry| entry.name().to_owned())
         .collect()
+}
+
+/// The members of a palette command an agent may read back. `command` and
+/// `args` are shell text that can embed credentials (`TOKEN=... gh pr list`)
+/// that no key or URL check recognizes, so an agent's export, like its
+/// settings read (`settings_tools.rs`, `project_value`), leaves them out.
+const ACTION_READ: [&str; 6] = ["type", "title", "tooltip", "agent", "icon", "target"];
+
+/// Keeps only [`ACTION_READ`] in every `actions.<id>` setting and in each
+/// member of a whole `actions` row.
+pub fn withhold_action_commands(settings: &mut BTreeMap<String, Value>) {
+    let keep = |action: &mut Value| {
+        if let Some(members) = action.as_object_mut() {
+            members.retain(|member, _| ACTION_READ.contains(&member.as_str()));
+        }
+    };
+    for (key, value) in settings.iter_mut() {
+        if key.starts_with("actions.") {
+            keep(value);
+        } else if key == "actions" {
+            if let Some(actions) = value.as_object_mut() {
+                actions.values_mut().for_each(keep);
+            }
+        }
+    }
 }
