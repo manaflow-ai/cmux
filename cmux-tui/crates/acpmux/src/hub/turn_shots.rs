@@ -192,19 +192,26 @@ fn capture(
     out: &Path,
 ) -> Option<String> {
     capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures", false)
+        .map(|page| page.id)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct CapturedPage {
+    pub id: String,
+    pub url: Option<String>,
 }
 
 /// The chat's page now, for a turn's frames (`turn_frames.rs`): [`capture`] in the REPL session
 /// `repl` of the browser host this daemon finds, so a frame never queues behind a turn's before or
-/// after. The tab's id, or none with no file left. The same cell reads the page's outline
-/// (`turn_frames_shape.rs`), handed over by `turn_frames_shape::take(out)`.
+/// after. The captured tab's id and URL, or none with no file left. The same cell reads the page's
+/// outline (`turn_frames_shape.rs`), handed over by `turn_frames_shape::take(out)`.
 pub(super) fn capture_page(
     base: &Path,
     workspace: &str,
     out: &Path,
     repl: &str,
     label: &str,
-) -> Option<String> {
+) -> Option<CapturedPage> {
     capture_in(&host_socket(), base, workspace, None, out, repl, label, true)
 }
 
@@ -219,7 +226,7 @@ fn capture_in(
     repl: &str,
     label: &str,
     shaped: bool,
-) -> Option<String> {
+) -> Option<CapturedPage> {
     if shaped {
         shape::stash(out, None);
     }
@@ -248,7 +255,10 @@ fn capture_in(
             if shaped {
                 outline = shape::parse(text);
             }
-            Some(shown.get("id")?.as_str()?.to_owned())
+            Some(CapturedPage {
+                id: shown.get("id")?.as_str()?.to_owned(),
+                url: shown.get("url").and_then(Value::as_str).map(str::to_owned),
+            })
         });
     let kept = taken.filter(|_| {
         std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES)

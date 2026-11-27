@@ -100,11 +100,18 @@ public final class MockAgentSession: AgentSessionSource {
         switch intent {
         case .prompt(let text, let attachments, let steer, let sentID, _):
             // The client's id comes back on the echo, as acpmux does: the store
-            // matches its send to it (`chat_send_acked`, a resend's dedupe).
+            // matches its send to it (`chat_send_acked`, a resend's dedupe) and the turn it drew as sent.
             let promptID = sentID.isEmpty ? UUID().uuidString : sentID
             if running != nil, !steer {
                 queued.append((promptID, text, attachments))
                 emit(.queued(text: text, promptId: promptID, position: queued.count))
+            } else if DeveloperOptions.mockEchoDelay > .zero {
+                // DEBUG: a Mac's round trip before the prompt comes back.
+                let delay = DeveloperOptions.mockEchoDelay
+                Task { [weak self] in
+                    try? await Task.sleep(for: delay)
+                    self?.startTurn(text: text, attachments: attachments, promptID: promptID)
+                }
             } else {
                 startTurn(text: text, attachments: attachments, promptID: promptID)
             }
