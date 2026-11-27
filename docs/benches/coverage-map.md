@@ -90,8 +90,10 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `chief-latency` | Chief | 15 asks | no |
 | `ci-vm-idle` | CI | 24 h inventory | no |
 | `claude-vs-acpmux` | acpmux daemon | real model | no |
+| `cloud-first-byte` | cloud | Cloud Git active | no |
 | `cloud-turn` | cloud | real relay | no |
 | `coord-sim` | acpmux daemon | several coordinator chats | no |
+| `coordinator-cpu` | agent chat renderer CPU | long history, 20 ticking subagents | no |
 | `daemon-latency` | acpmux daemon | commits | no |
 | `desktop-link` | iOS link | n/a | no |
 | `dev-loop` | dev loop | n/a | no |
@@ -156,6 +158,7 @@ whether it fails on a number.
 | `AgentPaneBridgeHopBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneBridgeHopBench.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
 | `AgentPaneTransportBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneTransportBench.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
 | `AgentPaneTransportBenchParse` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneTransportBenchParse.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
+| `AnimationFrameBenchUITests` | `cmux-next-ios/UITests/AnimationFrameBenchUITests.swift` | UI test plan | no |
 | `BrowserChromeMemoryBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserChromeMemoryBench.swift` | none | no |
 | `BrowserChromeSwitchBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserChromeSwitchBench.swift` | none | one render per switch |
 | `ChiefFaceFlushBenchTests` | pending lane/main-thread-sync-bridge (CmuxNextAppTests) | none | one flush under 250 ms at 1,104 rows × 5 Chiefs, 160 KB |
@@ -183,6 +186,7 @@ whether it fails on a number.
 | `RemoteDecodeRangeBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextRemoteViewTests/RemoteDecodeRangeBenchTests.swift` | `CMUX_RD_DECODE_BENCH` | no |
 | `ResumeLiveBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | yes |
 | `ResumeMatrixBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
+| `ResumeStagesBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
 | `RotateBenchUITests` | `cmux-next-ios/UITests/RotateBenchUITests.swift` | UI test plan | no |
 | `SentryScrubCostBench` | `Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryScrubbingTests/SentryScrubCostBench.swift` | `CMUX_SENTRY_SCRUB_BENCH` | no |
 | `SidebarHoverCardRetargetBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarHoverCardRetargetBenchTests.swift` | `CMUX_HOVER_RETARGET_BENCH` | p95 under 8 ms scaled |
@@ -225,6 +229,9 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | glob | area | on PR |
 |---|---|---|
 | `webviews/bench/chat-*.bench.ts` | agent chat open, switch, scroll, 100k flat | chat-open: report only |
+| `webviews/bench/inline-text-hasmarks.bench.ts` | markdown inline text | no |
+| `webviews/bench/subsession-reply-height.bench.ts` | transcript height estimate | no |
+| `webviews/bench/terminal-history-offscreen.bench.ts` | terminal history viewer | no |
 | `webviews/bench/transcript-*.bench.ts` | transcript scroll, resize, replay, turn end | no |
 | `webviews/bench/million-event-chat.bench.ts` | 1M-event chat | no |
 | `webviews/bench/degenerate-chat-frames.bench.ts` | degenerate chats | smoke on its own paths, no fail |
@@ -281,3 +288,16 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/scene-lazy-stack-*.bench.ts` | scenes | no |
 | `webviews/bench/forum-search.bench.ts` | forum search typing | no |
 | `webviews/bench/github-*.bench.ts*` | GitHub page | no |
+
+## Agent tooling benches (leo-workspace)
+
+Agents run these tools on every task, so a slow lookup costs every lane. These benches live in
+teamleaderleo/leo-workspace, not this tree, so `tests/test_bench_coverage_map.py` does not check this
+section. Budget: a warm query under 300 ms, an update under 2 s after one doc changes, and flat at 10x
+docs (the ds&a fan-out brief). Each one's correctness test sits beside it.
+
+| bench | tool | scale | result | budget met | test |
+|---|---|---|---|---|---|
+| `tools/bench_agent_memory_search.py` | `tools/agent-memory search` | 13k sources | p50 1.7 s → 6 ms (leo-workspace#13282) | yes | `tools/test_agent_memory.py` |
+| `tools/bench_agent_memory_fingerprint.py` | `agent-memory` staleness fingerprint | 13k sources | 3.6 s → 0.69 s (leo-workspace#13291) | yes (runs in a throttled child, off the query path) | `tools/test_agent_memory.py` |
+| `tools/bench_rfd_update.py` | `tools/rfd find` and `rfd update` | 336 and 3,360 docs | at 3,360 docs: query 1,505 → 430 ms; update 6,605 → 1,916 ms, p95 2,492 ms (leo-workspace#13340) | no: the query at 10x and the update p95 are over budget, tracked in leo-workspace#13352 | `tools/test_rfd.py` |
