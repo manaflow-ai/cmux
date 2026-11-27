@@ -67,17 +67,15 @@ struct SettledWorkInMotionTests {
         #expect(ran == [2])
     }
 
-    /// A window's live resize holds a settle as a layout motion does (its steps arm no timer), and its end arms it even
-    /// while AppKit still reports the resize in `viewDidEndLiveResize`, the only call at the end. Before, that end's
-    /// stillness check armed nothing, so the New Tab spare's fit waited for an unrelated later layout (PR 59620 review).
+    /// A window's live resize is no layout motion, and nothing at its end reliably comes last (AppKit can still report
+    /// the resize in `viewDidEndLiveResize`): a call during it arms its timer, as before the hold, so the New Tab spare's
+    /// fit still runs after a window resize (PR 59620 review).
     @Test func aCallDuringAWindowLiveResizeArmsItsSettle() {
         let (root, window) = root()
         defer { window.closeAfterTest() }
         let queue = FrameBatchQueue(owner: "SettledWorkInMotionTests")
         window.isLive = true
         for _ in 0..<3 { root.whenSettled("SettledWorkInMotionTests.live", after: .seconds(30), on: queue) {} }
-        #expect(root.settlingWork["SettledWorkInMotionTests.live"]?.timer.isScheduled == false,
-                "a step of the window's live resize armed the settle timer")
         // The resize ends while the window still reports it.
         root.viewDidEndLiveResize()
         #expect(root.settlingWork["SettledWorkInMotionTests.live"]?.timer.isScheduled == true,
