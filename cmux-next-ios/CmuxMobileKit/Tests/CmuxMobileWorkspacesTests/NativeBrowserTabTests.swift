@@ -236,6 +236,34 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         #expect(ordinary.configuration.websiteDataStore.proxyConfigurations.isEmpty)
     }
 
+    @Test func ordinarySameDocumentHistoryKeepsBackForwardAndDropsTheReplacedBranch() async throws {
+        let model = BrowserTabModel(url: nil, guardsMacAddresses: true)
+        model.webView.loadHTMLString("<title>Same document</title>", baseURL: URL(string: "https://example.com/history"))
+        await until { model.title == "Same document" && model.webView.backForwardList.currentItem != nil }
+        #expect(model.title == "Same document")
+        let original = try #require(model.webView.backForwardList.currentItem)
+        _ = try await model.webView.evaluateJavaScript("history.pushState({}, '', '#one'); history.pushState({}, '', '#two')")
+        await until { model.url?.fragment == "two" && model.canGoBack }
+        #expect(model.url?.fragment == "two")
+        model.goBack()
+        await until { model.url?.fragment == "one" }
+        #expect(model.url?.fragment == "one")
+        #expect(model.canGoForward)
+        model.goForward()
+        await until { model.url?.fragment == "two" }
+        #expect(model.url?.fragment == "two")
+        model.goBack()
+        await until { model.url?.fragment == "one" }
+        _ = try await model.webView.evaluateJavaScript("history.pushState({}, '', '#branch')")
+        await until { model.url?.fragment == "branch" && !model.canGoForward }
+        #expect(!model.canGoForward, "the discarded #two entry cannot stay in the bridge")
+        model.goBack()
+        await until { model.url?.fragment == "one" }
+        model.goBack()
+        await until { model.webView.backForwardList.currentItem === original }
+        #expect(model.webView.backForwardList.currentItem === original)
+    }
+
     @Test func backAndForwardCrossTheOrdinaryAndPrivateViews() async throws {
         let native = NativeBrowserTabs(defaults: defaults())
         let forwarder = LocalhostForwarder(openHost: { _, _, _ in
@@ -265,6 +293,26 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         await until { model.webView === privateView }
         #expect(model.webView === privateView)
         #expect(model.title == "Private history")
+
+        // A branch discarded globally still exists inside the inactive view's
+        // native list. Opening a new private page must not bring it back.
+        _ = try await privateView.evaluateJavaScript("history.pushState({}, '', '#old')")
+        await until { model.url?.fragment == "old" }
+        model.goBack()
+        await until { model.webView === privateView && model.url?.fragment == nil }
+        model.goBack()
+        await until { model.webView === ordinary }
+        #expect(model.webView === ordinary)
+        _ = try await ordinary.evaluateJavaScript("history.pushState({}, '', '#branch')")
+        await until { model.url?.fragment == "branch" && !model.canGoForward }
+        #expect(!model.canGoForward)
+        model.load(URL(string: "http://studio.local:8080/new")!)
+        await until { model.webView === privateView && privateView.backForwardList.currentItem?.url.path == "/new" }
+        #expect(privateView.backForwardList.currentItem?.url.path == "/new")
+        model.goBack()
+        await until { model.webView === ordinary && model.url?.fragment == "branch" }
+        #expect(model.webView === ordinary, "discarded private history must not reappear before the ordinary branch")
+        #expect(model.url?.fragment == "branch")
     }
 
     @Test func privateNavigationKeepsTheLoopbackInitiationRulesAndOriginPorts() throws {

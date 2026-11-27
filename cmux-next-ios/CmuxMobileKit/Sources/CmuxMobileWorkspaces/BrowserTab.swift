@@ -29,6 +29,10 @@ public final class BrowserTabModel: BrowserTabState {
     }
     private var pageHistory: [PageHistoryEntry] = []
     private var historyIndex = -1
+    @ObservationIgnored private var historySync: Task<Void, Never>?
+    @ObservationIgnored private var awaitingViewCommit = false
+    @ObservationIgnored private var pendingHistoryItem: WKBackForwardListItem?
+    @ObservationIgnored private var nativeHistoryItems: Set<ObjectIdentifier> = []
     public private(set) var isLoading = false
     public private(set) var progress: Double = 1
     public private(set) var snapshot: UIImage?
@@ -73,7 +77,11 @@ public final class BrowserTabModel: BrowserTabState {
 
     /// Invalidates pending policy decisions when another navigation or mirroring wins.
     @discardableResult
-    func beginNavigation() -> UInt {
+    func beginNavigation(preservingHistory: Bool = false) -> UInt {
+        if !preservingHistory, pendingHistoryItem != nil {
+            pendingHistoryItem = nil
+            awaitingViewCommit = false
+        }
         navigationGeneration &+= 1
         return navigationGeneration
     }
@@ -139,6 +147,9 @@ public final class BrowserTabModel: BrowserTabState {
         webView.stopLoading()
         webView.pauseAllMediaPlayback()
         observations.removeAll()
+        // The retained view initially still points at its old page. Do not move
+        // the bridge cursor there while a new navigation is replacing it.
+        awaitingViewCommit = true
         webView = view
         view.navigationDelegate = guardian
         snapshot = nil
@@ -285,6 +296,7 @@ public final class BrowserTabModel: BrowserTabState {
             })
         }
         watch(\.url) { model, value in
+            model.scheduleHistorySync()
             // A card keeps the address that failed in the bar (as Safari does); WebKit
             // puts its own back on the last page that loaded.
             guard let value, model.problem == nil else { return }
@@ -297,8 +309,14 @@ public final class BrowserTabModel: BrowserTabState {
             model.urlChanged?(value)
         }
         watch(\.title) { model, value in model.title = value ?? "" }
-        watch(\.canGoBack) { model, value in model.historyBack = value }
-        watch(\.canGoForward) { model, value in model.historyForward = value }
+        watch(\.canGoBack) { model, value in
+            model.historyBack = value
+            model.scheduleHistorySync()
+        }
+        watch(\.canGoForward) { model, value in
+            model.historyForward = value
+            model.scheduleHistorySync()
+        }
         watch(\.isLoading) { model, value in model.isLoading = value }
         watch(\.estimatedProgress) { model, value in model.progress = value }
     }
@@ -315,27 +333,76 @@ public final class BrowserTabModel: BrowserTabState {
             return
         }
         personNavigated?()
+        if !awaitingViewCommit { reconcileHistory() }
         if pageHistory.isEmpty { _ = webView.goBack() }
         else { visitHistory(at: historyIndex - 1) }
     }
 
     public func goForward() {
         personNavigated?()
+        if !awaitingViewCommit { reconcileHistory() }
         if pageHistory.isEmpty { _ = webView.goForward() }
         else { visitHistory(at: historyIndex + 1) }
     }
 
-    /// WebKit owns each view's history items; this bridge only orders them across
-    /// the shared-cookie and proxy views, so crossing stores does not erase Back.
+    /// WebKit owns history. Only live back/current/forward items belong in the
+    /// bridge: its size stays bounded by the two views' native history lists.
     func pageCommitted(in view: WKWebView) {
-        guard view === webView, let item = view.backForwardList.currentItem else { return }
-        if let index = pageHistory.firstIndex(where: { $0.view === view && $0.item === item }) {
-            historyIndex = index
-        } else {
-            pageHistory = Array(pageHistory.prefix(historyIndex + 1))
-            pageHistory.append(PageHistoryEntry(view: view, item: item))
-            historyIndex = pageHistory.count - 1
+        guard view === webView else { return }
+        awaitingViewCommit = false
+        pendingHistoryItem = nil
+        reconcileHistory()
+    }
+
+    /// pushState, replaceState and fragment navigation need no didCommit callback.
+    /// Coalesce WebKit's URL/back/forward KVO, after it updates the native lists.
+    private func scheduleHistorySync() {
+        guard historySync == nil else { return }
+        // task-owner: one coalesced history read for this tab, no polling
+        historySync = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            self.historySync = nil
+            if let target = self.pendingHistoryItem, self.webView.backForwardList.currentItem === target {
+                self.pendingHistoryItem = nil
+                self.awaitingViewCommit = false
+            }
+            if !self.awaitingViewCommit { self.reconcileHistory() }
         }
+    }
+
+    private func reconcileHistory() {
+        let selected = pageHistory.indices.contains(historyIndex) ? pageHistory[historyIndex] : nil
+        var live = Set<ObjectIdentifier>()
+        for view in [ordinaryWebView, proxyWebView].compactMap({ $0 }) {
+            let list = view.backForwardList
+            for item in list.backList + [list.currentItem].compactMap({ $0 }) + list.forwardList {
+                live.insert(ObjectIdentifier(item))
+            }
+        }
+        let previouslyNative = nativeHistoryItems
+        nativeHistoryItems = live
+        pageHistory.removeAll { !live.contains(ObjectIdentifier($0.item)) }
+        historyIndex = selected.flatMap { selected in
+            pageHistory.firstIndex { $0.view === selected.view && $0.item === selected.item }
+        } ?? min(historyIndex, pageHistory.count - 1)
+        guard let item = webView.backForwardList.currentItem else { return }
+        if let index = pageHistory.firstIndex(where: { $0.view === webView && $0.item === item }) {
+            historyIndex = index
+            return
+        }
+        // A new item discards global Forward, just as a new native navigation
+        // does. Include any same-document items batched into this KVO delivery.
+        pageHistory = Array(pageHistory.prefix(historyIndex + 1))
+        let known = Set(pageHistory.map { ObjectIdentifier($0.item) })
+        for entry in webView.backForwardList.backList + [item] {
+            let identity = ObjectIdentifier(entry)
+            // An old native entry may have been discarded from global Forward
+            // while its inactive view retained it. Never resurrect that branch.
+            guard !known.contains(identity), entry === item || !previouslyNative.contains(identity) else { continue }
+            pageHistory.append(PageHistoryEntry(view: webView, item: entry))
+        }
+        historyIndex = pageHistory.count - 1
     }
 
     private func visitHistory(at index: Int) {
@@ -353,9 +420,12 @@ public final class BrowserTabModel: BrowserTabState {
             self.historyIndex = index
             self.activate(entry.view)
             if entry.view.backForwardList.currentItem !== entry.item {
+                self.awaitingViewCommit = true
+                self.pendingHistoryItem = entry.item
                 self.ownLoad = entry.item.url
                 entry.view.go(to: entry.item)
             } else {
+                self.awaitingViewCommit = false
                 self.ownLoad = nil
                 self.url = entry.item.url
                 self.urlChanged?(entry.item.url)
@@ -443,7 +513,7 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             decisionHandler(.cancel)
             return
         }
-        let generation = model.beginNavigation()
+        let generation = model.beginNavigation(preservingHistory: action.navigationType == .backForward)
         // A tap or Back/Forward; a form a page submits by itself (a sign-in step) is not the person's.
         if [.linkActivated, .backForward].contains(action.navigationType) { model.personNavigated?() }
         let reach = PhoneReach(target)
@@ -618,6 +688,7 @@ struct BrowserPage: UIViewRepresentable {
         web.frame = container.bounds
         web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         container.addSubview(web)
+        context.coordinator.installedWebView = web
         context.coordinator.attach(web.scrollView)
         return container
     }
@@ -625,11 +696,14 @@ struct BrowserPage: UIViewRepresentable {
     func updateUIView(_ container: UIView, context: Context) {
         let web = model.webView
         if web.superview !== container {
-            for previous in container.subviews { previous.removeFromSuperview() }
+            if let previous = context.coordinator.installedWebView, previous.superview === container {
+                previous.removeFromSuperview()
+            }
             web.removeFromSuperview()
             web.frame = container.bounds
             web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             container.addSubview(web)
+            context.coordinator.installedWebView = web
             context.coordinator.attach(web.scrollView)
         }
         let scroll = web.scrollView
@@ -646,6 +720,7 @@ struct BrowserPage: UIViewRepresentable {
 
     @MainActor
     final class Coordinator {
+        weak var installedWebView: WKWebView?
         var report: (@MainActor (CGFloat) -> Void)?
         private var observation: NSKeyValueObservation?
         private var last: CGFloat = 0
