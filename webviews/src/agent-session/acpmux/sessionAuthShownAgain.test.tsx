@@ -46,6 +46,8 @@ type Seen = { sessionId: string; state: string; pending: boolean };
 // The render's effects run as its act ends, so the wait for the read is an act of its own.
 const show = async (node: ReactNode) => {
   await act(async () => root!.render(node));
+  // fixed-wait: the read is scheduled by afterNextPaint's timer and answers on a promise; no DOM or
+  // event marks it, so the test waits past that timer as the page would.
   await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
 };
 

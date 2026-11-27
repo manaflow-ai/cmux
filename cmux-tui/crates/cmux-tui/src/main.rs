@@ -1915,6 +1915,8 @@ pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statements of main: no other thread runs yet.
     unsafe {
         cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+        // macOS: malloc read its space-efficient mode at exec; children start without it (malloc_space.rs).
+        cmux_tui_platform::malloc_space::forget();
     }
     // The browser host and the app host are this binary under their own names
     // (links beside bin/cmux). They run before anything else here: the app
@@ -2092,7 +2094,7 @@ fn run_main() {
     }
     #[cfg(unix)]
     if let Some(head) = raw_args.first().map(String::as_str)
-        && (matches!(head, "acp" | "harness" | "chats" | "board")
+        && (matches!(head, "acp" | "harness" | "chats" | "board" | "care")
             || cli::agent_engine_requested(&raw_args)
             || cli::TOP_LEVEL_ENGINE_VERBS.contains(&head))
     {

@@ -701,3 +701,25 @@ fn running_replica_commands_parse_with_recovery_destination() {
                 && name.as_deref() == Some("restored")
     ));
 }
+
+/// `session fork -m MODEL` without `--harness` forks onto another model of the chat's own
+/// harness; it was refused, so no fork could change only its model.
+#[test]
+fn a_fork_takes_a_model_without_a_harness() {
+    use super::{Command, flatten};
+    let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+    for argv in [
+        &["acpmux", "session", "fork", "chat", "-m", "opencode/big-pickle"][..],
+        &["acpmux", "fork", "chat", "-m", "opencode/big-pickle"][..],
+    ] {
+        let fork = parse(argv);
+        assert!(
+            matches!(
+                fork,
+                Ok(Command::Fork { ref model, ref harness, .. })
+                    if model.as_deref() == Some("opencode/big-pickle") && harness.is_none()
+            ),
+            "{argv:?}"
+        );
+    }
+}

@@ -499,6 +499,10 @@ pub mod method {
     pub const MUX_PIN: &str = "_acpmux/pin";
     /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
     pub const MUX_TYPING: &str = "_acpmux/typing";
+    /// The owner's Live on or off (`hub/presence.rs`, RFD 0141 phase 1).
+    pub const MUX_LIVE: &str = "_acpmux/live";
+    /// Everyone Live on this daemon, as `cmux-presence` records.
+    pub const MUX_LIVE_LIST: &str = "_acpmux/live_list";
     /// Who has a chat open and who types in it, to its attached connections.
     pub const MUX_PRESENCE: &str = "_acpmux/presence";
     /// The rooms (chats, workspaces) a client shows now; replaces its set (`hub/presence.rs`,
@@ -650,6 +654,11 @@ pub mod method {
     pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// Open, list and close a listen on another member's agent address, and read what it receives.
     pub const MUX_TEAM_LISTEN: &str = "_acpmux/team/listen";
+    /// RFD 0170 phase 1 views of the team directory (`server/team_directory.rs`): the navigator,
+    /// the recipient picker and a session's Session Info, each for the calling principal.
+    pub const MUX_TEAM_NAVIGATOR: &str = "_acpmux/team/navigator";
+    pub const MUX_TEAM_PICK: &str = "_acpmux/team/pick";
+    pub const MUX_TEAM_SESSION_INFO: &str = "_acpmux/team/session_info";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
@@ -741,6 +750,12 @@ pub mod method {
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
     pub const MUX_ARCHIVE: &str = "_acpmux/archive";
+    /// A deleted chat back inside its grace (`hub/soft_delete.rs`): `{sessionId}` (its id, or
+    /// its name) -> its summary with `undeleted: true`.
+    pub const MUX_UNDELETE: &str = "_acpmux/undelete";
+    /// The deleted chats inside their grace (`hub/soft_delete.rs`): `{}` -> `{sessions:
+    /// [{sessionId, name, title, deletedAt, restorableUntil}]}`.
+    pub const MUX_DELETED: &str = "_acpmux/deleted";
     /// New side chat: tags the fork `sessionId` as a side chat of `chat` (the
     /// `side` tag, valued with that session), which keeps it off the lists.
     pub const MUX_SIDE: &str = "_acpmux/side";
@@ -769,6 +784,9 @@ pub mod method {
     /// per settled pull request, steering rate, time to the first useful result, by feature;
     /// the local unix socket only, like `MUX_STATS`.
     pub const MUX_SCORECARD: &str = "_acpmux/scorecard";
+    /// Replays recorded session logs against RFD 0161's cache-prefix invariants with no model
+    /// call (`scorecard_replay.rs`); local only, like `MUX_SCORECARD`.
+    pub const MUX_SCORECARD_REPLAY: &str = "_acpmux/scorecard_replay";
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
@@ -860,6 +878,12 @@ pub mod method {
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// Hold this daemon's systemd watchdog until the machine resumes: the platform asks it just
+    /// before it pauses the VM (`daemon/watchdog.rs`). This machine's own clients only.
+    pub const MUX_WATCHDOG_HOLD: &str = "_acpmux/watchdog_hold";
+    /// A `dhat-heap` build writes its heap profile now and answers its bytes (`heap_profile.rs`);
+    /// bench only, `available: false` in every other build.
+    pub const MUX_HEAP_PROFILE: &str = "_acpmux/heap_profile";
     /// Fork a session through its latest completed turn (`server/fork_through.rs`).
     pub const ACP_SESSION_FORK: &str = "acp.session.fork";
     /// Folder trust (`crate::trust`): the agents' levels for a folder and
@@ -1069,6 +1093,9 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// A chat's packed history read back: an outline, a range's digest or one record by seq
+    /// (`server/history.rs`, `hub/compaction_outline.rs`).
+    pub const MUX_HISTORY_READ: &str = "_acpmux/history/read";
     /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
     /// on the masked copy, with no model call.
     pub const MUX_SURGERY: &str = "_acpmux/surgery";
@@ -1100,6 +1127,10 @@ pub mod method {
     /// Durable opt-in replicas of ordinary running chats (`daemon/running_replica.rs`):
     /// `{action: status|checkpoint|address|recover, ...}`. Local socket only.
     pub const MUX_RUNNING_REPLICA: &str = "_acpmux/running_replica";
+    /// One lifecycle pass now (`hub/session_lifecycle.rs`): `{dryRun?}` -> `{archived, offloaded,
+    /// bytesBefore, bytesAfter, bytesFreed, chats, skipped}`; or `{restore: ID}` -> `{sessionId,
+    /// unarchived, rehydrated}`, the chat back in the lists and its log on this disk.
+    pub const MUX_LIFECYCLE: &str = "_acpmux/lifecycle";
     /// Read-only cloud copies of Claude's and Codex's transcripts (`hub/transcript_offload.rs`):
     /// `{dryRun?, olderThanDays?, restoreAll?}` -> the pass's report, or `{restored}`.
     pub const MUX_TRANSCRIPT_OFFLOAD: &str = "_acpmux/transcript_offload";
@@ -1133,6 +1164,21 @@ pub mod method {
     pub const MUX_PAIR_ISSUE: &str = "_acpmux/pair_issue";
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
+    /// Another machine's Control and Screen through the carrier (`server/consent_grant.rs`):
+    /// `{daemonId}` -> its status plus `self`. The person's local connection only.
+    pub const MUX_CONSENT_REMOTE_STATUS: &str = "_acpmux/consent_remote_status";
+    /// `{daemonId, grant}`: a grant the app signed, carried to that machine; its answer.
+    pub const MUX_CONSENT_REMOTE_SET: &str = "_acpmux/consent_remote_set";
+    /// `{id, trusted}` on the machine a grant reached: pins the pending ask's key, or unpins.
+    pub const MUX_CONSENT_GRANTOR_TRUST: &str = "_acpmux/consent_grantor_trust";
+    /// `{grant}`: an account-wide (`*`) grant this machine's own app key signed, applied here and
+    /// handed to every listed machine of the account.
+    pub const MUX_CONSENT_ACCOUNT_SET: &str = "_acpmux/consent_account_set";
+    /// `{}`: opens this machine's enrollment window and collects its app's and its peers' keys.
+    pub const MUX_CONSENT_TRUST_REFRESH: &str = "_acpmux/consent_trust_refresh";
+    /// `{surface, viewerId, viewerName?, hubUser?}` -> `{allowed, source, reason?}`: whether the app
+    /// may skip its per-connect prompt for a device hub viewer of this account.
+    pub const MUX_CONSENT_SCREEN_AUTO: &str = "_acpmux/consent_screen_auto";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
     /// The share host's status (`share_host/`): `{}` -> `acpmux.share-host.status/1`, what
     /// `acpmux share-host status` prints. Local socket only.
@@ -1172,9 +1218,14 @@ pub mod method {
     /// Local socket only.
     pub const MUX_MACHINE_SIGNED_IN: &str = "_acpmux/machine_signed_in";
     /// A browser on the web listener presents its own enrolled device credential
-    /// (`server/web_device.rs`): `{credential}` -> `{auth: "webDevice"}`. Once per connection;
+    /// (`server/web_device.rs`): `{credential, nonce?, signature?}` -> `{auth: "webDevice"}`. Once per connection;
     /// the connection's hub reads and prompts then go with that credential only. Web only.
     pub const MUX_DEVICE_HELLO: &str = "_acpmux/device_hello";
+    /// A bound web device's challenge (`server/web_device.rs`, RFD 0083): `{credential}` ->
+    /// `{machineId, nonce, binding}`, a single-use hub nonce for the browser's key to sign and
+    /// this connection's binding; `device_hello {credential, nonce, signature}` then presents the
+    /// proof. Web only.
+    pub const MUX_DEVICE_CHALLENGE: &str = "_acpmux/device_challenge";
     /// A browser on the web listener enrolls as its own device on the mesh hub, as a new machine
     /// joins (`server/web_device.rs`): `{accessToken, publicKey}` -> `{credential, machineId,
     /// userId}`, to that connection only. Nothing is written to disk. Web only.

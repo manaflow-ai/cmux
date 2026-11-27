@@ -57,8 +57,12 @@ impl Config {
         if let Some(dir) = self.store.strip_prefix("fs:") {
             return Ok(Box::new(FsStore::new(dir)?));
         }
-        if !self.store.starts_with("https://") && !self.store.starts_with("http://127.0.0.1") {
-            bail!("store must be https://ORIGIN or fs:/path, not {}", self.store);
+        if !http_store_allowed(&self.store) {
+            bail!(
+                "store must be https://ORIGIN, http://127.0.0.1, http:// on a tailnet address \
+                 (100.64.0.0/10) or fs:/path, not {}",
+                self.store
+            );
         }
         let credential = match std::env::var("CMUX_SESSION_CLOUD_TOKEN") {
             Ok(token) => token,
@@ -73,3 +77,26 @@ impl Config {
         Ok(Box::new(HttpStore::new(&self.store, &credential)?))
     }
 }
+
+/// Whether `store` is a network origin bytes may go to: any `https://`, or plain `http://` only
+/// where the wire never leaves a trusted path: loopback (`127.0.0.1`), or a tailnet CGNAT address
+/// (`100.64.0.0/10`, WireGuard-encrypted by Tailscale), as the fleet controller at
+/// `http://100.89.225.106:18765`.
+pub(crate) fn http_store_allowed(store: &str) -> bool {
+    if store.starts_with("https://") {
+        return true;
+    }
+    let Some(rest) = store.strip_prefix("http://") else { return false };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('@') {
+        return false;
+    }
+    let host = authority.rsplit_once(':').map_or(authority, |(host, _port)| host);
+    let Ok(ip) = host.parse::<std::net::Ipv4Addr>() else { return false };
+    let [a, b, ..] = ip.octets();
+    ip.is_loopback() && ip == std::net::Ipv4Addr::LOCALHOST || (a == 100 && (64..128).contains(&b))
+}
+
+#[cfg(test)]
+#[path = "config_tests.rs"]
+mod tests;

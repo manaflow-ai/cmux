@@ -58,5 +58,36 @@ class CmuxNextCheckoutRetryTests(unittest.TestCase):
                         self.assertIn(FAILED, str(between.get("if", "")), between.get("name"))
                 self.assertNotIn("continue-on-error", steps[checkouts[-1]], "the last try fails the job")
 
+
+class CheckoutAttemptBoundTests(unittest.TestCase):
+    """A stalled github.com fetch ends a try fast, so a retry still fits the job.
+
+    Release compile runs 45886625971 and 45822743318 (Macs under load): the first checkout held its
+    12 min action timeout with no bytes moving, the 15 min retry died the same way, and the job went
+    red though a rerun passed. A checkout that has a retry is bounded to MAX_FIRST minutes and each
+    retry to MAX_RETRY, in every job of both workflows that retries.
+    """
+    MAX_FIRST = 6
+    MAX_RETRY = 8
+
+    def test_every_retried_checkout_is_bounded(self):
+        seen = 0
+        for name in ("cmux-next.yml", "ci-macos.yml"):
+            jobs = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())["jobs"]
+            for job, body in jobs.items():
+                steps = body.get("steps", [])
+                retries = [s for s in steps if CHECKOUT in str(s.get("uses", ""))
+                           and str(s.get("name", "")).startswith("Retry checkout after transient network failure")]
+                if not retries:
+                    continue
+                first = next(s for s in steps if CHECKOUT in str(s.get("uses", "")) and s.get("id") == "checkout")
+                with self.subTest(workflow=name, job=job):
+                    self.assertLessEqual(first.get("timeout-minutes", 10**6), self.MAX_FIRST)
+                    for retry in retries:
+                        self.assertLessEqual(retry.get("timeout-minutes", 10**6), self.MAX_RETRY)
+                seen += 1
+        self.assertGreaterEqual(seen, 10)
+
+
 if __name__ == "__main__":
     unittest.main()

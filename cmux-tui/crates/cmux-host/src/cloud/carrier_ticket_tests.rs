@@ -99,8 +99,8 @@ fn every_refusal_leads_with_a_dotted_code() {
     .iter()
     .map(reply_for)
     .collect();
-    replies.push(refusal("busy", "too many asks are waiting; retry"));
-    replies.push(refusal("vm.agent_stopping", "the Cloud agent is stopping; retry"));
+    replies.push(refusal("busy", "too many asks are waiting on this machine's Cloud agent"));
+    replies.push(refusal("vm.agent_stopping", "the Cloud agent is stopping"));
     replies.push(json!({"ok": false}));
     replies.push(refusal("Not A Code!", "odd"));
     let mut printed = Vec::new();
