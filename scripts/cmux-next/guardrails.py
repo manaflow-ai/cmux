@@ -2119,6 +2119,19 @@ RULES = (
          "// generic-class-allow: <why this class is not main-actor isolated> (`concurrency-allow:` also works)",
          matcher_rule(Matcher(CLASS_DECL, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
+    Rule("expect-keypath-call",
+         "A `#expect` / `#require` whose whole condition is a call with a key-path argument "
+         "(`#expect(xs.allSatisfy(\\.isActive))`)",
+         "Xcode 26.6's swift-testing expands it into `__checkFunctionCall` with the key path as a throwing function "
+         "argument, so the expansion fails with \"call can throw, but it is not marked with 'try'\" and the whole "
+         "CmuxNext test build stops on macOS 27 hosts (2026-11-26: HoverCardBodyHandOffTests from #57323 broke every "
+         "suite step on the fleet; Xcode 26.3 CI compiled it)",
+         "pass a closure instead of the key path (`xs.allSatisfy { $0.isActive }`), or read it into a `let` first",
+         None,
+         # No `?` in the receiver: swift-testing leaves an optional chain unexpanded, and
+         # `try #require(a.first?.items.map(\\.id))` compiles on 26.6.
+         line_rule(r"#(?:expect|require)\(\s*(?:try\s+)?(?:await\s+)?[\w.!\[\]]+\.\w+\(\s*(?:\w+:\s*)?\\\.[\w.]+\s*\)\s*[,)]", None),
+         scope=(TESTS,)),
     Rule("action-wait", "An action handler that can wait: an untyped bind (`invoke:` / `run:` / `handler:` / a trailing closure) "
          "or a `.waiting` effect",
          "an untyped handler can start a Task that awaits the daemon before anything shows, and nothing in its type says so: the "
@@ -3087,6 +3100,29 @@ def load_owner_live():
     return module
 
 
+# A file a base merge carried in is upstream's, not the push's: on 2026-11-25 lane/port-46285 (webviews only) and
+# lane/gate-held-token, pushed after a feat-cmux-next merge, sent the live iOS lane "you hold it now" for
+# Packages/iOS/CmuxTabsKit, because base..head was diffed as two trees and the base was the old remote head (the
+# upstream fetch had not reached the merged commit). The files are those of the push's own commits instead: every
+# non-merge commit head has that base, any range the push does not own, or any remote branch lacks, less those
+# GitHub committed (a squash merge or web edit landed upstream; a lane's own commit is never committed by GitHub).
+GITHUB_COMMITTER = "noreply@github.com"
+
+
+def owner_route_files(repo: Path, own) -> list[str]:
+    """The files the push's own non-merge commits touch (see the note above)."""
+    if not own.base:
+        return []
+    nots = [own.base, *(after for _, after in getattr(own, "before", ()) or ())]
+    out = git(repo, "log", "--no-merges", "--format=%x00%ce", "--name-only", own.head, "--not", *nots, "--remotes")
+    files: set[str] = set()
+    for commit in out.split("\0")[1:]:
+        committer, _, names = commit.partition("\n")
+        if committer.strip() != GITHUB_COMMITTER:
+            files.update(f for f in names.split("\n") if f.strip())
+    return sorted(files)
+
+
 def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None = None) -> list[str]:
     """The push's owned areas, each with the live session that holds it now (owner_live.holder), which gets one
     notice per area and pushed head. LISTING: owner_live.list_sessions() unless given (tests). Lines for the
@@ -3100,7 +3136,7 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
             owners = parse_owners(git(repo, "show", f"{own.head}:{OWNERS}"))
         except (Exception, SystemExit):
             continue
-        names = [f for f in git(repo, "diff", "--name-only", own.base, own.head).split("\n") if f] if own.base else []
+        names = owner_route_files(repo, own)
         for area, cell, doc, files in owner_hits(names, owners):
             prev = hits.get(area)
             hits[area] = (cell, doc, sorted(set(files) | set(prev[2] if prev else [])), own.head)

@@ -14,9 +14,15 @@ import Foundation
 /// A row reports its frame in one of two spaces:
 /// - `.scrollContent`: its frame in its scroll view's content, which a scroll does not change, so
 ///   any move or resize there is a shift;
-/// - `.window`: its frame on screen (a UIKit-hosted list, where SwiftUI sees no scroll view). A
-///   scroll moves every such row by the same amount, so the most common move among them that
-///   frame is read as the scroll and only rows that moved otherwise, or resized, count.
+/// - `.window`: its frame in its list's visible bounds (a UIKit list reports its cells' frames less
+///   its content offset; a SwiftUI row its frame in its scroll view's visible bounds). A scroll
+///   moves every such row by the same amount, so the most common move among them that frame is
+///   read as the scroll and only rows that moved otherwise (by more than the tolerance), or
+///   resized, count.
+///
+/// Neither space is the screen: as the web's CLS leaves out CSS transforms, a list scaled or moved
+/// whole (the tab grid's zoom, the live page riding its card on the grid, a push) shifts nothing
+/// in it. Only rows inside their list's visible bounds are reported (the CLS viewport).
 public struct LayoutShiftCounter: Sendable {
     public enum Space: String, Sendable { case scrollContent, window }
 
@@ -37,6 +43,11 @@ public struct LayoutShiftCounter: Sendable {
     public private(set) var shiftedRows = 0
     /// The last row that shifted: `id y/h->y/h`.
     public private(set) var lastMoved = ""
+    /// The first `movesKept` shifts, each `frame:id y/h->y/h` (a list row's with `dy`, `dh` and the
+    /// frame's `scroll`, to a tenth of a point; one per shifted row), so a run's
+    /// record says when and how a row moved, not only its last move.
+    public private(set) var moves: [String] = []
+    public static let movesKept = 24
 
     /// Moves and resizes up to this many points are rounding, not a shift.
     public let tolerance: CGFloat
@@ -68,16 +79,42 @@ public struct LayoutShiftCounter: Sendable {
         for move in moves where move.space == .window && !resized(move.before, move.after) {
             counts[Delta(move.before, move.after, tolerance), default: 0] += 1
         }
-        let scroll = counts.max { $0.value == $1.value ? $0.key > $1.key : $0.value < $1.value }?.key
+        let bucket = counts.max { $0.value == $1.value ? $0.key > $1.key : $0.value < $1.value }?.key
+        // The scroll's own translation: the mean of the moves in the winning bucket. A row is the
+        // scroll when it moved within the tolerance of it, so rows the same scroll moved by -2.9 and
+        // -3.1 pt (either side of a bucket's edge) are not read as one row moving against the rest.
+        var scroll: (dx: CGFloat, dy: CGFloat)?
+        if let bucket {
+            let alike = moves.filter { $0.space == .window && !resized($0.before, $0.after) && Delta($0.before, $0.after, tolerance) == bucket }
+            let n = CGFloat(alike.count)
+            scroll = (alike.reduce(0) { $0 + $1.after.minX - $1.before.minX } / n,
+                      alike.reduce(0) { $0 + $1.after.minY - $1.before.minY } / n)
+        }
         let shifted = moves.filter { move in
             if move.space == .scrollContent || resized(move.before, move.after) { return true }
-            return Delta(move.before, move.after, tolerance) != scroll
+            guard let scroll else { return true }
+            return abs(move.after.minX - move.before.minX - scroll.dx) > tolerance
+                || abs(move.after.minY - move.before.minY - scroll.dy) > tolerance
         }
         guard let first = shifted.min(by: { $0.id < $1.id }) else { return 0 }
         shiftFrames += 1
         shiftedRows += shifted.count
-        lastMoved = "\(first.id.prefix(40)) \(Int(first.before.minY))/\(Int(first.before.height))->\(Int(first.after.minY))/\(Int(first.after.height))"
+        lastMoved = Self.describe(first.id, first.before, first.after)
+        for move in shifted.sorted(by: { $0.id < $1.id }) where self.moves.count < Self.movesKept {
+            var entry = "\(frames):\(Self.describe(move.id, move.before, move.after))"
+            // A list row: its exact move and resize, and the scroll it was read against, so a
+            // run's record tells a row moving against a scroll from a scroll split by rounding.
+            if move.space == .window {
+                entry += String(format: " dy %.1f dh %.1f", Double(move.after.minY - move.before.minY), Double(move.after.height - move.before.height))
+                if let scroll { entry += String(format: " scroll %.1f", Double(scroll.dy)) }
+            }
+            self.moves.append(entry)
+        }
         return shifted.count
+    }
+
+    private static func describe(_ id: String, _ before: CGRect, _ after: CGRect) -> String {
+        "\(id.prefix(40)) \(Int(before.minY))/\(Int(before.height))->\(Int(after.minY))/\(Int(after.height))"
     }
 
     private func differs(_ a: CGRect, _ b: CGRect) -> Bool {

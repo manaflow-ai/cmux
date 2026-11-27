@@ -19,6 +19,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
+| launch-reboot | `launch-reboot.sh` (`--import` after-phase log) | First launch after a real reboot; bounded bundled reader CPU, wall time and RSS (`arm=preread`). |
 | launch-background | `background-ready.sh` | Show from the background (Cmd-H, windows closed to a menu bar app, quit) against a cold relaunch, and each state's idle cost. |
 | launch-premain | `launch-premain.sh` (also launch's mode=premain) | Time to main after a 60 s full run vs a short launch, and what it pays: pageins, residency, the code checkers' CPU, per arm. |
 | launch-matrix | `launch-matrix.sh` (`launch-matrix.swift`, `launch-matrix-summary.py`) | Any .app's launch on one harness: first visible frame, first accepted input, the whole process tree's resources, per scenario (warm, cold-quit, evicted, first-install, update, large-session), the reboot pair and idle growth. |
@@ -49,6 +50,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
 | stress | `split-spring.sh --suite=stress` (`scripts/cmux-next/stress-bench.py`, `stress_load.py`; the cli angle runs `scripts/stress-cli-socket-api.py`) on the exclusive bench worker | The app under extreme stress, one angle per launch (cpu/thread starvation, many streaming mock chats with long transcripts, many workspaces with output floods, CLI/socket flood, memory past RAM into swap): frame p50/p95, dropped frames, input latency, daemon RTT, app CPU, footprint, hangs, baseline and stress window each. |
 | dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
+| agent-class-duress | `agent-class-duress.sh` (`agent-class-duress/work.c`, `spin.c`, `probe.c`) on a fleet Mac | An agent's tool loop (parallel CPU work plus uncached reads) idle, at 80% and at full load from default-priority threads, in background class (the old static default) and at the dynamic class's normal tier; and the dynamic controller's own reading per load (busy, interactive-thread lateness, share of seconds it would demote). |
 | coord-sim | `coord-sim-linux.sh` (crate `cmux-tui/crates/coord-sim`) on Linux CI; also the perf cron's coord-sim part | Several synthetic coordinator chats at once into a release acpmux: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, history paging, prompt ack and echo, daemon RSS and its slope, memory and CPU per chat. |
 | projection-way-back | `a_bench_of_bring_back` (`cmux-tui/crates/cmux-tui/tests/link_project_back.rs`) on Linux CI | Bring Back of a projected folder against today's pull (`seed pull --or-copy`) at N files and 50 edits, over a 50 ms RTT link; the plan step and the pure plan's cost. |
 | app-stream-bytes | `app-stream-bytes.sh` (`cmux-tui/crates/acpmux/tests/app_stream_bytes.rs`) | Bytes a second acpmux sends the app's chat panes while chats stream, by kind, shown and hidden panes apart, and its CPU. |
@@ -122,6 +124,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `chat-open.sh` | Sidebar click to first content for a chat. | - | 2026-11-03 | active |
 | `action-trace.sh` | Each user action's spans (launch, send to first token paint, chat switch, new chat) against its speed-of-light floor, from the daemon's Chrome trace (`CMUX_TRACE_FILE`): the trace JSON and one `ACTION-GAP name dur_us floor_us gap_us` line per span; `--burn=N` for duress. | Leo 2026-11-25, speed of light | 2026-11-25 | active |
 | `pane-compile-cef.sh` | Whether the agent pane's ES-module code cache is consumed on a reload in cmux NEXT's CEF, its compiles and FCP (`--build-at=SHA` per arm). | - | 2026-11-23 | active |
+| `pane-compile-cef-ab.sh` | Both arms of the pane-compile A/B (`--before=SHA --after=SHA`) built and measured in one step on one Mac, interleaved; `ab.json` holds each arm's medians. | - | 2026-11-26 | active |
 | `right-pane-open.sh` | Click to first content for every right-side open of a chat. | - | 2026-11-07 | active |
 | `fork-open.sh` | Fork Conversation to a usable fork, for every Fork To destination. | - | 2026-11-07 | active |
 | `close-flash.sh` | Close Window and close-key commit time in an active app. | - | 2026-11-01 | active |
@@ -187,6 +190,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `perf-lab-build.sh` | Builds another commit's bench app with this checkout's harness. | p12 | 2026-10-31 | active |
 | `tab-hibernation.sh` | Tab hibernation keep rule on 48 Chromium tabs. | msg 9103 | 2026-11-03 | active |
 | `infinite-tabs.sh` | The app with 500 browser tabs, 200 workspaces and 100 agent chats hibernated, over the empty app: RSS, CPU, wakeups, switch times. | cmuxterm-hq goals/infinite-tabs-flat.md | 2026-11-22 | active |
+| `settled-page-linux.sh` | Time to a settled page after a chat switch, workspace switch, open recent and restart, against its derived bound (webviews/bench/settled-page.bench.ts); prints SETTLED_PAGE_SCORE, NOW's settled_page_score_max, for a pinned hand measure. | cmuxterm-hq goals/settled-page-ceiling.md | 2026-11-25 | active |
 | `renderer-sharing.sh` | Chromium renderer sharing across 100 same-site tabs. | - | 2026-10-27 | active |
 | `tab-spinner-cost.sh` | The tab-strip spinner's cost while a load never ends: app, GPU and WindowServer CPU and wakeups, spinner on vs. `showPageLoading` off. | hq#13463 | 2026-11-24 | active |
 | `cef-pump-wakes.sh` | Main-thread wakes from the Chromium message pump with busy hidden terminals. | STATUS 9946 | 2026-11-04 | active |
@@ -219,6 +223,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `codec-bench.sh` | Screen-share codec encode and decode ms per frame on Apple silicon. | - | 2026-11-14 | active |
 | `codec-study.sh` | Still-image codec study on cmux screens (size, speed, OCR error). | - | 2026-11-08 | active |
 | `codec-study` | Corpus and Swift helpers for codec-study.sh. | - | 2026-11-08 | active |
+| `braid-dial-loss.sh` | The hedged remote dial (cmux-remote `connect_tcp`, Braid race) under netem packet loss in this run's own namespaces: p50/p95 and failures per loss level, optional before_ref arm interleaved. | RFD 0127 cut 1 | 2026-11-26 | active |
 | `remote-agent-path.sh` | What an agent on another machine feels through cmux Remote. | - | 2026-11-15 | active |
 | `relay-path-probe.sh` | Every path the iPhone link can take to a Mac (WireGuard direct, TURN/UDP, TURN/TLS 443, WebRTC direct and relay): setup p50/p95, link RTT p50/p95/p99 and loss, hub colo, ICE and TURN allocation times, as JSON and a table (`cmux-mobile-path-probe`). | Leo ask-6242128727, relay-path-latency | 2026-11-21 | active |
 | `cloud-machine-directory.py` | Before and after CLI directory benchmark with a guest-program provider. | - | 2026-11-12 | active |
@@ -232,6 +237,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `agent-engine.sh` | Agent chat engine spike: open time, memory, flings, typing per engine. | - | 2026-10-27 | active |
 | `chat-typing-ab.sh` | Agent chat typing A/B, base vs head, in one step. | - | 2026-11-14 | active |
 | `acpmux-overhead.sh` | acpmux against each harness run raw (Claude Code, Codex and others). | #2758 | 2026-10-29 | active |
+| `capacity-resume-outcomes.py` | What acpmux's capacity continuations do once they wake a chat, from this host's Claude transcripts: work (acted or read-only), no tool call, failed again; whether the cut turn had worked yet. | ask-ec4bc6dc7d | 2026-11-26 | active |
 | `agent-loop.sh` | Agent loop on a published NEXT nightly: scripted UI change applied live. | hq#7149 L8 | 2026-11-05 | active |
 | `agent-loop.py` | Python driver for agent-loop.sh. | hq#7149 L8 | 2026-11-05 | active |
 | `chief-build-cache.sh` | Chief build cache timing before and after. | #28481 | 2026-10-30 | active |
@@ -269,7 +275,9 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
+| `acpmux-reload-profile.sh` | A one-line acpmux edit's reload-build rebuild, release against devbuild profile. | - | 2026-11-17 | active |
 | `projection-macos.sh` | One agent checkout's FSEvents (events, unique paths), seconds, first `git status`, disk: git worktree, APFS clone (wt today), recycled checkout, projected (cmux-projection over NFSv3 from localhost); JOBS at once; fseventsd RSS (`projection-macos/fsevents-count.swift`). | projectionfs harder (2026-11-23) | 2026-11-23 | active |
+| `lane-start-qos-macos.sh` | A lane start's git (`wt new`: cold clone or warm fetch, worktree, the six reads lw#9927 counted) under `taskpolicy -b` (before leo-workspace #9927/#10714) against normal priority, and git-fetch-once's fetch throttled (`nice 10`, `taskpolicy -d throttle`) against `GIT_FETCH_ONCE_PRIORITY=normal`; idle and under `yes` spinners; n, p50, max. | lane start priority (Leo, 2026-11-24) | 2026-11-26 | active |
 | `projection-scale/measure.py` | RFD 0065 piece 14: projection serve/link/mount and git clone matrix; seconds, bytes, asks; TSV or Markdown with RFD 0067 link profiles ([README](projection-scale/README.md)). | RFD 0065 | 2026-11-24 | active |
 | `rust-dev-loop.sh` | Edit to runnable time of the Rust dev build, per build variant. | #42280 | 2026-11-12 | active |
 | `rust-dev-loop.py` | Python driver for rust-dev-loop.sh. | #42280 | 2026-11-12 | active |
@@ -300,13 +308,16 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `ext-reload-nightly.py` | App half of ext-reload-nightly.sh. | - | 2026-11-19 | active |
 | `look-keys-readback.sh` | Look keys read back on a published NIGHTLY side instance (`build=VERSION` or `dmg=URL`): each case of a cases file (`look-keys-readback/cases.json`: theme file keys, chat stylesheet tokens) applied live, every theme key read through `settings.get`, window and desktop shots before and after, and a color probe for what no socket method reads. | goals/look-keys-land | 2026-11-24 | active |
 | `look-keys-readback.py` | App half of look-keys-readback.sh (`prepare`, `run`). | goals/look-keys-land | 2026-11-24 | active |
-| `ext-rows-nightly.sh` | Extension rows closed in code read back on a published NIGHTLY side instance, CLI and daemon ops only: web panes, background activation, link openers, the New Tab page, `ext new` for every kind, composer commands and mentions, chat-widget routing. | - | 2026-11-19 | active |
+| `ext-rows-nightly.sh` | Extension rows closed in code read back on a published NIGHTLY side instance, CLI and daemon ops only: web panes, background activation, link openers, the New Tab page, `ext new` for every kind, composer commands and mentions, chat-widget routing, extension settings, `ext add` and git references, toolbar items, overlays, the Community catalog (a registry query, its listing and `ext add` of the listed commit), `ext share` links a teammate adds, and an `ext new --kind widget` widget drawn on the New Tab page (`newtab_widget`). `mode=cli` runs the bundle's own daemon headless with no launch (rows that need the Mac app skipped) on the light queue. | - | 2026-11-19 | active |
 | `ext-rows-nightly.py` | App half of ext-rows-nightly.sh: one function per row. | - | 2026-11-19 | active |
 | `meet-browser.sh` | What a video-call page needs, on a published NIGHTLY side instance (Chromium, WebKit) against Google Chrome on the same Mac: getUserMedia with and without fake-device switches, getDisplayMedia, Picture-in-Picture, notifications, a loopback 720p WebRTC call with CPU, meet.google.com load cold and warm, hidden-tab timer drift. | - | 2026-11-22 | active |
 | `meet-browser.py` | Driver half of meet-browser.sh: the local test page, cmux over its control socket, Chrome over DevTools. | - | 2026-11-22 | active |
 | `browser-auth-webkit.sh` | Login flows in a NIGHTLY side instance's browser tab (`engine=webkit` or `chromium`): popup with opener and postMessage, window.close, cross-host redirect, SameSite and Secure cookies, third-party iframe cookie and storage (runs scripts/cmux-next/browser-auth-flows-live.py). | - | 2026-11-25 | active |
+| `screen-share-ax-walk.sh` | Screen Sharing's five entry points (Command Palette, shift+cmd+s, File menu, tab chevron menu, `cmux tab new-mac-screen`) on one build (`build=JOB`, `dmg=URL` or the NIGHTLY), each judged by an accessibility walk for `macScreen.home` as hq's feature-flow probes judge it: elements read, whether the walk was complete, whether `cmux.topPage.home` showed. Run once per build for a PR's before/after. | - | 2026-11-26 | active |
+| `screen-share-ax-walk.swift` | Driver half of screen-share-ax-walk.sh: keys, menu picks, hover and click by identifier, and the window-down walk. | - | 2026-11-26 | active |
 | `rift-eval.sh` | APFS clone workspaces vs git worktree for an agent's first green build. | - | 2026-11-11 | active |
 | `cloud-partial-hydrate.sh` | A Cloud checkout's time to first read with the rest downloading in the background (hot files, wants, kill and resume) against the whole checkout. | - | 2026-11-24 | active |
+| `tick-precheck-reads.sh` | The nightly-next tick's compile-results reads and seconds over a walk of N commits (request-nightly-next.sh's precheck, one GH_TICK_CACHE), any copy of the script (`BENCH_SCRIPT=`) for before and after; no network. | goal nightly-30min | 2026-11-26 | active |
 | `nightly-cas-identity.sh` | Byte proof: a build with a reused compilation cache equals a clean build. | - | 2026-10-20 | active |
 | `import-set-xcode.sh` | Import-set check stub cost with Xcode incremental builds. | - | 2026-10-18 | active |
 
@@ -355,6 +366,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `classic-upgrade.sh` | Opt-in classic upgrade timings, apart from PR correctness checks. | - | 2026-10-29 | active |
 | `hotkey-history.sh` | Runs one CmuxNext action-catalog regression test (not a measurement). | - | 2026-11-10 | active |
 | `projection.sh` | Projection window of a published build: shows a change within 5 s. | hq#7149 L10 | 2026-11-05 | active |
+| `closed-kit-census.py` | Per webviews directory: the closed kit's doors left open (raw elements, `style`, `className` in product .tsx) and raw px, hex and rgb(a) literals, fewest doors first: which directory closes next. | RFD 0040 | 2026-11-24 | active |
 | `closed-kit-raw-values.sh` | Hand-set values that type-check in the first closed webviews directory (15 probes, `open` or `closed`), and `tsc -p tsconfig.closed.json` cold and incremental. The follow rate is `bun run gallery:perturb` in webviews. | RFD 0040 | 2026-11-23 | active |
 
 No script is marked `duplicate of`: the A/B wrappers (`*-ab.sh`) and the `.py` drivers reuse their base script on purpose, and no other pair clearly measures the same thing the same way.

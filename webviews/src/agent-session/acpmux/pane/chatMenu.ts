@@ -27,7 +27,7 @@ import { revokeAccessRows, type chatAccessGrants } from "../header/grantsMenu";
 import { headerState, type HeaderState } from "../header/headerState";
 import { instructionsRow, projectFilesRow } from "../header/instructionsRow";
 import { chatMini, miniRow, showInMini } from "../header/miniRow";
-import { presentationRow } from "../header/presentationRow";
+import { chatDetailRow } from "../header/chatDetailRow";
 import type { QuickActionMode } from "../header/quickActions";
 import { opensBesideRows, type sideChatRow } from "../header/sideChatRow";
 import { TERMINAL_SWITCH_ACTION, moveToTerminal, terminalMoveRow, terminalSwitchRow } from "../header/terminalMoveRow";
@@ -43,6 +43,8 @@ import { steerQueueExperiment } from "../steerQueue/steerQueue.experiment";
 
 /// What AcpmuxPane's `chatMenu` reads from the pane (App.tsx builds it each time the menu is drawn).
 export type ChatMenuDeps = {
+  /// The pane view the chat is (paneViewStore.ts): its header state, not another view's.
+  paneView?: string | null;
   accessGrants: ReturnType<typeof chatAccessGrants>;
   archive: ReturnType<typeof archiveRow>;
   avatar: ReturnType<typeof avatarRows>;
@@ -87,9 +89,17 @@ export type ChatMenuDeps = {
   turnActions: TurnActions;
 };
 
+/// Whether chatMenuItems has rows whatever else the chat's state is: a tab's chat always has
+/// Rename and Pin, and Quick Chat's has Delete once it has a session. Only Quick Chat before its
+/// session may have none, and then the header reads the rows to draw "..." disabled.
+export function chatMenuHasRows(quick: boolean, sessionId: string | undefined): boolean {
+  return !quick || !!sessionId;
+}
+
 /// The header's "..." menu for the pane's chat (AcpmuxPane's `chatMenu`).
 export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
   const {
+    paneView = null,
     accessGrants,
     archive,
     avatar,
@@ -265,10 +275,10 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
         ) ?? document.querySelector<HTMLElement>(".acpmux-header-tools"),
       ),
   };
-  // Normal, Thinking or Verbose for this chat, then Wrap lines (every command's output) and
-  // Text & Width… under them in one submenu (header/transcriptViewRow.ts): the menu is full
+  // Messages, Normal, Thinking or Verbose for this chat, then Wrap lines (every command's output)
+  // and Text & Width… under them in one submenu (header/chatDetailRow.ts): the menu is full
   // height, and a row more pushes Archive off it.
-  const transcriptView = presentationRow(snapshot.sessionId, t, [wrapOutputRow(t), display]);
+  const transcriptView = chatDetailRow(snapshot.sessionId, t, [wrapOutputRow(t), display]);
   const tools: ChatMenuItem[] = [
     transcriptView ?? { ...display, icon: "site.permission.localfonts" },
     ...replay,
@@ -357,7 +367,7 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
   // pane's "..." on the terminal.
   const terminalSwitch = guarded(
     terminalSwitchRow(
-      { switchable: headerState().terminalSwitch, native: hasNativeHost(), quick },
+      { switchable: headerState(paneView).terminalSwitch, native: hasNativeHost(), quick },
       () =>
         void callNative("action.run", {
           id: TERMINAL_SWITCH_ACTION,
@@ -413,7 +423,7 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
       },
       {
         key: "pin",
-        label: headerState().pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
+        label: headerState(paneView).pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
         icon: "action.pin",
         shortcutAction: HEADER_ACTIONS.pin,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
@@ -446,7 +456,7 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
         shortcutAction: HEADER_ACTIONS.newWindow,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
       },
-      ...(headerState().floatingChat && snapshot.sessionId
+      ...(headerState(paneView).floatingChat && snapshot.sessionId
         ? [
             {
               key: "floatingChat",

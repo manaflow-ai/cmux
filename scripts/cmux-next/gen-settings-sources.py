@@ -137,8 +137,10 @@ def load_retired():
     entries = data["retired"]
     seen = set()
     for entry in entries:
-        if set(entry) - {"key", "reason", "why", "replaced_by", "values", "since", "until"} or not {"key", "reason"} <= set(entry):
-            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values, since, until): %r" % (RETIRED_SOURCE, entry))
+        if set(entry) - {"key", "reason", "why", "replaced_by", "values", "since", "until", "migrated_by_app"} or not {"key", "reason"} <= set(entry):
+            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values, since, until, migrated_by_app): %r" % (RETIRED_SOURCE, entry))
+        if "migrated_by_app" in entry and not isinstance(entry["migrated_by_app"], bool):
+            raise SystemExit("%s: migrated_by_app must be a boolean for %r" % (RETIRED_SOURCE, entry["key"]))
         check_window(entry)
         key = entry["key"]
         parts = key.split(".")
@@ -206,7 +208,9 @@ def retired_swift(entries):
         rows.append("        %s: %s," % (swift_string(entry["key"]), swift_string(entry["reason"])))
     def path(key):
         return "[%s]" % ", ".join(swift_string(part) for part in key.split("."))
-    replaced = []
+    # One row may replace several old keys (updates.automatic replaced three toggles): its entries keep the
+    # file's order, the order they are read in.
+    by_row = {}
     for entry in entries:
         if "replaced_by" not in entry:
             continue
@@ -216,7 +220,8 @@ def retired_swift(entries):
             values = "[%s]" % (pairs or ":")
         else:
             values = "nil"
-        replaced.append("        %s: (old: %s, values: %s)," % (path(entry["replaced_by"]), path(entry["key"]), values))
+        by_row.setdefault(entry["replaced_by"], []).append("(old: %s, values: %s)" % (path(entry["key"]), values))
+    replaced = ["        %s: [%s]," % (path(row), ", ".join(olds)) for row, olds in by_row.items()]
     return """// {header}
 
 extension SettingsSchema {{
@@ -229,12 +234,13 @@ extension SettingsSchema {{
 {rows}
     ]
 
-    /// Retired keys a row took the place of, by the row's path: the old key's path and what its
-    /// values read as in the row (any other value reads as the row's default; `nil`: a plain
-    /// rename, every value reads as is). While the row is unset Settings shows the old key's
-    /// value, and every write or reset of the row removes the old key (``RenamedSettingKeys``), as
-    /// the daemon does (cmux-config `schema::retired`).
-    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue]?)] = [
+    /// Retired keys a row took the place of, by the row's path: each old key's path and what its
+    /// values read as in the row (`nil`: a plain rename, every value reads as is), in the order
+    /// they are read (the first old key whose value is listed wins; any other value reads as the
+    /// row's default). While the row is unset Settings shows that value, and every write or reset
+    /// of the row removes every old key (``RenamedSettingKeys``), as the daemon does (cmux-config
+    /// `schema::retired`).
+    static let replacedKeys: [[String]: [(old: [String], values: [JSONValue: JSONValue]?)]] = [
 {replaced}
     ]
 }}
