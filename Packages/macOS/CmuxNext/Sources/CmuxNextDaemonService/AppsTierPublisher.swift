@@ -1,3 +1,4 @@
+public import CmuxNextBrowserCore
 public import CmuxNextCloud
 public import Foundation
 
@@ -5,14 +6,6 @@ public import Foundation
 /// page, the popover it lays out for each edit, and the run of its command on the preview's
 /// machine, read back by Rust. The App only maps these values to the browser's popover.
 public struct AppsTierPublisher: Sendable {
-    /// How a publish ended.
-    public enum Ended: Equatable, Sendable {
-        case published(URL)
-        case failed(code: String, message: String)
-        case unreadable(exit: Int)
-        case unreachable(String)
-    }
-
     /// Runs a command on a Cloud machine (`CloudMachineIO.exec`).
     public typealias Exec = (_ machine: String, _ command: String, _ timeoutMs: Int) async throws -> CloudExecResult
 
@@ -33,9 +26,18 @@ public struct AppsTierPublisher: Sendable {
         rules.popover(target, AppsTierRules.Draft(name: name, audience: team ? .team : .private))
     }
 
+    /// The popover's form for a typed name and an audience, as the browser draws it.
+    public func form(name: String?, team: Bool) -> BrowserPublishForm? {
+        popover(name: name, team: team).map { laid in
+            BrowserPublishForm(hostLabel: laid.hostLabel, startFrom: laid.startFrom, canPublish: laid.canPublish,
+                               problem: laid.problem.map { $0 == "nameEmpty" ? .nameEmpty : .other($0) })
+        }
+    }
+
     /// Runs the publish on the preview's machine and reads its answer.
-    public func publish(name: String?, team: Bool, exec: Exec) async -> Ended {
-        guard let laid = popover(name: name, team: team), laid.canPublish else { return .unreadable(exit: -1) }
+    public func publish(name: String?, team: Bool, exec: Exec) async -> BrowserPublishAnswer {
+        let laid = popover(name: name, team: team)
+        guard let laid, laid.canPublish else { return .failed(code: "cannot_publish", message: laid?.problem ?? "") }
         let ran: CloudExecResult
         do {
             ran = try await exec(laid.machine, laid.command, Self.execTimeoutMs)

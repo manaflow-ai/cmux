@@ -11,7 +11,13 @@ public final class AppsTierPreviews {
     /// The previews opened, by origin; a later opening of the same origin replaces it.
     public private(set) var known: [String: AppsTierRules.KnownPreview] = [:]
 
+    /// How many publishes finished live in this app: the sidebar's Apps section reads its list again on each.
+    public private(set) var publishes = 0
+
     public init() {}
+
+    /// A publish finished live.
+    public func published() { publishes += 1 }
 
     public func record(_ preview: AppsTierRules.KnownPreview) {
         guard known[preview.origin] != preview else { return }

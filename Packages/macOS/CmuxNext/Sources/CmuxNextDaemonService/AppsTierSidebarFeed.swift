@@ -9,7 +9,7 @@ public import Foundation
 /// The sidebar's Apps section's data (RFD 0003 E-C, behind `experiments.appsTier`, off by default):
 /// the account's apps from the relay (`cloud apps-relay`, `{op: "list"}`) laid out by Rust
 /// (``AppsTierRules/section(_:)``). It reads the list when the experiment turns on and when the
-/// signed-in person changes; a publish calls ``refresh()``. With the experiment off it holds
+/// signed-in person changes, and after each live publish (``AppsTierPreviews/publishes``). With the experiment off it holds
 /// nothing and the section does not show.
 public final class AppsTierSidebarFeed {
     /// The section as Rust laid it out; nil before the first answer.
@@ -23,40 +23,49 @@ public final class AppsTierSidebarFeed {
     private let account: @MainActor @Sendable () -> String?
     private let relay: () -> (@Sendable (Data) async -> Data)
     private let perform: (ActionID, [String: ActionValue]) -> Bool
+    private let publishes: @MainActor @Sendable () -> Int
+    private let publishFocused: () -> Bool
     private let rules = AppsTierRules()
     private var reading: Task<Void, Never>?
     private var watch: Task<Void, Never>?
     private var view: AppsTierSectionView?
 
     /// `isEnabled`: the experiment's switch; `account`: the signed-in person (nil signed out);
-    /// `relay`: the CLI's apps relay; `perform`: runs an action by id.
+    /// `relay`: the CLI's apps relay; `perform`: runs an action by id; `publishes`: the live publishes
+    /// so far; `publishFocused`: the focused page's Publish (false when it has none).
     public init(isEnabled: @escaping @MainActor @Sendable () -> Bool, account: @escaping @MainActor @Sendable () -> String?,
                 relay: @escaping () -> (@Sendable (Data) async -> Data),
-                perform: @escaping (ActionID, [String: ActionValue]) -> Bool) {
+                perform: @escaping (ActionID, [String: ActionValue]) -> Bool,
+                publishes: @escaping @MainActor @Sendable () -> Int = { 0 }, publishFocused: @escaping () -> Bool = { false }) {
         self.isEnabled = isEnabled
         self.account = account
         self.relay = relay
         self.perform = perform
+        self.publishes = publishes
+        self.publishFocused = publishFocused
     }
 
     /// The app's feed: the experiment's switch, the signed-in account (`auth`), the bundled CLI's
-    /// apps relay (`cli`), and the app's actions (`registry`).
-    public convenience init(isEnabled: @escaping @MainActor @Sendable () -> Bool, auth: CloudAuth, cli: BundledExecutable, registry: ActionRegistry) {
+    /// apps relay (`cli`), the app's actions (`registry`), its previews (`previews`) and the focused page's Publish.
+    public convenience init(isEnabled: @escaping @MainActor @Sendable () -> Bool, auth: CloudAuth, cli: BundledExecutable, registry: ActionRegistry,
+                            previews: AppsTierPreviews, publishFocused: @escaping () -> Bool) {
         self.init(isEnabled: isEnabled,
                   account: { [weak auth] in auth?.isSignedIn == true ? auth?.user?.id ?? "" : nil },
                   relay: { [weak auth] in auth.map { CloudCLICall(cli: cli).appsRelay(signedIn: $0) } ?? { _ in Data() } },
                   perform: { [weak registry] id, arguments in
                       registry?.perform(id, invocation: ActionInvocation(arguments: arguments, origin: .user)) == true
-                  })
+                  },
+                  publishes: { [weak previews] in previews?.publishes ?? 0 },
+                  publishFocused: publishFocused)
     }
 
     /// Follows the setting and the account: one read per change.
     public func start() {
         guard watch == nil else { return }
-        let isEnabled = isEnabled, account = account
+        let isEnabled = isEnabled, account = account, publishes = publishes
         // task-owner: the feed's one observation of the setting and the account; it ends with the feed.
         watch = Task { [weak self] in
-            for await watched in ObservationStream({ Watched(on: isEnabled(), account: account()) }) {
+            for await watched in ObservationStream({ Watched(on: isEnabled(), account: account(), publishes: publishes()) }) {
                 guard let self else { return }
                 apply(on: watched.on)
             }
@@ -136,14 +145,12 @@ public final class AppsTierSidebarFeed {
     /// The `+ Publish preview…` row: the focused browser pane's Publish (its popover); false when
     /// nothing could publish here.
     public func publishPreview() -> Bool {
-        perform(Self.publishAction, [:])
+        publishFocused()
     }
-
-    /// The browser pane's Publish action (the toolbar's button, RFD 0003 E-A).
-    public static let publishAction: ActionID = "browser.app.publish"
 
     private struct Watched: Equatable, Sendable {
         var on: Bool
         var account: String?
+        var publishes: Int
     }
 }

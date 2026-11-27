@@ -122,20 +122,13 @@ enum BrowserToolbarHandlers {
         guard let page = publisher(url: entry.tab.state.url, title: entry.tab.state.title, services: services) else { return }
         popover.toggle(BrowserPublishSource(
             suggestedName: page.target.suggestedName,
-            form: { name, team in
-                page.popover(name: name, team: team).map { laid in
-                    BrowserPublishForm(hostLabel: laid.hostLabel, startFrom: laid.startFrom, canPublish: laid.canPublish,
-                                       problem: laid.problem.map { $0 == "nameEmpty" ? .nameEmpty : .other($0) })
-                }
-            },
+            form: page.form(name:team:),
             publish: { [weak services] name, team in
-                guard let api = services?.cloud.machineAPI else { return .unreachable(CancellationError().localizedDescription) }
-                switch await page.publish(name: name, team: team, exec: { try await api.exec($0, command: $1, timeoutMs: $2) }) {
-                case .published(let url): return .published(url)
-                case .failed(let code, let message): return .failed(code: code, message: message)
-                case .unreadable(let exit): return .unreadable(exit: exit)
-                case .unreachable(let why): return .unreachable(why)
-                }
+                guard let services else { return .unreachable(CancellationError().localizedDescription) }
+                let api = services.cloud.machineAPI
+                let answer = await page.publish(name: name, team: team, exec: { try await api.exec($0, command: $1, timeoutMs: $2) })
+                if case .published = answer { services.appsTierPreviews.published() } // the sidebar's Apps section reads again
+                return answer
             },
             open: { [weak services] url in
                 guard let services, let pane = services.windows.active?.focusedPane?.pane else { return }
@@ -143,6 +136,14 @@ enum BrowserToolbarHandlers {
                 Task { _ = try? await services.cache.browserTabs.open(BrowserEngineChoice(engine: .cef, pinned: true), in: pane,
                                                                       url: url.absoluteString, activate: true) }
             }))
+    }
+
+    /// The sidebar's `+ Publish preview…` row: the focused pane's page's Publish; false when it has none.
+    static func publishFocused(_ services: AppServices) -> Bool {
+        guard let entry = try? AppActionContext(services: services).page(ActionInvocation(arguments: [:], origin: .user)),
+              publisher(url: entry.tab.state.url, title: entry.tab.state.title, services: services) != nil else { return false }
+        showPublish(for: entry, services: services)
+        return true
     }
 
     static func profileName(forTab key: String, services: AppServices) -> String {

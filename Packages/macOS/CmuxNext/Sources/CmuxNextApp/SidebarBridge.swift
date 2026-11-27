@@ -114,7 +114,8 @@ final class SidebarBridge {
         appSections?.releaseAll()
         let sections = SidebarAppSections(client: services.apps.client, isPresented: { [weak apps = services.apps] in apps?.client.presence.isPresented($0) == true }, team: { [weak services] in services?.cloudTeam.makeSectionView() },
                                            appsTier: AppsTierSidebarFeed(isEnabled: { [weak services] in services?.settings?.snapshot.experimentSwitches["appsTier"] == true },
-                                                                         auth: services.cloud.auth, cli: services.bundledCLI, registry: services.registry))
+                                                                         auth: services.cloud.auth, cli: services.bundledCLI, registry: services.registry,
+                                                                         previews: services.appsTierPreviews, publishFocused: { [weak services] in services.map(BrowserToolbarHandlers.publishFocused) ?? false }))
         appSections = sections
         container.sidebarView.appSections = sections
         // Return or Escape in the inline rename field gives the keyboard

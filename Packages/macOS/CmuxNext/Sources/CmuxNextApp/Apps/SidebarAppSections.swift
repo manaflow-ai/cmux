@@ -74,7 +74,4 @@ final class SidebarAppSections: SidebarAppSectionProvider {
         guard contribution == CloudTeamFeature.contribution else { return provider.preferredHeight(for: contribution, width: width) }
         return teamView?.preferredHeight ?? 0
     }
-
-    /// Reads the account's apps again (a publish finished).
-    func refreshAppsTier() { appsTier?.refresh() }
 }

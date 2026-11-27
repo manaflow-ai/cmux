@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowserCore
 import CmuxNextDesign
 
 /// The browser pane's Publish popover (RFD 0003 E-A, behind `experiments.appsTier`, off by
