@@ -327,7 +327,7 @@ pub(super) async fn local(
             let (task_hub, task_conn, fixed) =
                 (hub.clone(), conn.clone(), identity.session_id.clone());
             crate::request_cancel::on_own_task(async move {
-                dispatch_request_with_identity(
+                super::boxed_dispatch_request_with_identity(
                     &task_hub,
                     &task_conn,
                     method::SESSION_NEW,
