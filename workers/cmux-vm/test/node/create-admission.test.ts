@@ -19,6 +19,8 @@ import {
   type CreateAdmissionSettings,
 } from "../../src/limits/create-admission.ts";
 import { memoryLedgerStorage } from "../../src/limits/ledger.ts";
+import { upstreamConfigOf } from "../../src/upstream/live.ts";
+import { Redacted } from "effect";
 
 const PROVIDER_TIMEOUT_MS = 120_000;
 const HOLD_MS = 14_000;
@@ -211,5 +213,16 @@ describe("parseCreateAdmission", () => {
     expect(parseCreateAdmission("8", "5000")).toEqual({ ...SETTINGS, cap: 8, queueWaitMs: 5000 });
     expect(parseCreateAdmission("three", "-1")).toEqual(SETTINGS);
     expect(parseCreateAdmission("100000", "999999")).toEqual(SETTINGS);
+  });
+});
+
+describe("the Worker's upstream config", () => {
+  it("hands the provider create queue to the client, with every other field (staging 2026-11-27: the layer dropped it)", () => {
+    const createAdmission = { admit: async () => ({ admitted: true as const, waitedMs: 0, inFlight: 1, queued: 0 }), release: async () => {} };
+    const fetch = async () => new Response(null);
+    const config = upstreamConfigOf({ baseUrl: "https://provider.test/", apiKey: "k", environment: "staging", createAdmission, fetch, timeoutMs: 5, backgroundPollMs: 2, startPollMs: 3 });
+    expect(config.createAdmission).toBe(createAdmission);
+    expect(config.fetch).toBe(fetch);
+    expect({ ...config, apiKey: Redacted.value(config.apiKey) }).toEqual({ baseUrl: "https://provider.test/", apiKey: "k", environment: "staging", createAdmission, fetch, timeoutMs: 5, backgroundPollMs: 2, startPollMs: 3 });
   });
 });
