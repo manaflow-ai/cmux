@@ -4872,6 +4872,7 @@ def last_real_jobs(repo: str, run: int, github) -> list[dict]:
 # agent host's GitHub broker refuses a `nodes` root field, so there every suite read failed and every run was read over REST:
 # when `nodes` is refused, the suites are asked by their commits under `repository` (SUITE_COMMITS_QUERY) instead.
 SUITES_PER_QUERY = 25
+NODES_REFUSED = "root field nodes is refused"  # the lane-gh broker's words (cmuxterm-hq tools/lane-gh-broker)
 SUITE_CHECKS_QUERY = ("query($name: String!) {{ nodes(ids: [{ids}]) {{ ... on CheckSuite {{ id checkRuns(first: 100, "
                       "filterBy: {{checkType: ALL, checkName: $name}}) {{ nodes {{ conclusion }} pageInfo "
                       "{{ hasNextPage }} }} }} }} }}")
@@ -4920,10 +4921,17 @@ class SuiteChecks:
             try:
                 found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
                                                    repo=self.repo))
-            except Refused as why:
-                if "root field nodes is refused" not in str(why):
+            except (Refused, UnreadRead) as why:
+                # The broker's refusal reaches here as a read that never happened (main_fix_evidence's Unread, a
+                # failed `gh`), which rate_limit_aware raises as UnreadRead: catching only Refused let it out, so
+                # every lane-VM judgement with a red exited 3, "not judged", and land-judge parked it as quota
+                # (cmux#60059 parked seven times, 2026-11-27). A refused `nodes` is answered by commit instead.
+                if NODES_REFUSED in str(why):
+                    self.rooted = True
+                elif isinstance(why, UnreadRead):
+                    raise  # a timeout or another failed read: not judged, a retry (exit 3), as before
+                else:
                     return  # read over REST instead, as before
-                self.rooted = True
             except ValueError:
                 return
             else:
@@ -7552,6 +7560,45 @@ class JobRateLimited(Refused):
     """A failed CI job reported only its own GitHub API quota refusal."""
 
 
+RISK_EVIDENCE_JOB = "risk evidence"
+RISK_EVIDENCE_STEP = "Grade the pull request"
+RISK_EVIDENCE_QUOTA = "risk-evidence.rate-limited "
+
+
+def risk_evidence_quota(view: "FailedView | Unplaced") -> str | None:
+    """The grader's single provider refusal in its failed grade step, never a successful grade."""
+    if view is UNPLACED or view.job.get("name") != RISK_EVIDENCE_JOB:
+        return None
+    failed = [step.get("name") for step in view.job.get("steps", [])  # step-name: classify
+              if step.get("conclusion") == "failure"]
+    if failed != [RISK_EVIDENCE_STEP] or not view.sections:
+        return None
+    if any(view.steps[k].get("name") != RISK_EVIDENCE_STEP for k, _, _ in view.sections):
+        return None
+    lines = test_reds.lines_of(view.text())
+    markers = [line[len(RISK_EVIDENCE_QUOTA):] for line in lines if line.startswith(RISK_EVIDENCE_QUOTA)]
+    if len(markers) != 1 or any(line.startswith("##[error]") and not
+                               line.startswith("##[error]Process completed with exit code") for line in lines):
+        return None
+    if signature(view)[1] or crash_signals(view):
+        return None
+    try:
+        marker = json.loads(markers[0])
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(marker, dict) or marker.get("graded") is not False:
+        return None
+    if type(marker.get("status")) is not int or marker["status"] not in (403, 429):
+        return None
+    if type(marker.get("reset")) is not int or not 0 < marker["reset"] < 253402300800:
+        return None
+    endpoint = marker.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint or any(ord(c) < 32 for c in endpoint):
+        return None
+    reset = datetime.fromtimestamp(marker["reset"], timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+    return f"job {view.job.get('id')}; HTTP {marker['status']}; endpoint {endpoint}; rerun after {reset}"
+
+
 def github_quota_only(view: "FailedView | Unplaced") -> str | None:
     """The error line VIEW's failed steps printed when each of them is GitHub's API rate-limit refusal (GITHUB_QUOTA)
     and no test failed, else None."""
@@ -7751,6 +7798,13 @@ WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\
 # test_review_pool_routing.py") and lw#12080 stopped red_not_excused on 2026-11-26. Read, its units are judged per
 # test against main like any other ws-check red: a unit that passes on main stays the head's red.
 WS_CHECK_LONG_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8}): (.*)", re.S)
+# leo-workspace tools/ws-check publish_failed ends a main commit's red status with its failed set, " [fails N: HASHES]"
+# (5 base64url characters a label), cutting the text before it so the whole stays at 139. It is no part of the step a
+# description names, so it is dropped before the description is read. 2026-11-27: every red main status carried it
+# ("3 of 1295 steps failed: .github/workflows/tools-tes [fails 15: Iaih2...]"), each read "does not match run N's
+# WS_CHECK_RESULT", so no main commit had a readable verdict and land-judge refused lw#8374 at 110e5ff6 "none of the
+# 30 newest main commits has a ws-check verdict to compare with (... unreadable, first aaf171ff0309 ...)".
+WS_CHECK_PUBLISHED = re.compile(r" ?\[fails \d+: [A-Za-z0-9_-]*\]$")
 # ws_check_run.py's own base pass lines (leo-workspace tools/ws-check own_base_pass reads the same ones): one "whole" or
 # "cut" line naming the main the failed units ran again on, and a "FAILED on main too" line per unit that failed there.
 WS_CHECK_BASE_PASS = re.compile(r"^ws-check base pass (?:whole: main ([0-9a-f]{40}),|cut: main ([0-9a-f]{40}): "
@@ -7793,14 +7847,32 @@ def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[st
     its run's WS_CHECK_RESULT: the count and first step of FAILED, or the count and first unit tools/ws-check left after
     discounting main's reds (the long form: the unit count, discount, main and first unit's file, cut at 139)."""
     if named.re is WS_CHECK_LONG_DESCRIPTION:
-        found = ws_check_discount(lines, at, failed)
-        if found is None or not found[0]:
+        # tools/ws-check discounts what this run's own base pass saw fail on main AND what other runs' passes of the
+        # same main learned (learn_base_reds), so its discount may exceed this log's FAILED-on-main-too lines: the
+        # learned units read here as the head's own. The status matches when its counts split this log's failed units
+        # (own + discounted == every FAILED label), it discounts at least what this log's pass saw, and its first
+        # unit is one this log keeps as the head's (its first exactly when nothing was learned). 2026-11-27: lw#12070
+        # at e9da65f7, "1 failed after discounting 7 on main 99f45fab: test_text_io_encoding.py" over a log whose
+        # pass saw 6 of 8 fail on main, was refused "does not match run 45922084826's WS_CHECK_RESULT".
+        found = ws_check_own_base(lines, at, failed)
+        if found is None or not found["head_only"] or not named[4]:
             return False
-        own, discounted, main = found
-        step, bracket, unit = own[0].partition(" [")
-        first = unit.removesuffix("]") if bracket else step
-        return ((int(named[1]), int(named[2]), named[3]) == (len(own), discounted, main[:8])
-                and bool(named[4]) and first.startswith(named[4]))
+        own, discounted = int(named[1]), int(named[2])
+        firsts = []
+        for label in sorted(found["head_only"]):
+            step, bracket, unit = label.partition(" [")
+            firsts.append(unit.removesuffix("]") if bracket else step)
+        if named[3] != found["main"][:8] or own < 1 or discounted < len(found["on_main"]):
+            return False
+        if own + discounted != len(found["on_main"]) + len(found["head_only"]):
+            return False
+        def names(first: str) -> bool:
+            # the unit, maybe cut at the status's room, or the unit with more after it (more units, a lane run's tag:
+            # cmux#58085's "test_b.py, test_c.py" and "test_b.py cmux-cp-1; log x")
+            return first.startswith(named[4]) or named[4].startswith((first + ", ", first + " "))
+        if discounted == len(found["on_main"]):
+            return names(firsts[0])
+        return any(names(first) for first in firsts)
     count, total, described = int(named[1]), int(named[2]), named[5]
     if total != steps:
         return False
@@ -8317,7 +8389,8 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     where = f"'{WS_CHECK}' on {sha}"
     if state != "failure":
         raise Refused(f"{where}: an unknown status state {state!r}")
-    named = WS_CHECK_DESCRIPTION.fullmatch(description) or WS_CHECK_LONG_DESCRIPTION.fullmatch(description)
+    read_as = WS_CHECK_PUBLISHED.sub("", description)  # a main status's published set is no part of its step
+    named = WS_CHECK_DESCRIPTION.fullmatch(read_as) or WS_CHECK_LONG_DESCRIPTION.fullmatch(read_as)
     if not named:
         raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' or "
                       "'N failed after discounting K on main SHA8: UNIT' is read per test")
@@ -9622,6 +9695,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
         except Refused:
             pass
     view = failed_view(job, head_log, step_names=names, base=False)
+    if name == RISK_EVIDENCE_JOB and (said := risk_evidence_quota(view)) is not None:
+        raise JobRateLimited(f"'{name}' was not graded ({said})")
     early = signature(view)
     if any(str(step.get("name") or "") in ROLLUP_STEPS for step in job.get("steps") or []):  # step-name: classify
         # The rollup's own list, for a check run that carries no annotation of it (rolled_up_reds).
@@ -10233,7 +10308,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
         # its comparison below, which may excuse it as the base's.
         quota = ((github_quota_only(view) if view is not UNPLACED else unplaced_quota_only(got.unplaced))
-                 if base_run is None or base_job.get("conclusion") != "failure" else None)
+                 if name != RISK_EVIDENCE_JOB and (base_run is None or base_job.get("conclusion") != "failure") else None)
         if quota is not None:
             raise infra(name, job, f"its failed steps printed only GitHub's API rate-limit refusal {quota[:300]!r}")
         if base_run is None:
