@@ -8,7 +8,8 @@ their client from it). The app's Swift side names methods and params by hand:
   * every string literal in the app's Swift sources that has an acpmux method's shape
     (`_acpmux/...`, `session/...`, `acp.*`, `trigger/...`) must be a protocol method;
   * every method and param key in the agent pane's frame policy
-    (CmuxNextAgentPane/AcpmuxPaneMethods*.swift: `requests`, `notifications`, `knownParams`)
+    (CmuxNextAgentPane/AcpmuxPaneMethods*.swift, and the tables the build generates from
+    cmux-agent-pane-policy policy.json: `requests`, `notifications`, `knownParams`)
     must be a protocol method and, where the method's params are typed, a property of them;
   * every `_meta.acpmux` key the app writes into a request (knownParams' second set, and the
     `acpmux["key"] = ...` / `setAcpmuxMeta(...)` / `setDecision(..., field:)` writes) must be a
@@ -25,6 +26,7 @@ Usage: scripts/ci/check-swift-acpmux-protocol.py [--root DIR]
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -34,6 +36,9 @@ PROTOCOL = "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 PANE = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane"
 ALLOWLIST = "scripts/ci/swift-acpmux-protocol-allowlist.txt"
+# The pane's policy tables are generated from this file at build time (AgentPanePolicyPlugin).
+POLICY = "cmux-tui/crates/cmux-agent-pane-policy/policy.json"
+POLICY_GENERATOR = "scripts/cmux-next/gen-agent-pane-policy-swift.py"
 
 # A literal with an acpmux method's shape.
 METHOD_SHAPE = re.compile(r'"((?:_acpmux/|session/|acp\.|trigger/)[A-Za-z0-9_./-]+)"')
@@ -267,6 +272,18 @@ def load_allowlist(path: Path) -> dict[str, str]:
     return allowed
 
 
+def generated_policy(root: Path) -> str:
+    """The Swift the build generates for the pane's policy tables (`requests`, `knownParams`, ...) from
+    policy.json (AgentPanePolicyPlugin), which no checkout holds: rendered here by the same generator."""
+    script, policy = root / POLICY_GENERATOR, root / POLICY
+    if not script.exists() or not policy.exists():
+        return ""
+    spec = importlib.util.spec_from_file_location("gen_agent_pane_policy_swift", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.render(json.loads(policy.read_text()))
+
+
 def check(root: Path) -> list[str]:
     protocol = Protocol(root / PROTOCOL)
     allowed = load_allowlist(root / ALLOWLIST)
@@ -292,6 +309,7 @@ def check(root: Path) -> list[str]:
 
     # 2. The agent pane's frame policy: every method it lets through, and their param keys.
     pane = "".join(strip_comments(p.read_text()) for p in sorted((root / PANE).glob("AcpmuxPaneMethods*.swift")))
+    pane += strip_comments(generated_policy(root))
     methods = set(set_literal(pane, "requests")) | set(set_literal(pane, "notifications"))
     # The first frame of every connection (`static let initialize = "initialize"`).
     methods |= set(re.findall(r'static let initialize\s*=\s*"([^"]+)"', pane))

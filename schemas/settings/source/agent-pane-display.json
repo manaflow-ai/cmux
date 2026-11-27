@@ -343,6 +343,35 @@
           ]
         },
         {
+          "key": "agentPane.display.sendScrollsToTop",
+          "note": "A sent prompt scrolls to the top of the transcript with room below it for the reply, which fills in under it (cmux#56827, Leo: \"sent message scrolls to top\"). Off unless switched on: off, the view follows the bottom as before. The room is one term of conversation/roomUnder.ts (sendTop), read from chatDisplay.ts.",
+          "title": {
+            "key": "settings.agentPane.display.sendScrollsToTop",
+            "text": "Scroll Sent Prompts to Top"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sendScrollsToTop.help",
+            "text": "A prompt you send moves to the top of the chat, with room below it for the reply."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "send",
+            "sent",
+            "prompt",
+            "scroll",
+            "top",
+            "pin",
+            "pinned",
+            "reply",
+            "toggle"
+          ]
+        },
+        {
           "key": "agentPane.display.trayTucked",
           "note": "The hat over the composer tucked away to a pull tab at the composer's top middle (webviews subagents/TrayPullTab.tsx; Leo, 2026-11-04: \"what if you wanted to collapse that one line?\"). The hat's own chevron and the tab write it too.",
           "title": {
@@ -1052,7 +1081,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.inspector.help",
-            "text": "Push narrows the chat; Overlay covers it."
+            "text": "Push narrows the chat; Overlay covers it; Inline puts it atop the chat."
           },
           "kind": "choice",
           "choices": [
@@ -1068,6 +1097,13 @@
               "title": {
                 "key": "settings.choice.agentChatInspectorOverlay",
                 "text": "Overlay"
+              }
+            },
+            {
+              "value": "inline",
+              "title": {
+                "key": "settings.choice.agentChatInspectorInline",
+                "text": "Inline"
               }
             }
           ],
@@ -1202,7 +1238,71 @@
           ]
         },
         {
+          "key": "agentPane.display.detail",
+          "note": "The chat detail ladder (webviews agent-session/acpmux/chatDetail.ts), one for the agent chat and Home Channels: a chat's ... menu changes its own level, and its \"Make ... the default\" writes this row. It replaces agentPane.display.presentation and agentPane.display.transcriptView, which still read: presentation messages is Messages, else the old transcript view carries over.",
+          "title": {
+            "key": "settings.agentPane.display.detail",
+            "text": "Chat Detail"
+          },
+          "help": {
+            "key": "settings.agentPane.display.detail.help",
+            "text": "How much a chat shows: messages only, tool rows, thoughts, or every tool's output. A chat's ··· menu sets its own."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "messages",
+              "title": {
+                "key": "settings.choice.agentChatPresentationMessages",
+                "text": "Messages"
+              }
+            },
+            {
+              "value": "normal",
+              "title": {
+                "key": "settings.choice.transcriptViewNormal",
+                "text": "Normal"
+              }
+            },
+            {
+              "value": "thinking",
+              "title": {
+                "key": "settings.choice.transcriptViewThinking",
+                "text": "Thinking"
+              }
+            },
+            {
+              "value": "verbose",
+              "title": {
+                "key": "settings.choice.transcriptViewVerbose",
+                "text": "Verbose"
+              }
+            }
+          ],
+          "default": "normal",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "detail",
+            "transcript",
+            "view",
+            "presentation",
+            "messages",
+            "bubbles",
+            "verbose",
+            "thinking",
+            "thoughts",
+            "reasoning",
+            "tool output",
+            "tools"
+          ]
+        },
+        {
           "key": "agentPane.display.transcriptView",
+          "page_hidden": "legacy: agentPane.display.detail (Chat Detail) replaces it; the key still reads",
           "note": "How much of each turn a chat shows (webviews conversation/transcriptView.ts), Claude Code desktop's Transcript view: a chat's ... menu changes its own, and its \"Make ... the default\" writes this row.",
           "title": {
             "key": "settings.agentPane.display.transcriptView",
@@ -1258,6 +1358,7 @@
         },
         {
           "key": "agentPane.display.presentation",
+          "page_hidden": "legacy: agentPane.display.detail (Chat Detail) replaces it; the key still reads",
           "title": {
             "key": "settings.agentPane.display.presentation",
             "text": "Chat Presentation"
@@ -1793,6 +1894,73 @@
             "icon",
             "provider",
             "picker"
+          ]
+        },
+        {
+          "key": "agentPane.display.modelPickerOrder",
+          "note": "The order of the model picker's harness tabs, as tab keys, first to last (webviews modelPickerOrder.ts). A drag of a tab on the picker's rail writes it; Starred always stays first, and a tab it does not name keeps its default place after the named ones. Empty: the default order. The agent pages' storage ends with the launch, so the order lives here.",
+          "title": {
+            "key": "settings.agentPane.display.modelPickerOrder",
+            "text": "Model Picker Harness Order"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelPickerOrder.help",
+            "text": "The order of the harnesses in the model picker. Drag a harness in the picker to move it."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "harness",
+            "order",
+            "rearrange",
+            "drag"
+          ],
+          "page_hidden": "tab keys, set by dragging a harness in the model picker"
+        },
+        {
+          "key": "agentPane.display.modelPickerStyle",
+          "note": "What a click on the composer's model chip opens (webviews ModelPicker.tsx, QuickModelColumns.tsx; customize-app-profiles, the Claude Code app's model menu). list, the default: on a New Tab or a chat that can switch harness, the harness rail and its model columns with search. menu: the compact menu a started chat already opens (QuickModelMenu.tsx): the harness's numbered models, an Effort submenu and Fast mode where the harness has one, and More models for the full picker. A look turns it on.",
+          "title": {
+            "key": "settings.agentPane.display.modelPickerStyle",
+            "text": "Model Picker Style"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelPickerStyle.help",
+            "text": "List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "list",
+              "title": {
+                "key": "settings.choice.list",
+                "text": "List"
+              }
+            },
+            {
+              "value": "menu",
+              "title": {
+                "key": "settings.choice.menu",
+                "text": "Menu"
+              }
+            }
+          ],
+          "default": "list",
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "menu",
+            "list",
+            "effort",
+            "fast",
+            "compact",
+            "claude"
           ]
         },
         {
