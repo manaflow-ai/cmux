@@ -2967,6 +2967,16 @@ pub struct NotifyRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OfferLinkToPhoneRequest {
+    pub terminal_id: String,
+    pub url: String,
+}
+
+#[rustfmt::skip]
+pub type OfferLinkToPhoneResult = T::PhoneLinkOfferResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PageCredentialRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5710,6 +5720,10 @@ impl CmuxClient {
             self.require_capability_field("notify", "notification-source-v1")?;
         }
         self.execute(&NOTIFY_METADATA, &request)
+    }
+
+    pub fn offer_link_to_phone(&mut self, request: OfferLinkToPhoneRequest) -> Result<OfferLinkToPhoneResult> {
+        self.execute(&OFFER_LINK_TO_PHONE_METADATA, &request)
     }
 
     pub fn page_credential(&mut self, request: PageCredentialRequest) -> Result<PageCredentialResult> {
