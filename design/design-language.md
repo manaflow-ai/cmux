@@ -18,7 +18,7 @@ This page is the entry point. It decides nothing new: each rule below links the 
 | Every number: spacing, radii, control sizes, icons, glass, elevation, colors | `schemas/design-scale/design-scale.json`, written into `--ds-*` CSS by `webviews/scripts/pages/gen-design-scale.mjs` and read by the Swift materials |
 | Icons | [icons/SPEC.md](icons/SPEC.md), one registry for native and web |
 | Pressed and hover states | [pressed-state.md](pressed-state.md) |
-| The room between a label and its chevron (menu triggers, picker chips, row folds) | [disclosure-chevron.md](disclosure-chevron.md), measured by `webviews/test/disclosure-chevron-gap.test.ts` |
+| The room between a label and its chevron (menu triggers, picker chips, row folds) | [chevrons.md](chevrons.md), measured by `webviews/test/disclosure-chevron-gap.test.ts` |
 | Chat rows, the composer, motion | [chat-row-anatomy.md](chat-row-anatomy.md), [chat-surfaces.md](chat-surfaces.md), [chat-fold-motion.md](chat-fold-motion.md) |
 
 ## The numbers that set the look (from `design-scale.json`)

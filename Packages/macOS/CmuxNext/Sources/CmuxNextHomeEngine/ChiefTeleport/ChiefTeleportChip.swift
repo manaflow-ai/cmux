@@ -33,7 +33,7 @@ public final class ChiefTeleportChip: NSView {
     /// The label's own side padding (its frame is wider than its ink by this on each side).
     static let labelInset: CGFloat = 2
     /// design/chevrons.md: a chevron starts at least this far (LayoutGrid.gap) from the last ink of the text it follows.
-    static let textToChevron: CGFloat = 8
+    static let textToChevron: CGFloat = LayoutGrid.gap
     /// The gap placed after the label's frame so the ink-to-chevron distance is `textToChevron`.
     static var afterLabel: CGFloat { max(gap, textToChevron - labelInset) }
 

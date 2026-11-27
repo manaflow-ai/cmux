@@ -149,7 +149,11 @@
   outline: none;
 }
 .acpmux-location-button {
-  --ui-ghost-end-bearing: 4px;
+  /* Its trailing chevron keeps the one label-to-chevron room (design/chevrons.md; Leo, 2026-11-27:
+     "these chevrons are too close dont we have any guidelines for these yet?"): the gap before it is
+     --ui-disclosure-gap and its end padding takes the chevron's own bearing, not local numbers. */
+  --ui-ghost-end-bearing: var(--ui-disclosure-bearing);
+  gap: var(--ui-disclosure-gap);
   /* The composer's text is on the one type scale (regular or emphasis), not the shared ghost
      button's medium label weight. */
   font-weight: var(--weight-regular);

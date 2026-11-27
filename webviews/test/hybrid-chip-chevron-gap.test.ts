@@ -1,7 +1,8 @@
-// The hybrid cloud button's holders menu draws its name and a text chevron after it ("acpmux⌄").
+// The hybrid cloud button's holders menu draws its name and its chevron after it ("acpmux⌄"), now
+// through the shared DisclosureFace (no text glyph).
 // Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?"
-// The chevron starts at least 8px (design/chevrons.md) from the name's last ink, wide and narrow.
-// Source: hybrid/CloudTriToggle.tsx, .acpmux-hybrid-tri__chevron in hybrid/cloudToggle.css.
+// The chevron's ink starts 3-8px (design/chevrons.md) after the name's last ink, wide and narrow.
+// Source: hybrid/CloudTriToggle.tsx, .acpmux-hybrid-tri__name .ui-disclosure-chevron.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -10,7 +11,8 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("hybrid-chip-chevron-gap.test.ts", async () => {
   setDefaultTimeout(240_000);
-  const MIN_GAP = 8;
+  const MIN_GAP = 3;
+  const MAX_GAP = 8;
   const ENTRY = "agent-pane.hybrid-cloud-toggle";
   const VARIANT = "chat-above-three-state-full-holders";
   try {
@@ -39,7 +41,7 @@ await requireBrowserLane("hybrid-chip-chevron-gap.test.ts", async () => {
   });
   describe("hybrid chip chevron gap", () => {
     for (const width of [720, 400]) {
-      test(`the holders button's chevron starts ${MIN_GAP}px after its name at ${width}px`, async () => {
+      test(`the holders button's chevron starts ${MIN_GAP}-${MAX_GAP}px after its name at ${width}px`, async () => {
         const page = await browser.newPage({ viewport: { width: width + 40, height: 600 }, deviceScaleFactor: 2 });
         try {
           const port = (vite!.httpServer!.address() as { port: number }).port;
@@ -51,8 +53,8 @@ await requireBrowserLane("hybrid-chip-chevron-gap.test.ts", async () => {
           });
           await page.evaluate(() => document.fonts.ready);
           const gap = await page.evaluate(() => {
-            const chevron = document.querySelector(".acpmux-hybrid-tri__chevron");
-            const button = chevron?.parentElement;
+            const chevron = document.querySelector(".acpmux-hybrid-tri__name .ui-disclosure-chevron");
+            const button = chevron?.closest("button");
             if (!chevron || !button) return null;
             const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
             let end: number | null = null;
@@ -62,10 +64,15 @@ await requireBrowserLane("hybrid-chip-chevron-gap.test.ts", async () => {
               range.selectNodeContents(node);
               for (const rect of range.getClientRects()) end = Math.max(end ?? 0, rect.right);
             }
-            return end === null ? null : chevron.getBoundingClientRect().left - end;
+            const paths = [...chevron.querySelectorAll("path, polyline, line")].map(
+              (p) => p.getBoundingClientRect().left,
+            );
+            const inkLeft = paths.length ? Math.min(...paths) : chevron.getBoundingClientRect().left;
+            return end === null ? null : inkLeft - end;
           });
           expect(gap).not.toBeNull();
           expect(gap!).toBeGreaterThanOrEqual(MIN_GAP - 0.5);
+          expect(gap!).toBeLessThanOrEqual(MAX_GAP + 0.5);
         } finally {
           await page.close();
         }

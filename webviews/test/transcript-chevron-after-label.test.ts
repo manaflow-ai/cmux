@@ -8,7 +8,7 @@
 //   between MIN_GAP and MAX_GAP px after the right edge of the last visible words before it on its line
 //   (never on the words: Leo, 2026-11-27, on a sender's chip and machine with the chevron touching
 //   them, "these chevrons are too close dont we have any guidelines for these yet?";
-//   design/disclosure-chevron.md);
+//   design/chevrons.md);
 // - a closed chevron's glyph is taller than wide (it points right), an open one's wider than tall
 //   (it points down).
 //
@@ -23,7 +23,7 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
   setDefaultTimeout(240_000);
   /** The farthest a chevron's glyph may start after its words, in CSS px. */
   const MAX_GAP = 8;
-  /** The nearest a chevron's glyph may start after its words, in CSS px (design/disclosure-chevron.md). */
+  /** The nearest a chevron's glyph may start after its words, in CSS px (design/chevrons.md). */
   const MIN_GAP = 3;
   /** The least a first-line preview may keep when it shows: room for an ellipsis and a letter, else it goes. */
   const MIN_PREVIEW = 24;
@@ -44,7 +44,7 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     { entry: "agent-pane.message-line-look", variant: "single" },
     // Shut-and-stacked and opened lines: the toggle holds no words, so the chevron follows the
     // sentence's last box, a link chip or bare words (a machine, "· and 7 more commands"); before
-    // 2026-11-27 an opened one drew it on the last letter (design/disclosure-chevron.md).
+    // 2026-11-27 an opened one drew it on the last letter (design/chevrons.md).
     { entry: "agent-pane.message-line-look", variant: "stacked" },
     { entry: "agent-pane.message-line-look", variant: "opened" },
     // An opened lead thought: its own first line and its chevron right after it (cmux#27896 parked it
@@ -253,8 +253,7 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
         // measured over both, so it is left to the chevron-column test.
         const far = (await of(scene, width)).filter(
           ({ gap, trail, row }) =>
-            !row.includes("Working for") &&
-            (trail || gap === null || gap < MIN_GAP - 0.5 || gap > MAX_GAP + 0.5),
+            !row.includes("Working for") && (trail || gap === null || gap < MIN_GAP - 0.5 || gap > MAX_GAP + 0.5),
         );
         expect(far).toEqual([]);
       });

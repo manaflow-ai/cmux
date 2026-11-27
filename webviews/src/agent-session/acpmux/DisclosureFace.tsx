@@ -1,5 +1,5 @@
 // The one label + chevron pair every menu trigger, picker chip and fold draws (ui/ghost.css
-// `.ui-disclosure-face`, design/disclosure-chevron.md): the words, then the registry's chevron one
+// `.ui-disclosure-face`, design/chevrons.md): the words, then the registry's chevron one
 // spacing step after them. The words ellipsize before the chevron is ever cut or drawn over them.
 import type { ReactNode } from "react";
 import { cx } from "../../ui/cx";

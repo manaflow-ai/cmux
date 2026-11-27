@@ -66,7 +66,7 @@ row measures itself and never flips back across a boundary by a fraction of a pi
 - **The access glyph** (the permission mode's icon; only its label goes).
 - **The mic**, and a listening mic's waveform. Codex's speed bolt beside it.
 - **Send or Stop.**
-- **Every chevron**: a control that opens a menu always shows it opens one. Its room after the label is one rule ([disclosure-chevron.md](disclosure-chevron.md)).
+- **Every chevron**: a control that opens a menu always shows it opens one. Its room after the label is one rule ([chevrons.md](chevrons.md)).
 - **The hat's counts and phase words** while anything runs (below). The hat never shows the exact
   call.
 

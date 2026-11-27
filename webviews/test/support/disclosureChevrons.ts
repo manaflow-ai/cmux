@@ -1,7 +1,7 @@
 // Finds every label + disclosure chevron pair on a page and measures the room between them: from the
 // right edge of the last readable words before the chevron (cut to any box that clips them, so an
 // ellipsis counts where it ends) to the left edge of the chevron's ink (its path's box, or a text
-// glyph's own box), on the same line, inside one control. design/disclosure-chevron.md.
+// glyph's own box), on the same line, inside one control. design/chevrons.md.
 //
 // A chevron is a registry glyph `disclosure.*`, the composer's ChevronIcon path, a box whose class
 // names a chevron or caret, or a text "⌄"; it counts only when words sit before it in the same

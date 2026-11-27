@@ -1,5 +1,5 @@
 // Every label + chevron control keeps one room between its words and its chevron
-// (design/disclosure-chevron.md; Leo, 2026-11-27, on two chips whose chevrons touched their last
+// (design/chevrons.md; Leo, 2026-11-27, on two chips whose chevrons touched their last
 // letter: "these chevrons are too close dont we have any guidelines for these yet?").
 //
 // Measured in Chromium over gallery scenes, at a wide and a narrow width
@@ -19,13 +19,15 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("disclosure-chevron-gap.test.ts", async () => {
   setDefaultTimeout(240_000);
   const MIN_GAP = 3;
-  const MAX_GAP = 10;
+  const MAX_GAP = 8;
   const LOG = process.env.CMUX_CHEVRON_LOG === "1";
-  const SCENES: { entry: string; variant: string; min: number }[] = [
+  /** `pairs`: the fewest label + chevron pairs the scene must show, so a scene that stops drawing its
+   *  chips cannot pass by measuring nothing. The gap floor is MIN_GAP for every scene. */
+  const SCENES: { entry: string; variant: string; pairs: number }[] = [
     // The shared face: the two chips Leo flagged, redrawn, and one capped at 120px.
-    { entry: "ui.disclosure-face", variant: "space-1", min: 3 },
+    { entry: "ui.disclosure-face", variant: "space-1", pairs: 3 },
     // The composer's chips and pickers (location, access).
-    { entry: "agent-pane.composer-any-host", variant: "remote-rest", min: 1 },
+    { entry: "agent-pane.composer-any-host", variant: "remote-rest", pairs: 2 },
   ];
   const WIDTHS = [760, 400];
 
@@ -85,7 +87,7 @@ await requireBrowserLane("disclosure-chevron-gap.test.ts", async () => {
     for (const width of WIDTHS) {
       const name = `${scene.entry}#${scene.variant} at ${width}px`;
       test(`${name}: has label + chevron pairs to measure`, async () => {
-        expect((await of(scene, width)).length).toBeGreaterThanOrEqual(scene.min);
+        expect((await of(scene, width)).length).toBeGreaterThanOrEqual(scene.pairs);
       });
       test(`${name}: every chevron starts ${MIN_GAP}-${MAX_GAP}px after its words, uncut`, async () => {
         const wrong = (await of(scene, width)).filter(
