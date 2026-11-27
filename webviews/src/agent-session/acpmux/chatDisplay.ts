@@ -19,9 +19,18 @@ import {
   type RailShow,
 } from "./threadMinimap/railShow";
 import { useSyncExternalStore } from "react";
+import type { SessionInfoPlacement } from "./session-info/sessionInfoModel";
+import {
+  defaultDetailOf,
+  presentationOfDetail,
+  transcriptViewOfDetail,
+  type ChatDetail,
+  type Presentation,
+  type TranscriptView,
+} from "./chatDetail";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { experimentArm, isArm } from "../../experiments/experiment";
+import { isArm, experimentArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
@@ -109,7 +118,8 @@ export interface ChatDisplay {
   /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
-  sessionInfo: "push" | "overlay";
+  /// `inline` draws it as a band atop the transcript, in the chat's flow (sessionInfoModel.ts).
+  sessionInfo: SessionInfoPlacement;
   /// The prompt rail edge; its context menu writes the same saved setting.
   railSide: "left" | "right";
   /// cmux's Minimal Mode (`sidebar.minimal`, the palette's Enable Minimal Mode), which the chat
@@ -135,6 +145,9 @@ export interface ChatDisplay {
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
 /// The host sends a value saved under the row's old key under this one (Swift RenamedSettingKeys).
 export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.sessionInfo.placement";
+/// A saved Session Info placement; anything else is the default, `overlay`.
+export const sessionInfoPlacementOf = (value: unknown): SessionInfoPlacement =>
+  value === "push" || value === "inline" ? value : "overlay";
 export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
@@ -166,6 +179,9 @@ export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
 /// the rule's gate. Off by default because Leo, 2026-11-22: "hm im not necessarily sure if people
 /// will be wanting to do the send pop by default". Not part of ChatDisplay: no row is measured again.
 export const SEND_POP_KEY = "agentPane.display.sendPop";
+/// A sent prompt scrolls to the top of the transcript, with room under it for the reply (off by default;
+/// Leo, cmux#56827: "sent message scrolls to top"). Read by VirtualTranscript's room under the rows.
+export const SEND_SCROLLS_TO_TOP_KEY = "agentPane.display.sendScrollsToTop";
 /// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
 /// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
 /// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
@@ -245,22 +261,22 @@ export const UI_FAMILY_KEY = "agentPane.display.font.uiFamily";
 export const PROSE_FAMILY_KEY = "agentPane.display.font.proseFamily";
 export { CHAT_FONT_FACES_KEY };
 
-/// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
-/// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
-/// itself; the rows it opens measure as they draw.
-export const TRANSCRIPT_VIEW_KEY = "agentPane.display.transcriptView";
-/// Normal: the compact transcript. Thinking: thoughts open. Verbose: tool output open too.
-export type TranscriptView = "normal" | "thinking" | "verbose";
-export const TRANSCRIPT_VIEWS: readonly TranscriptView[] = ["normal", "thinking", "verbose"];
-export const isTranscriptView = (value: unknown): value is TranscriptView =>
-  value === "normal" || value === "thinking" || value === "verbose";
-
-/// Settings > Agent Chat > Presentation (conversation/presentation.ts): whether a chat shows the
-/// complete transcript or the Messages-style bubble view with tool rows hidden.
-export const PRESENTATION_KEY = "agentPane.display.presentation";
-export type Presentation = "transcript" | "messages";
-export const PRESENTATIONS: readonly Presentation[] = ["transcript", "messages"];
-export const isPresentation = (value: unknown): value is Presentation => value === "transcript" || value === "messages";
+/// Settings > Agent Chat > Chat Detail (chatDetail.ts, conversation/chatDetailChoice.ts): the detail
+/// ladder's level of a chat without one of its own. The old Presentation and Transcript View keys
+/// still read (defaultDetailOf). Not part of ChatDisplay: a switch measures no row again by itself;
+/// the rows it opens measure as they draw.
+export {
+  DETAIL_KEY,
+  TRANSCRIPT_VIEW_KEY,
+  TRANSCRIPT_VIEWS,
+  isTranscriptView,
+  PRESENTATION_KEY,
+  PRESENTATIONS,
+  isPresentation,
+  type TranscriptView,
+  type Presentation,
+  type ChatDetail,
+} from "./chatDetail";
 
 /// Settings > Agent Chat > Working Status Verbs. The mode is `thinking` by default; `rotate` opts
 /// into the per-turn -ing verbs and `custom` reads the comma-separated list in `STATUS_VERB_CUSTOM_KEY`.
@@ -410,7 +426,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     codeLigatures: !declaresFirstFamily(values[CHAT_FONT_FACES_KEY], codeFamily),
-    sessionInfo: values[SESSION_INFO_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    sessionInfo: sessionInfoPlacementOf(values[SESSION_INFO_PLACEMENT_KEY]),
     railSide: values[RAIL_SIDE_KEY] === "right" ? "right" : "left",
     minimal: values[MINIMAL_MODE_KEY] === true,
     environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
@@ -590,6 +606,7 @@ let minimapOn = false;
 let statusPillsOn = false;
 let headerBreadcrumbOn = false;
 let subagentOfOn = false;
+let sendScrollsToTopOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
@@ -597,8 +614,7 @@ let railShow: RailShow = DEFAULT_RAIL_SHOW;
 let railControlOn = false;
 let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
-let transcriptView: TranscriptView = "normal";
-let presentation: Presentation = "transcript";
+let chatDetail: ChatDetail = "normal";
 let featureTipsOn = false;
 let autoCloudOn = false;
 let defaultImage = "auto";
@@ -670,6 +686,7 @@ export function setChatDisplay(value: unknown): void {
   const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
   const subagentOf = raw[SUBAGENT_OF_KEY] === true;
+  const sendScrollsToTop = raw[SEND_SCROLLS_TO_TOP_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   // Read by turns.ts at shaping time and part of each turn's cache key, so a change shapes the turns again.
   setCompactShortTurns(raw[COMPACT_SHORT_TURNS_KEY] === true);
@@ -689,10 +706,7 @@ export function setChatDisplay(value: unknown): void {
   const railControl = raw[RAIL_CONTROL_KEY] === true;
   const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
   const threadMinimap = resolveThreadMinimapArm(raw);
-  const stored = raw[TRANSCRIPT_VIEW_KEY];
-  const view = isTranscriptView(stored) ? stored : "normal";
-  const storedPresentation = raw[PRESENTATION_KEY];
-  const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
+  const detail = defaultDetailOf(raw);
   const tips = raw[FEATURE_TIPS_KEY] === true;
   const autoCloud = raw[AUTO_CLOUD_KEY] === true;
   const storedImage = raw[DEFAULT_IMAGE_KEY];
@@ -732,14 +746,14 @@ export function setChatDisplay(value: unknown): void {
     statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
     subagentOf === subagentOfOn &&
+    sendScrollsToTop === sendScrollsToTopOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
     show === railShow &&
     railControl === railControlOn &&
     banner === unreadBanner &&
     threadMinimap === threadMinimapArm &&
-    view === transcriptView &&
-    nextPresentation === presentation &&
+    detail === chatDetail &&
     tips === featureTipsOn &&
     autoCloud === autoCloudOn &&
     image === defaultImage &&
@@ -760,14 +774,14 @@ export function setChatDisplay(value: unknown): void {
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
   subagentOfOn = subagentOf;
+  sendScrollsToTopOn = sendScrollsToTop;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
   railShow = show;
   railControlOn = railControl;
   unreadBanner = banner;
   threadMinimapArm = threadMinimap;
-  transcriptView = view;
-  presentation = nextPresentation;
+  chatDetail = detail;
   featureTipsOn = tips;
   autoCloudOn = autoCloud;
   defaultImage = image;
@@ -886,20 +900,26 @@ export function resetChatDisplayForTests(): void {
   unsent.clear();
   displayHost = undefined;
   raw = {};
+  chatDetail = "normal";
   picked = "[]";
   received = false;
 }
 const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;
-const transcriptViewSnapshot = () => transcriptView;
-const presentationSnapshot = () => presentation;
-/// The Transcript View setting: the view of a chat without its own (conversation/transcriptView.ts).
-export const defaultTranscriptView = (): TranscriptView => transcriptView;
+const chatDetailSnapshot = () => chatDetail;
+const transcriptViewSnapshot = () => transcriptViewOfDetail(chatDetail);
+const presentationSnapshot = () => presentationOfDetail(chatDetail);
+/// The Chat Detail setting: the level of a chat without its own (conversation/chatDetailChoice.ts).
+export const defaultChatDetail = (): ChatDetail => chatDetail;
+export const useDefaultChatDetail = (): ChatDetail =>
+  useSyncExternalStore(subscribe, chatDetailSnapshot, chatDetailSnapshot);
+/// The default level as the old Transcript View the disclosure reads.
+export const defaultTranscriptView = (): TranscriptView => transcriptViewOfDetail(chatDetail);
 export const useDefaultTranscriptView = (): TranscriptView =>
   useSyncExternalStore(subscribe, transcriptViewSnapshot, transcriptViewSnapshot);
-/// The presentation setting for a chat without its own (conversation/presentation.ts).
-export const defaultPresentation = (): Presentation => presentation;
+/// The default level as the old presentation (Messages or Transcript).
+export const defaultPresentation = (): Presentation => presentationOfDetail(chatDetail);
 export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
@@ -925,6 +945,10 @@ const changesPillSnapshot = () => changesPillOn;
 /// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
 export const useChangesPillOn = (): boolean =>
   useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
+const sendScrollsToTopSnapshot = () => sendScrollsToTopOn;
+/// Whether a sent prompt scrolls to the transcript's top (SEND_SCROLLS_TO_TOP_KEY).
+export const useSendScrollsToTop = (): boolean =>
+  useSyncExternalStore(subscribe, sendScrollsToTopSnapshot, sendScrollsToTopSnapshot);
 const modelPickerStyleSnapshot = () => modelPickerStyle;
 /// What a click on the model chip opens (MODEL_PICKER_STYLE_KEY): the harness columns or the compact menu.
 export const useModelPickerStyle = (): ModelPickerStyle =>

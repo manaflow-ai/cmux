@@ -15,6 +15,7 @@ cat > "$TMP/bin/xcodebuild" <<EOF
 #!/bin/bash
 if [[ "\$1" == "-version" ]]; then echo "Xcode 26.6"; exit 0; fi
 printf '%s\n' "\$*" >> "$TMP/calls"
+env | grep -E '^(GIT_CONFIG_|CMUX_GITHUB_GIT_TOKEN)' | sort > "$TMP/env.\$\$" 2>/dev/null; mv "$TMP/env.\$\$" "$TMP/env"
 resolve=0 offline=0
 for arg in "\$@"; do
   [[ "\$arg" == -resolvePackageDependencies ]] && resolve=1
@@ -22,6 +23,10 @@ for arg in "\$@"; do
 done
 if (( resolve )); then
   (( offline )) && exit "\${STUB_OFFLINE_STATUS:-0}"
+  if [[ -n "\${STUB_RESOLVE_403:-}" ]]; then
+    echo "fatal: unable to access 'https://github.com/getsentry/sentry-cocoa.git/': The requested URL returned error: 403"
+    exit 1
+  fi
   exit "\${STUB_RESOLVE_STATUS:-0}"
 fi
 exit 0
@@ -68,5 +73,37 @@ dd="$TMP/kept"
 rm -f "$TMP/calls"
 run "$dd" CMUX_XCODE_RESOLVE_OFFLINE_FIRST=0 || fail "opt-out run exited $?"
 grep -q -- '-skipPackageUpdates' "$TMP/calls" && fail "offline resolve ran with CMUX_XCODE_RESOLVE_OFFLINE_FIRST=0"
+
+# 5. GitHub refuses every fetch (403): tried again, then 75 with no build, and the kept
+#    outputs and header digest stay for the next resolve that succeeds.
+dd="$TMP/refused"; mkdir -p "$dd/SourcePackages/repositories" "$dd/Build/Products"
+run "$dd" || fail "seed run exited $?"
+mkdir -p "$dd/Build/Products"; touch "$dd/Build/Products/kept.o"; stamp_before=$(cat "$dd/.cmux-binary-module-inputs")
+rm -f "$TMP/calls"
+code=0; run "$dd" STUB_OFFLINE_STATUS=74 STUB_RESOLVE_403=1 CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS="0 0" || code=$?
+[[ $code -eq 75 ]] || fail "want exit 75 when every fetch is refused, got $code"
+[[ $(resolves) -eq 4 ]] || fail "want 4 resolves (offline, then 3 tries), got $(resolves)"
+[[ -z "$(builds)" ]] || fail "a build ran on unresolved packages"
+[[ -f "$dd/Build/Products/kept.o" ]] || fail "the kept build outputs were removed after a refused fetch"
+[[ "$(cat "$dd/.cmux-binary-module-inputs" 2>/dev/null)" == "$stamp_before" ]] || fail "the header digest changed after a refused fetch"
+grep -q 'fetch failed, no build ran' "$TMP/out" || fail "no fetch-failed note"
+
+# 6. CMUX_GITHUB_GIT_TOKEN: every xcodebuild sees the token as a github.com header in
+#    GIT_CONFIG_*, never the variable itself; one config the caller passed is kept.
+dd="$TMP/kept"
+rm -f "$TMP/calls"
+run "$dd" CMUX_GITHUB_GIT_TOKEN=tok123 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.x GIT_CONFIG_VALUE_0=y || fail "token run exited $?"
+want="AUTHORIZATION: basic $(printf 'x-access-token:tok123' | base64 | tr -d '\n')"
+grep -qx 'GIT_CONFIG_COUNT=2' "$TMP/env" || fail "want GIT_CONFIG_COUNT=2: $(cat "$TMP/env")"
+grep -qx 'GIT_CONFIG_KEY_0=core.x' "$TMP/env" || fail "the caller's git config was dropped"
+grep -qx 'GIT_CONFIG_KEY_1=http.https://github.com/.extraheader' "$TMP/env" || fail "no github.com header key"
+grep -qxF "GIT_CONFIG_VALUE_1=$want" "$TMP/env" || fail "wrong github.com header"
+grep -q '^CMUX_GITHUB_GIT_TOKEN=' "$TMP/env" && fail "the raw token reached xcodebuild"
+grep -q tok123 "$TMP/out" && fail "the token was printed"
+
+# 7. No token: no header.
+rm -f "$TMP/calls"
+run "$dd" || fail "no-token run exited $?"
+grep -q GIT_CONFIG "$TMP/env" && fail "a git header without a token: $(cat "$TMP/env")"
 
 echo "release-compile-offline-resolve: ok"

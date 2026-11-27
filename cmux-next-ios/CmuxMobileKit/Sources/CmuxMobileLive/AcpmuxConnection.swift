@@ -603,7 +603,8 @@ public actor AcpmuxConnection {
 }
 
 /// What a person reads for a refused acpmux call: the reason's copy, the Mac's own
-/// sentence, or a plain fallback. Never the JSON-RPC code or the type.
+/// sentence, or a plain fallback. Never the JSON-RPC code or the type. No "again in a
+/// moment": a paced list is asked again on its own (`AcpmuxHub+SessionPages`, AutoRetry).
 extension AcpmuxConnection.RPCError: LocalizedError {
     public var errorDescription: String? {
         switch reason {
@@ -612,14 +613,14 @@ extension AcpmuxConnection.RPCError: LocalizedError {
         case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
         case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
         case "remote.full_access_required": return "Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac."
-        case "list.paced": return "Your Mac is busy. Try again in a moment."
+        case "list.paced": return "Your Mac is busy right now."
         default: break
         }
         if message.hasPrefix("no pending permission") { return "Already answered on your Mac." }
         // An agent's raw JSON error (a model the account lacks) reads as a sentence.
         if message.contains("{"), message.contains("}") { return TurnFailureCopy.plain(message) }
         if UserFacingError.isProse(message) { return message.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if retryAfterMs != nil { return "Your Mac is busy. Try again in a moment." }
-        return "Your Mac couldn't do that. Try again."
+        if retryAfterMs != nil { return "Your Mac is busy right now." }
+        return "Your Mac couldn't do that."
     }
 }

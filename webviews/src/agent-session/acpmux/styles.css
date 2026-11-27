@@ -235,7 +235,7 @@
 .acpmux-menu-description{color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-unrestricted .acpmux-menu-description{color:inherit}
 /* The `/` and `@` lists' layer (backdropLayer.tsx): out of the composer box's glass, on the box's place and size, so the list's own rules below place it as inside the box. Only the list takes presses. */
-.acpmux-composer-list-layer{position:absolute;pointer-events:none}
+.acpmux-composer-list-layer{position:absolute;z-index:var(--layer-dropdown,50);pointer-events:none}
 .acpmux-composer-list-layer>*{pointer-events:auto}
 /* In its layer a list takes the box's corner (--composer-list-radius), padded so its rows' corners are concentric with it, and no more height than the room on its side of the box (--composer-list-room); below the box when only that side has room (data-side, listPlacement.ts). David Beyer 2026-11-20: New Tab's / list ran over the screen's edge in 8 px corners on a 20 px box. */
 .acpmux-composer-list-layer>.acpmux-slash-menu{--composer-list-gap:6px;--composer-list-r:var(--composer-list-radius,var(--ui-popup-radius));--ui-popup-padding:max(4px,calc(var(--composer-list-r) * 6 / 20),calc(var(--composer-list-r) - var(--ui-row-height) / 2));--ui-row-radius:max(4px,min(calc(var(--composer-list-r) - var(--ui-popup-padding)),calc(var(--ui-row-height) / 2)));border-radius:var(--composer-list-r);max-height:min(var(--popup-scroll-cap),var(--composer-list-room,50vh))}
@@ -431,14 +431,16 @@
    gives up its floor, so the composer is the same size and in the same place loading as open: a second
    max-height here clamped a tall draft 32 px shorter (and 32 px lower) while the chat connected, and the
    stage's floor pushed the dock past the pane's bottom in a short pane (Leo, 2026-11-24: "we need to have
-   more things decoupled from posisble shifts"; test/agent-pane-composer-anchored-above.test.ts). */
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none}
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-stage{min-height:0}
+   more things decoupled from posisble shifts"; test/agent-pane-composer-anchored-above.test.ts).
+   `data-connecting` is set while the loading area is up (ChatUnavailableState.tsx `ConnectingArea`), not
+   a `:has()` over the pane, which restyled the whole pane for every node inserted under it. */
+.acpmux-main[data-dock="float"][data-connecting]>.acpmux-dock{position:relative;flex:none}
+.acpmux-main[data-dock="float"][data-connecting]>.acpmux-stage{min-height:0}
 /* Its notices (noticeSlotModel.ts DOCK_NOTICE) take none of that height: in flow they shrank the stage, so
    the spinner and its words moved up as one came (a reload's connect, PaneBoundary's Try again) and down as
    it went. They lie over the stage's empty foot instead, just above the stack (Leo, 2026-11-22: "that
    message should not shift layout"); test/agent-pane-chat-unavailable.test.ts measures it. */
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock>:is(.acpmux-host-line,.acpmux-host-line-group,.acpmux-host-error,.acpmux-switch-notice,.ui-notice,.acpmux-dictation-notice,.acpmux-managed-banner,.acpmux-composer-remote-note){position:absolute;left:0;right:0;bottom:100%;z-index:var(--layer-raised,1)}
+.acpmux-main[data-dock="float"][data-connecting]>.acpmux-dock>:is(.acpmux-host-line,.acpmux-host-line-group,.acpmux-host-error,.acpmux-switch-notice,.ui-notice,.acpmux-dictation-notice,.acpmux-managed-banner,.acpmux-composer-remote-note){position:absolute;left:0;right:0;bottom:100%;z-index:var(--layer-raised,1)}
 /* Equal upper/lower tracks keep the spinner centered. Its 28px square needs 40px while rotating.
    Copy stretches to its track instead of overflowing an intrinsically sized, centered grid item. */
 .acpmux-unavailable[data-unavailable="connecting"]{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 40px minmax(0,1fr);gap:8px;padding-bottom:0}
@@ -473,8 +475,10 @@
 .acpmux-host-slot>.acpmux-host-line-group{flex-direction:column;align-items:flex-end}
 .acpmux-host-slot .acpmux-host-line{padding-bottom:var(--ds-space-2)}
 .acpmux-host-slot>.acpmux-host-line-group>.acpmux-host-line:first-child{padding-bottom:var(--ds-space-2)}
+/* chat-surface-allow: a backing over the transcript's last pixels so the out-of-flow host line and chip read over any row (#49415), as the hat fan's page-colour backing does */
 .acpmux-host-slot .acpmux-host-line-message{background:color-mix(in srgb,var(--agent-surface,var(--ds-surface-inset)) 92%,transparent);border-radius:var(--ds-radius-control);padding:0 var(--ds-space-1)}
 /* The chip: a dot and one word, small and muted, in the composer column's end. */
+/* chat-surface-allow: a backing over the transcript's last pixels so the out-of-flow host line and chip read over any row (#49415), as the hat fan's page-colour backing does */
 .acpmux-host-slot>.acpmux-host-chip{pointer-events:none;left:auto;--acpmux-host-chip-end:var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2))));right:calc(var(--acpmux-host-chip-end) - var(--acpmux-stack-outset,0px));bottom:var(--ds-space-2);width:max-content;max-width:calc(100% - var(--ds-space-5));align-items:center;gap:var(--ds-space-1);height:20px;padding:0 var(--ds-space-2);border-radius:999px;background:color-mix(in srgb,var(--agent-surface,var(--ds-surface-inset)) 92%,transparent);color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing);white-space:nowrap}
 .acpmux-host-chip-dot{--acpmux-host-chip-dot:6px;flex:none;width:var(--acpmux-host-chip-dot);height:var(--acpmux-host-chip-dot);border-radius:50%;background:currentColor;opacity:.7}
 .acpmux-host-chip-words{min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -1251,3 +1255,7 @@ fieldset.acpmux-permission-card:focus:not(:focus-visible) {
 
 /* A built-in tool's full-color picture (toolMentions.ts `image`) in a menu row or a badge. */
 .acpmux-tool-image{display:block;flex:none;object-fit:contain}
+/* Extension context chips (composer/ExtensionChips.tsx): a quiet row over the prompt, drawn only when an installed extension offers one. */
+.acpmux-extension-chips{display:flex;flex-wrap:wrap;gap:var(--grid-half-step);padding:0 var(--grid-composer-inset) var(--grid-half-step)}
+.acpmux-extension-chip{border:1px solid var(--acpmux-composer-edge);border-radius:999px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);padding:0 var(--grid-gap);cursor:default}
+.acpmux-extension-chip:hover{color:var(--agent-text)}
