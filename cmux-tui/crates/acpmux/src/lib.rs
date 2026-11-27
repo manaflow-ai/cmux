@@ -23,6 +23,7 @@ pub mod adopt_live;
 pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
+pub mod agent_card;
 pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
@@ -55,6 +56,7 @@ pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
+pub mod ci_log_cache;
 pub mod claude_auth;
 mod claude_cloud_auth;
 pub mod claude_inbox_relay;
@@ -272,6 +274,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// How good a peer's link is (`quality` in `_acpmux/peers`), and RTT-scaled liveness waits.
+pub mod peer_link_quality;
 pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
@@ -292,6 +296,7 @@ pub mod place_mode;
 pub mod place_pin;
 pub mod placement;
 // `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod care_machine;
 pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]
