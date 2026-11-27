@@ -156,7 +156,7 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
             text = "Picked design variation \(picked)" + (stripped.isEmpty ? "" : ": \(stripped)") + "\n\n" + text
         }
         return BrowserDesignModeCard(
-            id: "design-" + stableHash(key + "|" + (pageURL?.absoluteString ?? "")),
+            id: BrowserDesignModeCard.id(selector: key, pageURL: pageURL),
             name: Strings.designModeCardName(number: number, comment: comment, tag: tag, host: host),
             text: text,
             bounds: CGRect(x: Self.number(bounds?["x"]), y: Self.number(bounds?["y"]),
@@ -218,16 +218,6 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
 
     private static func number(_ value: Any?) -> Double {
         (value as? NSNumber)?.doubleValue ?? 0
-    }
-
-    /// FNV-1a, stable across launches (Swift's `hashValue` is seeded per process).
-    private static func stableHash(_ text: String) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in text.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3
-        }
-        return String(hash, radix: 16)
     }
 }
 
