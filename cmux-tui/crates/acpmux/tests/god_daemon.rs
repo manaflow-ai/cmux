@@ -55,6 +55,8 @@
 
 #[path = "support/chat_size_seed.rs"]
 mod chat_size_seed;
+#[path = "god_daemon/cold_home.rs"]
+mod cold_home;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "support/dhat_sites.rs"]
@@ -1883,6 +1885,45 @@ fn dhat_top() -> usize {
 /// The sizes, as `ACPMUX_CHAT_SIZES` names them (`1M,100M,1G,4G`, binary units).
 const CHAT_SIZES: &str = "1M,100M,1G,4G";
 
+/// Cold opens per size, each paired with a cold open of a `COLD_FLOOR_BYTES` chat.
+const COLD_SAMPLES: usize = 5;
+
+/// The chat the cold opens are paired with.
+const COLD_FLOOR_BYTES: u64 = 1 << 20;
+
+/// One cold open of `id` on a daemon of its own, stopped after its attach, with the home put back
+/// to `cold` after: the time from spawn to the attach's reply, ms, and of the attach itself, us.
+fn cold_open(
+    scratch: &Path,
+    home: &Path,
+    id: &str,
+    cold: &cold_home::HomeSnapshot,
+) -> Result<(u64, u64), Value> {
+    let mut probe = Daemon::start(scratch, home, None);
+    let mut rpc = Rpc::connect(&probe.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
+        .unwrap();
+    let asked = Instant::now();
+    let reply = rpc.call("_acpmux/attach", app_attach(id));
+    let taken = (ms(probe.spawned), micros(asked));
+    drop(rpc);
+    probe.stop();
+    // A home left changed would make every later open warm, so this stops the sweep.
+    if let Err(e) = cold.restore() {
+        panic!("a cold open left {} changed: {e}", home.display());
+    }
+    reply.map(|_| taken)
+}
+
+/// The floor's fastest open plus the median of each pair's difference, null with no pairs.
+fn paired_floor(sized: &[(u64, u64)], floor: &[(u64, u64)], at: fn(&(u64, u64)) -> u64) -> Value {
+    let Some(fastest) = floor.iter().map(at).min() else { return Value::Null };
+    let mut diffs: Vec<i64> =
+        sized.iter().zip(floor).map(|(s, f)| at(s) as i64 - at(f) as i64).collect();
+    diffs.sort_unstable();
+    json!((fastest as i64 + diffs[diffs.len() / 2]).max(0))
+}
+
 /// How long the first load of a chat's log may take (it parses a log with no kind copies whole).
 const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
 
@@ -2220,17 +2261,60 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // Cold: a daemon that has never read this chat, so no kind copy, restore point or settled
     // view exists. The open is the pane's attach, as soon as the socket answers. With
     // `ACPMUX_GOD_DHAT=1` (a `dhat-heap` build) this daemon records its heap until its stop.
+    // One cold open moves by tens of ms between runs: on Actions the opens fall in a ~57 ms band
+    // and an 85-120 ms one, and the runner sits in the slow one for stretches of tens of seconds,
+    // so a median or minimum of this chat's opens alone still moved 0.98x-1.49x at 1G. Each of
+    // `COLD_SAMPLES` opens is paired with a cold open of a 1 MiB chat on its own daemon just
+    // before it, in the same runner state, and the fields hold the floor chat's fastest open plus
+    // the median of the pairs' differences: what this size adds to opening any chat. The first
+    // opens run on daemons stopped right after their attach, with the home put back after each
+    // (cold_home.rs); the last is the run's own daemon.
     let profile = std::env::var("ACPMUX_GOD_DHAT")
         .is_ok_and(|v| v == "1")
         .then(|| scratch.join("dhat-heap.json"));
+    let floor_scratch = scratch.join("floor");
+    std::fs::create_dir_all(&floor_scratch).unwrap();
+    let (floor_home, floor_chat, _, _) = write_size_chat(&floor_scratch, COLD_FLOOR_BYTES);
+    write_config(&floor_home, json!({}));
+    let floor_cold = cold_home::HomeSnapshot::take(&floor_home);
+    let before_cold = cold_home::HomeSnapshot::take(&home);
+    let (mut sized, mut floor) = (vec![], vec![]);
+    let mut cold_samples_error = Value::Null;
+    for _ in 1..COLD_SAMPLES {
+        match (
+            cold_open(&floor_scratch, &floor_home, &floor_chat.id, &floor_cold),
+            cold_open(&scratch, &home, &id, &before_cold),
+        ) {
+            (Ok(f), Ok(o)) => {
+                floor.push(f);
+                sized.push(o);
+            }
+            (f, o) => {
+                cold_samples_error = json!({"floor": f.err(), "attach": o.err()});
+                break;
+            }
+        }
+    }
+    let last_floor = cold_open(&floor_scratch, &floor_home, &floor_chat.id, &floor_cold);
     let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
     let asked = Instant::now();
     let cold = rpc.call("_acpmux/attach", app_attach(&id));
-    let cold_attach_us = micros(asked);
-    let cold_attach_ms = ms(daemon.spawned);
+    let last = (ms(daemon.spawned), micros(asked));
+    match last_floor {
+        Ok(f) if cold.is_ok() => {
+            floor.push(f);
+            sized.push(last);
+        }
+        Ok(_) => {}
+        Err(e) => cold_samples_error = json!({"floor": e}),
+    }
+    let cold_attach_ms = paired_floor(&sized, &floor, |s| s.0);
+    let cold_attach_us = paired_floor(&sized, &floor, |s| s.1);
+    let (cold_ms_samples, cold_us_samples): (Vec<u64>, Vec<u64>) = sized.iter().copied().unzip();
+    let (floor_ms_samples, floor_us_samples): (Vec<u64>, Vec<u64>) = floor.iter().copied().unzip();
     let cold_records = cold.as_ref().ok().and_then(|a| a["events"].as_array().map(Vec::len));
     rpc.notes.clear();
     let cold_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
@@ -2422,6 +2506,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "bytesPerRecord": w.bytes / w.records.max(1), "recordsPerTurn": w.records / w.turns.max(1),
         "largestToolOutput": w.largest_output, "writeMs": write_ms,
         "coldAttachMs": cold_attach_ms, "coldAttachUs": cold_attach_us,
+        "coldAttachSamples": {"ms": cold_ms_samples, "us": cold_us_samples,
+                              "floorMs": floor_ms_samples, "floorUs": floor_us_samples,
+                              "floorBytes": COLD_FLOOR_BYTES, "error": cold_samples_error},
         "coldAttachRecords": cold_records, "coldAttachError": cold.as_ref().err(),
         "coldAllLogsMs": cold_all_logs.as_ref().ok(), "coldAllLogsError": cold_all_logs.as_ref().err(),
         "rssAfterLoad": rss_after_load,
