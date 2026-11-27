@@ -23,6 +23,11 @@ import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-jou
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 import { platformVerdict, waitRunning } from "./cloud-journey";
 import { preclaimPhasesText } from "./cloud-journey";
+import { OWN_LOGIN_CHECK, preclaimInstallCommand } from "./cloud-journey";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("cloud journey", () => {
   test("a create stuck provisioning with no host waits for the platform's verdict and names it", async () => {
@@ -337,6 +342,22 @@ describe("cloud journey", () => {
     expect(md).not.toContain("install_secret");
   });
 
+  test("the preclaim install, cleanup and own-login check run as one exec", () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-"));
+    const run = (install: string, after = "") => {
+      const file = join(dir, "cred.json");
+      writeFileSync(file, "{}");
+      const r = spawnSync("bash", ["-c", preclaimInstallCommand(install, file, after)], { encoding: "utf8" });
+      return { code: r.status, out: r.stdout, left: existsSync(file) };
+    };
+    // A heredoc installer like loginPrograms' keeps its terminator on a line of its own.
+    expect(run("set -e\ncat <<'EOF'\ninstalled\nEOF", "echo own-login")).toEqual({ code: 0, out: "installed\nown-login\n", left: false });
+    // A refused install keeps its exit, removes the file, and skips the check.
+    expect(run("set -e\nfalse\necho never", "echo own-login")).toEqual({ code: 1, out: "", left: false });
+    expect(run("exit 3")).toEqual({ code: 3, out: "", left: false });
+    expect(OWN_LOGIN_CHECK).toContain("echo own-login");
+  });
+
   test("the preclaim step names where its time went, phase by phase", () => {
     expect(preclaimPhasesText(undefined)).toBe("");
     expect(preclaimPhasesText({})).toBe("");
@@ -462,6 +483,10 @@ describe("cloud journey", () => {
     expect(capacityOnly([red("the machine did not take its first exec (vm_unavailable)")])).toBe(false);
     expect(capacityOnly([red("HTTP 429"), red("reply timed out")])).toBe(false);
     expect(capacityOnly([])).toBe(false);
+    // The journey's own capacity codes: a full team before the first create, a create refused at the cap.
+    expect(capacityOnly([red("cloud.quota.headroom quota_headroom:account-team used 5/5, need 2 (no room after 244 s, 17 reads)")])).toBe(true);
+    expect(capacityOnly([red("cloud.quota.exceeded: at the cap (no room after 60 s, 5 refusals)")])).toBe(true);
+    expect(capacityOnly([red("cloud.quota.headroom quota_headroom:t used 5/5, need 2"), red("reply timed out")])).toBe(false);
   });
   test("the login copy runs the Mac installer's own programs", () => {
     expect(swiftRawString('  static let x = #"""\n      a\n        b\n      """#', "x")).toBe("a\n  b");
