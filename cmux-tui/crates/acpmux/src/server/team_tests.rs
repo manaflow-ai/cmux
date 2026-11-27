@@ -828,6 +828,9 @@ async fn team_offline_rpc_restart_alias_and_sender_scope() {
     restarted.flush_team_send_queue(online.clone()).await;
     assert!(online.sent.lock().unwrap().is_empty());
     restarted.config.write().await.mesh_relay.as_mut().unwrap().team_messaging = true;
+    let stale = Arc::new(FakeHub::default());
+    restarted.flush_team_send_queue(stale.clone()).await;
+    assert!(stale.sent.lock().unwrap().is_empty(), "a replaced relay cannot drain the queue");
     restarted.flush_team_send_queue(online.clone()).await;
     assert_eq!(
         online.sent.lock().unwrap().iter().map(|m| m.body.clone()).collect::<Vec<_>>(),

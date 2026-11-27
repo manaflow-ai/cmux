@@ -2194,6 +2194,7 @@ impl Hub {
                 },
                 || async {
                     !self.is_stopping()
+                        && self.mesh.get().is_some_and(|current| Arc::ptr_eq(&current, &mesh))
                         && self
                             .config
                             .read()

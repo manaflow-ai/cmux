@@ -150,7 +150,12 @@ impl TeamSendQueue {
     }
 
     /// Both the original queued id and the eventual hub id resolve to the durable sender.
-    pub(crate) fn lookup(&self, id: &str) -> Option<(Receipt, String, Option<String>)> {
+    pub(crate) async fn lookup(&self, id: &str) -> Option<(Receipt, String, Option<String>)> {
+        let (queue, id) = (self.clone(), id.to_owned());
+        tokio::task::spawn_blocking(move || queue.lookup_blocking(&id)).await.ok().flatten()
+    }
+
+    fn lookup_blocking(&self, id: &str) -> Option<(Receipt, String, Option<String>)> {
         let id = id.strip_prefix("mesh:").unwrap_or(id);
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state
@@ -186,8 +191,16 @@ impl TeamSendQueue {
         let Ok(_serial) = self.flushing.try_lock() else { return };
         let record = Arc::new(record);
         loop {
-            let item =
-                self.state.lock().unwrap_or_else(|e| e.into_inner()).file.pending.front().cloned();
+            // Admission may be syncing the durable file; never wait for its state lock on an
+            // async worker, including status reads and the next replayed item.
+            let queue = self.clone();
+            let Ok(item) = tokio::task::spawn_blocking(move || {
+                queue.state.lock().unwrap_or_else(|e| e.into_inner()).file.pending.front().cloned()
+            })
+            .await
+            else {
+                return;
+            };
             let Some(item) = item else { return };
             if !enabled().await {
                 return;
@@ -428,7 +441,7 @@ mod tests {
         queue.state.lock().unwrap().path = Some(bad_path);
         queue.flush(&mesh, |_, _| true, || async { true }).await;
         assert_eq!(queue.pending().len(), 1);
-        assert_eq!(queue.lookup(&id).unwrap().0.state, "queued");
+        assert_eq!(queue.lookup(&id).await.unwrap().0.state, "queued");
         let restarted = TeamSendQueue::default();
         restarted.open(&path);
         assert_eq!(restarted.pending().len(), 1);
@@ -436,7 +449,7 @@ mod tests {
         let delivered = TeamSendQueue::default();
         delivered.open(&path);
         assert!(delivered.pending().is_empty());
-        let (receipt, _, caller) = delivered.lookup(&id).unwrap();
+        let (receipt, _, caller) = delivered.lookup(&id).await.unwrap();
         assert_eq!(receipt.message_id, "hub-message");
         assert_eq!(caller.as_deref(), Some("sender"));
     }

@@ -478,7 +478,7 @@ pub(super) async fn status(
     // A queued team send has a local durable id until the hub accepts it. Once replayed, the
     // queue keeps an alias from that id to the hub's message id so callers can keep polling the
     // receipt they already received, including after a daemon restart.
-    if let Some((queued, target, caller)) = hub.team_send_queue.lookup(id) {
+    if let Some((queued, target, caller)) = hub.team_send_queue.lookup(id).await {
         super::team::authorize(hub, conn).await?;
         if !conn.is_person() && conn.caller() != caller.as_deref() {
             return Err(super::team::forbidden());
@@ -560,7 +560,7 @@ pub(super) async fn queued_status(
     conn: &Arc<Conn>,
     id: &str,
 ) -> Result<Value, RpcError> {
-    let Some((receipt, target, caller)) = hub.team_send_queue.lookup(id) else {
+    let Some((receipt, target, caller)) = hub.team_send_queue.lookup(id).await else {
         return Err(RpcError::invalid_params(format!("no delivery {id}"))
             .with_data(json!({"reason": "outbox.unknown", "deliveryId": id})));
     };

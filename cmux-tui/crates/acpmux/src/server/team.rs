@@ -184,6 +184,7 @@ pub(super) async fn submit(
     let receipt = hub
         .team_send_queue
         .lookup(&receipt.message_id)
+        .await
         .map(|(receipt, _, _)| receipt)
         .unwrap_or(receipt);
     if receipt.state == "refused" {

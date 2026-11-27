@@ -556,7 +556,7 @@ pub(crate) async fn mesh_status(
             .with_data(json!({"reason": "outbox.unknown", "deliveryId": id}))));
         }
         let Some(mesh) = hub.mesh.get() else {
-            if hub.team_send_queue.lookup(id).is_some() {
+            if hub.team_send_queue.lookup(id).await.is_some() {
                 return Some(super::super::mesh_send::queued_status(hub, conn, id).await);
             }
             return None;
