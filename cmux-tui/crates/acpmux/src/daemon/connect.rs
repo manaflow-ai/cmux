@@ -56,7 +56,8 @@ where
     let deadline = tokio::time::Instant::now() + START_BUDGET;
     while tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(20)).await;
-        if let Ok(value) = connect().await {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if let Ok(Ok(value)) = tokio::time::timeout(left.max(HANDOVER_RETRY), connect()).await {
             return Some(value);
         }
         if !starting() {
@@ -78,7 +79,9 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
-    if let Ok(value) = connect().await {
+    // Bounded: a holder whose accept loop stopped leaves the dial queued with no answer forever
+    // (`daemon/hung_holder.rs`); past it the command waits on, and may replace, that holder.
+    if let Ok(Ok(value)) = tokio::time::timeout(DIAL_BOUND, connect()).await {
         return Ok(value);
     }
     // A daemon that holds the home and is not serving yet (a restart or an update mid-dial):
@@ -98,6 +101,14 @@ where
     }
     start_and_connect(path, connect).await
 }
+
+/// One dial of the daemon (connect and its hello), which has no limit of its own: the serving
+/// stall bound, so a busy daemon at high load still answers inside it.
+// timeout: hazard is a dial queued on a socket nobody accepts from; fallback is the holder wait.
+#[cfg(unix)]
+pub(super) const DIAL_BOUND: Duration = hung_holder::SERVING_STALL;
+#[cfg(not(unix))]
+pub(super) const DIAL_BOUND: Duration = Duration::from_secs(15);
 
 /// How often a command tries again while another daemon holds the lock.
 pub(super) const HANDOVER_RETRY: Duration = Duration::from_millis(250);
@@ -201,7 +212,8 @@ where
         if hung_holder::stalled(unanswered, hung_holder::beat_of(&home, pid), bounds) {
             match hung_holder::stand(&home) {
                 Ok(_standing) => {
-                    let why = format!("daemon {pid} answered no dial for {}s", unanswered.as_secs());
+                    let why =
+                        format!("daemon {pid} answered no dial for {}s", unanswered.as_secs());
                     match hung_holder::replace(&home, &why).await {
                         Ok(_) => {
                             watched = None;
@@ -228,7 +240,11 @@ where
         }
         if now - said >= hung_holder::WAITER_SAYS_EVERY {
             said = now;
-            tracing::info!(pid, "waiting for the lock holder; no answer for {}s", unanswered.as_secs());
+            tracing::info!(
+                pid,
+                "waiting for the lock holder; no answer for {}s",
+                unanswered.as_secs()
+            );
         }
         tokio::time::sleep(HANDOVER_RETRY).await;
     }

@@ -518,9 +518,18 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Debug builds only: a holder whose socket is bound and never accepted, as the hung holder
     // of 2026-11-27 (`daemon/hung_holder.rs`), for the replace tests.
     #[cfg(debug_assertions)]
-    if std::env::var_os("ACPMUX_TEST_HANG_AFTER_BIND").is_some() {
+    if let Some(mode) = std::env::var_os("ACPMUX_TEST_HANG_AFTER_BIND") {
         tracing::warn!("test: holding the lock and the bound socket without accepting");
         println!("acpmux-test-hung");
+        // `beat`: a slow start that still makes progress (it beats), never one to replace.
+        #[cfg(unix)]
+        if mode == "beat" {
+            loop {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                hung_holder::step("test: slow step");
+            }
+        }
+        let _ = mode;
         std::future::pending::<()>().await;
     }
     // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
