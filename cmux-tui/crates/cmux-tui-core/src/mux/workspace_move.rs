@@ -111,7 +111,7 @@ impl Mux {
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
             let workspace_revision = commit.revision;
-            let entity = crate::server::tree_entity_json(
+            let entity = crate::tree_wire::tree_entity_json(
                 &state,
                 &notifications,
                 TreeDeltaKind::WorkspaceMoved,

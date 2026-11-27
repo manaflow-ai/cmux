@@ -220,7 +220,7 @@ fn the_raw_tree_carries_a_tab_attention_mark_until_it_clears() {
     let tab = tab_id(&mux, tabs[1]);
     let tree_tab = |mux: &Mux| {
         let decorations = mux.tree_decorations();
-        let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+        let tree = mux.with_state(|state| crate::tree_wire::workspaces_json(state, &decorations));
         tree["workspaces"]
             .as_array()
             .unwrap()

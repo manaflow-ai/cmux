@@ -48,7 +48,7 @@ fn public_order(mux: &Mux, index: usize) -> Vec<String> {
 
 fn tree(mux: &Mux) -> Value {
     let decorations = mux.tree_decorations();
-    mux.with_state(|state| crate::server::workspaces_json(state, &decorations))
+    mux.with_state(|state| crate::tree_wire::workspaces_json(state, &decorations))
 }
 
 fn new_screen(mux: &Arc<Mux>, workspace: WorkspaceId) -> ScreenId {

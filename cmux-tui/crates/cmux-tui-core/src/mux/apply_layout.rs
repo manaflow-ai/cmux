@@ -113,7 +113,7 @@ impl Mux {
             ws.screens.push(screen);
             ws.active_screen = ws.screens.len().saturating_sub(1);
             let index = ws.active_screen;
-            let entity = crate::server::tree_entity_json(
+            let entity = crate::tree_wire::tree_entity_json(
                 &state,
                 &notifications,
                 TreeDeltaKind::ScreenAdded,

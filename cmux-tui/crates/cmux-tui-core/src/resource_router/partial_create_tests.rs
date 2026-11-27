@@ -130,7 +130,7 @@ fn listed_workspace_names(mux: &Arc<Mux>) -> Vec<String> {
 /// launch and at every reconnect (and the launch snapshot stores).
 fn app_tree_workspace_names(mux: &Mux) -> Vec<String> {
     let decorations = mux.tree_decorations();
-    let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+    let tree = mux.with_state(|state| crate::tree_wire::workspaces_json(state, &decorations));
     tree["workspaces"]
         .as_array()
         .unwrap()

@@ -168,6 +168,7 @@ use cmux_tui_platform::process_identity;
 pub use cmux_tui_platform::process_resources;
 mod protocol_key;
 pub mod server;
+mod tree_wire;
 mod server_protocol;
 pub mod session_state_import;
 mod socket_path;

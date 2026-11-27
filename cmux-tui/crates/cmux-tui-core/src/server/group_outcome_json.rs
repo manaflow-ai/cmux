@@ -3,6 +3,7 @@
 //! behavior unchanged).
 
 use super::*;
+pub(super) use crate::tree_wire::{pane_tab_group_json, workspace_group_json, workspace_groups_json};
 use crate::panic_free::JsonFields;
 
 pub(super) fn screen_group_outcome_json(outcome: &crate::ScreenGroupOutcome) -> Value {
@@ -47,46 +48,3 @@ pub(super) fn tab_drag_outcome_json(outcome: &crate::TabDragOutcome) -> Value {
     })
 }
 
-pub(super) fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<PaneId>) -> Value {
-    let mut value = json!({
-        "id": run.group.id,
-        "name": run.group.name,
-        "color": run.group.color,
-        "collapsed": run.group.collapsed,
-        "saved_id": run.group.saved_id,
-        "icon": run.group.icon,
-        "start": run.start,
-        "count": run.members.len(),
-        "surfaces": run.members,
-    });
-    if let Some(pane) = pane {
-        value.insert("pane", json!(pane));
-    }
-    value
-}
-
-pub(super) fn workspace_group_json(
-    group: &crate::workspace_registry::WorkspaceGroupRecord,
-    index: usize,
-) -> Value {
-    json!({
-        "id": group.id,
-        "name": group.name,
-        "color": group.color,
-        "collapsed": group.collapsed,
-        "index": index,
-    })
-}
-
-pub(super) fn workspace_groups_json(
-    presentation: &crate::workspace_registry::PresentationSnapshot,
-) -> Value {
-    json!(
-        presentation
-            .groups
-            .iter()
-            .enumerate()
-            .map(|(index, group)| workspace_group_json(group, index))
-            .collect::<Vec<_>>()
-    )
-}

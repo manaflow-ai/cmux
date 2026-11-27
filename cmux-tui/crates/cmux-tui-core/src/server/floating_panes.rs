@@ -10,6 +10,7 @@
 use cmux_layout_reducer::floating_panes::{FloatFrame, FloatMode, Floating, Quick, QuickMode};
 
 use super::*;
+pub(super) use crate::tree_wire::{floating_json, quick_terminal_json};
 use crate::FloatPaneError;
 use crate::panic_free::JsonFields;
 
@@ -180,25 +181,6 @@ fn frame_json(frame: FloatFrame) -> Value {
     json!({"x": x, "y": y, "w": w, "h": h})
 }
 
-/// `Screen.floating`: one `{pane, x, y, w, h}` for each floating pane, back to
-/// front.
-pub(super) fn floating_json(list: &[Floating<PaneId>]) -> Value {
-    Value::Array(
-        list.iter()
-            .map(|entry| {
-                let [x, y, w, h] = entry.frame.fractions();
-                json!({"pane": entry.pane, "x": x, "y": y, "w": w, "h": h})
-            })
-            .collect(),
-    )
-}
-
-/// `Screen.quick_terminal`: the pane of the quick terminal, whether it is
-/// hidden, and `from`, the pane that gets the focus back at a hide (null when
-/// the mark names none).
-pub(super) fn quick_terminal_json(pane: PaneId, mark: Quick<PaneId>) -> Value {
-    json!({"pane": pane, "hidden": mark.hidden, "from": mark.from})
-}
 
 #[cfg(test)]
 #[path = "floating_panes_tests.rs"]

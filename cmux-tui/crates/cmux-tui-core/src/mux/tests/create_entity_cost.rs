@@ -8,11 +8,11 @@ use super::*;
 
 /// Panes serialized while one workspace with its first terminal and one more tab are made.
 fn panes_built_by_one_create(mux: &Arc<Mux>) -> u64 {
-    let before = crate::server::panes_built_for_test();
+    let before = crate::tree_wire::panes_built_for_test();
     let surface = mux.new_workspace(Some("measured".into()), Some((80, 24))).unwrap();
     let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
     mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
-    crate::server::panes_built_for_test() - before
+    crate::tree_wire::panes_built_for_test() - before
 }
 
 fn session_of(workspaces: usize) -> Arc<Mux> {
@@ -46,9 +46,9 @@ fn the_entity_check_holds_when_a_reader_changes_the_title_between_its_builds() {
     surface.set_test_title("before");
     let decorations = mux.tree_decorations();
     let moving = surface.clone();
-    crate::server::set_entity_check_hook_for_test(move || moving.set_test_title("after"));
+    crate::tree_wire::set_entity_check_hook_for_test(move || moving.set_test_title("after"));
     let entity = mux.with_state(|state| {
-        crate::server::tree_entity_json(state, &decorations, TreeDeltaKind::TabChanged, surface.id)
+        crate::tree_wire::tree_entity_json(state, &decorations, TreeDeltaKind::TabChanged, surface.id)
     });
     assert!(entity.is_some(), "the tab has an entity");
     assert_eq!(surface.title(), "after", "the hook ran between the two builds");

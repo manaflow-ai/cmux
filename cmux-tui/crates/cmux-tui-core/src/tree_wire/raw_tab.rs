@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::conversation_tabs_wire::raw_tab_kind;
+use super::raw_tab_kind;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Surface, SurfaceKind};
@@ -14,7 +14,7 @@ use crate::{Surface, SurfaceKind};
 /// Add `kind`, `conversation`, the `browser_*` fields, `url` and
 /// `terminal_host_fallback` (set only for a terminal that will end with the
 /// daemon or the daemon's job although hosts are on) to `tab`.
-pub(super) fn merge_surface_fields(
+pub(crate) fn merge_surface_fields(
     tab: &mut Value,
     surface: Option<&Arc<Surface>>,
     frontend_browser: Option<&FrontendBrowserRecord>,

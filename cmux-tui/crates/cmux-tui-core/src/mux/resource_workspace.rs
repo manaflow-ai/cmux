@@ -279,7 +279,7 @@ impl Mux {
         let index = state.workspace_index_by_key(workspace_key)?;
         let workspace = state.workspaces[index].id;
         let decorations = self.workspace_tree_decorations_in_state(state, index);
-        let entity = crate::server::tree_entity_json(state, &decorations, kind, workspace)?;
+        let entity = crate::tree_wire::tree_entity_json(state, &decorations, kind, workspace)?;
         Some(TreeDelta {
             kind,
             workspace,

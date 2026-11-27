@@ -4,7 +4,7 @@
 
 use crate::workspace_registry::PresentationSnapshot;
 
-pub(super) fn raw_workspace_kind(presentation: &PresentationSnapshot, key: &str) -> &'static str {
+pub(crate) fn raw_workspace_kind(presentation: &PresentationSnapshot, key: &str) -> &'static str {
     if presentation.home_workspace.as_deref() == Some(key) {
         "home"
     } else if presentation.app_workspaces.contains_key(key) {
@@ -17,7 +17,7 @@ pub(super) fn raw_workspace_kind(presentation: &PresentationSnapshot, key: &str)
 /// `Workspace.recovered` (`workspace-recovered-v1`): the workspace has tabs and every one is a
 /// terminal the daemon recovered from an orphaned host. A tab the person adds makes it theirs.
 /// Free when the store has no recovered terminal (the common case).
-pub(super) fn raw_workspace_recovered(
+pub(crate) fn raw_workspace_recovered(
     state: &crate::model::State,
     workspace: &crate::model::Workspace,
     presentation: &PresentationSnapshot,
@@ -45,7 +45,7 @@ pub(super) fn raw_workspace_recovered(
 }
 
 /// `Workspace.app`: the app of an app workspace.
-pub(super) fn raw_workspace_app<'a>(
+pub(crate) fn raw_workspace_app<'a>(
     presentation: &'a PresentationSnapshot,
     key: &str,
 ) -> Option<&'a str> {

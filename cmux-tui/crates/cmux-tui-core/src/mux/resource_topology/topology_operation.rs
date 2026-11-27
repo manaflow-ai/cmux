@@ -290,7 +290,7 @@ impl Mux {
         // (`emit_committed_workspace_delta` in the legacy create path), so
         // `subscribe` clients see the empty workspace now instead of when
         // the next real change flushes an event.
-        let entity = crate::server::tree_entity_json(
+        let entity = crate::tree_wire::tree_entity_json(
             &state,
             &notifications,
             TreeDeltaKind::WorkspaceAdded,
