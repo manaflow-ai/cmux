@@ -135,7 +135,7 @@ mod git_watch;
 // RFD 0158 §1: the cache-read alarm (`cache_alarm.rs`).
 mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
-mod cpu_pressure;
+pub(crate) mod cpu_pressure;
 pub(crate) mod github_owner;
 mod goal_tools;
 mod handoff;
