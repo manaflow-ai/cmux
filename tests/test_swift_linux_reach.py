@@ -3,6 +3,7 @@
 change can fail, and every group when it cannot tell (fails open)."""
 
 import json
+import fnmatch
 import subprocess
 import sys
 import tempfile
@@ -49,6 +50,13 @@ class Reach(unittest.TestCase):
             self.assertEqual(out["groups"], self.all, f)
             self.assertEqual(out["listed"], "*", f)
 
+    def test_suite_helpers_route_the_workflow_and_every_group(self):
+        routing = json.loads((ROOT / 'scripts/ci/pr_router.json').read_text())['callees']['swift-linux-packages.yml']
+        for helper in ('scripts/ci/package-test-lane/swift_suite_outcomes.py', 'scripts/ci/require_swift_test_execution.py'):
+            self.assertEqual(reach.reach([helper])['groups'], self.all)
+            for selection in ('paths', 'affects'):
+                self.assertTrue(any(fnmatch.fnmatchcase(helper, pattern) for pattern in routing[selection]))
+
     def test_the_list_runs_every_row(self):
         out = reach.reach([reach.LIST])
         self.assertEqual(out["listed"], "*")
@@ -63,6 +71,53 @@ class Reach(unittest.TestCase):
         self.assertNotIn("Packages/macOS/CmuxNext", out["listed"].split())
         out = reach.reach(["Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure/x.swift"])
         self.assertIn("Packages/macOS/CmuxNext", out["listed"].split())
+
+    def test_every_cmuxnext_linux_target_reaches_its_row(self):
+        # Before 2026-11-26 the reach list was a copy that named 3 of the 16 targets, so a change to Focus,
+        # CLIInstall, Compat, CopyMode, TerminalFind or TerminalGeometry skipped the Linux CmuxNext row.
+        names = reach.linux_target_names(ROOT, "Packages/macOS/CmuxNext")
+        self.assertIn("CmuxNextFocus", names)
+        for name in names:
+            top = "Tests" if name.endswith("Tests") else "Sources"
+            out = reach.reach([f"Packages/macOS/CmuxNext/{top}/{name}/x.swift"])
+            self.assertIn("Packages/macOS/CmuxNext", out["listed"].split(), name)
+
+    def test_app_ffi_inputs_reach_the_cmuxnext_row(self):
+        for f in ("cmux-tui/crates/cmux-app-ffi/src/lib.rs", "cmux-tui/Cargo.lock", "scripts/ci/app_ffi_linux.py",
+                  "scripts/cmux-next/build-app-ffi.sh", "Packages/macOS/CmuxNext/LinuxAppFFI/x"):
+            self.assertEqual(reach.reach([f])["listed"], "Packages/macOS/CmuxNext", f)
+        self.assertEqual(reach.reach(["cmux-tui/README.md"])["listed"], "")
+
+    def test_a_lost_target_list_fails_open(self):
+        with tempfile.TemporaryDirectory() as d:
+            pkg = Path(d) / "Packages/macOS/CmuxNext"
+            pkg.mkdir(parents=True)
+            (pkg / "Package.swift").write_text("let other = 1\n")
+            with self.assertRaises(ValueError):
+                reach.narrow(Path(d))
+            (pkg / "Package.swift").write_text('let linuxTargetNames: Set<String> = [\n    "CmuxNextGone",\n]\n')
+            with self.assertRaises(ValueError):
+                reach.narrow(Path(d))
+
+    def test_router_affects_names_every_reaching_path(self):
+        router = json.loads((ROOT / "scripts/ci/pr_router.json").read_text())
+
+        def find(o):
+            if isinstance(o, dict):
+                if "swift-linux-packages.yml" in o and isinstance(o["swift-linux-packages.yml"], dict) \
+                        and "affects" in o["swift-linux-packages.yml"]:
+                    return o["swift-linux-packages.yml"]["affects"]
+                for v in o.values():
+                    hit = find(v)
+                    if hit is not None:
+                        return hit
+            return None
+
+        globs = find(router)
+        self.assertIsNotNone(globs)
+        for prefix in reach.narrow(ROOT)["Packages/macOS/CmuxNext"]:
+            want = prefix + "**" if prefix.endswith("/") else prefix
+            self.assertIn(want, globs, f"pr_router.json swift-linux-packages.yml affects misses {want}")
 
     def test_cli_fails_open_and_writes_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
