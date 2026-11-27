@@ -1212,9 +1212,14 @@ pub mod method {
     /// Local socket only.
     pub const MUX_MACHINE_SIGNED_IN: &str = "_acpmux/machine_signed_in";
     /// A browser on the web listener presents its own enrolled device credential
-    /// (`server/web_device.rs`): `{credential}` -> `{auth: "webDevice"}`. Once per connection;
+    /// (`server/web_device.rs`): `{credential, nonce?, signature?}` -> `{auth: "webDevice"}`. Once per connection;
     /// the connection's hub reads and prompts then go with that credential only. Web only.
     pub const MUX_DEVICE_HELLO: &str = "_acpmux/device_hello";
+    /// A bound web device's challenge (`server/web_device.rs`, RFD 0083): `{credential}` ->
+    /// `{machineId, nonce, binding}`, a single-use hub nonce for the browser's key to sign and
+    /// this connection's binding; `device_hello {credential, nonce, signature}` then presents the
+    /// proof. Web only.
+    pub const MUX_DEVICE_CHALLENGE: &str = "_acpmux/device_challenge";
     /// A browser on the web listener enrolls as its own device on the mesh hub, as a new machine
     /// joins (`server/web_device.rs`): `{accessToken, publicKey}` -> `{credential, machineId,
     /// userId}`, to that connection only. Nothing is written to disk. Web only.

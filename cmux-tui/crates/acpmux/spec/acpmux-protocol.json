@@ -3099,6 +3099,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/device_challenge",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/device_enroll",
       "params": true,
       "result": true
