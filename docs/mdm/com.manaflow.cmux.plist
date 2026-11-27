@@ -949,6 +949,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Web UI updates download only what changed, or the whole update when that fails.</string>
+			<key>pfm_name</key>
+			<string>updates.webCas</string>
+			<key>pfm_title</key>
+			<string>Fetch Web UI Updates by Chunks</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>off</string>
 			<key>pfm_description</key>
 			<string>Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only.</string>
