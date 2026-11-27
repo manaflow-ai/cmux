@@ -243,6 +243,38 @@ class RouterStatusTest(unittest.TestCase):
             self.assertLessEqual(len(self.status(self.event(), *args)[1]), 140)
 
 
+class DecideTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.decide = staticmethod(fv.decide)
+
+    def test_a_skipped_pipeline_is_error_not_pending(self) -> None:
+        state, desc = self.decide("skipped", "", "", "", "failure")
+        self.assertEqual(state, "error")
+        self.assertIn("fast gates failed", desc)
+        self.assertEqual(self.decide("skipped", "", "", "", "success")[0], "error")
+
+    def test_the_pipeline_outcomes(self) -> None:
+        self.assertEqual(self.decide("success", "false", ""), ("success", "The plan builds nothing on this head"))
+        self.assertEqual(self.decide("success", "true", "success", "tests A"), ("success", "Passed: tests A"))
+        self.assertEqual(self.decide("failure", "true", "failure")[0], "failure")
+        for pipeline, run in (("cancelled", "true"), ("failure", "unknown"), ("success", "true")):
+            with self.subTest(pipeline=pipeline, run=run):
+                self.assertEqual(self.decide(pipeline, run, "")[0], "error")
+
+    def test_every_decision_fits(self) -> None:
+        for args in (("skipped", "", "", "", "failure"), ("skipped", "", ""), ("success", "true", "failure", "x" * 90),
+                     ("success", "true", "")):
+            self.assertLessEqual(len(self.decide(*args)[1]), 140)
+
+    def test_the_verdict_command_without_a_token_passes(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k not in ("TOKENS", "REPO", "SHA", "GITHUB_OUTPUT")}
+        env.update(PIPELINE="skipped", FAST_GATES="failure")
+        out = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/ci/ios_fast_verdict.py"), "verdict"],
+                             env=env, capture_output=True, text=True, check=True).stdout
+        self.assertIn("cmux/ios-fast: error: No verdict: the pr pipeline was skipped", out)
+
+
 class WorkflowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -298,12 +330,23 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("success() || failure()", record["if"])
         router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]
         status = router["ios-fast-status"]
-        self.assertEqual(status["needs"], ["route", "pipeline"])
+        self.assertEqual(status["needs"], ["route", "fast-gates", "pipeline"])
         self.assertIn("needs.route.outputs.ios_status == 'pending'", status["if"])
         self.assertEqual(status["permissions"]["statuses"], "write")
         self.assertIn("scripts/ci/ios_fast_verdict.py", router["route"]["steps"][0]["with"]["sparse-checkout"])
         post = next(s for s in router["route"]["steps"] if s.get("name") == "Post the iOS fast verdict status")
         self.assertIn("ios_fast_verdict.py status", post["run"])
+        verdict = status["steps"][-1]
+        self.assertIn("ios_fast_verdict.py verdict", verdict["run"])
+        self.assertEqual(verdict["env"]["PIPELINE"], "${{ needs.pipeline.result }}")
+        self.assertEqual(verdict["env"]["FAST_GATES"], "${{ needs.fast-gates.result }}")
+
+    def test_a_skipped_pipeline_the_router_started_still_posts(self) -> None:
+        # A pipeline its fast gates skipped once left cmux/ios-fast pending forever; now the job runs and posts error.
+        cond = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]["ios-fast-status"]["if"]
+        self.assertNotIn("&& needs.pipeline.result != 'skipped' &&", cond)
+        self.assertIn("needs.pipeline.result != 'skipped' || contains(fromJSON(needs.route.outputs.start", cond)
+        self.assertIn("'pr-pipeline.yml'", cond)
 
     def test_the_runner_script_parses(self) -> None:
         subprocess.run(["bash", "-n", str(ROOT / "scripts/ci/ios_fast_verdict.sh")], check=True)
