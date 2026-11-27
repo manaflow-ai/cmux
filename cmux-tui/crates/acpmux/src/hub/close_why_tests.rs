@@ -163,14 +163,14 @@ async fn a_committed_move_closes_its_old_copy_as_moved_to_its_host() {
     let name = chat.meta().name.clone();
     let transfer = uuid::Uuid::now_v7().to_string();
     *chat.moving.lock().unwrap() = Some(transfer.clone());
-    let to = json!({"host": "gcp-agent-lane-7", "sessionId": chat.id});
+    let to = json!({"host": "far-host", "sessionId": chat.id});
     hub.transfer_commit_with_epoch(&chat, &transfer, to, Some(chat.ownership_epoch()), None)
         .await
         .unwrap();
     assert_eq!(chat.status(), SessionStatus::Closed);
     let close = the_close(&hub, &chat);
     assert_eq!(close["actor"], json!({"kind": "daemon"}));
-    assert_eq!(close["reason"], format!("moved to gcp-agent-lane-7/{name}"));
+    assert_eq!(close["reason"], format!("moved to far-host/{name}"));
     assert_eq!(close["outcome"], "moved");
 
     // A `movedTo` with no host, or a chat with no name, still says where it went.
