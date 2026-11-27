@@ -65,8 +65,17 @@ class MacWarmTargetScript(unittest.TestCase):
         self.cache = self.tmp / "cache"
 
     def git(self, *args: str) -> str:
+        env = git_fixture_env.fixture_env(os.environ.copy())
+        # Fleet workers do not provide a global Git identity; fixture commits
+        # must be deterministic on a clean runner as well as locally.
+        env.update({
+            "GIT_AUTHOR_NAME": "cmux test fixture",
+            "GIT_AUTHOR_EMAIL": "cmux-test-fixture@example.invalid",
+            "GIT_COMMITTER_NAME": "cmux test fixture",
+            "GIT_COMMITTER_EMAIL": "cmux-test-fixture@example.invalid",
+        })
         return subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True, text=True,
-                              env=git_fixture_env.fixture_env(os.environ.copy())).stdout
+                              env=env).stdout
 
     def run_script(self, command: str, runner: str, lto: str = "fat") -> str:
         env = {"PATH": os.environ["PATH"], "HOME": str(self.tmp), "RUNNER_NAME": runner,
