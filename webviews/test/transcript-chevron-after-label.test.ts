@@ -42,8 +42,10 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     // (Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?").
     { entry: "agent-pane.message-line-look", variant: "quiet" },
     { entry: "agent-pane.message-line-look", variant: "quiet-received-open" },
+    // A squeezed first line: the preview that is left must hold an ellipsis and the glyph, or go.
+    { entry: "agent-pane.incoming-message", variant: "files" },
   ];
-  const WIDTHS = [760, 420];
+  const WIDTHS = [760, 420, 240];
 
   try {
     await (await chromium.launch({ headless: true })).close();
