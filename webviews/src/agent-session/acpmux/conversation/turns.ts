@@ -4038,6 +4038,18 @@ function codexLiveTurn(
     if (compactPrompt(user)) {
       line.liveState = "compacting";
       line.doingAt = sentTime(user, clockOffset) + clockOffset;
+    } else {
+      // Nothing yet after the prompt (a fresh send, or a steer that landed in the running turn): the
+      // line still gets the silence clock, from the prompt, so past SILENT_MS with nothing heard it
+      // names its wait ("Waiting on the model's first reply 2m"), never a bare "Thinking" that stays
+      // for good. Without it a turn whose daemon went quiet right after a steer read "Thinking" for
+      // 20 minutes (Leo, 2026-11-27: "mango has been "thinking" for an inordinate amount of time. i
+      // think they're bugged and we need to fix this bug").
+      Object.assign(line, liveClock([user], start, clockOffset), {
+        turnTotal: true,
+        heardKey: `0:${user.id}:${user.version}`,
+        liveWait: liveWait(drawn, user),
+      });
     }
     return [...rows, line];
   }
