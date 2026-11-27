@@ -25,7 +25,7 @@ jobs:
   kick:
     if: github.repository == 'manaflow-ai/cmux'
     name: Ask the DEV dispatcher and the nightly-next tick for the newest tip
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: holds a write token; the dev-kick test keeps it on the ephemeral_only pool
     timeout-minutes: 3
     permissions:
       actions: write
