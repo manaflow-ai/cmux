@@ -159,7 +159,7 @@ package final class DesktopNotifier: NSObject {
         // stall main); the banner is added after, with or without the badge.
         Task.detached(priority: .userInitiated) {
             let file = Self.attachmentItem(attachment, id: id)
-            Self.add(banner.request(attachment: file?.item), to: center, attachmentFile: file?.url, logger: logger)
+            Self.add(banner.request(attachment: file?.item), to: UNUserNotificationCenter.current(), attachmentFile: file?.url, logger: logger)
         }
     }
 
