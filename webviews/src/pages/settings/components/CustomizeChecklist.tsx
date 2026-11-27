@@ -261,7 +261,8 @@ export function CustomizeChecklistView({
           <div className="checklist-group" data-checklist-group={group.id} key={group.id}>
             <div className="checklist-head">
               {collapsible ? (
-                <button
+                <Button
+                  bare
                   type="button"
                   className="checklist-toggle-all"
                   aria-expanded={open}
@@ -269,7 +270,7 @@ export function CustomizeChecklistView({
                 >
                   <Icon name="chevron" />
                   <span className="checklist-group-title">{t(GROUP_TITLE[group.id])}</span>
-                </button>
+                </Button>
               ) : (
                 <span className="checklist-group-title">{t(GROUP_TITLE[group.id])}</span>
               )}
@@ -407,14 +408,15 @@ function ChecklistRow({
         {help && <span className="row-help checklist-help">{help}</span>}
       </div>
       {item.installs ? (
-        <button
+        <Button
+          bare
           type="button"
           className="checklist-install"
           aria-labelledby={labelId}
           onClick={() => onToggle(item, true)}
         >
           {t("settingsPage.customizeChecklist.install")}
-        </button>
+        </Button>
       ) : (
         <Switch checked={item.on} disabled={locked} labelId={labelId} onToggle={(next) => onToggle(item, next)} />
       )}

@@ -864,10 +864,8 @@ fn remove(
             Err(error) => return Err(verdict(Action::Keep, format!("not archived: {error}"))),
         }
     }
-    if !command {
-        if let Some(why) = options.never.holds_tree(options.home, path) {
-            return Err(verdict(Action::Keep, format!("never-delete: {why}")));
-        }
+    if !command && let Some(why) = options.never.holds_tree(options.home, path) {
+        return Err(verdict(Action::Keep, format!("never-delete: {why}")));
     }
     if let Some(before) = clone_refs {
         crate::clones::work(path)
