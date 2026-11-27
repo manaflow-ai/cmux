@@ -157,7 +157,7 @@ def main():
     ap.add_argument("--turns-after", type=int)
     a = ap.parse_args()
     s = Scrub(a.fixture_id)
-    lines, compacted, turns_after, first_at = [], False, 0, None
+    lines, past_compact_boundary, turns_after, first_at = [], False, 0, None
     for path in sorted(glob.glob(os.path.join(a.session_dir, "events", "*.ndjson"))):
         with open(path) as f:
             for line in f:
@@ -167,7 +167,7 @@ def main():
                     continue
                 if r.get("kind") not in KINDS:
                     continue
-                if a.turns_after is not None and compacted and r["kind"] == "turn_started":
+                if a.turns_after is not None and past_compact_boundary and r["kind"] == "turn_started":
                     turns_after += 1
                     if turns_after > a.turns_after:
                         break
@@ -177,7 +177,7 @@ def main():
                 first_at = out["at"] if first_at is None else first_at
                 lines.append(json.dumps(out, separators=(",", ":")))
                 if r["kind"] == "claude.system.compact_boundary":
-                    compacted = True
+                    past_compact_boundary = True
     last_at = json.loads(lines[-1])["at"] if lines else EPOCH
     last_seq = json.loads(lines[-1])["seq"] if lines else 0
     d = os.path.join(a.out_home, "sessions", a.fixture_id)
