@@ -153,6 +153,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::HistoryDelete(args) if args.deleted || args.restore.is_some() => {
+            let client = connect(true).await?;
+            let params = match &args.restore {
+                Some(id) => json!({"restore": id}),
+                None => json!({"deleted": true}),
+            };
+            let v = client.request(method::MUX_HISTORY_DELETE, params).await?;
+            if json_out {
+                print_json(&v);
+            } else if args.restore.is_some() {
+                let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("?");
+                if v.get("restored").and_then(Value::as_bool).unwrap_or(false) {
+                    println!("{id} restored");
+                } else {
+                    println!("{id} was not deleted: nothing to restore");
+                }
+            } else {
+                print_recently_deleted(&v);
+            }
+            Ok(())
+        }
         Command::HistoryDelete(args) => {
             let client = connect(true).await?;
             let export = args.export.map(std::path::absolute).transpose()?;
@@ -1366,8 +1387,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         // No daemon connection: the update must work while the daemon does not.
-        Command::Host(PeerCmd::SelfUpdate { channel, now, allow_downgrade }) => {
-            crate::cli::hosts::self_update(&channel, now, allow_downgrade, json_out).await
+        Command::Host(PeerCmd::SelfUpdate {
+            channel,
+            now,
+            allow_downgrade,
+            fast_patch,
+            commit,
+        }) => {
+            let fast_patch = fast_patch.then_some(commit);
+            crate::cli::hosts::self_update(&channel, now, allow_downgrade, fast_patch, json_out)
+                .await
         }
         // A file of this machine's; the daemon, when it runs, only reloads it.
         Command::Host(PeerCmd::Approvals { cmd }) => {
@@ -1777,11 +1806,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 // Dispatched before the connect (above); kept here so the
                 // match stays total without a panic.
-                PeerCmd::SelfUpdate { channel, now, allow_downgrade } => {
+                PeerCmd::SelfUpdate { channel, now, allow_downgrade, fast_patch, commit } => {
                     return crate::cli::hosts::self_update(
                         &channel,
                         now,
                         allow_downgrade,
+                        fast_patch.then_some(commit),
                         json_out,
                     )
                     .await;
@@ -2125,6 +2155,7 @@ fn transcript_dry_run(older_than_days: Option<u32>) -> Result<Value> {
         older_than_ms: days.saturating_mul(86_400_000),
         delete_local: true,
         keep: Default::default(),
+        kept_now: Default::default(),
         now_ms,
     };
     let report = cmux_session_cloud::transcripts::pass(
@@ -2242,5 +2273,22 @@ mod tests {
         assert!(line.contains("`acpmux session resume lane-a --open`"), "{line}");
         assert_eq!(not_resumed_line(&json!({"queue": []}), "lane-a"), "nothing is held");
         assert_eq!(not_resumed_line(&json!({"personHold": null}), "lane-a"), "nothing is held");
+    }
+}
+
+/// The text form of Recently deleted (`_acpmux/history_delete` `{deleted: true}`).
+fn print_recently_deleted(v: &Value) {
+    let chats = v.get("chats").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    let days = v.get("undoDays").and_then(Value::as_u64).unwrap_or(0);
+    println!("{} deleted chats can be restored for {days} days:", chats.len());
+    let now = crate::store::now_ms();
+    for chat in chats {
+        let purges = chat.get("purgesAt").and_then(Value::as_u64).unwrap_or(0);
+        println!(
+            "  {}  purged in {}d  {}",
+            chat.get("sessionId").and_then(Value::as_str).unwrap_or("?"),
+            purges.saturating_sub(now).div_ceil(86_400_000),
+            chat.get("name").and_then(Value::as_str).unwrap_or(""),
+        );
     }
 }
