@@ -198,6 +198,7 @@ pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
+mod app_features;
 mod attachment_http;
 mod bookmarks;
 mod bookmarks_routed;

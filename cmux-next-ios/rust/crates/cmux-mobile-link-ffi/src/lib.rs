@@ -25,6 +25,7 @@ mod chat_prompt_outbox;
 mod classic_leftovers;
 mod cloud_wake;
 mod composer_outbox;
+mod feed_list_edit;
 mod follow_camera;
 mod lan;
 mod last_place;
@@ -46,6 +47,7 @@ mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
+mod workspace_groups;
 
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
@@ -88,6 +90,10 @@ pub use terminal_fit::{
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
+pub use workspace_groups::{
+    GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,
+    PhoneSidebarRow, PhoneWorkspaceGroup, WorkspaceGroupSlot, pending_group_edit_step, workspace_group_slots,
+};
 
 uniffi::setup_scaffolding!();
 

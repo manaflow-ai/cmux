@@ -223,6 +223,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/workflow_job_bounds.py",
+            "scripts/ci/check_reusable_workflow_permissions.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
             # The generated-file check the gate runs (GENERATED_CHECK) and the helper it imports from beside itself.

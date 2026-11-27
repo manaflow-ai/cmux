@@ -30,6 +30,11 @@
  * (a service key limited to role=chief VMs on one dev/test team, as production
  * holds) run the same journey on a role=chief VM.
  *
+ * --auth session runs it as the agent test account's Stack session instead
+ * (CMUX_DOGFOOD_STACK_EMAIL / CMUX_DOGFOOD_STACK_PASSWORD; staging only), with
+ * every scope but admin: the paused-read leg needs vm:files, which the staging
+ * smoke key was not issued (run 45856090047 skipped the leg for it).
+ *
  * --lifecycle adds the agent-VM lifecycle leg (cmux-platform
  * docs/agent-vm-lifecycle.md), each verb through the API and, with --cmux PATH
  * (or CMUX_PATH), through the `cmux vm` CLI too:
@@ -57,6 +62,7 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import { type StackVmSession, stackVmSession } from "./stack-vm-session.ts";
 
 const argv = process.argv.slice(2);
 const option = (name: string): string | undefined => {
@@ -80,19 +86,42 @@ const cliArgv = (args: string[]): string[] => {
 };
 const resultFile = option("--result-file");
 const base = option("--url") ?? process.env["CMUX_VM_DOGFOOD_URL"] ?? "";
-const tenantKey = process.env["CMUX_VM_SMOKE_API_KEY"] ?? "";
-const serviceKey = process.env["CMUX_VM_SMOKE_SERVICE_KEY"] ?? "";
-const serviceTeam = process.env["CMUX_VM_SMOKE_SERVICE_TEAM"] ?? "";
+// --auth session: the agent test account's Stack session (stack-vm-session.ts), every scope but admin, so the
+// paused-read leg (vm:files) and the terminal legs (vm:terminal) do not hang on a stored key's scopes.
+const useSession = option("--auth") === "session";
+const tenantKey = useSession ? "" : process.env["CMUX_VM_SMOKE_API_KEY"] ?? "";
+const serviceKey = useSession ? "" : process.env["CMUX_VM_SMOKE_SERVICE_KEY"] ?? "";
+const serviceTeam = useSession ? "" : process.env["CMUX_VM_SMOKE_SERVICE_TEAM"] ?? "";
 const useService = tenantKey === "" && serviceKey !== "" && serviceTeam !== "";
-const bearer = useService ? serviceKey : tenantKey;
-const teamHeaders: Record<string, string> = useService ? { "x-cmux-team-id": serviceTeam } : {};
-if (base === "" || bearer === "") {
-  console.error("needs --url (or CMUX_VM_DOGFOOD_URL) and CMUX_VM_SMOKE_API_KEY, or CMUX_VM_SMOKE_SERVICE_KEY with CMUX_VM_SMOKE_SERVICE_TEAM");
+if (base === "") {
+  console.error("needs --url (or CMUX_VM_DOGFOOD_URL)");
   process.exit(2);
 }
 const origin = new URL(base);
 if (origin.protocol !== "https:" || origin.pathname !== "/") {
   console.error("the VM API URL must be an https origin");
+  process.exit(2);
+}
+let sessionAuth: StackVmSession | null = null;
+if (useSession) {
+  const email = process.env["CMUX_DOGFOOD_STACK_EMAIL"] ?? "";
+  const password = process.env["CMUX_DOGFOOD_STACK_PASSWORD"] ?? "";
+  if (email === "" || password === "") {
+    console.error("--auth session needs CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the agent test account)");
+    process.exit(2);
+  }
+  try {
+    sessionAuth = await stackVmSession(origin.origin, email, password);
+  } catch (error) {
+    console.error(`--auth session: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(2);
+  }
+  if (process.env["GITHUB_ACTIONS"] === "true") console.log(`::add-mask::${sessionAuth.access}`);
+}
+const bearer = sessionAuth ? sessionAuth.access : useService ? serviceKey : tenantKey;
+const teamHeaders: Record<string, string> = sessionAuth ? { "x-cmux-team-id": sessionAuth.team } : useService ? { "x-cmux-team-id": serviceTeam } : {};
+if (bearer === "") {
+  console.error("needs CMUX_VM_SMOKE_API_KEY, or CMUX_VM_SMOKE_SERVICE_KEY with CMUX_VM_SMOKE_SERVICE_TEAM, or --auth session");
   process.exit(2);
 }
 
@@ -432,7 +461,9 @@ async function pausedTree(id: string): Promise<{ root: string; needle: string }>
   const { dirs, files } = PAUSED_TREE;
   const script =
     `set -e; r="$HOME/paused-reads-${needle}"; ` +
-    `for d in $(seq -w 0 ${dirs - 1}); do mkdir -p "$r/d$d"; for f in $(seq -w 0 ${files - 1}); do ` +
+    // Fixed two-digit names (seq -f %02g, not -w): -w pads to the widest number, so 10 folders were d0..d9 and the
+    // needle's d04 never existed (run 45846190008 failed seeding: "d04/f07.txt: Directory nonexistent").
+    `for d in $(seq -f %02g 0 ${dirs - 1}); do mkdir -p "$r/d$d"; for f in $(seq -f %02g 0 ${files - 1}); do ` +
     `yes "line of d$d/f$f.txt for the paused read leg" | head -n 40 > "$r/d$d/f$f.txt"; done; done; ` +
     `echo ${needle} >> "$r/d04/f07.txt"; sync; echo "$r"`;
   const out = await exec(id, script, 60_000);
@@ -818,7 +849,8 @@ function summary(outcome: Record<string, unknown>): Record<string, unknown> {
     ...error,
     api: "cmux-vm",
     url: origin.origin,
-    auth: useService ? "service" : "tenant",
+    auth: sessionAuth ? "session" : useService ? "service" : "tenant",
+    ...(sessionAuth ? { tenantVia: sessionAuth.via } : {}),
     durationMs: Math.round(performance.now() - runStartedAt),
     timings,
     notes,

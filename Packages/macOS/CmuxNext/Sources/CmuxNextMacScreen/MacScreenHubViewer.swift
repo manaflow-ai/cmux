@@ -243,7 +243,7 @@ public final class MacScreenHubViewer {
     /// pushed while this Mac's hub socket was down is gone, and the card said
     /// Connecting forever. Past the wait the ticket is asked for directly
     /// (`/reattach` re-admits an approved session); if the hub has none either,
-    /// the session ends here with the failed card and its Try Again.
+    /// the session ends here with the failed card (the pane asks again on its own when that prompts nobody).
     private func scheduleTicketWait(_ id: String, hub: DeviceHub?) {
         guard let hub else { return }
         // One wait per approved session; a ticket, a cancel, an end or a new request cancels it.

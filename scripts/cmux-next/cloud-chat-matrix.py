@@ -687,6 +687,14 @@ class Matrix:
                 return value
         return {}
 
+    def list_why(self) -> str:
+        """Why the app's machine list never loaded: `cloud.machines`' own last error and link route (a tagged
+        build's `app call`). A bare `{"loaded": false}` after 300 s said nothing (run 45665771439, prod)."""
+        code, out, _ = self.cmux("app", "call", "cloud.machines", "--json", timeout=30)
+        value = self.parsed(out) if code == 0 else {}
+        facts = {k: value.get(k) for k in ("last_error", "link_route") if value.get(k)}
+        return f"; cloud.machines {clean(json.dumps(facts), 300)}" if facts else ""
+
     def launch(self) -> str:
         """Launch --app signed in (as cloud-chat-proof.py), or check --cli's app is signed in."""
         args = self.args
@@ -720,6 +728,8 @@ class Matrix:
                 last = clean(self.error(out, err).get("message") or err or json.dumps(
                     {k: value.get(k) for k in ("signed_in", "backend", "cloud_environment", "loaded") if k in value}), 300)
                 if time.monotonic() >= deadline:
+                    if name == "cloud list-machines":
+                        last += self.list_why()
                     return f"the app is not ready: {name} after {limit} s ({last})"
                 time.sleep(3)
         if args.cache_claude_login:

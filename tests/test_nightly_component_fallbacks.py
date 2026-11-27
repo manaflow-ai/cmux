@@ -174,8 +174,8 @@ class ScriptTests(unittest.TestCase):
         soft = text.index('[ "${NIGHTLY_COMPONENT_GATES:-}" != block ]')
         self.assertLess(soft, text.index('refuse "${verdict:-the webview check verdict is unreadable}"'))
         self.assertIn("::warning title=Nightly stale part::webview-checks:", text)
-        # The App Store shelf still refuses: Leo, 2026-11-16, "if i click install it means it works".
-        self.assertIn('refuse "${verdict:-the App Store shelf verdict is unreadable}"', text)
+        # The App Store shelf no longer holds a publish (Leo, 2026-11-25); report-nightly-shelf-red files its red.
+        self.assertNotIn("App Store shelf verdict is unreadable", text)
 
 
 if __name__ == "__main__":

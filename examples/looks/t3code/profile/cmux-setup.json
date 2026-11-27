@@ -33,7 +33,10 @@
       "branch",
       "agentStatus"
     ],
-    "agentPane.display.width": 736,
+    // Proportions (parity table, proportions): cmux's sidebar type read larger than the app's and its
+    // transcript column narrower. The app's sidebar rows are 12 px and its thread column is max-w-3xl (768 px).
+    "appearance.metrics.chromeFontSize": 12,
+    "agentPane.display.width": 768,
     "agentPane.display.presentation": "messages",
     "agentPane.display.font.preset": "system",
     "agentPane.display.font.ui": "system-ui",

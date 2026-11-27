@@ -43,7 +43,7 @@ Shift-Command-F (find) are cmux's defaults already.
 
 ## Feature checklist
 
-61 features: 24 matched, 30 partial, 7 missing.
+62 features: 25 matched, 30 partial, 7 missing.
 
 | Feature | Status | How, or the gap |
 | --- | --- | --- |
@@ -108,6 +108,7 @@ Shift-Command-F (find) are cmux's defaults already.
 | Remote access from phone and web clients | partial | The iPhone app, remote control and cloud machines. Gap: no browser client served by the desktop app. |
 | Notifications when a thread finishes or needs input | matched | Notifications on finish and on permission asks; Shift-Command-U jumps to unread. |
 | Hover card for threads | matched | The look's `cmux.hovercard/1` view. |
+| Proportions: sidebar type size and thread column width | matched | `appearance.metrics.chromeFontSize` 12 (the app's 12 px sidebar rows; was the density default) and `agentPane.display.width` 768 (the app's max-w-3xl column; was 736). Needs a recapture to confirm. |
 
 ## Motion checklist
 

@@ -220,6 +220,26 @@ struct MenuBarMenuSpecTests {
         #expect(Self.ids(trimmed) == ["info:An agent", "computerUseStop@s", "command:computerUseShowCursor(\"s\")", "-", "computerUseStop"])
     }
 
+    /// `computerUse.floatingPreview` (prototype; user 2026-11-22: "...THE ABILITY TO DRAG IT AROUND AND
+    /// FUCKING HIDE IT"): on, the Computer Use submenu shows or hides the floating panel, before
+    /// Agent Activity, with or without a session; off, no row.
+    @Test func floatingPreviewRowShowsOrHidesThePanel() throws {
+        func sub(_ computerUse: MenuBarMenuState.ComputerUse) throws -> [MenuBarMenuSpec.Item] {
+            guard case .computerUse(_, _, let sub) = MenuBarMenuSpec().items(for: MenuBarMenuState(computerUse: computerUse),
+                                                                            isBound: Self.everything)[0] else { throw CancellationError() }
+            return sub
+        }
+        #expect(Self.ids(try sub(.init(floatingPreview: false))) == [
+            "command:computerUseFloatingPreview(true)", "agentActivity.open", "palette.computerUse.setup",
+        ])
+        #expect(try sub(.init(floatingPreview: false))[0]
+            == .command(.computerUseFloatingPreview(true), title: "Show Floating Preview", symbol: "pip"))
+        let running = try sub(.init(sessions: [.init(id: "s1", appName: "Notes")], floatingPreview: true))
+        #expect(Array(Self.ids(running).suffix(2)) == ["command:computerUseFloatingPreview(false)", "agentActivity.open"])
+        #expect(running[running.count - 2] == .command(.computerUseFloatingPreview(false), title: "Hide Floating Preview", symbol: "pip.remove"))
+        #expect(!Self.ids(try sub(.init(sessions: [.init(id: "s1")]))).contains { $0.contains("FloatingPreview") })
+    }
+
     /// A stopped agent: its line says Stopped, Resume replaces Stop, and it never counts as acting.
     @Test func aStoppedSessionOffersResume() throws {
         let state = MenuBarMenuState(computerUse: .init(sessions: [

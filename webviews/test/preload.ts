@@ -65,6 +65,13 @@ export {};
   writeAcpmuxProtocol({ log: () => {} });
 }
 
+// React reads its commit hook once, when react-dom loads: install the row render counter
+// (support/commitRenders.ts) first, so a jsdom test can count which rows a change rendered.
+{
+  const { installRowRenderCounter } = await import("./support/commitRenders");
+  installRowRenderCounter();
+}
+
 // React's scheduler keeps its queue private, and react-dom copies its entry points when it first
 // loads: count the tasks it queues from here on, before anything loads react-dom, so a teardown can
 // wait for them (support/domTeardown.ts: a scheduler task that runs after a file deletes its DOM
@@ -153,6 +160,18 @@ if (!("Element" in scope)) {
   const { chromium, firefox, webkit } = await import("playwright");
   useSystemChrome(chromium as unknown as Parameters<typeof useSystemChrome>[0]);
   refusePlaywrightOnMacs([chromium, webkit, firefox]);
+}
+
+// The chunks a page fetches once it is idle after its first frame (src/lazyChunk.ts: the facts hover
+// card) are in place before a file's first test, as they are on a page by the time anyone points at
+// a card: a render draws them at once, with no update outside act. Before the first test, not here: a
+// chunk's modules (Base UI) read `navigator` once when they load, so they load after the file has
+// installed its window, as they did when they were the file's own imports. A file that imports none
+// of them fetches nothing.
+{
+  const { beforeAll } = await import("bun:test");
+  const { loadLazyChunks } = await import("../src/lazyChunk");
+  beforeAll(() => loadLazyChunks());
 }
 
 // Cross-file leaks: a test file that leaves module state, a timer, a listener or a global behind

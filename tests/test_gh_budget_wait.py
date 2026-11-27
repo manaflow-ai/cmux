@@ -9,6 +9,7 @@ gh calls of every job on the publish path, with room in timeout-minutes for the 
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -131,6 +132,17 @@ class WrapperTests(unittest.TestCase):
         self.assertNotIn("rate limit exceeded", result.stderr)
         self.assertEqual(h.calls(), ["call release upload v1 a.dmg", "rate_limit", "call release upload v1 a.dmg"])
         self.assertEqual(h.waited(), 1)
+
+    def test_a_wait_prints_one_structured_marker_on_stderr_only(self) -> None:
+        # ci-trace classifies waits by `CMUX-WAIT {json}` anywhere in a log line.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1")
+        result = h.gh("release", "upload", "v1", "a.dmg")
+        markers = [json.loads(m.group(1)) for m in re.finditer(r"CMUX-WAIT (\{.*\})", result.stderr)]
+        self.assertEqual(markers, [{"on": "github-api-budget", "class": "quota", "bound_s": 1, "waited_s": 1}])
+        self.assertNotIn("CMUX-WAIT", result.stdout)
+        # A caller merging stderr into stdout compares it exactly, so it gets no marker.
+        out = subprocess.run(["bash", "-c", f'"{h.shim}" api x 2>&1'], env=h.env, capture_output=True, text=True)
+        self.assertEqual(out.stdout, "ok api x\n")
 
     def test_a_secondary_limit_in_the_json_body_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",

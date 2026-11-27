@@ -353,3 +353,20 @@ await done;
     expect(probeRow("p", steps.slice(0, 1))).not.toHaveProperty("create_to_first_text_ms");
   });
 });
+
+describe("every chat start waits for an owner machine before session_start", () => {
+  // Run 45791887919 (prod, claude stub, --home-chat reserved): the reserved start skipped the wait, the machine's
+  // vm-kind still read the image's team, and agent-auth.sh sent the stub's turn to CodeRouter instead of the stub.
+  test("the reserved home start and the acp start both run ownerKindStep, then mark session_start", () => {
+    const src = readFileSync(join(import.meta.dir, "cloud-journey.ts"), "utf8");
+    const reserved = src.indexOf('} else if (homeChat === "reserved") {');
+    const acp = src.indexOf("let promptedWithStart = false;");
+    expect(reserved).toBeGreaterThan(-1);
+    expect(acp).toBeGreaterThan(reserved);
+    for (const branch of [src.slice(reserved, src.indexOf("let reservedChat", reserved)), src.slice(src.lastIndexOf("} else {", acp), acp)]) {
+      const wait = branch.indexOf("await ownerKindStep();");
+      expect(wait).toBeGreaterThan(-1);
+      expect(branch.indexOf('J.firstText.mark("session_start")')).toBeGreaterThan(wait);
+    }
+  });
+});

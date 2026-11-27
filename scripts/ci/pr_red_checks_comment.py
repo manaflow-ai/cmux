@@ -82,7 +82,7 @@ NAMED = 3  # new red tests a line names before "(+N more)"
 # Jobs that only gather other jobs' verdicts, each with the jobs it gathers (its `needs`, as check names): never
 # compared with the base on their own. react-apps-check comes first: Web status gathers it too.
 AGGREGATES = {
-    "web / react-apps-check": re.compile(r"^web / (?:react-apps-(?:base-)?check \(\d+\)|react-doctor)$"),
+    "web / react-apps-check": re.compile(r"^web / react-apps-(?:base-)?check \(\d+\)$"),
     "web / Web status": re.compile(r"^web / (?!Web status$)"),  # it needs every routed web job
 }
 # A gathered job that ended with no verdict: the aggregate failed on it, and no base red explains that. Skipped is

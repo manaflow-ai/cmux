@@ -242,6 +242,30 @@ test("a remote chat from an older acpmux keeps the machine row; a newer one gets
   expect(button().getAttribute("aria-label")).toBe("walk-remote is offline");
 });
 
+test("the dot redials a machine link that is down on its own, with no Reconnect button", async () => {
+  // Leo, 2026-11-22: "vacuous decisions like that should be just done".
+  const { ComposerStatusFoot } = await import("./ComposerStatusDot");
+  jest.useFakeTimers();
+  try {
+    const link = { machine: "walk-remote", link: "offline" as const };
+    let asks = 0;
+    await render(
+      <ComposerStatusFoot
+        snapshot={{ summary: { peer: "walk-remote", composerStatus: { items: [offline], facts: [] } } }}
+        link={link}
+        heldForHost={false}
+        onReconnectMachine={() => void asks++}
+      />,
+    );
+    expect(host.querySelector(".acpmux-machine-link")).toBeNull();
+    expect(host.textContent).not.toContain("Reconnect");
+    await act(async () => void jest.advanceTimersByTime(1_000));
+    expect(asks).toBe(1);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test("a held send is the dot's to say", async () => {
   const { ComposerStatusFoot } = await import("./ComposerStatusDot");
   await render(<ComposerStatusFoot snapshot={{ summary: {} }} link={null} heldForHost />);

@@ -242,6 +242,34 @@ impl Public {
         })
     }
 
+    /// A published manifest's bytes, checked against `id`.
+    pub fn manifest_bytes(&self, id: &Id) -> Result<Vec<u8>> {
+        let bytes = std::fs::read(self.manifest_path(id))?;
+        Manifest::from_bytes(&bytes, id)?;
+        Ok(bytes)
+    }
+
+    /// Takes in an entry fetched from peers or the floor ([`crate::seed::fetch`]): `manifest`
+    /// must be the entry's id and every chunk it names must be held and read back, so the tier
+    /// then serves it like one it published. `entry` must come from an index the caller trusts.
+    pub fn adopt(&self, entry: &Entry, manifest: &[u8]) -> Result<()> {
+        let parsed = Manifest::from_bytes(manifest, &entry.manifest)?;
+        for c in parsed.distinct_chunks() {
+            self.store.get(&c.id)?;
+        }
+        let dir = self.root.join("manifests");
+        std::fs::create_dir_all(&dir)?;
+        let path = self.manifest_path(&entry.manifest);
+        write_atomic(&dir, &path, manifest)?;
+        Manifest::from_bytes(&std::fs::read(&path)?, &entry.manifest)?;
+        let mut entries = self.entries()?;
+        if !entries.contains(entry) {
+            entries.push(entry.clone());
+            write_atomic(&self.root, &self.index_path(), &serde_json::to_vec_pretty(&entries)?)?;
+        }
+        Ok(())
+    }
+
     /// The lookup the cold pass uses.
     pub fn index(&self) -> Result<PublicIndex> {
         let mut chunks = HashSet::new();

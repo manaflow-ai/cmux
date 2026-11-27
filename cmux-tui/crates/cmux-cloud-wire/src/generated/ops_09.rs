@@ -4,6 +4,85 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes message.send declares.
+    MessageSendError {
+        AddressCannotAct = "address_cannot_act",
+        AgentBudget = "agent_budget",
+        AgentRate = "agent_rate",
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        IdempotencyConflict2 = "idempotency_conflict",
+        InvalidClientMsgId = "invalid_client_msg_id",
+        InvalidParts = "invalid_parts",
+        InvalidThreadRoot = "invalid_thread_root",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor).
+    MuxAckOp {
+        name: "mux.ack",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:MuxDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: MuxAckParams,
+        result: MuxAckResult,
+        error: MuxAckError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MuxAckParams {
+    pub agent: AgentId,
+    pub conversation: ConversationId,
+    pub seq: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MuxAckResult {
+    pub cursor: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleared: Option<i64>,
+}
+
+wire_errors! {
+    /// The error codes mux.ack declares.
+    MuxAckError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Run a chief's brain locally (on a host) or in the cloud (the chief's owner).
+    MuxConfigureOp {
+        name: "mux.configure",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:MuxDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: MuxConfigureParams,
+        result: Value,
+        error: MuxConfigureError,
+    }
+}
+
 wire_enum! {
     MuxConfigureParamsBrain {
         Local = "local",
@@ -820,87 +899,5 @@ wire_errors! {
         OwnerUnreachable = "owner.unreachable",
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Show what a pending pairing code would add: the server's name, platform, key thumbprint and location.
-    ServerPairPreviewOp {
-        name: "server.pair.preview",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:PairingDO",
-        risk: "read",
-        principals: [Session],
-        params: ServerPairPreviewParams,
-        result: PairingPreview,
-        error: ServerPairPreviewError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerPairPreviewParams {
-    pub code: PairingCode,
-}
-
-wire_errors! {
-    /// The error codes server.pair.preview declares.
-    ServerPairPreviewError {
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Remove a server from the team directory and revoke its install key (the owner; a team admin removes it from the directory).
-    ServerRevokeOp {
-        name: "server.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: ServerRevokeParams,
-        result: ServerRevokeResult,
-        error: ServerRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerRevokeParams {
-    pub host: HostId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerRevokeResult {
-    pub host: HostId,
-    pub install_revoked: bool,
-}
-
-wire_errors! {
-    /// The error codes server.revoke declares.
-    ServerRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Post a message to a Slack channel as the cmux bot.
-    SlackPostAsBotOp {
-        name: "slack.post_as_bot",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: SlackPostAsBotParams,
-        result: Value,
-        error: SlackPostAsBotError,
     }
 }

@@ -322,6 +322,7 @@ export const NextStepCard = memo(function NextStepCard({
           />
         </label>
       )}
+      {/* retry-prompt-ok: the person's pick did not send; sending it again is their paid model request. */}
       {failed && <output className="acpmux-next-step__detail">{t("prompt.notSentAgain")}</output>}
     </fieldset>
   );

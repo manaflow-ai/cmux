@@ -199,6 +199,11 @@ impl Mux {
         self.streams.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
+    /// How long since a record of any kind came in on this circuit.
+    pub(crate) fn heard_age(&self) -> Duration {
+        self.heard().elapsed()
+    }
+
     /// Whether the circuit ended under its dialer, not by the dialer's choice: the carrier opens
     /// it again rather than leave the next dial a whole new handshake.
     pub(crate) fn wants_reopen(&self) -> bool {
@@ -433,6 +438,9 @@ impl Mux {
                 Ok(local) => self.carry_admitted(id, local, events, credit).await,
                 Err(refusal) => refuse(refusal).await,
             },
+            Ok(CircuitService::Echo) => {
+                self.carry_admitted(id, super::echo_stream(), events, credit).await
+            }
             Ok(CircuitService::LaneGhBroker) => {
                 match broker::open(incoming.carrier.lane_gh_broker_gate(), from).await {
                     Ok(local) => self.carry_admitted(id, local, events, credit).await,

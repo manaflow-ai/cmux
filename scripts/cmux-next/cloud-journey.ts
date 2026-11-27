@@ -3876,8 +3876,8 @@ export function machineIds(rows: any[]): string[] {
 
 /**
  * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
- * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow that runs it to be at most
- * half of this), so a journey that is still running never loses its machine. A long run (--resume-matrix,
+ * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow job that runs it to be at
+ * most half of this; a job that runs none, like backend.yml's 95 min `test`, makes no journey machine), so a journey that is still running never loses its machine. A long run (--resume-matrix,
  * --wake-echo) names its machines `cloud journey auto jr-<tag> long…` and gets LONG_JOURNEY_MS instead.
  */
 export const STALE_JOURNEY_MS = 3 * 3_600_000;
@@ -5920,10 +5920,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       probeExtra.reserved_hit ??= false;
     };
+    // An owner machine's agents run on what their launch carries only once its kind record reads owner
+    // (OWNER_KIND_PROGRAM); both chat starts below wait for it before session_start.
+    const ownerKindStep = async () => {
+      if (!provider || team || gatewayAny) return;
+      await J.step("machine kind owner", async () => {
+        const k = await waitOwnerKind(exec);
+        return { value: null, detail: k.tries === 1 ? "/etc/cmux/vm-kind reads owner" : `/etc/cmux/vm-kind read ${k.first}, owner after ${Math.round(k.waitedMs / 1000)} s (${k.tries} tries)` };
+      });
+    };
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
       await journeyOnly();
     } else if (homeChat === "reserved") {
+      // As the acp start below: until /etc/cmux/vm-kind reads owner, agent-auth.sh runs claude in team mode
+      // (shared-machine), over settings.json's stub endpoint (run 45791887919: the stub leg's turn answered
+      // "No cmux inference gateway is online"). Before session_start, so the send window does not carry it.
+      await ownerKindStep();
       J.firstText.mark("session_start");
       let reservedChat: ChatClient | null = null;
       let started = false;
@@ -6008,13 +6021,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
       for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
-      // An owner machine's agents run on what their launch carries only once its kind record reads owner (OWNER_KIND_PROGRAM).
-      if (provider && !team && !gatewayAny) {
-        await J.step("machine kind owner", async () => {
-          const k = await waitOwnerKind(exec);
-          return { value: null, detail: k.tries === 1 ? "/etc/cmux/vm-kind reads owner" : `/etc/cmux/vm-kind read ${k.first}, owner after ${Math.round(k.waitedMs / 1000)} s (${k.tries} tries)` };
-        });
-      }
+      await ownerKindStep();
       J.firstText.mark("session_start");
       let promptedWithStart = false;
       await J.step(`start agent (${agent})`, async () => {

@@ -277,6 +277,53 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
     Ok(json!({}))
 }
 
+/// `_acpmux/rooms {chats?, workspaces?}` (RFD 0141 phase 2): the rooms this connection shows
+/// now, replacing the set it named before (`hub/presence.rs`). Each chat must be attached here,
+/// as for `_acpmux/typing`: a room shows who has the chat open, which only its attached
+/// connections hear. A peer daemon's link watches none.
+pub(super) fn rooms(hub: &Hub, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
+    use crate::hub::presence::{Room, Sink};
+    if a_link(conn) {
+        return Err(crate::hub::presence::peer_unsupported());
+    }
+    let ids = |key: &str| -> Result<Vec<String>, RpcError> {
+        match params.get(key) {
+            None | Some(Value::Null) => Ok(Vec::new()),
+            Some(Value::Array(ids)) => ids
+                .iter()
+                .map(|id| {
+                    id.as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| RpcError::invalid_params(format!("{key} must be strings")))
+                })
+                .collect(),
+            Some(_) => Err(RpcError::invalid_params(format!("{key} must be a list of ids"))),
+        }
+    };
+    let mut rooms = Vec::new();
+    {
+        let subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+        for key in ids("chats")? {
+            let id = hub.resolve(&key)?.id.clone();
+            if subs.get(&id).is_none_or(|opts| opts.remote) || !open(conn) {
+                return Err(RpcError::invalid_params(format!(
+                    "attach to {key} before watching its room"
+                )));
+            }
+            rooms.push(Room::Chat(id));
+        }
+    }
+    rooms.extend(ids("workspaces")?.into_iter().map(Room::Workspace));
+    let weak = Arc::downgrade(conn);
+    let sink: Sink = Arc::new(move |note| {
+        if let Some(conn) = weak.upgrade() {
+            conn.send(&Message::notification(crate::rpc::method::MUX_ROOM, note));
+        }
+    });
+    let watched = hub.presence.rooms(&conn.id, sink, rooms)?;
+    Ok(json!({"rooms": watched}))
+}
+
 /// `_acpmux/markUnread {sessionId, readThrough?}` (cx-ncc.78): the person marks a chat unread; it
 /// stays so until a client shows it again after hiding it (`hub/seen.rs`). With `readThrough`, the
 /// person's seen cursor also moves back to it (never forward), so the rows after it are unseen.

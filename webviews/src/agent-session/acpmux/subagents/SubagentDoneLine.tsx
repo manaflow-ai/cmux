@@ -28,7 +28,7 @@
 //
 // The saved report-disclosure look keeps its inline Markdown report. Its row toggles the report;
 // the agent name opens the agent's view (doneReport.experiment.ts).
-import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
@@ -47,7 +47,7 @@ import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { useResume } from "./ResumeControl";
-import { retryLabel, subagentRetry, type RetryNote, type SessionRetryFields } from "./retryState";
+import { retryLabel, subagentRetry, untilNotBusy, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import {
   subagentDisplayName,
@@ -123,9 +123,12 @@ function DoneLine({
   // every surface of a stopped helper shares (ResumeControl.tsx), its note kept until the row changes.
   const resumed = useResume(agent, actions, row.version);
   // A refusal's note lasts until the row changes. A Retry that went keeps the row's Retry disabled
-  // until the row changes (acpmux's next word on it), so it can't go twice; acpmux refuses a second
-  // one of its own as `retry.busy` meanwhile.
+  // until the row changes (acpmux's next word on it), so it can't go twice. One acpmux refuses
+  // `retry.busy` (a turn runs) stays busy and is asked again on its own (``untilNotBusy``), never a
+  // "try again shortly" for the person to click; the row going away stops it.
   const [note, setNote] = useState<{ version: number; key?: RetryNote; busy?: boolean }>();
+  const stopAsking = useRef<() => void>(undefined);
+  useEffect(() => () => stopAsking.current?.(), []);
   // How a failed line reads (failedLine.experiment.ts): the quiet grid by default.
   const [failedLook] = useState(() => experimentArm(failedLineLook));
   // Completed lines are compact by default; explicit report looks keep their existing behavior.
@@ -216,7 +219,10 @@ function DoneLine({
   const run = () => {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
-    void retryAgent(agent).then(
+    stopAsking.current?.();
+    const asked = untilNotBusy(() => retryAgent(agent));
+    stopAsking.current = asked.stop;
+    void asked.answer.then(
       (key) => setNote(key ? { version: row.version, key } : { version: row.version, busy: true }),
       () => setNote({ version: row.version, key: "retry.failed" }),
     );
@@ -335,6 +341,7 @@ function DoneLine({
       onClick={run}
     >
       {affordance === "button" && <Retry size={12} />}
+      {/* retry-prompt-ok: runs the failed subagent again, a paid model run with side effects. */}
       {t("retry.action")}
     </button>
   );
@@ -427,7 +434,8 @@ function DoneLine({
                         <Icon name="action.more" size={14} />
                       </MenuButton>
                       <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("retry.menu")}>
-                        {/* The row's one Retry, here only when the line has none (`doneLineControls`). */}
+                        {/* The row's one Retry, here only when the line has none (`doneLineControls`).
+                            retry-prompt-ok: runs the failed subagent again, a paid model run with side effects. */}
                         <MenuItem className="acpmux-quick-item" onSelect={run}>
                           {t("retry.action")}
                         </MenuItem>

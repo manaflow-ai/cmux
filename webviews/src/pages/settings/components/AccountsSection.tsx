@@ -2,12 +2,12 @@
 // localized (`cmux.settings.accounts.state`, live through `cmux.settings.accounts.changed`) and
 // runs each gesture (`cmux.settings.accounts.run`); the page only draws and forwards. A pasted key
 // lives in this component's state until it is sent, never in the store, and is cleared after.
-import { memo, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useState, memo, useMemo } from "react";
 import { useKeptItems } from "../keptItems";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
-import { useSettingsSelector, useStore } from "../context";
+import { useStore, useSettingsSelector } from "../context";
 import type { SettingsState } from "../store";
 import { Select } from "../editors/Select";
 import type { AccountsButton, AccountsCmux, AccountsRow, AccountsTeams } from "../ops";
@@ -15,6 +15,7 @@ import { t } from "../strings";
 import { TeamsGroup } from "./AccountsTeams";
 import { AccountSignInSection } from "./AccountSignInSection";
 import { GitHubAccountsCard } from "./GitHubAccountsCard";
+import { SlackAccountsCard } from "./SlackAccountsCard";
 import { TeamAgentKeysCard } from "./TeamAgentKeysCard";
 
 const accountsOf = (state: SettingsState) => state.accounts;
@@ -89,6 +90,7 @@ function AccountsBody() {
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
       <TeamAgentKeysCard />
       <GitHubAccountsCard />
+      <SlackAccountsCard />
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>
           <h3 className="group-title">{group.title}</h3>

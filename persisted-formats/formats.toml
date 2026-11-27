@@ -185,10 +185,16 @@ key = "cmux.acpmux.addedGitHubRepos.v1"
 key = "cmux.acpmux.backgroundFocus"
 
 [[storage_key]]
+key = "cmux.acpmux.detail"
+
+[[storage_key]]
 key = "cmux.acpmux.cloud.signedIn"
 
 [[storage_key]]
 key = "cmux.acpmux.composer-draft."
+
+[[storage_key]]
+key = "cmux.acpmux.detail"
 
 [[storage_key]]
 key = "cmux.acpmux.harnessCatalog.v1"
@@ -341,6 +347,9 @@ key = "cmux.autoWhere.cloudLanding."
 key = "cmux.browser.appLink"
 
 [[storage_key]]
+key = "cmux.chief.chunkReloadAt"
+
+[[storage_key]]
 key = "cmux.chiefViews.layout"
 
 [[storage_key]]
@@ -382,6 +391,12 @@ key = "cmux.editor.keySequence"
 
 [[storage_key]]
 key = "cmux.experiments"
+
+[[storage_key]]
+key = "cmux.guest.chunkReloadAt"
+
+[[storage_key]]
+key = "cmux.home.detail"
 
 [[storage_key]]
 key = "cmux.home.presentation:"

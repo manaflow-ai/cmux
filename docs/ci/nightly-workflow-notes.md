@@ -477,8 +477,7 @@ paths, and nothing read it before a publish: a tree whose shelf was red could st
 (feat-cmux-next's shelf runs failed 2026-11-23 19:39-20:02Z). This job runs the same
 `scripts/ci/app-store-shelf-check.sh` on the exact build commit, beside the build in both modes: about
 14-26 min on Linux against a build, sign and notarize of tens of minutes, so it adds no time to a green run.
-The final publication gate (`nightly_publish_guard.py shelf-verdict`) refuses a build without it green:
-publish-nightly reads the job through its needs; nightly-next-one, which does not wait on it, reads the job
-in this run (`SHELF_SOURCE=run`), waiting up to 30 min for it to finish; a recovered build needs it green
-in the run that built it. Route: resolve-nightly-cmux-tui-client's `cmux-linux`, since it has no secret
-and the cargo build would otherwise take a nightly Mac.
+A red shelf no longer holds a publish (Leo, 2026-11-25: "we need to make sure we can just have stuff be ok"): a
+NIGHTLY blocks on four things (compiles, signed and notarized, launch smoke, update from the previous NIGHTLY).
+`report-nightly-shelf-red` opens or updates "NIGHTLY App Store shelf is red". Webview checks: stale part unless
+`NIGHTLY_COMPONENT_GATES=block`. Route: resolve-nightly-cmux-tui-client's `cmux-linux` (no secret, no Mac).

@@ -54,7 +54,7 @@ import { Timeline } from "./Timeline";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
-import { PresentationToggle, usePresentation } from "./presentation";
+import { DetailToggle, useDetail } from "./presentation";
 import { sliceWhole } from "../../ui/wholeChars";
 import { KeyHint } from "../../ui/KeyHint";
 
@@ -87,7 +87,7 @@ export function HomeChannelsPage({
   // The sheets and the palette are not in the startup JS (lazySheets.tsx): fetch them once the
   // first frame is in, so the first open finds them loaded.
   useEffect(preloadSheets, []);
-  const presentation = usePresentation(snap.selected);
+  const detail = useDetail(snap.selected);
   // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
   // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -177,8 +177,8 @@ export function HomeChannelsPage({
     return map;
   }, [conversations, snap.me]);
   const runsWithPeople = useMemo<RunsContextValue>(
-    () => ({ ...runs, people, draftTurn: snap.draft?.turn, presentation }),
-    [runs, people, snap.draft?.turn, presentation],
+    () => ({ ...runs, people, draftTurn: snap.draft?.turn, detail }),
+    [runs, people, snap.draft?.turn, detail],
   );
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
@@ -637,7 +637,7 @@ export function HomeChannelsPage({
                         )}
                       </p>
                       <span className="lg-spacer" />
-                      <PresentationToggle conversation={open.id} strings={strings} />
+                      <DetailToggle conversation={open.id} strings={strings} />
                       {caps.chiefWork && openChief && open.owner === "local" && (
                         <button
                           type="button"

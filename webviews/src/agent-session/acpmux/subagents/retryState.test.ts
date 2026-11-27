@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture subagent names and tasks, not shipped UI.
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { translate } from "../i18n";
 import { sessionEntry } from "../sessionList";
 import { SubagentFold } from "./subagentFold";
@@ -16,6 +16,8 @@ import {
   retryLabel,
   RETRY_METHOD,
   runRetry,
+  untilNotBusy,
+  type RetryNote,
   type RetryTarget,
 } from "./retryState";
 
@@ -330,5 +332,54 @@ describe("Retry reaches acpmux, and only acpmux", () => {
   test("the strings are in the catalog", () => {
     for (const key of ["retry.busy", "retry.nothingFailed", "retry.failed", "retry.running", "retry.gone"] as const)
       expect(translate(key)).not.toBe(key);
+  });
+});
+
+describe("a Retry acpmux refuses as busy is asked again on its own", () => {
+  const fast = { firstMs: 1, maxMs: 2, random: () => 0, visible: () => true };
+
+  test("it asks until acpmux takes it, and answers what acpmux said then", async () => {
+    const answers: (RetryNote | undefined)[] = ["retry.busy", "retry.busy", undefined];
+    let asked = 0;
+    const { answer } = untilNotBusy(async () => answers[asked++], fast);
+    expect(await answer).toBeUndefined();
+    expect(asked).toBe(3);
+  });
+
+  test("any other refusal ends the wait with its note", async () => {
+    let asked = 0;
+    const { answer } = untilNotBusy(async () => (asked++ === 0 ? "retry.busy" : "retry.gone"), fast);
+    expect(await answer).toBe("retry.gone");
+    expect(asked).toBe(2);
+  });
+
+  test("stop ends the wait: nothing more is asked", async () => {
+    // The backoff spacing is the behavior: fake timers step it instead of the wall clock.
+    jest.useFakeTimers();
+    try {
+      let asked = 0;
+      const { stop } = untilNotBusy(async () => {
+        asked++;
+        return "retry.busy";
+      }, fast);
+      const settle = async () => {
+        for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+      };
+      for (let step = 0; step < 5; step++) {
+        await settle();
+        jest.advanceTimersByTime(fast.maxMs);
+      }
+      await settle();
+      expect(asked).toBeGreaterThan(1);
+      stop();
+      const seen = asked;
+      for (let step = 0; step < 10; step++) {
+        jest.advanceTimersByTime(fast.maxMs * 10);
+        await settle();
+      }
+      expect(asked).toBe(seen);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

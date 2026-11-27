@@ -79,6 +79,9 @@ pub(super) struct Wanted {
     /// When the last ask came, so one made before a waiter listens still counts
     /// (`Peer::next_ask_after`); `asked` wakes only the waiters there are.
     asked_at: StdMutex<Option<Instant>>,
+    /// Whether the peer waits to be used before it dials, and when it was last used
+    /// (`peer_demand.rs`).
+    pub(super) demand: super::demand::Demand,
 }
 
 impl Peer {

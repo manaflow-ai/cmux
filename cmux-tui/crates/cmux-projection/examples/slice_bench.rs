@@ -417,7 +417,20 @@ fn mount(args: &[String]) -> anyhow::Result<()> {
         None => link,
     };
     let owner = (linux::uid(), linux::gid());
-    let overlay = Arc::new(Overlay::open(manifest, Path::new(state), fetch, owner)?);
+    let overlay = Overlay::open(manifest, Path::new(state), fetch, owner)?;
+    // Bench only: with SLICE_REPLAY=KEY the mount records its access list under KEY and fetches
+    // the last one ahead in the background (RFD 0065 piece 8).
+    let overlay = Arc::new(match std::env::var("SLICE_REPLAY") {
+        Ok(key) if !key.is_empty() => overlay.with_replay(&key),
+        _ => overlay,
+    });
+    if !overlay.replay_list().is_empty() {
+        let replaying = overlay.clone();
+        std::thread::spawn(move || {
+            let report = replaying.replay_prefetch();
+            eprintln!("replay: {report:?}");
+        });
+    }
     let at = std::fs::canonicalize(at)?;
     let mounted = cmux_projection::mount::mount_with(overlay.clone(), &at, Options::default())?;
     std::fs::metadata(&at)?;

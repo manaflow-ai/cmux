@@ -71,6 +71,8 @@ pub mod scroll;
 mod session_ops;
 pub mod shimmer;
 pub mod skills;
+#[cfg(test)]
+mod subagent_wait_tests;
 pub mod theme;
 
 pub use actions::Action;

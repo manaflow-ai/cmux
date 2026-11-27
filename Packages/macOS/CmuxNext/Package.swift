@@ -194,7 +194,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: f78b1959f2e73763eb68289303aa3a1a95a4565fc8c3df080df665875967a065
+// app-ffi-pin-checksum: c300e09362e8e5a9d56b09b636818431ec226cf15f359401bd83126cd66b7f16
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -716,7 +716,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("Resources/AttentionTabs.xcstrings"),
                 .copy("Resources/agent-pane"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            plugins: [.plugin(name: "AgentPanePolicyPlugin")]
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
@@ -818,6 +819,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -1170,7 +1172,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextComputerUsePreview",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
+                "CmuxNextDesign",
+                "CmuxNextSettings",
                 "CmuxNextTerminal",
             ],
             swiftSettings: uiSwiftSettings
@@ -1186,6 +1191,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
@@ -2532,6 +2538,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // wires it to Ghostty's search bindings and draws the bar. No default
         // main-actor isolation: its value types are test arguments, which
         // Swift Testing builds off the main actor.
+        .testTarget(
+            name: "CmuxNextTerminalGeometryTests",
+            dependencies: ["CmuxNextTerminalGeometry"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextTerminalFind",
             swiftSettings: daemonSwiftSettings
@@ -2786,6 +2797,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
             plugins: [.plugin(name: "SettingsSchemaPlugin"), .plugin(name: "StringCatalogsPlugin")]
         ),
+        // Runs scripts/cmux-next/gen-agent-pane-policy-swift.py --swift-out into its work directory.
+        .plugin(name: "AgentPanePolicyPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
         .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/string_catalogs.py build-target: a target's <Table>.xcstrings.d directories (one file
@@ -3090,8 +3103,12 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextChromiumRuntimeTests",
     "CmuxNextCompat",
     "CmuxNextCompatTests",
+    "CmuxNextCopyMode",
     "CmuxNextHostPressure",
     "CmuxNextHostPressureTests",
+    "CmuxNextTerminalFind",
+    "CmuxNextTerminalGeometry",
+    "CmuxNextTerminalGeometryTests",
 ]
 
 let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxTargetNames.contains($0.name) }

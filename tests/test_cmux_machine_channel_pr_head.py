@@ -29,14 +29,17 @@ def pull(**over):
 
 
 class Fake:
-    def __init__(self, pulls, runs, artifacts, jobs=None):
+    def __init__(self, pulls, runs, artifacts, jobs=None, tips=None):
         self.pulls, self.runs, self.artifacts, self.jobs = pulls, runs, artifacts, jobs or {}
+        self.tips = tips or []
         self.calls = []
 
     def __call__(self, path):
         self.calls.append(path)
         if path.startswith("commits/"):
             return self.pulls
+        if "branch=lane%2Fmerge-train" in path:
+            return {"workflow_runs": self.tips}
         if path.startswith("actions/workflows/"):
             return {"workflow_runs": self.runs() if callable(self.runs) else self.runs}
         run = int(path.split("/")[2])
@@ -46,11 +49,19 @@ class Fake:
         return {"jobs": self.jobs.get(run, [])}
 
 
-def run_find(api, keys=None, wait=0.0):
+def run_find(api, keys=None, wait=0.0, tree="t" * 40):
     keys = keys or {MERGE: "k1", HEAD: "k1"}
     clock = [0.0]
     return pr_head.find(api, REPO, MERGE, PREFIX, wait, key=lambda r: keys.get(r, ""),
-                        sleep=lambda s: clock.__setitem__(0, clock[0] + s), now=lambda: clock[0])
+                        sleep=lambda s: clock.__setitem__(0, clock[0] + s), now=lambda: clock[0],
+                        tree=lambda r: tree if r == MERGE else "")
+
+
+TIP = "p" * 40
+
+
+def tip_run(id_, tree="t" * 40, sha=TIP):
+    return {"id": id_, "head_sha": sha, "head_commit": {"tree_id": tree}}
 
 
 class FindTest(unittest.TestCase):
@@ -67,6 +78,18 @@ class FindTest(unittest.TestCase):
         api = Fake([pull()], [{"id": 7, "status": "completed"}], {7: BOTH})
         self.assertIsNone(run_find(api, keys={MERGE: "k1", HEAD: "k2"}))
         self.assertIsNone(run_find(api, keys={MERGE: "", HEAD: ""}))
+
+    def test_a_stale_head_takes_the_train_tip_with_the_merges_tree(self):
+        runs = lambda: [{"id": 11, "status": "completed"}] if api.calls[-1].find(TIP) > 0 else []
+        api = Fake([pull()], runs, {11: BOTH},
+                   tips=[tip_run(3, tree="x" * 40, sha="q" * 40), tip_run(5)])
+        self.assertEqual(run_find(api, keys={MERGE: "k1", HEAD: "k2"}), 11)
+        self.assertIn(f"actions/workflows/pr-router.yml/runs?head_sha={TIP}&event=pull_request&per_page=20", api.calls)
+
+    def test_no_train_tip_with_the_merges_tree_builds_here(self):
+        api = Fake([pull()], [{"id": 11, "status": "completed"}], {11: BOTH}, tips=[tip_run(5, tree="x" * 40)])
+        self.assertIsNone(run_find(api, keys={MERGE: "k1", HEAD: "k2"}))
+        self.assertIsNone(run_find(Fake([pull()], [], {}, tips=[tip_run(5)]), keys={MERGE: "k1", HEAD: "k2"}, tree=""))
 
     def test_a_fork_head_another_base_or_a_non_squash_build_here(self):
         for pr in (pull(head={"sha": HEAD, "repo": {"full_name": "someone/cmux"}}),
@@ -116,6 +139,38 @@ class FindTest(unittest.TestCase):
         self.assertEqual(out.getvalue(), "")
 
 
+    def test_fast_lane_reads_on_the_app_budget_not_github_token(self):
+        # Run 45761272633 (5a2862fb, 2026-11-26): the lookup on the shared GITHUB_TOKEN quota got a 403 and
+        # the merge rebuilt; run 45730730942: both points' cross-run downloads failed on that quota.
+        import yaml
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-machine-channel.yml").read_text())
+        steps = {n: {s.get("id") or s.get("name"): s for s in j["steps"]} for n, j in wf["jobs"].items()
+                 if "steps" in j}
+        self.assertEqual(steps["plan"]["plan"]["env"]["GH_TOKEN"], "${{ steps.app.outputs.token }}")
+        self.assertIn("create-github-app-token", steps["plan"]["app"]["uses"])
+        points = [n for n, by in steps.items()
+                  if "Download the machine channel's Linux cmux-tui binaries" in by]
+        self.assertEqual(len(points), 2)
+        for n in points:
+            self.assertIn("create-github-app-token", steps[n]["app"]["uses"])
+            tok = steps[n]["Download the machine channel's Linux cmux-tui binaries"]["with"]["github-token"]
+            self.assertIn("steps.app.outputs.token", tok)
+            self.assertNotIn("github.token", tok)
+
+    def test_a_refusal_names_its_reason(self):
+        import io, urllib.error, urllib.request
+        err = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b'{"message":"API rate limit exceeded for installation"}'))
+        def boom(*a, **k):
+            raise err
+        real = urllib.request.urlopen
+        urllib.request.urlopen = boom
+        try:
+            with self.assertRaisesRegex(RuntimeError, "HTTP 403: .*rate limit exceeded"):
+                pr_head.github_api(REPO, "t")("commits/x/pulls")
+        finally:
+            urllib.request.urlopen = real
+
+
 class LandTierTest(unittest.TestCase):
     """pr-router's machine channel PR head build runs only at a head handed to land (Leo, 2026-11-23: "de facto, im
     asking for 99% fewer minutes of ci time, period."): tests/test_head_tier.py land_tier_condition."""
@@ -140,6 +195,17 @@ class TreeKeyCliTest(unittest.TestCase):
         text = (ROOT / ".github/workflows/cmux-machine-channel.yml").read_text()
         self.assertNotIn('"$tk" key', text)
         self.assertIn('"$tk" --version v2', text)
+
+    def test_a_head_behind_the_base_does_not_build(self):
+        """find takes a build only when the head's key is the merge's, so a head behind the base (its key differs
+        from its merge with the base) builds a pair no merge can take: 470 head builds, 16.8k runner-minutes, in
+        04:30-07:11Z 2026-11-26 against 6 push builds (ci-min-per-pr-1500)."""
+        text = (ROOT / ".github/workflows/cmux-machine-channel.yml").read_text()
+        plan = text[text.index("if [[ \"$GITHUB_EVENT_NAME\" == pull_request ]]"):text.index("# The channel's commit")]
+        self.assertIn('"$tk" --version v2 HEAD^2', plan)
+        self.assertIn('"$head" != "$mine"', plan)
+        self.assertLess(plan.index('"$mine" != "$base"'), plan.index('"$head" != "$mine"'))
+        self.assertLess(plan.index('"$head" != "$mine"'), plan.index('echo "build=$build" >> "$GITHUB_OUTPUT"'))
 
 
 if __name__ == "__main__":

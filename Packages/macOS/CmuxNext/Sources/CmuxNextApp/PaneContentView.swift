@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextAgentPane
@@ -28,6 +29,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     let paneScope = ThemeScope(level: .workspace)
     /// The pane's own background and tint (`PaneContentView+Backdrop`).
     let backdropState = PaneBackdropState()
+    var wallpaperBadge: AccountWallpaperBadge? // shows the signed-in account on its own art view's badge (`AppServices.wallpaperBadge`)
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = PaneContentAreaView()
     private(set) weak var content: NSView?
@@ -141,7 +143,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             }
         }
         paneBackgroundsObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
+            for await _ in ObservationStream({ (DesignSettings.shared.paneBackgrounds, DesignSettings.shared.flourishes.paneArt) }) { self?.paintPaneBackdrop() }
         }
         placementObservation = Task { [weak self] in
             for await (position, order, toolbar) in ObservationStream({

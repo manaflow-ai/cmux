@@ -204,6 +204,26 @@ class GrantTests(unittest.TestCase):
         m.quit()
         self.assertFalse(config.exists())
 
+    def test_list_machines_never_loading_says_why(self):
+        from unittest.mock import patch
+        m = matrix.Matrix(matrix.parse_args([*self.APP]))
+        app = str(Path(m.args.app).resolve())
+        answers = {("app", "identify", "--json"): {"pid": 1, "app_bundle_path": app},
+                   ("app", "call", "auth.status", "--json"): {"signed_in": True, "cloud_environment": m.args.cloud_backend,
+                                                              "backend": m.args.expected_api_origin or ""},
+                   ("cloud", "list-machines", "--json"): {"account": {"signed_in": True}, "loaded": False},
+                   ("app", "call", "cloud.machines", "--json"): {"last_error": "machines read: 503", "link_route": None}}
+        clock = [0.0]
+        with patch.object(m, "cmux", side_effect=lambda *w, timeout: (0, json.dumps({"result": answers[w]}), "")), \
+                patch("subprocess.Popen"), patch("time.monotonic", side_effect=lambda: clock[0]), \
+                patch("time.sleep", side_effect=lambda s: clock.__setitem__(0, clock[0] + s)), \
+                patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")):
+            why = m.launch()
+            m.launcher = None
+            m.quit()
+        self.assertTrue(why.startswith("the app is not ready: cloud list-machines after 300 s"), why)
+        self.assertIn("machines read: 503", why)
+
     def test_cache_claude_login_stores_for_the_signed_in_account_and_removes_at_quit(self):
         from unittest.mock import patch
         token = "sk-ant-oat01-" + "x" * 40
