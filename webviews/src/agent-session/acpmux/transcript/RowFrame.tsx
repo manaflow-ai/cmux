@@ -59,12 +59,23 @@ export const RowContent = React.memo(
     const names = useContext(AgentNamesContext);
     const open = useContext(AgentOpenContext);
     const tones = useContext(AgentTonesContext);
+    // Keep providers above the memo boundary: React's context propagation can traverse a
+    // bailed-out body, so providers hidden inside it do not shield retained consumers.
+    const [retained, setRetained] = useState({ names, open, tones });
+    if (active && (retained.names !== names || retained.open !== open || retained.tones !== tones))
+      setRetained({ names, open, tones });
     const live = active && liveTools;
     // What moved on without the pane (a running command's output, a thought, the live line's call):
     // this row alone draws it.
     const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, live), live), live);
     return (
-      <RowBody {...props} Component={Component} active={active} row={row} names={names} open={open} tones={tones} />
+      <AgentNamesContext.Provider value={retained.names}>
+        <AgentOpenContext.Provider value={retained.open}>
+          <AgentTonesContext.Provider value={retained.tones}>
+            <RowBody {...props} Component={Component} active={active} row={row} />
+          </AgentTonesContext.Provider>
+        </AgentOpenContext.Provider>
+      </AgentNamesContext.Provider>
     );
   },
   (previous, next) => {
@@ -79,25 +90,16 @@ export const RowContent = React.memo(
 // On reveal the latest props pass through, before the frame measures its restored contents.
 type RowBodyProps = Omit<RowContentProps, "liveTools"> & {
   active: boolean;
-  names: React.ContextType<typeof AgentNamesContext>;
-  open: React.ContextType<typeof AgentOpenContext>;
-  tones: React.ContextType<typeof AgentTonesContext>;
 };
 const RowBody = React.memo(
-  function RowBody({ Component, active: _active, names, open, tones, ...props }: RowBodyProps) {
+  function RowBody({ Component, active: _active, ...props }: RowBodyProps) {
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
     return (
-      <AgentNamesContext.Provider value={names}>
-        <AgentOpenContext.Provider value={open}>
-          <AgentTonesContext.Provider value={tones}>
-            <RowBoundary row={props.row}>
-              <Component {...props} />
-            </RowBoundary>
-          </AgentTonesContext.Provider>
-        </AgentOpenContext.Provider>
-      </AgentNamesContext.Provider>
+      <RowBoundary row={props.row}>
+        <Component {...props} />
+      </RowBoundary>
     );
   },
   (previous, next) => {
