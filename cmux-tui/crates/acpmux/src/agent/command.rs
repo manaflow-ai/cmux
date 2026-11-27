@@ -540,19 +540,23 @@ fn build_harness_command(
 /// Prefix a launch with the local sandbox while preserving the exact environment the
 /// unwrapped command would receive. Reconstructing only `get_envs()` leaves a wrapper
 /// dependent on whatever ambient environment happens to be present when it starts.
-fn wrap_local_sandbox_command(
+fn wrap_local_sandbox_command<K, V>(
     cmd: Command,
     sandbox_program: &str,
     sandbox_args: Vec<String>,
     session: Option<&str>,
     scope_env: &std::collections::BTreeMap<String, String>,
-    final_env: &[(String, String)],
-) -> Command {
+    final_env: impl IntoIterator<Item = (K, V)>,
+) -> Command
+where
+    K: AsRef<std::ffi::OsStr>,
+    V: AsRef<std::ffi::OsStr>,
+{
     let program = cmd.as_std().get_program().to_owned();
     let args: Vec<_> = cmd.as_std().get_args().map(|arg| arg.to_owned()).collect();
     let mut wrapped = crate::session_scope::command(sandbox_program, session, scope_env, false);
     wrapped.env_clear();
-    wrapped.args(sandbox_args).arg(program).args(args).envs(final_env.iter());
+    wrapped.args(sandbox_args).arg(program).args(args).envs(final_env);
     wrapped
 }
 
@@ -902,7 +906,7 @@ mod tests {
             vec!["-p".into(), "(version 1)".into()],
             None,
             &std::collections::BTreeMap::new(),
-            &expected,
+            expected.clone(),
         );
         assert_eq!(command_env_cleared(&wrapped), expected);
     }
