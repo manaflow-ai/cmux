@@ -428,6 +428,17 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.streaming" : {
+      "default" : "words",
+      "description" : "How an agent's reply text appears as it arrives.",
+      "enum" : [
+        "words",
+        "lines",
+        "instant"
+      ],
+      "title" : "Reply Streaming",
+      "type" : "string"
+    },
     "agentPane.display.subagentOf" : {
       "default" : false,
       "description" : "In a subagent's own pane, show which chat it belongs to beside its name in the header.",
@@ -982,18 +993,6 @@
       "title" : "Saved Servers in Agent Chats",
       "type" : "boolean"
     },
-    "agents.modelRouter.model" : {
-      "default" : "deepseek/deepseek-v4.1-flash-1017",
-      "description" : "The model new cmux model router chats start on.",
-      "enum" : [
-        "deepseek/deepseek-v4.1-flash-1017",
-        "deepseek/deepseek-v4.1-flash",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro"
-      ],
-      "title" : "cmux Model Router Model",
-      "type" : "string"
-    },
     "agents.promptCache" : {
       "default" : "1h",
       "description" : "One hour keeps replies after a pause cheap; its cache writes cost a little more.",
@@ -1097,6 +1096,12 @@
       "default" : true,
       "description" : "Off: cmux never asks the network for announcements. The request carries no identifiers.",
       "title" : "Download Announcements",
+      "type" : "boolean"
+    },
+    "app.captureScreenshotGlobalHotKey" : {
+      "default" : false,
+      "description" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Capture Screenshot to Chat from Any App",
       "type" : "boolean"
     },
     "app.confirmQuit" : {
@@ -3837,6 +3842,12 @@
       "title" : "Save a Checkpoint Before Each Cloud Chat Turn",
       "type" : "boolean"
     },
+    "cloud.useMyGitHubLogin" : {
+      "default" : false,
+      "description" : "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine.",
+      "title" : "Use My GitHub Login on Cloud Machines",
+      "type" : "boolean"
+    },
     "computerUse.allowForeground" : {
       "default" : false,
       "description" : "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input.",
@@ -4605,6 +4616,12 @@
       "title" : "Cloud Disk Bar",
       "type" : "boolean"
     },
+    "experiments.compactionThresholdInsight" : {
+      "default" : false,
+      "description" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns.",
+      "title" : "Compaction Threshold Insight",
+      "type" : "boolean"
+    },
     "experiments.cloudToggle" : {
       "default" : false,
       "description" : "A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on.",
@@ -5100,6 +5117,12 @@
       "default" : false,
       "description" : "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex.",
       "title" : "Use Bundled Codex App Server",
+      "type" : "boolean"
+    },
+    "labs.chatMultiplayer" : {
+      "default" : false,
+      "description" : "Teammates you share a chat with show when they view it and when they type.",
+      "title" : "Chat Multiplayer",
       "type" : "boolean"
     },
     "labs.commentThreads" : {
@@ -6878,7 +6901,7 @@
       "type" : "boolean"
     },
     "sidebar.showSearchButton" : {
-      "default" : false,
+      "default" : true,
       "description" : "A search button after the profile button. Off: search from the palette.",
       "title" : "Show Search Button",
       "type" : "boolean"
@@ -7535,7 +7558,7 @@
     },
     "sidebar.workspacesAsTabs" : {
       "default" : false,
-      "description" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces.",
+      "description" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs.",
       "title" : "Workspaces as Tabs",
       "type" : "boolean"
     },
@@ -8322,7 +8345,7 @@
       "type" : "string"
     },
     "worktrees.cleanBuildCaches" : {
-      "default" : false,
+      "default" : true,
       "description" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
       "title" : "Clean Up Build Caches",
       "type" : "boolean"

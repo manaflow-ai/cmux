@@ -75,12 +75,12 @@ enum MainMenu {
             "about", "openSettings", "customize.open", "home.showSetup", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
         ],
         .file: [
-            "newTab", "newBrowserWorkspace", "newTab.default", "palette.newAgentChat", "palette.quickAgentChat",
+            "newTab", "newBrowserWorkspace", "newTab.default", "newSurface", "palette.newAgentChat", "palette.quickAgentChat",
             "openFolder", "file.open", "macScreen.open", "remote.connect", "device.add", "closeTab", "closeWorkspace", "closeWindow",
             "reopenClosedWorkspace", "reopenClosedBrowserPanel", "home.stopAllAgents",
         ],
         .view: [
-            "browserBack", "browserForward", "browserReload", "browserStop", "browserHardReload",
+            "splitRight", "splitDown", "browserBack", "browserForward", "browserReload", "browserStop", "browserHardReload",
             "browserZoomIn", "browserZoomOut", "browserZoomReset", "toggleSidebar",
             "appearance.customize",
         ],
