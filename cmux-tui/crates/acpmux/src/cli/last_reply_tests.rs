@@ -1,5 +1,93 @@
 use super::*;
 
+/// A mixed-version direct peer's unknown session method is invalid_params, not
+/// method_not_found. Only that precise response (and the hub's unsupported response)
+/// permits paging: authorization, bad parameters and transport failures still fail.
+#[cfg(unix)]
+#[tokio::test]
+async fn last_falls_back_only_when_the_peer_does_not_serve_it() {
+    use crate::rpc::{Message, RpcError};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let cases = [
+        (RpcError::method_not_found(method::MUX_LAST), true),
+        (
+            RpcError::invalid_params(
+                "_acpmux/last is passed to the harness only from the local unix socket",
+            ),
+            true,
+        ),
+        (
+            RpcError::invalid_params("unsupported read")
+                .with_data(json!({"reason": "mesh.read_unsupported"})),
+            true,
+        ),
+        (RpcError::invalid_params("mesh.read_unsupported: _acpmux/last"), true),
+        (RpcError::invalid_params("sessionId is required"), false),
+        (
+            RpcError::invalid_params(
+                "_acpmux/other is passed to the harness only from the local unix socket",
+            ),
+            false,
+        ),
+        (RpcError::new(-32001, "access denied").with_data(json!({"reason": "forbidden"})), false),
+        (RpcError::new(-32001, "not allowed: mesh.read_unsupported"), false),
+    ];
+    for (error, fallback) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("d.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let expected_error = error.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = BufReader::new(rd).lines();
+            let mut asks = Vec::new();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let Ok(Message::Request { id, method: name, params }) = Message::parse(&line)
+                else {
+                    continue;
+                };
+                let response = match name.as_str() {
+                    method::MUX_LAST => {
+                        assert_eq!(params.unwrap()["sessionId"], "peer/session");
+                        asks.push(name);
+                        Message::err(id, error.clone())
+                    }
+                    method::MUX_EVENTS => {
+                        asks.push(name);
+                        Message::ok(
+                            id,
+                            json!({"events": [
+                                update(1, text("user_message_chunk", "prompt")),
+                                update(2, text("agent_message_chunk", "older peer reply")),
+                            ]}),
+                        )
+                    }
+                    _ => Message::ok(id, json!({})),
+                };
+                wr.write_all(response.to_line().as_bytes()).await.unwrap();
+            }
+            asks
+        });
+        let client = Client::connect_without_caller(&socket).await.unwrap();
+        let result = last_replies(&client, "peer/session", 1).await;
+        drop(client);
+        let asks = server.await.unwrap();
+        if fallback {
+            assert_eq!(result.unwrap(), vec!["older peer reply"]);
+            assert_eq!(asks, [method::MUX_LAST, method::MUX_EVENTS]);
+        } else {
+            assert_eq!(
+                result.unwrap_err().downcast_ref::<crate::client::DaemonError>().unwrap().0,
+                expected_error
+            );
+            assert_eq!(asks, [method::MUX_LAST]);
+        }
+    }
+    assert!(served(&anyhow::anyhow!("transport closed")));
+}
+
 /// The replies as `last` read them before it stopped early: the transcript of every record
 /// read, its last `count` replies.
 fn replies_reference(events: &[Value], count: usize) -> Vec<String> {

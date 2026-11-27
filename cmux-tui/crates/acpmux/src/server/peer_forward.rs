@@ -196,6 +196,7 @@ const MOVED_FORWARDED: &[&str] = &[
     method::MUX_ATTACHMENT,
     method::MUX_ROWS,
     method::MUX_HISTORY,
+    method::MUX_LAST,
     method::MUX_NATIVE_HISTORY,
     method::MUX_DRAFT_GET,
     method::MUX_DRAFT_SET,

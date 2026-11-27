@@ -55,8 +55,14 @@ fn texts(reply: &Value) -> Vec<String> {
 /// not know it (an older daemon or peer), or a machine past the hub that does not carry it.
 fn served(e: &anyhow::Error) -> bool {
     let Some(daemon) = e.downcast_ref::<crate::client::DaemonError>() else { return true };
-    daemon.0.code != crate::rpc::RpcError::method_not_found("").code
-        && !daemon.0.message.contains("mesh.read_unsupported")
+    let error = &daemon.0;
+    let older_peer = error.code == crate::rpc::RpcError::invalid_params("").code
+        && error.message == "_acpmux/last is passed to the harness only from the local unix socket";
+    error.code != crate::rpc::RpcError::method_not_found("").code
+        && !older_peer
+        && error.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str)
+            != Some("mesh.read_unsupported")
+        && !error.message.starts_with("mesh.read_unsupported:")
 }
 
 /// The newest transcript records read back page by page until they give the last `count`

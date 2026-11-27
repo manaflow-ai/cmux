@@ -45,17 +45,13 @@ pub(crate) fn fit(mut replies: Vec<String>, budget: usize) -> (Vec<String>, bool
     for (done, reply) in replies.iter_mut().rev().enumerate() {
         let older = n.saturating_sub(done + 1);
         let keep = left.saturating_sub(older.saturating_mul(preview));
-        let bytes = serde_json::to_string(reply).expect("strings serialize").len();
+        let bytes = 2 + reply.chars().map(json_char_bytes).sum::<usize>();
         let used = if bytes > keep {
             let available = keep.saturating_sub(2 + "…".len());
             let mut encoded = 0;
             let mut end = 0;
             for (at, ch) in reply.char_indices() {
-                let size = match ch {
-                    '"' | '\\' | '\u{8}' | '\u{c}' | '\n' | '\r' | '\t' => 2,
-                    '\u{0}'..='\u{1f}' => 6,
-                    _ => ch.len_utf8(),
-                };
+                let size = json_char_bytes(ch);
                 if encoded + size > available {
                     break;
                 }
@@ -72,4 +68,13 @@ pub(crate) fn fit(mut replies: Vec<String>, budget: usize) -> (Vec<String>, bool
         left = left.saturating_sub(used);
     }
     (replies, truncated)
+}
+
+/// Width of one character in serde_json's string encoding, without surrounding quotes.
+fn json_char_bytes(ch: char) -> usize {
+    match ch {
+        '"' | '\\' | '\u{8}' | '\u{c}' | '\n' | '\r' | '\t' => 2,
+        '\u{0}'..='\u{1f}' => 6,
+        _ => ch.len_utf8(),
+    }
 }
