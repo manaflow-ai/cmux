@@ -38,6 +38,77 @@ pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
     *summary != before
 }
 
+/// A put-off cache save, run on the [`CacheWriter`] thread.
+pub(super) type CacheJob = Box<dyn FnOnce(&Hub) + Send>;
+
+/// The one thread that writes put-off peer caches, oldest first. Each peer has at most one
+/// save queued (`Peer::cache_write_pending`), so the queue holds at most one job per peer and
+/// a peer's saves land in the order they were asked for. The thread holds the hub weakly and
+/// ends once the hub is gone.
+#[derive(Default)]
+pub(crate) struct CacheWriter {
+    jobs: StdMutex<std::collections::VecDeque<CacheJob>>,
+    ready: std::sync::Condvar,
+    running: std::sync::atomic::AtomicBool,
+    /// Writer threads started over the hub's life (one, unless one failed to start).
+    pub(super) threads_started: AtomicU64,
+}
+
+impl CacheWriter {
+    /// Queue `job`, starting the writer thread if it is not running. False when the thread
+    /// could not start: the job is dropped, as a failed spawn dropped it before.
+    pub(super) fn push(self: &Arc<Self>, hub: &Arc<Hub>, job: CacheJob) -> bool {
+        use std::sync::atomic::Ordering;
+        let mut jobs = self.jobs.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.running.swap(true, Ordering::AcqRel) {
+            let (writer, weak) = (Arc::clone(self), Arc::downgrade(hub));
+            let spawned = std::thread::Builder::new()
+                .name("acpmux-peer-cache".into())
+                .spawn(move || writer.run(&weak));
+            if spawned.is_err() {
+                self.running.store(false, Ordering::Release);
+                return false;
+            }
+            self.threads_started.fetch_add(1, Ordering::Relaxed);
+        }
+        jobs.push_back(job);
+        self.ready.notify_one();
+        true
+    }
+
+    fn run(&self, hub: &std::sync::Weak<Hub>) {
+        loop {
+            let job = {
+                let mut jobs = self.jobs.lock().unwrap_or_else(|e| e.into_inner());
+                loop {
+                    if let Some(job) = jobs.pop_front() {
+                        break Some(job);
+                    }
+                    if hub.strong_count() == 0 {
+                        // Under the queue's lock, so a push after this starts a new thread.
+                        self.running.store(false, std::sync::atomic::Ordering::Release);
+                        break None;
+                    }
+                    // Wakes now and then to notice a hub that went away with nothing queued.
+                    jobs = self
+                        .ready
+                        .wait_timeout(jobs, std::time::Duration::from_secs(5))
+                        .unwrap_or_else(|e| e.into_inner())
+                        .0;
+                }
+            };
+            let Some(job) = job else { return };
+            // The hub went away with this job queued: nothing is left to save it into.
+            let Some(hub) = hub.upgrade() else {
+                let _jobs = self.jobs.lock().unwrap_or_else(|e| e.into_inner());
+                self.running.store(false, std::sync::atomic::Ordering::Release);
+                return;
+            };
+            job(&hub);
+        }
+    }
+}
+
 impl Hub {
     /// [`SAVE_EVERY_MS`] (a test may set it shorter).
     pub(super) fn cache_save_every_ms(&self) -> u64 {
@@ -95,11 +166,12 @@ impl Hub {
                 return;
             };
             let peer = peer.to_owned();
-            let gate = hub.cache_write_gate.clone();
             let pending_peer = p.clone();
-            let spawned =
-                std::thread::Builder::new().name("acpmux-peer-cache".into()).spawn(move || {
-                    let _gate = gate.lock().unwrap_or_else(|e| e.into_inner());
+            // One writer thread saves every put-off cache in turn (`CacheWriter`): a thread per
+            // save left ~110 of them parked on one gate under peer churn, each pinning the hub.
+            let queued = hub.cache_writer.push(
+                &hub,
+                Box::new(move |hub: &Hub| {
                     hub.save_peer_cache_now(&peer, generation, false);
                     pending_peer
                         .cache_write_pending
@@ -113,8 +185,9 @@ impl Hub {
                     if !peers.contains_key(&peer) {
                         writers.remove(&peer);
                     }
-                });
-            if spawned.is_err() {
+                }),
+            );
+            if !queued {
                 p.cache_write_pending.store(false, std::sync::atomic::Ordering::Release);
             }
             return;
