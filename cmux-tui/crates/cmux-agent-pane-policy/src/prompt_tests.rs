@@ -3,6 +3,8 @@ use serde_json::json;
 
 #[test]
 fn truncation_counts_swift_characters_without_splitting_graphemes() {
+    assert_eq!(cut("hello", 0), "");
+    assert_eq!(cut("hello", 1), "…");
     for grapheme in ["e\u{301}", "👩🏽‍💻", "🇺🇸", "\r\n"] {
         assert_eq!(cut(&grapheme.repeat(3), 3), grapheme.repeat(3));
         assert_eq!(cut(&grapheme.repeat(4), 3), format!("{}…", grapheme.repeat(2)));
@@ -99,6 +101,8 @@ fn option_and_request_read_are_fail_closed() {
 
 #[test]
 fn options_preserve_uniqueness_and_never_recover_a_malformed_list() {
+    assert_eq!(option(true, &[]), None);
+    assert_eq!(option(false, &[]), None);
     let allow = json!({"kind": "allow_once", "optionId": "allow"});
     let deny = json!({"kind": "reject_once", "optionId": "deny"});
     assert_eq!(option(true, &[allow.clone(), allow.clone()]), None);
@@ -114,6 +118,25 @@ fn options_preserve_uniqueness_and_never_recover_a_malformed_list() {
     assert_eq!(option(false, &denied).as_deref(), Some("never"));
     assert_eq!(once_option(false, &denied), None);
     assert_eq!(option(true, &[json!({"kind": "allow_always", "optionId": "always"})]), None);
+}
+
+#[test]
+fn summary_handles_empty_single_and_equal_scrubbed_lines() {
+    for (call, expected) in [
+        (json!({}), ""),
+        (json!({"title": "  "}), ""),
+        (json!({"title": "Run"}), "Run"),
+        (json!({"rawInput": {"command": "echo hi"}}), "echo hi"),
+        (json!({"title": "echo hi", "rawInput": {"command": "echo hi"}}), "echo hi"),
+        (json!({"title": "Run", "rawInput": {"command": "echo hi"}}), "Run\necho hi"),
+        (
+            json!({"title": "token: abcdef", "rawInput": {"command": "token: ghijkl"}}),
+            "token: [redacted]",
+        ),
+    ] {
+        let request = Map::from_iter([(String::from("toolCall"), call)]);
+        assert_eq!(summary(&request), expected);
+    }
 }
 
 #[test]
