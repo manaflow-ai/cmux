@@ -123,19 +123,27 @@ async fn reconnect_prompt(
     deadline: Option<tokio::time::Instant>,
     id: &str,
     original: anyhow::Error,
+    pause: &mut Duration,
 ) -> Result<Arc<Client>> {
-    before_deadline(deadline, id, redial(client.socket(), update_reconnect_deadline()))
-        .await
-        .map_err(|reconnect| {
-            if reconnect
-                .downcast_ref::<crate::cli::errors::AppError>()
-                .is_some_and(|a| a.code == crate::cli::errors::Code::Timeout)
-            {
-                reconnect
-            } else {
-                original.context(format!("reconnecting after daemon update: {reconnect}"))
-            }
-        })
+    // During graceful drain initialize still works while new prompts are refused. Back off
+    // between those refusals as well as closed sockets, without resetting the caller's budget.
+    let delay = *pause;
+    *pause = (*pause * 2).min(Duration::from_secs(1));
+    before_deadline(deadline, id, async {
+        tokio::time::sleep(delay).await;
+        redial(client.socket(), update_reconnect_deadline()).await
+    })
+    .await
+    .map_err(|reconnect| {
+        if reconnect
+            .downcast_ref::<crate::cli::errors::AppError>()
+            .is_some_and(|a| a.code == crate::cli::errors::Code::Timeout)
+        {
+            reconnect
+        } else {
+            original.context(format!("reconnecting after daemon update: {reconnect}"))
+        }
+    })
 }
 
 /// A daemon going away: its connection closed, or it answered that it is shutting down
@@ -423,12 +431,13 @@ pub(crate) async fn queue_prompt(
     prompt: &PromptId,
 ) -> Result<Value> {
     let mut client = client;
+    let mut reconnect_pause = Duration::from_millis(50);
     let mut prompt = prompt.clone();
     loop {
         match queue_prompt_once(client.clone(), id, text, steer, provenance, &prompt).await {
             Ok(value) => return Ok(value),
             Err(error) if daemon_closed_error(&error) => {
-                client = reconnect_prompt(&client, None, id, error).await?;
+                client = reconnect_prompt(&client, None, id, error, &mut reconnect_pause).await?;
                 prompt.resend = true;
             }
             Err(error) => return Err(error),
@@ -704,6 +713,7 @@ pub(crate) async fn stream_prompt(
     };
     let mut progress = StreamProgress::default();
     let mut client = client;
+    let mut reconnect_pause = Duration::from_millis(50);
     let mut prompt = prompt.clone();
     loop {
         match stream_prompt_once(
@@ -723,7 +733,8 @@ pub(crate) async fn stream_prompt(
         {
             Ok(()) => return Ok(()),
             Err(error) if daemon_closed_error(&error) => {
-                client = reconnect_prompt(&client, deadline, id, error).await?;
+                client =
+                    reconnect_prompt(&client, deadline, id, error, &mut reconnect_pause).await?;
                 prompt.resend = true;
                 progress.reconnecting = true;
             }
@@ -1114,6 +1125,7 @@ pub(crate) async fn collect_reply(
     };
     let mut attempt = 0u32;
     let mut client = client;
+    let mut reconnect_pause = Duration::from_millis(50);
     // A retry after an agent error is a new turn on purpose, so it gets a
     // new prompt id; the daemon would otherwise answer with the failure.
     let mut prompt = prompt.clone();
@@ -1122,7 +1134,8 @@ pub(crate) async fn collect_reply(
             Ok(r) => return Ok(r),
             Err(e) => {
                 if daemon_closed_error(&e) {
-                    client = reconnect_prompt(&client, deadline, id, e).await?;
+                    client =
+                        reconnect_prompt(&client, deadline, id, e, &mut reconnect_pause).await?;
                     prompt.resend = true;
                     continue;
                 }
@@ -1699,6 +1712,134 @@ mod prompt_tests {
                 .count();
             assert_eq!(messages, 1, "waiting send ran twice (stream={stream})");
         }
+    }
+
+    /// The outbox must not own a turn's permission UI: attached foreground clients still
+    /// receive and answer an ask when its internal connection submitted the first copy.
+    #[tokio::test]
+    async fn waiting_sends_answer_permissions_when_the_outbox_wins() {
+        for stream in [false, true] {
+            let (hub, client, _dir) = daemon().await;
+            hub.config.write().await.permission_policy = PermissionPolicy::Ask;
+            let session = client
+                .request(
+                    method::SESSION_NEW,
+                    json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
+                )
+                .await
+                .unwrap();
+            let id = session["sessionId"].as_str().unwrap();
+            let observer = Client::connect(client.socket()).await.unwrap();
+            let mut notes = observer.notifications().await.unwrap();
+            for attached in [&client, &observer] {
+                attached
+                    .request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0}))
+                    .await
+                    .unwrap();
+            }
+            let prompt = PromptId::new(None);
+            // Only the outbox submits it. Wait for the ask before starting the waiting view.
+            durable_wait(&observer, prompt.params(id, "ask: durable permission", false, None))
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(20), async {
+                while let Some(note) = notes.recv().await {
+                    if let Message::Notification { method: m, params: Some(p) } = note
+                        && m == method::MUX_PERMISSION_PENDING
+                        && p["sessionId"] == id
+                    {
+                        return;
+                    }
+                }
+                panic!("permission observer disconnected");
+            })
+            .await
+            .expect("the outbox's turn must reach its permission ask");
+            let opts = CollectOpts {
+                timeout: Some(20),
+                deadline: None,
+                on_permission: OnPermission::Deny,
+                stall_secs: 0,
+                retries: 0,
+                steer: false,
+            };
+            let error = if stream {
+                stream_prompt(
+                    client,
+                    id,
+                    "ask: durable permission",
+                    false,
+                    false,
+                    false,
+                    opts,
+                    false,
+                    &prompt,
+                )
+                .await
+                .unwrap_err()
+            } else {
+                collect_reply(client, id, "ask: durable permission", opts, &prompt)
+                    .await
+                    .unwrap_err()
+            };
+            assert_eq!(
+                error.downcast_ref::<crate::cli::errors::AppError>().map(|e| e.detail.as_str()),
+                Some("all_denied")
+            );
+            assert_eq!(last_replies(&observer, id, 1).await.unwrap(), vec!["chose no"]);
+            assert_eq!(
+                hub.events(id, 0, 1000)
+                    .unwrap()
+                    .iter()
+                    .filter(|e| e.kind == "user_message")
+                    .count(),
+                1
+            );
+        }
+    }
+
+    /// A replacement client attaches with limit=0 after the first prompt already completed.
+    /// It must recover that prompt's whole reply, even when another turn is now the newest.
+    #[tokio::test]
+    async fn reconnect_after_completion_reads_the_original_reply() {
+        let (hub, client, _dir) = daemon().await;
+        let session = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = session["sessionId"].as_str().unwrap();
+        let mut original = PromptId::new(None);
+        let first =
+            durable_wait(&client, original.params(id, "original complete reply", false, None))
+                .await
+                .unwrap();
+        client.request(method::SESSION_PROMPT, first).await.unwrap();
+        client
+            .request(
+                method::SESSION_PROMPT,
+                PromptId::new(None).params(id, "a later reply", false, None),
+            )
+            .await
+            .unwrap();
+        let replacement = Client::connect(client.socket()).await.unwrap();
+        drop(client);
+        original.resend = true;
+        let opts = CollectOpts {
+            timeout: Some(20),
+            deadline: None,
+            on_permission: OnPermission::Deny,
+            stall_secs: 0,
+            retries: 0,
+            steer: false,
+        };
+        let result = collect_reply(replacement, id, "original complete reply", opts, &original)
+            .await
+            .unwrap();
+        assert_eq!(result.reply, "echo: original complete reply");
+        assert_eq!(
+            hub.events(id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count(),
+            2
+        );
     }
 
     /// A reply holds at most `hub::MAX_PAGE_BYTES` of a chat's history: the CLI reads on through
