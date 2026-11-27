@@ -2044,6 +2044,8 @@ export type Workspace = {
   /** The workspace icon. */
   "icon"?: (string) | null;
   "id": Id;
+  /** workspace-keep-awake-v1: the freeing timer never ends this workspace's shells. */
+  "keep_awake"?: boolean;
   "key"?: string;
   /** What the workspace is. */
   "kind"?: "normal" | "home" | "app";

@@ -2317,7 +2317,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "87aed73f87d581a2d633c509c63a55c65d7adad6bd68833831d4e623895e34cc",
+      "sha256": "5223fc429c749a97d4cc4f2f09314501517dbe3cf18b19a0a9ebad4cf882fd9c",
       "size": 8591
     },
     {
@@ -3832,8 +3832,8 @@
     },
     {
       "path": "Workspace.java",
-      "sha256": "6b59339edb86f482178c452881245d7b627bd6408c398df2896648d14d92cc7c",
-      "size": 14467
+      "sha256": "57e67ca0667b4961e3a2703e216f7ed504713976374c0eb324ba28a8d6adb3af",
+      "size": 15205
     },
     {
       "path": "WorkspaceAddedEvent.java",
@@ -3912,7 +3912,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "96fdd810cffbc0561025fcf62f11518ed27c690bddd91e6ba838c9768d84cf08",
+  "ir_sha256": "9ec1d3440e72be897efbf6745418d097eab21efe2bdbb94d565135281177ddb9",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

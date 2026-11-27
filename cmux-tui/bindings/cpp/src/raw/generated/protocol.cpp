@@ -18211,6 +18211,11 @@ Result<Json> Codec<Workspace>::encode(const Workspace& value) {
     auto encoded_id = encode_value(value.id);
     if (!encoded_id) return std::move(encoded_id).error();
     object.emplace("id", std::move(encoded_id).value());
+    if (value.keep_awake) {
+        auto encoded = encode_value(*value.keep_awake);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("keep_awake", std::move(encoded).value());
+    }
     if (value.key) {
         auto encoded = encode_value(*value.key);
         if (!encoded) return std::move(encoded).error();
@@ -18341,6 +18346,12 @@ Result<Workspace> Codec<Workspace>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_id);
         if (!decoded) return std::move(decoded).error();
         result.id = std::move(decoded).value();
+    }
+    const Json* field_keep_awake = value.find("keep_awake");
+    if (field_keep_awake) {
+        auto decoded = decode_value<bool>(*field_keep_awake);
+        if (!decoded) return std::move(decoded).error();
+        result.keep_awake = std::move(decoded).value();
     }
     const Json* field_key = value.find("key");
     if (field_key) {

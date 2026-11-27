@@ -2631,6 +2631,7 @@ class Workspace:
     color: Union[str, None, MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     icon: Union[str, None, MissingType] = field(default=MISSING)
+    keep_awake: Union[bool, MissingType] = field(default=MISSING)
     key: Union[str, MissingType] = field(default=MISSING)
     kind: Union[Literal['normal', 'home', 'app'], MissingType] = field(default=MISSING)
     marked_unread: Union[bool, MissingType] = field(default=MISSING)

@@ -3573,6 +3573,9 @@ pub struct Workspace {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub icon: Optional<String>,
     pub id: Id,
+    /// workspace-keep-awake-v1: the freeing timer never ends this workspace's shells.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep_awake: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     /// What the workspace is.

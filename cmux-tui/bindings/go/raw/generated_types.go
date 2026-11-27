@@ -19117,7 +19117,9 @@ type Workspace struct {
 	// The workspace icon.
 	Icon Presence[string] `json:"-"`
 	ID   ID               `json:"id"`
-	Key  *string          `json:"key,omitempty"`
+	// workspace-keep-awake-v1: the freeing timer never ends this workspace's shells.
+	KeepAwake *bool   `json:"keep_awake,omitempty"`
+	Key       *string `json:"key,omitempty"`
 	// What the workspace is.
 	Kind *WorkspaceKind `json:"kind,omitempty"`
 	// The person marked the workspace unread.
@@ -19244,6 +19246,7 @@ func (value *Workspace) UnmarshalJSON(data []byte) error {
 		Group        Presence[string]                      `json:"group"`
 		Icon         Presence[string]                      `json:"icon"`
 		ID           *ID                                   `json:"id"`
+		KeepAwake    optionalNonNullJSON[bool]             `json:"keep_awake"`
 		Key          optionalNonNullJSON[string]           `json:"key"`
 		Kind         optionalNonNullJSON[WorkspaceKind]    `json:"kind"`
 		MarkedUnread optionalNonNullJSON[bool]             `json:"marked_unread"`
@@ -19276,6 +19279,12 @@ func (value *Workspace) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Workspace: required field id is missing or null")
 	}
 	decoded.ID = *fields.ID
+	if fields.KeepAwake.null {
+		return fmt.Errorf("decode Workspace: non-nullable field keep_awake is null")
+	}
+	if fields.KeepAwake.set {
+		decoded.KeepAwake = &fields.KeepAwake.value
+	}
 	if fields.Key.null {
 		return fmt.Errorf("decode Workspace: non-nullable field key is null")
 	}
