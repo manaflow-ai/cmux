@@ -6,10 +6,15 @@
 //! and the account, and starts the chat where [`decide`] says.
 //!
 //! The modes ([`PlaceMode`]):
-//! - `Auto`, every new chat's mode unless the person picks another for that chat: this Mac when
-//!   placement says it has room, else a new Cloud VM (a hybrid start where [`hybrid::enabled`]
-//!   says so), never another of the person's machines. With Cloud off or signed out, this Mac
-//!   all the same: placement's load and caps only warn.
+//! - `Auto`, every new chat's mode unless the person picks another for that chat, in [`Tier`]
+//!   order: this Mac when placement says it has room and it fits the work; else a machine its
+//!   owner enrolled in AutoCloud ([`crate::autocloud_enroll`]) that is accepting (owner away,
+//!   inside its hours), whose policy allows this work and that fits it, the folder already
+//!   there first, then the most room; else a new Cloud VM: our pool when it can take the
+//!   chat ([`Facts::cloud_pool`]), else Freestyle (a hybrid start where [`hybrid::enabled`]
+//!   says so). Never a machine that is not enrolled: plain Remote stays as it was. Work that needs a Mac ([`MAC_CAPS`]) never
+//!   goes to the cloud: enrolled Macs are its tier. With Cloud off or signed out, this Mac all
+//!   the same: placement's load and caps only warn.
 //! - `Cloud`: a new Cloud VM for this chat. The person picks no size (Leo, 2026-11-24: "i mean
 //!   cloud only idk if we even want a choice tho. do we ?"); the Cloud start sizes it as it
 //!   sizes Auto's.
@@ -24,6 +29,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use cmux_cloud_start_core::hybrid::{self, Account};
+
+use crate::autocloud_enroll::{MAC_CAPS, Report};
 
 /// A chat's place mode. On the wire `{"mode": "auto"}`, `{"mode": "cloud"}` or
 /// `{"mode": "machine", "machine": ID}`; stored per chat as its pin.
@@ -70,6 +77,9 @@ pub struct Local {
     pub room: Option<f64>,
     /// Its free RAM in bytes, when read.
     pub ram_free: Option<f64>,
+    /// What it can run ([`crate::autocloud_enroll::caps_now`]). Empty: unread, so it fits any
+    /// work, as before.
+    pub caps: Vec<String>,
 }
 
 /// This Mac from a `_acpmux/place` verdict: its host row (`local: true`). A row refused only
@@ -88,7 +98,86 @@ pub fn local_of(verdict: &Value) -> Local {
         busy,
         room: row.get("room").and_then(Value::as_f64),
         ram_free: row.get("ramFree").and_then(Value::as_f64),
+        caps: Report::of_health(row).caps,
     }
+}
+
+/// The enrolled machines in a `_acpmux/place` verdict: every other host row that carries an
+/// `autoCloud` block (`placement.rs` copies it from the machine's own health), less those
+/// placement turns away for load, room or swap. A verdict from an older acpmux has no such
+/// block: none, and Auto is what it was. The folder is not in the verdict; a caller that knows
+/// it sets [`EnrolledMachine::folder`].
+pub fn enrolled_of(verdict: &Value) -> Vec<EnrolledMachine> {
+    let rows = verdict.get("hosts").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    rows.iter()
+        .filter(|h| h.get("local") != Some(&Value::Bool(true)))
+        .filter(|h| h.get("load") != Some(&Value::Bool(true)))
+        .filter(|h| h.get("autoCloud").is_some_and(Value::is_object))
+        .filter_map(|h| {
+            Some(EnrolledMachine {
+                name: h.get("name")?.as_str()?.to_owned(),
+                auto_cloud: Report::of_health(h),
+                room: h.get("room").and_then(Value::as_f64),
+                ram_free: h.get("ramFree").and_then(Value::as_f64),
+                folder: false,
+            })
+        })
+        .collect()
+}
+
+/// A machine its owner enrolled in AutoCloud, as the placer weighs it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EnrolledMachine {
+    pub name: String,
+    /// Its `autoCloud` health block.
+    pub auto_cloud: Report,
+    /// Its room in lanes and free RAM, from the placement verdict's row for it, when read.
+    pub room: Option<f64>,
+    pub ram_free: Option<f64>,
+    /// Whether the chat's folder is already there.
+    pub folder: bool,
+}
+
+/// What the work needs and whose it is.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Need {
+    /// Capabilities it needs ([`Report::caps`]'s words).
+    pub caps: Vec<String>,
+    /// The team the work is for; None: the person's own.
+    pub team: Option<String>,
+    /// The agent (harness) that runs it.
+    pub agent: Option<String>,
+}
+
+impl Need {
+    fn needs_mac(&self) -> bool {
+        self.caps.iter().any(|c| MAC_CAPS.iter().any(|m| m.eq_ignore_ascii_case(c)))
+    }
+}
+
+/// Auto's placement order, first to last (RFD 0172, "Explicit order": `thisMac`, `enrolled`,
+/// `cloudPool`, `freestyle`). The declaration order is the order: `Ord` and [`Tier::ORDER`]
+/// follow it. On the wire `this-mac`, `enrolled`, `cloud-pool`, `freestyle`; a version 2
+/// answer's `cloud` reads as `freestyle`, the provider every Cloud start used then.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Tier {
+    /// This Mac.
+    ThisMac,
+    /// The person's or team's enrolled machines: idle, allowed and fit.
+    Enrolled,
+    /// A new VM in our own cloud pool, when it can take the chat ([`Facts::cloud_pool`]).
+    CloudPool,
+    /// A new Freestyle VM: the Cloud start's default provider.
+    #[serde(alias = "cloud")]
+    Freestyle,
+}
+
+impl Tier {
+    /// Every tier, in the order Auto tries them.
+    pub const ORDER: [Tier; 4] = [Tier::ThisMac, Tier::Enrolled, Tier::CloudPool, Tier::Freestyle];
 }
 
 /// What [`decide`] weighs.
@@ -99,6 +188,14 @@ pub struct Facts {
     pub account: Account,
     /// The machines a pinned chat may start on now (connected), by id.
     pub machines: Vec<String>,
+    /// Connected machines whose health carries an `autoCloud` block (enrolled or not; Auto
+    /// weighs only the accepting ones).
+    pub enrolled: Vec<EnrolledMachine>,
+    /// What the work needs.
+    pub need: Need,
+    /// Whether our own cloud pool can take a new VM for this chat now; false (the default, and
+    /// what every caller sends today) leaves Cloud on Freestyle.
+    pub cloud_pool: bool,
 }
 
 /// Where the chat starts.
@@ -117,12 +214,16 @@ pub enum Place {
     Nowhere,
 }
 
-/// [`decide`]'s answer: where, why, and the composer chip's line.
+/// [`decide`]'s answer: where, why, the composer chip's line, and Auto's tier.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Decision {
     pub place: Place,
     pub why: String,
     pub chip: String,
+    /// The [`Tier`] Auto placed it in; None for a picked mode or nowhere. An older reader
+    /// without it reads the rest as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<Tier>,
 }
 
 const GB: f64 = 1e9;
@@ -157,41 +258,7 @@ fn hybrid_note(place: &Place) -> &'static str {
 pub fn decide(mode: &PlaceMode, facts: &Facts) -> Decision {
     let local = &facts.local;
     match mode {
-        PlaceMode::Auto => match (&local.busy, cloud_off(&facts.account)) {
-            (None, _) => {
-                let room = free(local);
-                Decision {
-                    place: Place::ThisMac,
-                    why: match local.room {
-                        Some(r) => format!("this Mac has room (for {r:.0} more)"),
-                        None => "this Mac's room is not read, so it starts here".into(),
-                    },
-                    chip: match room {
-                        Some(room) => format!("Auto · This Mac: {room}"),
-                        None => "Auto · This Mac".into(),
-                    },
-                }
-            }
-            (Some(busy), None) => {
-                let place = cloud_place(&facts.account);
-                Decision {
-                    why: format!(
-                        "this Mac is busy ({busy}): a new Cloud VM{}",
-                        hybrid_note(&place)
-                    ),
-                    place,
-                    chip: "Auto · Cloud: this Mac is busy".into(),
-                }
-            }
-            (Some(busy), Some(off)) => Decision {
-                place: Place::ThisMac,
-                why: format!(
-                    "this Mac is busy ({busy}) and {}: it starts here anyway (load only warns)",
-                    lower_first(off)
-                ),
-                chip: "Auto · This Mac: busy".into(),
-            },
-        },
+        PlaceMode::Auto => auto(facts),
         PlaceMode::Cloud => match cloud_off(&facts.account) {
             None => {
                 let place = cloud_place(&facts.account);
@@ -199,30 +266,151 @@ pub fn decide(mode: &PlaceMode, facts: &Facts) -> Decision {
                     why: format!("Cloud picked: a new VM for this chat{}", hybrid_note(&place)),
                     place,
                     chip: "Cloud · New VM".into(),
+                    tier: None,
                 }
             }
             Some(off) => Decision {
                 place: Place::Nowhere,
                 why: format!("{off}: sign in, or pick Auto or a machine"),
                 chip: "Cloud · unavailable".into(),
+                tier: None,
             },
         },
         PlaceMode::Machine { id } if same(id, &local.name) => Decision {
             place: Place::ThisMac,
             why: "pinned to this Mac".into(),
             chip: "This Mac".into(),
+            tier: None,
         },
         PlaceMode::Machine { id } if facts.machines.iter().any(|m| same(m, id)) => Decision {
             place: Place::Machine { id: id.clone() },
             why: format!("pinned to {id}"),
             chip: id.clone(),
+            tier: None,
         },
         PlaceMode::Machine { id } => Decision {
             place: Place::Nowhere,
             why: format!("{id} is not connected: connect it, or pick Auto or another machine"),
             chip: format!("{id} · not connected"),
+            tier: None,
         },
     }
+}
+
+/// Auto, in [`Tier`] order: this Mac, an enrolled machine, a new VM in our cloud pool, a new
+/// Freestyle VM.
+fn auto(facts: &Facts) -> Decision {
+    let (local, need) = (&facts.local, &facts.need);
+    let here_fits = local.caps.is_empty()
+        || need.caps.iter().all(|n| local.caps.iter().any(|c| c.eq_ignore_ascii_case(n)));
+    if local.busy.is_none() && here_fits {
+        let room = free(local);
+        return Decision {
+            place: Place::ThisMac,
+            why: match local.room {
+                Some(r) => format!("this Mac has room (for {r:.0} more)"),
+                None => "this Mac's room is not read, so it starts here".into(),
+            },
+            chip: match room {
+                Some(room) => format!("Auto · This Mac: {room}"),
+                None => "Auto · This Mac".into(),
+            },
+            tier: Some(Tier::ThisMac),
+        };
+    }
+    let not_here = match &local.busy {
+        _ if !here_fits => format!("this Mac cannot run it (it needs {})", need.caps.join(", ")),
+        Some(busy) => format!("this Mac is busy ({busy})"),
+        None => "this Mac cannot run it".into(),
+    };
+    if let Some(m) = best_enrolled(facts) {
+        let folder = if m.folder { ", the folder already there" } else { "" };
+        return Decision {
+            place: Place::Machine { id: m.name.clone() },
+            why: format!("{not_here}: {}, enrolled in AutoCloud and idle{folder}", m.name),
+            chip: match m.ram_free {
+                Some(b) => format!("Auto · {}: {:.0} GB free", m.name, b / GB),
+                None => format!("Auto · {}", m.name),
+            },
+            tier: Some(Tier::Enrolled),
+        };
+    }
+    let starts_here_anyway = |why: String, chip: &str| Decision {
+        place: Place::ThisMac,
+        why,
+        chip: chip.into(),
+        tier: Some(Tier::ThisMac),
+    };
+    if need.needs_mac() {
+        // No cloud runs Mac work: enrolled Macs are its tier.
+        return if here_fits {
+            starts_here_anyway(
+                format!(
+                    "{not_here} and no enrolled Mac is free: it starts here anyway (load only warns)"
+                ),
+                "Auto · This Mac: busy",
+            )
+        } else {
+            Decision {
+                place: Place::Nowhere,
+                why: format!("{not_here} and no enrolled Mac is free: enroll a Mac or pick one"),
+                chip: "Auto · needs a Mac".into(),
+                tier: None,
+            }
+        };
+    }
+    match cloud_off(&facts.account) {
+        None => {
+            let place = cloud_place(&facts.account);
+            let (tier, vm) = if facts.cloud_pool {
+                (Tier::CloudPool, "a new Cloud VM in our pool")
+            } else {
+                (Tier::Freestyle, "a new Cloud VM")
+            };
+            Decision {
+                why: format!("{not_here}: {vm}{}", hybrid_note(&place)),
+                place,
+                chip: if here_fits {
+                    "Auto · Cloud: this Mac is busy".into()
+                } else {
+                    "Auto · Cloud".into()
+                },
+                tier: Some(tier),
+            }
+        }
+        Some(off) if here_fits => starts_here_anyway(
+            format!("{not_here} and {}: it starts here anyway (load only warns)", lower_first(off)),
+            "Auto · This Mac: busy",
+        ),
+        Some(off) => Decision {
+            place: Place::Nowhere,
+            why: format!("{not_here} and {}: sign in, or pick a machine", lower_first(off)),
+            chip: "Auto · unavailable".into(),
+            tier: None,
+        },
+    }
+}
+
+/// The enrolled machine Auto picks: accepting, its policy allowing this work, fitting it, with
+/// room; the folder already there first, then the most room, then by name.
+fn best_enrolled(facts: &Facts) -> Option<&EnrolledMachine> {
+    let need = &facts.need;
+    let mut fit: Vec<&EnrolledMachine> = facts
+        .enrolled
+        .iter()
+        .filter(|m| !same(&m.name, &facts.local.name))
+        .filter(|m| m.auto_cloud.enrolled && m.auto_cloud.accepting)
+        .filter(|m| m.auto_cloud.policy.allows(need.team.as_deref(), need.agent.as_deref()))
+        .filter(|m| m.auto_cloud.fits(&need.caps))
+        .filter(|m| m.room.is_none_or(|r| r > 0.0))
+        .collect();
+    fit.sort_by(|a, b| {
+        b.folder
+            .cmp(&a.folder)
+            .then(b.room.unwrap_or(0.0).total_cmp(&a.room.unwrap_or(0.0)))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    fit.first().copied()
 }
 
 /// Machine names compare as placement compares them: any case, without `.local`.

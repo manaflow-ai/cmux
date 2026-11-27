@@ -11,32 +11,24 @@ extension CloudStartChat {
     /// to the max size the team's plan allows; if the folder still won't fit, say so clearly"), else
     /// ``CloudSeedRefusal/Growth/pastPlan(_:)``. A copy whose size is unknown, or a resize that fails otherwise, is not grown.
     func growDisk(_ machine: CloudMachineSession, for refusal: CloudSeedRefusal) async -> CloudSeedRefusal.Growth {
-        guard let bytes = refusal.copyBytes, let floor = CloudChatSize.floorDiskBytes(bytes) else { return .notGrown }
-        guard floor <= CloudChatSize.maxDiskBytes else { return .pastPlan(.xxl) }
-        let needed = CloudChatSize.neededDiskBytes(bytes) ?? floor
-        do {
-            return .grown(diskMb: try await resizeDisk(machine, mb: Self.diskMb(needed, atMost: CloudChatSize.maxDiskBytes)))
-        } catch {
-            guard let planMax = CloudSizeLocked.of(error)?.allowed(planMax: nil) else {
-                Self.growLog.error("cloud disk of \(machine.machineID, privacy: .public) not grown: \(String(describing: error), privacy: .public)")
-                return .notGrown
-            }
-            let largest = CloudChatSize.largestDiskBytes(planMax: planMax)
-            guard floor <= largest else { return .pastPlan(planMax) }
+        let core = CloudStartCore(), floor = refusal.copyBytes.flatMap(CloudChatSize.floorDiskBytes)
+        let needed = refusal.copyBytes.flatMap(CloudChatSize.neededDiskBytes) ?? floor
+        var step = core.growStep(floor: floor, needed: needed, maxDisk: CloudChatSize.maxDiskBytes, answer: nil, retried: false)
+        var plan: CloudChatSize?, retried = false
+        while case .resize(let mb) = step {
             do {
-                return .grown(diskMb: try await resizeDisk(machine, mb: Self.diskMb(needed, atMost: largest)))
+                return .grown(diskMb: try await resizeDisk(machine, mb: mb))
             } catch {
-                Self.growLog.error("cloud disk of \(machine.machineID, privacy: .public) not grown within \(planMax.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
-                return CloudSizeLocked.of(error) == nil ? .notGrown : .pastPlan(planMax)
+                Self.growLog.error("cloud disk of \(machine.machineID, privacy: .public) not grown: \(String(describing: error), privacy: .public)")
+                let locked = CloudSizeLocked.of(error)
+                plan = plan ?? locked?.allowed(planMax: nil)
+                let answer: CloudStartCore.GrowAnswer = if locked != nil, let plan { .locked(planMax: plan.rawValue, largest: CloudChatSize.largestDiskBytes(planMax: plan)) } else { .failed }
+                step = core.growStep(floor: floor, needed: needed, maxDisk: CloudChatSize.maxDiskBytes, answer: answer, retried: retried)
+                retried = true
             }
         }
-    }
-
-    /// `bytes` in MiB, rounded up to a 4 GiB step, at most `cap` (itself a whole step).
-    nonisolated static func diskMb(_ bytes: Int64, atMost cap: Int64) -> Int {
-        let step: Int64 = 4 * 1_073_741_824
-        let rounded = min((max(bytes, 0) + step - 1) / step * step, cap)
-        return Int(rounded / 1_048_576)
+        if case .pastPlan(let size) = step { return .pastPlan(CloudChatSize(rawValue: size) ?? .xxl) }
+        return .notGrown
     }
 
     private static let growLog = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud")

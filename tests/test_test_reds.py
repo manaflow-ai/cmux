@@ -561,6 +561,43 @@ class PerTest(unittest.TestCase):
                 self.assertTrue(verdict.own)
                 self.assertIn("crashed (signal 9)", verdict.reasons[0])
 
+    def test_a_kill_inside_a_unit_that_passed_is_not_a_crash(self):
+        # cmuxterm-hq#28312, run 45790420707, Skills tests / Fleet tests: one step runs every unit side by side
+        # (scripts/ci/run_parallel.py) and prints each unit's log under `ok   NAME (exit 0, N s)` or `FAIL NAME (exit N,
+        # N s)`. The terminate-app unit passed and its cleanup's kills printed `Killed`; the step was red for another
+        # unit (a tar race), and the job read as "the test process crashed (signal 9)".
+        killer = ["##[group]ok   reload-cloud ends only the tagged app, by exact PID, never by pattern (exit 0, 8 s)",
+                  "scripts/test-reload-cloud-terminate-app.sh: line 12: 271592 Killed                  perl -e 'sleep 300'"
+                  " \"x/cmux DEV $tag.app/Contents/MacOS/cmux DEV\"",
+                  "scripts/test-reload-cloud-terminate-app.sh: line 12: 271633 Killed                  \"$other_exe\" 300",
+                  "scripts/test-reload-cloud-terminate-app.sh: line 12: 274088 Killed                  \"$stuck_exe\" -c"
+                  " 'trap \"\" TERM; while :; do sleep 0.1; done'",
+                  "##[endgroup]"]
+        red = ["##[group]FAIL The installed hq-tools launchers, refs, prune and freshness (exit 1, 26 s)",
+               "F.", "=" * 70, "FAIL: test_b (test_hq_installed_refs.RefsTest.test_b)", "-" * 70,
+               "Ran 2 tests in 0.1s", "", "FAILED (failures=1)", "##[endgroup]",
+               "##[error]The installed hq-tools launchers, refs, prune and freshness failed (exit 1); its log is in the"
+               " group above",
+               "run_parallel: 112 units, 1 failed, 178 s wall for 1305 s of units",
+               "##[error]Process completed with exit code 1."]
+        for job in (log(*step("python3 scripts/ci/run_parallel.py"), *killer, *red),
+                    log(*step("python3 scripts/ci/run_parallel.py"), *red[:-3], *killer, *red[-3:])):
+            with self.subTest(order=job[-120:]):
+                self.assertEqual(reds.read(job).crashes, [])
+                verdict = reds.classify(job, job, "Fleet tests")
+                self.assertFalse(verdict.own, verdict.reasons)
+                self.assertEqual(verdict.shared, ["test_b (test_hq_installed_refs.RefsTest.test_b)"])
+        # The unit that itself ended on the signal (its header names a non-zero exit), a kill outside any unit, or
+        # one after a passing unit's group closed, is a crash.
+        died = ["##[group]FAIL reload-cloud ends only the tagged app (exit 137, 8 s)", *killer[1:]]
+        for job in (log(*step("python3 scripts/ci/run_parallel.py"), *died, *red),
+                    log(*step("python3 scripts/ci/run_parallel.py"), *killer[1:-1], *red),
+                    log(*step("python3 scripts/ci/run_parallel.py"), *killer, killer[1], *red)):
+            with self.subTest(job=job[-200:]):
+                verdict = reds.classify(job, job, "Fleet tests")
+                self.assertTrue(verdict.own)
+                self.assertIn("crashed (signal 9)", verdict.reasons[0])
+
     def test_a_fault_inside_a_step_that_passed_is_still_a_crash(self):
         # Only a signal someone sent is the step's own business; a segfault or SwiftPM's signal line is a crash.
         red = ["FAIL: test_b (m.T.test_b)", "Ran 1 test in 0.1s", "FAILED (failures=1)",
@@ -2102,6 +2139,101 @@ class VolatileTokens(unittest.TestCase):
         verdict = reds.classify(head, other, "react-apps-check (1)")
         self.assertTrue(verdict.own)
         self.assertIn("fail differently", verdict.reasons[0])
+
+
+CHECKOUT_DEATH_LOG = FIXTURES / "51655-changes-checkout-job-514215463833.log"
+
+
+class DiedInCheckout(unittest.TestCase):
+    """A job that died in actions/checkout before any step of the change ran (cmux#51655 at fd3c0b17, 'changes'):
+    infra to re-run, read as leo-workspace tools/ws-check's failed_in_checkout reads it."""
+
+    def test_the_real_checkout_death_is_read_with_its_first_error(self):
+        said = reds.died_in_checkout(CHECKOUT_DEATH_LOG.read_text())
+        self.assertIsNotNone(said)
+        self.assertIn("Operation too slow", said)
+
+    def test_the_gh_run_view_shape_reads_the_same(self):
+        text = "\n".join(f"changes\tUNKNOWN STEP\t{line}" for line in CHECKOUT_DEATH_LOG.read_text().splitlines())
+        self.assertIn("Operation too slow", reds.died_in_checkout(text))
+
+    def test_a_later_step_failure_keeps_its_verdict(self):
+        text = "\n".join([
+            "2026-11-25T19:16:19Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+            "2026-11-25T19:16:20Z Checking out the ref",
+            "2026-11-25T19:16:21Z ##[group]Run python3 tests/test_x.py",
+            "2026-11-25T19:16:22Z ##[error]Process completed with exit code 1.",
+            "2026-11-25T19:16:23Z A job completed hook has been configured by the self-hosted runner administrator",
+        ])
+        self.assertIsNone(reds.died_in_checkout(text))
+
+    def test_a_step_that_ran_after_a_checkout_error_keeps_its_verdict(self):
+        # A checkout with continue-on-error, then the change's own step: that step ran, so its red is judged.
+        text = "\n".join([
+            "##[group]Run actions/checkout@v4",
+            "##[error]fatal: could not fetch abc from promisor remote",
+            "##[group]Run python3 tests/test_x.py",
+            "##[error]Process completed with exit code 1.",
+        ])
+        self.assertIsNone(reds.died_in_checkout(text))
+
+    def test_the_runners_job_completed_hook_is_no_step_of_the_job(self):
+        text = "\n".join([
+            "##[group]Run actions/checkout@v4",
+            "##[error]The process '/usr/local/bin/git' failed with exit code 128",
+            "A job completed hook has been configured by the self-hosted runner administrator",
+            "##[group]Run '/opt/cmux-job-clean.sh'",
+        ])
+        self.assertIn("exit code 128", reds.died_in_checkout(text))
+
+    def test_no_error_or_no_log_is_no_checkout_death(self):
+        self.assertIsNone(reds.died_in_checkout(None))
+        self.assertIsNone(reds.died_in_checkout("##[group]Run actions/checkout@v4\nok"))
+        self.assertIsNone(reds.died_in_checkout("##[error]before any step"))
+
+
+ENOSPC_JOBS = ("139341128013", "139340766008")  # cmux#50809 (run 45639356121), cmux#50827 (run 45649635922)
+
+
+class RunnerWorkerCrashed(unittest.TestCase):
+    """A job whose runner's worker crashed under it on a full disk (`No space left on device` on its own _diag trace,
+    then `Unhandled exception.` in GitHub.Runner.Worker) is infra to re-run, never the PR's own red."""
+
+    def real(self, job_id):
+        return (json.loads((FIXTURES / f"runner-enospc-job-{job_id}.json").read_text()),
+                json.loads((FIXTURES / f"runner-enospc-annotations-{job_id}.json").read_text()))
+
+    def test_both_real_jobs_read_as_a_worker_crash(self):
+        for job_id in ENOSPC_JOBS:
+            job, notes = self.real(job_id)
+            said = reds.runner_worker_crashed(job, notes)
+            self.assertIn("No space left on device", said)
+            self.assertIn("/actions-runner/_diag/Worker_", said)
+            self.assertIn("worker crashed", reds.lost_runner(job, notes))
+            # As cmuxterm-hq's next-autoland infra_noted asks: a conclusion and the annotations, nothing else.
+            self.assertIn("worker crashed", reds.lost_runner({"conclusion": "failure"}, notes))
+            self.assertTrue(reds.lost_runner({"conclusion": "failure"}, [n["message"] for n in notes]))
+
+    def test_the_unhandled_worker_exception_alone_is_a_crash(self):
+        _, notes = self.real(ENOSPC_JOBS[0])
+        tail = notes[0]["message"][notes[0]["message"].index("Unhandled exception."):]
+        alone = tail.replace("No space left on device", "Broken pipe")
+        self.assertIn("Unhandled exception", reds.runner_worker_crashed({"conclusion": "failure"}, [alone]))
+
+    def test_a_failed_step_keeps_its_verdict(self):
+        job, notes = self.real(ENOSPC_JOBS[0])
+        job["steps"][20] = dict(job["steps"][20], status="completed", conclusion="failure")
+        self.assertIsNone(reds.runner_worker_crashed(job, notes))
+
+    def test_a_test_quoting_the_words_is_no_crash(self):
+        job = {"conclusion": "failure"}
+        for message in ("Unhandled exception. TypeError: x is undefined\n    at Object.<anonymous> (a.test.ts:3:1)",
+                        "No space left on device : '/tmp/build/out.bin'",
+                        "Process completed with exit code 1."):
+            self.assertIsNone(reds.runner_worker_crashed(job, [{"annotation_level": "failure", "message": message}]))
+        _, notes = self.real(ENOSPC_JOBS[0])
+        self.assertIsNone(reds.runner_worker_crashed(job, [dict(notes[0], annotation_level="warning")]))
+        self.assertIsNone(reds.runner_worker_crashed({"conclusion": "cancelled"}, notes))
 
 
 class LostRunner(unittest.TestCase):

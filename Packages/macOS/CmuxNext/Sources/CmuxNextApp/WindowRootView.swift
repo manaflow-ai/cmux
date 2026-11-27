@@ -4,6 +4,7 @@ import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
+import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTerminal
 import Observation
@@ -44,6 +45,9 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     private var mainPaneObservation: Task<Void, Never>?
     let cornerFlush = CornerFlushChrome(frame: .zero)
     let sidebar: SidebarContainerView
+    /// The layout roots that took the sidebar's width motion as a content-area resize (`WindowRootView+ContentAreaMotion`):
+    /// its landing ends it in each of them, even one a workspace switch hid meanwhile.
+    var contentAreaMotionRoots = NSHashTable<LayoutRootView>.weakObjects()
     /// The edge the sidebar sits on (`sidebar.side`, R109).
     var sidebarSide: SidebarSide = .left {
         didSet { if sidebarSide != oldValue { applySidebarSide() } }
@@ -168,14 +172,14 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
         }
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
-                                           TopRowSpacing.buttonSide, Metrics.space2, Metrics.space3,
+                                           TopRowSpacing.buttonSide, Metrics.space2, Metrics.space3] + TitlebarBandButton.lookMetrics + [
                                            DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.hidesControlsUntilHover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.floatOnHover ? 1 : 0,
                                            DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
                 self?.applyTokens()
-                self?.applyTitlebarButtonsMode()
+                self.map { $0.applyTitlebarButtonsMode(); TitlebarBandButton.relayoutAll(in: $0) } // a look's button gap and corner too
             }
         }
         placementObservation = observePlacement()
@@ -317,7 +321,8 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
         let (left, bandEdge) = (sidebarSide == .left, convert(toolbarBand.frame, to: nil).maxX + Metrics.space2) // the band's edge as it closes up
         sidebar.sidebarView.followToolbarBand(windowControls: left, reserve: left ? fullBandMaxX + Metrics.space2 : Metrics.space3, edgeInWindow: left ? bandEdge : nil)
         if presenceChanged { onToolbarBandPresenceChange?() }
-        layoutTitlebarReveal(rowHeight: rowHeight, openForwardMaxX: alignedFullBand.minX + toolbarBand.slots().width)
+        let slots = toolbarBand.slots(), toggle = slots.frames.first.map { $0.x + $0.width } ?? 0
+        layoutTitlebarReveal(rowHeight: rowHeight, openForwardMaxX: alignedFullBand.minX + slots.width, openToggleMaxX: alignedFullBand.minX + toggle)
         sidebarFloat.layout(in: self, rowHeight: rowHeight, sidebarHidden: sidebarHidden, side: sidebarSide, cornerRadius: mainPaneCornerRadius)
         layoutTitlebarAccessories(midY: midY)
     }

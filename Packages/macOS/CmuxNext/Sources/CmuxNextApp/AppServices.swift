@@ -37,6 +37,7 @@ import CmuxNextAccounts
 import CmuxNextAppCore
 import CmuxNextPages
 import CmuxNextPopups
+import CmuxNextRemoteLocalhostService
 import CmuxNextBrowserImport
 import CmuxNextImportCards
 import CmuxNextPhone
@@ -137,6 +138,7 @@ final class AppServices {
     )  // first read in init (no IUO)
     /// The team's Cloud workspaces and chats (lane D): the Team section, `cmux cloud team-*`, links and the publisher.
     private(set) lazy var cloudTeam = CloudTeamFeature(host: self)
+    private(set) lazy var wallpaperBadge = AccountWallpaperBadge(auth: cloud.auth, avatars: .shared) // a live wallpaper's badge: the signed-in account, on every window's and pane's backdrop
     var showcase = ShowcaseState()
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)  // first read in init (no IUO)
@@ -185,7 +187,7 @@ final class AppServices {
     let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
     private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
-    let machineHealth = MachineHealthStore(); let peerAutoCloud = PeerAutoCloudStore(); var hostsSidebar: HostsSidebar.Host { .init(rows: { [weak self] in self.map { MachineSectionRow.rows($0.machines, health: $0.machineHealth, joined: $0.joinedMachines, signedIn: $0.serverReach.signedIn.joinedByMachine) } ?? [] }, add: { [weak self] in _ = self?.registry.perform("device.add") }, openConnected: { [weak self] machine in _ = self?.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(machine)])) }, openJoined: { [weak self] machine in guard let self else { return }; Task { await MachineSectionHostView.signedInDial(self).open(machine) } }, openOffline: { [weak self] machine in guard let self, let session = self.machines.sshSession(machine.id) else { return }; let context = AppActionContext(services: self); if machine.isConnecting { RemoteHandlers.showWhenConnected(session, context) } else { _ = self.registry.perform("remote.connect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID), arguments: ["destination": .string(session.host.destination.description)], origin: .user)) } }, joined: joinedMachines, enabled: { [weak self] in self?.settings?.snapshot.hostsSidebar == true }) }
+    let machineHealth = MachineHealthStore(); let peerAutoCloud = PeerAutoCloudStore(); var hostsSidebar: HostsSidebar.Host { .init(rows: { [weak self] in self.map { MachineSectionRow.rows($0.machines, health: $0.machineHealth, joined: $0.joinedMachines, signedIn: $0.serverReach.signedIn.joinedByMachine) } ?? [] }, add: { [weak self] in _ = self?.registry.perform("device.add") }, openConnected: { [weak self] machine in _ = self?.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(machine)])) }, openJoined: { [weak self] machine in guard let self else { return }; Task { await MachineRowActions.signedInDial(self).open(machine) } }, openOffline: { [weak self] machine in guard let self, let session = self.machines.sshSession(machine.id) else { return }; let context = AppActionContext(services: self); if machine.isConnecting { RemoteHandlers.showWhenConnected(session, context) } else { _ = self.registry.perform("remote.connect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID), arguments: ["destination": .string(session.host.destination.description)], origin: .user)) } }, joined: joinedMachines, enabled: { [weak self] in self?.settings?.snapshot.hostsSidebar == true }) }
     /// The process's one guard of the Keychain UI switch: every store of cmux's own Keychain items gets this one.
     let loginKeychain = LoginKeychain()
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
@@ -221,7 +223,7 @@ final class AppServices {
     let resizes = ResizeCoordinator()
     /// Browser tabs each pane also lists (`browser.page.mirror`): one live page shown in a second pane.
     let tabMirrors = TabMirrors()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes, memoryPressure: memoryPressure)  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes, memoryPressure: memoryPressure, localhost: remoteLocalhost)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.window_record` and `--record-launch`'s recordings.
     let windowRecord = DebugWindowRecord()
@@ -260,6 +262,11 @@ final class AppServices {
     /// Every keyboard focus change with its cause, while `tunable.diagnostics.focusLog` is on (``FocusLog``).
     private(set) lazy var focusLog = FocusLog(writer: FocusLogWriter(directory: FocusLogWriter.folder(tag: environment.tag), symbolicate: { StackSymbolicator().frames(for: $0).map(\.description) }),
         context: .init(classify: { r, w in (w.windowController as? WindowController).map { "\(FocusResponderClassifier.classify(r, in: $0))" } }, windowName: { ($0.windowController as? WindowController)?.state.id }, currentInput: { "\(FocusEvent.Source.current)" }))
+    /// Each timed transition's input, first frame and settle, one line each beside the focus log (``TransitionFrameLog``,
+    /// `scripts/cmux-next/frame_timing.py`); always on: a few 1-point layer displays, a 100 ms settle deadline, one line.
+    private(set) lazy var frameTiming: TransitionFrameLog? = FocusLogWriter.folder(tag: environment.tag).map {
+        TransitionFrameLog(directory: $0, build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "", workCounts: { CEFEngine.dragWorkCounts })
+    }
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
@@ -271,14 +278,6 @@ final class AppServices {
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
-    /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
-    private(set) lazy var modelRouter: ModelRouterLease? = {
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
-                                                     environment: ProcessInfo.processInfo.environment) else { return nil }
-        return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
-                                logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
-    }()
     /// The cmux sign-in lent to acpmux for GitHub App tokens (CmuxNextHomeEngine GitHubAppLease).
     private(set) lazy var githubAppLease = GitHubAppLease(identity: cloud.installIdentity,
                                                           apiBaseURL: cloud.configuration.ownerAPIBaseURL(),
@@ -320,8 +319,8 @@ final class AppServices {
                   let host = cache.existingTerminal(tab.id)?.session.view else { return nil }
             return (tab.id, host)
         }, place: { [weak self] in self?.cmuxRemote.sendComputerUsePreview(session: $0, update: $1) }, controls: { [weak self] in self?.settings?.snapshot.previewFeatures == true })
-        // A chat's page made after its agent started using an app gets the card then.
-        agentTabs.onTabSession = { [weak router] in router?.replayChats() }
+        agentTabs.onTabSession = { [weak router] in router?.replayChats() } // a chat's page made after its agent started using an app gets the card then
+        ComputerUseFloatingPreview().follow(daemon.store, menu: menuBarExtra) { [weak self] in self?.settings?.snapshot.computerUse.floatingPreview ?? false }
         return router
     }
 
@@ -529,6 +528,16 @@ final class AppServices {
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) lazy var remoteLocalhost = machines.makeRemoteLocalhost()  // first read in init (no IUO)
+    private(set) lazy var chatSignIn = ChatMachineSignInTab(
+        localhost: remoteLocalhost, chromiumAvailable: { [weak self] in self.map { $0.cache.browserTabs.cefUnavailable() == nil } ?? false },
+        approvalProfile: { [weak self] in self?.cache.browserRouting.callbackProfile },
+        makePage: { [weak self] configuration in
+            guard let self else { throw CancellationError() }
+            return try await cache.makeCEFTab(configuration)
+        },
+        requestClose: { [weak self] in self?.cache.pageRequests.browserTab($0, didRequest: .close) },
+        closeTab: { [weak self] in self?.cache.pageRequests.closeTab($0) }
+    )
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
     private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, localhost: remoteLocalhost)
     var chromiumLikelyObservations: [Task<Void, Never>] = []
@@ -536,6 +545,10 @@ final class AppServices {
     var borderObservation: Task<Void, Never>?
     /// Repaints when the glass mode pages draw changes (`observeGlass`).
     var glassWatch: GlassModeWatch?
+    /// `appearance.agentSignature`: every window's sidebar dot glyphs, asked of this app's acpmux only while on.
+    private(set) lazy var agentSignatures = SidebarAgentSignatures(
+        socket: { [weak self] in self.flatMap(QuitAgents.environment)?.socketPath }
+    ) { try await AgentActivityLineConnection.oneShot(path: $0, send: $1, deadline: .seconds(10)) }
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Reads the plan again a few times after a return from the payment page (`paidPlanReturned`).
@@ -683,7 +696,9 @@ final class AppServices {
         cache.onRelease = { [weak self] key in
             self?.home.releaseTabView(key); self?.previews.pictures.forget(key)  // and its kept pane pictures
             self?.madeAgentTabs?.releaseIfGone(key)
-            self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
+            if let cache = self?.cache {
+                cache.pageRequests.closedHistories.save(cache.browserTabs.privacy.historySource(for: key, cache.existingBrowser(key)?.tab))
+            }
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.crashedPages = crashRecovery.recovery.crashedPages

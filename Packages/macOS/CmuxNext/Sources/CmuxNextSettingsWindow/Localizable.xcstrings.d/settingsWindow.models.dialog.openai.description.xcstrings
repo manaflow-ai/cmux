@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.openai.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux مفتاح API الخاص بك لدى OpenAI. تُحتسب تكلفة الاستخدام على مشروع المفتاح."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoj API ključ za OpenAI. Upotreba se naplaćuje projektu kojem ključ pripada."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger din API-nøgle til OpenAI. Forbrug faktureres til nøglens projekt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet deinen API-Schlüssel für OpenAI. Die Nutzung wird dem Projekt des Schlüssels berechnet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your OpenAI API key. Usage bills to the key's project."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu clave de API de OpenAI. El consumo se factura al proyecto de la clave."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre clé API OpenAI. L’utilisation est facturée au projet associé à la clé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà la tua chiave API di OpenAI. L’uso viene addebitato al progetto della chiave."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのOpenAIのAPIキーを使用します。使用料金はキーに紐づくプロジェクトに請求されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ សោ API របស់អ្នកសម្រាប់ OpenAI។ ថ្លៃប្រើប្រាស់គិតលើគម្រោងរបស់សោ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 OpenAI API 키를 사용합니다. 사용량은 키가 속한 프로젝트로 청구됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker API-nøkkelen din for OpenAI. Bruken faktureres på prosjektet som eier nøkkelen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojego klucza API usługi OpenAI. Koszt użycia zostanie rozliczony w projekcie przypisanym do klucza."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua chave de API de OpenAI. O uso será cobrado no projeto associado à chave."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать ваш ключ API для OpenAI. Оплата начисляется на проект, которому принадлежит ключ."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้คีย์ API ของ OpenAI ระบบจะเรียกเก็บค่าบริการจากโปรเจ็กต์ที่ออกคีย์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux OpenAI API anahtarınızı kullanacak. Kullanım anahtarın projesine faturalandırılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає ваш ключ API для OpenAI. Плата за використання нараховується на проєкт, якому належить ключ."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng khóa API OpenAI của bạn. Phí sử dụng được tính cho dự án sở hữu khóa."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的OpenAI API 密钥。使用费用计入密钥所属的项目。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的OpenAI API 金鑰。使用費用計入金鑰所屬的專案。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

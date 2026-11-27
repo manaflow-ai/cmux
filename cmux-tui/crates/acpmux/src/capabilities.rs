@@ -69,6 +69,16 @@ pub const CHUNK_DELTAS: &str = "chunk-deltas-v1";
 
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
+/// A session row and `session info` carry `bgTasksRunning`, how many of the daemon's background
+/// tasks the session runs (`hub/bg_tasks.rs`). Session rebalance holds a session that runs any
+/// (a move leaves them behind), and one whose row lacks the count.
+pub const SESSION_BG_FACTS: &str = "session-bg-facts-v1";
+/// A session row and `session info` carry `bgWaits`, the running background tasks that are
+/// re-armable waits (`rearm.rs`: `pr_wait`, `ci_wait`, a named target and a deadline, no local
+/// state), and `_acpmux/bg/rearm` (version 1) starts them again on a destination and releases
+/// them on the source (`server/bg_rearm.rs`). Session rebalance moves a session whose every
+/// running task is one, to a destination whose link lists the `bgRearm` peer feature.
+pub const SESSION_BG_WAITS: &str = "session-bg-waits-v1";
 
 /// `_acpmux/process/census` answers the census `acpmux ps --json` prints (`server/processes.rs`).
 pub const PROCESS_CENSUS: &str = "process-census-v1";
@@ -187,6 +197,7 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_HARNESSES,
             method::MUX_HARNESSES_CHANGED,
             method::MUX_HARNESS_ENABLE,
+            method::MUX_HARNESS_DISABLE,
             "_acpmux/models",
             method::MUX_ROUTE_LIST,
             method::MUX_KILL,
@@ -234,6 +245,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // id does a missing field mean false; the app's Update When Idle holds on any other (absent
     // is unknown).
     Capability { id: SESSION_IDLE_FACTS, wire: &[method::MUX_SESSIONS] },
+    Capability { id: SESSION_BG_FACTS, wire: &[method::MUX_SESSIONS] },
+    Capability { id: SESSION_BG_WAITS, wire: &[method::MUX_SESSIONS, method::MUX_BG_REARM] },
     // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
     // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller
     // that reads the v2 list's keys asks for the rows it prints (agent service v2, row 7b); a
@@ -304,6 +317,19 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
+    },
+    // Control and Screen switched from the owner's app on another machine, by a grant a key
+    // pinned here signed (`cli/consent_grant.rs`).
+    Capability {
+        id: "consent-grant-v1",
+        wire: &[
+            method::MUX_CONSENT_REMOTE_STATUS,
+            method::MUX_CONSENT_REMOTE_SET,
+            method::MUX_CONSENT_GRANTOR_TRUST,
+            method::MUX_CONSENT_ACCOUNT_SET,
+            method::MUX_CONSENT_TRUST_REFRESH,
+            method::MUX_CONSENT_SCREEN_AUTO,
+        ],
     },
     // Signing in enrolls this machine on the hub; signing out leaves only that join
     // (`server/machine_enroll.rs`). A literal id, which the app's reference check reads.
@@ -377,7 +403,18 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "team-audit-v1", wire: &[method::MUX_TEAM_AUDIT] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
-    Capability { id: CHAT_PRESENCE, wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
+    Capability {
+        id: CHAT_PRESENCE,
+        wire: &[
+            method::MUX_TYPING,
+            method::MUX_PRESENCE,
+            method::MUX_LIVE,
+            method::MUX_LIVE_LIST,
+            method::MUX_ROOMS,
+            method::MUX_ROOM,
+            method::MUX_FOLLOW,
+        ],
+    },
     // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
     Capability { id: "here-v1", wire: &[method::MUX_HERE_BEAT, method::MUX_HERE] },
     // Chat titles and read marks through the sync engine, pulled and pushed by version vector
@@ -528,6 +565,12 @@ pub const CAPABILITIES: &[Capability] = &[
     // A listen on another member's agent address: open, list, close, and read what it receives
     // (`server/team.rs` `listen`), under the same team-messaging gate.
     Capability { id: "team-listen-v1", wire: &[method::MUX_TEAM_LISTEN] },
+    // RFD 0170 phase 1: the team navigator, recipient picker and Session Info, under the same
+    // team-messaging gate (`server/team_directory.rs`).
+    Capability {
+        id: "team-directory-v1",
+        wire: &[method::MUX_TEAM_NAVIGATOR, method::MUX_TEAM_PICK, method::MUX_TEAM_SESSION_INFO],
+    },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
@@ -638,6 +681,18 @@ pub const CAPABILITIES: &[Capability] = &[
     // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
     // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
     Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
+    // A delete that asks for it (`grace: true` on `_acpmux/kill` with `purge`, or on
+    // `session/delete`) keeps the chat 7 days, restorable (`hub/soft_delete.rs`). Older daemons
+    // ignore `grace` and delete at once.
+    Capability {
+        id: crate::hub::soft_delete::FEATURE,
+        wire: &[
+            method::MUX_KILL,
+            method::SESSION_DELETE,
+            method::MUX_UNDELETE,
+            method::MUX_DELETED,
+        ],
+    },
 ];
 
 /// The capabilities of this build, including the local stream listener.
