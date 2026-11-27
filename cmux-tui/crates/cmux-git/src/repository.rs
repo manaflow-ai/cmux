@@ -153,6 +153,14 @@ impl Repository {
         &self.git_dir
     }
 
+    /// Whether this repository's untracked files may be listed: not when its
+    /// top level is the person's home folder ([`crate::home`]), where they
+    /// are every file the person has. Its tracked files and refs read as
+    /// for any repository.
+    pub fn lists_untracked(&self) -> bool {
+        !crate::home::is_home_folder(&self.root)
+    }
+
     /// Runs `git <arguments>` at the top level with this repository's
     /// overrides, stopped at its deadline.
     pub fn run(&self, arguments: &[&str], max_stdout: usize) -> Result<GitOutput, GitFailure> {

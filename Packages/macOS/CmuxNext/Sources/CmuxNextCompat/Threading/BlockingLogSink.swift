@@ -1,4 +1,8 @@
+#if canImport(os)
 import os
+#else
+import Foundation
+#endif
 
 /// Records each new main-thread blocking call site in the unified log and continues: the sink of
 /// builds that ship with the detector (Nightly, `-DCMUX_BLOCKING_CHECKS`) and of bench and Debug builds.
@@ -21,7 +25,11 @@ public final class BlockingLogSink: BlockingViolationSink {
     ///   `com.cmuxterm.app.next`, category `blocking`).
     public init(write: (@Sendable (String) -> Void)? = nil) {
         self.write = write ?? { line in
+            #if canImport(os)
             Logger(subsystem: "com.cmuxterm.app.next", category: "blocking").error("\(line, privacy: .public)")
+            #else
+            FileHandle.standardError.write(Data((line + "\n").utf8))
+            #endif
         }
     }
 

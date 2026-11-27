@@ -103,7 +103,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                         } else { match &mut app.overlay {
                             Overlay::NewSession(f) => match f.field {
                                 2 => f.cwd.insert_str(s.trim()),
-                                4 => f.prompt.insert_str(&s),
+                                4 => f.prompt.insert_paste(&s),
                                 1 => f.name.insert_str(s.trim()),
                                 _ => {}
                             },
@@ -112,7 +112,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                                 p.refilter();
                             }
                             Overlay::AddHost { text } | Overlay::Directory { text } => text.insert_str(s.trim()),
-                            _ => app.editor_mut().insert_str(&s),
+                            _ => app.editor_mut().insert_paste(&s),
                         }}
                     }
                     Some(Err(e)) => break Err(e.into()),
@@ -181,13 +181,23 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                         // The daemon went away (restart, update, crash). Come
                         // back on the new one instead of dying with a bare
                         // "connection closed".
+                        // Quiet for `CONNECTION_QUIET` (10 s), as the GUI chat's Reconnecting is
+                        // (cmux#43290, #43291, #43349): a daemon restart or update that is back
+                        // within it shows no error row and no "reconnecting…", only "reconnected".
                         let reason = client.closed("attached to the daemon").to_string();
-                        app.report_error(reason.clone());
-                        app.status = "daemon connection closed; reconnecting…".into();
-                        if let Err(e) = terminal.draw(&mut app) { break Err(e.into()); }
-                        match reconnect(&mut app).await {
-                            Ok(new_notes) => {
-                                notes = new_notes;
+                        let back = crate::reconnect_wait::quietly(
+                            redial_daemon(),
+                            crate::reconnect_wait::QUIET,
+                            || {
+                                app.report_error(reason.clone());
+                                app.status = "daemon connection closed; reconnecting…".into();
+                                terminal.draw(&mut app).map(drop).map_err(Into::into)
+                            },
+                        )
+                        .await;
+                        match back {
+                            Ok(back) => {
+                                notes = reconnected(&mut app, back);
                                 client = app.client.clone();
                                 frames.request();
                             }
@@ -322,6 +332,7 @@ pub(super) fn make_app(
         show_system: false,
         quit: false,
         pending_select: None,
+        start_after_reconnect: None,
         initial_empty_checked: false,
         tick: 0,
         chrome: Chrome::detect(),
@@ -374,10 +385,14 @@ pub(super) fn make_app(
 /// Wait for a daemon to come back (starting one if none does), then rebuild
 /// the client side: watch, session list, harness list, and the attachment
 /// of the selected session with its transcript replayed.
-async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>> {
+/// A reconnect's connect, watch and list, before any of it reaches the app.
+type Redialed =
+    (std::sync::Arc<acpmux::client::Client>, Value, tokio::sync::mpsc::Receiver<Message>);
+
+async fn redial_daemon() -> Result<Redialed> {
     // Each attempt is bounded (`reconnect_wait.rs`): a daemon that accepts and never answers
     // ends that attempt, not the pane.
-    let (c, sessions, notes) = crate::reconnect_wait::redial(|| async {
+    crate::reconnect_wait::redial(|| async {
         let c = acpmux::daemon::connect(true).await?;
         // Only the watch turns on here: the list is read whole just below, so its reply is one
         // row, not a copy of that list read to be dropped.
@@ -389,7 +404,13 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
             .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
         Ok((c, sessions, notes))
     })
-    .await?;
+    .await
+}
+
+fn reconnected(
+    app: &mut App,
+    (c, sessions, notes): Redialed,
+) -> tokio::sync::mpsc::Receiver<Message> {
     let build = c.daemon_build().unwrap_or_else(|| "?".into());
     app.client = c;
     app.sessions = sessions.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -401,7 +422,8 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
     // Another pane may have written the draft meanwhile; a failed write goes again.
     app.reread_draft();
     app.status = format!("reconnected to the daemon (build {build})");
-    Ok(notes)
+    app.start_lost_draft_again();
+    notes
 }
 
 #[cfg(test)]
