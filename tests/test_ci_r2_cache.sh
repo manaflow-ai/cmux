@@ -282,3 +282,17 @@ unset AWS_SECRET_ACCESS_KEY
 output_of save "$WORK/src" family-tool-four >/dev/null || fail "a save without credentials must not fail the job"
 ls "$NS/objects/" | grep -q '^family-tool-four' && fail "a save without credentials must upload nothing"
 echo "PASS: a save without credentials warns and uploads nothing"
+
+# A required save (the base's test log pull requests compare against) that writes nothing fails its
+# step: from #57363 to #57975 that save had no credentials, went green, and starved every pull request.
+CACHE_REQUIRED=true output_of save "$WORK/src" family-tool-five >/dev/null && fail "a required save without credentials must fail"
+grep -q '::error::r2-cache: AWS_SECRET_ACCESS_KEY is not set' "$WORK/log" || fail "a required save must say what it lacked, log: $(cat "$WORK/log")"
+echo "PASS: a required save without credentials fails"
+export AWS_SECRET_ACCESS_KEY="test-secret"
+CACHE_REQUIRED=true output_of save "$WORK/missing-dir" family-tool-six >/dev/null && fail "a required save of no directory must fail"
+CACHE_REQUIRED=true output_of save "$WORK/src" required-one >/dev/null || fail "a required save that wrote must pass, log: $(cat "$WORK/log")"
+[[ "$(cat "$NS/latest/required-")" == "required-one" ]] || fail "a required save must publish its pointers"
+touch "$WORK/store/fail-pointer"
+CACHE_REQUIRED=true output_of save "$WORK/src" required-two >/dev/null && fail "a required save whose pointer failed must fail: a prefix reader cannot find it"
+rm -f "$WORK/store/fail-pointer"
+echo "PASS: a required save fails when it saved nothing a reader finds, and passes when it did"
