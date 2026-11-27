@@ -998,11 +998,12 @@ fn neighbor(closed: &str, old: &[Screen], screen: Option<&Screen>) -> Option<Str
     let order = old.iter().find(|entry| entry.id == screen.id)?.layout.panes();
     let index = order.iter().position(|pane| pane == closed)?;
     let live: BTreeSet<String> = screen.layout.panes().into_iter().collect();
-    order[..index]
+    let (before, after) = order.split_at(index);
+    before
         .iter()
         .rev()
         .find(|pane| live.contains(*pane))
-        .or_else(|| order[index + 1..].iter().find(|pane| live.contains(*pane)))
+        .or_else(|| after.iter().skip(1).find(|pane| live.contains(*pane)))
         .cloned()
 }
 
@@ -1182,8 +1183,8 @@ pub fn cache_node(model: &Model, frames: &BTreeMap<String, Rect>) -> Option<Valu
             if total.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
                 return None;
             }
-            if columns.len() == 1 {
-                return Some(node(&columns[0].root, frames));
+            if let [only] = columns.as_slice() {
+                return Some(node(&only.root, frames));
             }
             let fractions: Vec<f64> =
                 columns.iter().map(|column| swift_max(0.0, column.width) / total).collect();
@@ -1217,7 +1218,9 @@ pub fn cache_live(model: &Model, bounds: Option<Rect>, divider: f64) -> Option<V
     let root = match layout {
         Layout::Splits(split) => Some(node(split)),
         Layout::Columns(columns) if columns.is_empty() => None,
-        Layout::Columns(columns) if columns.len() == 1 => Some(node(&columns[0].root)),
+        Layout::Columns(columns) if columns.len() == 1 => {
+            columns.first().map(|only| node(&only.root))
+        }
         Layout::Columns(columns) => {
             let children: Vec<Value> = columns.iter().map(|column| node(&column.root)).collect();
             Some(json!({"type": "split", "axis": "h", "children": children}))
