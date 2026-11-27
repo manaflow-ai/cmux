@@ -30,6 +30,20 @@ class ManifestTests(unittest.TestCase):
 
 
 class SelectTests(unittest.TestCase):
+    def test_webrtc_screen_gate_runs_before_merge(self):
+        sys.path.insert(0, str(fs.REPO / "scripts/ci"))
+        try:
+            import ci_steps
+        finally:
+            sys.path.pop(0)
+        table = ci_steps.load(fs.REPO / "ci/steps.toml")
+        for package in ("CmuxVNCWebRTC", "CmuxVNC", "CmuxEgress"):
+            with self.subTest(package=package):
+                paths = [f"Packages/Shared/{package}/Sources/{package}/Stream.swift"]
+                self.assertIn("screen-webrtc-headless", ci_steps.route(table, paths, pr_scope=True).get("mac", []))
+        unrelated = ci_steps.route(table, ["docs/readme.md"], pr_scope=True)
+        self.assertNotIn("screen-webrtc-headless", unrelated.get("mac", []))
+
     def test_webrtc_screen_changes_run_synthetic_package_test(self):
         for path in [
             "Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenStream.swift",

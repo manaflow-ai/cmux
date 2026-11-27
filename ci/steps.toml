@@ -4200,6 +4200,8 @@ python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind
 
 [step.screen-webrtc-headless]
 job = "mac"
+# Keep package-wide routing on PRs; otherwise directory globs defer this gate until merge.
+pr_scope = false
 # Native WebRTC/VideoToolbox requires macOS, but no window server or simulator.
 # This is a real asynchronous transport check, outside fast-tier's virtual-clock contract.
 timeout = 900
