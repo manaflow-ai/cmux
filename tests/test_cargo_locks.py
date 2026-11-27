@@ -119,6 +119,24 @@ class CargoLocksTests(unittest.TestCase):
                       "longer resolve: b 0.1.0)", result.stdout)
         self.assertNotIn("ffi/Cargo.lock", result.stdout)
 
+    def test_a_crate_only_an_optional_feature_reaches_is_not_stale(self):
+        """a names c behind an off-by-default feature; the lock lists c and a default-features resolve does not
+        (2026-11-27: cmux-tui/Cargo.lock's wasmtime, behind acpmux's `hot-modules`, refused every lock-touching
+        push as "lists packages its manifests no longer resolve", on a base that cargo itself accepted)."""
+        self.write("opt/c/Cargo.toml", '[package]\nname = "c"\nversion = "0.1.0"\nedition = "2021"\n')
+        self.write("opt/c/src/lib.rs", "")
+        self.write("core/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\nc = { path = "../../opt/c", optional = true }\n\n[features]\nextra = ["dep:c"]\n')
+        self.cargo("core", "generate-lockfile", "--offline")
+        self.cargo("ffi", "generate-lockfile", "--offline")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a has an optional c")
+        self.assertIn('name = "c"', (self.repo / "core/Cargo.lock").read_text())
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_fix_drops_the_orphaned_entry(self):
         self.drop_crate_b()
 
