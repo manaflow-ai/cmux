@@ -426,12 +426,15 @@ export const endsOnWork = (row: AcpmuxRow) => (row.turnCopy?.length ?? 0) > 0;
 
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
-/// An edit row as the turn's edited-files card holds it: its file changes alone. A harness that sends
-/// a whole turn's calls with no message between them (Antigravity) gives one row of reads, commands,
-/// thoughts and edits; whole, that row drew every call beside the closed "Worked for", under the answer.
+/// An edit row as the turn's edited-files card holds it: its file changes alone, every call that
+/// edited or carries a diff (Undo restores each file from its first diff, so none may be left out).
+/// A harness that sends a whole turn's calls with no message between them (Antigravity) gives one
+/// row of reads, commands, thoughts and edits; whole, that row drew every call beside the closed
+/// "Worked for", under the answer.
+const changesFiles = (item: AcpmuxActivity) => isEditTool(item.tool) || (item.tool?.diffs?.length ?? 0) > 0;
 const editsOnly = (row: AcpmuxRow): AcpmuxRow => {
   const items = row.items ?? [];
-  const kept = items.filter((item) => isEditTool(item.tool));
+  const kept = items.filter(changesFiles);
   return kept.length === items.length ? row : { ...row, items: kept, toolCount: kept.length };
 };
 

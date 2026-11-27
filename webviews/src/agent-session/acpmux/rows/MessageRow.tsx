@@ -72,6 +72,8 @@ export const MessageRow = memo(
                   // acpmux's record of who sent it: the chip asks for that chat by it (a label-only
                   // sender by its whole label), never by the bare name the line shows.
                   ...(row.inboxThread.senderRecord ? { sender: row.inboxThread.senderRecord } : {}),
+                  // A tool's notice draws its one line (InboxNoticeCard.tsx), never the raw text.
+                  ...(row.inboxThread.notice ? { notice: row.inboxThread.notice } : {}),
                 },
               ],
             }}

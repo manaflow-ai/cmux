@@ -60,7 +60,7 @@ import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
-import type { InboxNotice } from "./conversation/inboxNotice";
+import type { InboxNotice, ThreadNotice } from "./conversation/inboxNotice";
 import { MEMORY_OFFER, memoryCardState, type MemoryOffer } from "./conversation/memoryInbox";
 import { COACH_LINE_PX, coachLines, PROMPT_COACH, type PromptCoach } from "./conversation/promptCoach";
 import { PRESET_APPROVAL, type PresetApproval } from "./conversation/presetApproval";
@@ -957,6 +957,8 @@ export type AcpmuxRow = {
     /// Its sender as acpmux recorded it (inboxNotice.ts `SenderRef`): the chip asks for that chat
     /// by it, never by the bare name the line shows.
     senderRecord?: { session?: string; label?: string };
+    /// The tool's notice the thread's newest message is (inboxNotice.ts `ThreadNotice`): its line.
+    notice?: ThreadNotice;
   };
   laneNoticeBatch?: {
     kind: "report" | "inbox";
@@ -3658,6 +3660,10 @@ function measuredRowHeight(
     // A preview-only inbox thread's line (rows/MessageRow.tsx `inboxThread`) keeps its open state
     // under its thread's key (inboxNotice.ts `inboxThreadKey`), which the digest's head opens too.
     const openKey = row.inboxThread ? inboxThreadKey(row.id, row.inboxThread.threadId) : row.id;
+    // A tool's notice shut is its one compact line (noticeRowLook.ts), no card under it, as the
+    // notice's own threads draw (the `inbox` estimate below).
+    if (row.inboxThread?.notice && noticeRowLook() !== "off" && !messageOpened(sessionId, openKey))
+      return finish(line + messagePreviewLine(true));
     // Its card is always under it, shut or open (inboxThreadCard).
     if (row.inboxThread) {
       const read = threadRead(sessionId, openKey, readForIds(row.inboxThread.promptIds)) ?? undefined;

@@ -227,7 +227,12 @@ test("a background command's end, whose thread holds only its newest message, dr
   const row = { id: "r", version: 1, at: 1, kind: "user", text, untyped: true, incoming } as AcpmuxRow;
   const lines = projectInboxRows([row]).flatMap((r) => r.laneNoticeBatch?.rows ?? [r]);
   expect(lines.length).toBe(1);
-  expect(lines[0]!.inboxThread).toBeUndefined();
+  // The thread stays readable (opened, it reads the whole thread) and carries its notice line.
+  expect(lines[0]!.inboxThread?.promptIds).toEqual(["bg-done-bg-1"]);
+  expect(lines[0]!.inboxThread?.notice).toMatchObject({
+    sender: "acpmux",
+    title: expect.stringContaining("Run the review"),
+  });
   const message = lines[0]!.incoming?.kind === "message" ? lines[0]!.incoming.message : undefined;
   expect(message?.notice).toMatchObject({
     sender: "acpmux",

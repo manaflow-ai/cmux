@@ -54,3 +54,16 @@ for (const family of ["antigravity", "codex", "claude"]) {
     expect(card.toolCount).toBe(1);
   });
 }
+
+test("a call of another kind that carries a diff stays in the card, so Undo restores the file from its first diff", () => {
+  const rows = turn();
+  const work = rows[1]!;
+  const patch = tool("patch-0", "apply_patch", "other", {
+    diffs: [{ path: "/repo/lab.html", oldText: "border: 2px", newText: "border: 1px" }],
+  });
+  rows[1] = { ...work, items: [patch, ...work.items!], toolCount: 5 };
+  const drawn = turnView(rows, new Set(), { agentFamily: "antigravity" }).filter((r) => r.kind !== "date");
+  const below = drawn.slice(drawn.findIndex((r) => r.kind === WORKED) + 1);
+  const calls = below.flatMap((r) => (r.items ?? []).flatMap((item) => (item.tool ? [item.tool.id] : [])));
+  expect(calls).toEqual(["patch-0", "edit-1"]);
+});
