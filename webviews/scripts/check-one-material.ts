@@ -66,10 +66,7 @@ export const PENDING: Record<string, string> = {
     "drawn in the slash list's place and material (SlashMenu, above); they move to host glass together: page glass",
 };
 /** Files that render a floating class but no live surface. */
-const EXEMPT: Record<string, string> = {
-  "agent-session/acpmux/ManagedBannerDesigns.tsx":
-    "design mocks the gallery alone renders (ManagedBannerDesigns.gallery.tsx)",
-};
+const EXEMPT: Record<string, string> = {};
 
 function* walk(dir: string, ext: RegExp): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

@@ -124,7 +124,6 @@
    "src/agent-session/acpmux/HarnessHealthNotice.tsx::react-hooks-js/refs": 2,
    "src/agent-session/acpmux/HomeInbox.tsx::react-doctor/no-ref-current-in-render": 1,
    "src/agent-session/acpmux/HomeInbox.tsx::react-hooks-js/refs": 1,
-   "src/agent-session/acpmux/ManagedBannerDesigns.tsx::react-hooks-js/purity": 1,
    "src/agent-session/acpmux/MarkdownField.tsx::react-doctor/no-ref-current-in-render": 7,
    "src/agent-session/acpmux/ModelPicker.tsx::react-doctor/no-impure-state-updater": 1,
    "src/agent-session/acpmux/ModelPicker.tsx::react-doctor/no-ref-current-in-render": 1,

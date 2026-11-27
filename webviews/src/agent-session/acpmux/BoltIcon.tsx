@@ -1,6 +1,6 @@
-/// The composer's bolt glyph (FastToggle.tsx draws the same one for Codex's speed toggle): the `/`
-/// menu's Fast row (Composer.tsx SlashMenu) shows it beside the plain name Fast, in the row's ink,
-/// and the model button shows it beside the model while Fast mode is on.
+/// The composer's bolt glyph: the `/` menu's Fast row (Composer.tsx SlashMenu) shows it beside the
+/// plain name Fast, in the row's ink, and the model button shows it beside the model while Fast mode
+/// is on.
 ///
 /// A filled bolt whose corners a round-joined stroke of the same ink softens: slightly blobby, never
 /// sharp, and less round than ChatGPT's. Leo 2026-10-20: "I want a cute freaking lightning bolt

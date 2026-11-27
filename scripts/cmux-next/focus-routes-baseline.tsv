@@ -192,10 +192,8 @@ webviews/src/agent-session/acpmux/session-info/WindowedRows.tsx	1
 webviews/src/agent-session/acpmux/session-info/useSessionInfo.tsx	1
 webviews/src/agent-session/acpmux/started/useSessionHover.tsx	2
 webviews/src/agent-session/acpmux/steerQueue/SteerQueue.tsx	2
-webviews/src/agent-session/acpmux/subagents/AgentsPill.tsx	1
 webviews/src/agent-session/acpmux/subagents/SubagentComposer.tsx	1
 webviews/src/agent-session/acpmux/summary/SummaryCard.tsx	4
-webviews/src/agent-session/acpmux/summary/usePopover.ts	2
 webviews/src/agent-session/acpmux/threadMinimap/ScrollMap.tsx	5
 webviews/src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx	4
 webviews/src/agent-session/guest/GuestPage.tsx	1
