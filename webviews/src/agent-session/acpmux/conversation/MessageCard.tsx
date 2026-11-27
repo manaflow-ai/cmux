@@ -17,7 +17,7 @@ import type { AcpmuxActivity } from "../model";
 import { messageDelivery, notDeliveredReason, type AgentMessage, type Delivery } from "./agentMessages";
 import { AgentMessageRow } from "./AgentMessageRow";
 import { messagePreview } from "./agentMessageRowModel";
-import { AgentNamesContext, AgentOpenContext, recipientName, shortId } from "./agentNames";
+import { useAgentNames, useAgentOpen, recipientName, shortId } from "./agentNames";
 import { useFindReveal } from "./chatFind";
 import { Envelope } from "./icons";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
@@ -37,7 +37,7 @@ export function MessageCard({
 }) {
   const t = useT();
   const tool = item.tool!;
-  const names = useContext(AgentNamesContext);
+  const names = useAgentNames();
   const [open, setOpen] = useTranscriptDisclosure(`message:${tool.id}`);
   useFindReveal(
     useMemo(() => [item], [item]),
@@ -85,7 +85,7 @@ const NO_STORE = new SubsessionStore();
 /// What the recipient chip opens: the subagent the SendMessage names by its agentId, else the
 /// listed chat with that name (a teammate or acpmux session); undefined when it is neither.
 function useOpenRecipient(to: string | undefined): (() => void) | undefined {
-  const agents = useContext(AgentOpenContext);
+  const agents = useAgentOpen();
   const chats = useContext(SubsessionContext);
   const store = chats?.store ?? NO_STORE;
   const recipient = to?.trim() ?? "";

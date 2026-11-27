@@ -4,7 +4,8 @@
 // crates/acpmux/src/run_elsewhere.rs); this module holds what the rows share: when the chip
 // shows, the client the rows call, and one small store of each row's run, keyed by tool call, so
 // a run's change re-renders only its own row.
-import { createContext, useSyncExternalStore } from "react";
+import { createContext, useCallback, useSyncExternalStore } from "react";
+import { useLiveUpdates } from "../../../ui/liveUpdates";
 
 /** How long a command runs before the chip offers to move it. */
 export const RUN_ELSEWHERE_AFTER_MS = 20_000;
@@ -141,19 +142,27 @@ export interface RunElsewhere {
 /** Absent where nothing can run elsewhere (Quick Chat, a Cloud or remote chat, the gallery's plain rows). */
 export const RunElsewhereContext = createContext<RunElsewhere | undefined>(undefined);
 
-const NONE = () => () => undefined;
-
 /** Tool call `toolCallId`'s run, re-read only when it changes. */
 export function useRun(runs: RunElsewhere | undefined, toolCallId: string): RunState | undefined {
+  const active = useLiveUpdates();
+  const subscribe = useCallback(
+    (listener: () => void) => (active && runs ? runs.store.subscribe(toolCallId, listener) : () => {}),
+    [active, runs, toolCallId],
+  );
   const read = () => runs?.store.get(toolCallId);
   // The same read serves a server render (renderToString), which has no store to wait on.
-  return useSyncExternalStore(runs ? (listener) => runs.store.subscribe(toolCallId, listener) : NONE, read, read);
+  return useSyncExternalStore(subscribe, read, read);
 }
 
 /** Whether the pane's host relays the run's requests, re-read when it refuses one. */
 export function useHostRelays(runs: RunElsewhere | undefined): boolean {
+  const active = useLiveUpdates();
+  const subscribe = useCallback(
+    (listener: () => void) => (active && runs ? runs.store.subscribeRelays(listener) : () => {}),
+    [active, runs],
+  );
   const read = () => runs?.store.relays() ?? false;
-  return useSyncExternalStore(runs ? (listener) => runs.store.subscribeRelays(listener) : NONE, read, read);
+  return useSyncExternalStore(subscribe, read, read);
 }
 
 /** Back to a fresh page: stores made from now on take the host as relaying (tests, the gallery). */

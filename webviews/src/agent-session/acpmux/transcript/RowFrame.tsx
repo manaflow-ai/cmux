@@ -33,6 +33,7 @@ import { OlderRowFade } from "./OlderRowFade";
 import { OFFSCREEN_ROW_CLASS, onceRendered } from "../conversation/offscreenRows";
 import { AgentNamesContext, AgentOpenContext } from "../conversation/agentNames";
 import { AgentTonesContext } from "../subagents/agentTones";
+import { RowAgentContext } from "../subagents/rowAgentContext";
 
 /// What a row's content draws from (the registry component's props, and the component).
 /// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
@@ -59,8 +60,8 @@ export const RowContent = React.memo(
     const names = useContext(AgentNamesContext);
     const open = useContext(AgentOpenContext);
     const tones = useContext(AgentTonesContext);
-    // Keep providers above the memo boundary: React's context propagation can traverse a
-    // bailed-out body, so providers hidden inside it do not shield retained consumers.
+    // A distinct row context keeps retained consumers off the pane's changing contexts.
+    // Re-providing those same contexts does not stop React's lazy propagation through a memo.
     const [retained, setRetained] = useState({ names, open, tones });
     if (active && (retained.names !== names || retained.open !== open || retained.tones !== tones))
       setRetained({ names, open, tones });
@@ -69,13 +70,9 @@ export const RowContent = React.memo(
     // this row alone draws it.
     const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, live), live), live);
     return (
-      <AgentNamesContext.Provider value={retained.names}>
-        <AgentOpenContext.Provider value={retained.open}>
-          <AgentTonesContext.Provider value={retained.tones}>
-            <RowBody {...props} Component={Component} active={active} row={row} />
-          </AgentTonesContext.Provider>
-        </AgentOpenContext.Provider>
-      </AgentNamesContext.Provider>
+      <RowAgentContext.Provider value={retained}>
+        <RowBody {...props} Component={Component} active={active} row={row} />
+      </RowAgentContext.Provider>
     );
   },
   (previous, next) => {

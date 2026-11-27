@@ -37,7 +37,7 @@ import { AgentTag } from "./AgentTag";
 import { CardCopy } from "./CardCopy";
 import { MessageGroupHead } from "./MessageGroupHead";
 import { messageRunSummary } from "./messageRuns";
-import { AgentNamesContext, recipientName, shortId } from "./agentNames";
+import { useAgentNames, recipientName, shortId } from "./agentNames";
 import { isFailed, isRunning, type SentEntry } from "./toolGroups";
 import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
 import { McpCallDetails } from "./McpCallRows";
@@ -483,7 +483,7 @@ export function SentMessageGroup({
   children: ReactNode;
 }) {
   const t = useT();
-  const names = useContext(AgentNamesContext);
+  const names = useAgentNames();
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   const bodyId = useId();
   const tools = useMemo(() => [...new Set(entries.map(({ item }) => item))], [entries]);

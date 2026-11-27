@@ -13,7 +13,8 @@
 // The same chat's full list gets the same tones after a reload. `agentTone(id)` reads that assignment,
 // so every surface that draws the agent draws its tone; an id no chat assigned (a gallery, a test)
 // falls back to its hash. subagents.css maps the tones to the theme's terminal colors.
-import { createContext } from "react";
+import { createContext, use } from "react";
+import { RowAgentContext } from "./rowAgentContext";
 
 /// How many tones there are (subagents.css `[data-agent-tone]`).
 export const AGENT_TONES = 5;
@@ -83,3 +84,8 @@ export function resetAgentTones(): void {
 
 /// The shown chat's tones (App.tsx); undefined where none apply.
 export const AgentTonesContext = createContext<ReadonlyMap<string, number> | undefined>(undefined);
+
+export function useAgentTones() {
+  const row = use(RowAgentContext);
+  return row ? row.tones : use(AgentTonesContext);
+}
