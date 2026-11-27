@@ -2,13 +2,13 @@ import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSidebar
 import Observation
 
-/// The sidebar's profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment
-/// 2): the current profile's avatar on the footer's account item
+/// The sidebar's profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2): the current profile's avatar on the footer's account item
 /// (`SidebarModel.profileAvatar`), and the one profile menu its click opens.
 /// The current profile is the browser profile new tabs of the selected
 /// workspace get (workspace, then space, then Default); real profile
@@ -24,7 +24,7 @@ import Observation
         sidebar.profileMenuProvider = { [weak model] in model.map { menu(workspace: $0.activeWorkspaceID?.rawValue) } }
         // The footer's spaces strip marks the spaces other windows show (design/spaces.md "The switcher (PR 3)").
         sidebar.spaceWindowMarks.install(source: services.windows) { [weak state] in state?.id }
-        let control = self; sidebar.bindLive(settings: { [services] in services.settings }, team: { [services] in services.home.contacts().filter { $0.source == .team }.map { ($0.id.rawValue, $0.name) } }, open: { [services] in _ = services.registry.perform("home.messageTo", invocation: ActionInvocation(arguments: ["to": .string($0)])) }); sidebar.bindSpaces(settings: { [services] in services.settings }, toggle: { [services] in _ = services.registry.perform(services.settings?.snapshot.sidebarSections.showSpaces == true ? "sidebar.spaces.hide" : "sidebar.spaces.show") })
+        let control = self; sidebar.bindLive(settings: { [services] in services.settings }, team: { [services] in services.home.contacts().filter { $0.source == .team }.map { ($0.id.rawValue, $0.name) } }, open: { [services] in _ = services.registry.perform("home.messageTo", invocation: ActionInvocation(arguments: ["to": .string($0)])) }); sidebar.bindSpaces(settings: { [services] in services.settings }, toggle: { [services] in _ = services.registry.perform(services.settings?.snapshot.sidebarSections.showSpaces == true ? "sidebar.spaces.hide" : "sidebar.spaces.show") }); sidebar.bindPresence { [services] in guard let environment = QuitAgents.environment(services) else { return SidebarPresenceState() }; do { let here = try await AcpmuxStatusClient.here(socketPath: environment.socketPath); return SidebarPresenceState(active: here.activeCount, working: here.workingCount, connected: true) } catch { return SidebarPresenceState() } }
         // The first value now, so the window's first frame draws the avatar at its size, never the account glyph it
         // replaced a turn later (the relaunch bench's `SidebarAvatarView shown` in every window). The window's shown
         // workspace stands in for the sidebar's active one, which the selection pass sets later in this turn.

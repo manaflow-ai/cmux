@@ -39,6 +39,7 @@ extension SidebarViewComponents {
             searchButton.animator().alphaValue = target.footer
             liveButton.animator().alphaValue = target.footer * (live.isLive ? 1 : 0.7)
             spacesButton.animator().alphaValue = target.footer
+            presenceButton.animator().alphaValue = target.footer * (presence.connected ? 1 : 0.7)
             liveModeBadge?.animator().alphaValue = target.footer
             for view in minimalChromeViews { view.animator().alphaValue = target.rest }
         }
@@ -85,7 +86,7 @@ extension SidebarViewComponents {
     /// view, edit mode's bar) and the controls with their own piece of ``SidebarChromeReveal``.
     private var revealExemptViews: [NSView] {
         [edgeFade, aboveFade, belowFade, priorityPanelView, footer, footerRegion, profileBar,
-         newButton, newWorkspaceOptionsButton, searchButton, liveButton, spacesButton] + [liveModeBadge, editBar].compactMap { $0 }
+         newButton, newWorkspaceOptionsButton, searchButton, liveButton, spacesButton, presenceButton] + [liveModeBadge, editBar].compactMap { $0 }
     }
 
     /// Every other view in the sidebar: the cards, the card stack, the Update Available button,

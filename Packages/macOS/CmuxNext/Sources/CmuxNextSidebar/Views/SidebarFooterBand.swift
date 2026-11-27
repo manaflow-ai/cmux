@@ -98,7 +98,8 @@ final class SidebarFooterBand {
         // The Live toggle comes first, right after the avatar; the badge follows it.
         let liveMaxX = placeLiveToggle(before: searchMinX)
         let spacesMaxX = placeSpacesToggle(before: searchMinX, after: liveMaxX)
-        let leadMaxX = placeLiveBadge(before: searchMinX, after: spacesMaxX ?? liveMaxX) ?? spacesMaxX ?? liveMaxX
+        let presenceMaxX = placePresence(before: searchMinX, after: spacesMaxX ?? liveMaxX)
+        let leadMaxX = placeLiveBadge(before: searchMinX, after: presenceMaxX ?? spacesMaxX ?? liveMaxX) ?? presenceMaxX ?? spacesMaxX ?? liveMaxX
         let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
@@ -283,6 +284,32 @@ final class SidebarFooterBand {
             button.frame = .zero
             return nil
         }
+        let scale = host.window?.backingScaleFactor ?? 2
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale,
+                              width: side, height: side)
+        return button.frame.maxX
+    }
+
+    /// Places the daemon-wide presence status after the footer toggles.
+    @discardableResult
+    func placePresence(before searchMinX: CGFloat?, after previousMaxX: CGFloat?) -> CGFloat? {
+        guard let host else { return nil }
+        let button = host.presenceButton
+        guard !host.design.sidebarSections.noFade else {
+            button.isHidden = true
+            return nil
+        }
+        button.isHidden = false
+        let side = searchSide
+        let x: CGFloat, midY: CGFloat
+        if let row = bandFirstRow {
+            (x, midY) = ((previousMaxX ?? row.itemsMaxX) + Metrics.space2, row.frame.midY)
+        } else {
+            let footer = host.footer.frame
+            (x, midY) = ((previousMaxX ?? Metrics.space4), footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
+        }
+        let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1
+        guard x + side <= end else { button.frame = .zero; return nil }
         let scale = host.window?.backingScaleFactor ?? 2
         button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale,
                               width: side, height: side)

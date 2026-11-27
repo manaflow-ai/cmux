@@ -43,6 +43,16 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxStatus(result)
     }
 
+    /// The people and agents currently present in the acpmux home. The capability gate keeps
+    /// older daemons from being mistaken for an empty presence list.
+    @concurrent static func here(socketPath: String, scope: String? = nil,
+                                 deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> AcpmuxHere {
+        var params: [String: any Sendable] = [:]
+        if let scope { params["scope"] = scope }
+        return AcpmuxHere(try await call(socketPath: socketPath, method: "_acpmux/here", params: params,
+                                         deadline: deadline, requiredCapability: "here-v1"))
+    }
+
     /// The peers of the daemon's `_acpmux/status`. It waits for the answer as long as a loaded
     /// daemon takes (#28083), up to `deadline` (the caller's share of ``AcpmuxHost/lookupDeadline``),
     /// then ``AgentPaneDeadlineExceeded``; the caller's cancel ends the wait sooner (a picker that closed).
@@ -414,6 +424,56 @@ nonisolated struct ResultBox: @unchecked Sendable {
 }
 
 /// The fields of `_acpmux/status` the app reads.
+public nonisolated struct AcpmuxHere: Sendable, Equatable {
+    public var members: [Member]
+
+    public init(members: [Member] = []) { self.members = members }
+
+    public struct Member: Sendable, Equatable, Identifiable {
+        public var id: String
+        public var name: String
+        public var kind: String
+        public var status: String
+        public var working: Bool
+        public var devices: [Device]
+
+        public init(id: String, name: String, kind: String, status: String, working: Bool, devices: [Device] = []) {
+            self.id = id; self.name = name; self.kind = kind; self.status = status; self.working = working; self.devices = devices
+        }
+    }
+
+    public struct Device: Sendable, Equatable {
+        public var device: String
+        public var deviceKind: String
+        public var status: String
+        public var working: Bool
+        public var ageMs: Int?
+
+        public init(device: String, deviceKind: String, status: String, working: Bool, ageMs: Int? = nil) {
+            self.device = device; self.deviceKind = deviceKind; self.status = status; self.working = working; self.ageMs = ageMs
+        }
+    }
+
+    public init(_ result: [String: Any]) {
+        let rows = result["here"] as? [[String: Any]] ?? []
+        members = rows.compactMap { row in
+            guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+            let devices = (row["devices"] as? [[String: Any]] ?? []).compactMap { device -> Device? in
+                guard let name = device["device"] as? String else { return nil }
+                return Device(device: name, deviceKind: device["deviceKind"] as? String ?? "unknown",
+                              status: device["status"] as? String ?? "unknown", working: device["working"] as? Bool ?? false,
+                              ageMs: (device["ageMs"] as? NSNumber)?.intValue)
+            }
+            return Member(id: id, name: row["name"] as? String ?? id, kind: row["kind"] as? String ?? "agent",
+                          status: row["status"] as? String ?? "unknown", working: row["working"] as? Bool ?? false,
+                          devices: devices)
+        }
+    }
+
+    public var activeCount: Int { members.filter { $0.status == "active" }.count }
+    public var workingCount: Int { members.filter(\.working).count }
+}
+
 nonisolated struct AcpmuxStatus: Sendable, Equatable {
     var capabilities: Set<String>
     var webURL: String?

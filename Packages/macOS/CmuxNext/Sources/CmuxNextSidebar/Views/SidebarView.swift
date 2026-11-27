@@ -101,11 +101,14 @@ public final class SidebarView: NSView {
     /// The footer's Spaces visibility button, beside Live. It stays available while Spaces are hidden by default,
     /// so the switcher never depends on a right-click menu for discovery (SidebarView+Spaces).
     let spacesButton = SidebarIconButton(symbol: "square.grid.2x2", pointSize: { Metrics.iconSize }, label: Strings.spacesToggle)
+    /// The daemon-wide status icon: active people and agents, with working count in its tooltip.
+    let presenceButton = SidebarIconButton(symbol: "person.2.wave.2", pointSize: { Metrics.iconSize }, label: Strings.presenceStatus)
     let liveMenuTarget = SidebarLiveMenuTarget()
     /// What the Live button shows and its menu lists; the App sets it from `presence.live` and the team.
     public var live = SidebarLiveState() { didSet { if live != oldValue { applyLive() } } }
     /// Whether the Spaces strip is enabled in settings; the App binds this from `sidebar.showSpaces`.
     public var spacesShown = true { didSet { if spacesShown != oldValue { applySpaces(); needsLayout = true } } }
+    public var presence = SidebarPresenceState() { didSet { if presence != oldValue { applyPresence() } } }
     /// The Live button was pressed (or its menu's Turn Live On/Off): the App flips `presence.live`.
     public var onLiveToggle: (() -> Void)?
     /// The Spaces visibility button was pressed; the App writes `sidebar.showSpaces` through the registry.
@@ -398,8 +401,12 @@ public final class SidebarView: NSView {
         spacesButton.showsLabelToolTip = false
         spacesButton.onPress = { [weak self] in self?.onSpacesToggle?() }
         addSubview(spacesButton)
+        presenceButton.setAccessibilityIdentifier("cmux.sidebar.presence")
+        presenceButton.showsLabelToolTip = false
+        addSubview(presenceButton)
         applySpaces()
         applyLive()
+        applyPresence()
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
         buildPriority()
@@ -498,6 +505,7 @@ public final class SidebarView: NSView {
         SidebarHiddenState.apply(noFade, to: searchButton)
         SidebarHiddenState.apply(noFade || !design.sidebarSections.showLiveToggle, to: liveButton)
         SidebarHiddenState.apply(noFade, to: spacesButton)
+        SidebarHiddenState.apply(noFade, to: presenceButton)
         if let liveModeBadge { SidebarHiddenState.apply(noFade, to: liveModeBadge) }
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
