@@ -51,6 +51,10 @@ path = "tests/test_base_autofix_pushed_exports.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_base_coalesce_direct_push.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_base_merge_warning.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_base_merge_warning.py"
@@ -512,6 +516,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_main_compile_attribution.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_measure_fetch_commit_no_origin.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_measure_fetch_commit_no_origin.py"
 
 [[test]]
 path = "tests/test_media_app_cache.py"
