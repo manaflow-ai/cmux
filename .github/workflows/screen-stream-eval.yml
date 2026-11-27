@@ -59,10 +59,14 @@ env:
 jobs:
   eval:
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
-    # The job's clock includes the wait for the pinned worker's exclusive lease, which ran 2.5 h on
-    # 2026-11-22 and past the old 300 min on 2026-11-23 (run 45160093472, cancelled, nothing measured).
-    # 720 min leaves that wait room beside the step's own 7200 s.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
+    # The job's clock is the fleet queue wait, then the step. The queue wait is bounded by the step's
+    # own --queue-timeout (QUEUE_TIMEOUT below): finished steps waited 23 to 144 min for their
+    # exclusive host, the pinned worker's lease ran 2.5 h on 2026-11-22 and past 300 min on 2026-11-23
+    # (run 45160093472), and on 2026-11-27 an iphone-sim step strictly pinned to a worker whose claims
+    # stayed paused waited 8 h with no bound, holding the gateway runner while later runs queued behind
+    # it. The step itself is bounded by --timeout 7200 (finished runs took 6 to 13 min). 580 min of
+    # queue + 120 + 20 min for checkout, the summary and the upload: 720.
     timeout-minutes: 720
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -125,6 +129,8 @@ jobs:
           REPEATS: ${{ inputs.repeats || '3' }}
           WORKER: ${{ inputs.worker || vars.SCREEN_STREAM_EVAL_WORKER || '' }}
           BUDGET: ${{ inputs.budget || '' }}
+          # Seconds the step may wait in the fleet queue (see timeout-minutes above).
+          QUEUE_TIMEOUT: "34800"
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -140,6 +146,9 @@ jobs:
           # A strict pin never moves to another worker (that one would lack the console grants).
           [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
           [ -n "$WORKER" ] && "$client" run --help 2>/dev/null | grep -q -- --pin-strict && target+=(--pin-strict)
+          # A queue wait past its bound ends the client with 75 and leaves the step queued; the step is
+          # then cancelled below, so a paused or drained worker never holds this runner without end.
+          "$client" run --help 2>/dev/null | grep -q -- --queue-timeout && target+=(--queue-timeout "$QUEUE_TIMEOUT")
           "$client" run --class exclusive --measurement --label measure --label gui-session-v1 ${target[@]+"${target[@]}"} \
             --script scripts/measure/screen-stream-eval.sh --ref "$sha" --timeout 7200 \
             --artifact artifacts/screen-stream-eval/results.json \
@@ -147,6 +156,10 @@ jobs:
           out=artifacts/screen-stream-eval
           mkdir -p "$out"
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          if [[ "$status" -eq 75 && -n "$step" ]]; then
+            echo "::error title=screen stream eval::step $step waited past ${QUEUE_TIMEOUT} s in the fleet queue (worker ${WORKER:-any}); cancelled, nothing measured"
+            "$client" cancel "$step" --reason "screen-stream-eval: queue wait past ${QUEUE_TIMEOUT} s (run $GITHUB_RUN_ID)" >/dev/null || true
+          fi
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/results.json" || "$client" artifact --failed "$step" "$out/results.json" || true
           fi
