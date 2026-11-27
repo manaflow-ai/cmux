@@ -2092,7 +2092,7 @@ fn run_main() {
     }
     #[cfg(unix)]
     if let Some(head) = raw_args.first().map(String::as_str)
-        && (matches!(head, "acp" | "harness" | "chats" | "board")
+        && (matches!(head, "acp" | "harness" | "chats" | "board" | "care")
             || cli::agent_engine_requested(&raw_args)
             || cli::TOP_LEVEL_ENGINE_VERBS.contains(&head))
     {

@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered] [--large]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered] [--large] [--labs-npm-host-cache]
  *
  * - --large: a second snapshot of the same builder, grown to the default Cloud chat start size (large-image.ts),
  *   named <name>-large and recorded as `large` in the result. The image's own snapshot, id and fields do not change.
@@ -46,6 +46,8 @@
  *   the checkout's Rust and Zig toolchains and the caches its first build leaves (dev-tree.ts), so
  *   a developer's first build is a fetch and an incremental build (first-build.ts measures both).
  *
+ * - --labs-npm-host-cache: install the login profile that opts npm into a mounted host package cache.
+ *
  * - --team-vm (TEAM_VM_SNAPSHOT images, bead cx-cemg): the team files root /srv/team
  *   (root:cmux-ssh 2750, teamVmDirsCommand).
  * - The full daemon handshake (identify.ts) goes into the result as daemonIdentify.
@@ -76,7 +78,7 @@ import {
   type CmuxTuiSource,
 } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/workUser";
-import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
+import { NPM_CACHE_DIR, NPM_HOST_CACHE_PROFILE, npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
   cmuxTuiWebsocketSmokeCommand,
@@ -269,6 +271,8 @@ export type BakeOptions = {
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
   devTree?: boolean;
+  /** Labs image with the npm host-cache login profile. */
+  labsNpmHostCache?: boolean;
   /**
    * The production copy of a recorded dev image (cloud-vm-image-bake.yml mode prod-copy): the same
    * inputs and flags, baked on the production Freestyle account and named cmuxnp-prod-vmimg-<tag>,
@@ -846,6 +850,9 @@ async function installStore(ctx: Ctx): Promise<void> {
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
+  if (ctx.options.labsNpmHostCache) {
+    await writeGuestFile(vm, NPM_HOST_CACHE_PROFILE, readFileSync(path.join(GUEST_DIR, "npm-host-cache.sh")), 0o644);
+  }
   await writeGuestFile(vm, AGY_PROFILE_PATH, agyProfileScript(), 0o644);
   await L.step(vm, "agy-user-env-dir", "mkdir -p /etc/environment.d");
   await writeGuestFile(vm, AGY_USER_ENV_PATH, agyUserEnvironment(), 0o644);
@@ -1065,6 +1072,15 @@ async function installGraduated(ctx: Ctx): Promise<void> {
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
 async function prefillDepCaches(ctx: Ctx): Promise<void> {
   await ctx.L.step(ctx.vm, "npm-cache-prefill", npmCachePrefillCommand(), 290_000);
+  if (ctx.options.labsNpmHostCache) {
+    // Keep only the image's contents available to seed the tenant store, even after local npm installs.
+    const seed = "/usr/local/share/cmux/npm-seed";
+    await ctx.L.step(ctx.vm, "npm-host-cache-seed", [
+      `install -d -m 0755 ${seed}`,
+      `cp -R --reflink=auto ${NPM_CACHE_DIR} ${seed}/_cacache`,
+      `chmod -R u+rwX,go+rX,go-w ${seed}/_cacache`,
+    ].join(" && "));
+  }
 }
 
 /**
@@ -1405,7 +1421,7 @@ const REPO_ROOT = path.resolve(HERE, "../../..");
 
 /** The flags that change what the base layer holds. */
 export function layerFlags(options: BakeOptions): string[] {
-  return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree"].filter((f): f is string => Boolean(f));
+  return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree", options.labsNpmHostCache && "labs-npm-host-cache"].filter((f): f is string => Boolean(f));
 }
 
 /**
@@ -1600,7 +1616,7 @@ function largeFlag(argv: string[]): boolean {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]] [--large]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]] [--large] [--labs-npm-host-cache]");
   if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
   if (hasFlag("--layered", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv) || hasFlag("--update-lock", argv))) throw new Error("--layered is for dev snapshots from a fixed lock; the full bake makes production copies and promotions");
   if (hasFlag("--defer-inventory", argv) && !hasFlag("--layered", argv)) throw new Error("--defer-inventory needs --layered; the full bake records its SBOM and manifest before the snapshot");
@@ -1624,6 +1640,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     agentTools: !promotion,
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
+    labsNpmHostCache: hasFlag("--labs-npm-host-cache", argv),
     prodCopy: hasFlag("--prod-copy", argv),
     layered: hasFlag("--layered", argv),
     deferInventory: hasFlag("--defer-inventory", argv),

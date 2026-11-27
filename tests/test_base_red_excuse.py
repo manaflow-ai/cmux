@@ -2763,6 +2763,93 @@ class CancelledRunWithPassedJobsSuperseded(unittest.TestCase):
             self.judge()
 
 
+class FastGatesJobRedIsThePRsOwn(unittest.TestCase):
+    """Retro rf214bf6c: cmux#46930's `post cmux-next/fast-gates` job hit the rate limit, so the head had no
+    FAST_GATES_STATUS and its `fast gates` red (three base errors plus its own SetupCard TS2307) was excused by job name
+    because the base's `fast gates` was red too. It landed and broke the nightly's web bundle. Either job's red is
+    refused as the PR's own, with or without the status."""
+
+    STEP = "Run the webviews checks"
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+
+    def red(self, name):
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step=self.STEP),
+                        2: failed_job(2, 20, BASE_SHA, name=name, step=self.STEP)}
+        self.gh.logs = {1: log(name, self.STEP, ISSUE), 2: log(name, self.STEP, ISSUE, OTHER)}
+
+    def test_the_same_red_on_another_job_is_still_excused_by_the_base(self):
+        self.red("cmux-next swift test")
+        self.assertIn("excused 'cmux-next swift test'",
+                      "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)))
+
+    def test_a_fast_gates_red_the_base_shares_is_refused_as_the_prs_own(self):
+        for name in ("fast gates", "pr pipeline / fast gates"):
+            with self.subTest(name=name):
+                self.red(name)
+                with self.assertRaisesRegex(excuse.Refused, r"pull request's own.*\(run 10\)|\(run 10\) is the pull"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_a_failed_post_job_asks_for_its_rerun(self):
+        self.red("post cmux-next/fast-gates")
+        with self.assertRaisesRegex(excuse.Refused, "re-run the failed job to post it"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+
+class MergeTrainTurnAwayIsNoRed(unittest.TestCase):
+    """cmux#59074 at a3d4b1e0 (2026-11-27 04:41Z): the HQ merge train posted `merge-train` error "not seated: ..." at
+    the head, by design the fallback (the base merge, then the land; cmuxterm-hq docs/handbook/merge-train-turn-away.md).
+    The classifier judged it as a red, found no base run of it, and refused "merge-train: has not run on exact head"
+    twice with the other 173 checks green. Its turn-away is no red; its failure stays the PR's own."""
+
+    TURNED_AWAY = {"context": "merge-train", "state": "error", "created_at": "2026-11-27T04:41:24Z",
+                   "updated_at": "2026-11-27T04:41:24Z", "target_url": None,
+                   "description": "not seated: train T11270439-f0a5ca4 took 2 seats, the next no sooner than 05:39Z; "
+                                  "its base merge runs now (update_branch)"}
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.statuses = [copy.deepcopy(self.TURNED_AWAY)]
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": []}]
+            if route.endswith(f"commits/{HEAD}/statuses?per_page=100"):
+                self.gh.routes.append(route)
+                return copy.deepcopy(self.statuses)
+            if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+                return {"statuses": []}
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["merge-train"])
+
+    def test_the_trains_turn_away_error_is_ignored_not_refused(self):
+        lines = self.judge()
+        self.assertTrue(any(line.startswith("ignored 'merge-train': the merge train turned") and "not seated" in line
+                            for line in lines), lines)
+        self.assertFalse(any("/actions/workflows/" in route for route in self.gh.routes), self.gh.routes)
+
+    def test_the_newest_post_decides(self):
+        older = dict(self.TURNED_AWAY, state="pending", created_at="2026-11-27T04:30:00Z", description="boarded")
+        self.statuses = [older, copy.deepcopy(self.TURNED_AWAY)]
+        self.assertTrue(any(line.startswith("ignored 'merge-train'") for line in self.judge()))
+
+    def test_the_trains_failure_is_the_prs_own_red(self):
+        self.statuses = [dict(self.TURNED_AWAY, state="failure", description="red: job 'swift tests' in run 9")]
+        with self.assertRaisesRegex(excuse.Refused, "pull request's own red on the merge train"):
+            self.judge()
+
+    def test_a_pending_train_is_not_excused(self):
+        self.statuses = [dict(self.TURNED_AWAY, state="pending", description="seated in T1")]
+        with self.assertRaisesRegex(excuse.Refused, "still pending"):
+            self.judge()
+
+
 class StatusOnlyChecks(unittest.TestCase):
     """A same-tree run posts 'cmux-next daemon tests (same-tree)' as a commit status, not a check run (cmux#30294):
     it is judged by the job behind it, in the run its target_url links."""

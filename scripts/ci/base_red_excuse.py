@@ -4190,6 +4190,58 @@ SAME_TREE_SUFFIX = " (same-tree)"
 # dispatched run's head_sha is the feat-cmux-next tip, not the PR head, so its red is never compared by the run: it is
 # the PR's own at that base (a merger reruns one at a stale base), never a base red (cmux#38640, 2026-11-09).
 FAST_GATES_STATUS = "cmux-next/fast-gates"
+# The cmux-next-fast-gates.yml jobs behind that status: `fast gates` runs the checks on the merge with the base and
+# compares every red with the base itself (fast_gate_webviews_checks.py: a red the base has too passes), and `post`
+# posts FAST_GATES_STATUS. When `post` could not post (a rate limit), no status exists, so the status rule above never
+# ran and the bare `fast gates` red was compared with the base's by job name and excused: cmux#46930 (2026-11-26
+# 20:36Z) landed a SetupCard import its own fast gates named ("3 error(s) the base has too", plus its own TS2307), and
+# broke the web bundle and two nightlies (retro rf214bf6c). A red of either job is the PR's own, as the status is.
+FAST_GATES_JOBS = frozenset({"fast gates", "post " + FAST_GATES_STATUS})
+# The HQ merge train's commit status at a boarded PR's head (cmuxterm-hq tools/fleet-reconcilers/merge_train.py). Its
+# `error` is the train turning the head away ("not seated: train T... took N seats, the next no sooner than HH:MMZ; its
+# base merge runs now (update_branch)"): by design the PR's base merge, then its land, never a red
+# (cmuxterm-hq docs/handbook/merge-train-turn-away.md). The train never runs on the base, so judged as a red it could
+# only refuse: cmux#59074 at a3d4b1e0 (2026-11-27 04:41Z) was refused twice "merge-train: has not run on exact head"
+# with its other 173 checks green. Its `failure` is the train's own red at this head, the PR's, never the base's.
+# Detector: tests/test_base_red_excuse.py MergeTrainTurnAwayIsNoRed.
+MERGE_TRAIN_STATUS = "merge-train"
+
+
+def merge_train_verdict(repo: str, sha: str, github) -> str:
+    """The audit line for the merge train's status at SHA (newest post of MERGE_TRAIN_STATUS, over the per-commit list:
+    the combined status's first page can leave a context out on a head with 100+ statuses): `ignored` for its
+    turn-away `error`; any other state is refused (a `failure` is the PR's own red on the train, a `pending` waits)."""
+    listed = github.json(f"repos/{repo}/commits/{sha}/statuses?per_page=100")
+    found = [s for s in listed if isinstance(s, dict) and s.get("context") == MERGE_TRAIN_STATUS] \
+        if isinstance(listed, list) else []
+    status = max(found, key=lambda s: str(s.get("created_at") or ""), default=None)
+    if status is None:
+        status = head_status(repo, sha, MERGE_TRAIN_STATUS, github)
+    if status is None:
+        raise Refused(f"'{MERGE_TRAIN_STATUS}': no status at {sha} to judge")
+    state, said = status.get("state"), str(status.get("description") or "")
+    if state == "error":
+        return (f"ignored '{MERGE_TRAIN_STATUS}': the merge train turned {sha[:12]} away ({said[:200]}): its error is "
+                "the train's fallback, the base merge and then the land, never a red "
+                "(cmuxterm-hq docs/handbook/merge-train-turn-away.md)")
+    if state == "pending":
+        raise Refused(f"'{MERGE_TRAIN_STATUS}': its status is still pending on {sha}")
+    raise Refused(f"'{MERGE_TRAIN_STATUS}': {state} at {sha[:12]} is the pull request's own red on the merge train, "
+                  f"never a base red ({said[:200] or 'no description'}); fix it, or base-merge for a new head")
+
+
+def fast_gates_job_red(name: str, job: dict) -> str | None:
+    """The refusal for a failed cmux-next-fast-gates.yml `fast gates` or `post` job (FAST_GATES_JOBS), named bare or
+    as a called workflow's `caller / job`; None for any other job."""
+    if job.get("conclusion") != "failure" or name.rsplit(" / ", 1)[-1] not in FAST_GATES_JOBS:
+        return None
+    where = f" (run {job['run_id']})" if job.get("run_id") else ""
+    if name.rsplit(" / ", 1)[-1] != "fast gates":
+        return (f"'{name}'{where} failed, so '{FAST_GATES_STATUS}' may be missing or stale on this head: re-run the "
+                "failed job to post it; the fast gates' verdict is never a base red")
+    return (f"'{name}'{where} is the pull request's own: the fast gates ran on it merged with the base and already "
+            "passed every red the base has too, never a base red; fix what its log says this change adds, or "
+            "dispatch them again on the tip if that base is stale")
 # The controller's required-checks pool posts its verdicts as commit statuses (manaflow-checks[bot]); a failed one says
 # "failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head=<sha>". cmux#49885 at 8b11f0c2
 # (2026-11-22): 'clippy (changed cmux-tui packages)' failed there while its Actions twin of the same name was skipped by
@@ -5569,6 +5621,11 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         aggregate_runs = []
         for name in checks:
             check = None
+            if name == MERGE_TRAIN_STATUS:  # the train's own status: its turn-away is no red (merge_train_verdict)
+                line = merge_train_verdict(repo, sha, github)
+                if excused is not None:
+                    excused.append(line)
+                continue
             if exact := [found for found in at_head if found.get("name") == name]:
                 check, why = named_check(repo, sha, name, exact, github, seen, newest=True)
                 if why is not None and excused is not None:
@@ -6063,6 +6120,8 @@ GUARD_WORKFLOWS = {
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
+        "ios-placeholder-bounds": "reads the iOS app's Swift sources and placeholders.json: a red is the change's "
+                                  "own unbound placeholder, never a guard's",
         "pr-red-checks": _PUBLISH,
         "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
         "security-holes": "judges the workflow holes and secrets the change's own diff adds against the base's "
@@ -10081,6 +10140,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}' is {job.get('conclusion')}: it has no verdict to compare with the base; re-run it")
         if refused_at_setup(job):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+        if (own := fast_gates_job_red(name, job)) is not None:
+            raise Refused(own)
         got = read_head(repo, base, sha, name, job, github, run_reads, evidence)
         if got.audit is not None:
             audit.append(got.audit)

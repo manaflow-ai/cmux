@@ -11,13 +11,22 @@ public struct VNCSessionOptions: Sendable, Equatable {
     public var localCursor: Bool
     /// Encodings to advertise, most preferred first; nil for the default list.
     public var encodings: [RFBEncoding]?
+    /// The handshake's rules (cmux-vnc); a client without them cannot connect.
+    public var rules: VNCRules
 
     public init(credentials: VNCCredentials = VNCCredentials(), shared: Bool = true, localCursor: Bool = false,
-                encodings: [RFBEncoding]? = nil) {
+                encodings: [RFBEncoding]? = nil, rules: VNCRules = VNCRules()) {
         self.credentials = credentials
         self.shared = shared
         self.localCursor = localCursor
         self.encodings = encodings
+        self.rules = rules
+    }
+
+    /// The settings, not the channel.
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.credentials == rhs.credentials && lhs.shared == rhs.shared && lhs.localCursor == rhs.localCursor
+            && lhs.encodings == rhs.encodings
     }
 }
 
@@ -194,7 +203,7 @@ public actor VNCClient {
         let reader = RFBReader(transport: transport)
         do {
             try await transport.open()
-            let handshake = RFBHandshake(credentials: options.credentials, shared: options.shared)
+            let handshake = RFBHandshake(credentials: options.credentials, shared: options.shared, rules: options.rules)
             let info = try await handshake.run(reader: reader, transport: transport)
             self.info = info
             let framebuffer = Framebuffer(width: info.width, height: info.height)

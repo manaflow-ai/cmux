@@ -313,6 +313,13 @@ async fn the_same_upload_is_stored_once_and_each_chat_keeps_its_own_path() {
     let other = put(&b).await;
     assert!(first != again && first != other, "each upload keeps its own path");
     let ino = |p: &Path| std::fs::metadata(p).unwrap().ino();
+    // The store takes each after its finish answered (`file_uploads::adopt_later`).
+    let by = tokio::time::Instant::now() + Duration::from_secs(30);
+    while (ino(&first) != ino(&again) || ino(&first) != ino(&other))
+        && tokio::time::Instant::now() < by
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     assert_eq!(ino(&first), ino(&again));
     assert_eq!(ino(&first), ino(&other));
     for path in [&first, &again, &other] {
