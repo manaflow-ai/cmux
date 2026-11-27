@@ -1228,8 +1228,6 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func card(for kit: TabsKitTab) -> some View {
         WorkspaceTabCard(source: self, tabID: kit.id, insets: lastInsets)
             // The layout-shift count: a drawn card must not move or resize while the grid settles.
-            // Measured in the grid's visible bounds, so the grid's zoom scale is not a shift; the
-            // live page's stand-in and the context-menu preview sit outside the grid and report nothing.
             .layoutShiftTracked("tabcard.\(kit.id)", in: .window)
     }
 
