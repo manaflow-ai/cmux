@@ -118,6 +118,8 @@
           ],
           "features": ["tailnet", "hub-carrier"],
           "inputs": [
+            "scripts/ci/cmux-next-steps/daemon-test-give-the-generated-files-verdict.sh",
+            "scripts/ci/cmux-next-steps/daemon-test-replay-the-seed-s-input-times.sh",
             "scripts/ci/job_input_fingerprint.py",
             "scripts/ci/job_reuse.py",
             "scripts/ci/github_fetch_auth.py",
