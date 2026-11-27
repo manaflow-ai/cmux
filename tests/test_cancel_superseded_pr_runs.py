@@ -70,6 +70,17 @@ class Verdict(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
+    def test_closed_allocates_no_runner_but_synchronize_still_runs(self):
+        sys.path.insert(0, str(ROOT / "tests"))
+        import test_ci_pr_runs_cancel_superseded as groups
+        doc = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
+        context = groups.closed_context(doc, 101, [])
+        context["github"]["repository"] = REPO
+        context["github"]["event"]["pull_request"]["head"] = {"repo": {"full_name": REPO}}
+        self.assertEqual(groups.started_jobs(doc, context), [])
+        context["github"]["event"]["action"] = "synchronize"
+        self.assertEqual(groups.started_jobs(doc, context), ["cancel"])
+
     def test_runs_on_every_push_of_a_same_repo_pr_and_can_cancel(self):
         doc = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
         self.assertEqual(doc["on"], {"pull_request": {"types": ["closed", "synchronize"]}})
