@@ -273,6 +273,10 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_SCORECARD {
         return scorecard::handle(hub, conn.origin, &params).await;
     }
+    // Replay of recorded logs against RFD 0161's invariants (`scorecard_replay.rs`): local only.
+    if m == crate::rpc::method::MUX_SCORECARD_REPLAY {
+        return scorecard::replay(hub, conn.origin, &params).await;
+    }
     // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
     if let Some(reply) =
         super::review_queue::route(hub, conn.origin, conn.auth, conn.is_person(), m, &params).await
