@@ -570,10 +570,6 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             return;
         }
         #[cfg(test)]
-        #[path = "subsession_worktree_tests.rs"]
-        mod base_tests;
-
-        #[cfg(test)]
         before_path_removal(&worktree.root);
         // The made folder, emptied, stays at its path while its registration and branch go:
         // nothing can be recreated there meanwhile (worktree care refuses a path that exists).
@@ -1335,7 +1331,10 @@ fn ensure_worktree_in(
         let worktree = fill(folder.into(), &layout, made, &commit, reused.is_some())?;
         return Ok(Ensured { worktree, reused });
     }
-    Err(format!("{} was added and removed while this ran; run it again", root.display()))
+    Err(format!(
+        "{} kept being added and removed while this ran (another process makes worktrees there)",
+        root.display()
+    ))
 }
 
 /// `root` as a worktree of `folder`'s repository: Some(its branch, None
