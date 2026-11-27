@@ -284,11 +284,11 @@ impl Synced {
 fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let tmp = path.with_extension("json.tmp");
-    let mut file = std::fs::File::create(&tmp)?;
+    let mut file = crate::home_fs::create_file(&tmp)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
-    std::fs::rename(&tmp, path)
+    crate::home_fs::rename(&tmp, path)
 }
 
 fn bad(what: &str, e: impl std::fmt::Display) -> RpcError {

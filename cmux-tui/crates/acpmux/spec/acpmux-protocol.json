@@ -132,6 +132,16 @@
     },
     {
       "kind": "request",
+      "name": "session/signature",
+      "params": {
+        "$ref": "#/types/SignatureParams"
+      },
+      "result": {
+        "$ref": "#/types/SignatureResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/request_state",
       "params": true,
       "result": true
@@ -236,6 +246,18 @@
     {
       "kind": "request",
       "name": "_acpmux/perf",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/spans",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/status",
       "params": true,
       "result": true
     },
@@ -363,6 +385,26 @@
       },
       "result": {
         "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/rooms",
+      "params": {
+        "$ref": "#/types/RoomsParams"
+      },
+      "result": {
+        "$ref": "#/types/RoomsResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/follow",
+      "params": {
+        "$ref": "#/types/FollowParams"
+      },
+      "result": {
+        "$ref": "#/types/FollowResult"
       }
     },
     {
@@ -1098,6 +1140,24 @@
     {
       "kind": "request",
       "name": "_acpmux/retention",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/history_delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/history_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transcript_offload",
       "params": true,
       "result": true
     },
@@ -2231,6 +2291,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness_disable",
+      "params": {
+        "$ref": "#/types/HarnessDisableParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/add",
       "params": true,
       "result": true
@@ -2685,6 +2753,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/autocloud_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/host_notice",
       "params": true,
       "result": true
@@ -3089,6 +3163,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/room",
+      "params": {
+        "$ref": "#/types/RoomNote"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/peer_state_changed",
       "params": {
         "$ref": "#/types/PeerStateChanged"
@@ -3268,6 +3349,7 @@
         "personStop": true,
         "personVerified": true,
         "placeRedirect": true,
+        "placedBy": true,
         "policy": true,
         "pr": true,
         "preset": true,
@@ -4185,6 +4267,36 @@
       "description": "An acknowledgement with nothing in it.",
       "type": "object"
     },
+    "Dot": {
+      "description": "One dot. `x`, `y` and `r` are fractions of the glyph box, top left origin.",
+      "properties": {
+        "phase": {
+          "description": "Where the dot starts on its drift circle, 0..1 of a turn.",
+          "format": "double",
+          "type": "number"
+        },
+        "r": {
+          "description": "The radius.",
+          "format": "double",
+          "type": "number"
+        },
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "r",
+        "phase"
+      ],
+      "type": "object"
+    },
     "DownCause": {
       "description": "Why a link is down (`cause`), so a surface can tell this Mac's network apart from the\nmachine. Null while the link is up or on its way the first time.",
       "oneOf": [
@@ -4547,6 +4659,42 @@
         }
       ]
     },
+    "FollowParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/follow` (RFD 0141 phase 3): follow the person `target` (an id live in a chat on this\ndaemon, never the caller's own), or nobody (`null`). The caller's rooms hear it as the\nrecord's `following`. Refusals: `presence.follow_not_live`, `presence.follow_self`.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FollowResult": {
+      "description": "`_acpmux/follow`'s answer: whom the caller follows now.",
+      "properties": {
+        "following": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "FooterFact": {
       "description": "One piece of the footer's quiet metadata.",
       "properties": {
@@ -4685,6 +4833,44 @@
       },
       "type": "object"
     },
+    "Glyph": {
+      "description": "A session's glyph.",
+      "properties": {
+        "accent": {
+          "description": "The variant's accent, `#RRGGBB`.",
+          "type": "string"
+        },
+        "dots": {
+          "description": "5 to 9 dots, none overlapping.",
+          "items": {
+            "$ref": "#/types/Dot"
+          },
+          "type": "array"
+        },
+        "drift": {
+          "description": "The variant's `speed`: how far the running line's dots drift.",
+          "format": "double",
+          "type": "number"
+        },
+        "seed": {
+          "description": "0..1, the meaning `Frame.size.w` has for a wallpaper.",
+          "format": "double",
+          "type": "number"
+        },
+        "variant": {
+          "description": "The particles variant's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seed",
+        "variant",
+        "accent",
+        "drift",
+        "dots"
+      ],
+      "type": "object"
+    },
     "GoneRow": {
       "description": "A row that left the list since a follow's cursor.",
       "properties": {
@@ -4763,6 +4949,17 @@
         "handoffId": true,
         "promptId": true,
         "revision": true
+      },
+      "type": "object"
+    },
+    "HarnessDisableParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "folder": true,
+        "id": true
       },
       "type": "object"
     },
@@ -6563,6 +6760,9 @@
         "answers": {
           "description": "A question's answers, by question."
         },
+        "forkCheckpoint": {
+          "description": "Fork first (fork_risky.rs): the copy the app made before allowing, `{machine, fork, forkMs}`."
+        },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
           "type": [
@@ -7274,6 +7474,70 @@
         "promptId",
         "reason",
         "turnId"
+      ],
+      "type": "object"
+    },
+    "RoomNote": {
+      "description": "`_acpmux/room`: one watched room's snapshot (`snapshot: true`, `presence` every record) or\none change of it (`presence` the records that joined, `deltas` one `cmux-presence` delta per\nrecord that stayed, `left` the ids that went).",
+      "properties": {
+        "deltas": {
+          "items": true,
+          "type": "array"
+        },
+        "left": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "presence": {
+          "items": true,
+          "type": "array"
+        },
+        "room": {
+          "description": "`{chat: id}` or `{workspace: id}`."
+        },
+        "snapshot": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "room",
+        "presence"
+      ],
+      "type": "object"
+    },
+    "RoomsParams": {
+      "description": "`_acpmux/rooms` (RFD 0141 phase 2): every room the client shows now, replacing the set it\nnamed before; both empty unsubscribes. A chat must be attached on this connection.",
+      "properties": {
+        "chats": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "workspaces": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "RoomsResult": {
+      "description": "`_acpmux/rooms`'s answer: how many rooms the connection watches now.",
+      "properties": {
+        "rooms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rooms"
       ],
       "type": "object"
     },
@@ -9488,6 +9752,39 @@
       },
       "type": "object"
     },
+    "SignatureParams": {
+      "additionalProperties": false,
+      "description": "`session/signature` params.",
+      "properties": {
+        "_meta": true,
+        "sessionIds": {
+          "description": "At most 512 session ids. Any string gets a glyph: it is a pure function of the id.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessionIds"
+      ],
+      "type": "object"
+    },
+    "SignatureResult": {
+      "description": "`session/signature` result: one glyph per distinct id asked.",
+      "properties": {
+        "signatures": {
+          "additionalProperties": {
+            "$ref": "#/types/Glyph"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "signatures"
+      ],
+      "type": "object"
+    },
     "StartModeParams": {
       "additionalProperties": false,
       "properties": {
@@ -10191,6 +10488,30 @@
             "null"
           ]
         },
+        "cacheReadByModel1h": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Cache-read prompt tokens by call model in the rolling last hour.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cacheReadByModelPreviousUtcHour": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Cache-read prompt tokens by call model in the completed UTC hour preceding updatedAt.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "cacheReadShare24h": {
           "description": "Of those calls' prompt tokens (input, cache read and cache write), the share the prompt\ncache served (0 to 1); null with no calls or when the day is not read whole.",
           "format": "double",
@@ -10327,6 +10648,8 @@
       "required": [
         "autocompact",
         "autocompactCap",
+        "cacheReadByModel1h",
+        "cacheReadByModelPreviousUtcHour",
         "cacheReadShare24h",
         "calls24h",
         "compactions24h",
