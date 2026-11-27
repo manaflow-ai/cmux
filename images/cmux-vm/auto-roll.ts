@@ -526,8 +526,9 @@ export const PUBLISHED_PROBE_LIMIT = 40;
 
 /**
  * The newest first-parent commit of TIP after PINNED whose cmux-tui build files.cmux.com publishes (pin-cmux-tui.ts
- * --commit reads its manifest; a commit with no build answers non-zero), at most PUBLISHED_PROBE_LIMIT asked. Builds
- * coalesce, so most commits have none. commit "" with why when none is found.
+ * --commit reads its manifest, or its Cloud machine build under machine/ (MACHINE_BUILD); a commit with neither
+ * answers non-zero), at most PUBLISHED_PROBE_LIMIT asked. Builds coalesce, so most commits have none. commit "" with
+ * why when none is found.
  */
 function publishedOnTip(pinned: string, tip: string, lock: string): { commit: string; unchanged: boolean; why: string } {
   const list = git(["rev-list", "--first-parent", `--max-count=${PUBLISHED_PROBE_LIMIT}`, `${pinned}..${tip}`]);
