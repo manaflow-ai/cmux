@@ -46,7 +46,7 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
             guard let role = role(["view", "talk"], default: "view") else { return nil }
             self = .link(role: role)
         case "team":
-            guard let team = text("teamId", limit: 128), let role = role(nil) else { return nil }
+            guard let team = text("teamId", limit: 128), let role = role(["view", "talk"]) else { return nil }
             self = .team(teamId: team, role: role)
         case "invite":
             guard let account = text("account", limit: 320), let role = role(["view", "talk", "drive"]) else { return nil }

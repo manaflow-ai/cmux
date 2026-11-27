@@ -31,6 +31,7 @@ struct AgentPaneShareOpTests {
             [:], ["op": "delete"], ["op": 7], ["op": "link", "role": "admin"], ["op": "link", "role": "drive"], ["op": "link", "role": 1],
             ["op": "team"], ["op": "team", "teamId": "team-1"], ["op": "team", "teamId": "", "role": "view"],
             ["op": "team", "teamId": 7, "role": "view"], ["op": "team", "teamId": "team-1", "role": "admin"],
+            ["op": "team", "teamId": "team-1", "role": "drive"],
             ["op": "invite", "account": "a@b.co"], ["op": "invite", "account": "", "role": "view"],
             ["op": "invite", "account": String(repeating: "a", count: 400), "role": "view"],
             ["op": "uninvite"], ["op": "revoke"], ["op": "revoke", "shareId": "  "],
