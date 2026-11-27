@@ -29,6 +29,9 @@
   "cmux_autocloud::login": {
    "test": "cmux-tui/crates/cmux-autocloud/src/login.rs::seeded_secrets_ride_only_where_stack_needs_them"
   },
+  "cmux_browser_sync::records": {
+   "test": "cmux-tui/crates/cmux-browser-sync/src/records_seeded_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_body"
+  },
   "cmux_cloud_api::http": {
    "test": "cmux-tui/crates/cmux-cloud-api/src/http_seeded_tests.rs::seeded_secrets_go_only_where_the_rule_allows"
   },
@@ -43,6 +46,9 @@
   },
   "cmux_coderouter": {
    "test": "cmux-tui/crates/cmux-coderouter/tests/seeded_secret.rs::the_scoped_key_stays_local_and_the_bearer_rides_only_in_authorization"
+  },
+  "cmux_git_cache::archive_probe": {
+   "none": "GETs of a GitHub release or codeload archive URL (redirect not followed, or an If-None-Match with the stored ETag) with the cmux-git-cache user-agent: no token, cookie or person data"
   },
   "cmux_git_cache::server": {
    "test": "cmux-tui/crates/cmux-git-cache/tests/seeded_secret.rs::the_callers_credential_rides_only_in_authorization_to_github"
@@ -169,6 +175,9 @@
   },
   "cmux_tui::link::sync_cli::store": {
    "todo": true
+  },
+  "cmux_tui::nightly::feed": {
+   "none": "GETs of the public nightly release notes and their signatures under files-next.cmux.com with the cmux user-agent: no token, cookie or person data"
   },
   "cmux_tui::owner_start::background_checks": {
    "none": "header-less GETs of the signed feature-flag file and the npm/PyPI registry entry: no cookie, token or person data in the request"
