@@ -53,9 +53,11 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         Err(error) => return super::super::wire::print_local_error(&error, global.output, 3),
     };
     let socket = match super::exchange(&mut stream, "agent.acpmux", json!({}), APP_DEADLINE) {
-        Ok(Ok(answer)) => {
-            answer["socket_path"].as_str().filter(|p| !p.is_empty()).map(String::from)
-        }
+        Ok(Ok(answer)) => answer
+            .get("socket_path")
+            .and_then(Value::as_str)
+            .filter(|p| !p.is_empty())
+            .map(String::from),
         Ok(Err(error)) => return super::super::wire::print_local_error(&error, global.output, 3),
         Err(message) => return failure("app.transport", message, global.output, 3),
     };
@@ -76,12 +78,14 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         }
         Err(Failure::Daemon(code, message)) => failure(code, message, global.output, 3),
         Err(Failure::Refused(error)) => {
-            let code = error["data"]["code"]
-                .as_str()
-                .or_else(|| error["data"]["reason"].as_str())
+            let code = error
+                .pointer("/data/code")
+                .and_then(Value::as_str)
+                .or_else(|| error.pointer("/data/reason").and_then(Value::as_str))
                 .unwrap_or("machine.refused")
                 .to_owned();
-            let message = error["message"].as_str().unwrap_or("refused").to_owned();
+            let message =
+                error.get("message").and_then(Value::as_str).unwrap_or("refused").to_owned();
             failure(&code, message, global.output, 1)
         }
     }
@@ -90,10 +94,14 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
 /// `{"ports":[{"port":N}]}` from the far answer: port numbers only, distinct and sorted, whatever
 /// else a newer machine adds.
 pub(super) fn shape(answer: &Value) -> Value {
-    let mut ports: Vec<u64> = answer["ports"]
-        .as_array()
+    let mut ports: Vec<u64> = answer
+        .get("ports")
+        .and_then(Value::as_array)
         .map(|list| {
-            list.iter().filter_map(|p| p["port"].as_u64()).filter(|p| *p <= 65535).collect()
+            list.iter()
+                .filter_map(|p| p.get("port").and_then(Value::as_u64))
+                .filter(|p| *p <= 65535)
+                .collect()
         })
         .unwrap_or_default();
     ports.sort_unstable();
@@ -102,11 +110,12 @@ pub(super) fn shape(answer: &Value) -> Value {
 }
 
 fn human(machine: &str, shaped: &Value) -> String {
-    let ports: Vec<String> = shaped["ports"]
-        .as_array()
+    let ports: Vec<String> = shaped
+        .get("ports")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|p| p["port"].as_u64())
+        .filter_map(|p| p.get("port").and_then(Value::as_u64))
         .map(|p| p.to_string())
         .collect();
     if ports.is_empty() {
@@ -128,7 +137,7 @@ fn ask(socket: &Path, machine: &str) -> Result<Value, Failure> {
         .enable_all()
         .build()
         .map_err(|error| Failure::Daemon("acpmux.runtime", error.to_string()))?;
-    let until = Instant::now() + CALL_DEADLINE;
+    let until = Instant::now().checked_add(CALL_DEADLINE).unwrap_or_else(Instant::now);
     runtime.block_on(async {
         let work = async {
             let client = acpmux::client::Client::connect_without_caller(socket)
@@ -139,7 +148,7 @@ fn ask(socket: &Path, machine: &str) -> Result<Value, Failure> {
                     .request(acpmux::rpc::method::MUX_STATUS, json!({}))
                     .await
                     .map_err(|error| Failure::Daemon("acpmux.status", format!("{error:#}")))?;
-                if status["ready"] != Value::Bool(false) {
+                if status.get("ready") != Some(&Value::Bool(false)) {
                     break;
                 }
                 if Instant::now() >= until {
