@@ -114,10 +114,12 @@ public actor LiveEngine {
 
     private func apply(_ name: String) {
         let started = Date()
+        var phases = Interposer.Phases()
         do {
             // The check and the load read one private copy, never the shared folder's file twice.
             let copy = try folder.privateCopy(name)
             defer { try? FileManager.default.removeItem(at: copy) }
+            phases.end("copy")
             #if os(macOS)
             // Outside Debug and bench, only a patch signed by this app's team loads, or, for an
             // unsigned app, any validly signed one (cmux#13742).
@@ -127,14 +129,19 @@ public actor LiveEngine {
             #else
             try DevicePatchSignature.check(copy.path, signer: deviceSigner)
             #endif
+            phases.end("sign")
             let handle = try Interposer.load(copy.path)
-            let patched = try Interposer.apply(handle: handle, dylib: copy.path, current: &current)
+            phases.end("open")
+            let patched = try Interposer.apply(handle: handle, dylib: copy.path, current: &current, phases: &phases)
             let sidecar = folder.sidecar(name)
             let record = LivePatchRecord(name: name, commit: sidecar?.commit, files: sidecar?.files,
                                          functions: patched.after.count, appliedAt: Date().timeIntervalSince1970)
             applied.append((patched, record))
             let ms = Int((Date().timeIntervalSince(started) * 1000).rounded())
-            changed("applied \(name) functions=\(record.functions) load_ms=\(ms) at=\(Date().timeIntervalSince1970)")
+            // Harnesses read up to at=; the phases after it say where load_ms went, and images= how
+            // many images this process holds (each applied patch stays loaded), so a load that grows
+            // with them names its phase (the duress run on cmux#56326: 13 ms at 0 patches, 124 at 6000).
+            changed("applied \(name) functions=\(record.functions) load_ms=\(ms) at=\(Date().timeIntervalSince1970) \(phases.line) images=\(_dyld_image_count())")
         } catch {
             refused(name, error)
         }

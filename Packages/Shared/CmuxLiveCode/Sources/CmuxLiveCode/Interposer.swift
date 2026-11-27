@@ -30,6 +30,38 @@ enum Interposer {
         return Int(bitPattern: handle)
     }
 
+    /// Each step of a load in order, with its milliseconds: where `load_ms` went.
+    struct Phases {
+        private var mark = DispatchTime.now().uptimeNanoseconds
+        private(set) var steps: [(String, Double)] = []
+        /// This process's footprint when the load started: the line says what the load kept.
+        private let footprint = Phases.footprint()
+
+        /// Ends the step `name` now; the next one starts here.
+        mutating func end(_ name: String) {
+            let now = DispatchTime.now().uptimeNanoseconds
+            steps.append((name, Double(now - mark) / 1e6))
+            mark = now
+        }
+
+        /// `copy_ms=0.21 sign_ms=0.00 ... kept_kb=80 footprint_mb=412`
+        var line: String {
+            let now = Phases.footprint()
+            let kept = "kept_kb=\((now - footprint) / 1024) footprint_mb=\(now / 1_048_576)"
+            return (steps.map { "\($0.0)_ms=\(String(format: "%.2f", $0.1))" } + [kept]).joined(separator: " ")
+        }
+
+        /// The process's physical footprint (what Xcode's memory gauge and jetsam count), or 0.
+        static func footprint() -> Int {
+            var info = task_vm_info_data_t()
+            var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+            let result = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+            }
+            return result == KERN_SUCCESS ? Int(info.phys_footprint) : 0
+        }
+    }
+
     /// One applied patch: each function it replaced, with its new code and the code it replaced
     /// (the executable's, or an earlier patch's). Rollback repoints `after` back to `before`.
     struct Applied {
@@ -39,7 +71,8 @@ enum Interposer {
 
     /// `current` holds each replaced function's newest code: dyld repoints the bindings that hold the
     /// replacee, which after the first patch is that patch's copy, not the executable's.
-    static func apply(handle bits: Int, dylib path: String, current: inout [String: UnsafeRawPointer]) throws -> Applied {
+    static func apply(handle bits: Int, dylib path: String, current: inout [String: UnsafeRawPointer],
+                      phases: inout Phases) throws -> Applied {
         guard let handle = UnsafeMutableRawPointer(bitPattern: bits) else { throw LiveCodeError.open("no handle") }
         guard let index = (0..<_dyld_image_count()).last(where: { String(cString: _dyld_get_image_name($0)) == path
             || URL(fileURLWithPath: String(cString: _dyld_get_image_name($0))).resolvingSymlinksInPath().path == URL(fileURLWithPath: path).resolvingSymlinksInPath().path
@@ -47,11 +80,14 @@ enum Interposer {
         let interpose = dynamicInterpose()
         let mainOnly = UnsafeMutableRawPointer(bitPattern: -5) // RTLD_MAIN_ONLY
         let slide = _dyld_get_image_vmaddr_slide(index)
+        phases.end("find")
         let changed = layoutChanges(header: header, slide: slide, patch: handle, mainOnly: mainOnly)
         // A refused patch stays loaded (no dlclose); nothing points at it, and the next patch has a new name.
         guard changed.isEmpty else { throw LiveCodeError.layoutChanged(changed) }
+        phases.end("layout")
         let retyped = opaqueTypeChanges(header: header, slide: slide, mainOnly: mainOnly)
         guard retyped.isEmpty else { throw LiveCodeError.opaqueTypeChanged(retyped) }
+        phases.end("opaque")
         var tuples: [Tuple] = []
         var replaced: [String: UnsafeRawPointer] = [:]
         var before: [String: UnsafeRawPointer] = [:]
@@ -68,8 +104,10 @@ enum Interposer {
             before[name] = current[name] ?? original
         }
         guard !tuples.isEmpty else { throw LiveCodeError.nothingToReplace }
+        phases.end("match")
         try repoint(tuples, to: replaced, interpose: interpose)
         current.merge(replaced) { $1 }
+        phases.end("repoint")
         return Applied(after: replaced, before: before)
     }
 
