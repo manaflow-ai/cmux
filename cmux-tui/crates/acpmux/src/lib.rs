@@ -131,6 +131,7 @@ pub mod github_budget;
 pub mod github_lane_mint;
 #[cfg(unix)]
 pub mod github_mcp;
+pub mod github_pool;
 pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
@@ -188,6 +189,9 @@ pub mod hub;
 /// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
+/// The process that holds the far end of each held pipe past a daemon restart (`hub_carrier_pipe_host.rs`).
+#[cfg(all(unix, feature = "hub-carrier"))]
+pub mod hub_carrier_pipe_host;
 pub mod hunk_summary;
 pub mod idempotency;
 #[cfg(windows)]
