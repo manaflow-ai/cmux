@@ -577,8 +577,17 @@ fn carrier_faults_ssh_row_twenty_relay_kills_in_a_row_each_resume_on_ssh_with_no
         }
         other
     };
+    // Each cut spends two redials of the connection's budget (cmux-remote
+    // `RedialBudget::default()`: 4 tokens, one back per 2 s): the redial of
+    // the route that died, then the one that carries the resume. Back to
+    // back, the cuts emptied it, and every relay cut waited about 4 s for a
+    // token (3919 to 3958 ms, CI runs 46072657878 and 46074253406): the
+    // budget's pace, not the failover's. A real failover finds the budget
+    // full, so each cut waits here until the two tokens it spends are back.
+    let refill = Duration::from_secs(4);
     let mut cycles = Vec::new();
     for _ in 0..CYCLES {
+        std::thread::sleep(refill);
         // Cut the relay: the next line is answered over ssh.
         let (before, on_ssh) = (id, resumes("ssh"));
         let cut = std::time::Instant::now();
@@ -591,6 +600,7 @@ fn carrier_faults_ssh_row_twenty_relay_kills_in_a_row_each_resume_on_ssh_with_no
 
         // The relay is back; cut ssh: the next line is answered on the relay.
         world.cut.send_replace(false);
+        std::thread::sleep(refill);
         let (before, on_relay) = (id, resumes("relay"));
         let cut = std::time::Instant::now();
         world.hub_cut.store(true, std::sync::atomic::Ordering::SeqCst);
