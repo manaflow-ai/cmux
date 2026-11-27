@@ -348,6 +348,57 @@ class BindingErrorTests(unittest.TestCase):
 
 
 
+class IfTrueTests(unittest.TestCase):
+    """`encode: if_true`: a flag the app sends only when true, so an older daemon sees the request it always saw."""
+
+    def source(self, **override: Any) -> str:
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["order"] = ["split", "ratio", "confirm_close"]
+        request["fields"] = {"confirm_close": {"encode": "if_true", **override}}
+        return rendered(bindings=bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_if_true_is_a_plain_bool_false_by_default_encoded_only_when_true(self) -> None:
+        source = self.source()
+        self.assertIn("public var confirmClose: Bool\n", source)
+        self.assertIn("confirmClose: Bool = false", source)
+        self.assertIn("if confirmClose { try container.encode(true, forKey: .confirmClose) }", source)
+        self.assertIn('case confirmClose = "confirm_close"', source)
+
+    def test_if_true_says_false_for_a_daemon_without_the_capability(self) -> None:
+        document = layout_document()
+        document["commands"]["set-split-ratio"]["request"]["fields"]["confirm_close"]["capability"] = "x-v1"
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["fields"] = {"confirm_close": {"encode": "if_true"}}
+        source = rendered(document, bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+        self.assertIn("leave it false for a daemon that does not serve it", source)
+
+    def test_if_true_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases = {
+            "not a boolean": ("transaction", {"encode": "if_true"}),
+            "a required field": ("ratio", {"encode": "if_true"}),
+            "with optional": ("confirm_close", {"encode": "if_true", "optional": True}),
+            "with a type": ("confirm_close", {"encode": "if_true", "type": "Int"}),
+            "with a true default": ("confirm_close", {"encode": "if_true", "default": "true"}),
+        }
+        for label, (wire, override) in cases.items():
+            bindings = layout_bindings()
+            bindings["families"]["Layout"]["requests"]["set-split-ratio"]["fields"] = {wire: override}
+            with self.subTest(label), self.assertRaises(BindingError):
+                rendered(bindings=bindings)
+
+    def test_if_true_is_refused_on_a_field_whose_schema_default_is_not_false(self) -> None:
+        document = layout_document()
+        document["commands"]["set-split-ratio"]["request"]["fields"]["confirm_close"]["default"] = True
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["requests"]["set-split-ratio"]["fields"] = {
+            "confirm_close": {"encode": "if_true"}
+        }
+        with self.assertRaises(BindingError):
+            rendered(document, bindings)
+
+
 def mutation_document() -> dict[str, Any]:
     """A write command carrying the four mutation identity fields."""
     document = layout_document()
