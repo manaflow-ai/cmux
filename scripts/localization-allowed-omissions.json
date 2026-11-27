@@ -370,6 +370,20 @@
     "class": "format",
     "source": "%1$@: %2$@"
   },
+  "appHealth.line": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
+  "machineStorage.line": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
+  "sidebar.restoring.details": {
+    "source": "Details",
+    "identityLocales": {
+      "de": "Details is the standard German word for details; a translated entry is still required."
+    }
+  },
   "agent.kimi.displayName": {
     "source": "Kimi Code",
     "identityLocales": {
@@ -7345,29 +7359,6 @@
     "identityLocales": {
       "de": "Cloud is the established German UI noun for the product area; an explicit translated entry remains required.",
       "fr": "Cloud is the established French UI noun for the product area; an explicit translated entry remains required."
-    }
-  },
-  "settings.choice.modelRouterDeepSeekV41Flash": {
-    "class": "brand",
-    "source": "DeepSeek V4.1 Flash"
-  },
-  "settings.choice.modelRouterDeepSeekV4Flash": {
-    "class": "brand",
-    "source": "DeepSeek V4 Flash"
-  },
-  "settings.choice.modelRouterDeepSeekV4Pro": {
-    "class": "brand",
-    "source": "DeepSeek V4 Pro"
-  },
-  "settings.choice.modelRouterDeepSeekV41Flash1017": {
-    "source": "DeepSeek V4.1 Flash 1017 (Images)",
-    "identityLocales": {
-      "fr": {
-        "reason": "DeepSeek V4.1 Flash 1017 is an invariant model name, and Images is the standard French noun. The translated French entry is still required.",
-        "values": [
-          "DeepSeek V4.1 Flash 1017 (Images)"
-        ]
-      }
     }
   },
   "iphone.phone.transport.next": {
