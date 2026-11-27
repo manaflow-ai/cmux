@@ -92,6 +92,23 @@ extension WebUpdates {
             "app_web_built_at": JSONValue(updater.app.webBuiltAt),
             "last_check": updater.lastCheck.map { .string(ISO8601DateFormatter().string(from: $0)) } ?? .null,
             "last_refusal": updater.lastRefusal.map { .string(String(describing: $0)) } ?? .null,
+            // How the last update's tree came (RFD 0166): `cas` with what it read, or `archive`
+            // with why cas missed (nil: `updates.webCas` off or the pointer named no cas).
+            "last_fetch": updater.lastFetch.map(json) ?? .null,
+        ])
+    }
+
+    private static func json(_ fetch: WebUpdater.FetchOutcome) -> JSONValue {
+        let cas: JSONValue = fetch.cas.map { report in
+            .object([
+                "tree_bytes": JSONValue(report.treeBytes), "chunks": JSONValue(report.chunks),
+                "reused": JSONValue(report.reused), "ranges": JSONValue(report.ranges),
+                "range_bytes": JSONValue(report.rangeBytes), "meta_bytes": JSONValue(report.metaBytes),
+            ])
+        } ?? .null
+        return .object([
+            "key": .string(fetch.key), "by": .string(fetch.by.rawValue), "cas": cas,
+            "cas_miss": fetch.casMiss.map { .string($0) } ?? .null, "archive_bytes": JSONValue(fetch.archiveBytes),
         ])
     }
 
