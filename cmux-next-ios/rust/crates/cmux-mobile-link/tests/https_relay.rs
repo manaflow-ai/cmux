@@ -1120,6 +1120,16 @@ async fn relay_first_dial_with_a_slow_gather_by(
     assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
     let session = rig.server.sessions_with("wg-init").remove(0);
     let init = rig.server.forwarded_at(&session, "wg-init").expect("wg-init forwarded");
+    if !tunnel_after_gather && !after_gather {
+        // The trickle can land after link up: give it its STUN round trip
+        // before closing the link, or it stops with the session.
+        for _ in 0..150 {
+            if timeline.get("endpoints_trickled").is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
     connected.link.close("done");
     (up, init.duration_since(started), timeline)
 }
@@ -1181,13 +1191,6 @@ async fn relay_first_starts_the_tunnel_before_the_gather_ends() {
                 relay_first_dial_with_a_slow_gather_by(false, tunnel_after_gather, true, stun, join).await;
             if !tunnel_after_gather {
                 assert!(timeline.get("tunnel_before_gather").is_some(), "{}", timeline.summary());
-                // The trickle runs after the link is up: give it its STUN round trip.
-                for _ in 0..100 {
-                    if timeline.get("endpoints_trickled").is_some() {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                }
                 assert!(timeline.get("reflexive_learned").is_some(), "{}", timeline.summary());
             }
             ups.push(up);
