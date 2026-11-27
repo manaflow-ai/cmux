@@ -16,8 +16,9 @@ baseline) and on its head. This script turns that receipt into a pass/fail check
 
 It fails open: no receipt, no rendered pair, a new or removed state, or a measuring error is success with the reason
 in the description (Leo, 2026-10-31: missing screenshots never block a UI PR). Calibration on 13 gallery PR runs of
-2026-11-27 (runs 46045196687..46070603670): raw `changed` would fail 12 of 13; this rule fails 6, each on the PR's
-own component, each cleared by one Visual-change line.
+2026-11-27 (runs 46045196687..46070603670): raw `changed` would fail 12 of 13; this rule fails 2 (cmux-shotdiff
+defaults), each on the PR's own component, each cleared by one Visual-change line. The tile floor applied to every
+state would fail 6, all own states, which is why it is kept to collateral ones.
 """
 from __future__ import annotations
 
