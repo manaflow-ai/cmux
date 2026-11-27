@@ -25,8 +25,11 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read  # the base-red step lists and reads the app compile's verdict artifacts
     outputs:
-      swift: ${{ steps.route.outputs.swift }}
+      # A base red that this head only repeats (scripts/ci/nightly_pr_build.py base-red) skips the app compile.
+      swift: ${{ !steps.basered.outputs.base_red && steps.route.outputs.swift || 'false' }}
+      base_tip: ${{ steps.route.outputs.base_tip }}
       helpers: ${{ steps.route.outputs.helpers }}
       keys: ${{ steps.keys.outputs.keys }}
     steps:
@@ -41,7 +44,9 @@ jobs:
           submodules: false
       - name: Route the change
         id: route
-        run: python3 scripts/ci/nightly_pr_build.py route --base 'HEAD^1' --rev HEAD | tee -a "$GITHUB_OUTPUT"
+        run: |
+          python3 scripts/ci/nightly_pr_build.py route --base 'HEAD^1' --rev HEAD | tee -a "$GITHUB_OUTPUT"
+          echo "base_tip=$(git rev-parse 'HEAD^1')" | tee -a "$GITHUB_OUTPUT"
       # The fleet job builds the PR head, while this reusable workflow and its driver come from the
       # merge ref. Keeping the recipe revision separate lets an already-open PR predate this workflow.
       - name: Key the inputs at the head
@@ -52,6 +57,20 @@ jobs:
         run: |
           git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin "$HEAD_SHA"
           python3 scripts/ci/nightly_pr_build.py keys --rev "$HEAD_SHA" --recipe-rev "$RECIPE_SHA" | tee -a "$GITHUB_OUTPUT"
+      # The newest app compile red on any PR was the base's (its failing files are the base tip's, untouched by
+      # its head) and this head has those files as the base had them: a build would repeat it, ~43 min a job.
+      # 2026-11-27 07-13Z: 49 of 99 reds, 2,113 job-min, were one base error (#61522 fixed it). Fails open;
+      # full-ci and 10% of runs (audits) build anyway.
+      - name: Skip a red this head only repeats from the base
+        id: basered
+        if: ${{ steps.route.outputs.swift == 'true' }}
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_TIP: ${{ steps.route.outputs.base_tip }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: python3 scripts/ci/nightly_pr_build.py base-red --rev "$HEAD_SHA" --base-tip "$BASE_TIP" | tee -a "$GITHUB_OUTPUT"
 
   # The gateway runner's hook takes only job ids ending in -fleet; `swift` was refused (run 45799805163).
   swift-fleet:
@@ -113,6 +132,11 @@ jobs:
             # Not started within QUEUE_WAIT_S: the step would stay queued and build for nobody.
             "$client" cancel "$step" --reason "nightly pr build: not started within ${QUEUE_WAIT_S}s" || true
           fi
+          if [[ "$status" != 0 ]] && grep -q 'source depot full' "$log"; then
+            # The controller refused the step before any worker took it (jobs 140511754276 and 26 more,
+            # 2026-11-27 11:53-13Z): the fleet's disk, not the head. No verdict, not a red on the head.
+            status=69
+          fi
           case "$status" in
             0) echo "passed=true" >> "$GITHUB_OUTPUT" ;;
             69|75|124) echo "::warning title=nightly app compile::the fleet job gave no verdict (exit $status: 69 controller unavailable, 75 or 124 did not finish); not judged" ;;
@@ -128,6 +152,36 @@ jobs:
         with:
           path: ${{ runner.temp }}/nightly-pr-build-pass
           key: ${{ env.KEY }}
+      # Verdicts for the route's base-red skip (scripts/ci/nightly_pr_build.py base-red): a red's Swift
+      # diagnostics and the base tip it was merged onto; a pass (its head is the artifact's run head).
+      - name: Record the verdict for the base-red skip
+        if: ${{ !cancelled() && (steps.compile.outputs.passed == 'true' || steps.compile.outcome == 'failure') }}
+        env:
+          ARCH: ${{ matrix.arch }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_TIP: ${{ needs.route.outputs.base_tip }}
+          JOB: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          PASSED: ${{ steps.compile.outputs.passed == 'true' }}
+        run: |
+          dir="$RUNNER_TEMP/nightly-app-compile-verdict"
+          mkdir -p "$dir"
+          if [[ "$PASSED" == true ]]; then
+            echo '{"verdict":"pass"}' > "$dir/verdict.json"
+            echo "name=nightly-app-compile-pass" >> "$GITHUB_OUTPUT"
+          elif grep -E '\.swift:[0-9]+:[0-9]+: (error|note): ' "$RUNNER_TEMP/nightly-pr-build-$ARCH.log" | head -200 > "$dir/diagnostics.txt" && [[ -s "$dir/diagnostics.txt" ]]; then
+            printf '{"verdict":"red","arch":"%s","head":"%s","base":"%s","job":"%s"}\n' "$ARCH" "$SHA" "$BASE_TIP" "$JOB" > "$dir/verdict.json"
+            echo "name=nightly-app-compile-red" >> "$GITHUB_OUTPUT"
+          fi
+        id: verdict
+      - name: Upload the verdict
+        if: ${{ !cancelled() && steps.verdict.outputs.name }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # Unique per run: arm64 and x86_64 may both record one.
+          name: ${{ steps.verdict.outputs.name }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/nightly-app-compile-verdict
+          retention-days: 1
+          if-no-files-found: ignore
 
   helpers:
     name: nightly rust helpers (advisory)
