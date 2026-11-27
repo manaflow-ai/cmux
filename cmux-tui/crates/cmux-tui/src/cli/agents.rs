@@ -467,10 +467,28 @@ fn follow_app_focus<B: Backend>(
     let Some(id) = app_focus::reply_id(&result) else { return Ok(result) };
     let params = app_focus::focus_params(&focus, &id);
     match backend.app("action.run", params, app::WAITING_RUN_TIMEOUT, None, true) {
-        Ok(_) => Ok(result),
-        Err(failure) if app_focus::is_not_found(&failure.error) || no_app(&failure) => Ok(result),
+        Ok(_) => Ok(app_shown(result, None)),
+        // The daemon moved its focus; no window shows it, which is not a failure (a headless
+        // session, an app on another session). Say so in the result, so a caller that needs a
+        // window (a probe watching the app) can tell instead of reading exit 0 as shown.
+        Err(failure) if app_focus::is_not_found(&failure.error) || no_app(&failure) => {
+            Ok(app_shown(result, Some(&failure.error)))
+        }
         Err(failure) => Err(AgentFailure::Owner(failure)),
     }
+}
+
+/// `result` with `app_shown`: whether a cmux window now shows the selected object, and when not,
+/// `app_not_shown`, the app's error code (`not_found`: the app has no such object; `app.not_found`
+/// or `app.unreachable`: no app answered).
+fn app_shown(mut result: Value, error: Option<&Value>) -> Value {
+    if let Some(object) = result.as_object_mut() {
+        object.insert("app_shown".into(), Value::Bool(error.is_none()));
+        if let Some(code) = error.and_then(|e| e.get("code")).cloned() {
+            object.insert("app_not_shown".into(), code);
+        }
+    }
+    result
 }
 
 /// No app answers on its control socket, so no window follows.
