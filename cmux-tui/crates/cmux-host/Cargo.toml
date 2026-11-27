@@ -24,6 +24,8 @@ cmux-cloud-start-core.workspace = true
 cmux-file-lock.workspace = true
 cmux-supervise-core.workspace = true
 cmux-json.workspace = true
+# Patience: Cloud reads retried through a transient outage (`cloud/client.rs`).
+cmux-tui-util.workspace = true
 base64.workspace = true
 cmux-link.workspace = true
 cmux-unix-socket.workspace = true

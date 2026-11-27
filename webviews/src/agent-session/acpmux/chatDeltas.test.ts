@@ -331,3 +331,21 @@ test("applyRowPatch merges, removes on null, splices, and leaves the held row as
   expect(held).toEqual(copy);
   expect(next.same).toBe(held.same);
 });
+
+test("a compact chunk carries its own prev, never its template's", () => {
+  const deltas = new ChatDeltas();
+  const whole = deltas.decode({
+    method: "_acpmux/event",
+    params: { ...text(SESSION, 20, T0, "a"), prev: 18, chunkRef: 9 },
+  });
+  expect((whole as Frame).params.prev).toBe(18);
+  const next = deltas.decode({
+    method: "_acpmux/chunk",
+    params: { ref: 9, seq: 22, dt: 5, text: "b", prev: 21 },
+  }) as Frame;
+  expect(next.params.seq).toBe(22);
+  expect(next.params.prev).toBe(21);
+  // An acpmux before `prev` sends none: the rebuilt event has none either.
+  const old = deltas.decode({ method: "_acpmux/chunk", params: { ref: 9, seq: 23, dt: 5, text: "c" } }) as Frame;
+  expect("prev" in old.params).toBe(false);
+});
