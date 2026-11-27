@@ -111,6 +111,8 @@ acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 acpmux-core = { path = "../acpmux-core" }
 # cmux.share-approval.v1, shared with the iPhone that asks with it (share_approval.rs).
 cmux-share-approval.workspace = true
+# The resume failure classes and their retry budgets (`acpmux_list_types::resume`).
+acpmux-list-types = { path = "../acpmux-list-types" }
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 acpmux-hot = { workspace = true, optional = true, features = ["wasm"] }
 arc-swap.workspace = true
@@ -240,6 +242,7 @@ bytes.workspace = true
 tempfile = "3"
 # Model-sized copies of large PNG uploads (src/model_copies.rs).
 png.workspace = true
+jpeg-encoder.workspace = true
 cmux-image-linear.workspace = true
 # NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
 unicode-normalization.workspace = true
