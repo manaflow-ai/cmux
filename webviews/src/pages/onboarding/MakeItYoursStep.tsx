@@ -347,9 +347,10 @@ function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkVal
 const CHAT_FEEL_KEYS = {
   instant: "onboarding.makeItYours.chatFeel.instant",
   pop: "onboarding.makeItYours.chatFeel.pop",
+  top: "onboarding.makeItYours.chatFeel.top",
 } as const;
 
-/** Screen 2's chat feel row: how a sent prompt arrives (agentPane.display.sendPop; Instant, as cmux
+/** Screen 2's chat feel row: how a sent prompt arrives (agentPane.display.sendPop and sendScrollsToTop; Instant, as cmux
  * ships, unless already set). */
 function ChatFeelRow({ opened, current }: { opened: WalkValues; current: WalkValues }) {
   const { strings } = useOnboarding();
