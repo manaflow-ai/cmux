@@ -96,3 +96,10 @@ test("the grid names are the layout grid's own variables, and full is a radius t
   // Tailwind's own rounded-full is left alone.
   expect(readFileSync(join(repo, "webviews/src/ui/theme.generated.css"), "utf8")).not.toContain("--radius-full");
 });
+
+test("a named static Row exposes its secondary action outside the replacement label", () => {
+  const row = html(<Row title="Inbox" label="Inbox, waiting" hoverActions={<Button>Pin</Button>} />);
+  expect(row).toContain('aria-hidden="true"><span class="kit-row-text ui-reveal-text"');
+  expect(row).toContain('</div><span class="kit-row-actions ui-reveal"><button');
+  expect(html(<Row title="Inbox" hoverActions={false} />)).toBe(html(<Row title="Inbox" />));
+});

@@ -45,7 +45,7 @@
 .acpmux-env-card__row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   box-sizing: border-box;
   width: 100%;
   min-height: 28px;
@@ -101,7 +101,7 @@ button.acpmux-env-card__row:disabled {
 .acpmux-changes-pill-row {
   display: flex;
   justify-content: center;
-  padding: 0 var(--cv-inset, 16px) 8px;
+  padding: 0 var(--cv-inset, 16px) var(--ds-space-fixed-2);
   pointer-events: none;
 }
 .acpmux-changes-pill {

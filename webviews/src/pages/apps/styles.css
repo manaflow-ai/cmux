@@ -13,8 +13,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  padding: 12px var(--page-edge);
+  gap: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
+  padding: var(--ds-space-fixed-3) var(--page-edge);
   border-bottom: 1px solid var(--page-separator);
 }
 
@@ -61,8 +61,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px var(--page-edge);
+  gap: var(--ds-space-fixed-3);
+  padding: var(--ds-space-fixed-2) var(--page-edge);
   color: var(--page-text-2);
   background: color-mix(in srgb, var(--page-selection) 25%, transparent);
   border-bottom: 1px solid var(--page-separator);
@@ -86,7 +86,7 @@
    list's own width, which in the split view is the 340px column, not the window. */
 .apps-discover-list {
   container: apps-discover / inline-size;
-  padding: 0 var(--page-edge) 24px;
+  padding: 0 var(--page-edge) var(--ds-space-fixed-5);
 }
 
 .apps-chips {
@@ -142,7 +142,7 @@
 .apps-section-heading {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   padding: 0 2px;
 }
 
@@ -157,7 +157,7 @@
 .apps-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--page-separator);
@@ -202,7 +202,7 @@
 .apps-card-meta {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   color: var(--page-text-3);
   font-size: var(--text-caption);
   overflow-wrap: anywhere;
@@ -442,7 +442,7 @@
 .apps-detail-state-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   justify-content: center;
 }
 
@@ -466,7 +466,7 @@
 }
 
 .apps-section h2 {
-  margin: 0 0 8px;
+  margin: 0 0 var(--ds-space-fixed-2);
   font-size: 12px;
   font-weight: 600;
   color: var(--page-text-2);
@@ -496,7 +496,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .apps-versions li,
@@ -544,12 +544,12 @@ code {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-top: 4px;
+  padding-top: var(--ds-space-fixed-1);
 }
 
 .apps-grant {
   display: flex;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   align-items: center;
 }
 
@@ -608,7 +608,7 @@ code {
   padding: var(--page-edge);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 /* The failed-check notice and the update rows sit under the Updates head with the rows' own spacing. */
@@ -616,7 +616,7 @@ code {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   margin-top: 10px;
 }
 
@@ -656,7 +656,7 @@ code {
 
 .apps-logs {
   margin: 0;
-  padding: 8px;
+  padding: var(--ds-space-fixed-2);
   max-height: 220px;
   overflow: auto;
   border-radius: var(--ds-radius-md);
@@ -673,7 +673,7 @@ code {
   display: grid;
   place-items: center;
   color: var(--page-text-3);
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   text-align: center;
 }
 
@@ -684,7 +684,7 @@ code {
   gap: 6px;
   flex: 1;
   min-height: 180px;
-  padding: 32px;
+  padding: var(--ds-space-fixed-6);
   color: var(--page-text-2);
   text-align: center;
 }
@@ -706,7 +706,7 @@ code {
   place-items: center;
   width: 28px;
   height: 28px;
-  margin-bottom: 4px;
+  margin-bottom: var(--ds-space-fixed-1);
   border: 1px solid var(--page-separator);
   border-radius: 9px;
   color: var(--page-text-2);
@@ -717,13 +717,13 @@ code {
 
 .apps-state-empty {
   min-height: 220px;
-  margin-top: 8px;
+  margin-top: var(--ds-space-fixed-2);
   border: 1px dashed var(--page-separator);
   border-radius: var(--ds-radius-xl);
 }
 
 .apps-state-error {
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -738,8 +738,8 @@ code {
 .apps-cloud-feature {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-top: 12px;
+  gap: var(--ds-space-fixed-4);
+  margin-top: var(--ds-space-fixed-3);
   padding: 14px 16px;
   border: 1px solid var(--page-separator);
   border-radius: var(--ds-radius-xl);
@@ -806,7 +806,7 @@ code {
 @container apps-discover (max-width: 480px) {
   .apps-cloud-feature {
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--ds-space-fixed-2);
   }
 
   .apps-cloud-feature-text {
@@ -860,7 +860,7 @@ code {
 .apps-card-line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 
@@ -903,14 +903,14 @@ code {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   max-width: 360px;
 }
 
 /* A deep link to an app the store does not list lands on Discover with this one quiet line. */
 .apps-notice {
   display: block;
-  padding: 0 0 12px;
+  padding: 0 0 var(--ds-space-fixed-3);
   color: var(--page-text-2);
   font-size: var(--text-detail);
 }
@@ -920,16 +920,16 @@ code {
 .apps-heroes {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: var(--ds-space-fixed-4);
+  margin-bottom: var(--ds-space-fixed-5);
 }
 
 .apps-hero {
   display: grid;
   grid-template-columns: minmax(240px, 2fr) minmax(0, 3fr);
   align-items: center;
-  gap: 24px;
-  padding: 24px;
+  gap: var(--ds-space-fixed-5);
+  padding: var(--ds-space-fixed-5);
   border: 1px solid var(--page-separator);
   border-radius: var(--ds-radius-2xl);
   background: linear-gradient(
@@ -944,7 +944,7 @@ code {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-width: 0;
 }
 
@@ -959,7 +959,7 @@ code {
 .apps-hero-open {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-width: 0;
   border: 0;
   padding: 0;
@@ -970,7 +970,7 @@ code {
 .apps-hero-title {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
 }
 
@@ -993,7 +993,7 @@ code {
 .apps-hero-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .apps-hero-art {
@@ -1019,8 +1019,8 @@ code {
 @container apps-discover (max-width: 620px) {
   .apps-hero {
     grid-template-columns: minmax(0, 1fr);
-    padding: 16px;
-    gap: 16px;
+    padding: var(--ds-space-fixed-4);
+    gap: var(--ds-space-fixed-4);
   }
 }
 
@@ -1036,8 +1036,8 @@ code {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 200px) minmax(0, 120px) auto;
   align-items: center;
-  gap: 16px;
-  padding: 8px;
+  gap: var(--ds-space-fixed-4);
+  padding: var(--ds-space-fixed-2);
   border-bottom: 1px solid var(--page-separator);
 }
 
@@ -1048,7 +1048,7 @@ code {
 .apps-list-open {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-width: 0;
   border: 0;
   padding: 0;
@@ -1059,20 +1059,20 @@ code {
 .apps-list-text {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
 }
 
 .apps-list-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
 }
 
 .apps-tag {
   border-radius: 999px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   background: var(--page-hover);
   color: var(--page-text-2);
   font-size: var(--text-caption);
@@ -1099,13 +1099,13 @@ code {
    icon, name, tagline, meta line and the actions; the facts are label/value rows (dl). */
 .apps-listing {
   container: apps-listing / inline-size;
-  gap: 24px;
+  gap: var(--ds-space-fixed-5);
 }
 
 .apps-listing-header {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
+  gap: var(--ds-space-fixed-4);
 }
 
 .apps-listing-header > .apps-icon {
@@ -1116,9 +1116,9 @@ code {
   flex: 1 1 200px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
-  padding-top: 4px;
+  padding-top: var(--ds-space-fixed-1);
 }
 
 .apps-listing-name {
@@ -1141,8 +1141,8 @@ code {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 8px;
-  margin-top: 4px;
+  gap: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
+  margin-top: var(--ds-space-fixed-1);
   color: var(--page-text-3);
   font-size: var(--text-detail);
 }
@@ -1150,26 +1150,26 @@ code {
 /* "cmux · Developer Tools · Free": a middle dot between the meta line's parts. */
 .apps-listing-meta > :not(:first-child)::before {
   content: "·";
-  margin-inline-end: 8px;
+  margin-inline-end: var(--ds-space-fixed-2);
   color: var(--page-text-3);
 }
 
 .apps-listing-publisher {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 
 .apps-listing-actions {
   display: flex;
   flex: none;
-  gap: 8px;
-  padding-top: 4px;
+  gap: var(--ds-space-fixed-2);
+  padding-top: var(--ds-space-fixed-1);
 }
 
 .apps-listing-actions .apps-button,
 .apps-hero-actions .apps-button {
-  padding: 4px 16px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-4);
   border-radius: var(--ds-radius-control);
 }
 
@@ -1200,14 +1200,14 @@ code {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
   align-items: start;
-  gap: 32px;
+  gap: var(--ds-space-fixed-6);
 }
 
 .apps-listing-main,
 .apps-listing-aside {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--ds-space-fixed-5);
   min-width: 0;
 }
 
@@ -1230,8 +1230,8 @@ code {
 .apps-listing-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
-  gap: 24px 32px;
-  padding-top: 16px;
+  gap: var(--ds-space-fixed-5) var(--ds-space-fixed-6);
+  padding-top: var(--ds-space-fixed-4);
   border-top: 1px solid var(--page-separator);
 }
 
@@ -1243,7 +1243,7 @@ code {
 /* Compact (the Raycast Store): one readable column. */
 .apps-listing.compact {
   max-width: 720px;
-  gap: 16px;
+  gap: var(--ds-space-fixed-4);
 }
 
 .apps-listing.compact .apps-listing-name {
@@ -1251,7 +1251,7 @@ code {
 }
 
 .apps-listing.compact .apps-section {
-  padding-top: 16px;
+  padding-top: var(--ds-space-fixed-4);
   border-top: 1px solid var(--page-separator);
 }
 
@@ -1259,7 +1259,7 @@ code {
 .apps-carousel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-width: 0;
 }
 
@@ -1275,7 +1275,7 @@ code {
 
 .apps-carousel-thumbs {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   overflow-x: auto;
 }
 
@@ -1306,7 +1306,7 @@ code {
 .apps-facts {
   display: grid;
   grid-template-columns: minmax(96px, 120px) minmax(0, 1fr);
-  gap: 8px 16px;
+  gap: var(--ds-space-fixed-2) var(--ds-space-fixed-4);
   margin: 0;
 }
 
@@ -1321,7 +1321,7 @@ code {
 .apps-fact dd {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1341,13 +1341,13 @@ code {
 .apps-perms {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
 }
 
 .apps-perm-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 
 .apps-perm-heading {
@@ -1361,7 +1361,7 @@ code {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 
 .apps-perm {
@@ -1370,8 +1370,8 @@ code {
 }
 
 .apps-perm .apps-badge {
-  margin-inline-start: 8px;
-  padding: 0 4px;
+  margin-inline-start: var(--ds-space-fixed-2);
+  padding: 0 var(--ds-space-fixed-1);
   border-radius: var(--ds-radius-sm);
   background: var(--page-hover);
 }
@@ -1381,7 +1381,7 @@ code {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 8px;
+  gap: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   color: var(--page-text-2);
   line-height: 1.4;
 }
@@ -1395,9 +1395,9 @@ code {
 .apps-customize-feature {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 12px 16px;
+  gap: var(--ds-space-fixed-3);
+  margin-top: var(--ds-space-fixed-3);
+  padding: var(--ds-space-fixed-3) var(--ds-space-fixed-4);
   border: 1px solid var(--page-separator);
   border-radius: var(--ds-radius-xl);
 }
@@ -1405,15 +1405,15 @@ code {
 .apps-customize-feature-head {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--ds-space-fixed-4);
 }
 
 /* Open: every verified look and switch group, then the link to Settings > Customize. */
 .apps-customize-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 12px;
+  gap: var(--ds-space-fixed-2);
+  padding-top: var(--ds-space-fixed-3);
   border-top: 1px solid var(--page-separator);
 }
 
@@ -1469,12 +1469,12 @@ code {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  margin-top: 4px;
+  gap: var(--ds-space-fixed-1);
+  margin-top: var(--ds-space-fixed-1);
 }
 
 .apps-customize-look {
-  padding: var(--grid-half-step) 8px;
+  padding: var(--grid-half-step) var(--ds-space-fixed-2);
   border: 1px solid var(--page-separator);
   border-radius: 999px;
   background: transparent;
@@ -1519,8 +1519,8 @@ code {
 .apps-features {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding: 12px var(--page-edge) 24px;
+  gap: var(--ds-space-fixed-5);
+  padding: var(--ds-space-fixed-3) var(--page-edge) var(--ds-space-fixed-5);
 }
 
 .apps-features-intro {
@@ -1532,7 +1532,7 @@ code {
 .apps-features-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .apps-features-list {
@@ -1548,9 +1548,9 @@ code {
 .apps-feature {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-height: 32px;
-  padding: 4px 12px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
 }
 
 .apps-features[data-features-style="list"] .apps-feature + .apps-feature {
@@ -1579,13 +1579,13 @@ code {
 .apps-features[data-features-style="tiles"] .apps-features-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   border: 0;
 }
 
 .apps-features[data-features-style="tiles"] .apps-feature {
   align-items: flex-start;
-  padding: 8px 12px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   border: 1px solid var(--page-separator);
   border-radius: 8px;
 }
@@ -1597,7 +1597,7 @@ code {
 .apps-features[data-features-style="chips"] .apps-features-list {
   flex-direction: row;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   border: 0;
 }
 
@@ -1607,7 +1607,7 @@ code {
 }
 
 .apps-feature-chip {
-  padding: var(--grid-half-step) 8px;
+  padding: var(--grid-half-step) var(--ds-space-fixed-2);
   border: 1px solid var(--page-separator);
   border-radius: 999px;
   background: transparent;

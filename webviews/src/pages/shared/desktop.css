@@ -96,6 +96,15 @@ body {
   --ds-space-40: 40px; /* layout gap */
   --ds-space-48: 48px; /* layout gap */
   --ds-space-56: 56px; /* layout gap */
+  --ds-space-fixed-1: 4px;
+  --ds-space-fixed-2: 8px;
+  --ds-space-fixed-3: 12px;
+  --ds-space-fixed-4: 16px;
+  --ds-space-fixed-5: 24px;
+  --ds-space-fixed-6: 32px;
+  --ds-space-fixed-40: 40px;
+  --ds-space-fixed-48: 48px;
+  --ds-space-fixed-56: 56px;
   --ds-control-icon: 20px; /* an icon-only control's box */
   --ds-control-compact: 24px; /* pills and compact controls */
   --ds-control-row: 28px; /* compact rows, menu rows, default buttons */

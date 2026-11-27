@@ -111,7 +111,7 @@
   display: inline-flex;
 }
 .cv-typing__faces > .cv-face + .cv-face {
-  margin-left: -4px;
+  margin-left: calc(-1 * var(--ds-space-fixed-1));
 }
 .cv-typing__words {
   overflow: hidden;

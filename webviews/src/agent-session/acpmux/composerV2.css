@@ -134,7 +134,7 @@
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-v2] > .acpmux-chrome-area > .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 2;
-  margin-inline: 0 calc(4px * var(--acpmux-density, 1));
+  margin-inline: 0 calc(var(--ds-space-fixed-1) * var(--acpmux-density, 1));
 }
 /* The mode follows the model in the row (it led the row at the left before), and the context ring
    ends the chips at the row's right, before +. */

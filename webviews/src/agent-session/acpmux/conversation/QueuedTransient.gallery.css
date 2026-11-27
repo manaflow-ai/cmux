@@ -13,8 +13,8 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
+  gap: var(--ds-space-fixed-4);
+  margin-bottom: var(--ds-space-fixed-3);
 }
 
 .queued-transient-gallery__header h1 {
@@ -25,7 +25,7 @@
 
 .queued-transient-gallery__header p,
 .queued-transient__paints {
-  margin: 4px 0 0;
+  margin: var(--ds-space-fixed-1) 0 0;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
 }
@@ -40,9 +40,9 @@
 .queued-transient__row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   height: var(--qt-row-height);
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
   border: 1px solid color-mix(in srgb, var(--cv-text) 14%, transparent);
   border-radius: var(--ds-radius-control);
   font-size: var(--text-body);

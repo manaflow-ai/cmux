@@ -1,7 +1,7 @@
 @import "./question/questionCard.css";
 @import "./chatLayout.css";
 
-.acpmux-shell{position:relative;height:100%;display:flex;color:var(--agent-text);font:13px var(--font-ui);background:var(--agent-page-bg);overflow:clip}.acpmux-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:0 0 var(--acpmux-header-height,28px);box-sizing:border-box;padding:0 8px;white-space:nowrap}.acpmux-scroll{flex:1;overflow:auto;contain:strict}.acpmux-spacer{position:relative;min-height:100%}.acpmux-thread{position:absolute;inset:0 0 auto;padding:16px var(--cv-inset,max(18px,calc((100% - 760px)/2)));padding-right:var(--cv-inset-end,var(--cv-inset));}.acpmux-row{position:absolute;left:var(--cv-inset,max(18px,calc((100% - 760px)/2)));right:var(--cv-inset,max(18px,calc((100% - 760px)/2)));min-height:34px;box-sizing:border-box;padding-bottom:8px;contain:layout paint}.acpmux-row.acpmux-user,.acpmux-row.acpmux-assistant{padding-bottom:var(--cv-message-gap,8px)}.acpmux-user{display:flex;justify-content:flex-end}.acpmux-bubble,.acpmux-user-bubble{max-width:78%;padding:9px 12px;box-sizing:border-box;border-radius:16px;background:color-mix(in srgb,var(--agent-accent) 20%,transparent);white-space:pre-wrap}.acpmux-markdown{line-height:20px}.acpmux-markdown>*{margin:8px 0 0}.acpmux-markdown>:first-child{margin-top:0}.acpmux-markdown code{font:11.5px var(--font-mono)}.acpmux-markdown blockquote{padding-left:12px;border-left:2px solid var(--agent-border);color:var(--agent-soft)}.acpmux-markdown pre,.acpmux-activity-item pre{padding:9px;border-radius:8px;overflow:auto;background:var(--agent-input-bg);font:12px var(--font-mono)}.acpmux-summary,.acpmux-muted{color:var(--agent-muted);font-size:11px;padding:8px 0}.acpmux-activity-toggle{border:0;background:none;color:var(--agent-muted);padding:5px 0;cursor:default}.acpmux-activity-items{border-left:1px solid var(--agent-border);padding-left:12px;color:var(--agent-soft)}.acpmux-activity-item{padding:3px 0}.acpmux-glyph{display:inline-block;width:18px;color:var(--agent-accent)}.acpmux-permission{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));padding-right:var(--cv-inset-end,var(--cv-inset));min-width:0;min-height:0;flex-shrink:0}.acpmux-asks-stack{display:flex;flex-direction:column;gap:8px;padding-bottom:10px}.acpmux-asks-stack .acpmux-trust-ask{margin-bottom:0}.acpmux-permission-card{min-inline-size:0;margin:0}.acpmux-permission-panel .acpmux-permission-buttons{display:flex;gap:7px;margin-top:9px}.acpmux-permission-panel .acpmux-permission-buttons button{border:0;border-radius:var(--ds-radius-control);padding:7px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+.acpmux-shell{position:relative;height:100%;display:flex;color:var(--agent-text);font:13px var(--font-ui);background:var(--agent-page-bg);overflow:clip}.acpmux-header{display:flex;justify-content:space-between;align-items:center;gap:var(--ds-space-fixed-2);flex:0 0 var(--acpmux-header-height,28px);box-sizing:border-box;padding:0 var(--ds-space-fixed-2);white-space:nowrap}.acpmux-scroll{flex:1;overflow:auto;contain:strict}.acpmux-spacer{position:relative;min-height:100%}.acpmux-thread{position:absolute;inset:0 0 auto;padding:16px var(--cv-inset,max(18px,calc((100% - 760px)/2)));padding-right:var(--cv-inset-end,var(--cv-inset));}.acpmux-row{position:absolute;left:var(--cv-inset,max(18px,calc((100% - 760px)/2)));right:var(--cv-inset,max(18px,calc((100% - 760px)/2)));min-height:34px;box-sizing:border-box;padding-bottom:var(--ds-space-fixed-2);contain:layout paint}.acpmux-row.acpmux-user,.acpmux-row.acpmux-assistant{padding-bottom:var(--cv-message-gap,8px)}.acpmux-user{display:flex;justify-content:flex-end}.acpmux-bubble,.acpmux-user-bubble{max-width:78%;padding:9px 12px;box-sizing:border-box;border-radius:16px;background:color-mix(in srgb,var(--agent-accent) 20%,transparent);white-space:pre-wrap}.acpmux-markdown{line-height:20px}.acpmux-markdown>*{margin:var(--ds-space-fixed-2) 0 0}.acpmux-markdown>:first-child{margin-top:0}.acpmux-markdown code{font:11.5px var(--font-mono)}.acpmux-markdown blockquote{padding-left:var(--ds-space-fixed-3);border-left:2px solid var(--agent-border);color:var(--agent-soft)}.acpmux-markdown pre,.acpmux-activity-item pre{padding:9px;border-radius:8px;overflow:auto;background:var(--agent-input-bg);font:12px var(--font-mono)}.acpmux-summary,.acpmux-muted{color:var(--agent-muted);font-size:11px;padding:var(--ds-space-fixed-2) 0}.acpmux-activity-toggle{border:0;background:none;color:var(--agent-muted);padding:5px 0;cursor:default}.acpmux-activity-items{border-left:1px solid var(--agent-border);padding-left:var(--ds-space-fixed-3);color:var(--agent-soft)}.acpmux-activity-item{padding:3px 0}.acpmux-glyph{display:inline-block;width:18px;color:var(--agent-accent)}.acpmux-permission{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));padding-right:var(--cv-inset-end,var(--cv-inset));min-width:0;min-height:0;flex-shrink:0}.acpmux-asks-stack{display:flex;flex-direction:column;gap:var(--ds-space-fixed-2);padding-bottom:10px}.acpmux-asks-stack .acpmux-trust-ask{margin-bottom:0}.acpmux-permission-card{min-inline-size:0;margin:0}.acpmux-permission-panel .acpmux-permission-buttons{display:flex;gap:7px;margin-top:9px}.acpmux-permission-panel .acpmux-permission-buttons button{border:0;border-radius:var(--ds-radius-control);padding:7px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
 /* The chat header's height (.acpmux-header); Session Info over the chat starts under it (session-info/sessionInfo.css). */
 .acpmux-shell{--acpmux-header-height:28px;--acpmux-glyph-slot:16px;--acpmux-glyph-line:20px;--acpmux-disclosure-slot:16px;--acpmux-row-compact:28px;--acpmux-row-expanded:40px}
 .acpmux-row-glyph{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--acpmux-glyph-slot,16px);height:var(--acpmux-glyph-slot)}
@@ -10,7 +10,7 @@
 
 /* The counts a tenth toward the text: they hold 4.5:1 on a card's fill too (the raw ink was 4.43:1). */
 .acpmux-diff-add{color:color-mix(in srgb,var(--acpmux-add) 90%,var(--agent-text))}.acpmux-diff-del{color:color-mix(in srgb,var(--acpmux-del) 90%,var(--agent-text))}.acpmux-diff-main{flex:1;display:flex;min-height:0}.acpmux-diff-body{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden}.acpmux-diff-file{border-bottom:1px solid var(--agent-border)}.acpmux-fh-spacer{flex:1}
-.acpmux-diff-empty-edit{padding:8px 16px;color:var(--agent-muted);font-size:12px}.acpmux-main{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}.acpmux-header>div{display:flex;align-items:center;min-width:0}.acpmux-session-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--agent-muted)}.acpmux-session-mark-input{color:var(--acpmux-needs-you-mark)}.acpmux-session-mark-unread::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--agent-accent)}.acpmux-session-mark-running{color:var(--agent-accent)}
+.acpmux-diff-empty-edit{padding:var(--ds-space-fixed-2) var(--ds-space-fixed-4);color:var(--agent-muted);font-size:12px}.acpmux-main{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}.acpmux-header>div{display:flex;align-items:center;min-width:0}.acpmux-session-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--agent-muted)}.acpmux-session-mark-input{color:var(--acpmux-needs-you-mark)}.acpmux-session-mark-unread::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--agent-accent)}.acpmux-session-mark-running{color:var(--agent-accent)}
 /* Composer (Composer.tsx, ComposerPickers.tsx), with metrics and font from the
    reference prototype (src/shell Composer): the prompt over a bar with +,
    the mode and model chips, and a round Send. Every color derives from the theme bridge: each surface is the page
@@ -44,7 +44,7 @@
 /* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */
 .ui-popup.ui-context-menu{max-width:min(360px,calc(100vw - 8px))}
 .ui-context-menu .ui-menu-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.ui-context-menu .ui-separator{height:.5px;margin:4px 8px;border:0;background:var(--menu-separator,var(--agent-border))}
+.ui-context-menu .ui-separator{height:.5px;margin:var(--ds-space-fixed-1) var(--ds-space-fixed-2);border:0;background:var(--menu-separator,var(--agent-border))}
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] :is(.acpmux-shell,.ui-positioner){--acpmux-composer-edge:transparent}
 /* One height policy for chat, side chat, New Tab and Cmd-I composers: Claude desktop's 384 px cap (Leo 2026-11-24), then scroll. */
@@ -56,17 +56,17 @@
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 /* The bar is one 28px line on an 8px rhythm: every control (+, the chips, the ring, the mic, Send) is 28px tall, 8px apart,
    and 10px from the box edge, so (48 - 28) / 2 is the same inset on every side. */
-.acpmux-composer-bar{display:flex;align-items:center;gap:8px;height:48px;padding:0 10px;font-size:var(--text-control);line-height:var(--text-control--line-height)}
+.acpmux-composer-bar{display:flex;align-items:center;gap:var(--ds-space-fixed-2);height:48px;padding:0 10px;font-size:var(--text-control);line-height:var(--text-control--line-height)}
 .acpmux-composer-plus .acpmux-picker-button{justify-content:center;width:var(--acpmux-composer-control,28px);padding:0;color:var(--agent-muted)}
 .acpmux-composer-plus .acpmux-picker-button:hover{color:var(--agent-text)}
-.acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:8px;margin-left:auto}
+.acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:var(--ds-space-fixed-2);margin-left:auto}
 /* Dictation (DictationButton, DictationNotice): the mic before Send, as quiet as the bar's other controls. A running session's
    look (the lit mic, the waveform, the finish key) is dictation.css's; hover and press are in composerStates.css. */
 .acpmux-mic{flex:none;display:grid;place-items:center;width:var(--acpmux-composer-control,28px);height:var(--acpmux-composer-control,28px);padding:0;border:0;border-radius:50%;background-color:transparent;color:var(--agent-muted)}
 .acpmux-mic:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 @keyframes acpmux-mic-wait{50%{opacity:.45}}
 @media (prefers-reduced-motion:no-preference){.acpmux-mic[data-state=starting]{animation:acpmux-mic-wait calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite}}
-.acpmux-dictation-notice{display:flex;align-items:center;gap:8px;margin:0 var(--cv-inset-end,var(--cv-inset)) 8px var(--cv-inset);padding:6px 6px 6px 12px;border-radius:12px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font-size:12px;line-height:18px}
+.acpmux-dictation-notice{display:flex;align-items:center;gap:var(--ds-space-fixed-2);margin:0 var(--cv-inset-end,var(--cv-inset)) var(--ds-space-fixed-2) var(--cv-inset);padding:6px 6px 6px 12px;border-radius:12px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font-size:12px;line-height:18px}
 /* Static status indicators (cx-sya4n): the mic's wait pulse stops. */
 :root[data-status-indicators=static] .acpmux-mic[data-state=starting]{animation:none}
 .acpmux-dictation-notice span{flex:1}
@@ -78,13 +78,13 @@
    ephemeral receipt and must not become another flex item that resizes or shifts the fixture. */
 .acpmux-dictation-gallery .acpmux-dictation-notice-host{flex:0 0 38px;min-height:38px}
 .acpmux-dictation-gallery .acpmux-dictation-settings-receipt{position:absolute;right:16px;bottom:2px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);pointer-events:none;letter-spacing:var(--text-caption--letter-spacing)}
-.acpmux-chips{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
+.acpmux-chips{flex:1;min-width:0;display:flex;align-items:center;gap:var(--ds-space-fixed-2)}
 .acpmux-chips-spacer{display:none}
 /* A registry composerChips override that still draws native selects. */
-.acpmux-composer-bar select{height:var(--acpmux-composer-control,28px);padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit}
+.acpmux-composer-bar select{height:var(--acpmux-composer-control,28px);padding:0 var(--ds-space-fixed-2);border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit}
 .acpmux-icon{flex:none;display:block}
 .acpmux-picker{display:flex;min-width:0}
-.acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-composer-control,28px);padding:0 8px;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-text);white-space:nowrap}
+.acpmux-picker-button{display:flex;align-items:center;gap:var(--ds-space-fixed-1);min-width:0;height:var(--acpmux-composer-control,28px);padding:0 var(--ds-space-fixed-2);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-text);white-space:nowrap}
 .acpmux-picker-button>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}@media (hover:hover) and (pointer:fine){.acpmux-picker-button:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
 .acpmux-picker-button:focus-visible,:where(button).acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
@@ -93,7 +93,7 @@
 :where(button).acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 /* Plan on is the lit-glyph ink (the accent, never fainter than at rest) with no pill at rest (Leo 2026-10-19); hover, focus and a press draw the chips' soft pill. */
 :where(button).acpmux-plan[aria-pressed=true]{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
-.acpmux-separator{flex:none;width:1px;height:18px;margin:0 4px;background:var(--acpmux-composer-edge)}
+.acpmux-separator{flex:none;width:1px;height:18px;margin:0 var(--ds-space-fixed-1);background:var(--acpmux-composer-edge)}
 .acpmux-chips>.acpmux-plan+.acpmux-chips-spacer,.acpmux-chips>.acpmux-mode+.acpmux-chips-spacer{margin-left:0}
 /* Full access draws in the chip's own color, like Claude's mode label: the shield's mark names the risk and the menu marks its icon (Leo 2026-10-18). */
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 6px 0 8px}
@@ -104,7 +104,7 @@
 @media (hover:hover) and (pointer:fine){.acpmux-model .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-effort .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-access .acpmux-picker-button:hover:not([aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
 /* The model picker follows T3: one harness/model button and a stable two-column popover. */
 .acpmux-model-name{color:var(--agent-text)}
-.acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.acpmux-model-effort{flex:none;margin-left:var(--ds-space-fixed-1);padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
 /* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). It always reads as a gauge, never a spinner: the remaining share is a clearly visible track (ComposerPickers.tsx CONTEXT_RING_LOOKS, test/context-ring-gauge.test.tsx). */
 .acpmux-context{flex:none}
@@ -136,7 +136,7 @@
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
 .acpmux-menu-section+.acpmux-menu-section{margin-top:6px;padding-top:6px;box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge)}
-.acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 var(--ds-space-fixed-2);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 /* The composer's + menu (ComposerPlusMenu.tsx; Leo 2026-10-31: "our + button is ass" / "inside chat
    and in the composer it's ass"), shaped as ChatGPT's: a short list in untitled groups split by the
    menu hairline (below), one width, and a bounded height that scrolls inside (useUiAnchor still caps
@@ -144,7 +144,7 @@
    than it scrolls here rather than going past the window's edge as a flat native list. MenuPopup's
    shared portal keeps it above the composer's glass, so its own glass frosts the pills behind it. */
 .acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh)}
-.acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);overflow-y:overlay;padding-inline-end:calc(var(--ui-popup-padding) + 4px)}
+.acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);overflow-y:overlay;padding-inline-end:calc(var(--ui-popup-padding) + var(--ds-space-fixed-1))}
 /* The rows scroll in the glass shell's inner viewport (ui/Menu.tsx .ui-popup-scroll) with the shared scroller (SCROLLBARS-THIN), and the fade rules below target it. */
 /* Keep the composer's action rows pressable at every edge (composer-chip-press.test.ts probes all
    four row edges) by leaving WebKit's hit-tested mask channel off and moving the visible edge fade
@@ -217,7 +217,7 @@
    icon rows' labels at 36px (and plain rows at 12px); the shared leading line is 15px, with a
    14px icon and 6px label gap making the icon-row text line 35px from the popup edge. */
 .acpmux-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);padding-inline:calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));box-sizing:border-box;border-radius:var(--ui-row-radius)}
-.acpmux-menu.acpmux-composer-plus .acpmux-menu-item{width:calc(100% - 4px);margin-inline-end:4px}
+.acpmux-menu.acpmux-composer-plus .acpmux-menu-item{width:calc(100% - 4px);margin-inline-end:var(--ds-space-fixed-1)}
 .acpmux-menu.acpmux-composer-plus .acpmux-menu-item{position:relative}
 .acpmux-menu.acpmux-composer-plus .acpmux-menu-hit-area{position:absolute;inset-block:0;inset-inline-start:0;inset-inline-end:-8px;z-index:var(--layer-raised,1);pointer-events:auto;transform:translateZ(0)}
 .acpmux-menu.acpmux-composer-plus .acpmux-menu-item>*:not(.acpmux-menu-hit-area){position:relative;z-index:var(--layer-base,0)}
@@ -285,7 +285,7 @@
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
    as the composer, so it takes every theme the same way. */
-.acpmux-newtab{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;display:flex;flex-direction:column;align-items:center;--acpmux-newtab-top:clamp(48px,16vh,168px);--acpmux-newtab-inset:var(--cv-inset,max(var(--cv-edge,16px),calc((100% - var(--cv-column,720px))/2)));padding:var(--acpmux-newtab-top) var(--acpmux-newtab-inset) 32px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.acpmux-newtab{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;display:flex;flex-direction:column;align-items:center;--acpmux-newtab-top:clamp(48px,16vh,168px);--acpmux-newtab-inset:var(--cv-inset,max(var(--cv-edge,16px),calc((100% - var(--cv-column,720px))/2)));padding:var(--acpmux-newtab-top) var(--acpmux-newtab-inset) var(--ds-space-fixed-6);box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 .acpmux-newtab>*{width:100%}
 /* The page's one left line (leo-workspace design/grid.md rules 2 and 6): the field row's leading glyph
    box sits 18 in and a 16 px stroke glyph's ink starts about 2 px inside it, so ink starts 20 in from
@@ -311,7 +311,7 @@
    to the middle of a tall row (Leo 2026-11-22: the buttons must "stick with teh bottom of the
    composer"; the chat composer's rule, composerLocation.css). One line draws them where it did. */
 .acpmux-newtab-row{align-items:flex-end}
-.acpmux-newtab-row>.acpmux-icon{margin-block-end:calc((var(--acpmux-newtab-row) - 16px) / 2)}
+.acpmux-newtab-row>.acpmux-icon{margin-block-end:calc((var(--acpmux-newtab-row) - var(--ds-space-fixed-4)) / 2)}
 .acpmux-newtab-row>.acpmux-newtab-switch{margin-block-end:calc((var(--acpmux-newtab-row) - var(--ds-control-primary) - 2 * var(--ds-space-1)) / 2)}
 /* The field is the chat composer's prompt editor (MarkdownField, markdownField.css), sized as the row's one line: one line keeps the row 56 px tall; a long prompt wraps and grows to the composer's line cap, then scrolls (the New Tab screen's .nt-field). */
 .acpmux-newtab-field.acpmux-md-field{--acpmux-newtab-pad-block:calc((var(--acpmux-newtab-row) - 1lh) / 2);flex:1;min-width:0;align-self:stretch;display:block;box-sizing:border-box;min-height:var(--acpmux-newtab-row);max-height:calc(min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh) - var(--acpmux-attach-band, 0px));margin:0;padding:var(--acpmux-newtab-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
@@ -389,7 +389,7 @@
 @container (max-width:540px){.acpmux-newtab-kind .ui-key-hint{display:none}}
 @container (max-width:460px){.acpmux-newtab-kind>span{display:none}}
 /* Queue (ComposerQueue.tsx): prompts waiting for the running turn, as compact rows attached to the composer's top edge, on the column's edges like every block in the chat. In the bottom stack's flow (bottomStack.css), so it never covers the dock or a question above it. */
-.acpmux-composer-queue{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;align-content:start;max-height:var(--acpmux-queue-max,132px);overflow-y:auto;margin:0;padding:2px 0 4px;box-sizing:border-box;list-style:none;border-radius:12px 12px 0 0;--acpmux-queue-fill:color-mix(in srgb,var(--acpmux-composer-tray) var(--acpmux-queue-glass,100%),transparent);background:var(--acpmux-queue-fill);box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge),inset var(--cmux-hairline,.5px) 0 0 var(--acpmux-composer-edge),inset calc(-1*var(--cmux-hairline,.5px)) 0 0 var(--acpmux-composer-edge);font-size:var(--text-body);line-height:var(--text-body--line-height);letter-spacing:var(--text-body--letter-spacing)}
+.acpmux-composer-queue{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:var(--ds-space-fixed-2);align-content:start;max-height:var(--acpmux-queue-max,132px);overflow-y:auto;margin:0;padding:2px 0 4px;box-sizing:border-box;list-style:none;border-radius:12px 12px 0 0;--acpmux-queue-fill:color-mix(in srgb,var(--acpmux-composer-tray) var(--acpmux-queue-glass,100%),transparent);background:var(--acpmux-queue-fill);box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge),inset var(--cmux-hairline,.5px) 0 0 var(--acpmux-composer-edge),inset calc(-1*var(--cmux-hairline,.5px)) 0 0 var(--acpmux-composer-edge);font-size:var(--text-body);line-height:var(--text-body--line-height);letter-spacing:var(--text-body--letter-spacing)}
 /* One compact muted line per queued prompt, as ChatGPT and Codex draw them (Leo, 2026-10-21): no header and no number; a hairline between rows. */
 .acpmux-queued{position:relative;grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:start;min-width:0;min-height:24px;padding:3px 6px 3px 12px;box-sizing:border-box;color:var(--agent-text)}
 .acpmux-composer-queue>li+li{box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge)}
@@ -415,7 +415,7 @@
 .acpmux-queue-resume:hover{background:var(--agent-control-hover)}
 .acpmux-queue-resume:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}.acpmux-hidden-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 /* New chat (EmptyState.tsx): a centered hero, small and muted, in place of the empty transcript. */
-.acpmux-empty{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;--acpmux-empty-gap:calc(14px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));gap:var(--acpmux-empty-gap);padding:0 24px 6%;box-sizing:border-box;text-align:center;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
+.acpmux-empty{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;--acpmux-empty-gap:calc(14px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));gap:var(--acpmux-empty-gap);padding:0 var(--ds-space-fixed-5) 6%;box-sizing:border-box;text-align:center;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
 .acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
 .acpmux-empty-title{margin:0;max-width:560px;font-size:calc(20px * var(--cmux-density-text-scale, var(--cmux-interface-scale, 1)));line-height:calc(28px * var(--cmux-density-text-scale, var(--cmux-interface-scale, 1)));font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
 /* The hero's folder chooser has no caret (Codex's): its name is dotted underlined as the control, "No folder" too (Lucas 2026-11-11). */
@@ -443,7 +443,7 @@
 .acpmux-main[data-dock="float"][data-connecting]>.acpmux-dock>:is(.acpmux-host-line,.acpmux-host-line-group,.acpmux-host-error,.acpmux-switch-notice,.ui-notice,.acpmux-dictation-notice,.acpmux-managed-banner,.acpmux-composer-remote-note){position:absolute;left:0;right:0;bottom:100%;z-index:var(--layer-raised,1)}
 /* Equal upper/lower tracks keep the spinner centered. Its 28px square needs 40px while rotating.
    Copy stretches to its track instead of overflowing an intrinsically sized, centered grid item. */
-.acpmux-unavailable[data-unavailable="connecting"]{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 40px minmax(0,1fr);gap:8px;padding-bottom:0}
+.acpmux-unavailable[data-unavailable="connecting"]{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 40px minmax(0,1fr);gap:var(--ds-space-fixed-2);padding-bottom:0}
 .acpmux-unavailable-spinner{color:var(--acpmux-composer-placeholder)}
 /* The resume spinner's slot is there from the card's first frame (ChatUnavailableState.tsx), so the
    spinner that fades in past the threshold (afterDelay.ts) moves nothing. */
@@ -456,11 +456,11 @@
 .acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-copy>*{flex-shrink:0}
 /* A host failure above the composer (HostError.tsx HostUnavailableLine): one muted line cut to the
    width, and one small quiet button. Nothing shows while the host is still recovering. */
-.acpmux-host-line{display:flex;align-items:center;gap:8px;min-width:0;margin:0 calc(var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2)))) - var(--acpmux-stack-outset,0px)) 0 calc(var(--cv-inset,max(18px,calc((100% - 760px)/2))) - var(--acpmux-stack-outset,0px));padding-bottom:8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-host-line{display:flex;align-items:center;gap:var(--ds-space-fixed-2);min-width:0;margin:0 calc(var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2)))) - var(--acpmux-stack-outset,0px)) 0 calc(var(--cv-inset,max(18px,calc((100% - 760px)/2))) - var(--acpmux-stack-outset,0px));padding-bottom:var(--ds-space-fixed-2);color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
 /* Its message is the fit text (cardFit.css, HostError.tsx): it takes the line, and in a narrow pane
    its buttons move under it, Restart and Retry down to their icons. */
 .acpmux-host-line-message{min-width:0;margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;user-select:text;-webkit-user-select:text}
-.acpmux-host-line button{flex:none;display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;padding:0 8px;border:0;border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
+.acpmux-host-line button{flex:none;display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;padding:0 var(--ds-space-fixed-2);border:0;border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-host-line button:disabled{opacity:.6}
 .acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
@@ -499,12 +499,12 @@
 .acpmux-host-line-note{flex:0 1 auto;min-width:0;margin:0;color:color-mix(in srgb,var(--agent-muted) 85%,transparent)}
 /* Details: acpmux's own words behind the plain line (hostLine.ts), a quiet text button; the text it
    opens sits under the line at the same inset, never red. */
-.acpmux-host-line .acpmux-host-line-details{padding:0 4px;background:transparent;color:var(--agent-muted)}
+.acpmux-host-line .acpmux-host-line-details{padding:0 var(--ds-space-fixed-1);background:transparent;color:var(--agent-muted)}
 .acpmux-host-line .acpmux-host-line-details:hover:not(:disabled){background:transparent;color:var(--agent-text)}
-.acpmux-host-line-detail{margin:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));margin-right:var(--cv-inset-end,var(--cv-inset));padding-bottom:8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
+.acpmux-host-line-detail{margin:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));margin-right:var(--cv-inset-end,var(--cv-inset));padding-bottom:var(--ds-space-fixed-2);color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 .acpmux-unavailable-detail{margin:0;max-width:420px;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);overflow-wrap:anywhere;letter-spacing:var(--text-body--letter-spacing)}
-.acpmux-unavailable-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:6px}
-.acpmux-unavailable-action{height:28px;padding:0 12px;border:0;border-radius:8px;background:var(--ds-surface-inset);color:var(--agent-text);font:inherit;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
+.acpmux-unavailable-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--ds-space-fixed-2);margin-top:6px}
+.acpmux-unavailable-action{height:28px;padding:0 var(--ds-space-fixed-3);border:0;border-radius:8px;background:var(--ds-surface-inset);color:var(--agent-text);font:inherit;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-unavailable-action:hover{background-image:var(--ds-surface-hover-layer)}
 .acpmux-unavailable-action:active{background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
 .acpmux-unavailable-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
@@ -513,18 +513,18 @@
    column's edge: in the composer form, which stands there already; elsewhere in the bottom stack,
    at the column's inset. */
 .acpmux-composer-remote-note {
-  margin: 0 var(--cv-inset-end, var(--cv-inset)) 4px var(--cv-inset);
+  margin: 0 var(--cv-inset-end, var(--cv-inset)) var(--ds-space-fixed-1) var(--cv-inset);
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-composer .acpmux-composer-remote-note {
-  margin: 0 0 4px;
+  margin: 0 0 var(--ds-space-fixed-1);
 }
 /* Context (ComposerContext.tsx): composerLocation.css. */
 /* The folder trust ask (TrustAsk.tsx): one quiet line among the chat's permission asks, its actions text buttons that step on hover and press. */
-.acpmux-trust-ask{display:flex;align-items:center;gap:4px;min-height:34px;margin-bottom:8px;padding:4px 4px 4px 12px;box-sizing:border-box;border-radius:var(--acpmux-composer-radius,12px);background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-tool-card .acpmux-trust-ask-text{padding:4px 0;white-space:normal;overflow-wrap:anywhere}.acpmux-tool-card-input{flex:0 1 220px;min-width:80px;height:26px;padding:0 8px;box-sizing:border-box;border:1px solid var(--acpmux-composer-hover);border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font:inherit}.acpmux-tool-card-input:focus{outline:none}.acpmux-tool-card:is(:focus-visible, :has(:focus-visible)) .acpmux-tool-card-input{border-color:var(--agent-text)}.acpmux-trust-ask-action:disabled{opacity:.5;cursor:default}.acpmux-trust-ask-action{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:var(--ds-space-1);height:26px;padding:0 10px;border:0;border-radius:calc(var(--acpmux-composer-radius,12px) - 4px) /* radius-allow: concentric child of the 4px-padded composer-radius strip */;background:none;color:var(--agent-text);font:inherit;cursor:default}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
+.acpmux-trust-ask{display:flex;align-items:center;gap:var(--ds-space-fixed-1);min-height:34px;margin-bottom:var(--ds-space-fixed-2);padding:var(--ds-space-fixed-1) var(--ds-space-fixed-1) var(--ds-space-fixed-1) var(--ds-space-fixed-3);box-sizing:border-box;border-radius:var(--acpmux-composer-radius,12px);background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-tool-card .acpmux-trust-ask-text{padding:var(--ds-space-fixed-1) 0;white-space:normal;overflow-wrap:anywhere}.acpmux-tool-card-input{flex:0 1 220px;min-width:80px;height:26px;padding:0 var(--ds-space-fixed-2);box-sizing:border-box;border:1px solid var(--acpmux-composer-hover);border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font:inherit}.acpmux-tool-card-input:focus{outline:none}.acpmux-tool-card:is(:focus-visible, :has(:focus-visible)) .acpmux-tool-card-input{border-color:var(--agent-text)}.acpmux-trust-ask-action:disabled{opacity:.5;cursor:default}.acpmux-trust-ask-action{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:var(--ds-space-1);height:26px;padding:0 10px;border:0;border-radius:calc(var(--acpmux-composer-radius,12px) - 4px) /* radius-allow: concentric child of the 4px-padded composer-radius strip */;background:none;color:var(--agent-text);font:inherit;cursor:default}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* Search files: a quick-open palette, centered over the transcript's upper part (main column). */
 /* Quick open drops from the top as it opens (ui-enter, ui/popupSurface.css). */
 .acpmux-file-search{--ui-enter-y:-8px;animation:ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both}
@@ -532,8 +532,8 @@
 .acpmux-file-search input{display:block;width:100%;height:calc(34 * var(--ui-px, 1px));padding:0 10px;box-sizing:border-box;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-file-search input::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-file-search [role=listbox]{max-height:min(calc(360 * var(--ui-px, 1px)),50vh);overflow:auto}
-.acpmux-file-search [role=listbox]:not(:empty){margin-top:4px}
-.acpmux-file-result{display:flex;align-items:baseline;gap:8px;min-height:30px;padding:5px 10px;box-sizing:border-box;border-radius:8px;white-space:nowrap}
+.acpmux-file-search [role=listbox]:not(:empty){margin-top:var(--ds-space-fixed-1)}
+.acpmux-file-result{display:flex;align-items:baseline;gap:var(--ds-space-fixed-2);min-height:30px;padding:5px 10px;box-sizing:border-box;border-radius:8px;white-space:nowrap}
 .acpmux-file-name{flex:none}
 .acpmux-file-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:12px}
 .acpmux-file-result b{font-weight:600;color:var(--agent-text)}
@@ -566,15 +566,15 @@
 .acpmux-project-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;min-height:16px;margin-left:auto;color:var(--agent-text);font-size:13px}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
-.acpmux-project-search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 4px;padding:0 8px;border-bottom:.5px solid var(--acpmux-composer-edge);color:var(--acpmux-composer-dim)}
+.acpmux-project-search{display:flex;align-items:center;gap:var(--ds-space-fixed-2);height:30px;margin:0 0 var(--ds-space-fixed-1);padding:0 var(--ds-space-fixed-2);border-bottom:.5px solid var(--acpmux-composer-edge);color:var(--acpmux-composer-dim)}
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}
 /* The shared Combobox has the same project field as the old inline chooser, without a wrapper. */
 /* The rows set the menu's width; the field's default size (about 210 px) never does. */
-.acpmux-project-menu .acpmux-project-search-field{display:block;box-sizing:border-box;appearance:none;width:0;min-width:100%;height:32px;margin:0 0 4px;padding:0 var(--acpmux-project-menu-edge);border:0;border-bottom:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;outline:none}
+.acpmux-project-menu .acpmux-project-search-field{display:block;box-sizing:border-box;appearance:none;width:0;min-width:100%;height:32px;margin:0 0 var(--ds-space-fixed-1);padding:0 var(--acpmux-project-menu-edge);border:0;border-bottom:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-menu .acpmux-project-search-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-project-empty{padding:6px 8px;color:var(--acpmux-composer-dim)}
-.acpmux-project-browse{display:block;width:100%;margin-top:4px;padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:default}
+.acpmux-project-browse{display:block;width:100%;margin-top:var(--ds-space-fixed-1);padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:default}
 .acpmux-project-browse:hover{background:var(--ds-surface-hover)}
 /* The new chat's hero picker (cx-9g0w): the project's name in the question, underlined, with a small
    chevron; with no project, a quiet Choose project under the question. */
@@ -600,8 +600,8 @@
 .acpmux-project-menu .ui-combobox-pinned[data-placement="bottom"]{margin-block-start:auto}
 .acpmux-project-menu .ui-combobox-pinned-list:has(.ui-combobox-scroll [role="option"])>.ui-combobox-pinned[data-placement="bottom"]::before,
 .acpmux-project-menu .ui-combobox-pinned-list:has(.ui-combobox-scroll [role="option"])>.ui-combobox-pinned[data-placement="top"]::after{content:"";display:block;height:0;margin:var(--ds-space-1,4px) var(--acpmux-project-menu-edge);border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
-.acpmux-project-browse{display:flex;align-items:center;gap:8px}
-.acpmux-context-worktree{display:flex;align-items:center;gap:8px;margin-left:auto;padding-right:4px;color:var(--agent-muted);white-space:nowrap}
+.acpmux-project-browse{display:flex;align-items:center;gap:var(--ds-space-fixed-2)}
+.acpmux-context-worktree{display:flex;align-items:center;gap:var(--ds-space-fixed-2);margin-left:auto;padding-right:var(--ds-space-fixed-1);color:var(--agent-muted);white-space:nowrap}
 .acpmux-switch{position:relative;width:26px;height:16px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
 .acpmux-switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--agent-text);opacity:.7}
 .acpmux-on .acpmux-switch{background:var(--agent-accent,var(--agent-text))}
@@ -697,9 +697,9 @@
 .acpmux-diff-header{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-height:var(--acpmux-diff-header-min-height);box-sizing:border-box;padding:7px 8px;border-bottom:1px solid var(--agent-border);background:var(--cmux-diff-header-bg,var(--agent-page-bg));/* one-material-allow: the diff viewer's own film (--cmux-diff-glass-filter), not a glass surface */-webkit-backdrop-filter:var(--cmux-diff-glass-filter,none);backdrop-filter:var(--cmux-diff-glass-filter,none)}
 .acpmux-diff-back{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border:0;border-radius:6px;background:none;color:var(--agent-muted);cursor:default}
 .acpmux-diff-back:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
-.acpmux-diff-scope{display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%;overflow:hidden;height:var(--acpmux-diff-scope-height);padding:0 12px;border-radius:6px;background:var(--cmux-diff-pill-bg,var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg))));box-shadow:var(--cmux-diff-pill-rim,inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge));white-space:nowrap}
+.acpmux-diff-scope{display:inline-flex;align-items:center;gap:var(--ds-space-fixed-2);min-width:0;max-width:100%;overflow:hidden;height:var(--acpmux-diff-scope-height);padding:0 var(--ds-space-fixed-3);border-radius:6px;background:var(--cmux-diff-pill-bg,var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg))));box-shadow:var(--cmux-diff-pill-rim,inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge));white-space:nowrap}
 .acpmux-diff-scope strong{min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:500}
-.acpmux-diff-counts{display:inline-flex;gap:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.acpmux-diff-counts{display:inline-flex;gap:var(--ds-space-fixed-1);white-space:nowrap;font-variant-numeric:tabular-nums}
 .acpmux-diff-tools{margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;gap:2px;max-width:100%;min-height:var(--acpmux-diff-tools-min-height);box-sizing:border-box;padding:2.5px;background:none;box-shadow:none}
 /* Trailing tools sit on the header's own surface: no plate of their own (Leo 2026-10-28). Only a tool's hover and pressed state fill, and only that tool. */
 /* The changes view's scope pill and toolbar ring; appearance.borders none clears it, the fill stays. */
@@ -713,11 +713,11 @@
 .acpmux-diff-tree-host{display:block;flex:1;min-height:0}
 /* changes/ChangedFilesTree.tsx: the motion layer's element around the tree host; no box of its own. */
 .acpmux-diff-tree-motion{display:contents}
-.acpmux-diff-filter{display:flex;align-items:center;gap:6px;flex:none;margin:8px 8px 4px;height:var(--acpmux-diff-filter-height);box-sizing:border-box;padding:0 9px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg,transparent);color:var(--agent-muted)}
+.acpmux-diff-filter{display:flex;align-items:center;gap:6px;flex:none;margin:var(--ds-space-fixed-2) var(--ds-space-fixed-2) var(--ds-space-fixed-1);height:var(--acpmux-diff-filter-height);box-sizing:border-box;padding:0 9px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg,transparent);color:var(--agent-muted)}
 .acpmux-diff-filter input{all:unset;cursor:text;flex:1;min-width:0;font:13px var(--font-ui);color:var(--agent-text)}
 .acpmux-diff-filter input::placeholder{color:var(--agent-muted)}
 .acpmux-diff-tree-empty{padding:6px 16px;color:var(--agent-muted);font-size:12px}
-.acpmux-file-header{display:flex;align-items:center;gap:8px;height:var(--acpmux-diff-file-header-height);padding:0 6px 0 16px;border-bottom:1px solid var(--agent-border);background:var(--cmux-diff-header-bg,var(--agent-page-bg));/* one-material-allow: the diff viewer's own film (--cmux-diff-glass-filter), not a glass surface */-webkit-backdrop-filter:var(--cmux-diff-glass-filter,none);backdrop-filter:var(--cmux-diff-glass-filter,none);color:var(--agent-text);font-weight:400}
+.acpmux-file-header{display:flex;align-items:center;gap:var(--ds-space-fixed-2);height:var(--acpmux-diff-file-header-height);padding:0 6px 0 16px;border-bottom:1px solid var(--agent-border);background:var(--cmux-diff-header-bg,var(--agent-page-bg));/* one-material-allow: the diff viewer's own film (--cmux-diff-glass-filter), not a glass surface */-webkit-backdrop-filter:var(--cmux-diff-glass-filter,none);backdrop-filter:var(--cmux-diff-glass-filter,none);color:var(--agent-text);font-weight:400}
 .acpmux-diff-file[data-collapsed] .acpmux-file-header{border-bottom:0}
 .acpmux-file-icon{flex:none;color:var(--agent-muted)}
 .acpmux-fh-name{display:flex;align-items:center;min-width:0;overflow:hidden;border:0;padding:0;background:none;color:inherit;font:inherit;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace));font-size:var(--text-detail);white-space:nowrap;cursor:default}
@@ -725,7 +725,7 @@
 /* The folder gives way first; in a pane too narrow for the name, the name ends in an ellipsis instead of running under the New badge. */
 .acpmux-fh-name>span:not(.acpmux-fh-dir){flex:0 1 auto;min-width:0}
 .acpmux-fh-dir{flex:0 1000 auto;min-width:0;color:var(--agent-muted)}
-.acpmux-fh-chevron{display:none;flex:none;margin-left:8px;color:var(--agent-muted)}
+.acpmux-fh-chevron{display:none;flex:none;margin-left:var(--ds-space-fixed-2);color:var(--agent-muted)}
 .acpmux-file-header:hover .acpmux-fh-chevron,.acpmux-fh-name:focus-visible .acpmux-fh-chevron,.acpmux-fh-name[aria-expanded=false] .acpmux-fh-chevron{display:block}
 .acpmux-fh-name[aria-expanded=false] .acpmux-fh-chevron{transform:rotate(-90deg)}
 .acpmux-file-header[data-viewed] .acpmux-fh-name{color:var(--agent-muted)}
@@ -769,7 +769,7 @@
 .acpmux-permission-panel .acpmux-permission-buttons button{border-radius:var(--ds-radius-control);padding:var(--acp-row-pad-y,7px) 10px;font:inherit}
 .acpmux-permission-panel .acpmux-permission-coverage,.acpmux-permission-panel .acpmux-permission-scope,.acpmux-permission-panel .acpmux-permission-item-kind,.acpmux-permission-panel .acpmux-permission-allowance,.acpmux-permission-panel .acpmux-permission-error,.acpmux-permission-panel .acpmux-permission-receipt{font-size:var(--acp-font-size-small,11px)}
 .acpmux-permission-panel .acpmux-permission-items details{padding:var(--acp-row-pad-y,5px) 0}
-.acpmux-permission-panel .acpmux-permission-items pre{font-size:var(--acp-font-size-small,11px);line-height:var(--acp-line-height,1.5)}.acpmux-permission-coverage{color:var(--agent-muted);font-size:var(--text-caption)}.acpmux-permission-scope{font-size:11px;color:var(--agent-muted);line-height:1.5;margin:6px 0}.acpmux-permission-items{margin-top:8px}.acpmux-permission-items details{padding:5px 0;border-top:1px solid var(--agent-border)}.acpmux-permission-items summary{cursor:default;overflow-wrap:anywhere}.acpmux-permission-items summary span{margin-right:8px}.acpmux-permission-item-kind{font-size:11px;color:var(--agent-muted)}.acpmux-permission-items pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;background:var(--agent-input-bg);padding:8px;border-radius:6px;font:11px var(--font-mono)}.acpmux-permission-panel .acpmux-permission-buttons{flex-wrap:wrap}.acpmux-permission-buttons button:disabled{opacity:.5;cursor:default}.acpmux-permission-panel .acpmux-permission-buttons .acpmux-permission-deny{background:var(--agent-input-bg);color:var(--agent-text);border:1px solid var(--agent-border)}.acpmux-permission-allowance,.acpmux-permission-error{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;line-height:1.5}.acpmux-permission-allowance button,.acpmux-permission-error button{flex-shrink:0;border:1px solid var(--agent-border);border-radius:var(--ds-radius-control);background:var(--agent-input-bg);color:var(--agent-text);padding:4px 8px}.acpmux-permission-receipt{font-size:11px;color:var(--agent-muted)}.acpmux-permission-receipt>summary{cursor:default}.acpmux-permission-error{color:var(--agent-text)}
+.acpmux-permission-panel .acpmux-permission-items pre{font-size:var(--acp-font-size-small,11px);line-height:var(--acp-line-height,1.5)}.acpmux-permission-coverage{color:var(--agent-muted);font-size:var(--text-caption)}.acpmux-permission-scope{font-size:11px;color:var(--agent-muted);line-height:1.5;margin:6px 0}.acpmux-permission-items{margin-top:var(--ds-space-fixed-2)}.acpmux-permission-items details{padding:5px 0;border-top:1px solid var(--agent-border)}.acpmux-permission-items summary{cursor:default;overflow-wrap:anywhere}.acpmux-permission-items summary span{margin-right:var(--ds-space-fixed-2)}.acpmux-permission-item-kind{font-size:11px;color:var(--agent-muted)}.acpmux-permission-items pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;background:var(--agent-input-bg);padding:var(--ds-space-fixed-2);border-radius:6px;font:11px var(--font-mono)}.acpmux-permission-panel .acpmux-permission-buttons{flex-wrap:wrap}.acpmux-permission-buttons button:disabled{opacity:.5;cursor:default}.acpmux-permission-panel .acpmux-permission-buttons .acpmux-permission-deny{background:var(--agent-input-bg);color:var(--agent-text);border:1px solid var(--agent-border)}.acpmux-permission-allowance,.acpmux-permission-error{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;line-height:1.5}.acpmux-permission-allowance button,.acpmux-permission-error button{flex-shrink:0;border:1px solid var(--agent-border);border-radius:var(--ds-radius-control);background:var(--agent-input-bg);color:var(--agent-text);padding:var(--ds-space-fixed-1) var(--ds-space-fixed-2)}.acpmux-permission-receipt{font-size:11px;color:var(--agent-muted)}.acpmux-permission-receipt>summary{cursor:default}.acpmux-permission-error{color:var(--agent-text)}
 /* Quick Composer (QuickSurface.tsx): the composer fills the panel, its transcript scrolls above once there is one, and the key hints sit under it. Compact: the panel is small. */
 .acpmux-quick{position:relative;flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;justify-content:flex-end}
 .acpmux-quick-thread{flex:1 1 0;min-height:0;display:flex;flex-direction:column;border-bottom:0.5px solid var(--agent-border)}
@@ -780,7 +780,7 @@
 .acpmux-floating-menu-host{display:contents}
 .acpmux-icon-flip{transform:rotate(180deg)}
 .acpmux-quick-key{display:inline-flex;align-items:center}
-.acpmux-quick-key .ui-key-hint{margin-right:4px}
+.acpmux-quick-key .ui-key-hint{margin-right:var(--ds-space-fixed-1)}
 /* Start Agent's floating chat (cx-b9qi): a header with the chat's title and controls, or, folded, one compact bar.
    The panel's top 12px is its drag grip, so the header leaves that much above its row. */
 .acpmux-floating-header{flex:none;display:flex;align-items:center;gap:2px;min-height:28px;padding:12px 8px 2px 12px;border-bottom:0.5px solid var(--agent-border)}
@@ -795,8 +795,8 @@
 /* Static status indicators (cx-sya4n): a shape per state, not color alone: a solid dot while it works,
    a triangle when it needs you, in the dot's own 6px box (nothing beside it moves). */
 :root[data-status-indicators=static] .acpmux-floating-status[data-status=attention]{border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)}
-.acpmux-floating-bar{display:flex;align-items:center;gap:4px;height:100%;box-sizing:border-box;padding:12px 8px 0 4px}
-.acpmux-floating-bar-open{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border:0;border-radius:6px;background:none;color:inherit;font:inherit;text-align:start;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-floating-bar{display:flex;align-items:center;gap:var(--ds-space-fixed-1);height:100%;box-sizing:border-box;padding:var(--ds-space-fixed-3) var(--ds-space-fixed-2) 0 var(--ds-space-fixed-1)}
+.acpmux-floating-bar-open{flex:1;min-width:0;display:flex;align-items:center;gap:var(--ds-space-fixed-2);height:32px;padding:0 var(--ds-space-fixed-2);border:0;border-radius:6px;background:none;color:inherit;font:inherit;text-align:start;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-floating-bar-open:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-floating-bar-open:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
 .acpmux-floating-bar-open .acpmux-floating-status{margin-inline-end:0}
@@ -808,7 +808,7 @@
    the one edge (the hairline ring and the lit top) and no private wash of the text over the fill (the
    wash lifted a dark card toward a white page under it: 3.0:1 over art); their hints read the glass's
    secondary ink (glass.css). The previous glass brings the old fill, wash and rim back (glass.css). */
-.acpmux-chief-dock{--chief-fade-height:32px;--chief-selection:var(--agent-accent-soft,var(--cmux-selection,var(--agent-accent,var(--agent-text))));--chief-glass-edge:var(--glass-edge,color-mix(in srgb,var(--agent-text) 14%,transparent));position:absolute;left:50%;bottom:16px;z-index:var(--layer-sticky);display:flex;flex-direction:column;align-items:center;gap:12px;width:min(760px,calc(100vw - 64px));color:var(--agent-text);font:var(--text-detail)/var(--text-detail--line-height) var(--font-ui);pointer-events:none;transform:translateX(-50%);transition:bottom var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out),filter var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-chief-dock{--chief-fade-height:32px;--chief-selection:var(--agent-accent-soft,var(--cmux-selection,var(--agent-accent,var(--agent-text))));--chief-glass-edge:var(--glass-edge,color-mix(in srgb,var(--agent-text) 14%,transparent));position:absolute;left:50%;bottom:16px;z-index:var(--layer-sticky);display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-fixed-3);width:min(760px,calc(100vw - 64px));color:var(--agent-text);font:var(--text-detail)/var(--text-detail--line-height) var(--font-ui);pointer-events:none;transform:translateX(-50%);transition:bottom var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out),filter var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-chief-dock ::selection{background:var(--cmux-selection-fill,var(--cmux-text-selection,color-mix(in srgb,var(--chief-selection) 34%,transparent)));color:var(--agent-text)}
 .acpmux-chief-dock[data-attached=false]{top:50%;right:16px;bottom:auto;left:auto;width:min(420px,calc(100vw - 32px));flex-direction:column;transform:translateY(-50%);gap:10px;isolation:isolate}.acpmux-chief-dock[data-attached=false] .acpmux-chief-dock-cards{transform-origin:center right;max-height:calc(100vh - 220px)}
 .acpmux-chief-dock-rail,.acpmux-chief-dock-cards{pointer-events:auto}
@@ -833,12 +833,12 @@
 .acpmux-chief-dock[data-expanded=false] .acpmux-chief-dock-stack{position:relative;height:68px;overflow:visible;-webkit-mask-image:none;mask-image:none}.acpmux-chief-dock[data-expanded=false] .acpmux-chief-dock-stack::before,.acpmux-chief-dock[data-expanded=false] .acpmux-chief-dock-stack::after{content:"";position:absolute;inset-inline:4%;top:8px;height:56px;border:1px solid color-mix(in srgb,var(--agent-text) 18%,transparent);border-radius:24px;background:color-mix(in srgb,var(--surface-popup,var(--agent-page-bg)) 28%,transparent);box-shadow:inset 0 1px 0 color-mix(in srgb,var(--agent-text) 14%,transparent);pointer-events:none}.acpmux-chief-dock[data-expanded=false] .acpmux-chief-dock-stack::after{inset-inline:8%;top:20px;opacity:.55}
 .acpmux-chief-dock[data-expanded=false] .acpmux-chief-card{position:absolute;inset-inline:0;top:0;height:56px;min-height:56px;overflow:hidden;opacity:.58;transform:translateY(calc(var(--chief-depth,0) * -12px));transform-origin:bottom center}
 .acpmux-chief-dock[data-expanded=false] .acpmux-chief-card[data-depth="0"]{opacity:.9;z-index:calc(var(--layer-sticky,10) + 4)}
-.acpmux-chief-dock[data-expanded=false] .acpmux-chief-card-main{height:56px;padding-block:8px;visibility:hidden}
+.acpmux-chief-dock[data-expanded=false] .acpmux-chief-card-main{height:56px;padding-block:var(--ds-space-fixed-2);visibility:hidden}
 .acpmux-chief-dock[data-expanded=false] .acpmux-chief-card-copy,.acpmux-chief-dock[data-expanded=false] .acpmux-chief-card-queue,.acpmux-chief-dock[data-expanded=false] .acpmux-chief-dock-status{visibility:hidden}.acpmux-chief-dock[data-expanded=false] .acpmux-chief-card[data-depth="0"] .acpmux-chief-card-copy,.acpmux-chief-dock[data-expanded=false] .acpmux-chief-card[data-depth="0"] .acpmux-chief-dock-status{visibility:visible}.acpmux-chief-dock[data-expanded=false] .acpmux-chief-card[data-depth="0"] .acpmux-chief-card-main{visibility:visible;padding-inline-end:28px}.acpmux-chief-dock[data-expanded=false] .acpmux-chief-card[data-depth="0"] .acpmux-chief-card-copy strong{font-size:var(--text-control);line-height:1.15;letter-spacing:var(--text-control--letter-spacing)}.acpmux-chief-dock[data-expanded=false] .acpmux-chief-card[data-depth="0"] .acpmux-chief-card-copy small{font-size:var(--text-caption);line-height:1.15;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-chief-dock-header{display:flex;align-items:center;gap:6px;padding:2px 5px 4px;color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-chief-dock-title{display:inline-flex;align-items:center;gap:5px;color:var(--agent-text);font-weight:650}
 .acpmux-chief-dock-count{margin-left:auto;min-width:18px;padding:0 5px;border-radius:8px;background:var(--ds-surface-inset);text-align:center}
-.acpmux-chief-dock-stack{display:flex;flex-direction:column;gap:16px;min-height:0;overflow:auto;overscroll-behavior:contain;-webkit-mask-image:linear-gradient(to bottom,#000 0%,#000 calc(100% - var(--chief-fade-height)),transparent 100%);mask-image:linear-gradient(to bottom,#000 0%,#000 calc(100% - var(--chief-fade-height)),transparent 100%);-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-size:100% 100%;mask-size:100% 100%}
+.acpmux-chief-dock-stack{display:flex;flex-direction:column;gap:var(--ds-space-fixed-4);min-height:0;overflow:auto;overscroll-behavior:contain;-webkit-mask-image:linear-gradient(to bottom,#000 0%,#000 calc(100% - var(--chief-fade-height)),transparent 100%);mask-image:linear-gradient(to bottom,#000 0%,#000 calc(100% - var(--chief-fade-height)),transparent 100%);-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-size:100% 100%;mask-size:100% 100%}
 .acpmux-chief-card-context-menu{transform:translateX(-100%)}
 .acpmux-chief-dock-empty{width:100%}
 .acpmux-chief-card{position:relative;display:flex;align-items:center;min-width:0;overflow:visible;border:1px solid var(--chief-glass-edge);border-radius:48px;--glass-elevation:var(--elevation-1);animation:acpmux-chief-card-in var(--cmux-motion-quick) cubic-bezier(.22,.7,.28,1) both;animation-delay:calc(var(--chief-depth,0) * 12ms);transition:background var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out),box-shadow var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
@@ -852,10 +852,10 @@
 .acpmux-chief-card[data-steering=true] .acpmux-chief-card-main{background:color-mix(in srgb,var(--chief-selection) 8%,transparent)}
 .acpmux-chief-card[data-selected=true] .acpmux-chief-card-main{background:color-mix(in srgb,var(--chief-selection) 12%,transparent)}
 .acpmux-chief-card[data-selected=true]{border-color:color-mix(in srgb,var(--chief-selection) 60%,transparent)}
-.acpmux-chief-card-main{display:flex;align-items:center;gap:12px;min-width:0;flex:1;width:100%;height:max(var(--ui-row-height,28px),calc(96px * var(--cmux-interface-scale,1)));box-sizing:border-box;padding:14px 76px 14px 28px;border:0;border-radius:inherit;background:transparent;color:inherit;text-align:left;cursor:default}
+.acpmux-chief-card-main{display:flex;align-items:center;gap:var(--ds-space-fixed-3);min-width:0;flex:1;width:100%;height:max(var(--ui-row-height,28px),calc(96px * var(--cmux-interface-scale,1)));box-sizing:border-box;padding:14px 76px 14px 28px;border:0;border-radius:inherit;background:transparent;color:inherit;text-align:left;cursor:default}
 .acpmux-chief-card-main:hover{background:var(--ds-surface-hover)}
 .acpmux-chief-card-main:active{background:var(--ds-color-pressed)}
-.acpmux-chief-card-actions{position:absolute;right:14px;top:50%;display:flex;gap:8px;transform:translateY(-50%) scale(.96);opacity:0;pointer-events:none;transition:opacity var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out),transform var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
+.acpmux-chief-card-actions{position:absolute;right:14px;top:50%;display:flex;gap:var(--ds-space-fixed-2);transform:translateY(-50%) scale(.96);opacity:0;pointer-events:none;transition:opacity var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out),transform var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
 .acpmux-chief-card:focus-within .acpmux-chief-card-actions{opacity:1;transform:translateY(-50%) scale(1);pointer-events:auto}
 .acpmux-chief-card-action{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border:0;border-radius:50%;background:color-mix(in srgb,var(--agent-page-bg) 48%,transparent);color:var(--agent-text);cursor:default}
 .acpmux-chief-card-action:hover{background:color-mix(in srgb,var(--agent-text) 16%,transparent)}
@@ -870,7 +870,7 @@
 .acpmux-chief-card-copy strong,.acpmux-chief-card-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-chief-card-copy strong{font-size:var(--text-heading);line-height:var(--text-heading--line-height);font-weight:650;letter-spacing:var(--text-heading--letter-spacing)}
 .acpmux-chief-card-copy small{color:color-mix(in srgb,var(--agent-text) 68%,var(--agent-muted));font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-chief-card-queue{flex:none;min-width:17px;height:17px;padding:0 4px;border-radius:6px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:17px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-chief-card-queue{flex:none;min-width:17px;height:17px;padding:0 var(--ds-space-fixed-1);border-radius:6px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:17px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-chief-dock-status{flex:none;display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;color:var(--agent-muted)}
 .acpmux-chief-dock-status[data-status=streaming]{color:var(--agent-accent)}
 .acpmux-chief-dock-status[data-status=attention]{color:var(--acpmux-needs-you-mark)}
@@ -890,14 +890,14 @@
 :where(:root[data-glass="off"]) :is(.acpmux-chief-dock-rail,.acpmux-chief-card){box-shadow:var(--elevation-1)}
 @keyframes acpmux-chief-dock-attention{0%,100%{opacity:.35;transform:scale(.96)}50%{opacity:0;transform:scale(1.12)}}
 @media (prefers-reduced-motion:reduce){.acpmux-chief-dock,.acpmux-chief-dock-rail,.acpmux-chief-dock-mascot,.acpmux-chief-card,.acpmux-chief-dock-cards{transition:none;animation:none}.acpmux-chief-dock-mascot img{animation:none;transition:none}}
-.acpmux-link-missing{margin:8px 24px;color:var(--agent-text);font-size:12px}
+.acpmux-link-missing{margin:var(--ds-space-fixed-2) var(--ds-space-fixed-5);color:var(--agent-text);font-size:12px}
 .acpmux-live-chat p{margin:0}
-.acpmux-live-chat-command{display:block;margin:4px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--font-mono);color:var(--agent-muted)}
-.acpmux-live-chat-actions{display:flex;gap:12px}
+.acpmux-live-chat-command{display:block;margin:var(--ds-space-fixed-1) 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--font-mono);color:var(--agent-muted)}
+.acpmux-live-chat-actions{display:flex;gap:var(--ds-space-fixed-3)}
 .acpmux-missing-chat-detail{color:var(--agent-muted)}
 .acpmux-turn-revealed{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent)}@media (prefers-reduced-motion:no-preference){.acpmux-turn-revealed{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
-.acpmux-host-error{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px;padding-right:var(--cv-inset-end,var(--cv-inset))}.acpmux-host-error-card{padding:var(--grid-cards-padding);border:1px solid color-mix(in srgb,var(--agent-status-failure) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-status-failure) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:var(--grid-gap);border:0;border-radius:var(--ds-radius-control);padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
+.acpmux-host-error{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px;padding-right:var(--cv-inset-end,var(--cv-inset))}.acpmux-host-error-card{padding:var(--grid-cards-padding);border:1px solid color-mix(in srgb,var(--agent-status-failure) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-status-failure) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:var(--ds-space-fixed-1)!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:var(--grid-gap);border:0;border-radius:var(--ds-radius-control);padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 .acpmux-host-error-card button:disabled{opacity:.6}
 .acpmux-host-error-actions{display:flex;flex-wrap:wrap;gap:var(--grid-gap)}
 /* A refused start's sign-in card (SwitchNotice.tsx, CloudSignIn.tsx) once it opens its page, code or key: its buttons stay in the card's one action row with Retry beside them, and its hint, code and links go on the rows under it, so Retry never moves. */
@@ -911,7 +911,7 @@
 .acpmux-instructions-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
 .acpmux-switch-notice{display:block;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;padding-right:var(--cv-inset-end,var(--cv-inset));color:var(--agent-muted);font-size:12px;line-height:16px}
-.acpmux-newtab-folder-ask{position:relative;z-index:var(--layer-raised,2);padding-top:8px}
+.acpmux-newtab-folder-ask{position:relative;z-index:var(--layer-raised,2);padding-top:var(--ds-space-fixed-2)}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:default}
 /* A New Tab start failure's Details stays on its line until opened (newtab/StartFailure.tsx). Its summary stays an
    inline flex row, so the chevron centers on the label (a plain inline svg sat on the baseline, 1.5 px high), and the
@@ -921,7 +921,7 @@
 .acpmux-start-failure-details>summary{font:inherit;letter-spacing:inherit}
 /* The chevron takes no more height than its 12 px line at Default: at a larger density its box overhangs the line evenly
    above and below, so the line never grows and the chevron stays centered on Details. */
-.acpmux-start-failure-details .acpmux-chip-disclosure{margin-block:calc((12px - var(--acpmux-composer-chevron,calc(12px * var(--acpmux-density,1)))) / 2);flex:none;width:var(--acpmux-composer-chevron,calc(12px * var(--acpmux-density,1)));height:var(--acpmux-composer-chevron,calc(12px * var(--acpmux-density,1)))}
+.acpmux-start-failure-details .acpmux-chip-disclosure{margin-block:calc((var(--ds-space-fixed-3) - var(--acpmux-composer-chevron,calc(12px * var(--acpmux-density,1)))) / 2);flex:none;width:var(--acpmux-composer-chevron,calc(12px * var(--acpmux-density,1)));height:var(--acpmux-composer-chevron,calc(12px * var(--acpmux-density,1)))}
 /* Agent question card (question/QuestionCard.tsx): the base rows, marks, preview and buttons. The card itself (one look for every ask: header, numbered rows, last row, folded pill) is question/questionCard.css. appearance.borders none drops the edge (--acpmux-question-edge). */
 /* Needs your input: one mark for a chat that waits on the user, on every surface but the question card (its icon and words are grey; question/questionCard.css): the Needs you dot, badge and pill, the sidebar and Chief dock marks, the status lines. It is the theme's attention colour, which the app sends as --agent-warning (AgentPaneTheme.swift, tokens.attention), the same Palette.attention the native sidebar, tabs and priority rows draw; never the accent, which a grey-accent theme turns into the idle grey. test/needs-input-mark-color.test.ts reads every surface. */
 /* The needs-you mark holds 3:1 (a mark's tier); words in it lean 45% toward the text ink, the strongest ink on every ground, so they read as text (test/control-contrast-N.test.ts: the pill's words read 2.7:1; at 35% a yellow attention colour, Kerf's and Paper's, read 4.3:1 on its tint: golden-look-contrast-N.test.ts). */
@@ -1027,25 +1027,25 @@ fieldset.acpmux-question[hidden]{display:none}
   outline-offset: -1px;
 }
 /* A chat's past, read-only, before it can resume here (cx-khns1, PastChat.tsx). */
-.acpmux-past-chat{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px;width:100%;max-width:760px;margin:0 auto;padding:16px 24px;box-sizing:border-box}
+.acpmux-past-chat{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:var(--ds-space-fixed-4);width:100%;max-width:760px;margin:0 auto;padding:var(--ds-space-fixed-4) var(--ds-space-fixed-5);box-sizing:border-box}
 .acpmux-past-chat-label{margin:0;text-align:center;font-size:var(--text-detail);line-height:var(--text-detail--line-height);color:var(--acpmux-composer-placeholder);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-past-chat-turn{display:flex;flex-direction:column;gap:8px}
+.acpmux-past-chat-turn{display:flex;flex-direction:column;gap:var(--ds-space-fixed-2)}
 /* A secret card (cx-ncc.42): among the chat's asks, what the agent asks for and why, a private field. */
-.acpmux-secret-card{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;padding:8px 8px 8px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:var(--text-control);letter-spacing:var(--text-control--letter-spacing)}
+.acpmux-secret-card{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--ds-space-fixed-2);padding:var(--ds-space-fixed-2) var(--ds-space-fixed-2) var(--ds-space-fixed-2) var(--ds-space-fixed-3);box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:var(--text-control);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-secret-card-text{display:flex;flex-direction:column;gap:2px;min-width:0}
 .acpmux-secret-card-ask{color:var(--agent-text);overflow-wrap:anywhere}
 .acpmux-secret-card-reason{overflow-wrap:anywhere}
 .acpmux-secret-card-private{font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-secret-card-row{display:flex;align-items:center;gap:4px}
+.acpmux-secret-card-row{display:flex;align-items:center;gap:var(--ds-space-fixed-1)}
 .acpmux-secret-card-keep{display:flex;align-items:center;gap:var(--ds-space-2);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-secret-card-keep input{margin:0}
-.acpmux-secret-card-field{flex:1;min-width:0;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit;outline:none}
+.acpmux-secret-card-field{flex:1;min-width:0;height:28px;padding:0 var(--ds-space-fixed-2);box-sizing:border-box;border:0;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit;outline:none}
 .acpmux-secret-card-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-secret-card-action{flex:none;height:var(--ds-control-row);padding:0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-text);font:inherit;font-size:var(--text-control);cursor:default}
 .acpmux-secret-card-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-elevation-card-command{display:block;padding:4px 8px;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font-family:var(--font-mono,ui-monospace,monospace);white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.acpmux-elevation-card-command{display:block;padding:var(--ds-space-fixed-1) var(--ds-space-fixed-2);border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font-family:var(--font-mono,ui-monospace,monospace);white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
 
 /* A permission ask (PermissionCard.tsx) is a `<Surface role="ask">` (ui/surface): the shell, the header,
    the command well and the answers row are the role's and the slots' (ui/surface/surface.css, the
@@ -1122,8 +1122,8 @@ fieldset.acpmux-question[hidden]{display:none}
 
 /* The ··· menu's Text & Width popover (ChatDisplaySettings.tsx, chatDisplay.ts). */
 .acpmux-display { width: 300px; max-width: calc(100vw - 16px); }
-.acpmux-display-body { display: grid; gap: 10px; padding: 12px; font-size: var(--text-detail); color: var(--agent-text); letter-spacing: var(--text-detail--letter-spacing); }
-.acpmux-display-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.acpmux-display-body { display: grid; gap: 10px; padding: var(--ds-space-fixed-3); font-size: var(--text-detail); color: var(--agent-text); letter-spacing: var(--text-detail--letter-spacing); }
+.acpmux-display-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: var(--ds-space-fixed-2); }
 .acpmux-display-row > span { color: var(--agent-muted); }
 .acpmux-display-row output { min-width: 44px; text-align: end; font-variant-numeric: tabular-nums; color: var(--agent-muted); }
 .acpmux-display-row input[type="range"] { width: 100%; margin: 0; accent-color: var(--agent-muted); }
@@ -1132,12 +1132,12 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-display-reset { justify-self: end; font: inherit; color: var(--agent-muted); background: none; border: 0; padding: 2px 4px; border-radius: 6px; }
 .acpmux-display-reset:hover { background: var(--ds-surface-hover); }
 .acpmux-trust-ask[data-asking]{color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 45%,transparent)}.acpmux-trust-ask-action.acpmux-trust-ask-primary{background:color-mix(in srgb,var(--agent-accent) 14%,transparent);font-weight:500}.acpmux-trust-ask-action.acpmux-trust-ask-primary:hover{background:color-mix(in srgb,var(--agent-accent) 22%,transparent)}
-.acpmux-trust-ask[data-asking],.acpmux-trust-ask[data-recovery]{flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}.acpmux-trust-ask-body{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}.acpmux-trust-ask-body .acpmux-trust-ask-text{white-space:normal;overflow-wrap:anywhere;font-weight:500}.acpmux-trust-ask-detail{color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}.acpmux-trust-ask-actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}
+.acpmux-trust-ask[data-asking],.acpmux-trust-ask[data-recovery]{flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}.acpmux-trust-ask-body{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}.acpmux-trust-ask-body .acpmux-trust-ask-text{white-space:normal;overflow-wrap:anywhere;font-weight:500}.acpmux-trust-ask-detail{color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}.acpmux-trust-ask-actions{display:flex;flex-wrap:wrap;gap:var(--ds-space-fixed-1);margin-left:auto}
 /* The trust line is a fit card (cardFit.css, TrustAsk.tsx): in a narrow pane its answers take the line
    under the words, and Undo shrinks to its icon. A receipt's words keep to their line; an open
    question's body wraps as before. It takes its row's whole width: the stack around it sizes a child
    to its content, which inline-size containment collapses to nothing. */
-.acpmux-trust-ask.cv-fit-row{column-gap:4px}.acpmux-trust-ask.cv-fit-row>.cv-fit-text{flex:1 1 12em}
+.acpmux-trust-ask.cv-fit-row{column-gap:var(--ds-space-fixed-1)}.acpmux-trust-ask.cv-fit-row>.cv-fit-text{flex:1 1 12em}
 
 /* The composer's + palette is a command surface: searchable, compact and immediately interactive.
    A column: the search field, then the list, which is the scroller, so the field never scrolls away
@@ -1149,7 +1149,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-palette-menu{animation:none!important;transition:none!important}
 .acpmux-palette-menu .acpmux-menu-item>svg{flex:none;color:var(--agent-muted)}
 .acpmux-palette-search{flex:none;padding:var(--ui-popup-padding);border-bottom:.5px solid var(--agent-border)}
-.acpmux-palette-search input{display:block;width:100%;height:28px;padding:0 8px;border:0;border-radius:6px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;outline:none}
+.acpmux-palette-search input{display:block;width:100%;height:28px;padding:0 var(--ds-space-fixed-2);border:0;border-radius:6px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;outline:none}
 /* Focus takes the fill only, never a ring (design/composer.md: no focus ring on the composer's controls).
    The field holds the focus the whole time the menu is open, so a ring here was a ring at rest. */
 .acpmux-palette-search input:focus{background:var(--acpmux-pill-hover)}
@@ -1161,9 +1161,9 @@ fieldset.acpmux-question[hidden]{display:none}
 @media (prefers-reduced-transparency:reduce){:is(.acpmux-palette-list,.acpmux-composer-plus .acpmux-menu):is([data-fade-top],[data-fade-bottom]){-webkit-mask-image:none;mask-image:none}}
 :root[data-reduce-transparency] :is(.acpmux-palette-list,.acpmux-composer-plus .acpmux-menu):is([data-fade-top],[data-fade-bottom]){-webkit-mask-image:none;mask-image:none}
 /* The groups are split by the shared menu separator (PaletteMenu.tsx), in the pane's menu hairline. */
-.acpmux-palette-menu .ui-separator{flex:none;height:0;margin:4px 8px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--menu-separator,var(--agent-border));background:none}
+.acpmux-palette-menu .ui-separator{flex:none;height:0;margin:var(--ds-space-fixed-1) var(--ds-space-fixed-2);border:0;border-top:var(--cmux-hairline,.5px) solid var(--menu-separator,var(--agent-border));background:none}
 /* The composer's + (Picker) splits its groups with the same hairline, on the group itself. */
-.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section,.acpmux-menu.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section{margin-top:4px;padding-top:4px;box-shadow:none;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
+.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section,.acpmux-menu.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section{margin-top:var(--ds-space-fixed-1);padding-top:var(--ds-space-fixed-1);box-shadow:none;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
 /* What Return does, on the highlighted row (PaletteMenu `returnLook`): the shared KeyHint at the row's end, after
    any shortcut, with the verb before it in the description's quiet voice. It takes no room from other rows. */
 .acpmux-palette-return{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:var(--ds-space-1,4px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
@@ -1192,10 +1192,10 @@ fieldset.acpmux-question[hidden]{display:none}
 /* The peer copy's banner floats over the top of the transcript (PeerCopyBanner.tsx): its slot takes no
    height, so the banner arriving or leaving moves no row. */
 .acpmux-peer-copy-slot{display:contents}.acpmux-peer-copy-slot:not([data-shown])>*{visibility:hidden;opacity:0}@media (prefers-reduced-motion:no-preference){.acpmux-peer-copy-slot[data-shown]>*{transition:opacity var(--agent-motion-in) var(--agent-ease-out)}}
-.acpmux-peer-copy-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin:0}
+.acpmux-peer-copy-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--ds-space-fixed-2);margin:0}
 .acpmux-peer-copy-spinner{align-self:center;flex:none;color:var(--agent-muted)}
 .acpmux-peer-copy[data-arm=button] .acpmux-peer-copy-title{align-items:center;justify-content:space-between}
-.acpmux-peer-copy-resume{flex:none;border:0;border-radius:6px;padding:4px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}
+.acpmux-peer-copy-resume{flex:none;border:0;border-radius:6px;padding:var(--ds-space-fixed-1) var(--ds-space-fixed-3);background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}
 .acpmux-peer-copy-resume:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 
 /* The browser supplies the sidebar beside the same flex child as the native window. */
@@ -1204,18 +1204,18 @@ fieldset.acpmux-question[hidden]{display:none}
   min-width: 0;
   overflow-y: auto;
   box-sizing: border-box;
-  padding: 12px 8px;
+  padding: var(--ds-space-fixed-3) var(--ds-space-fixed-2);
   border-inline-end: 1px solid var(--agent-border);
   background: var(--agent-surface);
 }
-.acpmux-browser-sidebar h2 { margin: 4px 8px 12px; font-size: var(--text-body); }
-.acpmux-browser-sidebar input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 4px 8px; }
+.acpmux-browser-sidebar h2 { margin: var(--ds-space-fixed-1) var(--ds-space-fixed-2) var(--ds-space-fixed-3); font-size: var(--text-body); }
+.acpmux-browser-sidebar input { width: 100%; box-sizing: border-box; margin-bottom: var(--ds-space-fixed-2); padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2); }
 .acpmux-browser-sidebar button {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   width: 100%;
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border: 0;
   border-radius: var(--ds-radius-control);
   color: inherit;
@@ -1231,11 +1231,11 @@ fieldset.acpmux-question[hidden]{display:none}
 
 .acpmux-browser-sidebar-heading { display: flex; align-items: center; justify-content: space-between; }
 .acpmux-browser-sidebar-heading button { width: auto; color: var(--agent-muted); font-size: var(--text-caption); }
-.acpmux-browser-sidebar details { margin: 4px 0 12px; }
-.acpmux-browser-sidebar summary { padding: 4px 8px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acpmux-browser-workspace-chats { padding-inline-start: 12px; }
+.acpmux-browser-sidebar details { margin: var(--ds-space-fixed-1) 0 var(--ds-space-fixed-3); }
+.acpmux-browser-sidebar summary { padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-browser-workspace-chats { padding-inline-start: var(--ds-space-fixed-3); }
 .acpmux-browser-sidebar p,
-.acpmux-browser-sidebar output { display: block; margin: 4px 8px; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-browser-sidebar output { display: block; margin: var(--ds-space-fixed-1) var(--ds-space-fixed-2); color: var(--agent-muted); font-size: var(--text-detail); }
 .acpmux-browser-sidebar button:disabled { color: var(--agent-muted); cursor: default; }
 .acpmux-browser-sidebar button:disabled:hover { background: transparent; }
 .acpmux-browser-sidebar summary:focus-visible,

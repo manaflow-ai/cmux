@@ -82,7 +82,7 @@ public struct CodeCard: View {
                 }
             }
         }
-        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: CmuxMobileTheme.standard.metrics.cardRadius, style: .continuous))
     }
 
     private var header: some View {

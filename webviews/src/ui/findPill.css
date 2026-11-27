@@ -119,7 +119,7 @@
 
 .find-pill__count {
   min-width: var(--find-pill-count-min);
-  padding-right: 4px;
+  padding-right: var(--ds-space-fixed-1);
   text-align: right;
   color: inherit;
   font-size: var(--text-detail);
@@ -136,7 +136,7 @@
   flex: none;
   width: 1px;
   height: 16px;
-  margin: 0 4px;
+  margin: 0 var(--ds-space-fixed-1);
   background: color-mix(in srgb, currentColor 16%, transparent);
 }
 
@@ -196,7 +196,7 @@
   height: auto;
   padding-top: 5px;
   padding-bottom: 5px;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 .find-pill__row {
   display: flex;

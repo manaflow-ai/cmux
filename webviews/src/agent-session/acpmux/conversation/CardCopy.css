@@ -36,7 +36,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   box-sizing: border-box;
   min-width: var(--cv-context-copy);
   height: var(--cv-context-copy);

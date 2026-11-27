@@ -35,7 +35,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         }),
         json!({
             "name": COMPONENTS,
-            "description": "The web component kit (webviews/src/ui), from its generated manifest, so an agent uses a component and props that exist instead of inventing them. `list` returns every component (name, tier ui or kit, status, summary, its doc page); `filter` keeps one tier or status. `show` returns one component whole: its props with types and docs, what it extends, its data attributes and its gallery entries. `test` checks a props object against the component's declared props and names each unknown prop and each missing required one, with the fix. With no manifest in this checkout the answer says how to make it (available: false).",
+            "description": "The web component kit (webviews/src/ui), from its generated manifest, so an agent uses a component and props that exist instead of inventing them. `list` returns every component (name, tier ui or kit, status, summary, its doc page); `filter` keeps one tier or status. `show` returns one component whole: its props with types and docs, what it extends, its data attributes and its gallery entries. `test` checks a props object against the component's declared props and names each unknown prop and each missing required one, with the fix. Installed builds use the bundled registry when no checkout manifest or explicit override is present.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

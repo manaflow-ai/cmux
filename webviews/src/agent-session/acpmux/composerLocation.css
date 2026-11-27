@@ -155,7 +155,7 @@
   font-weight: var(--weight-regular);
 }
 .acpmux-location-readonly {
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   height: 22px;
   padding: 0 6px;
   border-radius: 6px;
@@ -361,7 +361,7 @@
   grid-template-columns: 16px minmax(0, 1fr) 16px;
   align-items: center;
   /* menu-gutter-allow: Claude Code's mode menu, a trailing number or check column by design (Leo 2026-10-19) */
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-height: var(--ui-row-height);
   /* Tight, as the references (Leo 2026-10-21, "STOP WITH THE INCESSANT LEFT-RIGHT PADDING"): the
      popup's 4px and the row's 4px put the text about 8pt from the menu's edge. */
@@ -438,7 +438,7 @@
   .acpmux-composer-context { --acpmux-location-gap: 4px; }
   .acpmux-location-button,
   .acpmux-location-readonly { max-width: 145px; }
-  .acpmux-location-readonly { padding-inline: 4px; }
+  .acpmux-location-readonly { padding-inline: var(--ds-space-fixed-1); }
 }
 
 /* The top row is a compact control rail. Keep the selected value visible so the model, effort,
@@ -569,7 +569,7 @@
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access-trigger {
   position: relative;
   width: auto;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button,
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button,
@@ -957,10 +957,10 @@
   background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-surface-elevated));
   box-shadow: var(--elevation-2);
 }
-.acpmux-permission-card-heading { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.acpmux-permission-card-heading { display: flex; align-items: flex-start; gap: var(--ds-space-fixed-2); min-width: 0; }
 .acpmux-permission-card-heading strong { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-title); letter-spacing: var(--text-title--letter-spacing); }
 .acpmux-permission-card-leading { display: inline-flex; flex: none; align-items: center; justify-content: center; color: var(--agent-muted); }
-.acpmux-permission-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
+.acpmux-permission-card-meta { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-fixed-2); margin-top: 2px; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-permission-card-meta .acpmux-permission-coverage { margin-left: auto; }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button { border-radius: var(--ds-radius-control); }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny) { background: var(--agent-accent); color: var(--agent-accent-text, #fff); }
@@ -1185,7 +1185,7 @@
 /* Focus paints only, as in plain above: margin and padding stay off the focused selector. */
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue {
   margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
-  padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
+  padding: var(--ds-space-fixed-1) 0 calc(var(--ds-space-fixed-1) + var(--acpmux-tray-tuck));
 }
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue,
 :root[data-top-strip="tray"] .acpmux-composer:not([data-shell])[data-focused][data-focused] > .acpmux-composer-queue {
@@ -1216,7 +1216,7 @@
 :root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-queue-foldbar)
   > .acpmux-composer-queue:has(+ .acpmux-queue-foldbar) {
   margin-bottom: 0;
-  padding-bottom: 4px;
+  padding-bottom: var(--ds-space-fixed-1);
 }
 :root[data-top-strip="tray"] .acpmux-composer[data-strip] > .acpmux-queue-foldbar {
   margin-bottom: 0;
@@ -1311,7 +1311,7 @@
   width: 0;
   min-width: 100%;
   height: var(--ui-row-height);
-  margin: 0 0 4px;
+  margin: 0 0 var(--ds-space-fixed-1);
   padding: 0 var(--ui-row-padding-inline);
   border: 0;
   border-bottom: .5px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
@@ -1414,7 +1414,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   place-items: center;
   width: auto;
   height: 28px;
@@ -1460,7 +1460,7 @@
      much space at the bottom compared to Claude Code). The floating dock's composer adds nothing
      under the row (below), so these 8 px are all the room there is: never on the window's edge
      (Leo 2026-10-20), room for a control's focus outline, and no band. */
-  margin-bottom: calc(8px * var(--acpmux-density, 1));
+  margin-bottom: calc(var(--ds-space-fixed-2) * var(--acpmux-density, 1));
   padding-block: 0;
   /* The row spans the box (Leo 2026-10-21: "stop with the left right padding"): the mode's pill
      starts on the box's left edge and the last control's ends on its right edge, so the row adds no
@@ -1542,7 +1542,7 @@
    sibling after it, and each transcript row that arrived or changed kind restyled the whole thread
    (bench/transcript-replay.bench.ts INVALIDATIONS=1; test/css-invalidation-scope.test.ts). */
 .acpmux-composer-foot .acpmux-chips > :not(.acpmux-access):not(:first-child) {
-  margin-inline-start: calc(8px - 2 * var(--acpmux-row-inset));
+  margin-inline-start: calc(var(--ds-space-fixed-2) - 2 * var(--acpmux-row-inset));
 }
 .acpmux-composer-foot .acpmux-chips > .acpmux-effort:not(:first-child) {
   margin-inline-start: calc(9px - 2 * var(--acpmux-row-inset));
@@ -1795,7 +1795,7 @@
   /* A growing row keeps the first line at its fixed padding inset. */
   align-self: start;
   padding: calc(var(--acpmux-prompt-inset) + var(--acpmux-prompt-drop))
-    max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
+    max(0px, calc(var(--ds-space-fixed-2) * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
     calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop)) var(--acpmux-composer-lead-gap);
 }
 /* The draft's scrollbar runs in a lane between the text and the actions, down to the box's bottom
@@ -1853,7 +1853,7 @@
 /* One compact ring in the main and quiet rows (#24661): the base 22 px box, not the 24 px a scale
    snap gave the quiet row. The Claude look draws it left of the model chip (its margins below, in the
    ring-left rule); these margins are the main row's and the Codex look's. */
-.acpmux-composer-foot .acpmux-context-ring { width: 22px; height: 22px; margin-inline-start: 4px; margin-inline-end: 11px; }
+.acpmux-composer-foot .acpmux-context-ring { width: 22px; height: 22px; margin-inline-start: var(--ds-space-fixed-1); margin-inline-end: 11px; }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's rows, as Codex's
@@ -1926,7 +1926,7 @@
 .acpmux-location-picker[data-face="chip"] .acpmux-location-button {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: var(--ds-radius-control);
-  padding-inline: 8px;
+  padding-inline: var(--ds-space-fixed-2);
 }
 /* The machine control's live dot (ComposerContext stripLayout): filled while a chat can start on
    the machine, a ring when not, as the machine list's own status. It stays when a narrow strip drops
@@ -1957,7 +1957,7 @@
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker[data-kind="branch"] { margin-left: var(--acpmux-location-gap, 4px); }
 /* Its menu's question, as ChatGPT's "Where should this chat run?": one quiet line over the rows. */
 .acpmux-env-popover .acpmux-env-heading {
-  padding: 4px calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding)) 4px;
+  padding: var(--ds-space-fixed-1) calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding)) var(--ds-space-fixed-1);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: 16px;
@@ -2007,7 +2007,7 @@
    `data-divider`) opens with a hairline across the list, the heading under it, then its rows
    (cmux#53226: GitHub ran on from the last folder). Each heading is a quiet caption that starts where
    the rows' icons do. */
-.acpmux-folder-popover .acpmux-menu-item:has(> .acpmux-location-row[data-divider]) { margin-top: 32px; }
+.acpmux-folder-popover .acpmux-menu-item:has(> .acpmux-location-row[data-divider]) { margin-top: var(--ds-space-fixed-6); }
 .acpmux-folder-popover .acpmux-menu-item:has(> .acpmux-location-row[data-divider])::before {
   content: "";
   position: absolute;
@@ -2089,12 +2089,12 @@
    then one row per folder in the same name column as the folders above, × at the end. */
 .acpmux-extra-folders {
   margin: var(--ds-space-1) 0 0;
-  padding: 4px 0 0;
+  padding: var(--ds-space-fixed-1) 0 0;
   border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
-.acpmux-extra-folders-heading { padding: 4px 8px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
+.acpmux-extra-folders-heading { padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2); color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
 .acpmux-extra-folders-list { margin: 0; padding: 0; list-style: none; }
-.acpmux-extra-folder { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); min-width: 0; min-height: var(--ui-row-height); padding: 0 4px 0 8px; }
+.acpmux-extra-folder { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); min-width: 0; min-height: var(--ui-row-height); padding: 0 var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2); }
 .acpmux-extra-folder-icon { flex: none; width: 20px; color: var(--agent-muted); }
 .acpmux-extra-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-extra-folder-remove { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; color: var(--agent-muted); }
@@ -2142,7 +2142,7 @@
 
 /* The active team tag (TeamTag.tsx, drawn by the ActiveTeamDesigns gallery; the Environment menu's Cloud row
    says only Cloud, https://github.com/manaflow-ai/cmux/issues/45695): its icon and name in the secondary ink. */
-.acpmux-team-tag { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 0; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); white-space: nowrap; }
+.acpmux-team-tag { display: inline-flex; flex: 0 1 auto; align-items: center; gap: var(--ds-space-fixed-1); min-width: 0; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); white-space: nowrap; }
 .acpmux-team-tag > svg { flex: none; }
 .acpmux-team-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Composer chips keep the MacBook's wide aspect; menus keep their shared icon column. */
@@ -2253,7 +2253,7 @@
 .acpmux-env-popover .acpmux-env-back {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   width: 100%;
   margin: 0;
   border: 0;

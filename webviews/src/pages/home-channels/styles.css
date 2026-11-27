@@ -275,7 +275,7 @@ body,
   margin-inline-start: var(--ds-space-6);
 }
 .hc-msg[data-depth="4"] {
-  margin-inline-start: 48px;
+  margin-inline-start: var(--ds-space-fixed-48);
 }
 .hc-msg-parent {
   margin: 0;
@@ -731,10 +731,10 @@ body,
 /* Send Later's time picker. */
 .hc-later.ui-popover {
   width: 280px;
-  padding: 4px;
+  padding: var(--ds-space-fixed-1);
 }
 .hc-later-title {
-  padding: 8px 8px 4px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-2) var(--ds-space-fixed-1);
   color: var(--page-text-3);
   font-size: var(--text-caption);
   font-weight: 600;
@@ -748,10 +748,10 @@ body,
 }
 .hc-later-custom {
   display: flex;
-  gap: 8px;
-  padding: 8px 4px 4px;
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-1) var(--ds-space-fixed-1);
   border-top: 1px solid var(--page-separator);
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
 }
 .hc-later-custom .hc-link-field {
   flex: 1;
@@ -762,8 +762,8 @@ body,
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin: 0 0 8px;
-  padding: 4px;
+  margin: 0 0 var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-1);
   border: 1px solid var(--page-separator);
   border-radius: var(--ds-radius-lg);
   list-style: none;
@@ -771,9 +771,9 @@ body,
 .hc-scheduled-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-height: 32px;
-  padding: 0 4px 0 8px;
+  padding: 0 var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-md);
   color: var(--page-text-2);
 }
@@ -800,7 +800,7 @@ body,
 .hc-scheduled-row .hc-text-button {
   flex: none;
   height: 24px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
 }
 .hc-link form {
   display: flex;

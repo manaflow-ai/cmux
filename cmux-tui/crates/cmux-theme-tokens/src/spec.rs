@@ -160,7 +160,7 @@ fn parse_formula(value: &str) -> Option<Formula> {
         return (!name.is_empty()).then_some(Formula::Same(name));
     }
     let (op, rest) = value.split_once('(')?;
-    let args = &rest[..rest.find(')')?];
+    let (args, _) = rest.split_once(')')?;
     let args: Vec<&str> = args.split(',').map(str::trim).collect();
     match (op, args.as_slice()) {
         ("alpha", [src, amount]) => Some(Formula::Alpha(parse_source(src)?, parse_amount(amount)?)),

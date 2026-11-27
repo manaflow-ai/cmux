@@ -13,6 +13,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { list } from "postcss";
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 
@@ -20,6 +21,7 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 export const GLOBAL_TOKEN_SHEETS: readonly string[] = [
   "styles.css",
   "pages/shared/desktop.css",
+  "pages/shared/fixed-spacing.css",
   "pages/shared/pageBase.css",
   "agent-session/shared/styles.css",
   "ui/popupSurface.css",
@@ -76,7 +78,7 @@ export function rootBlocks(css: string): string[] {
     } else if (ch === "}") {
       depth--;
       if (depth === 0) {
-        if (prelude === ":root") bodies.push(text.slice(start, i));
+        if (list.comma(prelude).includes(":root")) bodies.push(text.slice(start, i));
         last = i + 1;
       }
     } else if (ch === ";" && depth === 0) {

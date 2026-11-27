@@ -323,11 +323,11 @@
 }
 /* No change list (2026-11-03, "stretched out wasted space"): as wide as its lines, up to the menu
    width, and the link with the text instead of at the far edge under a rule. */
-.wn-pop.wn-pop-brief { display: block; width: max-content; max-width: 340px; padding: 8px var(--wn-pop-x); }
+.wn-pop.wn-pop-brief { display: block; width: max-content; max-width: 340px; padding: var(--ds-space-fixed-2) var(--wn-pop-x); }
 .wn-pop-brief .wn-pop-title { padding: 0; }
-.wn-pop-brief .wn-pop-head { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.wn-pop-brief .wn-pop-head { display: flex; align-items: baseline; gap: var(--ds-space-fixed-3); min-width: 0; }
 .wn-pop-brief .wn-pop-title { min-width: 0; }
-.wn-pop-brief > .wn-pop-all { display: block; margin: 4px 0 0; }
+.wn-pop-brief > .wn-pop-all { display: block; margin: var(--ds-space-fixed-1) 0 0; }
 .wn-pop-brief .wn-pop-from .wn-pop-all { margin: 0; }
 .wn-pop-brief .wn-pop-head .wn-pop-all { flex: none; margin: 0; }
 .wn-pop-brief .wn-pop-more { margin-top: var(--ds-space-1); }
