@@ -150,7 +150,7 @@ jobs:
             --frame component --out "$RUNNER_TEMP/cases.json"
           # Each variant's note: a "Selected" one is the after a file picked, a "Before:" one its old look.
           # And the source files each entry covers: a highlight whose commit changed no gallery file.
-          bun scripts/gallery/notes.ts --skip-broken --out "$RUNNER_TEMP/notes.json" --covers "$RUNNER_TEMP/covers.json"
+          bun scripts/gallery/notes.ts ${ENTRIES:+--entries "$ENTRIES"} --skip-broken --out "$RUNNER_TEMP/notes.json" --covers "$RUNNER_TEMP/covers.json"
           # Picks the states no line names and writes them into the plan publish reads.
           python3 ../scripts/cmux-next/media/whats-new-gallery.py manifest --plan "$out/plan.json" \
             --cases "$RUNNER_TEMP/cases.json" --notes "$RUNNER_TEMP/notes.json" \
@@ -178,6 +178,10 @@ jobs:
               git -C "$GITHUB_WORKSPACE" worktree add -f -f --no-checkout --detach "$at" "$parent" &&
               git -C "$at" sparse-checkout set --no-cone '/*' '!/cmux-next-ios/verify/' &&
               git -C "$at" reset -q --hard &&
+              # Use the current loader in the historical source tree. The parent predates source-scoped loading,
+              # and its old manifest would import every gallery file before applying --entries.
+              cp "$GITHUB_WORKSPACE/webviews/scripts/gallery/entries.ts" "$at/webviews/scripts/gallery/entries.ts" &&
+              cp "$GITHUB_WORKSPACE/webviews/scripts/gallery/manifest.ts" "$at/webviews/scripts/gallery/manifest.ts" &&
               # A variant the highlight's commit added to a gallery file already there: that file as the commit
               # left it, so the old code draws the new state.
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" overlays --plan "$out/plan.json" \
