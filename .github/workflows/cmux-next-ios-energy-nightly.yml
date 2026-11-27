@@ -70,7 +70,7 @@ jobs:
     needs: gate
     if: ${{ needs.gate.outputs.due != 'false' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
-    timeout-minutes: 150
+    timeout-minutes: 240
     permissions:
       contents: read
     steps:
@@ -87,7 +87,18 @@ jobs:
             exit 0
           fi
           log="$RUNNER_TEMP/energy-step.log"
-          "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD" --timeout 7200 \
+          # Bounded to fit the job's 240 min, as cmux-next-iphone-clips.yml's record step: the queue wait ends at
+          # QUEUE_S and the run at RUN_S (cmux-ci leaves up to 5400 s of compile out of --timeout): 60 + 90 + 60 =
+          # 210 min. Before, --queue-timeout was cmux-ci's default 0 (wait forever) and --timeout 7200, so a step
+          # queued behind the fleet's one simulator per Mac sat to the job limit and was cancelled with no
+          # result (17.5 runner-h/day, cmuxterm-hq#29655); now it ends with a warning, as a failed step does.
+          QUEUE_S=3600 RUN_S=3600
+          rank=()
+          if "$client" run --help 2>/dev/null | grep -q -- '--priority {'; then
+            rank=(--priority pr --deadline "${QUEUE_S}s")
+          fi
+          "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD" \
+            --queue-timeout "$QUEUE_S" --timeout "$RUN_S" ${rank[@]+"${rank[@]}"} \
             --artifact artifacts/ios-sim/evidence.zip --arg energy 2>&1 | tee "$log"
           status=${PIPESTATUS[0]}
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"

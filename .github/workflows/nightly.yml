@@ -1953,6 +1953,7 @@ jobs:
       browser_data_proven: ${{ steps.browser-data-proof.outcome == 'success' && 'true' || '' }}
     # Why: docs/ci/nightly-workflow-notes.md#note-38
     if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.one_job != 'true'"
+    # Why: docs/ci/nightly-workflow-notes/2026-11-27-builder-cache-context.md
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-2.md
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI_BUILDER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && (needs.pick-nightly-build-runner.outputs.trusted && fromJSON(needs.pick-nightly-build-runner.outputs.trusted) || needs.pick-nightly-build-runner.outputs.owned)) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # nightly-next: env artifacts holds CMUX_STORE_SIGNING_KEY (store packages, "Build the web bundles").
@@ -3332,7 +3333,9 @@ jobs:
   report-nightly-shelf-red:
     name: report the nightly App Store shelf
     needs: [decide, resolve-nightly-cmux-tui-client, check-nightly-app-store-shelf]
-    if: "!cancelled() && needs.check-nightly-app-store-shelf.result == 'failure'"
+    # A cancelled (timed-out) shelf check is a red too: report it.
+    if: "!cancelled() && (needs.check-nightly-app-store-shelf.result == 'failure' || needs.check-nightly-app-store-shelf.result == 'cancelled')"
+    # issues: write, so the nightly-only route every nightly report job takes, never the PR-shared cmux-linux pool.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 10
     permissions:

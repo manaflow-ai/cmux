@@ -187,7 +187,7 @@ def check_recheck():
            f"the job's takeover output follows a re-check takeover ({takeover})")
     _check("steps.wait.outputs.owner" in str(step.get("env", {}).get("OWNER_RUN_ID", "")),
            "the re-check looks at the run the wait step deferred to")
-    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9")
+    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_OWNER_EVENT="pull_request", FAKE_BUILDERS="9")
     _check("owner=9" in out, f"the wait step names the run it deferred to ({out.strip()!r})")
 
     script = step["run"]
@@ -372,30 +372,32 @@ def main():
     _check(any("cmux-tui-tree-deferred-" in str(s.get("with", {}).get("name", "")) and "deferred" in str(s.get("if", ""))
                for s in uploads), "a deferring run leaves a cmux-tui-tree-deferred-<key> marker")
 
-    # hq-a3 2026-10-14: a feat-cmux-next push never waits for a branch run that
-    # owns its key (that run publishes only after its macOS daemon tests).
+    # 2026-11-27 (goal ci-min-per-pr-140): a feat-cmux-next push defers to a live push run of any branch that
+    # owns its key and reuses its tree (lane keys e611a0cd, 38d1c933 and nightly key 96376a3c were built twice).
     for status in ("in_progress", "queued"):
-        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_BRANCH="op-next-idle-caret")
-        _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out and "claim" not in log,
-               f"a feat-cmux-next push builds a key a {status} branch run owns ({out.strip()!r}, {log.strip()!r})")
-    # The most common lane flow: safe-push fast-forwards the side-branch
-    # commit, so the branch owner builds the same commit. The publish jobs
-    # keep whichever write-once publication lands first (cx-a1q4d).
+        for branch in ("op-next-idle-caret", "nightly-next"):
+            result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_BRANCH=branch)
+            _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out and "feat_builder=false" in out,
+                   f"a feat-cmux-next push defers to a {status} {branch} push run that owns its key ({out.strip()!r}, {log.strip()!r})")
     result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_OWNER_SHA="f" * 40)
-    _check(result.returncode == 0 and "takeover=true" in out and "feat_builder=true" in out,
-           f"a feat-cmux-next push builds the same commit a live branch run owns ({out.strip()!r})")
-    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret")
-    _check("feat_builder=true" in out, f"the run that takes over says it builds the key ({out.strip()!r})")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out,
+           f"a feat-cmux-next push defers to a live branch push run of the same commit ({out.strip()!r})")
+    # A pull request or dispatch owner runs no rerun-deferred-commits: no hand-off would come, so the push builds.
+    for event in ("pull_request", "workflow_dispatch"):
+        result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_OWNER_EVENT=event)
+        _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out and "feat_builder=true" in out and "claim" not in log,
+               f"a feat-cmux-next push builds a key a live {event} run owns ({out.strip()!r}, {log.strip()!r})")
     builder_marks = [s for s in job("tree-owner-wait")["steps"] if "upload-artifact" in str(s.get("uses", ""))]
     _check(any("cmux-tui-tree-feat-builder-" in str(s.get("with", {}).get("name", "")) and "feat_builder" in str(s.get("if", ""))
                for s in builder_marks), "a feat-cmux-next builder leaves a cmux-tui-tree-feat-builder-<key> marker")
-    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9")
+    pr = {"FAKE_OWNER_BRANCH": "op-next-idle-caret", "FAKE_OWNER_EVENT": "pull_request"}
+    result, out, log = run_wait("4", FAKE_BUILDERS="9", **pr)
     _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out and "feat_builder=false" in out,
            f"a later feat-cmux-next push defers to the active feat-cmux-next builder ({out.strip()!r})")
-    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9", FAKE_BUILDER_STATUS="completed")
+    result, out, log = run_wait("4", FAKE_BUILDERS="9", FAKE_BUILDER_STATUS="completed", **pr)
     _check(result.returncode == 0 and "takeover=true" in out,
            f"a builder that ended does not hold the key ({out.strip()!r})")
-    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="fail")
+    result, out, log = run_wait("4", FAKE_BUILDERS="fail", **pr)
     _check(result.returncode == 0 and "takeover=false" in out,
            f"an unreadable builder list keeps the old deferral ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", REF="refs/heads/op-next-other")
@@ -436,10 +438,11 @@ def main():
                                     FAKE_OWNER_EVENT=event, FAKE_OWNER_BRANCH=branch)
         _check(result.returncode == 0 and "takeover=false" in out and "unmarked=true" in out,
                f"an unmarked tree whose active owner is a {why} run is re-tested ({out.strip()!r})")
-    # A branch owner that a feat-cmux-next builder replaced: the run deferred
+    # A pull request owner that a feat-cmux-next builder replaced: the run deferred
     # to is that builder, so its state decides, not the branch owner's.
     result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="in_progress",
-                                FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9", FAKE_BUILDER_STATUS="in_progress")
+                                FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_OWNER_EVENT="pull_request", FAKE_BUILDERS="9",
+                                FAKE_BUILDER_STATUS="in_progress")
     _check(result.returncode == 0 and "owner=9" in out and "unmarked=false" in out,
            f"an unmarked tree an active feat-cmux-next builder publishes is not re-tested ({out.strip()!r})")
     # The builder artifact list is repo-wide: a run that left one but is not a

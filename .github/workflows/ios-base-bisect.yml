@@ -63,7 +63,7 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.good != '' && vars.CI_EVAL_STEP_GATEWAY != '' }}
     # The build-fleet gateway runner: it only hands each probe to the controller with cmux-ci run.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     # At most MAX_PROBES (8) simulator steps of up to an hour each, plus their queue.
     timeout-minutes: 600
     permissions:
