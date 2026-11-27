@@ -44,6 +44,8 @@ impl Peer {
             token,
             peer_token,
             tunnel: Mutex::new(None),
+            #[cfg(test)]
+            ssh_mux_override: std::sync::OnceLock::new(),
             wireguard: StdMutex::new(None),
             #[cfg(feature = "hub-carrier")]
             hub_carrier: std::sync::OnceLock::new(),
