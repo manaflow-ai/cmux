@@ -16,15 +16,11 @@ import {
 test("events go out in one batch with their time, and mounts count", () => {
   const sent: FlickerEvent[][] = [];
   let clock = 1_000;
-  const timers: (() => void)[] = [];
   const ends: (() => void)[] = [];
+  // The log takes no timer (#60925): a batch waits only for the end of its recording task.
   const log = new FlickerLog(
     (events) => sent.push(events),
     () => clock,
-    (run) => {
-      timers.push(run);
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    },
     // The end of the recording task, run when the test says.
     (run) => ends.push(run),
   );
@@ -32,8 +28,7 @@ test("events go out in one batch with their time, and mounts count", () => {
   clock = 1_200;
   log.transcriptMounted();
   log.transcriptMounted();
-  // One batch at the end of the task, and no timer: nothing went out in the second before.
-  expect(timers).toHaveLength(0);
+  // One batch at the end of the task: nothing went out before it.
   expect(ends).toHaveLength(1);
   expect(sent).toHaveLength(0);
   ends[0]!();
@@ -53,7 +48,7 @@ test("a held burst keeps the newest and counts the dropped", () => {
   const log = new FlickerLog(
     (events) => sent.push(events),
     () => 0,
-    () => 0 as unknown as ReturnType<typeof setTimeout>,
+    () => undefined,
   );
   for (let index = 0; index < 70; index += 1) log.record("long-frame", { ms: index });
   log.flush();
