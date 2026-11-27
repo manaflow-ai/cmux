@@ -88,6 +88,7 @@ dependencies = [
  "cmux-tailnet-front",
  "cmux-tailnet-join",
  "cmux-tailnet-local",
+ "cmux-team-messaging",
  "cmux-transport",
  "cmux-transport-rewrite",
  "cmux-tui-hooks",
@@ -1648,6 +1649,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bytes"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "cmux-cas",
+ "flate2",
+ "libc",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-cas"
 version = "0.1.0"
 dependencies = [
@@ -1958,6 +1971,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 
@@ -2522,6 +2536,7 @@ name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
  "regex-automata",
+ "url",
 ]
 
 [[package]]
@@ -2573,6 +2588,7 @@ dependencies = [
 name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-conversation",
  "cmux-mobile-core",
  "cmux-rd-screen",
  "serde_json",
@@ -2693,6 +2709,13 @@ dependencies = [
  "flate2",
  "libc",
  "rustc-demangle",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
  "serde_json",
 ]
 
@@ -3458,6 +3481,7 @@ dependencies = [
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
+ "cmux-bytes",
  "cmux-cas",
  "cmux-chat-index",
  "cmux-cloud-api",
@@ -3495,6 +3519,7 @@ dependencies = [
  "cmux-no-checkout",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-phone-page",
  "cmux-process",
  "cmux-projection",
  "cmux-proxy",
@@ -3582,6 +3607,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -4073,6 +4099,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 
