@@ -146,9 +146,8 @@ fn a_storm_of_net_disk_cpu_ram_and_clock_faults_breaks_no_stream_and_heals()
                 .cpu(&cpu)
                 .ram(&mut ram)
                 .clock(&clock)
-                .run("line echo", ticks, Duration::from_millis(1), |_| {
-                    let conn = &mut conn;
-                    async move { step(addr, conn).await }
+                .run("line echo", ticks, Duration::from_millis(1), async |_| {
+                    step(addr, &mut conn).await
                 })
                 .await?;
             let recovered = recovers(addr).await?;
@@ -181,15 +180,13 @@ async fn day_storm(seed: u64) -> (super::Report, Duration) {
     let started = tokio::time::Instant::now();
     let report = Storm::new(seed, &trace)
         .clock(&clock)
-        .run("day", 10_000, Duration::from_secs(10), |tick| {
+        .run("day", 10_000, Duration::from_secs(10), async |tick| {
             // Monotonic time never jumps with the wall clock: tick N is at N x 10 s.
             let at = started.elapsed();
-            async move {
-                if at == Duration::from_secs(tick * 10) {
-                    Ok(())
-                } else {
-                    Err(format!("tick {tick} at {at:?}"))
-                }
+            if at == Duration::from_secs(tick * 10) {
+                Ok(())
+            } else {
+                Err(format!("tick {tick} at {at:?}"))
             }
         })
         .await
