@@ -1015,6 +1015,155 @@ fn team_access_requires_the_room_attestation_and_rechecks_retries() {
 }
 
 #[test]
+fn a_team_kick_revokes_every_device_and_survives_a_restart() {
+    let directory = scratch("shares-team-kick-devices");
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let team = "team_0123456789abcdef0123";
+    let share =
+        shares.insert(dir, SESSION.into(), 1, team_terms(team, Some(Role::Talk)), false).unwrap();
+    let share_id = share["share_id"].as_str().unwrap().to_owned();
+    shares
+        .with(dir, |all, _| {
+            find(all, &share_id)?.room = Some(json!({"url": "https://room.invalid"}));
+            Ok(((), true))
+        })
+        .unwrap();
+    let join = |registry: &LinkShares, account: &str, attempt: &str| {
+        registry.redeem(
+            dir,
+            Redeem {
+                share_id: share_id.clone(),
+                secret: String::new(),
+                name: "Member".into(),
+                attempt_id: attempt.into(),
+                account: Some(account.into()),
+                team_id: Some(team.into()),
+                avatar_url: None,
+            },
+        )
+    };
+    let account = "member@example.com";
+    let devices: Vec<String> = ["first-device", "second-device"]
+        .into_iter()
+        .map(|attempt| {
+            join(&shares, account, attempt).unwrap()["guest_id"].as_str().unwrap().into()
+        })
+        .collect();
+    let other = join(&shares, "other@example.com", "other-device").unwrap();
+    let other_id = other["guest_id"].as_str().unwrap();
+    let authors: Vec<Value> =
+        devices.iter().map(|guest_id| shares.guest(dir, &share_id, guest_id).unwrap().2).collect();
+    assert!(authors.iter().all(|author| shares.guest_live(author)));
+
+    shares
+        .end(dir, &Named { share_id: share_id.clone(), guest_id: Some(devices[0].clone()) })
+        .unwrap();
+    let saved = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    for guest_id in &devices {
+        assert!(
+            saved[0].pending_room_ops.iter().any(|op| {
+                op["op"] == "kick" && op["guest_id"].as_str() == Some(guest_id.as_str())
+            }),
+            "the room must hear each device's kick"
+        );
+    }
+    assert_eq!(saved[0].invitees.len(), 1, "one removal per account, not per device");
+    assert_eq!(saved[0].invitees[0].state, InviteState::Removed);
+    let reloaded = LinkShares::default();
+    assert_eq!(reloaded.with(dir, |all, _| Ok((all.clone(), false))).unwrap(), saved);
+    for registry in [&shares, &reloaded] {
+        for (guest_id, author) in devices.iter().zip(&authors) {
+            assert_eq!(registry.guest(dir, &share_id, guest_id), Err("share.kicked"));
+            assert!(!registry.guest_live(author), "an existing stream loses read access");
+        }
+        for attempt in ["first-device", "second-device", "new-device"] {
+            assert_eq!(join(registry, account, attempt), Err("share.kicked"));
+        }
+        assert!(registry.guest(dir, &share_id, other_id).is_ok(), "another member stays admitted");
+    }
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn a_full_team_registry_reserves_removals_and_reloads_after_every_kick() {
+    let directory = scratch("shares-team-kick-capacity");
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let team = "team_0123456789abcdef0123";
+    let share = shares.insert(dir, SESSION.into(), 1, team_terms(team, None), false).unwrap();
+    let share_id = share["share_id"].as_str().unwrap().to_owned();
+    // The room stays offline: none of the pending kicks can drain and hide a capacity error.
+    shares
+        .with(dir, |all, _| {
+            find(all, &share_id)?.room = Some(json!({"url": "https://room.invalid"}));
+            Ok(((), true))
+        })
+        .unwrap();
+    let mut admitted = Vec::new();
+    let mut refused = false;
+    for index in 0..512 {
+        let account = format!("{index}-{}@example.com", "x".repeat(280));
+        let joined = shares.redeem(
+            dir,
+            Redeem {
+                share_id: share_id.clone(),
+                secret: String::new(),
+                name: "n".repeat(64),
+                attempt_id: format!("member-{index}"),
+                account: Some(account.clone()),
+                team_id: Some(team.into()),
+                avatar_url: None,
+            },
+        );
+        match joined {
+            Ok(guest) => admitted.push((account, guest["guest_id"].as_str().unwrap().to_owned())),
+            Err(code) => {
+                assert_eq!(code, "share.limit");
+                refused = true;
+                break;
+            }
+        }
+    }
+    assert!(refused, "admission must stop before the registry loses room for removals");
+    assert!(admitted.len() > MAX_INVITEES, "team membership is not limited to named invitations");
+    assert!(shares.with(dir, |all, _| Ok((all[0].invitees.is_empty(), false))).unwrap());
+
+    for (_, guest_id) in &admitted {
+        shares
+            .end(dir, &Named { share_id: share_id.clone(), guest_id: Some(guest_id.clone()) })
+            .unwrap();
+        let size = std::fs::metadata(directory.join(FILE)).unwrap().len();
+        assert!(size <= 64 * 1024, "kicks must preserve the 64 KiB reload bound: {size}");
+    }
+    let saved = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(saved[0].invitees.len(), admitted.len());
+    assert!(saved[0].invitees.iter().all(|invitee| invitee.state == InviteState::Removed));
+    assert_eq!(saved[0].pending_room_ops.len(), admitted.len());
+    let reloaded = LinkShares::default();
+    assert_eq!(reloaded.with(dir, |all, _| Ok((all.clone(), false))).unwrap(), saved);
+    for (account, guest_id) in admitted {
+        assert_eq!(reloaded.guest(dir, &share_id, &guest_id), Err("share.kicked"));
+        assert_eq!(
+            reloaded.redeem(
+                dir,
+                Redeem {
+                    share_id: share_id.clone(),
+                    secret: String::new(),
+                    name: "Member".into(),
+                    attempt_id: format!("retry-{guest_id}"),
+                    account: Some(account),
+                    team_id: Some(team.into()),
+                    avatar_url: None,
+                },
+            ),
+            Err("share.kicked")
+        );
+    }
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
 fn an_invitation_overrides_team_access_and_removed_members_stay_removed() {
     let directory = scratch("shares-team-invite");
     let dir = Some(directory.as_path());
