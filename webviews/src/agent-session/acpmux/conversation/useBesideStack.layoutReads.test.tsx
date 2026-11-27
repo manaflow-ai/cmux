@@ -11,7 +11,7 @@ import { settleReact } from "../../../../test/support/domTeardown";
 import { importWithDom } from "../../../../test/support/importWithDom";
 
 // Loaded with a document in place: this file installs its own jsdom per test (import-order-lint).
-const [{ useBesideStack }] = await importWithDom(() => Promise.all([import("./useBesideStack")]));
+const { useBesideStack } = await importWithDom(() => import("./useBesideStack"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
