@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "edited.hideFiles" : {
+    "subagents.state.stopped" : {
       "comment" : "Agent pane",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "إخفاء الملفات"
+            "state" : "translated",
+            "value" : "متوقفة"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sakrij datoteke"
+            "state" : "translated",
+            "value" : "Zaustavljeno"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Skjul filer"
+            "state" : "translated",
+            "value" : "Stoppet"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dateien ausblenden"
+            "state" : "translated",
+            "value" : "Gestoppt"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hide files"
+            "value" : "Stopped"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ocultar archivos"
+            "state" : "translated",
+            "value" : "Detenida"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Masquer les fichiers"
+            "state" : "translated",
+            "value" : "Arrêtée"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nascondi file"
+            "state" : "translated",
+            "value" : "Interrotta"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ファイルを隠す"
+            "value" : "停止"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "លាក់ឯកសារ"
+            "state" : "translated",
+            "value" : "បានឈប់"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "파일 숨기기"
+            "state" : "translated",
+            "value" : "중지됨"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Skjul filer"
+            "state" : "translated",
+            "value" : "Stoppet"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ukryj pliki"
+            "state" : "translated",
+            "value" : "Zatrzymane"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ocultar arquivos"
+            "state" : "translated",
+            "value" : "Interrompida"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Скрыть файлы"
+            "state" : "translated",
+            "value" : "Остановлена"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ซ่อนไฟล์"
+            "state" : "translated",
+            "value" : "หยุดแล้ว"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dosyaları gizle"
+            "state" : "translated",
+            "value" : "Durduruldu"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Сховати файли"
+            "state" : "translated",
+            "value" : "Зупинено"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ẩn tệp"
+            "state" : "translated",
+            "value" : "Đã dừng"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "隐藏文件"
+            "state" : "translated",
+            "value" : "已停止"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "隱藏檔案"
+            "state" : "translated",
+            "value" : "已停止"
           }
         }
       }

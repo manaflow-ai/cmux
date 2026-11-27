@@ -3491,7 +3491,12 @@ async fn dispatch_request_with_identity(
                         })?;
                     // `hub/inactive_archive.rs`: nothing logged when nothing changes (an unarchive of a
                     // chat that is not archived); `changed` says which.
-                    let changed = hub.set_archived(&s, archived, false)?;
+                    // An unarchive also takes a settled chat's reason (`hub/auto_settle.rs`).
+                    let changed = if archived {
+                        hub.set_archived(&s, true, false)?
+                    } else {
+                        hub.unarchive(&s)?
+                    };
                     let mut summary = hub.session_summary(&s);
                     if let Some(obj) = summary.as_object_mut() {
                         obj.insert("changed".into(), Value::Bool(changed));
