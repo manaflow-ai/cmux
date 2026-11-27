@@ -4995,15 +4995,25 @@ class GitHub:
         return names
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
+        """Every job of the run's latest attempt, or RuntimeError when the listing is not complete.
+
+        A listing cut short at MAX_JOB_PAGES, or a short page under total_count, can hide a running job, and a cancel
+        made on it would cut that job (the review BLOCK on cmux#27114). Every caller takes RuntimeError as unread.
+        """
         jobs: list[dict[str, Any]] = []
+        total = 0
         for page in range(1, MAX_JOB_PAGES + 1):
             query = urllib.parse.urlencode({"filter": "latest", "per_page": 100, "page": page})
             payload = self.request("GET", f"/repos/{self.repo}/actions/runs/{run_id}/jobs?{query}")
             batch = payload.get("jobs") or []
             jobs.extend(batch)
+            if isinstance(payload.get("total_count"), int):
+                total = max(total, payload["total_count"])
             if len(batch) < 100:
-                break
-        return jobs
+                if total > len(jobs):
+                    raise RuntimeError(f"run {run_id}: job listing incomplete ({len(jobs)} of {total} jobs)")
+                return jobs
+        raise RuntimeError(f"run {run_id}: job listing incomplete (more than {MAX_JOB_PAGES * 100} jobs)")
 
     def pull_requests(self, branches: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
         owner, name = self.repo.split("/", 1)
