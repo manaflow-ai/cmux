@@ -90,19 +90,20 @@ jobs:
       suites: ${{ steps.plan.outputs.suites }}
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
+      base: ${{ steps.plan.outputs.base }}
     steps:
       # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
@@ -156,10 +157,11 @@ jobs:
           SUITE: ${{ inputs.suite }}
           ONLY: ${{ inputs.only }}
           PROBE_SHA: ${{ inputs.sha }}
+          GOOD: ${{ inputs.good }}
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 scripts/ci/post_merge_batch.py plan --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
-            --suite "$SUITE" --only "$ONLY" --probe-sha "$PROBE_SHA"
+            --suite "$SUITE" --only "$ONLY" --probe-sha "$PROBE_SHA" --good "$GOOD"
 
   # One caller job per suite in .github/post-merge-batch.json; its name is the suite key.
   drill:
@@ -209,9 +211,11 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+    # statuses: its full-carry job (scripts/ci/head_tier.py) asks for it.
     permissions:
       actions: read
       contents: read
+      statuses: read
 
   web:
     needs: plan
@@ -222,9 +226,9 @@ jobs:
       only: ${{ needs.plan.outputs.only }}
     # R2 write secrets: the batch saves the base's webview test history there for pull requests.
     secrets:
-      CI_CACHE_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-      CI_CACHE_R2_ACCOUNT_ID: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID }}
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
     # actions: read: the base's webview test history and duration manifest are artifacts (ci-web.yml).
     permissions:
       contents: read
@@ -264,6 +268,20 @@ jobs:
     permissions:
       contents: read
 
+  # pr-pipeline.yml's linux job, every step: a pull request runs only the steps its changed files reach by name
+  # (ci/run --pr-scope).
+  pr-pipeline-linux:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' pr-pipeline-linux ')
+    uses: ./.github/workflows/cmux-next-pr-pipeline-linux-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+
   # A web type check red with no machine fix (fixit-compile, ci-web.yml's fixit_nofix) on a batch run of the base:
   # fixit-handoff.yml names the culprit and pushes its revert when clear, else opens the revert's own pull request,
   # without waiting for this run's bisect. A job of its own that only dispatches; the suites stay read-only.
@@ -290,6 +308,9 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+      # Judged against the last judged batch's head (a probe: its known-good commit), so only a red new since
+      # then fails; the standing reds are listed by name in its summary.
+      base: ${{ needs.plan.outputs.base }}
     permissions:
       contents: read
 
@@ -312,14 +333,17 @@ jobs:
       only: ${{ needs.plan.outputs.only }}
     # R2 write secrets: the batch saves the base's acpmux test log there for pull requests.
     secrets:
-      CI_CACHE_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-      CI_CACHE_R2_ACCOUNT_ID: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID }}
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
+    # cmux-tui-spec.yml's changes job asks for these (head_tier.py; a push reads nothing with them).
     permissions:
+      actions: read
       contents: read
+      statuses: read
 
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, gallery-health, cmux-tui-sdks, cmux-tui-spec]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, gallery-health, cmux-tui-sdks, cmux-tui-spec]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
@@ -340,14 +364,14 @@ jobs:
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
@@ -445,7 +469,7 @@ jobs:
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
@@ -453,7 +477,7 @@ jobs:
           ref: ${{ github.ref }}
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
