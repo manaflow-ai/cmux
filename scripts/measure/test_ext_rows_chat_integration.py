@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -50,6 +51,29 @@ fixture = driver.load("chat_drawing_fixture_test", Path(__file__).with_name("ext
 
 
 class ChatFixtureEvidenceTests(unittest.TestCase):
+    def test_bundled_cli_creates_local_session_and_rejects_failed_creation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cli = root / "Contents/Resources/bin/acpmux"
+            cli.parent.mkdir(parents=True)
+            cli.touch(mode=0o700)
+            ctx = SimpleNamespace(app=root, work=root, rpc=Mock(side_effect=[
+                {}, {"created": ["ws_fixture"]}, {}, {}]))
+            with patch.object(fixture, "_agent_script", return_value=root / "agent.py"), \
+                    patch.object(fixture, "_acpmux_socket", return_value="isolated.sock"), \
+                    patch.object(fixture, "_read_completed_tool", return_value={"ok": True}) as completed, \
+                    patch.object(fixture.subprocess, "run", return_value=SimpleNamespace(
+                        returncode=0, stdout='{"sessionId":"fixture-session"}', stderr="")) as run:
+                ctx.rpc.side_effect = [{"ok": True}, {"created": ["ws_fixture"]}, {}, {"ok": True}]
+                self.assertTrue(fixture._start_transcript(ctx)["ok"])
+                argv = run.call_args.args[0]
+                self.assertEqual(argv[:2], [str(cli), "new"])
+                self.assertEqual(argv[argv.index("--machine") + 1], "local")
+                self.assertEqual(run.call_args.kwargs["env"]["ACPMUX_SOCKET"], "isolated.sock")
+                run.return_value.returncode = 1
+                self.assertFalse(fixture._start_transcript(ctx)["ok"])
+                completed.assert_called_once()
+
     def event(self, kind, status, title="mcp__rowsprobe__get_thing", tool="widget-proof-tool"):
         return json.dumps({"dir": "in", "msg": {"method": "session/update", "params": {
             "update": {"sessionUpdate": kind, "status": status, "title": title, "toolCallId": tool}}}})

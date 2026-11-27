@@ -158,8 +158,12 @@ def _start_transcript(ctx) -> dict:
     if not sock:
         return {"ok": False, "harness": added, "error": "the side copy's acpmux socket was not found"}
     env = os.environ | {"ACPMUX_SOCKET": sock, "HOME": str(ctx.work / "chat-widget-home")}
-    made = subprocess.run([str(cli), "acp", "new", "--json", "-d", "-m", HARNESS_ID, "chat widget proof"],
+    made = subprocess.run([str(cli), "new", "--json", "-d", "--machine", "local",
+                           "--cwd", str(ctx.work), "-m", HARNESS_ID, "chat widget proof"],
                           capture_output=True, text=True, timeout=180, env=env)
+    if made.returncode:
+        return {"ok": False, "harness": added, "socket": sock, "exit": made.returncode,
+                "error": "acpmux session creation failed", "detail": (made.stdout + made.stderr)[-1000:]}
     try:
         session = json.loads(made.stdout)["sessionId"]
     except (ValueError, KeyError):
