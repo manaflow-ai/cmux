@@ -514,14 +514,33 @@ try {
       let rebuilds = 0;
       for (let index = 0; index < count; index++) {
         const page = await context.newPage();
+        const said: string[] = [];
         page.on("console", (message) => {
           if (message.text().startsWith("cmux.hiddenRebuild")) rebuilds++;
+          said.push(`${message.type()}: ${message.text().slice(0, 300)}`);
+          if (said.length > 40) said.shift();
         });
+        page.on("pageerror", (error) => said.push(`pageerror: ${String(error).slice(0, 300)}`));
         await page.goto(urlFor(index));
-        await page.waitForFunction((text) => document.body.textContent?.includes(text), firstText, {
-          timeout: 180_000,
-          polling: "raf",
-        });
+        try {
+          await page.waitForFunction((text) => document.body.textContent?.includes(text), firstText, {
+            timeout: 180_000,
+            polling: "raf",
+          });
+        } catch (error) {
+          // A chat that never showed its newest answer: say what the page saw before failing.
+          const seen = await page
+            .evaluate(() => ({
+              visibility: document.visibilityState,
+              textLength: document.body.textContent?.length ?? 0,
+              tail: (document.body.textContent ?? "").slice(-200),
+            }))
+            .catch((e) => ({ evaluate: String(e) }));
+          // One line: the suite keeps only a failure's last few lines.
+          throw new Error(
+            `chat ${index} never loaded (${String(error).split("\n")[0]}): ${JSON.stringify({ seen, said: said.slice(-15) })}`,
+          );
+        }
         pages.push({ page, cdp: await context.newCDPSession(page) });
       }
       if (runGrow > 0) {
