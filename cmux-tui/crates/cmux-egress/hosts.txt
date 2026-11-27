@@ -74,6 +74,16 @@ api.github.com
 # when: when an agent on a Cloud machine calls a GitHub tool
 # off: don't connect GitHub to Cloud machines
 api.githubcopilot.com
+# the Kimi Code API, when you connect a Kimi Code subscription
+# sends: your Kimi token, to read the account it signed in
+# when: when you connect Kimi Code
+# off: disconnect Kimi Code in Settings > Models
+api.kimi.ai
+# the Kimi Code API in China, when you connect a Kimi Code subscription there
+# sends: your Kimi token, to read the account it signed in
+# when: when you connect Kimi Code in China
+# off: disconnect Kimi Code in Settings > Models
+api.kimi.com
 # the clock and weather widget's forecast, only when you install it (a customize template)
 # sends: your city's coordinates
 # when: when the clock and weather widget refreshes
@@ -109,6 +119,26 @@ app.notion.com
 # when: only when an agent uses that integration in your signed-in browser
 # off: don't give an agent the integration, or sign out of the site in cmux's browser
 app.slack.com
+# Kimi's sign-in service, when you connect a Kimi Code subscription
+# sends: the sign-in's device code for your Kimi tokens, and the refresh token when one expires
+# when: when you connect Kimi Code, and when its token is renewed
+# off: disconnect Kimi Code in Settings > Models
+auth.kimi.ai
+# Kimi's sign-in service in China, when you connect a Kimi Code subscription there
+# sends: the sign-in's device code for your Kimi tokens, and the refresh token when one expires
+# when: when you connect Kimi Code in China, and when its token is renewed
+# off: disconnect Kimi Code in Settings > Models
+auth.kimi.com
+# OpenAI's sign-in service, when you sign in with ChatGPT (Codex in Cloud, Settings > Models)
+# sends: the sign-in's one-time code for your ChatGPT tokens, and the refresh token when one expires
+# when: when you sign in with ChatGPT, and when that sign-in's token is renewed
+# off: sign out of ChatGPT in Settings > Models
+auth.openai.com
+# xAI's sign-in service, when you connect a SuperGrok subscription
+# sends: the sign-in's device code for your SuperGrok tokens, and the refresh token when one expires
+# when: when you connect SuperGrok, and when its token is renewed
+# off: disconnect SuperGrok in Settings > Models
+auth.x.ai
 # images in GitHub pages and agent replies
 # sends: an image request (your IP address and the image's URL)
 # when: when a GitHub page or agent reply you open shows an image
@@ -399,6 +429,11 @@ openaccess-cdn.clevelandart.org
 # when: when you install OpenCode
 # off: don't install OpenCode
 opencode.ai
+# OpenRouter's sign-in service, when you connect an OpenRouter account
+# sends: the sign-in's one-time code for your OpenRouter key
+# when: when you connect OpenRouter
+# off: disconnect OpenRouter in Settings > Models
+openrouter.ai
 # update channel push: tells the app a new build is out
 # sends: an update-channel subscription, no account data
 # when: while the app runs, to learn a new build is out

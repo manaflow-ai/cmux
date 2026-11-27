@@ -244,6 +244,43 @@ test("a set up past its limit shows the card again, naming the same model", asyn
   expect(renderToStaticMarkup(<CloudStartView start={ended!} />)).toContain("No connection yet.");
 });
 
+// cmux#63349: the ChatGPT sign-in failed (its token exchange was refused) and the card kept saying it
+// waited for the browser. The host's `cloud_setup_failed` ends the wait: the card says why, with Try again.
+test("a set up whose sign-in failed shows the card again with its reason and Try again", async () => {
+  const call = (method: string) =>
+    method === "cloud.setUp"
+      ? Promise.reject({ code: "cloud_setup_failed", userMessage: "this Mac could not reach the sign-in service" })
+      : Promise.resolve();
+  const wait = waitForCloudSetUp(call, "k", "setUpClaude", { family: "claude", model: "claude-opus-5-5", error: "earlier" });
+  const end = await wait.ended;
+  expect(end).not.toBe("signedIn");
+  const ended = cloudStartEnded(begun, "k", end as Exclude<typeof end, "signedIn">)!;
+  expect(ended.cloudSetup).toEqual({
+    family: "claude",
+    model: "claude-opus-5-5",
+    error: "this Mac could not reach the sign-in service",
+  });
+  const mount = installDom();
+  root = createRoot(mount);
+  await act(async () => root!.render(<CloudStartView start={ended} onSetUp={() => undefined} />));
+  const status = mount.querySelector('[data-state="error"]');
+  expect(status?.textContent).toContain("this Mac could not reach the sign-in service");
+  expect(mount.querySelector('[data-connect-action="retry"]')).not.toBeNull();
+  expect(mount.querySelector('[aria-busy="true"]')).toBeNull();
+  // A timed-out or withdrawn wait carries no earlier attempt's error.
+  const never = (method: string) =>
+    method === "cloud.setUp" ? new Promise<unknown>(() => undefined) : Promise.resolve();
+  const timedOut = await waitForCloudSetUp(never, "k", "setUpClaude", ended.cloudSetup!, (run) => {
+    queueMicrotask(run);
+    return () => undefined;
+  }).ended;
+  expect(cloudStartEnded(begun, "k", timedOut as Exclude<typeof timedOut, "signedIn">)?.cloudSetup).toEqual({
+    family: "claude",
+    model: "claude-opus-5-5",
+    timedOut: true,
+  });
+});
+
 test("the connect card's one click asks for the family's way in; while it waits it shows progress and Cancel", async () => {
   const mount = installDom();
   root = createRoot(mount);

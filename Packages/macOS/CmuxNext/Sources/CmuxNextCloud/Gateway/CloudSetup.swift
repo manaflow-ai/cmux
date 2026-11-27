@@ -668,14 +668,49 @@ public final class CloudSetup {
         await waitUntilServed(family: family, claude: nil)
     }
 
-    private func waitUntilServed(family: String, claude: ClaudeSetupWait?) async -> Bool {
+    private func waitUntilServed(family: String, claude: ClaudeSetupWait?, failuresSeen: Int? = nil) async -> Bool {
         guard let read, !Task.isCancelled, claude == nil || claude?.account == accountScope?() else { return false }
         if claude?.signedInMachine != nil { return true }
         let seen = changes
         if await routed(read()).serves(family) == true { return true }
         if await gatewayServes(family) { return true }
+        // The sign-in this set up started ended without a connection: nothing more to wait for.
+        if let failuresSeen, (failures[family]?.count ?? 0) != failuresSeen { return false }
         if changes == seen { await nextChange() }
-        return await waitUntilServed(family: family, claude: claude)
+        return await waitUntilServed(family: family, claude: claude, failuresSeen: failuresSeen)
+    }
+
+    /// Why a set up ended without a connection: withdrawn (cancelled, the account changed), or the sign-in
+    /// it started in place failed with acpmux's code (`network`, `access_denied`, `timeout`, ...).
+    public enum SetUpEnd: Error, Equatable, Sendable {
+        case withdrawn
+        case failed(String)
+
+        /// The words the card shows after "Couldn't connect:"; nil when withdrawn.
+        public var failureText: String? {
+            guard case .failed(let code) = self else { return nil }
+            return switch code {
+            case "network", "unreachable": "this Mac could not reach the sign-in service"
+            case "access_denied": "the sign-in was declined"
+            case "no_chatgpt_account": "this account has no ChatGPT plan"
+            case "timed_out", "timeout": "the sign-in timed out"
+            case "port_busy": "another program is signing in to ChatGPT"
+            default: "the sign-in did not finish (\(code))"
+            }
+        }
+    }
+
+    /// Per family, bumped by ``signInFailed(_:family:)`` with its code: a set up of that family that started
+    /// its sign-in in place before it ends with it.
+    private var failures: [String: (count: Int, code: String)] = [:]
+
+    /// The `family` sign-in a card's one click started in place (``connectInPlace``) ended without a
+    /// connection (cmux#63349: a refused token exchange left the card waiting with no sign-in out): the
+    /// set ups of that family waiting on it end. Another family's waits, and a set up that only opened
+    /// Settings, go on.
+    public func signInFailed(_ code: String, family: String) {
+        failures[family] = ((failures[family]?.count ?? 0) + 1, code)
+        connectionsChanged()
     }
 
     /// Parks until the next ``connectionsChanged()`` or the waiting task's cancel.
@@ -692,27 +727,39 @@ public final class CloudSetup {
 
     /// Runs the card's `action`, then waits for a connection serving `family` (``waitUntilServed(family:)``).
     public func setUp(_ action: Action, family: String, machine: String? = nil, environment: String? = nil) async -> SetupCompletion? {
+        try? await setUpResult(action, family: family, machine: machine, environment: environment).get()
+    }
+
+    /// ``setUp(_:family:machine:environment:)``, saying why it ended without a connection (``SetUpEnd``).
+    public func setUpResult(_ action: Action, family: String, machine: String? = nil, environment: String? = nil) async -> Result<SetupCompletion, SetUpEnd> {
         let id = UUID()
         let account = accountScope?()
         if family == "claude", let ready = await readyClaudeMachines(machine: machine, environment: environment).first {
-            return SetupCompletion(machine: ready, usesMachineLogin: true, environment: environment, bindsEnvironment: true)
+            return .success(SetupCompletion(machine: ready, usesMachineLogin: true, environment: environment, bindsEnvironment: true))
         }
-        guard !Task.isCancelled, account == accountScope?() else { return nil }
+        guard !Task.isCancelled, account == accountScope?() else { return .failure(.withdrawn) }
         let claude = family == "claude" ? ClaudeSetupWait(machine: machine, account: account, environment: environment) : nil
         claudeSetups[id] = claude
         defer { claudeSetups[id] = nil }
+        // Set only when this set up starts the family's sign-in in place: only that sign-in's failure ends it.
+        var failuresSeen: Int?
         if let run {
             await run(action, family, machine)
         } else {
             let unscoped = machine == nil && environment == nil
             let oneClick = (action == .setUpClaude && family == "claude") || (action == .connectChatGPT && family == "codex")
+            let before = failures[family]?.count ?? 0
             let started = unscoped && oneClick ? await connectInPlace?(action) == true : false
-            guard !Task.isCancelled, account == accountScope?() else { return nil }
+            if started { failuresSeen = before }
+            guard !Task.isCancelled, account == accountScope?() else { return .failure(.withdrawn) }
             if !started { openConnectionSettings?(family, machine, true, environment, nil) }
         }
         connectionsChanged()
-        guard await waitUntilServed(family: family, claude: claude), !Task.isCancelled, account == accountScope?() else { return nil }
+        guard await waitUntilServed(family: family, claude: claude, failuresSeen: failuresSeen), !Task.isCancelled, account == accountScope?() else {
+            guard !Task.isCancelled, let failuresSeen, let failed = failures[family], failed.count != failuresSeen else { return .failure(.withdrawn) }
+            return .failure(.failed(failed.code))
+        }
         let signedIn = claude?.signedInMachine
-        return SetupCompletion(machine: signedIn ?? machine, usesMachineLogin: signedIn != nil, environment: environment, bindsEnvironment: true)
+        return .success(SetupCompletion(machine: signedIn ?? machine, usesMachineLogin: signedIn != nil, environment: environment, bindsEnvironment: true))
     }
 }

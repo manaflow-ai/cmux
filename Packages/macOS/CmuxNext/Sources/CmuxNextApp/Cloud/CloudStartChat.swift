@@ -403,8 +403,8 @@ extension CloudStartChat {
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), key.machine != "name:", let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
         let connector = SettingsModels.cloudSetup(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-            openSignInPage: { [weak services] url in services?.linkOpener.openSignInPage(url, beside: nil) })
-        connector.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() }
+            openSignInPage: { [weak services] url in services?.windows.active?.focusedPane == nil ? nil : services?.linkOpener.openSignInPage(url, beside: nil) })
+        connector.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() }; connector.onSignInFailed = { [weak services] family, code in services?.cloud.setup.signInFailed(code, family: family) }
         services.cloud.setup.connectInPlace = { action in await connector.connectInPlace(action.rawValue) }
         services.cloud.signedIn = { [weak services] in if let services { warmSpare(services) } } // a sign-in in front, as an activation signed in: an activation before the sign-in (signed out) warmed nothing
     }

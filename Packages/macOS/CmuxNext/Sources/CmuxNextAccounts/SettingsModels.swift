@@ -99,6 +99,9 @@ public final class SettingsModels {
     /// Called each time this Mac's connections are read or change (a run's answer, a watched change): a
     /// Cloud chat waiting on Set up Cloud checks again (``CloudSetup/connectionsChanged()``, set by the app).
     @ObservationIgnored public var onConnections: (@MainActor () -> Void)?
+    /// Called when a sign-in this object started ends with an error: its family (`codex` for ChatGPT,
+    /// `claude`) and acpmux's code. A Cloud chat waiting on it stops waiting (``CloudSetup/signInFailed(_:family:)``).
+    @ObservationIgnored public var onSignInFailed: (@MainActor (_ family: String, _ code: String) -> Void)?
 
     nonisolated deinit {
         cloudClaudeAccountWatch?.cancel()
