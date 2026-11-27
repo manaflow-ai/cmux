@@ -150,6 +150,7 @@
     "session-identity-v1",
     "session-journal-v1",
     "settings-edit-v2",
+    "settings-history-v1",
     "shared-sizing-v1",
     "sidebar-doc-v1",
     "sidebar-layout-v1",
