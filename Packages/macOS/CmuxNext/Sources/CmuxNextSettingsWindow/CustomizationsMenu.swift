@@ -9,7 +9,7 @@ public import CmuxNextSettings
 /// `SettingsController.flip` (the guarded `setSetting`); a managed row is disabled. Under the
 /// groups, Turn Off All Experiments and Labs turns every opt-in switch off
 /// (`SettingsController.turnAllOff`), native, so it works when a customization broke the Settings
-/// page (Leo, 2026-11-23, c-dc594b45e0: "have good recovery options"); it is disabled while none is
+/// page (Leo, 2026-11-15, c-dc594b45e0: "have good recovery options"); it is disabled while none is
 /// on. Reset Customization Library also works without the page. The last row opens Settings > Customize.
 @MainActor
 public final class CustomizationsMenu: NSObject, NSMenuDelegate {

@@ -253,6 +253,8 @@ export function CustomizeChecklistView({
         <div className="row-help checklist-empty">{t("settingsPage.customizeChecklist.noMatch", query.trim())}</div>
       )}
       {shown.map((group) => {
+        // Search narrows rows, while the count and recovery action still cover the whole group.
+        const recoveryGroup = groups.find((each) => each.id === group.id)!;
         const collapsible = group.id === "all" && !searching;
         const open = !collapsible || allOpen;
         return (
@@ -272,15 +274,15 @@ export function CustomizeChecklistView({
                 <span className="checklist-group-title">{t(GROUP_TITLE[group.id])}</span>
               )}
               <span className="checklist-head-trailing">
-                {onTurnAllOff && turnOffTargets(group).length > 0 && (
-                  <button
-                    type="button"
+                {onTurnAllOff && turnOffTargets(recoveryGroup).length > 0 && (
+                  <Button
+                    bare
                     className="link-button checklist-turn-off"
                     data-checklist-turn-off={group.id}
-                    onClick={() => onTurnAllOff(group)}
+                    onClick={() => onTurnAllOff(recoveryGroup)}
                   >
                     {t("settingsPage.customizeChecklist.turnAllOff")}
-                  </button>
+                  </Button>
                 )}
                 <span className="checklist-count" data-checklist-count="">
                   {t("settingsPage.customizeChecklist.count", String(group.on), String(group.total))}
