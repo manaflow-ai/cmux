@@ -33,6 +33,10 @@ on:
         required: false
         type: string
         default: ""
+      web_bundle_artifact:
+        required: false
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -307,13 +311,13 @@ jobs:
         if: inputs.web_bundle_key != '' && inputs.web_bundle_transport == 'r2'
         uses: ./.github/actions/r2-artifact/download
         with:
-          name: pr-web-bundles-${{ inputs.web_bundle_key }}-${{ github.run_attempt }}
+          name: ${{ inputs.web_bundle_artifact }}
           path: ${{ runner.temp }}/web
       - name: Restore this run's web bundles without a fleet identity
         if: inputs.web_bundle_key != '' && inputs.web_bundle_transport == 'github'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: pr-web-bundles-${{ inputs.web_bundle_key }}-${{ github.run_attempt }}
+          name: ${{ inputs.web_bundle_artifact }}
           path: ${{ runner.temp }}/web
       - name: Verify this run's web bundles
         id: web-bundle-run

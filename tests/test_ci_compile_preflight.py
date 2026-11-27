@@ -239,13 +239,41 @@ class SharedWebArtifact(unittest.TestCase):
         producer = job_block(CALLEE.read_text(), "web")
         self.assertIn("web-artifact write", producer)
         self.assertLess(producer.index("Build the web bundles"), producer.index("web-artifact write"))
+        self.assertIn("artifact: ${{ steps.artifact-name.outputs.name }}", producer)
+        self.assertIn("${{ github.run_attempt }}", producer)
         for filename, job in (("cmux-next-size-budget.yml", "web-head"), ("pr-pipeline.yml", "web-browser")):
             text = job_block((ROOT / ".github/workflows" / filename).read_text(), job)
             self.assertIn('test "$PRODUCER_KEY" = "$SOURCE_KEY"', text)
             self.assertIn("web-artifact verify", text)
             self.assertIn("inputs.web_bundle_transport == 'r2'", text)
             self.assertIn("inputs.web_bundle_transport == 'github'", text)
-            self.assertIn("pr-web-bundles-${{ inputs.web_bundle_key }}-${{ github.run_attempt }}", text)
+            self.assertIn("name: ${{ inputs.web_bundle_artifact }}", text)
+            # The producer's attempt is authoritative. Reconstructing from the
+            # consumer attempt breaks a partial rerun (producer attempt 1,
+            # consumer attempt 2).
+            self.assertNotIn("inputs.web_bundle_key }}-${{ github.run_attempt }}", text)
+        ci_web = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        for job_name in ("react-apps-check-shard", "react-apps-base-early", "react-apps-base-check"):
+            block = job_block(ci_web, job_name)
+            self.assertIn("web_bundle_artifact", block)
+            self.assertNotIn("web_bundle_key }}-${{ github.run_attempt }}", block)
+
+    def test_partial_rerun_consumes_the_producer_attempt_artifact(self) -> None:
+        """A retry of one consumer must keep reading the successful producer's name."""
+        import yaml
+        callee = yaml.safe_load(CALLEE.read_text())
+        trigger = callee["on"] if "on" in callee else callee[True]
+        outputs = trigger["workflow_call"]["outputs"]
+        self.assertEqual(outputs["web_bundle_artifact"]["value"], "${{ jobs.web.outputs.artifact }}")
+        for filename, job_name in (("cmux-next-size-budget.yml", "web-head"), ("pr-pipeline.yml", "web-browser")):
+            workflow = yaml.safe_load((ROOT / ".github/workflows" / filename).read_text())
+            trigger = workflow["on"] if "on" in workflow else workflow[True]
+            inputs = trigger["workflow_call"]["inputs"]
+            self.assertIn("web_bundle_artifact", inputs)
+            job = workflow["jobs"][job_name]
+            downloads = [step for step in job["steps"] if "download-artifact" in step.get("uses", "")]
+            self.assertTrue(downloads)
+            self.assertTrue(all(step.get("with", {}).get("name") == "${{ inputs.web_bundle_artifact }}" for step in downloads))
 
     def test_cache_restore_uses_the_saved_output_path(self) -> None:
         """A cache hit must restore files, not only report that a key exists."""

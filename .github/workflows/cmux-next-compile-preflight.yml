@@ -43,6 +43,9 @@ on:
         value: ${{ jobs.web.outputs.key }}
       web_bundle_transport:
         value: ${{ jobs.web.outputs.transport }}
+      web_bundle_artifact:
+        description: Exact run-scoped artifact name, including the producer attempt.
+        value: ${{ jobs.web.outputs.artifact }}
   workflow_dispatch:
 
 permissions:
@@ -59,6 +62,7 @@ jobs:
     outputs:
       key: ${{ steps.web-bundle-key.outputs.key }}
       transport: ${{ steps.artifact-transport.outputs.transport }}
+      artifact: ${{ steps.artifact-name.outputs.name }}
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       CMUX_WEB_BUN_VERSION: "1.4.4"
@@ -224,11 +228,15 @@ jobs:
           else
             echo transport=github >> "$GITHUB_OUTPUT"
           fi
+      - name: Name this run's web bundles
+        id: artifact-name
+        if: steps.touched.outputs.web == 'true'
+        run: echo "name=${{ inputs.artifact_prefix || 'pr-web-bundles' }}-${{ steps.web-bundle-key.outputs.key }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
       - name: Publish this run's web bundles to R2
         if: steps.artifact-transport.outputs.transport == 'r2'
         uses: ./.github/actions/r2-artifact/upload
         with:
-          name: ${{ inputs.artifact_prefix || 'pr-web-bundles' }}-${{ steps.web-bundle-key.outputs.key }}-${{ github.run_attempt }}
+          name: ${{ steps.artifact-name.outputs.name }}
           path: ${{ runner.temp }}/web-bundles-out
           if-no-files-found: error
           include-hidden-files: true
@@ -237,7 +245,7 @@ jobs:
         if: steps.artifact-transport.outputs.transport == 'github'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.artifact_prefix || 'pr-web-bundles' }}-${{ steps.web-bundle-key.outputs.key }}-${{ github.run_attempt }}
+          name: ${{ steps.artifact-name.outputs.name }}
           path: ${{ runner.temp }}/web-bundles-out
           if-no-files-found: error
           include-hidden-files: true
