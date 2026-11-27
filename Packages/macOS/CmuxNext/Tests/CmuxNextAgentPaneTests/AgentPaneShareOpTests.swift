@@ -19,15 +19,19 @@ struct AgentPaneShareOpTests {
         if case .shareOp(.invite(account: "a@b.co", role: "talk"), session: nil) = request(["op": "invite", "account": " a@b.co ", "role": "talk"]) {} else {
             Issue.record("invite")
         }
+        if case .shareOp(.invite(account: "@ana", role: "drive"), session: nil) = request(["op": "invite", "account": "@ana", "role": "drive"]) {} else {
+            Issue.record("named drive invite")
+        }
         if case .shareOp(.uninvite(account: "@leo"), session: nil) = request(["op": "uninvite", "account": "@leo"]) {} else { Issue.record("uninvite") }
         if case .shareOp(.revoke(shareId: "s1"), session: nil) = request(["op": "revoke", "shareId": "s1"]) {} else { Issue.record("revoke") }
     }
 
     @Test func unknownOpsAndBadFieldsAreRefused() {
         let refused: [[String: Any]] = [
-            [:], ["op": "delete"], ["op": 7], ["op": "link", "role": "admin"], ["op": "link", "role": 1],
+            [:], ["op": "delete"], ["op": 7], ["op": "link", "role": "admin"], ["op": "link", "role": "drive"], ["op": "link", "role": 1],
             ["op": "team"], ["op": "team", "teamId": "team-1"], ["op": "team", "teamId": "", "role": "view"],
             ["op": "team", "teamId": 7, "role": "view"], ["op": "team", "teamId": "team-1", "role": "admin"],
+            ["op": "team", "teamId": "team-1", "role": "drive"],
             ["op": "invite", "account": "a@b.co"], ["op": "invite", "account": "", "role": "view"],
             ["op": "invite", "account": String(repeating: "a", count: 400), "role": "view"],
             ["op": "uninvite"], ["op": "revoke"], ["op": "revoke", "shareId": "  "],

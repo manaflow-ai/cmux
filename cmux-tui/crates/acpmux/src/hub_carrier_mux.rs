@@ -151,6 +151,9 @@ pub(crate) struct Mux {
     /// carrier gone): any other end (the far machine restarted, the relay or the hub dropped it,
     /// the keepalive heard nothing) has the carrier open it again at once (`reopen_closed`).
     reopen: AtomicBool,
+    /// A held circuit (`hub_carrier_hold.rs`): it never idles out, so the next dial to the
+    /// machine is a stream on it however long nobody dialed.
+    held: AtomicBool,
 }
 
 /// The most early bytes a stream open carries behind its OPEN ([`Mux::open`]): well inside a
@@ -187,6 +190,7 @@ impl Mux {
             ended: Mutex::new(None),
             open: Mutex::new(Some(crate::gauges::Held::on(&crate::gauges::links().hub_kept_open))),
             reopen: AtomicBool::new(role == Role::Dialer),
+            held: AtomicBool::new(false),
         })
     }
 
@@ -210,9 +214,19 @@ impl Mux {
         self.is_closed() && self.reopen.load(Ordering::SeqCst)
     }
 
-    /// How long the circuit has had no stream (since its last one ended, or it opened).
+    /// Hold the circuit: no idle close and no idle give-up on reopen (`hub_carrier_hold.rs`).
+    pub(crate) fn hold(&self) {
+        self.held.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn is_held(&self) -> bool {
+        self.held.load(Ordering::SeqCst)
+    }
+
+    /// How long the circuit has had no stream (since its last one ended, or it opened); zero
+    /// while it is held.
     pub(crate) fn quiet_for(&self) -> Duration {
-        if self.streams() > 0 {
+        if self.streams() > 0 || self.is_held() {
             return Duration::ZERO;
         }
         self.quiet_since.lock().unwrap_or_else(|e| e.into_inner()).elapsed()
@@ -692,8 +706,7 @@ impl Mux {
             if self.is_closed() {
                 return;
             }
-            let quiet = self.streams() == 0
-                && self.quiet_since.lock().unwrap_or_else(|e| e.into_inner()).elapsed() >= idle;
+            let quiet = self.quiet_for() >= idle;
             // Every close says why at info: a kept circuit that ends early costs the next dial a
             // whole new handshake (0.6 s against 0.07 s), and the reason was debug-only.
             let why = if owner.upgrade().is_none() {
@@ -769,6 +782,8 @@ pub(crate) struct Kept {
     /// A failed reopen waits until then, doubling to [`REOPEN_BACKOFF_MAX`].
     pub(crate) reopen_at: Option<Instant>,
     pub(crate) reopen_wait: Duration,
+    /// The slot is held (`hub_carrier_hold.rs`): every circuit opened on it is held.
+    pub(crate) held: bool,
 }
 
 /// The longest wait between two tries to open a kept circuit again that ended under its dialer.
