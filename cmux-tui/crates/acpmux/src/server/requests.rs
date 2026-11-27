@@ -779,12 +779,12 @@ async fn dispatch_brief(
         let row = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,
             "target":selected,"host":if forwarded {params.get("host").cloned().unwrap_or(json!("local"))}else{json!("local")},"stopCondition":stop,"fromSession":conn.caller()});
         if cancelling {
-            return Box::pin(workflow_dispatch::cancel(hub, conn, &params, &id, row)).await;
+            return heap(|| workflow_dispatch::cancel(hub, conn, &params, &id, row)).await;
         }
-        return Box::pin(workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
+        return heap(|| workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
     }
     let created =
-        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
+        match heap(|| dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
             Ok(created) => created,
             Err(error) => {
                 hub.briefs.release(&id);
