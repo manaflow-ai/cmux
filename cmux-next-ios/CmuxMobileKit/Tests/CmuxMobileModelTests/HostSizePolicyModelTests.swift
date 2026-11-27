@@ -13,6 +13,7 @@ import Testing
         var stored = HostSizePolicy()
         /// Each `setHostPolicy` waits here until the test resumes it.
         var waiting: [(HostSizePolicy, CheckedContinuation<Void, any Error>)] = []
+        let requests = AsyncStream<Void>.makeStream()
         var sent: [HostSizePolicy] = []
         var loads = 0
         /// While set, each `hostPolicy` reads the Mac's policy, then waits
@@ -23,13 +24,21 @@ import Testing
         func hostPolicy(macID: String, surface: Int?) async throws -> HostSizePolicyInfo {
             loads += 1
             let read = stored
-            if holdsLoads { await withCheckedContinuation { waitingLoads.append($0) } }
+            if holdsLoads {
+                await withCheckedContinuation {
+                    waitingLoads.append($0)
+                    requests.continuation.yield(())
+                }
+            }
             return HostSizePolicyInfo(policy: read)
         }
 
         func setHostPolicy(macID: String, policy: HostSizePolicy) async throws -> HostSizePolicy {
             sent.append(policy)
-            try await withCheckedThrowingContinuation { waiting.append((policy, $0)) }
+            try await withCheckedThrowingContinuation {
+                waiting.append((policy, $0))
+                requests.continuation.yield(())
+            }
             stored = policy
             return policy
         }
@@ -44,29 +53,25 @@ import Testing
         }
     }
 
-    private func settle() async {
-        for _ in 0..<20 { await Task.yield() }
-    }
-
     @Test func quickChangesReachTheMacInOrderAndTheNewestWins() async {
         let mac = SlowMac()
+        var requests = mac.requests.stream.makeAsyncIterator()
         let model = HostSizePolicyModel(macID: "m", service: mac)
         await model.reload()
         let first = HostSizePolicy(mode: .mac)
         let second = HostSizePolicy(mode: .latest)
-        Task { await model.save(first) }
-        await settle()
-        Task { await model.save(second) }
-        await settle()
+        let save = Task { await model.save(first) }
+        _ = await requests.next()
+        await model.save(second)
         // One save at a time: the second waits for the first.
         #expect(mac.sent == [first])
         #expect(model.info?.policy == second)
         mac.answer()
-        await settle()
+        _ = await requests.next()
         #expect(mac.sent == [first, second])
         #expect(model.info?.policy == second)
         mac.answer()
-        await settle()
+        await save.value
         #expect(mac.stored == second)
         #expect(model.info?.policy == second)
         #expect(model.saving == false)
@@ -74,19 +79,19 @@ import Testing
 
     @Test func aFailedOlderSaveDoesNotUndoANewerChoice() async {
         let mac = SlowMac()
+        var requests = mac.requests.stream.makeAsyncIterator()
         let model = HostSizePolicyModel(macID: "m", service: mac)
         await model.reload()
         let first = HostSizePolicy(mode: .mac)
         let second = HostSizePolicy(mode: .latest)
-        Task { await model.save(first) }
-        await settle()
-        Task { await model.save(second) }
-        await settle()
+        let save = Task { await model.save(first) }
+        _ = await requests.next()
+        await model.save(second)
         mac.answer(failing: true)
-        await settle()
+        _ = await requests.next()
         #expect(model.info?.policy == second)
         mac.answer()
-        await settle()
+        await save.value
         #expect(mac.stored == second)
         #expect(model.info?.policy == second)
         #expect(model.saveError == nil)
@@ -94,44 +99,47 @@ import Testing
 
     @Test func aFailedNewestSaveShowsTheMacsPolicyAgain() async {
         let mac = SlowMac()
+        var requests = mac.requests.stream.makeAsyncIterator()
         let model = HostSizePolicyModel(macID: "m", service: mac)
         await model.reload()
-        Task { await model.save(HostSizePolicy(mode: .mac)) }
-        await settle()
+        let save = Task { await model.save(HostSizePolicy(mode: .mac)) }
+        _ = await requests.next()
         mac.answer(failing: true)
-        await settle()
+        await save.value
         #expect(model.info?.policy == HostSizePolicy())
         #expect(model.saveError != nil)
     }
 
     @Test func aReloadWhileSavingKeepsTheShownChoice() async {
         let mac = SlowMac()
+        var requests = mac.requests.stream.makeAsyncIterator()
         let model = HostSizePolicyModel(macID: "m", service: mac)
         await model.reload()
-        Task { await model.save(HostSizePolicy(mode: .mac)) }
-        await settle()
+        let save = Task { await model.save(HostSizePolicy(mode: .mac)) }
+        _ = await requests.next()
         await model.reload()
         #expect(model.info?.policy == HostSizePolicy(mode: .mac))
         mac.answer()
-        await settle()
+        await save.value
     }
 
     /// Review 2 finding 2: a reload that read the Mac before a save and
     /// answers after it ends never puts the older policy back on screen.
     @Test func aReloadOlderThanASaveDoesNotShowTheOldPolicy() async {
         let mac = SlowMac()
+        var requests = mac.requests.stream.makeAsyncIterator()
         let model = HostSizePolicyModel(macID: "m", service: mac)
         await model.reload()
         mac.holdsLoads = true
-        Task { await model.reload() }
-        await settle()
-        Task { await model.save(HostSizePolicy(mode: .mac)) }
-        await settle()
+        let reload = Task { await model.reload() }
+        _ = await requests.next()
+        let save = Task { await model.save(HostSizePolicy(mode: .mac)) }
+        _ = await requests.next()
         mac.answer()
-        await settle()
+        await save.value
         #expect(model.saving == false)
         mac.waitingLoads.removeFirst().resume()
-        await settle()
+        await reload.value
         #expect(model.info?.policy == HostSizePolicy(mode: .mac))
     }
 
@@ -139,13 +147,14 @@ import Testing
     /// reads as that, not as the daemon's error text.
     @Test func aMacThatRefusesPhonesSaysSo() async {
         let mac = SlowMac()
+        var requests = mac.requests.stream.makeAsyncIterator()
         let model = HostSizePolicyModel(macID: "m", service: mac)
         await model.reload()
-        Task { await model.save(HostSizePolicy(mode: .mac)) }
-        await settle()
+        let save = Task { await model.save(HostSizePolicy(mode: .mac)) }
+        _ = await requests.next()
         let (_, continuation) = mac.waiting.removeFirst()
         continuation.resume(throwing: HostSizePolicyError.refused("forbidden: set-host-size-policy needs the cmux app or a phone lane"))
-        await settle()
+        await save.value
         #expect(model.saveError == HostSizePolicyModel.phoneRefusedMessage)
     }
 

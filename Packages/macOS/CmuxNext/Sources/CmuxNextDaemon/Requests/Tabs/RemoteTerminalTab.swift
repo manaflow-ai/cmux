@@ -34,36 +34,13 @@ public struct NewRemoteTerminalTabRequest: DaemonRequest {
 
 /// `update-remote-terminal-tab`: the last title, session name and bounded
 /// text snapshot the placeholder shows while the session is unavailable.
-public struct UpdateRemoteTerminalTabRequest: DaemonRequest {
+extension UpdateRemoteTerminalTabRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var surface: SurfaceID
         public var changed: Bool
     }
-    public static let command = "update-remote-terminal-tab"
-    public static let requiredCapability: String? = DaemonCapability.remoteTerminalTabs.rawValue
     /// The daemon's bound on `snapshot` (UTF-8 bytes).
     public static let snapshotLimit = 65_536
-    public var surface: SurfaceID
-    public var title: FieldUpdate<String>
-    public var sessionName: String?
-    public var snapshot: FieldUpdate<String>
-
-    public init(surface: SurfaceID, title: FieldUpdate<String> = .unchanged, sessionName: String? = nil,
-                snapshot: FieldUpdate<String> = .unchanged) {
-        self.surface = surface
-        self.title = title
-        self.sessionName = sessionName
-        self.snapshot = snapshot
-    }
-
-    enum CodingKeys: String, CodingKey { case surface, title, sessionName, snapshot }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(surface, forKey: .surface)
-        try c.encode(title, forKey: .title)
-        try c.encodeIfPresent(sessionName, forKey: .sessionName)
-        try c.encode(snapshot, forKey: .snapshot)
-    }
 
     /// The last `limit` bytes of `text`, cut at a line start when one is
     /// near and never inside a UTF-8 sequence.
@@ -78,14 +55,9 @@ public struct UpdateRemoteTerminalTabRequest: DaemonRequest {
 }
 
 /// `remote-terminal-snapshot`: the stored placeholder snapshot of a tab.
-public struct RemoteTerminalSnapshotRequest: DaemonRequest {
+extension RemoteTerminalSnapshotRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var surface: SurfaceID
         public var snapshot: String?
     }
-    public static let command = "remote-terminal-snapshot"
-    public static let requiredCapability: String? = DaemonCapability.remoteTerminalTabs.rawValue
-    public var surface: SurfaceID
-
-    public init(surface: SurfaceID) { self.surface = surface }
 }
