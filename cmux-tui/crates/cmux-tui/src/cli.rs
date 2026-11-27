@@ -132,9 +132,13 @@ mod code_mode;
 mod codex_app_server;
 mod command;
 mod completion;
+#[cfg(unix)]
+mod env_command;
 mod intent;
 #[cfg(unix)]
 mod key_broker;
+#[cfg(unix)]
+mod mac_screen_view;
 #[cfg(unix)]
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
@@ -663,6 +667,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents",
     "chats",
     "board",
+    "care",
     "harness",
     "remote",
     "script",
@@ -677,6 +682,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "computer-use",
     "chat",
     "vm",
+    "env",
     "customize",
     "agent-config",
     "move",
@@ -769,7 +775,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// acpmux's (`--json` is a global clap option there).
 /// `agent` is not one of them: its verbs acpmux runs (agent_engine_requested, agent_acp_scope_args) take
 /// `--json` after the scope, and its app verbs (`agent list`, `agent open`) read the cmux global one where it is.
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "send", "inbox"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "care", "send", "inbox"];
 
 /// Session-engine verbs that also answer as a plain top-level `cmux` word: `cmux send` is
 /// `cmux agent send` and `cmux inbox` is the engine's team inbox, one command grammar under
@@ -935,6 +941,21 @@ fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
     None
 }
 
+fn agent_card_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command) = parse_globals(args).ok()?;
+    let json_flag = command.iter().any(|w| w == "--json");
+    let words: Vec<&str> = command.iter().map(String::as_str).filter(|w| *w != "--json").collect();
+    let what = match words.as_slice() {
+        ["capabilities"] => "capabilities",
+        ["machine", "info"] => "machine",
+        _ => return None,
+    };
+    let json = json_flag || matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+    println!("{}", acpmux::agent_card::cli(what, json, &cwd));
+    Some(0)
+}
+
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
     if let Ok((_, command)) = parse_globals(args) {
@@ -942,6 +963,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     }
     // `cmux completion zsh|bash|fish` and the scripts' `cmux __complete -- WORDS`.
     if let Some(code) = completion::run_if_requested(args) {
+        return code;
+    }
+    // `cmux capabilities` and `cmux machine info`: what cmux lets an agent do in a chat here and
+    // this machine's numbers, the card a new chat gets in its system context (acpmux agent_card.rs).
+    if let Some(code) = agent_card_if_requested(args) {
         return code;
     }
     #[cfg(unix)]
@@ -1138,6 +1164,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| env_command::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| cloud_provider::run_if_requested(args))
