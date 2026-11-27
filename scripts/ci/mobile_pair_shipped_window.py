@@ -125,8 +125,8 @@ APPCAST = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 REPO = "manaflow-ai/cmux"
 CMUX_NS = "{https://cmux.com/xml-namespaces/cmux}"
 SPARKLE_NS = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
-IOS_SNAPSHOT_WORKFLOW = ".github/workflows/ios-publication-snapshot.yml"
-IOS_SNAPSHOT_BRANCH = "rc/cnx-ios-builder"
+IOS_SNAPSHOT_WORKFLOW = ".github/workflows/ios-asc-ops.yml"
+IOS_SNAPSHOT_BRANCH = "main"
 IOS_SNAPSHOT_REF = f"{REPO}/{IOS_SNAPSHOT_WORKFLOW}@refs/heads/{IOS_SNAPSHOT_BRANCH}"
 
 
