@@ -78,6 +78,86 @@ def cmd_web_touched(root: Path, base: str, head: str) -> int:
     return 0
 
 
+# The router's answer (pr_router.py preflight_web) is this job's own web-touched answer, computed in pr-router.yml's
+# route job before a runner is taken: about 60% of the web bundle build jobs the router's directory supersets started
+# found no web bundle input (99 of 164 web-routed feat-cmux-next commits, 2026-11-27: a Swift source or a
+# scripts/cmux-next tool under the `affects` dirs), each a runner for ~43 s. Leo, 2026-11-27: "de facto, im asking
+# for 99% fewer minutes of ci time, period." The route job's checkout is sparse, so router_web first answers what
+# needs no webviews/ file (a webviews/ change or a static INPUTS path is web; nothing else is decided without the
+# import scan), then checks out webviews/ (the mirror serves whole blobs: about 0.5 s) and every file outside it that
+# a scanned import names (rounds, until imported_inputs finds nothing the index has that the disk lacks), so
+# imported_inputs reads the same files as the full checkout's. Anything it cannot read answers None: the router
+# then runs the job, whose own web-touched step decides as before.
+ROUTER_ROUNDS = 6
+ROUTER_MAX_PATHS = 2000
+ROUTER_GIT_TIMEOUT_S = 90
+
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True,
+                          timeout=ROUTER_GIT_TIMEOUT_S).stdout
+
+
+def partial_clone(root: Path) -> bool:
+    """Whether ROOT's clone filters blobs (a fork's or a push's route checkout): a sparse add would fetch each
+    webviews/ blob from GitHub, so the router does not try."""
+    try:
+        return bool(_git(root, "config", "--get-regexp", r"^(remote\..*\.promisor|extensions\.partialclone)$").strip())
+    except subprocess.CalledProcessError:
+        return False
+
+
+def sparse_pattern(path: str) -> str:
+    """A non-cone sparse-checkout pattern for exactly PATH (a directory when it ends in `/`), anchored at the root."""
+    return "/" + re.sub(r"([\\*?\[\]!#])", r"\\\1", path)
+
+
+def sparse_add(root: Path, paths: list[str]) -> None:
+    _git(root, "sparse-checkout", "add", "--skip-checks", *[sparse_pattern(p) for p in paths])
+
+
+def absent_imports(root: Path, module, found: list[str]) -> list[str]:
+    """Tracked files the import scan could have read or resolved to but the sparse disk lacks: for each FOUND pathspec
+    (imported_inputs) that is not on disk, the index's files for each candidate resolve() tries (and the directory)."""
+    candidates = []
+    for spec in found:
+        if spec.startswith(":(") or (root / spec).exists():
+            continue
+        candidates += [spec + s for s in module.FILE_SUFFIXES] + [spec + s for s in module.INDEX_FILES]
+    if not candidates:
+        return []
+    listed = _git(root, "ls-files", "-z", "--", *candidates)
+    return sorted({p for p in listed.split("\0") if p and not (root / p).exists()})
+
+
+def router_web(root: Path, files: list[str], add=sparse_add) -> tuple[bool | None, str]:
+    """(web-touched's answer for FILES at ROOT's checkout, why); (None, why) when it cannot be read here. ADD checks
+    paths out of a sparse checkout (tests pass a fake)."""
+    module = key_module(root)
+    static = module.pathspec_matcher([p for p in module.INPUTS if p != module.CATALOG_GLOB])
+    hit = [f for f in files if static(f)]
+    if hit:
+        return True, f"{hit[0]} is a web bundle input (web-bundle-key.py INPUTS)"
+    if partial_clone(root):
+        return None, "this checkout filters blobs, so the import scan cannot read webviews/ here"
+    if not (root / "webviews").is_dir():
+        add(root, ["webviews/"])
+    module.unresolved = lambda message: None  # the job's own web-touched step reports them
+    for _ in range(ROUTER_ROUNDS):
+        absent = absent_imports(root, module, module.imported_inputs(str(root)))
+        if not absent:
+            break
+        if len(absent) > ROUTER_MAX_PATHS:
+            return None, f"the imports name {len(absent)} files outside webviews/, more than the router checks out"
+        add(root, absent)
+    else:
+        return None, f"imports still name files the sparse checkout lacks after {ROUTER_ROUNDS} rounds"
+    hit = web_touched(files, module.routed_inputs(str(root)), module.pathspec_matcher)
+    if hit:
+        return True, f"{hit[0]} is a web bundle input (web-bundle-key.py --routed)"
+    return False, f"none of the {len(files)} changed files is a web bundle input (web-bundle-key.py --routed)"
+
+
 ROUTER_MANIFEST = "scripts/ci/pr_router.json"
 PREFLIGHT_CALLEE = "cmux-next-compile-preflight.yml"
 # A file of each ignored kind under a directory input: a new file there must still start the job.
