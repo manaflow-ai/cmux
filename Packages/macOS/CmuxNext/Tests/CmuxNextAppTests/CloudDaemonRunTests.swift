@@ -11,7 +11,7 @@ import Testing
 /// Cloud's `/api/runs`), and its answer line passes through as the body's JSON or as the ``CloudAPIError``
 /// its failure names. A fake child stands in for the bundled cmux.
 @Suite(.serialized)
-struct CloudAPIClientRunTests {
+struct CloudDaemonRunTests {
     /// What the fake child prints for the `index`th request of `call` (0-based), or throws as the child runner does.
     typealias Script = @Sendable (_ call: String, _ args: [String: Any], _ index: Int) throws -> String
 
@@ -47,10 +47,10 @@ struct CloudAPIClientRunTests {
     nonisolated static let done = #"{"ok":true,"body":{"run":{"id":"run-9","status":"succeeded"},"attempts":[],"artifacts":[],"receipt":{"status":"succeeded","reply":"done"}}}"#
 
     private func api(_ daemon: FakeDaemon?, access: @escaping @Sendable () async throws -> String = { "access" }) -> CloudDaemon {
-        var api = CloudAPIClient.workerMachines(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
+        var api = CloudDaemon.workerMachines(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
                                                 accessToken: access, teamID: { "team_cmux" })
-        if let daemon { api.daemon.daemonCall = { input, _ in try daemon.run(input) } }
-        return api.daemon.runningAs(Self.account)
+        if let daemon { api.daemonCall = { input, _ in try daemon.run(input) } }
+        return api.runningAs(Self.account)
     }
 
     nonisolated static let account = CloudDaemon.RunAccount(user: "u1", team: "t1")
