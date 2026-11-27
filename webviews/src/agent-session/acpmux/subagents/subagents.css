@@ -1155,13 +1155,13 @@ button.cv-subagent > :last-child {
   background: var(--ds-surface-inset);
 }
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
-/* Resume and Stop (their own controls in Stop's column) light themselves, not the line around them. */
+/* Resume and Stop (their own controls in Stop's column) light themselves, not the line around them.
+   The header lights only through its own controls: it isn't styled as a button (Leo, hat improvements). */
 .acpmux-running-tray
   .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):not(
     :has(:is(.cv-subagent-resume-control, .cv-subagent__stop, .acpmux-session-info-stop):hover)
   ):hover,
-.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
-.acpmux-running-tray .acpmux-running-tray__head:hover {
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]) {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
 }
 .acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-session-info-stop):enabled {
@@ -3001,4 +3001,78 @@ button.cv-subagent > :last-child {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* Leo, 2026-11-27, on the composer hat: "as for the hat, let's just restore it and add those strict
+   improvements" (hatRows.ts, SubagentTray.tsx). */
+/* The header is the hat's title, not a pill: no fill under the pointer. Its chevron says it opens. */
+.acpmux-running-tray:not([data-line]) .acpmux-running-tray__head:hover {
+  background: transparent;
+}
+/* Stop shows only while its line is pointed at or holds focus; its column stays, so nothing moves
+   when it shows (handbook: hover controls reserve their width). It keeps a gap from the chevron. */
+.acpmux-running-tray {
+  --acpmux-tray-stop-gap: var(--ds-space-1);
+}
+.acpmux-running-tray .acpmux-agent-line__stop-track {
+  margin-right: var(--acpmux-tray-stop-gap);
+}
+.acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__stop-slot {
+  margin-right: var(--acpmux-tray-stop-gap);
+}
+.acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop) {
+  opacity: 0;
+}
+.acpmux-running-tray .acpmux-agent-line:hover > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop),
+.acpmux-running-tray .acpmux-agent-line:has([data-popup-open]) > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop),
+.acpmux-running-tray .acpmux-agent-line:focus-within > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop) {
+  opacity: 1;
+}
+.acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop:disabled {
+  opacity: 0.5;
+}
+@media (hover: none) {
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop) {
+    opacity: 1;
+  }
+}
+/* Each group's count over its lines: agents, then commands. A label, not a control. */
+.acpmux-running-tray__group {
+  list-style: none;
+  padding: var(--ds-space-1) var(--acpmux-tray-inset) 0;
+  font-size: var(--ds-type-detail-size, 12px);
+  line-height: var(--ds-type-detail-line, 16px);
+  color: var(--agent-muted);
+  user-select: none;
+}
+/* A line's words: the generic part (its owner, "tbd-leo: ") truncates first; the specific part stays
+   until it alone is too long. */
+.acpmux-agent-line__split {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.acpmux-agent-line__lead {
+  flex: 0 1000 auto;
+  min-width: 2ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-muted);
+}
+.acpmux-agent-line__specific {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* ×N for identical lines folded into one, and what a line waits on: muted, after its words. */
+.acpmux-agent-line__count,
+.acpmux-agent-line__waits {
+  flex: none;
+  margin-left: var(--ds-space-1);
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
