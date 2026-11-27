@@ -282,7 +282,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
         list.push(json!({"name": "memory_write", "description": MEMORY_WRITE_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "path": path,
-            "description": {"type": "string", "maxLength": 300, "description": "One line for index.md: what the file is about (\"Leo's machines\", \"renew the cmux.dev domain before Fri 2026-11-20\")."},
+            "description": {"type": "string", "maxLength": 300, "description": "One line for index.md: what the file is about (\"my machines\", \"renew the passport before Fri 2026-11-20\")."},
             "body": {"type": "string", "minLength": 1, "description": "The file's whole text, in Markdown. Date facts (YYYY-MM-DD)."}},
           "required": ["path", "description", "body"], "additionalProperties": false}}));
         list.push(json!({"name": "memory_forget", "description": MEMORY_FORGET_DESCRIPTION,

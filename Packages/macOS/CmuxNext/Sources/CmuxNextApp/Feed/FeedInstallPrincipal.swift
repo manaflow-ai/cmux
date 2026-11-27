@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextFeedClient
 import Foundation
 import Observation
 
@@ -14,11 +15,18 @@ final class FeedInstallPrincipal {
     private(set) var installID: String?
     @ObservationIgnored private let identity: MacInstallIdentity
     @ObservationIgnored private let baseURL: URL
+    /// The bundled cmux that runs the owner calls (``CloudAuth/machineIO``); nil: they answer "cmux is not available".
+    @ObservationIgnored private let machineIO: () -> CloudMachineIO?
+    /// The Cloud configuration: its ``CloudConfiguration/buildSpace`` (a misconfigured dev build sends nothing).
+    @ObservationIgnored private let configuration: CloudConfiguration
     @ObservationIgnored private var refreshing: Task<Void, Never>?
 
-    init(identity: MacInstallIdentity, baseURL: URL) {
+    init(identity: MacInstallIdentity, baseURL: URL, configuration: CloudConfiguration,
+         machineIO: @escaping () -> CloudMachineIO?) {
         self.identity = identity
         self.baseURL = baseURL
+        self.machineIO = machineIO
+        self.configuration = configuration
     }
 
     /// Mints (or reuses) an install token and records its install id; a
@@ -44,25 +52,17 @@ final class FeedInstallPrincipal {
     }
 
     /// POSTs `body` to `path` (`v1/ops` or `v1/read`) as this install and
-    /// returns the owner's reply; an owner error is `FeedServiceError.owner`.
+    /// returns the owner's reply; an owner error is `FeedServiceError.owner`. The daemon's
+    /// `cloud.owner.op` (``FeedOwnerCall``) sends it, so the install token never goes through Swift
+    /// HTTP; a 401 drops the token so the next call mints a new one.
     func call(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
+        guard let route = FeedOwnerCall.Route(path: path) else { throw FeedServiceError.badReply }
         let token = try await identity.installToken()
         if let install = Self.install(ofToken: token) { installID = install }
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 15
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-        for (name, value) in identity.requestHeaders { request.setValue(value, forHTTPHeaderField: name) }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        // The install token never goes through the shared, caching session.
-        let (data, response) = try await CloudAPIClient.noStoreTransport.data(for: request)
-        if (response as? HTTPURLResponse)?.statusCode == 401 { await identity.invalidate() }
-        guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
-        if let error = reply["error"] as? [String: Any] {
-            throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")
-        }
-        return reply
+        let reply = try await FeedOwnerCall(baseURL: baseURL, credential: { token }, configuration: configuration, machineIO: machineIO(),
+                                            clientVersion: identity.requestHeaders["x-cmux-client-version"]).send(route, body)
+        if reply.status == 401 { await identity.invalidate() }
+        return try FeedOwnerCall.read(reply)
     }
 
     /// This Mac's context (environment, user, install from its token) and the

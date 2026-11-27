@@ -1564,56 +1564,9 @@ fn browser_key_description(value: &str) -> BrowserKeyDescription {
     }
 }
 
-#[cfg(target_os = "macos")]
+/// The terminal child's own children (`platform::child_pids`); none when the kernel did not answer.
 fn direct_child_pids(pid: u32) -> Vec<u32> {
-    let Ok(pid) = libc::pid_t::try_from(pid) else {
-        return Vec::new();
-    };
-    // SAFETY: the discovery call receives a null buffer as required by
-    // libproc. The second call writes at most `children.len()` pid_t values
-    // into an initialized, correctly aligned allocation.
-    let count = unsafe { libc::proc_listchildpids(pid, std::ptr::null_mut(), 0) };
-    let Ok(count) = usize::try_from(count) else {
-        return Vec::new();
-    };
-    if count == 0 {
-        return Vec::new();
-    }
-    let mut children = vec![0 as libc::pid_t; count];
-    let Ok(bytes) = libc::c_int::try_from(children.len().saturating_mul(size_of::<libc::pid_t>()))
-    else {
-        return Vec::new();
-    };
-    // SAFETY: `children` owns a writable buffer of exactly `bytes` bytes.
-    let written = unsafe { libc::proc_listchildpids(pid, children.as_mut_ptr().cast(), bytes) };
-    let Ok(written) = usize::try_from(written) else {
-        return Vec::new();
-    };
-    children
-        .into_iter()
-        .take(written.min(count))
-        .filter(|child| *child > 0)
-        .filter_map(|child| u32::try_from(child).ok())
-        .collect()
-}
-
-#[cfg(target_os = "linux")]
-fn direct_child_pids(pid: u32) -> Vec<u32> {
-    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
-        .ok()
-        .into_iter()
-        .flat_map(|children| {
-            children
-                .split_whitespace()
-                .filter_map(|child| child.parse::<u32>().ok())
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn direct_child_pids(_pid: u32) -> Vec<u32> {
-    Vec::new()
+    crate::platform::child_pids(pid).unwrap_or_default()
 }
 
 /// Browser bridge errors can echo a URL or typed text, so the daemon log

@@ -52,7 +52,11 @@ extension ControlRouter {
         let action = try Self.resolveAction(call.params, in: call.snapshot.catalog)
         let given = try Self.validated(action, params: call.params, call: call, caller: try ControlCaller(call.params))
         let key = try Self.idempotencyKey(call.params)
-        return try await keyed(key, fingerprint: .run(given), call: call) {
+        let joinOnly = try Self.joinOnly(call.params)
+        if joinOnly && key == nil {
+            throw ControlError.invalidParams(ControlStrings.text("control.error.joinOnlyKey", "join_only requires idempotency_key"))
+        }
+        return try await keyed(key, fingerprint: .run(given), call: call, joinOnly: joinOnly) {
             try await self.execute(action, given, key: key, call: call)
         }
     }
@@ -61,11 +65,30 @@ extension ControlRouter {
     /// with the key replays its reply, an active one is joined, another request with the key is
     /// a conflict, and a run that never started forgets the key so a retry runs.
     func keyed(_ key: String?, fingerprint: ControlIdempotencyCache.Fingerprint, call: ControlCall,
+               joinOnly: Bool = false,
                _ body: () async throws -> JSONValue) async throws -> JSONValue {
         guard let key else { return try await body() }
-        switch idempotency.claim(key, fingerprint: fingerprint) {
+        let claim: ControlIdempotencyCache.Claim
+        if joinOnly {
+            guard let existing = idempotency.peek(key, fingerprint: fingerprint) else {
+                throw ControlError(code: "idempotency_unknown",
+                                   message: ControlStrings.format("control.error.idempotencyUnknown",
+                                                                   "No active or finished run was found for idempotency key %@", key),
+                                   data: ["idempotency_key": .string(key)]).notRun()
+            }
+            claim = existing
+        } else {
+            claim = idempotency.claim(key, fingerprint: fingerprint)
+        }
+        switch claim {
         case .run:
-            break
+            // `join_only` can only observe an existing entry.
+            if joinOnly {
+                throw ControlError(code: "idempotency_unknown",
+                                   message: ControlStrings.format("control.error.idempotencyUnknown",
+                                                                   "No active or finished run was found for idempotency key %@", key),
+                                   data: ["idempotency_key": .string(key)]).notRun()
+            }
         case .finished(let outcome):
             _ = call.progress.begin()
             return try Self.replayed(outcome)
@@ -102,6 +125,15 @@ extension ControlRouter {
         default:
             throw ControlError.invalidParams(ControlStrings.text("control.error.idempotencyKeyShape",
                                                                  "idempotency_key must be a non-empty string of at most 200 characters"))
+        }
+    }
+
+    static func joinOnly(_ params: [String: JSONValue]) throws -> Bool {
+        switch params["join_only"] {
+        case nil, .null: return false
+        case .bool(let value): return value
+        default:
+            throw ControlError.invalidParams(ControlStrings.text("control.error.joinOnlyShape", "join_only must be true or false"))
         }
     }
 

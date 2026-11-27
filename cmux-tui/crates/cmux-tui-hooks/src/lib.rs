@@ -2040,6 +2040,28 @@ fn muse_hook_command(helper: &Path, event: &str) -> anyhow::Result<String> {
     Ok(format!("{program} muse {event} #{COMMAND_MARKER}"))
 }
 
+/// How long `provider` waits for the hook command this installer writes for
+/// `event` before it gives up on it (and Claude Code shows "A hook didn't
+/// answer in time"): the `timeout` written, in the provider's own unit, as a
+/// duration. 5 s for a provider or file shape that writes none, the shortest
+/// any of them is given. The helper answers inside it (cmux-tui-hook
+/// `answer_deadline`).
+pub fn installed_hook_wait(provider: &str, event: &str) -> Duration {
+    let Some(entry) = PROVIDERS.iter().find(|entry| entry.id == provider) else {
+        return Duration::from_secs(COMMAND_HOOK_TIMEOUT_SECONDS);
+    };
+    match entry.format {
+        Format::Nested { timeout, .. } if entry.id == "gemini" => {
+            Duration::from_millis(installed_hook_timeout(*entry, event, timeout))
+        }
+        Format::Nested { timeout, .. } | Format::Flat { timeout } => {
+            Duration::from_secs(installed_hook_timeout(*entry, event, timeout))
+        }
+        Format::AntigravityJson => Duration::from_secs(10),
+        _ => Duration::from_secs(COMMAND_HOOK_TIMEOUT_SECONDS),
+    }
+}
+
 /// Pre-tool gates allow time for repo sync. Codex SessionEnd stays below its 3s cap.
 fn installed_hook_timeout(provider: Provider, event: &str, timeout: u64) -> u64 {
     if provider.id == "codex" {
