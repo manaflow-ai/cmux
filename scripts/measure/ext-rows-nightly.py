@@ -10,7 +10,7 @@ person's own app is never asked anything). Everything goes through the copy's ow
 `cmux ext shot --json`, `cmux settings set`, and the daemon ops through `cmux-tui raw command` (the same binary
 under the name that has the `raw` scope; a direct socket line when that name refuses). The Mac app's control
 socket is used only for what the CLI has no verb for (an action run, `apps.views`, `snapshot.get`), found by
-the copy's pid. No clicks.
+the copy's pid. Default rows do not click; the opt-in agent_prompts row uses Computer Use.
 
 A row is one function `row_<name>(ctx) -> dict` in ROWS. It installs or scaffolds a sample (an extension's
 manifest written to the copy's own customize folder installs it with no consent card: the customize app is
@@ -1366,7 +1366,14 @@ def row_typed_sdk(ctx: Ctx) -> dict:
 # customize row replaces the last one's sample, activation first (it checks no view is open), the rows that
 # open a tab last; ext_new uses folders of its own; widget and newtab_widget relaunch the copy, so they
 # run last.
+def row_agent_prompts(ctx: Ctx) -> dict:
+    """The documented palette and /review examples, selected in the published app's GUI."""
+    probe = load("ext_rows_agent_prompts", ROOT / "scripts/measure/ext-rows-agent-prompts.py")
+    return probe.run(ctx, sys.modules[__name__])
+
+
 ROWS = {
+    "agent_prompts": (row_agent_prompts, "#56371 #60996"),
     "activation": (row_activation, "#43018"),
     "opener": (row_opener, "#43007"),
     "composer": (row_composer, "#43032 #49239"),
@@ -1448,7 +1455,8 @@ def main() -> int:
     parser.add_argument("--mcp-config", type=Path, help="the private settings file prepared for the MCP probe")
     parser.add_argument("--customize", required=True, help="the copy's own customize folder")
     parser.add_argument("--out", required=True)
-    parser.add_argument("--rows", default=",".join(ROWS))
+    # Input-driving GUI checks are explicit opt-ins; preserve the default read-only rows.
+    parser.add_argument("--rows", default=",".join(n for n in ROWS if n != "agent_prompts"))
     args = parser.parse_args()
     names = [n for n in args.rows.split(",") if n]
     unknown = [n for n in names if n not in ROWS]
