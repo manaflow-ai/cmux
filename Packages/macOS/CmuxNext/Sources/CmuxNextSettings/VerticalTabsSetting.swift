@@ -8,21 +8,4 @@
 /// the palette and Settings write them.
 public nonisolated struct VerticalTabsSetting: Sendable {
     public init() {}
-
-    /// A missing key is the default with no diagnostic; a bad value is the default plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        parseToggle(root, path: configPath, fallback: fallback)
-    }
-
-    static func parseExpandOnHover(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        parseToggle(root, path: expandOnHoverPath, fallback: expandOnHoverDefault)
-    }
-
-    private static func parseToggle(_ root: JSONValue, path: [String], fallback: Bool) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: path) else { return (fallback, nil) }
-        guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
-        }
-        return (enabled, nil)
-    }
 }

@@ -4,14 +4,3 @@
 /// one (no web view). Settings, the palette's setting toggle and `cmux settings set` all write it.
 public nonisolated enum NativeNewTabPageSetting {
 }
-
-nonisolated extension NativeNewTabPageSetting {
-    /// A missing key is the default with no diagnostic; a bad value is the default plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "tabs.nativeNewTabPage", message: "expected true or false"))
-        }
-        return (enabled, nil)
-    }
-}

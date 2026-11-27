@@ -4,14 +4,4 @@
 /// popovers, tooltips and hover cards). Native surfaces keep their own material.
 public nonisolated struct LiquidGlassSetting {
     public nonisolated init() {}
-
-    /// A missing key is off with no diagnostic; a bad value is off plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "appearance.liquidGlass",
-                                                 message: "expected true or false"))
-        }
-        return (enabled, nil)
-    }
 }

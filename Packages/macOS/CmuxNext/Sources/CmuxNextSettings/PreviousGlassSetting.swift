@@ -5,14 +5,4 @@
 /// keep their own material; Reduce Transparency still draws every web glass solid.
 public nonisolated struct PreviousGlassSetting {
     public nonisolated init() {}
-
-    /// A missing key is off with no diagnostic; a bad value is off plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "appearance.previousGlass",
-                                                 message: "expected true or false"))
-        }
-        return (enabled, nil)
-    }
 }
