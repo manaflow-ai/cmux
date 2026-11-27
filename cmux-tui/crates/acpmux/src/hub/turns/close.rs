@@ -5,11 +5,17 @@ use super::*;
 impl Hub {
     /// Writes the close's record (`close_why.rs`): `mux/closed` in its log, `close` on its meta,
     /// and one INFO line. A chat already closed keeps the record of its first close.
-    pub(super) fn record_close(&self, session: &Arc<Session>, purge: bool, why: CloseWhy) {
+    /// Returns the record it wrote, None for a chat already closed.
+    pub(super) fn record_close(
+        &self,
+        session: &Arc<Session>,
+        purge: bool,
+        why: CloseWhy,
+    ) -> Option<CloseRecord> {
         let record = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             if m.status == SessionStatus::Closed {
-                return;
+                return None;
             }
             let record = CloseRecord::new(why, &m, now_ms());
             m.close = Some(record.clone());
@@ -28,6 +34,7 @@ impl Hub {
             "closed"
         );
         self.append(session, "mux", "closed", serde_json::to_value(&record).unwrap_or_default());
+        Some(record)
     }
 
     /// Stop the child. The log stays. `purge` also deletes the log.
@@ -151,8 +158,16 @@ impl Hub {
         self.orphan_tasks_of(session, purge);
         // Who closed it, why, and whether its work was done: one record in its log and on its
         // meta, before the status (a lane's tags are still on it: `lane_retire` runs after).
-        self.record_close(session, purge, why);
+        let record = self.record_close(session, purge, why);
         self.set_status(session, NotWaiting::Closed);
+        // Its exit record goes to the session that started it (`exit_notify.rs`): read before
+        // `lane_retire` drops the link that names the parent. A chat an import replaces did not
+        // end.
+        if let Some(record) = record
+            && !session.replaced.load(Ordering::SeqCst)
+        {
+            self.exit_record_soon(session, record);
+        }
         // Its inbox's timer stops and its senders are answered (`inbox.rs`).
         self.inbox_closed(session);
         // A lane link either end of which closes is retired (`lane_reports.rs`).
@@ -274,6 +289,7 @@ impl Hub {
                 }),
                 remote: None,
                 update_line: Default::default(),
+                event_params: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
                 peer_batch: false,

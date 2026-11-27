@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Rank the PR jobs no input list covered in a 24 h timing feed, and for the top ones measure the share of runs
+whose pull request diff (merge commit against its first parent, the base) touched nothing the job reads.
+
+    scripts/measure/ci140-uncovered-jobs --feed FEED.jsonl[.gz] --runs RUNS.json --git TREES.git [--top 3]
+
+FEED: timing feed rows (seg, workflow, job, run, seconds, branch). RUNS: run id -> {b, w, first} with the cmux-next
+run's `cmux-next · <merge sha>` name, which maps every run of the branch within 15 min to that merge commit. TREES:
+a git dir holding those merge commits and their parents. Inputs are read from this checkout (the selector each job
+has today): the machine channel's cmux-tui-tree-inputs.txt, ci/steps.toml's web-browser step inputs, the guard
+group's classify_feat, and the steps of cmux-next.yml's checks job. A run that cannot be mapped or diffed is
+counted as touched (unknown runs the job).
+"""
+from __future__ import annotations
+
+import argparse, collections, datetime, fnmatch, gzip, json, os, re, subprocess, sys, tomllib
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+os.environ["GIT_NO_LAZY_FETCH"] = "1"
+
+
+def tree_inputs() -> list[str]:
+    out = []
+    for line in (ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt").read_text().splitlines():
+        part = line.split("#", 1)[0].split()
+        if len(part) >= 2:
+            out.append(part[1] + ("/" if part[0] == "tree" else ""))
+    return out
+
+
+def steps_inputs(job: str) -> list[str]:
+    data = tomllib.loads((ROOT / "ci/steps.toml").read_text())
+    globs: list[str] = []
+    for step in data.get("step", {}).values():
+        if step.get("job") == job:
+            globs += step.get("inputs", ["**"])  # a step with no inputs reads everything
+    return globs
+
+
+def glob_hit(path: str, pattern: str) -> bool:
+    if pattern.endswith("/"):
+        return path.startswith(pattern)
+    if pattern.endswith("/**"):
+        return path.startswith(pattern[:-2])
+    return path == pattern or fnmatch.fnmatchcase(path, pattern.replace("**", "*"))
+
+
+def guard_routes():
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import detect_linux_guard_changes as d  # noqa: E402
+    return lambda paths: bool(d.classify_feat(paths))
+
+
+# (workflow, job prefix) -> (label, predicate(changed paths) -> touched)
+def graph_inputs(workflow: str, job: str) -> list[str]:
+    """scripts/ci/affected_jobs.py's inputs of a job it routes (a directory ends in / or is a crate dir)."""
+    out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/affected_jobs.py"), "inputs", "--workflow", workflow,
+                          "--job", job], capture_output=True, text=True, check=True, cwd=ROOT).stdout.split()
+    return [e if e.endswith("/") or "." in e.rsplit("/", 1)[-1] else e + "/" for e in out]
+
+
+def selectors():
+    tin = tree_inputs(); wb = steps_inputs("web-browser"); guard = guard_routes()
+    rww = graph_inputs(".github/workflows/cmux-tui-spec.yml", "remote-web-wasm")
+    return [
+        # Added 2026-11-26 (#54014) behind only the workflow's paths: every cmux-tui head built it.
+        ("cmux-tui spec inventory", "cmux remote web wasm", "cmux remote web wasm",
+         lambda ch: any(p == g.rstrip("/") or glob_hit(p, g) for p in ch for g in rww)),
+        ("pr router", "machine channel PR head build", "machine channel PR head build (both targets)",
+         lambda ch: any(glob_hit(p, g) for p in ch for g in tin)),
+        ("cmux-next guards", "cmux-next CI guard group", "cmux-next CI guard group", guard),
+        ("pr router", "pr pipeline / web-browser", "pr pipeline / web-browser",
+         lambda ch: any(glob_hit(p, g) for p in ch for g in wb)),
+        ("pr router", "pr web pipeline / web-browser", "pr web pipeline / web-browser",
+         lambda ch: any(glob_hit(p, g) for p in ch for g in wb)),
+        # 16 of its steps scan the whole workspace ("$GITHUB_WORKSPACE"): every path is an input.
+        ("cmux-next · <SHA>", "cmux-next checks (god files", "cmux-next checks", lambda ch: bool(ch)),
+    ]
+
+
+def ts(s: str) -> float:
+    return datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").timestamp()
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--feed", required=True); ap.add_argument("--runs", required=True)
+    ap.add_argument("--git", required=True); ap.add_argument("--merges", type=int, default=1306)
+    a = ap.parse_args()
+    runs = json.load(open(a.runs))
+    by_branch = collections.defaultdict(list); sha_of = {}
+    for rid, x in runs.items():
+        m = re.match(r"cmux-next · ([0-9a-f]{40})$", x["w"])
+        if m:
+            sha_of[rid] = m.group(1); by_branch[x["b"]].append((ts(x["first"]), m.group(1)))
+
+    def sha_for(rid: str):
+        if rid in sha_of: return sha_of[rid]
+        x = runs.get(rid); v = by_branch.get(x["b"]) if x else None
+        if not v: return None
+        t = ts(x["first"]); best = min(v, key=lambda e: abs(e[0] - t))
+        return best[1] if abs(best[0] - t) <= 900 else None
+
+    diffs: dict[str, list[str] | None] = {}
+
+    def changed(sha: str):
+        if sha not in diffs:
+            p = subprocess.run(["git", "-C", a.git, "cat-file", "-p", sha], capture_output=True, text=True)
+            parents = re.findall(r"^parent ([0-9a-f]{40})$", p.stdout, re.M)
+            d = subprocess.run(["git", "-C", a.git, "diff", "--name-only", "--no-renames", parents[0], sha],
+                               capture_output=True, text=True) if parents else None
+            diffs[sha] = d.stdout.split() if d is not None and d.returncode == 0 else None
+        return diffs[sha]
+
+    opener = gzip.open if a.feed.endswith(".gz") else open
+    tot = collections.Counter(); sel = selectors()
+    S = {s[2]: collections.Counter() for s in sel}
+    HOURS = {s[2]: collections.Counter() for s in sel}
+    for line in opener(a.feed, "rt"):
+        r = json.loads(line)
+        if r["seg"] != "pr": continue
+        wf = re.sub(r";.*", "", re.sub(r"[0-9a-f]{40}", "<SHA>", r["workflow"] or ""))
+        mins = int(r["seconds"] or 0) / 60; tot[(wf, r["job"])] += mins
+        for w, prefix, label, touched in sel:
+            if wf == w and r["job"].startswith(prefix):
+                sha = sha_for(str(r["run"])); ch = changed(sha) if sha else None
+                k = "unmapped" if ch is None else ("touched" if touched(ch) else "untouched")
+                S[label][k] += mins; S[label][k + "_n"] += 1
+                if k == "untouched": HOURS[label][r["at"][5:13]] += mins
+    print("top PR jobs by runner-min (24 h):")
+    for (wf, job), m in tot.most_common(15):
+        print(f"  {m:7.0f}  {wf[:24]} | {job[:70]}")
+    print("\nshare of mapped runs whose diff against the base touched none of the job's inputs:")
+    for label, c in S.items():
+        mapped = c["touched"] + c["untouched"]; n = c["touched_n"] + c["untouched_n"]
+        share = c["untouched"] / mapped if mapped else 0
+        print(f"  {label}: mapped {mapped:.0f} min / {n} runs (unmapped {c['unmapped']:.0f} min); untouched "
+              f"{c['untouched']:.0f} min / {c['untouched_n']} runs = {share:.1%} of mapped min, "
+              f"{c['untouched'] / a.merges:.1f} min per merged PR")
+    print("\nuntouched min by hour (UTC), a fix landing shows as a drop:")
+    for label, h in HOURS.items():
+        print(f"  {label[:30]:30} " + " ".join(f"{k[6:]}:{v:.0f}" for k, v in sorted(h.items())))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

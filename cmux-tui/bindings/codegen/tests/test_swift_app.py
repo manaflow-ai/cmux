@@ -347,6 +347,235 @@ class BindingErrorTests(unittest.TestCase):
         self.assert_refused("swap-pane", bindings=bindings)
 
 
+
+def mutation_document() -> dict[str, Any]:
+    """A write command carrying the four mutation identity fields."""
+    document = layout_document()
+    optional = lambda name: _field({"kind": "scalar", "name": name}, required=False, nullable=True)  # noqa: E731
+    document["commands"]["rename-pane"] = {
+        "authority": "control",
+        "since": 9,
+        "capability": None,
+        "request": {
+            "kind": "object",
+            "fields": {
+                "pane": _field(ID),
+                "title": optional("string"),
+                "index": _field({"kind": "scalar", "name": "uint64"}),
+                "origin": optional("string"),
+                "mutation_id": optional("string"),
+                "expected_generation": optional("uint64"),
+                "expected_revision": optional("uint64"),
+            },
+            "additional_properties": False,
+        },
+        "result": {"kind": "ref", "name": "EmptyResult"},
+        "stream": None,
+        "constraints": [],
+    }
+    return document
+
+
+def mutation_bindings(**fields: Any) -> dict[str, Any]:
+    bindings = layout_bindings()
+    bindings["families"]["Layout"]["requests"]["rename-pane"] = {
+        "name": "RenamePaneRequest",
+        "order": ["pane", "title", "index"],
+        "mutation": True,
+        "fields": fields or {"title": {"update": True}, "index": {"type": "Int"}},
+    }
+    return bindings
+
+
+class FieldOverrideTests(unittest.TestCase):
+    def source(self, **fields: Any) -> str:
+        return rendered(mutation_document(), mutation_bindings(**fields))["Layout/RenamePaneRequest.generated.swift"]
+
+    def test_mutation_folds_the_identity_fields_into_one_parameter_encoded_last(self) -> None:
+        source = self.source()
+        self.assertIn("public var mutation: MutationIdentity?", source)
+        self.assertNotIn("mutationID", source)
+        self.assertNotIn("case origin", source)
+        self.assertIn("try MutationFields(identity: mutation).encode(to: encoder)", source)
+        self.assertLess(source.index("forKey: .index"), source.index("MutationFields(identity"))
+
+    def test_update_is_a_field_update_always_encoded(self) -> None:
+        source = self.source()
+        self.assertIn("public var title: FieldUpdate<String>", source)
+        self.assertIn("title: FieldUpdate<String> = .unchanged", source)
+        self.assertIn("try container.encode(title, forKey: .title)", source)
+
+    def test_type_overrides_the_swift_type_and_keeps_the_wire_name(self) -> None:
+        source = self.source()
+        self.assertIn("public var index: Int", source)
+        self.assertIn("case index\n", source)
+
+    def test_optional_false_with_encode_always_makes_a_plain_property(self) -> None:
+        source = self.source(title={"optional": False, "encode": "always", "type": "String", "default": '""'})
+        self.assertIn("public var title: String", source)
+        self.assertIn('title: String = ""', source)
+        self.assertIn("try container.encode(title, forKey: .title)", source)
+
+    def test_bad_overrides_are_refused(self) -> None:
+        cases = {
+            "update on a required field": {"index": {"update": True}},
+            "unknown encode mode": {"title": {"encode": "sometimes"}},
+            "update with optional": {"title": {"update": True, "optional": True}},
+            "unknown key": {"title": {"colour": "red"}},
+            "empty default": {"title": {"default": ""}},
+        }
+        for label, fields in cases.items():
+            with self.subTest(label), self.assertRaises(BindingError):
+                rendered(mutation_document(), mutation_bindings(**fields))
+
+    def test_mutation_without_the_identity_fields_is_refused(self) -> None:
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["requests"]["swap-pane"]["mutation"] = True
+        with self.assertRaises(BindingError):
+            rendered(bindings=bindings)
+def read_bindings(objects: dict[str, Any]) -> dict[str, Any]:
+    bindings = layout_bindings()
+    bindings["families"]["Layout"]["objects"] = objects
+    return bindings
+
+
+class ReadTypeTests(unittest.TestCase):
+    """`objects`: result and snapshot types the app decodes, generated from schema objects or command results."""
+
+    def test_a_schema_object_becomes_a_decodable_struct_with_init_and_wire_keys(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {"type": "ZoomPaneResult", "doc": ["Zoom."]}}))
+        source = files["Layout/ZoomState.generated.swift"]
+        self.assertIn("/// Zoom.\npublic struct ZoomState: Decodable, Sendable, Equatable {", source)
+        self.assertIn("    public var zoomedPane: PaneID?\n", source)
+        self.assertIn("public init(pane: PaneID, zoomed: Bool, zoomedPane: PaneID? = nil)", source)
+        self.assertIn('case zoomedPane = "zoomed_pane"', source)
+        self.assertNotIn("init(from decoder", source)
+
+    def test_a_command_result_becomes_a_struct(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomResultCopy": {"result": "zoom-pane"}}))
+        self.assertIn("public struct ZoomResultCopy:", files["Layout/ZoomResultCopy.generated.swift"])
+
+    def test_a_default_decodes_leniently_and_defaults_the_init(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"default": "false"}}}}))
+        source = files["Layout/ZoomState.generated.swift"]
+        self.assertIn("public var zoomed: Bool\n", source)
+        self.assertIn("zoomed: Bool = false", source)
+        self.assertIn("zoomed = try container.decodeIfPresent(Bool.self, forKey: .zoomed) ?? false", source)
+        self.assertIn("pane = try container.decode(PaneID.self, forKey: .pane)", source)
+
+    def test_lenient_reads_a_malformed_value_as_missing(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"lenient": True, "default": "false"},
+                                                 "zoomed_pane": {"lenient": True}}}}))
+        source = files["Layout/ZoomState.generated.swift"]
+        self.assertIn(
+            "zoomed = (((try? container.decodeIfPresent(Bool.self, forKey: .zoomed)) ?? nil)) ?? false", source)
+        self.assertIn(
+            "zoomedPane = ((try? container.decodeIfPresent(PaneID.self, forKey: .zoomedPane)) ?? nil)", source)
+
+    def test_when_reads_a_field_only_under_its_condition(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed_pane": {"when": "zoomed", "lenient": True}}}}))
+        self.assertIn(
+            "zoomedPane = zoomed ? (((try? container.decodeIfPresent(PaneID.self, forKey: .zoomedPane)) ?? nil)) : nil",
+            files["Layout/ZoomState.generated.swift"])
+
+    def test_prefer_reads_another_key_first_and_falls_back(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "omit": ["zoomed_pane"],
+            "fields": {"pane": {"prefer": "zoomed_pane", "optional": True}}}}))
+        source = files["Layout/ZoomState.generated.swift"]
+        self.assertIn(
+            "pane = try container.decodeIfPresent(PaneID.self, forKey: .zoomedPane)"
+            " ?? container.decodeIfPresent(PaneID.self, forKey: .pane)", source)
+        self.assertIn('case zoomedPane = "zoomed_pane"', source)
+        self.assertNotIn("var zoomedPane", source)
+
+    def test_optional_makes_a_required_field_optional(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"optional": True}}}}))
+        self.assertIn("public var zoomed: Bool?\n", files["Layout/ZoomState.generated.swift"])
+
+    def test_rename_type_override_order_and_conformances(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "conformances": ["Codable", "Sendable", "Hashable"],
+            "order": ["zoomed", "pane"], "fields": {"zoomed_pane": {"name": "focus", "type": "String"}}}}))
+        source = files["Layout/ZoomState.generated.swift"]
+        self.assertIn("public struct ZoomState: Codable, Sendable, Hashable {", source)
+        self.assertLess(source.index("var zoomed:"), source.index("var pane:"))
+        self.assertIn("public var focus: String?", source)
+        self.assertIn('case focus = "zoomed_pane"', source)
+
+    def test_omit_drops_a_field_and_extra_adds_an_app_only_property(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "omit": ["zoomed"],
+            "extra": {"selected": {"type": "Bool", "default": "false", "doc": ["App only."]}}}}))
+        source = files["Layout/ZoomState.generated.swift"]
+        self.assertNotIn("var zoomed:", source)
+        self.assertIn("/// App only.\n    public var selected: Bool\n", source)
+        self.assertNotIn("case selected", source)
+        self.assertIn("selected = false", source)
+
+    def test_without_init_no_memberwise_init_is_emitted(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {"type": "ZoomPaneResult", "init": False}}))
+        self.assertNotIn("public init(pane:", files["Layout/ZoomState.generated.swift"])
+
+    def test_a_generated_type_resolves_refs_to_its_schema_type(self) -> None:
+        files = rendered(bindings=read_bindings({"RowHeightRecord": {
+            "type": "RowHeight", "fields": {"row": {"type": "String"}}}}) | {"types": {}})
+        self.assertIn("public struct RowHeightRecord", files["Layout/RowHeightRecord.generated.swift"])
+        self.assertIn("[RowHeightRecord]", files["Layout/SetRowHeightsRequest.generated.swift"])
+
+    def test_output_passes_the_hygiene_rules(self) -> None:
+        bindings = read_bindings({"ZoomState": {"type": "ZoomPaneResult", "fields": {"zoomed": {"default": "false"}}}})
+        self.assertEqual(rendered(bindings=bindings), rendered(bindings=bindings))
+        source = rendered(bindings=bindings)["Layout/ZoomState.generated.swift"]
+        self.assertFalse(re.search(r"[ \t]+$", source, re.M))
+        self.assertTrue(source.endswith("}\n"))
+
+
+class ReadTypeBindingErrorTests(unittest.TestCase):
+    def assert_refused(self, message: str, objects: dict[str, Any], bindings: dict[str, Any] | None = None) -> None:
+        with self.assertRaises(BindingError) as raised:
+            rendered(bindings=bindings or read_bindings(objects))
+        self.assertIn(message, str(raised.exception))
+
+    def test_read_options_refuse_what_has_no_swift_shape(self) -> None:
+        self.assert_refused("when needs an optional field", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"when": "true", "default": "false"}}}})
+        self.assert_refused("lenient needs an optional field or a default", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"lenient": True}}}})
+        self.assert_refused("omit it", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "zoomed_pane"}}}})
+        self.assert_refused("which the schema does not have", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "nope"}}}})
+
+    def test_type_and_result_are_exclusive(self) -> None:
+        self.assert_refused("exactly one of type", {"Z": {"type": "ZoomPaneResult", "result": "zoom-pane"}})
+        self.assert_refused("exactly one of type", {"Z": {}})
+
+    def test_an_unknown_type_or_command_is_refused(self) -> None:
+        self.assert_refused("no object type Nope", {"Z": {"type": "Nope"}})
+        self.assert_refused("no command nope", {"Z": {"result": "nope"}})
+
+    def test_omitting_an_unknown_field_is_refused(self) -> None:
+        self.assert_refused("omit names 'nope'", {"Z": {"type": "ZoomPaneResult", "omit": ["nope"]}})
+
+    def test_omitting_a_required_field_of_an_encoded_type_is_refused(self) -> None:
+        self.assert_refused("the schema requires", {"Z": {
+            "type": "ZoomPaneResult", "conformances": ["Codable", "Sendable"], "omit": ["pane"]}})
+
+    def test_an_extra_colliding_with_a_wire_field_or_missing_its_default_is_refused(self) -> None:
+        self.assert_refused("the schema has this field", {"Z": {
+            "type": "ZoomPaneResult", "extra": {"zoomed": {"type": "Bool", "default": "false"}}}})
+        self.assert_refused("needs its type and default", {"Z": {
+            "type": "ZoomPaneResult", "extra": {"selected": {"type": "Bool"}}}})
+
+    def test_generating_and_binding_one_schema_type_is_refused(self) -> None:
+        self.assert_refused("RowHeight", {"RowHeightRecord": {"type": "RowHeight"}})
+
+
 class OutAndCheckTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -498,7 +727,7 @@ class RepositoryBindingsTests(unittest.TestCase):
         self.assertTrue(generate.sources_root(REPO, bindings).is_dir())
         files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
         self.assertEqual(len(files), sum(
-            len(family.get("enums", {})) + len(family.get("requests", {}))
+            len(family.get("enums", {})) + len(family.get("requests", {})) + len(family.get("objects", {}))
             for family in bindings.get("families", {}).values()
         ))
         self.assertIn("Layout/SetColumnWidthRequest.generated.swift", files)
