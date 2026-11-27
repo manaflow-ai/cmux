@@ -74,7 +74,8 @@ impl ProxyServer {
 
     #[must_use]
     pub fn with_credentials(mut self, username: &str, password: &str) -> Self {
-        self.credentials = Some(Credentials { username: username.to_owned(), password: password.to_owned() });
+        self.credentials =
+            Some(Credentials { username: username.to_owned(), password: password.to_owned() });
         self
     }
 
@@ -128,7 +129,9 @@ pub(crate) fn authority(host: &str, port: u16) -> String {
 fn percent_encode(text: &str) -> String {
     text.bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
             _ => format!("%{b:02X}"),
         })
         .collect()
@@ -140,7 +143,8 @@ fn percent_decode(text: &str) -> String {
     let mut at = 0;
     while at < bytes.len() {
         if bytes[at] == b'%'
-            && let Some(byte) = text.get(at + 1..at + 3).and_then(|hex| u8::from_str_radix(hex, 16).ok())
+            && let Some(byte) =
+                text.get(at + 1..at + 3).and_then(|hex| u8::from_str_radix(hex, 16).ok())
         {
             out.push(byte);
             at += 3;
@@ -168,12 +172,16 @@ pub fn parse_proxy_url(text: &str) -> Option<Hop> {
     }
     // An explicit port, even the scheme's own (`url` hides `:80` on http);
     // none is curl's default proxy port.
-    let port = url.port().or_else(|| has_port(&with_scheme).then(|| url.port_or_known_default()).flatten());
+    let port = url
+        .port()
+        .or_else(|| has_port(&with_scheme).then(|| url.port_or_known_default()).flatten());
     let port = port.unwrap_or(1080);
     let mut server = ProxyServer::new(host, port);
     if !url.username().is_empty() {
-        server = server
-            .with_credentials(&percent_decode(url.username()), &percent_decode(url.password().unwrap_or("")));
+        server = server.with_credentials(
+            &percent_decode(url.username()),
+            &percent_decode(url.password().unwrap_or("")),
+        );
     }
     match url.scheme() {
         "http" => Some(Hop::Http(server)),
@@ -192,14 +200,30 @@ fn has_port(url: &str) -> bool {
     }) && !host_port.ends_with(']')
 }
 
-/// Whether `host` is this machine (never proxied by the system settings).
-fn is_loopback(host: &str) -> bool {
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .parse::<IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback())
+/// Whether `host` is never proxied, whatever the system settings say: this
+/// machine (`localhost`, a loopback address), a link-local address, or a
+/// tailnet address (Tailscale's `100.64.0.0/10` and `fd7a:115c:a1e0::/48`,
+/// which the WireGuard or tailnet interface carries, never a proxy).
+pub fn never_proxied(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") || host.to_ascii_lowercase().ends_with(".localhost") {
+        return true;
+    }
+    let Ok(ip) = host.trim_start_matches('[').trim_end_matches(']').parse::<IpAddr>() else {
+        return false;
+    };
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_link_local()
+                || in_network(ip, IpAddr::V4([100, 64, 0, 0].into()), 10)
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.to_ipv4_mapped().is_some_and(|v4| never_proxied(&v4.to_string()))
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+                || in_network(ip, IpAddr::V6([0xfd7a, 0x115c, 0xa1e0, 0, 0, 0, 0, 0].into()), 48)
+        }
+    }
 }
 
 /// Whether a `no_proxy` list (`*`, `example.com`, `.example.com`,
@@ -240,13 +264,17 @@ fn in_network(ip: IpAddr, net: IpAddr, bits: u32) -> bool {
 /// an `https` URL would be): `no_proxy`, then `https_proxy` or `http_proxy`,
 /// then `all_proxy`, lowercase before uppercase (curl's order).
 pub fn env_hops(host: &str, secure: bool, var: impl Fn(&str) -> Option<String>) -> Vec<Hop> {
-    let pick =
-        |names: &[&str]| names.iter().find_map(|name| var(name).filter(|value| !value.trim().is_empty()));
+    let pick = |names: &[&str]| {
+        names.iter().find_map(|name| var(name).filter(|value| !value.trim().is_empty()))
+    };
     if pick(&["no_proxy", "NO_PROXY"]).is_some_and(|list| no_proxy_matches(&list, host)) {
         return vec![Hop::Direct];
     }
     let scheme = if secure { ["https_proxy", "HTTPS_PROXY"] } else { ["http_proxy", "HTTP_PROXY"] };
-    match pick(&scheme).or_else(|| pick(&["all_proxy", "ALL_PROXY"])).and_then(|url| parse_proxy_url(&url)) {
+    match pick(&scheme)
+        .or_else(|| pick(&["all_proxy", "ALL_PROXY"]))
+        .and_then(|url| parse_proxy_url(&url))
+    {
         Some(hop) => vec![hop],
         None => vec![Hop::Direct],
     }
@@ -300,7 +328,9 @@ pub fn hops_from_entries(
                 // browsers go direct.
                 None => push(&mut hops, Hop::Direct),
             },
-            SystemEntry::Other(kind) => tracing::debug!(%kind, "a system proxy kind the link cannot use"),
+            SystemEntry::Other(kind) => {
+                tracing::debug!(%kind, "a system proxy kind the link cannot use")
+            }
         }
     }
     if hops.is_empty() {
@@ -342,6 +372,12 @@ fn remember(key: CacheKey, hops: &[Hop]) {
     cache.insert(key, (Instant::now(), hops.to_vec()));
 }
 
+/// The cached answer for `host:port` (`secure`: TLS), if one is still fresh:
+/// what a caller that must not wait checks before it races the lookup.
+pub fn cached_hops(host: &str, port: u16, secure: bool) -> Option<Vec<Hop>> {
+    cached(&(host.to_ascii_lowercase(), port, secure))
+}
+
 /// The environment's override of the system settings (`CMUX_MOBILE_DEV_PROXY`).
 fn dev_override() -> Option<Vec<Hop>> {
     let text = std::env::var("CMUX_MOBILE_DEV_PROXY").ok()?;
@@ -355,7 +391,7 @@ fn dev_override() -> Option<Vec<Hop>> {
 /// The system's hops to `host:port`, asking the OS (blocking: a PAC file may
 /// be fetched and run).
 fn system_hops_blocking(host: &str, port: u16, secure: bool) -> Vec<Hop> {
-    if is_loopback(host) {
+    if never_proxied(host) {
         return vec![Hop::Direct];
     }
     if let Some(hops) = dev_override() {
@@ -386,7 +422,8 @@ pub async fn hops(host: &str, port: u16, secure: bool, config: &ProxyConfig) -> 
                 return hops;
             }
             let owned = host.to_owned();
-            let asked = tokio::task::spawn_blocking(move || system_hops_blocking(&owned, port, secure));
+            let asked =
+                tokio::task::spawn_blocking(move || system_hops_blocking(&owned, port, secure));
             let hops = match tokio::time::timeout(SYSTEM_WAIT, asked).await {
                 Ok(Ok(hops)) => hops,
                 Ok(Err(error)) => {
@@ -394,7 +431,10 @@ pub async fn hops(host: &str, port: u16, secure: bool, config: &ProxyConfig) -> 
                     vec![Hop::Direct]
                 }
                 Err(_) => {
-                    tracing::warn!(host, "the system proxy lookup took too long; connecting directly");
+                    tracing::warn!(
+                        host,
+                        "the system proxy lookup took too long; connecting directly"
+                    );
                     vec![Hop::Direct]
                 }
             };
@@ -423,6 +463,25 @@ pub fn hops_now(host: &str, port: u16, secure: bool, config: &ProxyConfig) -> Ve
     }
 }
 
+/// The proxy an HTTP client with one proxy and no SOCKS (reqwest's
+/// `Proxy::custom`) sends a request for `url` through: the first HTTP proxy the
+/// system names for it, unless the settings go direct before it; `None` is
+/// direct. It reads the cached answer, else asks on this thread ([`hops_now`]):
+/// [`warm`] the origin first.
+pub fn http_proxy_url(url: &url::Url) -> Option<String> {
+    let host = url.host_str()?.trim_start_matches('[').trim_end_matches(']');
+    let secure = matches!(url.scheme(), "https" | "wss");
+    let port = url.port_or_known_default()?;
+    for hop in hops_now(host, port, secure, &ProxyConfig::System) {
+        match hop {
+            Hop::Direct => return None,
+            Hop::Http(server) => return Some(server.http_url()),
+            Hop::Socks5(_) => {}
+        }
+    }
+    None
+}
+
 /// Ask the system for `url`'s proxy now, off this thread, so a later
 /// [`hops_now`] finds it cached.
 pub async fn warm(url: &str) {
@@ -430,8 +489,13 @@ pub async fn warm(url: &str) {
     let Some(host) = url.host_str() else { return };
     let secure = matches!(url.scheme(), "https" | "wss");
     let port = url.port_or_known_default().unwrap_or(if secure { 443 } else { 80 });
-    let _ =
-        hops(host.trim_start_matches('[').trim_end_matches(']'), port, secure, &ProxyConfig::System).await;
+    let _ = hops(
+        host.trim_start_matches('[').trim_end_matches(']'),
+        port,
+        secure,
+        &ProxyConfig::System,
+    )
+    .await;
 }
 
 /// Bound on reading a proxy's answer head.
@@ -484,6 +548,18 @@ pub fn auth_schemes(head: &str) -> Vec<String> {
     schemes
 }
 
+/// Whether `host` can stand in a `CONNECT` line as it is: no space, control
+/// character (a CR or LF would end the line and smuggle a header), `@`, `/`
+/// or other character a host name or bracketed IP literal never has.
+pub fn is_plain_host(host: &str) -> bool {
+    let bare = host.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')).unwrap_or(host);
+    !bare.is_empty()
+        && bare.len() <= 253
+        && bare
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b':' | b'%'))
+}
+
 /// Tunnel `stream` (connected to `proxy`) to `host:port` with `CONNECT`,
 /// sending Basic credentials when the system has them.
 pub(crate) async fn http_connect(
@@ -498,6 +574,11 @@ pub(crate) async fn http_connect(
         return Err(EgressError::Io(format!("not a host name to tunnel to: {host:?}")));
     }
     let target = authority(host, port);
+    if !is_plain_host(host) {
+        return Err(EgressError::Io(format!(
+            "HTTP proxy {proxy}: the destination {target:?} is not a plain host name or address"
+        )));
+    }
     let mut request = format!(
         "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\nUser-Agent: cmux-mobile-link\r\nProxy-Connection: Keep-Alive\r\n"
     );
@@ -511,23 +592,39 @@ pub(crate) async fn http_connect(
     stream.write_all(request.as_bytes()).await.map_err(io)?;
     let head = read_head(&mut stream).await.map_err(io)?;
     let status_line = head.lines().next().unwrap_or("").trim().to_owned();
-    let code = status_line.split_whitespace().nth(1).and_then(|code| code.parse::<u16>().ok()).unwrap_or(0);
+    let code = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
     match code {
         200..=299 => Ok(stream),
         407 => {
             let schemes = auth_schemes(&head);
             let basic = schemes.iter().any(|scheme| scheme.eq_ignore_ascii_case("basic"));
             Err(match (&proxy.credentials, basic) {
+                (Some(credentials), true) if credentials.password.is_empty() => {
+                    EgressError::ProxyAuthNoPassword {
+                        proxy: proxy.to_string(),
+                        username: credentials.username.clone(),
+                    }
+                }
                 (Some(_), true) => EgressError::ProxyAuthRefused { proxy: proxy.to_string() },
                 (None, true) => EgressError::ProxyAuthMissing { proxy: proxy.to_string() },
                 _ => EgressError::ProxyAuthUnsupported {
                     proxy: proxy.to_string(),
                     target,
-                    schemes: if schemes.is_empty() { "an unnamed".to_owned() } else { schemes.join(" or ") },
+                    schemes: if schemes.is_empty() {
+                        "an unnamed".to_owned()
+                    } else {
+                        schemes.join(" or ")
+                    },
                 },
             })
         }
-        _ => Err(EgressError::ProxyRefused { proxy: proxy.to_string(), target, status: status_line }),
+        _ => {
+            Err(EgressError::ProxyRefused { proxy: proxy.to_string(), target, status: status_line })
+        }
     }
 }
 
@@ -571,7 +668,9 @@ pub(crate) async fn socks5_connect(
                 return Err(EgressError::ProxyAuthRefused { proxy: proxy.to_string() });
             }
         }
-        ([0x05, 0xFF], None) => return Err(EgressError::ProxyAuthMissing { proxy: proxy.to_string() }),
+        ([0x05, 0xFF], None) => {
+            return Err(EgressError::ProxyAuthMissing { proxy: proxy.to_string() });
+        }
         ([0x05, method], _) => {
             return Err(EgressError::ProxyAuthUnsupported {
                 proxy: proxy.to_string(),
@@ -652,7 +751,9 @@ mod tests {
         assert_eq!(parse_proxy_url("proxy.corp:8080"), Some(http("proxy.corp", 8080)));
         assert_eq!(
             parse_proxy_url("http://ann%40corp:p%3Ass@proxy.corp:3128"),
-            Some(Hop::Http(ProxyServer::new("proxy.corp", 3128).with_credentials("ann@corp", "p:ss")))
+            Some(Hop::Http(
+                ProxyServer::new("proxy.corp", 3128).with_credentials("ann@corp", "p:ss")
+            ))
         );
         assert_eq!(
             parse_proxy_url("socks5h://10.0.0.1"),
@@ -690,14 +791,19 @@ mod tests {
     #[test]
     fn the_environment_picks_by_scheme_then_all_proxy() {
         let env = |pairs: &'static [(&'static str, &'static str)]| {
-            move |name: &str| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())
+            move |name: &str| {
+                pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())
+            }
         };
         let vars = env(&[("https_proxy", "http://secure:8443"), ("http_proxy", "plain:8080")]);
         assert_eq!(env_hops("turn.cloudflare.com", true, vars), vec![http("secure", 8443)]);
         assert_eq!(env_hops("turn.cloudflare.com", false, vars), vec![http("plain", 8080)]);
         let vars = env(&[("ALL_PROXY", "socks5://s:1080"), ("NO_PROXY", ".internal")]);
         assert_eq!(env_hops("a.internal", true, vars), vec![Hop::Direct]);
-        assert_eq!(env_hops("x.example", true, vars), vec![Hop::Socks5(ProxyServer::new("s", 1080))]);
+        assert_eq!(
+            env_hops("x.example", true, vars),
+            vec![Hop::Socks5(ProxyServer::new("s", 1080))]
+        );
         assert_eq!(env_hops("x.example", true, env(&[])), vec![Hop::Direct]);
     }
 
@@ -726,6 +832,56 @@ mod tests {
             vec![Hop::Direct]
         );
         assert_eq!(hops_from_entries(Vec::new(), |_| None), vec![Hop::Direct]);
+    }
+
+    #[test]
+    fn loopback_link_local_and_tailnet_hosts_are_never_proxied() {
+        for host in [
+            "localhost",
+            "a.localhost",
+            "127.0.0.1",
+            "[::1]",
+            "::1",
+            "169.254.1.2",
+            "fe80::1",
+            "100.64.0.1",
+            "100.127.255.254",
+            "fd7a:115c:a1e0::10",
+            "[fd7a:115c:a1e0:ab12::1]",
+            "::ffff:127.0.0.1",
+        ] {
+            assert!(never_proxied(host), "{host}");
+        }
+        for host in
+            ["cmux.dev", "100.128.0.1", "10.0.0.1", "8.8.8.8", "2001:db8::1", "fd7a:115d::1"]
+        {
+            assert!(!never_proxied(host), "{host}");
+        }
+    }
+
+    #[test]
+    fn a_connect_target_is_a_plain_host() {
+        for host in [
+            "cmux.dev",
+            "relay.cmux.dev",
+            "10.0.0.1",
+            "[2001:db8::1]",
+            "2001:db8::1",
+            "fe80::1%en0",
+        ] {
+            assert!(is_plain_host(host), "{host}");
+        }
+        for host in ["", "a b", "evil\r\nX-Injected: 1", "a\nb", "user@host", "host/path", "[]"] {
+            assert!(!is_plain_host(host), "{host:?}");
+        }
+    }
+
+    #[test]
+    fn forget_clears_cached_answers() {
+        remember(("forget.example".into(), 443, true), &[http("p", 1)]);
+        assert_eq!(cached_hops("FORGET.example", 443, true), Some(vec![http("p", 1)]));
+        forget();
+        assert_eq!(cached_hops("forget.example", 443, true), None);
     }
 
     #[test]
