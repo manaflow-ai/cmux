@@ -134,6 +134,18 @@ pub(super) async fn queue(
     // and a session on a peer that is down is looked up on the mesh hub first (`send_check.rs`).
     let asked = target.clone();
     let (target, unchecked) = super::send_check::route(hub, &mut request, target).await?;
+    // A waiting CLI has already attached to a resolved session. If it disappeared while the
+    // queue request was in flight, refuse before the hub/hop fast paths can send without a
+    // local durable receipt. A normal queued send keeps its existing hub-routing behavior.
+    if params.get("waitForTurn").and_then(Value::as_bool) == Some(true)
+        && (target.starts_with('@')
+            || (hub.resolve(&target).is_err()
+                && hub.resolve_remote(&target).is_none()
+                && hub.peer_down_for(&target).is_none()
+                && hub.no_session_is_final(&target)))
+    {
+        return Err(RpcError::invalid_params(format!("no session to follow: {target}")));
+    }
     // Team-scoped addresses are always hub-routed and are never resolved as
     // local session names. The mesh sender applies the team-messaging gate and address
     // validation before posting them.
