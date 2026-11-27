@@ -8,13 +8,26 @@
 # time (its zig build of libghostty-vt) against the rest.
 #
 # Run (Linux pool; the image carries the check and kache):
-#   cmux-ci test -- 'set -o pipefail; bash scripts/measure/cmux-tui-mac-check-kache.sh [full|remote]'
+#   cmux-ci test --route fleet -- env GHOSTTY_NEXT_SHA="$(git rev-parse HEAD:ghostty-next)" \
+#     bash scripts/measure/cmux-tui-mac-check-kache.sh [full|remote]
+# (--route fleet: an Actions runner has no pool image. The fleet upload carries no submodules, so the
+# check's Zig lookup finds no ghostty-next; this fetches it at GHOSTTY_NEXT_SHA, the commit's pin.)
 # remote: a second job on another VM, after a full one pushed this commit's units (the fresh-VM case).
 set -uo pipefail
 src="$(pwd)"
 img=/opt/cmux-linux-pool/hq/build-fleet/swift-linux-builder/pool/cmux-tui-mac-check.sh
 [[ -f "$img" ]] || { echo "no $img on this host: run on a Linux pool VM" >&2; exit 69; }
 out="$src/bench-out"; mkdir -p "$out"
+if [[ ! -f "$src/ghostty-next/build.zig.zon" ]]; then
+  pin="${GHOSTTY_NEXT_SHA:-$(git -C "$src" rev-parse HEAD:ghostty-next 2>/dev/null)}"
+  [[ -n "$pin" ]] || { echo "no ghostty-next checkout and no GHOSTTY_NEXT_SHA; no verdict" >&2; exit 69; }
+  rm -rf "$src/ghostty-next"   # the empty submodule directory of the upload
+  git init -q "$src/ghostty-next" \
+    && git -C "$src/ghostty-next" fetch -q --depth 1 https://github.com/manaflow-ai/ghostty-next.git "$pin" \
+    && git -C "$src/ghostty-next" checkout -q FETCH_HEAD \
+    || { echo "ghostty-next $pin did not fetch; no verdict" >&2; exit 69; }
+  echo "ghostty-next fetched at $pin"
+fi
 # Two copies of the image's check, the same except for the wrapper; both add --timings (stable HTML report).
 sed -e 's/ RUSTC_WRAPPER$//' -e 's/^cargo check --release --locked /cargo check --timings --release --locked /' "$img" >"$out/check-kache.sh"
 sed -e 's/^cargo check --release --locked /cargo check --timings --release --locked /' "$img" >"$out/check-none.sh"
@@ -48,8 +61,9 @@ run() { # TAG none|kache
     bash "$out/check-none.sh" "$src" >"$out/$tag.log" 2>&1; rc=$?
   fi
   echo "RUN $tag ($which) rc=$rc wall=$(python3 -c "import time,sys;print(round(time.time()-float(sys.argv[1]),1))" "$t0")s $(split 2>/dev/null || echo split=none) load=$(cut -d' ' -f1 /proc/loadavg)"
-  (( rc == 0 )) || tail -20 "$out/$tag.log" | sed "s/^/  $tag /"
+  (( rc == 0 )) || { failed=$((failed + 1)); tail -20 "$out/$tag.log" | sed "s/^/  $tag /"; }
 }
+failed=0
 # warm0 sets up the cross toolchain and the Zig packages (kept in ~/.cache); not counted.
 # mode=remote (a second job, on another VM than the first's): the first kache run here reads what the
 # first job pushed to the shared remote, so it is the fresh-VM case.
@@ -59,7 +73,7 @@ if [[ $mode == remote ]]; then
   run remote-kache kache
   run remote-kache-2 kache
   run remote-none none
-  exit 0
+  exit $(( failed > 0 ))
 fi
 run none-1 none
 run kfill kache          # the first kache run of this commit: misses fill the VM's store and push to the remote
@@ -70,4 +84,4 @@ for _ in $(seq "$(nproc)"); do (while :; do :; done) & done
 run load-none none
 run load-kache kache
 kill $(jobs -p) 2>/dev/null
-exit 0
+exit $(( failed > 0 ))  # a run with no verdict fails the job, so a bench that measured nothing never reads as SUCCESS
