@@ -67,6 +67,9 @@ test("the categories are the approved ones, in order", () => {
     // Integrations: the integrations hub, linked accounts agents act through (Leo 2026-11-23: "an
     // aggregator of integrations. linking up things like e.g. stripe so that your agents can refund for you").
     "integrations",
+    // Developer: API tokens for scripts, CI and GitHub Actions (Leo 2026-11-25: "Convienient beats all.
+    // Just make good ui for it so people flow.").
+    "developer",
     "import",
     "privacy",
     "keyboard",

@@ -1363,6 +1363,131 @@ mark {
   width: var(--page-size-160);
 }
 
+/* Settings > Developer (DeveloperTokensCard): scope chips beside a token's name, the create and allow
+   forms as labeled fields, and code lines (the shown-once token, export, curl, the workflow) that
+   wrap inside the card with Copy beside them. */
+.tokens-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.tokens-chips {
+  display: inline-flex;
+  gap: var(--grid-half-step);
+}
+
+.tokens-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-color-surface);
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.tokens-lead {
+  margin-bottom: var(--ds-space-2);
+}
+
+.tokens-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+.tokens-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: var(--page-size-320);
+}
+
+.tokens-row-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-3);
+}
+
+.tokens-row-fields > .tokens-field {
+  flex: 1 1 var(--page-size-160);
+}
+
+.tokens-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.tokens-fieldset > legend {
+  margin-bottom: var(--ds-space-1);
+  padding: 0;
+}
+
+.tokens-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+}
+
+.tokens-check > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.tokens-check-title {
+  color: var(--text);
+}
+
+.tokens-warning {
+  color: var(--ds-color-attention, var(--text));
+}
+
+.tokens-subhead {
+  margin-top: var(--ds-space-2);
+}
+
+.tokens-code-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-1);
+}
+
+.tokens-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+  color: var(--text);
+  font: var(--text-detail) / 1.5 ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tokens-secret {
+  font-weight: 600;
+}
+
+/* The shown-once token keeps a step from the list under it. */
+.tokens-created {
+  margin-bottom: var(--ds-space-3);
+}
+
 /* Settings > Automations: the form reads as labeled fields in rows, a condition is one line
    (path, operator, value, remove), and the preview wraps its rendered prompt. */
 .autocloud-form {
@@ -4238,7 +4363,6 @@ button.menu-disclosure {
    type under Connect Claude, the paste form inside it once opened. */
 .models-claude-paste > summary {
   width: fit-content;
-  cursor: pointer;
 }
 .models-claude-paste[open] > summary {
   margin-bottom: 8px;
@@ -4293,3 +4417,12 @@ button.menu-disclosure {
   display: block;
   margin: 0 0 12px;
 }
+
+/* RFD 0123 Slack awake card (gallery-first): the right-hand spent / allowance value. */
+[data-card="slack-awake"] .row-value {
+  margin-left: auto;
+  color: var(--text-secondary, inherit);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
