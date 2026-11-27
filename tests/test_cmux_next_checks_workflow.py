@@ -3213,7 +3213,7 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
                                  "ubuntu-24.04")
                 fork_pr = self.context(**{"github.event.pull_request.head.repo.full_name": "someone/cmux"})
                 self.assertEqual(evaluate(runs_on, fork_pr), "ubuntu-24.04")
-        self.assertEqual(evaluate(str(jobs[JOB]["timeout-minutes"]), self.context()), 15)
+        self.assertEqual(evaluate(str(jobs[JOB]["timeout-minutes"]), self.context()), 20)
 
 
 class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
@@ -5023,7 +5023,7 @@ class FastTierCargoRoute(unittest.TestCase):
         self.assertFalse(self.reaches(*tooling, labels=["full-ci"]))
         self.assertTrue(self.reaches(*tooling, ".github/workflows/cmux-next.yml", labels=["full-ci"]))
         self.assertTrue(self.reaches(*tooling, "scripts/cmux-next/fast-tier.py", labels=["full-ci"]))
-        self.assertTrue(self.reaches(*tooling, "webviews/src/app.tsx", labels=["full-ci"]))
+        self.assertTrue(self.reaches(*tooling, "cmux-tui/crates/acpmux/src/lib.rs", labels=["full-ci"]))
         self.assertTrue(self.reaches(labels=["full-ci"]))
 
     def test_a_change_that_reaches_no_entry_skips_it(self):
@@ -5032,9 +5032,45 @@ class FastTierCargoRoute(unittest.TestCase):
         self.assertFalse(self.reaches())
 
     def test_full_ci_and_an_unreadable_registry_run_it(self):
-        self.assertTrue(self.reaches("webviews/src/app.tsx", labels=("full-ci",)))
+        self.assertTrue(self.reaches("cmux-tui/crates/acpmux-core/src/lib.rs", labels=("full-ci",)))
         with tempfile.TemporaryDirectory() as empty:
             self.assertTrue(self.route.reaches(["docs/x.md"], set(), Path(empty))[0])
+            self.assertTrue(self.route.reaches(["webviews/src/app.tsx"], {"full-ci"}, Path(empty))[0])
+
+    def test_full_ci_runs_it_for_what_the_entries_can_read(self):
+        # ci-min-per-pr-14: full-ci follows the entries' crate graph (dependency crates, the files their sources
+        # name, cmux-tui/spec/ and bindings/, unnamed tree inputs), not every change.
+        for path in ("cmux-tui/crates/acpmux-core/src/lib.rs", "cmux-tui/spec/acpmux-protocol.json", "ghostty-next",
+                     "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl",
+                     "Resources/theme-files/moss.json"):
+            with self.subTest(path=path):
+                self.assertTrue(self.reaches("docs/x.md", path, labels=["full-ci"]))
+        # Without the label a dependency crate still waits for the base run.
+        self.assertFalse(self.reaches("cmux-tui/crates/acpmux-core/src/lib.rs"))
+
+    def test_full_ci_skips_it_for_what_no_entry_reads(self):
+        for path in ("webviews/src/app.tsx", "cmux-next-ios/App/CmuxMobileApp.swift",
+                     "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationViewController.swift"):
+            with self.subTest(path=path):
+                self.assertFalse(self.reaches(path, "docs/x.md", labels=["full-ci"]))
+
+    def test_full_ci_runs_it_when_a_source_names_the_whole_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/cmux-next").mkdir(parents=True)
+            (root / "scripts/cmux-next/fast-tier.json").write_text(json.dumps({"entries": [
+                {"name": "a", "kind": "cargo", "path": "ws", "package": "a"}]}), encoding="utf-8")
+            (root / "ws/crates/a/src").mkdir(parents=True)
+            (root / "ws/Cargo.toml").write_text("[workspace]\nmembers = [\"crates/*\"]\n", encoding="utf-8")
+            (root / "ws/crates/a/Cargo.toml").write_text('[package]\nname = "a"\n', encoding="utf-8")
+            (root / "webviews").mkdir()
+            (root / "scripts/cmux-next/cmux-tui-tree-inputs.txt").write_text("tree ws\n", encoding="utf-8")
+            source = root / "ws/crates/a/src/lib.rs"
+            source.write_text('const T: &str = "../../../../webviews";\n', encoding="utf-8")
+            self.assertTrue(self.route.reaches(["webviews/x.ts"], {"full-ci"}, root)[0])
+            self.assertFalse(self.route.reaches(["web/x.ts"], {"full-ci"}, root)[0])
+            source.write_text('const T: &str = "../../../..";\n', encoding="utf-8")
+            self.assertTrue(self.route.reaches(["web/x.ts"], {"full-ci"}, root)[0])
 
 
 class SwiftPmFetchesStepAroundADeadProxy(unittest.TestCase):
