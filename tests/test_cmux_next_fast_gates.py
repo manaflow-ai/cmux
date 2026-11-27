@@ -2578,13 +2578,13 @@ class DeepenFallbackTests(unittest.TestCase):
 
     def test_a_pack_objects_abort_retries_with_blob_none(self):
         calls = self.run_deepen_fetch({"--filter=tree:0": self.BUG})
-        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        self.assertEqual([next(a for a in c if a.startswith("--filter=")) for c in calls], ["--filter=tree:0", "--filter=blob:none"])
         self.assertTrue(all("--deepen=32" in c for c in calls))
 
     def test_a_local_links_abort_retries_without_the_alternate_store_and_puts_it_back(self):
         calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL, "--filter=blob:none": self.LOCAL},
                                       alternates="/mirror/objects\n", aside_failures={})
-        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=tree:0"])
+        self.assertEqual([next(a for a in c if a.startswith("--filter=")) for c in calls], ["--filter=tree:0", "--filter=tree:0"])
         self.assertEqual(self.alternates_seen, [True, False])
         self.assertEqual(self.alternates_after, "/mirror/objects\n")
 
@@ -2596,7 +2596,7 @@ class DeepenFallbackTests(unittest.TestCase):
 
     def test_a_local_links_abort_without_an_alternate_store_tries_blob_none(self):
         calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL})
-        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        self.assertEqual([next(a for a in c if a.startswith("--filter=")) for c in calls], ["--filter=tree:0", "--filter=blob:none"])
 
     def test_a_clean_deepen_fetches_once(self):
         self.assertEqual(len(self.run_deepen_fetch({})), 1)
