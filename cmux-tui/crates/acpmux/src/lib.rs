@@ -177,6 +177,8 @@ pub mod heavy_precheck;
 pub(crate) mod home_fs;
 #[cfg(test)]
 mod home_writers_by_path_tests;
+/// A harness's hook commands as rules the daemon runs (`hook_host/`).
+pub mod hook_host;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
 pub mod host_load_watch;

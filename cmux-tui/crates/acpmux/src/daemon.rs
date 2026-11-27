@@ -1308,6 +1308,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     let _exe_watch = hub.scope.spawn_until_cancelled("exe-swap-watch", exe_watch);
+    // The hook host (`hook_host/`): harness hook rules from `<home>/hooks.json`, answered on
+    // loopback. Nothing listens without that file.
+    let _hook_host = hub
+        .scope
+        .spawn_until_cancelled("hook-host", crate::hook_host::serve(crate::config::home()));
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::server::tailnet_service::Service::spawn(hub.clone());
