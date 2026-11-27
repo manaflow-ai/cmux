@@ -6,7 +6,7 @@ import path from "node:path";
 import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
-import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry, UBUNTU_ARCHIVE } from "../scripts/cmux-vm-image/lock";
+import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, PINNED_MIRROR, pinnedFetchCommand, profileCommand, programInstallCommand, readInputsLock, sq, storeEntry, UBUNTU_ARCHIVE } from "../scripts/cmux-vm-image/lock";
 import { imageLeftoversCommand, programChecksCommand, programProblems, rolesOffFontsOnCommand, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
 import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand, legacyErrorFilter } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
@@ -167,7 +167,9 @@ describe("cmux VM image apt index", () => {
     expect(bake.APT_UPDATE_COMMAND).not.toContain("then exit 0");
     expect(bake.APT_UPDATE_COMMAND).not.toContain("for attempt");
     expect(bake.APT_UPDATE_COMMAND).not.toContain("sleep 5");
-    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 60s apt-get update -q --error-on=any");
+    // The fallback is bounded by a stall (30 s with no bytes), not by a total a slow link overruns (roll 45961450781).
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 300s apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q --error-on=any");
+    expect(bake.APT_UPDATE_COMMAND).not.toContain("timeout 60s");
     expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
     const payload = bake.APT_UPDATE_COMMAND.match(/printf %s ([A-Za-z0-9+/=]+) \| base64 -d/)?.[1];
     expect(payload).toBeDefined();
@@ -226,7 +228,8 @@ describe("cmux VM image apt index", () => {
     const codex = lock.programs.find((p) => p.name === "codex")!;
     const dl = `/tmp/cmux-dl/${codex.sha256}`;
     const command = programInstallCommand(codex);
-    expect(command).toContain(`test "$(stat -c %s ${dl} 2>/dev/null)" = ${codex.size} || curl -fsSL --retry 3 -C - -o ${dl} `);
+    expect(command).toContain(`test "$(stat -c %s ${dl} 2>/dev/null)" = ${codex.size} || `);
+    expect(command).toContain(`|| curl -fsSL --retry 3 -C - -o ${dl} ${sq(codex.url)}; }`);
     expect(command).toContain(`sha256sum -c --quiet - || { rm -f ${dl}; false; }`);
     expect(command).not.toContain(`rm -f ${dl} ${dl}.tgz ${dl}.sums && mkdir`);
 
@@ -250,13 +253,57 @@ describe("cmux VM image apt index", () => {
     expect(bake.STORE_FETCH_ATTEMPTS).toBe(6);
   });
 
+  // RFD 0056 part 3: a pinned file comes from the edge copy under its sha256 first and the origin URL after; a whole
+  // file makes no request, and CMUX_PINNED_MIRROR="" skips the edge.
+  test("a pinned fetch tries the edge by sha256, falls back to the origin, and skips both for a whole file", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "pinned-fetch-"));
+    try {
+      const bin = path.join(dir, "bin");
+      mkdirSync(bin);
+      // Fake curl: logs its URL; the edge answers only when EDGE_OK=1, the origin always writes 4 bytes.
+      // Like curl, a -S in its flags prints the error: an edge miss is expected and must stay quiet.
+      writeFileSync(path.join(bin, "curl"), `#!/bin/bash
+out=""; url=""; loud=0
+while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; -C|--connect-timeout|--retry) shift 2;; -*S*) loud=1; shift;; -*) shift;; *) url="$1"; shift;; esac; done
+echo "$url" >> "${dir}/log"
+case "$url" in ${PINNED_MIRROR}/*) [ "\${EDGE_OK:-0}" = 1 ] || { [ $loud = 1 ] && echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; };; esac
+printf abcd > "$out"
+`, { mode: 0o755 });
+      const sha = "a".repeat(64);
+      const dest = path.join(dir, "dl");
+      const command = pinnedFetchCommand(dest, sha, 4, "https://origin.example/file");
+      await bashSyntax(command);
+      const run = async (env: Record<string, string>) => {
+        rmSync(path.join(dir, "log"), { force: true });
+        const result = await runChild("bash", ["-c", command], { timeout: 20_000, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ...env } });
+        expect(result.status).toBe(0);
+        expect(result.stderr).toBe("");
+        return readFileSync(path.join(dir, "log"), "utf8").trim().split("\n");
+      };
+      expect(await run({ EDGE_OK: "1" })).toEqual([`${PINNED_MIRROR}/${sha}`]);
+      rmSync(dest);
+      expect(await run({})).toEqual([`${PINNED_MIRROR}/${sha}`, "https://origin.example/file"]);
+      rmSync(dest);
+      expect(await run({ CMUX_PINNED_MIRROR: "" })).toEqual(["https://origin.example/file"]);
+      rmSync(path.join(dir, "log"), { force: true });
+      writeFileSync(path.join(dir, "log"), "");
+      const whole = await runChild("bash", ["-c", command], { timeout: 20_000, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+      expect(whole.status).toBe(0);
+      expect(readFileSync(path.join(dir, "log"), "utf8")).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // Image roll 45126299464 (2026-11-23): the bake and smoke passed, and the sbom step hit the guest's 5-minute exec
   // cap (status 124) because syft's 29 MB download from GitHub releases ran at about 100 KB/s. syft now downloads in
   // its own resumed step, run again like a store program, before the scan.
   test("syft downloads in its own resumed step: a whole file is kept, a partial one continues, a bad one is removed", async () => {
     const syft = lock.tools.syft;
     const command = bake.syftFetchCommand(syft, "/tmp/cmux-out-syft");
-    expect(command).toContain(`test "$(stat -c %s /tmp/cmux-out-syft/syft.tgz 2>/dev/null)" = ${syft.size} || curl -fsSL --retry 3 -C - -o /tmp/cmux-out-syft/syft.tgz `);
+    expect(command).toContain(`test "$(stat -c %s /tmp/cmux-out-syft/syft.tgz 2>/dev/null)" = ${syft.size} || `);
+    expect(command).toContain(`${PINNED_MIRROR}}/${syft.sha256}"; }`);
+    expect(command).toContain(`|| curl -fsSL --retry 3 -C - -o /tmp/cmux-out-syft/syft.tgz ${sq(syft.url)}; }`);
     expect(command).toContain(`${syft.sha256} /tmp/cmux-out-syft/syft.tgz | sha256sum -c --quiet - || { rm -f /tmp/cmux-out-syft/syft.tgz; false; }`);
     expect(command).toContain("tar -xzf /tmp/cmux-out-syft/syft.tgz -C /tmp/cmux-out-syft syft");
     await bashSyntax(command);
@@ -465,7 +512,7 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     };
     const loginEnv = at('L.step(vm, "acpmux-login-env"');
     const checks = at('L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand())');
-    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand())');
+    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs())');
     const clean = at('L.step(vm, "clean"');
     const tmpEmpty = at('L.step(vm, "tmp-empty"');
     const warm = at('"drop-cache-warm-bind-path"');
@@ -495,6 +542,15 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     expect(wait).toContain('[ ! -s "$health" ]');
     expect(wait).not.toMatch(/sleep (?!1;)\d/);
     expect(wait).toContain("acpmux's harness check did not finish");
+  });
+
+  test("acpmux-probes-quiet is bounded by wall time and its exec outlasts the bound (roll 46067232978)", () => {
+    const cmd = bake.acpmuxProbesQuietCommand();
+    expect(cmd).toContain("t0=$(date +%s)");
+    expect(cmd).toContain("timeout 10 find /proc");
+    expect(cmd).not.toMatch(/i=\$\(\(i \+ 1\)\)/);
+    expect(bake.acpmuxProbesQuietStepMs()).toBeGreaterThan(120_000 + 2 * 5 * 11_000 + 30_000);
+    expect(source()).toContain('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs())');
   });
 
   test("waits for acpmux's model probes (cwd in the unattended folder) to exit before clean", async () => {

@@ -53,6 +53,10 @@ unsent='net/http: TLS handshake timeout|dial tcp'
 # GitHub's own answer that a dispatch did not run (run 45776501690's wake-nightly-next-tick died on one
 # HTTP 500 after its spare-token move): nothing was dispatched, so trying again cannot run it twice.
 unsent="$unsent|could not create workflow dispatch event: HTTP 5[0-9][0-9]"
+# GitHub could not read the workflow file to start the run (run 45798252585's dispatch-published-in: "HTTP 422:
+# Invalid Argument - failed to parse workflow: failed to fetch workflow: getting blob contents: twirp error
+# resource_exhausted: gitmon refuses to schedule us"): its own storage was throttled, nothing was dispatched.
+unsent="$unsent|could not create workflow dispatch event: HTTP 422: .*twirp error resource_exhausted"
 
 # No ledger yet is nothing waited; one that cannot be read or parsed counts as the whole
 # budget spent (fail closed: an earlier step's waits are unknown).
@@ -120,6 +124,9 @@ wait_for_budget() {
     return 1
   }
   log_wait "$why; waiting ${want}s $until (${spent}s waited in this job so far)"
+  # Structured wait marker for ci-trace, on stderr. Not when stdout and stderr are one stream: those
+  # callers compare the captured text exactly (see log_wait), so the marker would break them.
+  [ /dev/fd/1 -ef /dev/fd/2 ] || echo "CMUX-WAIT {\"on\":\"github-api-budget\",\"class\":\"quota\",\"bound_s\":${max_total},\"waited_s\":${want}}" >&2
   sleep "$want"  # sleep-ok: waiting out the API rate-limit reset is the point
 }
 

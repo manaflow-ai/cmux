@@ -46,8 +46,6 @@ public final class SidebarModel {
     @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
     /// The settled chats of `contentRevision` (`settledChats()`): one Rust call per change of the rows, not per layout.
     @ObservationIgnored var settleCache: (revision: UInt64, settled: Set<WorkspaceID>)?
-    /// The automatic sessions of `contentRevision` (`automaticSessions()`): one Rust call per change of the rows.
-    @ObservationIgnored var automaticCache: (revision: UInt64, automatic: Set<WorkspaceID>)?
     /// The latest document projection before user customization. Keeping this
     /// source lets a live settings reload restore sections or rows that were
     /// hidden by the previous value.
@@ -277,11 +275,10 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// Today's changes read as an age (`2h`), not a time (`sidebar.relativeTimestamps`, off by default).
+    public var relativeTimestamps = false
     /// Seen, finished agent chats fold behind a "Settled (N)" row (`sidebar.settleFinished`, off by default).
     public var settlesFinished = false
-    /// Sessions no person started and no chat's subagent draw in place (`sidebar.showAutomaticSessions`, off by
-    /// default: they fold behind an "Automatic (N)" row).
-    public var showsAutomaticSessions = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
     public var showsColors = true
     public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
@@ -337,13 +334,12 @@ public final class SidebarModel {
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
+    /// The machines a workspace row's chat can move to (its Move to… targets; none for a row that is no lone chat),
+    /// from the App: a drag of that one row may drop on them, which moves the chat (`SidebarChatMove`).
+    @ObservationIgnored public var chatMoveTargets: ((WorkspaceID) -> [MachineID])?
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
     /// App (layout tiles or the daemon flag): an expanded row's hover pin.
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
-    /// A press on a chat's subagent under its row (`SidebarSubagentsView`): shows chat tab `TabID` of the workspace and
-    /// opens the subagent's pane beside it, as the chat's own subagent cards do; nil (the stacked line, "N more") shows
-    /// the chat only. Nil while the App offers none (the standalone mock).
-    @ObservationIgnored public var openSubagent: ((WorkspaceID, TabID, SidebarSubagent?) -> Void)?
     /// The sections another space shows (R99: the page beside the current
     /// one during a horizontal swipe). Read when a swipe reaches that page.
     @ObservationIgnored public var spaceSections: ((ProfileKey) -> [SidebarSection])?
@@ -448,7 +444,15 @@ public final class SidebarModel {
     /// placeholders, which are no workspace yet.
     public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { !$0.rowState.isPending } }
 
-    public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
+    /// Workspace `id`'s row, its first listing in visual order: O(1) through `rowIndex` (built once per structural set),
+    /// never a walk of every row. A drag reads it each move for the dragged rows and their parents, hover cards and row
+    /// menus once per show (`SidebarWorkspaceLookupCostTests`).
+    public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? {
+        access(keyPath: \.sections)
+        guard let path = listedPaths(of: id).first else { return nil }
+        let row = SidebarRowIndex.workspace(at: path, in: storedSections)
+        return row.id == id ? row : SidebarEdits.workspace(id, in: storedSections) // a stale index: the walk, never a wrong row
+    }
 
     public func group(_ id: GroupID) -> SidebarGroup? {
         access(keyPath: \.sections)
@@ -849,9 +853,8 @@ public final class SidebarModel {
         workspaceRow = preferences.workspaceRow
         expanded = preferences.density == .expanded
         detailedStatus = preferences.detailedStatusIcons
-        showsTimestamps = preferences.showTimestamps
+        (showsTimestamps, relativeTimestamps) = (preferences.showTimestamps, preferences.relativeTimestamps)
         settlesFinished = preferences.settleFinished
-        showsAutomaticSessions = preferences.showAutomaticSessions
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
@@ -890,7 +893,10 @@ public final class SidebarModel {
             o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
         }
-        o.now = Calendar.current.startOfDay(for: Date())
+        // Relative times (`2h`) count from this minute; otherwise the start of today, so options stay equal all day.
+        o.relativeTimes = showsTimestamps && relativeTimestamps
+        o.now = o.relativeTimes ? Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 60).rounded(.down) * 60)
+            : Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
         if listsArchived { (o.archiveSection, o.foldsArchived) = (false, false) }
         return o
@@ -907,8 +913,6 @@ public final class SidebarModel {
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         o.grouping = settledGrouping()
         if settlesFinished { o.settled = settledChats() }
-        o.automatic = automaticSessions()
-        o.subagentLook = SidebarTunables.subagentLook.value
         return o
     }
 
@@ -933,5 +937,16 @@ public final class SidebarModel {
             return
         }
         presentation = presentation == .hidden ? .shown : .hidden
+    }
+
+    /// ``toggle()`` timed from this key press or click to the first frame its slide resizes the panes in (`side_open`,
+    /// `side_close`; the layout's `ScreenContentView+FrameTiming`). A toggle that moves no pane (a floating sidebar, the
+    /// rail's overlay) times nothing: its arm lapses. Measurement only.
+    public func toggle(timing: TransitionFrameLog?) {
+        if let timing {
+            timing.arm(isHidden ? .sideOpen : .sideClose)
+            timing.input()
+        }
+        toggle()
     }
 }

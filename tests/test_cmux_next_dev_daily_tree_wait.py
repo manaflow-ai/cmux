@@ -26,12 +26,16 @@ class DevDailyTreeWaitTests(unittest.TestCase):
         wait = jobs()["dev-daily-tree-wait"]
         self.assertEqual(wait["needs"], "path_route")
         for clause in ("inputs.dev_daily == true", "inputs.same_tree_sha == ''",
-                       "needs.path_route.outputs.tree_state == 'deferred'"):
+                       "needs.path_route.outputs.scheme == 'true'",
+                       "needs.path_route.outputs.tree_state != 'ready'"):
             self.assertIn(clause, wait["if"])
         cells = workflow_jobs.runs_on_cells(wait)
         self.assertTrue(cells, "dev-daily-tree-wait has no runs-on, or a matrix value nothing resolves")
         for runner in cells:
             self.assertIn("ubuntu", runner)
+        checkout = next(step for step in wait["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
+        self.assertGreaterEqual(int(checkout["with"]["fetch-depth"]), 401,
+                                "older-tree-for-tip.sh searches 400 commits; a shallow checkout re-fetches them")
         run = "\n".join(step.get("run", "") for step in wait["steps"])
         self.assertIn("scripts/cmux-next/wait-dev-daily-tree.sh", run)
 

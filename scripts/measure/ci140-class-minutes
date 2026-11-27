@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""CI minutes per merged PR by change class: which kind of change costs the runner and fleet minutes.
+
+A merged PR's class is the class (.github/change-classes.json, the rule scripts/ci/piece_swap.py reads: first class
+whose paths match, fnmatch with * crossing /, a file no class matches is `other`) of every file its squash commit
+changes. One class: that class; only docs and tools: `docs+tools`; anything else: `mixed` (the class set is in
+--detail). A PR's minutes are every PR-segment GitHub job row (seg == 'pr') at one of its heads, plus every fleet job
+of its PR: required checks (`rc-PR-...`), hot verify (`hv-PR-...`, `hvplan-PR-...`), a pull workspace, or a GitHub
+run whose head is one of its heads. A head names its PR through the controller's required-checks dump (pr, head),
+and a branch names the PR of any of its heads. Minutes no merged PR owns (base, lanes, PRs still open or closed) are
+rows of their own, so the table adds up to the meter's whole.
+
+Minutes as cmuxterm-hq build-fleet/data/ci_per_pr.py counts them: a GitHub row's seconds, a fleet job's
+updated_at - started_at when it finished (done, failed, cancelled) in the window on a worker. Merged PRs are
+ci_minutes.merged_prs's: `(#N)` commits GitHub committed on origin/feat-cmux-next and origin/main.
+
+Inputs (local, no GitHub calls):
+  --feed    GitHub job rows (JSONL, .gz ok): at, seconds, seg, sha, branch, run
+  --fleet   controller job rows (JSONL, .gz ok), ci_per_pr.py's FLEET_SCHEMA_FIELDS
+  --rc      /v1/required-checks JSON ({"heads": [{pr, head, ...}]})
+  --mirror  a cmux clone with origin/feat-cmux-next and origin/main (trees only: blob-less is fine)
+
+Run: scripts/measure/ci140-class-minutes --feed recs.jsonl.gz --fleet fleet.jsonl.gz --rc rc.json \
+       --mirror ~/Projects/.wt-mirrors/manaflow-ai/cmux.git --since 2026-11-27T05:00:00Z --until 2026-11-27T09:00:00Z
+"""
+import argparse, collections, datetime as dt, fnmatch, gzip, json, os, re, subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+TERMINAL = ("done", "failed", "cancelled")
+PR_KEY = re.compile(r"^(?:rc|hv|hvplan)-(\d+)-")
+PULL = re.compile(r"/pull/(\d+)")
+RUN = re.compile(r"/actions/runs/(\d+)|^gha-[\w.-]+-(\d+)-\d+$")
+
+
+def ts(text):
+    if not text or text.startswith("0001-"):
+        return None
+    m = re.match(r"^(.*T\d\d:\d\d:\d\d)(\.\d+)?", text)
+    return dt.datetime.fromisoformat(m.group(1) + (m.group(2) or "")[:7] + "+00:00").timestamp()
+
+
+def rows(path):
+    with (gzip.open if path.endswith(".gz") else open)(path, "rt") as f:
+        for line in f:
+            if line.strip():
+                yield json.loads(line)
+
+
+def git(mirror, *args):
+    env = dict(os.environ, GIT_NO_LAZY_FETCH="1")
+    return subprocess.run(["git", "-C", mirror, *args], capture_output=True, text=True, env=env).stdout
+
+
+def merged_prs(mirror, since, until):
+    out = {}
+    for branch in ("feat-cmux-next", "main"):
+        log = git(mirror, "log", "--no-merges", f"--since=@{int(since)}", f"--until=@{int(until)}",
+                  "--format=%H%x09%ct%x09%cn%x09%s", f"origin/{branch}")
+        for line in log.splitlines():
+            sha, at, committer, subject = line.split("\t", 3)
+            m = re.search(r"\(#(\d+)\)$", subject)
+            if m and committer == "GitHub" and since <= int(at) < until:
+                out.setdefault(int(m.group(1)), sha)
+    return out
+
+
+def classifier(path):
+    classes = json.load(open(path))["classes"]
+
+    def match(f, p):
+        return fnmatch.fnmatchcase(f, p) or (p.endswith("/**") and f.startswith(p[:-2]))
+
+    return lambda f: next((c["name"] for c in classes if any(match(f, p) for p in c.get("paths") or [])), "other")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    for k in ("feed", "fleet", "rc", "mirror", "since", "until"):
+        ap.add_argument("--" + k, required=True)
+    ap.add_argument("--classes", default=str(ROOT / ".github" / "change-classes.json"))
+    ap.add_argument("--detail", action="store_true", help="also the mixed class sets and the top PRs")
+    a = ap.parse_args(argv)
+    since, until = ts(a.since), ts(a.until)
+    cls_of = classifier(a.classes)
+
+    merged = merged_prs(a.mirror, since, until)
+    pr_class, pr_set = {}, {}
+    for pr, sha in merged.items():
+        files = git(a.mirror, "diff", "--name-only", "--no-renames", sha + "^", sha).split()
+        s = frozenset(cls_of(f) for f in files) or frozenset({"other"})
+        pr_set[pr] = s
+        pr_class[pr] = next(iter(s)) if len(s) == 1 else "docs+tools" if s <= {"docs", "tools"} else "mixed"
+
+    head_pr = {h["head"]: h["pr"] for h in json.load(open(a.rc))["heads"] if h.get("head") and h.get("pr")}
+    feed = [r for r in rows(a.feed) if since <= ts(r["at"]) < until]
+    branch_pr = {}
+    for r in feed:
+        if r.get("sha") in head_pr and r.get("branch"):
+            branch_pr.setdefault(r["branch"], head_pr[r["sha"]])
+    run_pr = {}
+    for r in feed:
+        pr = head_pr.get(r.get("sha")) or branch_pr.get(r.get("branch"))
+        if pr and r.get("run"):
+            run_pr.setdefault(int(r["run"]), pr)
+
+    gh, fl = collections.Counter(), collections.Counter()
+
+    def bucket(pr, fallback):
+        if pr in pr_class:
+            return pr_class[pr]
+        return "(PR not merged in window)" if pr else fallback
+
+    for r in feed:
+        m = r["seconds"] / 60
+        if r.get("seg") != "pr":
+            gh["(base and other segments)"] += m
+            continue
+        gh[bucket(head_pr.get(r.get("sha")) or branch_pr.get(r.get("branch")), "(PR head not named)")] += m
+
+    seen = set()
+    for j in rows(a.fleet):
+        end, start = ts(j.get("updated_at")), ts(j.get("started_at"))
+        if j.get("state") not in TERMINAL or end is None or not since <= end < until or j.get("id") in seen:
+            continue
+        seen.add(j.get("id"))
+        m = (end - start) / 60 if start and j.get("worker") and end > start else 0.0
+        sk, ws = j.get("step_key") or "", j.get("workspace") or ""
+        pr = None
+        if (k := PR_KEY.match(sk)) or (k := PULL.search(ws)):
+            pr = int(k.group(1))
+        elif k := RUN.search(ws):
+            pr = run_pr.get(int(k.group(1) or k.group(2)))
+            if pr is None and "manaflow-ai/cmux/" in ws:
+                fl["(run of no named PR head)"] += m
+                continue
+        if pr is None:
+            base = ws.startswith(("scheduled/", "tip-watcher")) or j.get("submitter") in (
+                "cmux-next-tip-check", "build-ahead", "cmux-next-warmer")
+            fl["(fleet base: tip, scheduled)" if base else "(fleet lane, people, other repos)"] += m
+            continue
+        fl[bucket(pr, None)] += m
+
+    n = collections.Counter(pr_class.values())
+    total = len(merged) or 1
+    keys = sorted(set(n) | set(gh) | set(fl), key=lambda k: -(gh[k] + fl[k]))
+    print(f"{len(merged)} merged PRs, {a.since}..{a.until}; min per merged PR of the class (and of all PRs)\n")
+    print(f"| class | PRs | GitHub min | fleet min | total min | min/PR of class | min/merged PR (all) |")
+    print("|---|---:|---:|---:|---:|---:|---:|")
+    for k in keys:
+        t = gh[k] + fl[k]
+        per = f"{t / n[k]:.1f}" if n[k] else ""
+        print(f"| {k} | {n[k]} | {gh[k]:.0f} | {fl[k]:.0f} | {t:.0f} | {per} | {t / total:.1f} |")
+    g, f = sum(gh.values()), sum(fl.values())
+    print(f"| all | {len(merged)} | {g:.0f} | {f:.0f} | {g + f:.0f} | | {(g + f) / total:.1f} |")
+    if a.detail:
+        print("\nmixed class sets")
+        sets = collections.Counter(" ".join(sorted(s)) for pr, s in pr_set.items() if pr_class[pr] == "mixed")
+        for s, c in sets.most_common(15):
+            print(f"  {c:4d}  {s}")
+
+
+if __name__ == "__main__":
+    main()
