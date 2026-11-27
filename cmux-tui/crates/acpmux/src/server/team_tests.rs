@@ -38,6 +38,7 @@ fn receipt(id: &str, state: &str) -> Receipt {
 struct FakeHub {
     sent: Mutex<Vec<OutMessage>>,
     offline: std::sync::atomic::AtomicBool,
+    stalled_sends: std::sync::atomic::AtomicBool,
     browsed: Mutex<Vec<(bool, Option<String>, Option<u64>)>>,
     reads: Mutex<Vec<String>>,
     acknowledgements: Mutex<Vec<String>>,
@@ -94,7 +95,11 @@ impl MeshHub for FakeHub {
     fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.sent.lock().unwrap().push(message.clone());
         let offline = self.offline.load(std::sync::atomic::Ordering::SeqCst);
+        let stalled = self.stalled_sends.load(std::sync::atomic::Ordering::SeqCst);
         Box::pin(async move {
+            if stalled {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
             if offline {
                 Err(HubError::unavailable("offline"))
             } else {
@@ -853,3 +858,23 @@ async fn team_offline_rpc_restart_alias_and_sender_scope() {
 
 #[path = "team_directory_tests.rs"]
 mod directory;
+
+#[tokio::test(start_paused = true)]
+async fn team_send_returns_durable_queue_receipt_while_hub_stalls() {
+    let (hub, fake) = setup(true);
+    fake.stalled_sends.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut sender = Rpc::connect(&hub, Origin::Local, Some((OTHER, true))).await;
+    let sent = tokio::time::timeout(
+        Duration::from_secs(2),
+        sender.call(
+            method::MUX_TEAM_SEND,
+            json!({"to": "@team/reviewer", "body": "slow hub", "idempotencyKey": "slow"}),
+        ),
+    )
+    .await
+    .expect("durable admission must not wait for the hub timeout");
+    assert_eq!(sent["result"]["state"], "queued", "{sent}");
+    assert!(sent["result"]["messageId"].as_str().unwrap().starts_with("teamq:"));
+    assert_eq!(hub.team_send_queue.pending().len(), 1);
+    assert_eq!(fake.sent.lock().unwrap().len(), 1);
+}
