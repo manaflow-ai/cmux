@@ -1368,7 +1368,7 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(reason).toContain("x-ratelimit-remaining=7");
     expect(reason).toContain("[secret] forbidden");
     expect(reason).not.toContain(token);
-    expect(reason!.length).toBeLessThan(350);
+    expect(Buffer.byteLength(JSON.parse(reason!.split("; body=")[1]))).toBe(200);
   });
 
   test("proof retries each GitHub API read once after its exhausted quota resets", async () => {
