@@ -14,6 +14,8 @@ extension SidebarViewComponents {
 
     func buildBands() {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
+            // Only the items the band shows get views, as a list block's (a long Pinned band, the remote machines' chats).
+            region.realizesItems(in: scroll)
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
             SystemScrollers.followThin(scroll, scrollOnly: true)
@@ -76,6 +78,7 @@ extension SidebarViewComponents {
     private func wireItems(_ region: SidebarRegionView) {
         region.liftHost = self
         region.workspacePin = { [weak self] in self?.model.workspacePin }
+        region.onCloseWorkspace = { [weak self] id in self?.model.send(.close([id])) }
         region.sectionDropTarget = { [weak self] id, point in
             self.flatMap { SidebarAppSectionDrops.target($0, section: id, at: point) }
         }
@@ -253,6 +256,7 @@ extension SidebarViewComponents {
         guard region.frame.size != NSSize(width: width, height: height) else { return }
         let grew = region.frame.height != height
         region.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        defer { region.realizeItems() } // the items the band's new size shows
         if grew {
             scroll.contentView.scroll(to: .zero)
             scroll.reflectScrolledClipView(scroll.contentView)
