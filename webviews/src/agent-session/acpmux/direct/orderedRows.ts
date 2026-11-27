@@ -1008,8 +1008,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       seq = last.with(this.changedSlot, ordered[this.changedSlot]!);
     else seq = last.withTail(this.firstChanged ?? Infinity, ordered);
     if (OrderedRows.verifyRowSeq) {
+      // l10n-allow: an internal invariant error, not shown
       if (seq.length !== ordered.length) throw new Error(`RowSeq length ${seq.length}, rows ${ordered.length}`);
       for (let index = 0; index < ordered.length; index += 1)
+        // l10n-allow: an internal invariant error, not shown
         if (seq.at(index) !== ordered[index]) throw new Error(`RowSeq differs from the snapshot at row ${index}`);
     }
     return seq;

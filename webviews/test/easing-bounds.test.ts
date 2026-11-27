@@ -29,6 +29,41 @@ let scanned: ReturnType<typeof scanEasings> | undefined;
 const allEasings = () => (scanned ??= scanEasings());
 const SCAN_TIMEOUT_MS = 60_000;
 
+// Overshoots Leo asked for by name, against the house rule above. Each is one curve (the file and how far
+// it goes), so a new bounce in the same file still fails. The motion scale's sendPop says the same:
+// "It overshoots and outlasts the large step on Leo's word".
+const ON_LEOS_WORD: readonly { file: RegExp; high: number; why: string }[] = [
+  {
+    file: /^(agent-session\/acpmux\/(composerStates\.css|conversation\/(conversation\.css|SendPop\.gallery\.tsx)|sendRise\.gallery\.ts)|motion\/scale\.generated\.ts|pages\/shared\/desktop\.css)$/,
+    high: 1.0299,
+    why: 'the sent prompt\'s pop, cubic-bezier(.34, 1.3, .64, 1) (Leo 2026-11-22: "it does a little pop and settle")',
+  },
+  {
+    file: /^agent-session\/acpmux\/conversation\/conversation\.css$/,
+    high: 1.04,
+    why: 'the send pop\'s spring variant (data-send-pop="spring"), the pop above as a spring',
+  },
+  {
+    file: /^agent-session\/acpmux\/newChatEntrance\.ts$/,
+    high: 1.0022,
+    why: "the new chat's entrance spring, the iOS new chat's (damping 0.82), within 2% of its end",
+  },
+  {
+    file: /^agent-session\/acpmux\/newChatEntrance\.ts$/,
+    high: 1.01,
+    why: "the new chat's entrance spring (SwiftUI .spring(response: 0.42, dampingFraction: 0.82)): passes its end by 1% at most",
+  },
+  {
+    file: /^agent-session\/acpmux\/subagents\/hatHeader\.css$/,
+    high: 1.066,
+    why: "the composer hat deck's mark pop (Leo 2026-11-20: \"there's a slight pop\")",
+  },
+];
+const onLeosWord = (easing: { file: string; samples: readonly number[] }) => {
+  const { high } = rangeOf(easing.samples as number[]);
+  return ON_LEOS_WORD.some((allowed) => allowed.file.test(easing.file) && Math.abs(allowed.high - high) < 5e-4);
+};
+
 const outOfBounds = (css: string) => easingFunctions(css).filter((easing) => !withinBounds(easing.samples));
 
 describe("no easing passes its end", () => {
@@ -36,7 +71,7 @@ describe("no easing passes its end", () => {
     "every easing the webviews declare stays between its start and its end",
     () => {
       // Each line names a curve that bounces: file:line, the curve, its lowest and highest value.
-      expect(describeOutOfBounds(allEasings())).toEqual([]);
+      expect(describeOutOfBounds(allEasings().filter((easing) => !onLeosWord(easing)))).toEqual([]);
       // And no CSS easing is written so that this test cannot sample it.
       expect(scanUnreadCss()).toEqual([]);
     },

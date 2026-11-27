@@ -230,6 +230,7 @@ function GalleryMixedPrompt({
   const [actions] = useState<TurnActions>(() => {
     const urls = new Map(images.map((image) => [image.id, image.shot && paint(image.shot)]));
     return {
+      // gallery-capture: the image read answers `lateMs` after the row draws; its slot already has the image's shape, and the variants' plays wait for the image.
       promptImage: (id: string) =>
         new Promise<string | undefined>((resolve) => setTimeout(() => resolve(urls.get(id)), lateMs)),
     };

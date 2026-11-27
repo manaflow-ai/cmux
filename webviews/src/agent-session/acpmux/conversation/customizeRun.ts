@@ -60,6 +60,7 @@ export function runReducer(state: RunState, event: RunEvent): RunState {
 export function shareLine(target: string | undefined): string | undefined {
   if (!target || !/^(?:pr|branch|sha):/.test(target)) return undefined;
   const run = readRun({ customize: "try", target });
+  // l10n-allow: a shell command, not prose
   return run ? `cmux customize try ${target}` : undefined;
 }
 

@@ -112,6 +112,7 @@ function write(sessionId: string, level: ChatDetail | undefined): void {
   ownEntries = mine;
   try {
     const storage = globalThis.localStorage;
+    // l10n-allow: an internal bug message, not shown
     if (!storage) throw new Error("no storage");
     storage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(mine)));
     unsaved.clear();

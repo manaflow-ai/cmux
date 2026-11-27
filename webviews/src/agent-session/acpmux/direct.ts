@@ -512,6 +512,7 @@ export async function inflateFrame(data: ArrayBuffer | ArrayBufferView | Blob): 
     bytes += value.byteLength;
     if (bytes > MAX_INFLATED_BYTES) {
       void reader.cancel();
+      // l10n-allow: an internal protocol error, not shown
       throw new Error("compressed frame too large");
     }
     text += decoder.decode(value, { stream: true });
@@ -16846,6 +16847,7 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     // l10n-allow: a developer error; the caller shows notice.forkFailed.
     if (!this.canFork || !sessionId || this.capabilities?.has(SUBAGENT_FORK_CAPABILITY) !== true)
+      // l10n-allow: an internal protocol error, not shown
       throw new Error("acpmux cannot fork a subagent");
     // l10n-allow: as above.
     if (this.forking) throw new Error("a fork is already running");

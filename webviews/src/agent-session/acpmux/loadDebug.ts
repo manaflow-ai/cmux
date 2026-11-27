@@ -645,6 +645,7 @@ export async function sessionChurn(options: SessionChurnOptions = {}): Promise<R
         case 1:
           return { unread: !current.unread };
         case 2:
+          // l10n-allow: load-test chat titles, a developer harness
           return { title: `Renamed chat ${index} (${round})` };
         default:
           return { usageStats: { costUsd24h: 1 + round / 100, tokens24h: 1000 + round, updatedAt: Date.now() } };

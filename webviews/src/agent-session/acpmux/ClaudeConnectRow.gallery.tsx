@@ -79,6 +79,7 @@ export default componentEntry<Props>({
       const [phase, setPhase] = useState<"starting" | "signing_in" | "saving" | null>(null);
       const begin = async () => {
         setPhase("starting");
+        // gallery-capture: these steps run only inside the `connect` play, which waits for the saving card and then the Connected row.
         const step = (next: typeof phase, ms: number) =>
           new Promise((done) => setTimeout(() => done(setPhase(next)), ms));
         await step("signing_in", 500);

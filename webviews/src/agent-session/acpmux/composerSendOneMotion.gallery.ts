@@ -25,6 +25,7 @@ const TRUSTED = "~/code/cmux";
 const fresh = chat([]);
 const snapshot = { ...fresh, summary: { ...fresh.summary!, cwd: TRUSTED } };
 
+// gallery-capture: `pause` is awaited only inside the play that samples the send; it changes nothing a still draws.
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /// Every frame from just before the send to SAMPLE_MS after it, read after the frame's

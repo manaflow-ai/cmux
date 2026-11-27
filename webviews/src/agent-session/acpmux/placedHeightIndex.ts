@@ -432,6 +432,7 @@ export class PlacedHeightIndex {
     let capacity = this.capacity;
     let root = this.root;
     if (leafCount > MAX_LEAVES)
+      // l10n-allow: an internal invariant error, not shown
       throw new RangeError(`PlacedHeightIndex: ${count} rows is past the most it places (${MAX_LEAVES * BLOCK_SIZE})`);
     // ends: `capacity` doubles each pass, and `leafCount` is at most MAX_LEAVES, a power of two
     while (capacity < leafCount) {

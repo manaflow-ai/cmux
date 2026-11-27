@@ -25,6 +25,7 @@ function Picker({ open, picked, gate }: Props) {
   const [mode, setMode] = useState<RunMode>("persistent");
   const box = useRef<HTMLDivElement>(null);
   // Opens the list (and the Auto list) as a click would, so the still shows what the person sees.
+  // gallery-capture: the timers open the list as a click would, within a few hundred ms of mount, before the stage's quiet-DOM ready mark; the still is of the open list.
   useEffect(() => {
     if (open === "closed") return;
     const timers: number[] = [];

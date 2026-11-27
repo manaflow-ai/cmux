@@ -69,6 +69,7 @@ const COMPOSER_PARTS = ["prompt", "text", "tiles", "height"] as const;
 export function composerDifference(): string | undefined {
   const copy = composerShows(document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot);
   const live = composerShows(document.getElementById("root"));
+  // l10n-allow: a snapshot diagnostic, not shown
   if (!copy || !live) return "no composer";
   const told = (part: (typeof COMPOSER_PARTS)[number], a: string, b: string) => {
     if (part === "tiles" || part === "height") return `${part} ${a}/${b}`;
