@@ -502,7 +502,7 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
         }
         Op::SectionRemove { id } => {
             let s = find_section(id, &sections)?;
-            if sections[s].content == Content::Workspaces {
+            if sections.get(s).is_some_and(|section| section.content == Content::Workspaces) {
                 return Err(Reject::WorkspacesRequired);
             }
             sections.remove(s);
@@ -511,7 +511,11 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
         Op::ItemMove { id, section, index } => move_item(id, section, *index, &mut sections)?,
         Op::ItemRemove { id } => {
             let (s, i) = locate(id, &sections).ok_or(Reject::UnknownItem)?;
-            sections[s].items.remove(i);
+            let Some(section) = sections.get_mut(s) else { return Err(Reject::UnknownItem) };
+            if i >= section.items.len() {
+                return Err(Reject::UnknownItem);
+            }
+            section.items.remove(i);
         }
         Op::ItemRemoveRef { reference } => {
             if !sections.iter().any(|s| s.items.iter().any(|item| item.reference.same(reference))) {
@@ -523,7 +527,11 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
         }
         Op::ItemUpdate { id, shows_label } => {
             let (s, i) = locate(id, &sections).ok_or(Reject::UnknownItem)?;
-            sections[s].items[i].shows_label = *shows_label;
+            let Some(item) = sections.get_mut(s).and_then(|section| section.items.get_mut(i))
+            else {
+                return Err(Reject::UnknownItem);
+            };
+            item.shows_label = *shows_label;
         }
         Op::Reset => sections = defaults().sections,
     }
@@ -578,8 +586,11 @@ fn clamp(index: i64, count: usize) -> usize {
 /// Document index for the `index`-th slot (clamped) among `region`'s
 /// sections; an empty region goes after every section of an earlier region.
 fn insertion_index(region: &Region, index: i64, sections: &[Section]) -> usize {
-    let in_region: Vec<usize> =
-        (0..sections.len()).filter(|&s| &sections[s].region == region).collect();
+    let in_region: Vec<usize> = sections
+        .iter()
+        .enumerate()
+        .filter_map(|(s, section)| (&section.region == region).then_some(s))
+        .collect();
     if in_region.is_empty() {
         return sections
             .iter()
@@ -587,7 +598,11 @@ fn insertion_index(region: &Region, index: i64, sections: &[Section]) -> usize {
             .map_or(0, |s| s + 1);
     }
     let slot = clamp(index, in_region.len());
-    if slot == in_region.len() { in_region[in_region.len() - 1] + 1 } else { in_region[slot] }
+    if slot == in_region.len() {
+        in_region.last().copied().unwrap_or(0) + 1
+    } else {
+        in_region.get(slot).copied().unwrap_or(sections.len())
+    }
 }
 
 fn ensure_items(section: &Section) -> Result<(), Reject> {
@@ -690,7 +705,7 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
 
 fn update_section(id: &str, patch: &SectionPatch, sections: &mut [Section]) -> Result<(), Reject> {
     let s = find_section(id, sections)?;
-    let section = &mut sections[s];
+    let Some(section) = sections.get_mut(s) else { return Err(Reject::UnknownSection) };
     if let Update::Set(title) = &patch.title {
         validate_title(Some(title))?;
     }
@@ -733,7 +748,8 @@ fn add_item(
     sections: &mut [Section],
 ) -> Result<(), Reject> {
     let s = find_section(section, sections)?;
-    ensure_items(&sections[s])?;
+    let Some(section) = sections.get(s) else { return Err(Reject::UnknownSection) };
+    ensure_items(section)?;
     validate_span(item.span)?;
     if locate(&item.id, sections).is_some()
         || sections.iter().any(|existing| existing.id == item.id)
@@ -741,28 +757,41 @@ fn add_item(
         return Err(Reject::DuplicateId);
     }
     // L3: pinning a reference twice into one section is a no-op.
-    if sections[s].items.iter().any(|existing| existing.reference.same(&item.reference)) {
+    if section.items.iter().any(|existing| existing.reference.same(&item.reference)) {
         return Ok(());
     }
     if item_count(sections) >= MAX_ITEMS {
         return Err(Reject::TooMany);
     }
-    let at = clamp(index, sections[s].items.len());
-    sections[s].items.insert(at, item.clone());
+    let Some(section) = sections.get_mut(s) else { return Err(Reject::UnknownSection) };
+    let at = clamp(index, section.items.len());
+    section.items.insert(at, item.clone());
     Ok(())
 }
 
 fn move_item(id: &str, target: &str, index: i64, sections: &mut [Section]) -> Result<(), Reject> {
     let (s, i) = locate(id, sections).ok_or(Reject::UnknownItem)?;
     let t = find_section(target, sections)?;
-    ensure_items(&sections[t])?;
-    let item = sections[s].items[i].clone();
-    if t != s && sections[t].items.iter().any(|existing| existing.reference.same(&item.reference)) {
+    let Some(target_section) = sections.get(t) else { return Err(Reject::UnknownSection) };
+    ensure_items(target_section)?;
+    let Some(item) = sections.get(s).and_then(|section| section.items.get(i)).cloned() else {
+        return Err(Reject::UnknownItem);
+    };
+    if t != s
+        && target_section.items.iter().any(|existing| existing.reference.same(&item.reference))
+    {
         return Err(Reject::DuplicateRef);
     }
-    sections[s].items.remove(i);
-    let at = clamp(index, sections[t].items.len());
-    sections[t].items.insert(at, item);
+    let Some(source) = sections.get_mut(s) else { return Err(Reject::UnknownItem) };
+    if i >= source.items.len() {
+        return Err(Reject::UnknownItem);
+    }
+    source.items.remove(i);
+    let Some(target_section) = sections.get_mut(t) else {
+        return Err(Reject::UnknownSection);
+    };
+    let at = clamp(index, target_section.items.len());
+    target_section.items.insert(at, item);
     Ok(())
 }
 

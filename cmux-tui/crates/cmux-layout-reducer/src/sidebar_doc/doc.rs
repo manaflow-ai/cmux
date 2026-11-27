@@ -413,7 +413,9 @@ impl Doc {
     /// items.
     pub fn last_before_section(&self, section: &str) -> Option<&Item> {
         let at = self.sections.iter().position(|candidate| candidate.id == section)?;
-        self.sections[..at]
+        self.sections
+            .get(..at)
+            .unwrap_or_default()
             .iter()
             .rev()
             .find_map(|section| self.list(&section.id, None).next_back())
