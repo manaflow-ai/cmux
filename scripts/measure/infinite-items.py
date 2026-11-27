@@ -425,12 +425,11 @@ class Run:
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
         if self.args.evict_idle_secs is not None:
             env["ACPMUX_EVICT_IDLE_SECS"] = str(self.args.evict_idle_secs)
-        # Lazy start under test (cmux-tui mux/terminal_respawn/lazy.rs, CMUX_TUI_LAZY_START, off by default),
-        # never the caller's: with it on, a plain shell created in a workspace no client shows, and a lost one
-        # restored there, gets no shell or terminal host until its first need.
-        env.pop("CMUX_TUI_LAZY_START", None)
-        if self.args.lazy_start == "on":
-            env["CMUX_TUI_LAZY_START"] = "1"
+        # Lazy start under test (cmux-tui mux/terminal_respawn/lazy.rs, CMUX_TUI_LAZY_START, on by default in
+        # cmux-tui), never the caller's: with it on, a plain shell created in a workspace no client shows, and a
+        # lost one restored there, gets no shell or terminal host until its first need. Both arms set it
+        # explicitly, so "off" stays the all-live arm whatever the binary's default.
+        env["CMUX_TUI_LAZY_START"] = "1" if self.args.lazy_start == "on" else "0"
         # The caller's cap never leaks into an arm that did not ask for one.
         env.pop("ACPMUX_RESIDENT_CAP", None)
         if self.args.resident_cap:
@@ -1055,10 +1054,10 @@ def main():
                    help="start cmux-tui with --freeing-idle-seconds N: the daemon's own freeing timer parks every "
                         "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, off by "
                         "default), with no park-tabs request; 0 (default) leaves it off")
-    p.add_argument("--lazy-start", choices=("off", "on"), default="off",
+    p.add_argument("--lazy-start", choices=("off", "on"), default="on",
                    help="CMUX_TUI_LAZY_START for cmux-tui: on, a never-shown plain shell (new-workspace, new-tab, "
                         "create-terminal in a workspace no client shows) gets no shell or host until its first need "
-                        "(show, input, attach); off (default) is the product default")
+                        "(show, input, attach); on (default) is the product default; off is the all-live arm")
     p.add_argument("--dhat-mark-days", default="",
                    help="days after whose sample a dhat-heap cmux-tui ends a heap window (comma list; heap_profile.rs)")
     p.add_argument("--heap-profile", action="store_true",
