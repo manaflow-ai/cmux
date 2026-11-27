@@ -126,6 +126,7 @@ import {
   KEPT_EVENTS,
   type KeptTail,
   readHostTail,
+  readAheadTail,
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
@@ -15567,6 +15568,9 @@ export class AcpmuxDirectClient {
   /// again. Any other value is a change, a lower one too (a peer's chat restored to an older log).
   /// Absent for a row without one (a peer on an older acpmux): `updatedAt` decides instead.
   private readAheadSeq = new Map<string, number>();
+  /// Chats read ahead, by how far their kept tail's read went and the chat it was of (its
+  /// `createdAt` and machine): the next read of one that ran on asks only for what came after.
+  private readAheadThrough = new Map<string, { through: number; createdAt: unknown; peer: unknown }>();
   /// Reads out now, by chat, so a switch to one can wait on it briefly.
   private readingAhead = new Map<string, Promise<void>>();
   /// Chats waiting for a read, the next one first.
@@ -15582,6 +15586,7 @@ export class AcpmuxDirectClient {
   private forgetReadAhead(sessionId: string): void {
     this.readAheadAt.delete(sessionId);
     this.readAheadSeq.delete(sessionId);
+    this.readAheadThrough.delete(sessionId);
     this.shareOnRead.delete(sessionId);
     if (this.readAheadQueue.includes(sessionId))
       this.readAheadQueue = this.readAheadQueue.filter((queued) => queued !== sessionId);
@@ -15662,9 +15667,24 @@ export class AcpmuxDirectClient {
     }
   }
 
+  /// The kinds a read ahead asks for: an attach's. The preset approval cards as at attach: a local
+  /// acpmux only (a remote one takes 8 kinds).
+  private readAheadKinds(): string[] {
+    return [
+      "transcript",
+      COMMANDS_KIND,
+      USAGE_KIND,
+      CONFIG_KIND,
+      BOOKMARKS_KIND,
+      ...SECRET_KINDS,
+      ...(this.localOrigin ? PRESET_APPROVAL_KINDS : []),
+    ];
+  }
+
   /// One read ahead: the chat's newest page, the same kinds and bound an attach reads, kept as a
   /// tail. Prepare the first partial turn's opener here, off the click path, so the cached frame
   /// already has the same turn boundaries as attach. Pending asks still come from the attach.
+  /// A chat this page already read ahead reads only what came after (`readAheadOn`).
   private async readAhead(sessionId: string): Promise<void> {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
     const connection = this.socket;
@@ -15673,21 +15693,23 @@ export class AcpmuxDirectClient {
     // the session before, so it is not kept under the new one's row.
     const asked = this.sessions.find((session) => session.sessionId === sessionId);
     const askedSeq = transcriptSeq(asked);
+    const read = this.readAheadThrough.get(sessionId);
+    const seen = this.readAheadSeq.get(sessionId);
+    if (
+      read &&
+      read.createdAt === asked?.createdAt &&
+      read.peer === asked?.peer &&
+      // A log that went back (a peer restored from an older copy) is read whole again.
+      (askedSeq === undefined || seen === undefined || askedSeq >= seen) &&
+      (await this.readAheadOn(sessionId, connection, asked, askedSeq, read.through))
+    )
+      return;
     const result = await this.typed("_acpmux/events", {
       sessionId,
       beforeSeq: Number.MAX_SAFE_INTEGER,
       limit: KEPT_EVENTS,
       maxBytes: OPEN_PAGE_BYTES,
-      // The preset approval cards as at attach: a local acpmux only (a remote one takes 8 kinds).
-      kinds: [
-        "transcript",
-        COMMANDS_KIND,
-        USAGE_KIND,
-        CONFIG_KIND,
-        BOOKMARKS_KIND,
-        ...SECRET_KINDS,
-        ...(this.localOrigin ? PRESET_APPROVAL_KINDS : []),
-      ],
+      kinds: this.readAheadKinds(),
     });
     // The chat was opened meanwhile: its attach holds the newer read.
     if (this.closed || this.socket !== connection || sessionId === this.selectedSessionId) return;
@@ -15709,6 +15731,76 @@ export class AcpmuxDirectClient {
       configSeq: 0,
       usageFromSeq: result?.hasMore === true ? oldest : 0,
     });
+    this.readAheadKept(sessionId, asked, askedSeq, result, page);
+  }
+
+  /// A read ahead of a chat whose tail this page read ahead before, through `through`: only the
+  /// records after it, added to that tail, where the newest page read again was up to 128 KiB for
+  /// a few new records. On a busy fleet a shown pane re-read about 35 KB/s of pages it held
+  /// (the user's brief: "find which stream on :47811 carries about 1 MB/s to an idle app (full
+  /// snapshots instead of deltas ...)"). False when the newest page is the read to make instead:
+  /// the tail is gone (an open's tail replaced it, or it aged out), or more came than one page.
+  /// A failed read throws, as the whole read does, and is asked whole next time.
+  private async readAheadOn(
+    sessionId: string,
+    connection: WebSocket,
+    asked: Session | undefined,
+    askedSeq: number | undefined,
+    through: number,
+  ): Promise<boolean> {
+    if (!readAheadTail(sessionId)?.events.length) return false;
+    let result: any;
+    try {
+      result = await this.typed("_acpmux/events", {
+        sessionId,
+        afterSeq: through,
+        limit: KEPT_EVENTS,
+        maxBytes: OPEN_PAGE_BYTES,
+        kinds: this.readAheadKinds(),
+      });
+    } catch (error) {
+      this.readAheadThrough.delete(sessionId);
+      throw error;
+    }
+    if (this.closed || this.socket !== connection || sessionId === this.selectedSessionId) return true;
+    if (result?.hasMore === true) return false;
+    const listed = this.sessions.find((session) => session.sessionId === sessionId);
+    if (listed?.peer !== asked?.peer || listed?.createdAt !== asked?.createdAt) return true;
+    const held = readAheadTail(sessionId);
+    if (!held?.events.length) return false;
+    const heldThrough = held.events.at(-1)!.seq;
+    const added = records(result?.events).filter((event) => event.seq > heldThrough);
+    const events = keptEvents([...held.events, ...added]);
+    const cut = events[0] !== held.events[0];
+    const turnOpener = cut ? await this.fetchTurnOpener(sessionId, events, true) : held.turnOpener;
+    if (this.closed || this.socket !== connection || sessionId === this.selectedSessionId) return true;
+    rememberReadAhead(sessionId, {
+      ...held,
+      events,
+      summary: listed ? { ...listed } : held.summary,
+      turnOpener,
+      historyExhausted: cut ? false : held.historyExhausted,
+      usageFromSeq: cut ? events[0]!.seq : held.usageFromSeq,
+    });
+    this.readAheadKept(sessionId, asked, askedSeq, result, events);
+    return true;
+  }
+
+  /// A kept read ahead: how far it read, and at which `transcriptSeq`.
+  private readAheadKept(
+    sessionId: string,
+    asked: Session | undefined,
+    askedSeq: number | undefined,
+    result: any,
+    events: EventRecord[],
+  ): void {
+    // How far the read went: acpmux's `pageThrough` (past records of kinds not asked for), else
+    // its `lastSeq`, else the newest record kept.
+    const through = [result?.pageThrough, result?.lastSeq, events.at(-1)?.seq].find(
+      (seq): seq is number => typeof seq === "number" && Number.isFinite(seq),
+    );
+    if (through === undefined) this.readAheadThrough.delete(sessionId);
+    else this.readAheadThrough.set(sessionId, { through, createdAt: asked?.createdAt, peer: asked?.peer });
     // Only a kept read counts as read at `askedSeq`: a failed, empty or dropped one is asked again
     // on the next change in the list, as before.
     if (askedSeq === undefined) this.readAheadSeq.delete(sessionId);
