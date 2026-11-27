@@ -301,7 +301,10 @@ IOS = ("cmux-next-ios/", "Packages/iOS/")
 rows = []
 for pr in json.load(sys.stdin):
     files = [f.get("path", "") for f in pr.get("files") or []]
-    runs = [c for c in pr.get("statusCheckRollup") or [] if c.get("name") == check]
+    state = lambda c: (c.get("conclusion") or c.get("status") or "").upper()
+    # A detached fleet job leaves the workflow verdict job skipped and the controller posts the same name, so a
+    # skipped run says nothing (cmux-next-ios-try-ahead.yml, DETACH).
+    runs = [c for c in pr.get("statusCheckRollup") or [] if c.get("name") == check and state(c) != "SKIPPED"]
     jobs = [c for c in pr.get("statusCheckRollup") or [] if c.get("name") == fleet]
     if not runs and not jobs and not any(f.startswith(IOS) for f in files):
         continue
@@ -309,7 +312,6 @@ for pr in json.load(sys.stdin):
     if os.path.isdir(os.path.join(home, head, "device", "CmuxMobileApp.app")):
         build = "cached"
     else:
-        state = lambda c: (c.get("conclusion") or c.get("status") or "").upper()
         # Only the verdict says built: the fleet job ends green with no build when the fleet gives no verdict.
         build = {"SUCCESS": "ahead", "FAILURE": "failed", "TIMED_OUT": "failed"}.get(state(runs[-1])) if runs else None
         if build is None:

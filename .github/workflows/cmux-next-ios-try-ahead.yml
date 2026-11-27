@@ -58,6 +58,17 @@ jobs:
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR: ${{ github.event.pull_request.number }}
+          # Detached (the default): the job submits the step, hands its verdict to the controller as the check run
+          # "cmux Dev try build (ahead)" on the head (cmux-ci run --report-check --detach, report_check.go) and ends in
+          # seconds. Waiting here held a Mac gateway runner for the whole background-class queue: 2026-11-27
+          # 23:09-23:45Z, 12 jobs held one for p50 68 min (p90 179 min), 29k runner-min/day projected, for a
+          # step that runs 3-7 min. The controller posts success for done with exit 0, neutral for no verdict, failure
+          # otherwise (so a host that cannot set up, exit 3, reads "failed" there, not "none" as the wait below gives).
+          # CI_TRY_AHEAD_DETACH=0 waits here as before; a client or controller without --detach waits too.
+          DETACH: ${{ vars.CI_TRY_AHEAD_DETACH || '1' }}
+          # A gateway Mac's own cmux-ci can predate --detach (nightly-pr-build.yml, 20:49Z job 140732035533): then
+          # the step fetches the controller's client, sha256-checked against its manifest, and uses it.
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -69,9 +80,49 @@ jobs:
           # The same arguments and key as try.sh's try_fleet, so its submit attaches to this step.
           log="$RUNNER_TEMP/try-ahead.log"
           status=0
+          detach=()
+          usage="$("$client" run --help 2>/dev/null || true)"
+          if [[ "${DETACH:-1}" != 0 && "$usage" != *--detach* && -n "${CONTROLLER:-}" ]]; then
+            fresh="$RUNNER_TEMP/fleet-client"
+            mkdir -p "$fresh"
+            if curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$fresh/manifest.json" &&
+              python3 -I - "$fresh" "$CONTROLLER" <<'PY'
+          import hashlib, json, sys, urllib.request
+          from pathlib import Path
+          root, controller = Path(sys.argv[1]), sys.argv[2]
+          for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+              if "/" in name or name.startswith("."):
+                  raise SystemExit(f"bad client file name {name!r}")
+              data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+              if hashlib.sha256(data).hexdigest() != digest:
+                  raise SystemExit(f"{name}: sha256 mismatch")
+              (root / name).write_bytes(data)
+          PY
+            then
+              printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$fresh/ci-client.py" > "$fresh/cmux-ci"
+              chmod +x "$fresh/cmux-ci"
+              fresh_usage="$("$fresh/cmux-ci" run --help 2>/dev/null || true)"
+              if [[ "$fresh_usage" == *--detach* ]]; then
+                echo "::notice title=cmux Dev ahead::runner $RUNNER_NAME's cmux-ci lacks --detach; using the controller's client"
+                client="$fresh/cmux-ci"
+                usage="$fresh_usage"
+              fi
+            else
+              echo "::warning title=cmux Dev ahead::could not fetch the controller's client; waiting on the local one"
+            fi
+          fi
+          if [[ "${DETACH:-1}" != 0 && "$usage" == *--detach* ]]; then
+            detach=(--report-check "cmux Dev try build (ahead)" --detach)
+          fi
           "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD_SHA" \
             --artifact artifacts/ios-sim/evidence.zip --no-supersede --key "cnx-ios-try-try-${HEAD_SHA:0:12}" \
-            --arg shots --arg try=dev --background --timeout 3600 2>&1 | tee "$log" || status=$?
+            --arg shots --arg try=dev --background --timeout 3600 ${detach[@]+"${detach[@]}"} 2>&1 | tee "$log" || status=$?
+          if [[ "$status" == 0 ]] && grep -q ') detached; check run' "$log"; then
+            # Submitted: the controller posts "cmux Dev try build (ahead)" on the head when the step ends, so the
+            # verdict job below is skipped and try.sh list reads the controller's check run.
+            echo "### cmux Dev for PR #$PR at ${HEAD_SHA:0:12}: asked the fleet; the check run \"cmux Dev try build (ahead)\" carries the verdict" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # The runner's shell is bash -e: with pipefail a log that names no step (controller unreachable, 17:25Z on
           # a121379b) failed the grep and ended the job red before any verdict.
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)" || step=""

@@ -2247,6 +2247,12 @@ try_script_mode() {{ echo try; }}; try_get_app || echo "fail=$TRY_FAIL"''', {'CM
              'isDraft': False, 'files': [{'path': 'cmux-next-ios/w.swift'}],
              'statusCheckRollup': [{'name': fleet, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'},
                                    {'name': check, 'status': 'COMPLETED', 'conclusion': 'SKIPPED'}]},
+            # Detached: the workflow's verdict job is skipped and the controller posts the verdict under its name.
+            {'number': 7, 'title': 'ios detached', 'author': {'login': 'g'}, 'headRefOid': '7' * 40, 'updatedAt': '2026-11-19T00:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/v.swift'}],
+             'statusCheckRollup': [{'name': fleet, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'},
+                                   {'name': check, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'},
+                                   {'name': check, 'status': 'COMPLETED', 'conclusion': 'SKIPPED'}]},
         ]
         with tempfile.TemporaryDirectory() as temp:
             Path(temp, 'prs.json').write_text(json.dumps(prs))
@@ -2259,7 +2265,7 @@ try_script_mode() {{ echo try; }}; try_get_app || echo "fail=$TRY_FAIL"''', {'CM
             out = json.loads(r.stdout)
             self.assertEqual(out['schema'], 'cmux.ios-try.list.v1')
             self.assertEqual([(p['number'], p['build']) for p in out['prs']],
-                             [(3, 'building'), (1, 'ahead'), (4, 'cached'), (5, 'failed'), (6, 'none')])
+                             [(3, 'building'), (1, 'ahead'), (4, 'cached'), (5, 'failed'), (6, 'none'), (7, 'ahead')])
             self.assertTrue(out['prs'][0]['draft'])
             self.assertIn('--base feat-cmux-next', Path(temp, 'gh-args').read_text())
             gh.write_text('#!/bin/sh\nexit 1\n')
@@ -2296,6 +2302,37 @@ try_script_mode() {{ echo try; }}; try_get_app || echo "fail=$TRY_FAIL"''', {'CM
         self.assertIn('if [[ "$state" == done ]]; then echo "outcome=built"', fleet)
         # Only events that bring a new head: a second run at one head cancelled the first one's step (a0a4b2d1).
         self.assertIn('types: [opened, synchronize]\n', flow)
+
+    def test_the_fleet_job_detaches_so_no_gateway_runner_waits_on_the_queue(self):
+        # 2026-11-27 23:09-23:45Z: waiting here held a gateway Mac p50 68 min for a 3-7 min step (29k runner-min/day).
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        start = flow.index('        run: |\n', flow.index('id: fleet')) + len('        run: |\n')
+        body = textwrap.dedent(flow[start:flow.index('\n\n  verdict:')])
+        self.assertIn("DETACH: ${{ vars.CI_TRY_AHEAD_DETACH || '1' }}", flow)
+        step = '0123456789abcdef01234567'
+        for detach, expect_flag in (('1', True), ('0', False)):
+            with self.subTest(detach=detach), tempfile.TemporaryDirectory() as temp:
+                t = Path(temp)
+                client = t / 'cmux-ci'
+                client.write_text(f"""#!/bin/bash
+if [ "$1" = run ] && [ "$2" = --help ]; then echo 'usage: run [--report-check NAME] [--detach]'; exit 0; fi
+if [ "$1" = status ]; then echo '{{"state": "done", "exit_code": 0}}'; exit 0; fi
+echo "$@" > "{t}/args"
+case " $* " in *" --detach "*) echo 'cmux-ci: step {step} (simulator, key k) detached; check run "x" on r@a carries its verdict' >&2; exit 0;; esac
+echo 'cmux-ci: step {step} queued' >&2; exit 0
+""")
+                client.chmod(0o755)
+                (t / 'out').write_text('')
+                env = dict(os.environ, CMUX_CI_CLIENT=str(client), HEAD_SHA='a0a4b2d1fcdb7450ec0bc2078a3e27fb0d70434c',
+                           PR='51721', RUNNER_TEMP=temp, RUNNER_NAME='r', GITHUB_OUTPUT=str(t / 'out'),
+                           GITHUB_STEP_SUMMARY=str(t / 'summary'), DETACH=detach, CONTROLLER='')
+                r = subprocess.run(['bash', '-e', '-c', body], env=env, capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                args = (t / 'args').read_text()
+                self.assertEqual('--report-check cmux Dev try build (ahead) --detach' in args, expect_flag, args)
+                self.assertIn('--key cnx-ios-try-try-a0a4b2d1fcdb', args)
+                out = (t / 'out').read_text()
+                self.assertEqual('outcome=built' in out, not expect_flag, out)
 
     def test_the_fleet_job_reads_its_verdict_from_the_steps_own_state(self):
         # 2026-11-26, a0a4b2d1: the controller refused the submit (HTTP 409, client exit 1, no step) and the job
