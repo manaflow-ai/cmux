@@ -19,6 +19,14 @@ import Testing
         override var acceptsFirstResponder: Bool { true }
     }
 
+    /// Views' content view as the fork's `CmuxViewsBridgedContentView` answers a hit: a page under the point, or nil.
+    final class FakeBridgedView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let hit = super.hitTest(point)
+            return hit === self ? nil : hit
+        }
+    }
+
     struct Fixture {
         let window: NSWindow
         let container: FakeContainer
@@ -38,7 +46,7 @@ import Testing
         root.addSubview(container)
         let slot = ViewsWindowSlotView(frame: root.bounds)
         root.addSubview(slot)
-        let bridged = NSView(frame: slot.bounds)
+        let bridged = FakeBridgedView(frame: slot.bounds)
         slot.addSubview(bridged)
         let page = FakePageView(frame: container.frame)
         bridged.addSubview(page)
@@ -79,6 +87,25 @@ import Testing
         #expect(f.slot.identifier?.rawValue == InTreePages.viewsWindowSlotIdentifier)
         #expect(root.hitTest(NSPoint(x: 600, y: 250)) === f.content)
         #expect(root.hitTest(NSPoint(x: 100, y: 250)) === root, "the empty slot took a click meant for the window's content")
+    }
+
+    /// A divider's hit area reaches a few points into the panes beside it, and the slot's pages sit above every pane
+    /// and divider: a press on a page's edge pixel went to the page and the divider never moved (bench vw-div-1: 0 of 3
+    /// presses there moved it; approach 1, whose divider panels sit above its page windows, took 2 of 2). A press in a
+    /// registered resize band goes to the band under the slot.
+    @Test func aPressInADividersBandGoesToTheDividerUnderThePage() {
+        let f = Self.fixture()
+        defer { f.window.close() }
+        let root = f.window.contentView!
+        // The divider left of the page's pane: its band is 8 points wide, 4 of them over the page.
+        let divider = NSView(frame: NSRect(x: 396, y: 0, width: 8, height: 500))
+        root.addSubview(divider, positioned: .below, relativeTo: f.slot)
+        ResizeBands.register(divider)
+        #expect(root.hitTest(NSPoint(x: 401, y: 250)) === divider, "the page under the pointer took the divider's press")
+        #expect(root.hitTest(NSPoint(x: 398, y: 250)) === divider)
+        #expect(root.hitTest(NSPoint(x: 405, y: 250)) === f.content, "the page lost a press outside the band")
+        divider.isHidden = true
+        #expect(root.hitTest(NSPoint(x: 401, y: 250)) === f.content, "a hidden divider kept its band")
     }
 
     @Test func aClickOnThePageIsAimedAtItsContainer() throws {

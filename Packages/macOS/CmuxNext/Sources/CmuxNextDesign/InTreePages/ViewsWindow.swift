@@ -148,7 +148,11 @@ public final class ViewsWindowSlotView: NSView {
 
     public override var isOpaque: Bool { false }
 
+    /// A press in a resize handle's band goes to the handle under the slot: a pane divider's hit area reaches a few
+    /// points into the panes beside it, and a page sits over those points (approach 1 puts its divider panels above
+    /// its page windows for the same reason, `DividerMouseCatchers`).
     public override func hitTest(_ point: NSPoint) -> NSView? {
+        if let window, let superview, ResizeBands.claims(superview.convert(point, to: nil), in: window) { return nil }
         let hit = super.hitTest(point)
         return hit === self ? nil : hit
     }
