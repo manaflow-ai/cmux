@@ -56,6 +56,9 @@ const HANDSHAKE: Duration = Duration::from_secs(5);
 /// A holder with no terminal and no daemon link exits after this long: it
 /// keeps nothing, and the next daemon starts a holder of its own build.
 pub const IDLE_EXIT: Duration = Duration::from_secs(30);
+/// How often an orphaned holder with an owner file looks for it: one
+/// `lstat` a second, only while no daemon is linked.
+const OWNER_FILE_CHECK: Duration = Duration::from_secs(1);
 /// Poison pill (terminal-host-model-DESIGN.md section 3): a terminal whose
 /// stream ended this many times without DETACH within [`STRIKE_WINDOW`]
 /// is restored from its prologue without the ring tail, so one byte
@@ -387,6 +390,14 @@ pub struct Holder {
     orphan_grace: Option<Duration>,
     /// Terminals and no daemon link since this time.
     orphan_since: Option<OrphanSince>,
+    /// The daemon's owner token file ([`crate::OWNER_FILE_ENV`]): read only
+    /// while orphaned, at most once per [`OWNER_FILE_CHECK`].
+    owner_file: Option<PathBuf>,
+    /// The owner file was found gone: no daemon can link again, so the
+    /// orphan grace is at most [`crate::OWNER_FILE_REMOVED_GRACE`].
+    owner_file_removed: bool,
+    /// When the owner file was last looked for.
+    owner_file_checked: Option<Instant>,
     sigchld: OwnedFd,
 }
 
@@ -482,6 +493,9 @@ impl Holder {
             idle_exit: IDLE_EXIT,
             orphan_grace: None,
             orphan_since: None,
+            owner_file: None,
+            owner_file_removed: false,
+            owner_file_checked: None,
             sigchld,
         })
     }
@@ -502,6 +516,42 @@ impl Holder {
     /// default: never).
     pub fn set_orphan_grace(&mut self, grace: Option<Duration>) {
         self.orphan_grace = grace;
+    }
+
+    /// The daemon's owner token file: once it is gone, terminals with no
+    /// daemon linked end after [`crate::OWNER_FILE_REMOVED_GRACE`].
+    pub fn set_owner_file(&mut self, path: Option<PathBuf>) {
+        self.owner_file = path;
+    }
+
+    /// The orphan grace in force: the configured one, shortened to
+    /// [`crate::OWNER_FILE_REMOVED_GRACE`] once the owner file is gone.
+    fn orphan_grace_in_force(&self) -> Option<Duration> {
+        if self.owner_file_removed {
+            let removed = crate::OWNER_FILE_REMOVED_GRACE;
+            return Some(self.orphan_grace.map_or(removed, |grace| grace.min(removed)));
+        }
+        self.orphan_grace
+    }
+
+    /// While orphaned, look for the owner file at most once per
+    /// [`OWNER_FILE_CHECK`]. Only "not found" counts as gone: a read that
+    /// fails another way (a permission, an unmounted volume) keeps the
+    /// terminals.
+    fn check_owner_file(&mut self, now: Instant) {
+        let Some(path) = &self.owner_file else { return };
+        if self.owner_file_removed || self.orphan_since.is_none() {
+            return;
+        }
+        if self.owner_file_checked.is_some_and(|at| now.duration_since(at) < OWNER_FILE_CHECK) {
+            return;
+        }
+        self.owner_file_checked = Some(now);
+        if std::fs::symlink_metadata(path)
+            .is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
+        {
+            self.owner_file_removed = true;
+        }
     }
 
     /// Serve until launchd ends the holder or it has been idle for its idle
@@ -659,7 +709,10 @@ impl Holder {
         } else {
             None
         };
-        let (Some(grace), Some(since)) = (self.orphan_grace, self.orphan_since) else { return };
+        self.check_owner_file(now);
+        let (Some(grace), Some(since)) = (self.orphan_grace_in_force(), self.orphan_since) else {
+            return;
+        };
         if since.elapsed_at(now, SystemTime::now()) < grace {
             return;
         }
@@ -688,15 +741,20 @@ impl Holder {
         let idle = self.idle_since.map(|since| since + self.idle_exit);
         // Only while some terminal is still to be hung up: a past deadline
         // must not spin `poll` while the closed ones end.
-        let orphan = self
-            .orphan_since
-            .zip(self.orphan_grace)
-            .filter(|_| self.terminals.values().any(|terminal| !terminal.closing))
-            .map(|(since, grace)| {
+        let open = self.terminals.values().any(|terminal| !terminal.closing);
+        let orphan = self.orphan_since.zip(self.orphan_grace_in_force()).filter(|_| open).map(
+            |(since, grace)| {
                 let now = Instant::now();
                 now + grace.saturating_sub(since.elapsed_at(now, SystemTime::now()))
-            });
-        kill.into_iter().chain(handshake).chain(idle).chain(orphan).min()
+            },
+        );
+        // The next look for the owner file, while it may still end them.
+        let owner_check = (open
+            && self.orphan_since.is_some()
+            && self.owner_file.is_some()
+            && !self.owner_file_removed)
+            .then(|| self.owner_file_checked.map_or_else(Instant::now, |at| at + OWNER_FILE_CHECK));
+        kill.into_iter().chain(handshake).chain(idle).chain(orphan).chain(owner_check).min()
     }
 
     /// Take new connections. They wait in `pending` until they authenticate;

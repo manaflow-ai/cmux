@@ -515,6 +515,46 @@ fn exits_within(pid: i32, limit: Duration) -> bool {
     false
 }
 
+/// A holder whose daemon is gone keeps its shells while the daemon's state
+/// is there (a restart adopts them), and ends them within seconds once that
+/// state is removed: no daemon can link to it again (its owner token file is
+/// gone), as a terminal host ends once its record directory is gone
+/// (#36625). Without it, every test daemon's holder kept its shells and
+/// their PTYs for the build's whole orphan grace, and a full holder-on test
+/// run exhausted the Mac's PTYs (cmux#36853: 303 reds, `openpty: Device not
+/// configured`).
+#[test]
+fn a_holder_ends_its_shells_once_its_daemons_state_is_removed() {
+    let mut daemon = Daemon::start();
+    let terminals = two_holder_terminals(&mut daemon, "owner-gone");
+    let holder = parent_of(terminals[0].1);
+    assert!(holder > 1, "the shell's parent is the holder");
+
+    // The daemon crashes; its state stays: past the 5 s reconnect gap, every
+    // shell still runs for the next daemon to adopt.
+    daemon.sigkill();
+    std::thread::sleep(Duration::from_secs(7));
+    for (terminal_id, shell) in &terminals {
+        assert!(alive(*shell), "{terminal_id}: its shell ended while the daemon's state remained");
+    }
+
+    // The state is removed (a test's temp root, a wiped state directory).
+    let removed = Instant::now();
+    fs::remove_dir_all(&daemon.dir).unwrap();
+    for (terminal_id, shell) in &terminals {
+        assert!(
+            exits_within(*shell, Duration::from_secs(15)),
+            "{terminal_id}: its shell still runs 15 s after the daemon's state was removed"
+        );
+    }
+    eprintln!(
+        "HOLDER-OWNER-GONE shells={} ended_after_ms={} holder={holder} holder_alive={}",
+        terminals.len(),
+        removed.elapsed().as_millis(),
+        alive(holder)
+    );
+}
+
 /// QUIT P0: the startup pass ends a holder terminal only when its row ended
 /// (the person closed the tab: tombstoned, or the shell exited); a running
 /// terminal next to it re-attaches with its shell. (A terminal the registry
