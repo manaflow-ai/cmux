@@ -1346,6 +1346,29 @@ class LandHandoffOnlyTests(unittest.TestCase):
     def test_the_machine_channel_callee_is_land_handoff_only(self) -> None:
         self.assertTrue(pr_router.load_manifest()["cmux-machine-channel.yml"].get("land_handoff_only"))
 
+    def test_land_handoff_label_starts_it_on_the_label_handoff(self) -> None:
+        """The nightly pr build: no train tip builds its Nightly config, so the label handoff is its land build."""
+        callees = {"nb.yml": dict(self.CALLEES["mc.yml"], land_handoff_label=True)}
+        with unittest.mock.patch.dict(os.environ, {"CI_MC_HANDOFF_LABEL_SKIP": "1"}):
+            for label in ("ready-to-land", "full-ci"):
+                with self.subTest(label=label):
+                    ev = land_event(labels=(label,), action="labeled", added=label)
+                    decided = head_tier.tier("pull_request", ev, land_switch="1")
+                    self.assertEqual(pr_router.route(ev, callees, ["cmux-tui/src/a.rs"], decided=decided)[0],
+                                     ["nb.yml"])
+            for action in ("synchronize", "opened", "reopened", "ready_for_review"):
+                with self.subTest(action=action):
+                    ev = land_event(labels=("ready-to-land",), action=action)
+                    decided = head_tier.tier("pull_request", ev, land_switch="1")
+                    self.assertEqual(pr_router.route(ev, callees, ["cmux-tui/src/a.rs"], decided=decided)[0], [])
+
+    def test_the_nightly_pr_build_is_built_once_per_land(self) -> None:
+        """24 h to 2026-11-27 22:32Z: 31,042 runner-min over 1,491 heads of 722 branches, every push of a PR
+        that kept ready-to-land on."""
+        config = pr_router.load_manifest()["nightly-pr-build.yml"]
+        self.assertTrue(config.get("land_handoff_only"))
+        self.assertTrue(config.get("land_handoff_label"))
+
 
 
 def _pr_event(labels: tuple[str, ...] = (), action: str = "synchronize") -> dict:

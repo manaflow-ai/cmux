@@ -70,14 +70,17 @@ class Route(unittest.TestCase):
         repo = {"full_name": "manaflow-ai/cmux"}
         pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},
               "labels": [{"name": "ready-to-land"}]}
-        for action in ("synchronize", "labeled"):
+        # The land's own heads: the label handoff and land's update-branch head. A later author push of a PR that
+        # keeps ready-to-land is not one (it built every push: 31,042 runner-min a day to 2026-11-27 22:32Z).
+        for action, land_update, starts in (("labeled", False, True), ("synchronize", True, True),
+                                            ("synchronize", False, False)):
             event = {"action": action, "label": {"name": "ready-to-land"}, "pull_request": pr}
             tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
             self.assertTrue(pr_router.head_tier.land_affected(tier))
-            for path, expected in ((npb.WORKFLOW, True), ("Packages/macOS/CmuxNext/Sources/X.swift", True),
+            for path, expected in ((npb.WORKFLOW, starts), ("Packages/macOS/CmuxNext/Sources/X.swift", starts),
                                    ("docs/readme.md", False)):
-                with self.subTest(action=action, path=path):
-                    start, _ = pr_router.route(event, callees, [path], decided=tier)
+                with self.subTest(action=action, land_update=land_update, path=path):
+                    start, _ = pr_router.route(event, callees, [path], decided=tier, land_update=land_update)
                     self.assertEqual(name in start, expected)
         for changes in ({"draft": True}, {"labels": []}):
             event = {"action": "synchronize", "pull_request": {**pr, **changes}}
