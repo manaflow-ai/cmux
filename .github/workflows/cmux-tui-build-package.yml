@@ -936,9 +936,15 @@ jobs:
           # cmux-tui/Cargo.toml's release profile applies.
           # --timings (both modes): cargo-groups.sh prints each group's slowest and last units, so a
           # slow leg says where its time went (under fat LTO, the "bin" unit is the link).
+          # Incremental (thin only): acpmux's lib recompiled in full (445 s) on nearly every merge
+          # because a crate below it changed. With incremental on, rustc reuses the unchanged
+          # codegen units from target/<triple>/release/incremental, which the per-commit
+          # workspace delta (cargo-target-delta.sh pack: every file newer than the stamp) carries
+          # to the next build; cargo_target_strip.py still drops it from the dependency entry.
           profile=""
           if [[ "$LTO" == thin ]]; then
             export CARGO_PROFILE_RELEASE_LTO=off
+            export CARGO_PROFILE_RELEASE_INCREMENTAL=true
             for pkg in cmux-tui cmux-tui-core acpmux; do
               profile+=" --config profile.release.package.$pkg.codegen-units=16"
             done
