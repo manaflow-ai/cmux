@@ -44,6 +44,8 @@ struct AgentPaneDisplaySettingTests {
         // A sent prompt pops in and settles (webviews conversation.css SEND-POP): off unless switched on.
         Row(key: "agentPane.display.compactShortTurns", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         Row(key: "agentPane.display.sendPop", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // A sent prompt scrolls to the top with room below for the reply: off, the view follows the bottom.
+        Row(key: "agentPane.display.sendScrollsToTop", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The hat over the composer tucked away to its pull tab: off, it shows.
         Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.

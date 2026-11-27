@@ -1,7 +1,7 @@
 // Initial geometry of PermissionCard and QuestionCard, before their ResizeObserver reports.
 // Keep the frame on the shared grid; interactive expansion is still measured by the transcript.
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
-import "../measureContext";
+import { ensureMeasureContext } from "../measureContext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
 import { chatDensityTextScale, drawnFontSize, chatDisplay, chatMetrics } from "../chatDisplay";
 import { chatUiFontVariables, chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
@@ -60,6 +60,7 @@ function textHeight(
   const room = Math.max(1, width);
   if (!mono && !typography?.preserveWhitespace) text = text.replace(/\s+/g, " ");
   try {
+    ensureMeasureContext();
     return layout(
       prepare(text, typography?.font ?? `${weight} ${size}px ${mono ? "monospace" : cardFont()}`, {
         whiteSpace: "pre-wrap",
@@ -76,6 +77,7 @@ function textHeight(
 
 function textWidth(text: string, size: number, weight = 400, step?: string): number {
   try {
+    ensureMeasureContext();
     return (
       layoutWithLines(
         prepareWithSegments(text, `${weight} ${size}px ${cardFont()}`, {
