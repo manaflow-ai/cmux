@@ -129,6 +129,7 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         # Inside the land tier's and the label filter's wrapping (tests/test_head_tier.py), so a contained clause, not a prefix.
         self.assertIn(  # then the land tier (tests/test_head_tier.py)
                         "((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+                        "needs.full-carry.outputs.tier != 'none' && "
                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
                         "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))) && ",
                         group["if"])
