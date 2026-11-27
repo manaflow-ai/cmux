@@ -5,6 +5,126 @@
       "comment" : "Settings > Advanced > Labs: help for the Automations toggle",
       "extractionState" : "manual",
       "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اعرض محرر الأتمتة السحابية وخطافات الويب في الإعدادات. لا يزال قيد التطوير."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikaži uređivač automatizacija u oblaku i webhookova u Postavkama. Još je u razvoju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis editoren til cloudautomatiseringer og webhooks i Indstillinger. Stadig under udvikling."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den Editor für Cloud-Automatisierungen und Webhooks in den Einstellungen anzeigen. Noch in Entwicklung."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra el editor de automatizaciones en la nube y webhooks en Ajustes. Aún en desarrollo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher l’éditeur d’automatisations cloud et de webhooks dans les réglages. Encore en développement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra l’editor di automazioni cloud e webhook nelle impostazioni. Ancora in fase di sviluppo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定にクラウド自動化と Webhook のエディタを表示します。現在開発中です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញកម្មវិធីកែសម្រួលស្វ័យប្រវត្តិកម្មលើពពក និង webhook នៅក្នុងការកំណត់។ កំពុងស្ថិតក្នុងការអភិវឌ្ឍនៅឡើយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "설정에 클라우드 자동화 및 웹훅 편집기를 표시합니다. 아직 개발 중입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis redigeringsverktøyet for skyautomatiseringer og webhooks i Innstillinger. Fortsatt under utvikling."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokaż edytor automatyzacji w chmurze i webhooków w Ustawieniach. Nadal w fazie rozwoju."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar o editor de automações na nuvem e webhooks nos Ajustes. Ainda em desenvolvimento."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать редактор облачных автоматизаций и вебхуков в настройках. Ещё в разработке."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงตัวแก้ไขระบบอัตโนมัติบนคลาวด์และเว็บฮุกในการตั้งค่า ยังอยู่ระหว่างการพัฒนา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayarlar’da bulut otomasyonları ve webhook düzenleyicisini göster. Hâlâ geliştirilme aşamasında."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показувати редактор хмарних автоматизацій і вебхуків у налаштуваннях. Ще в розробці."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiển thị trình chỉnh sửa tự động hóa đám mây và webhook trong Cài đặt. Vẫn đang được phát triển."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在设置中显示云端自动化和 Webhook 编辑器。仍在开发中。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在設定中顯示雲端自動化和 Webhook 編輯器。仍在開發中。"
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
