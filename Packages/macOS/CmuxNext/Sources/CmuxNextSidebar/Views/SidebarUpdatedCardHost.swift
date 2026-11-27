@@ -490,7 +490,9 @@ final class SidebarUpdatedCardHost: NSView {
         let preview = card == nil ? 0 : island?.previewHeight ?? 0
         let tall = min(bounds.height, (height > 0 ? height : bounds.height) + preview)
         let next = NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - tall, width: bounds.width, height: tall)
-        glass.isHidden = card == nil || tall <= 0 || !drawn
+        // The frost is the in-card preview's only (it stands over the rows): beside, the card sits on the sidebar
+        // itself (Leo 2026-11-27: "this thing is just too weird there's a glass back that shouldnt be there").
+        glass.isHidden = card == nil || tall <= 0 || !drawn || UpdatedCardPreviewMode.tunable.value != .above
         // The composer's corner at the page's zoom: the page's corner grows with the interface scale.
         glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1) // concentric-allow: the composer's own corner under the page's card, which wears it too
         guard next != glassFrame else { return }
