@@ -1703,6 +1703,24 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
 
+    def test_only_a_red_web_lint_tries_its_safe_fixes(self):
+        # Leo, 2026-11-22: "hell, maybe even should've been automatic. how are our fixit type things for lint errors
+        # and random bullshit?" A red web lint runs scripts/ci/oops/fixit_lint.py (its `--fix`); any other red, or a
+        # green run, pays nothing, and the run's result is the gates' either way.
+        work, out = self.prepared()
+        saved = os.environ.get("FIXIT_COMPILE_HEAD_SHA")
+        os.environ["FIXIT_COMPILE_HEAD_SHA"] = "a" * 40
+        self.addCleanup(lambda: os.environ.pop("FIXIT_COMPILE_HEAD_SHA", None) if saved is None
+                        else os.environ.__setitem__("FIXIT_COMPILE_HEAD_SHA", saved))
+        for red, tried in (("web lint", True), ("prepush gate", False), ("", False)):
+            with self.subTest(red=red):
+                self.log.unlink(missing_ok=True)
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true", fail=red)
+                self.assertEqual(result.returncode, 1 if red else 0, result.stdout + result.stderr)
+                fixes = [e for e in self.gate_log() if e["gate"] == "web lint" and "--fix" in e["argv"]]
+                self.assertEqual(bool(fixes), tried, result.stdout + result.stderr)
+                self.assertEqual(git(work, "status", "--porcelain", "--untracked-files=no"), "")
+
     def test_independent_gates_run_in_parallel(self):
         work, out = self.prepared()
         barrier = self.tmp / "parallel-barrier"
@@ -2530,6 +2548,39 @@ class FetchesSkipSubmodules(unittest.TestCase):
         self.assertTrue(calls)
         for call in calls:
             self.assertIn('"--no-recurse-submodules"', call)
+
+
+class BunTmpdir(unittest.TestCase):
+    """Every gate gets a writable BUN_TMPDIR (cmux#59800: web lint failed `EACCES accessing temporary directory`)."""
+
+    @staticmethod
+    def module():
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates_under_test", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_one_is_made_under_the_runner_temp_and_exported(self):
+        with tempfile.TemporaryDirectory() as runner:
+            env = {"RUNNER_TEMP": runner}
+            made = self.module().ensure_bun_tmpdir(env)
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+            self.assertEqual(made.parent, Path(runner))
+            self.assertTrue(os.access(made, os.W_OK))
+
+    def test_a_caller_set_one_is_kept(self):
+        env = {"BUN_TMPDIR": "/somewhere", "RUNNER_TEMP": "/nonexistent"}
+        self.assertIsNone(self.module().ensure_bun_tmpdir(env))
+        self.assertEqual(env["BUN_TMPDIR"], "/somewhere")
+
+    def test_an_unusable_runner_temp_falls_back_to_the_system_temp(self):
+        env = {"RUNNER_TEMP": "/nonexistent/runner-temp"}
+        made = self.module().ensure_bun_tmpdir(env)
+        try:
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+        finally:
+            if made:
+                made.rmdir()
 
 
 if __name__ == "__main__":
