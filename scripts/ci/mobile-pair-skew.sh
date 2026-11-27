@@ -61,7 +61,7 @@ if ! grep -q 'signaling connected' "$work/host.log"; then
 fi
 
 status=0
-timeout 120 "$work/bin/cmux-mobile-dial" --base-url "$url" --token-file "$work/token" --team t1 --mac mac1 \
+bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" 120 "$work/bin/cmux-mobile-dial" --base-url "$url" --token-file "$work/token" --team t1 --mac mac1 \
   --transport webrtc --transport wireguard --daemon > "$work/dial.out" 2> "$work/dial.err" || status=$?
 if ! python3 -I - "$work/dial.out" "$status" <<'EOF'
 import json, sys
