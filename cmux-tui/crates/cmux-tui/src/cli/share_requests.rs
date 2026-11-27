@@ -141,13 +141,10 @@ fn parse(verb: &str, words: &[String]) -> Result<Ask, String> {
 fn run(global: &GlobalArgs, ask: &Ask) -> i32 {
     let request = match ask {
         Ask::List { .. } => json!({"cmd": "agent-session-share-list"}),
-        Ask::Info { surface, .. } => {
-            let mut request = json!({"cmd": "agent-session-share-list"});
-            if let Some(surface) = surface {
-                request["surface"] = json!(surface);
-            }
-            request
+        Ask::Info { surface: Some(surface), .. } => {
+            json!({"cmd": "agent-session-share-list", "surface": surface})
         }
+        Ask::Info { surface: None, .. } => json!({"cmd": "agent-session-share-list"}),
         Ask::Approve { share, account, role } => {
             let mut request = json!({
                 "cmd": "agent-session-share-request-approve",
