@@ -563,10 +563,34 @@ class NeverBoundTests(unittest.TestCase):
                                          "bind_file": "x"}, "power": {"call_ms": 3}, "total_ms": 31000}))
         self.assertEqual(row["log"], {"msg": "cloud.create.trace", "machine": logs.base.tag(VM), "outcome": "ok",
                                       "attempt": 1, "total_ms": 31000,
-                                      "steps": {"driver": 400, "edge": 900, "ensure": 24800}})
+                                      "steps": {"driver": 400, "edge": 900, "ensure": 24800},
+                                      "power": {"call_ms": 3}})
         self.assertEqual(list(row["log"]["steps"]), ["driver", "edge", "ensure"])
         for msg in ("cloud.create.submit", "cloud.start.submit", "cloud.start.trace"):
             self.assertIn(msg, logs.PLATFORM_MSGS)
+
+    def test_an_approved_run_keeps_its_delivery_split_and_steps(self):
+        """Production 2026-11-27 02:15-03:15Z (hq#31342): 20 cloud.approval.run lines kept only msg, team, machine, op,
+        outcome and path; cmux-platform#2295's queued/admit/delivery/run ms and the create's steps were dropped."""
+        row = logs.line(event({"msg": "cloud.approval.run", "team": TEAM, "machine": VM, "op": "cloud.machine.create",
+                               "queued_ms": 410, "admit_ms": 12, "delivery_ms": 2140, "run_ms": 2128, "path": "spare",
+                               "steps": {"spare_claim": 90, "provider": 1700, "vm_api": 2050, "secret": 1},
+                               "outcome": "ok"}))
+        self.assertEqual(row["log"], {"msg": "cloud.approval.run", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "op": "cloud.machine.create", "outcome": "ok",
+                                      "path": "spare", "queued_ms": 410, "admit_ms": 12, "delivery_ms": 2140,
+                                      "run_ms": 2128, "steps": {"spare_claim": 90, "provider": 1700, "vm_api": 2050}})
+        self.assertIn("cloud.create.approved", logs.PLATFORM_MSGS)
+
+    def test_a_slow_start_trace_keeps_its_power_split_typed(self):
+        row = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                               "steps": {"driver": 217, "power": 121058},
+                               "power": {"find_ms": 40, "call_ms": 120900, "verify_ms": "x", "provider_ms": 118000,
+                                         "vm_id": "vm_secret"}, "total_ms": 121058}))
+        self.assertEqual(row["log"]["power"], {"find_ms": 40, "call_ms": 120900, "provider_ms": 118000})
+        bare = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                                "steps": {"power": 337}, "power": "fast", "total_ms": 337}))
+        self.assertNotIn("power", bare["log"])
 
     def test_a_never_bound_line_keeps_the_probe_as_typed_facts_only(self):
         row = logs.line(event({"msg": "cloud.machine.start_overdue", "team": TEAM, "machine": VM,
@@ -592,6 +616,17 @@ class NeverBoundTests(unittest.TestCase):
                  ("the VM this machine's first create made is not there yet",
                   "the VM this machine's first create made is not there yet"),
                  ("restore snapshot is missing because tenant-x", "other"),
+                 # Production messages carry their module's prefix (vmapi/CloudProvider.ts unavailable).
+                 ("VM API: restore snapshot is missing", "VM API: restore snapshot is missing"),
+                 ("VM API: HTTP 503 (busy) secret-tenant-words", "VM API: HTTP 503"),
+                 ("VM API: boot image img_secret-tenant-words is not listed yet",
+                  "VM API: boot image is not listed yet"),
+                 ("VM API network: unconfirmed mesh ACL apply", "VM API network: unconfirmed mesh ACL apply"),
+                 ("VM API network: mesh ACL apply HTTP 400 secret-tenant-words", "VM API network: mesh ACL apply HTTP 400"),
+                 ("VM API: file write HTTP 500", "VM API: file write HTTP 500"),
+                 ("VM API: secret-tenant-words", "VM API: other"),
+                 ("TypeError: secret-tenant-words is not a function", "TypeError"),
+                 ("the machine network is unavailable", "the machine network is unavailable"),
                  (None, "other"))
         for message, want in cases:
             with self.subTest(message=message):
