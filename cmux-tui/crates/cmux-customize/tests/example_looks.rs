@@ -17,18 +17,30 @@ fn looks() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/looks")
 }
 
-/// The add-on folders `looks.json` names, by folder name.
-fn addons() -> Vec<String> {
+/// The add-on folders `looks.json` names, by folder name; with `whole`, only the whole looks (no
+/// `"surface"`), not a part such as `codex/composer` (`"surface": "composer"`, #51713).
+fn listed(whole: bool) -> Vec<String> {
     let index: Value =
         serde_json::from_str(&fs::read_to_string(looks().join("looks.json")).unwrap()).unwrap();
     let mut names: Vec<String> = index["looks"]
         .as_array()
         .unwrap()
         .iter()
+        .filter(|look| !whole || look.get("surface").is_none_or(Value::is_null))
         .filter_map(|look| look["addon"].as_str().map(str::to_owned))
         .collect();
     names.sort();
     names
+}
+
+/// Every add-on folder `looks.json` names.
+fn addons() -> Vec<String> {
+    listed(false)
+}
+
+/// The whole looks `looks.json` names.
+fn whole_looks() -> Vec<String> {
+    listed(true)
 }
 
 const MINE: &str = "{\n  // my settings\n  \"appearance\": { \"accent\": \"blue\" },\n  \"terminal\": { \"fontSize\": 15 }\n}\n";
@@ -50,14 +62,14 @@ fn every_listed_addon_is_a_whole_look_folder() {
         );
     }
     assert!(
-        addons().len() >= 2,
+        whole_looks().len() >= 2,
         "at least two looks: one recreating a built-in look, one outside-only"
     );
 }
 
 #[test]
 fn every_look_is_a_whole_look_on_public_surfaces() {
-    for name in addons() {
+    for name in whole_looks() {
         let read = setup::read_dir(&looks().join(&name))
             .unwrap_or_else(|error| panic!("{name}: not a setup: {error}"));
         let files = &read.profile.files;
@@ -107,9 +119,49 @@ fn every_look_is_a_whole_look_on_public_surfaces() {
     }
 }
 
+/// Every setup folder under examples/looks: the add-ons and the reference app profiles
+/// (`codex/profile`, `claude-code/profile`, ...), which looks.json does not list.
+fn every_setup_folder() -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for entry in fs::read_dir(looks()).unwrap() {
+        let dir = entry.unwrap().path();
+        for folder in [dir.clone(), dir.join("profile")] {
+            if folder.join(setup::SETUP_FILE).is_file() {
+                found.push(folder);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// A look's setting this cmux's embedded schema (schemas/settings/settings-schema.json) has no row
+/// for installs as nothing: `cmux setup install` leaves it out and still says Installed. Nightly
+/// 4592220755201 shipped a stale export, so the Codex profile lost `agentPane.display.modelPickerStyle`
+/// (its model picker kept the rail and Reasoning column) and `agentPane.composerPlaceholder`.
+#[test]
+fn every_look_setting_is_one_this_cmux_has() {
+    let folders = every_setup_folder();
+    assert!(folders.len() >= 4, "found only {folders:?}");
+    for folder in folders {
+        let home = tempfile::tempdir().unwrap();
+        let customize = Customize::open(Roots::under(home.path()));
+        let read = setup::read_dir(&folder).unwrap_or_else(|error| panic!("{folder:?}: {error}"));
+        let plan = customize
+            .plan_setup(&read, "manaflow-ai", "0.0.0")
+            .unwrap_or_else(|error| panic!("{folder:?}: does not plan: {error}"));
+        let skipped: Vec<&str> = plan.skipped.iter().map(|s| s.key.as_str()).collect();
+        assert!(
+            skipped.is_empty(),
+            "{folder:?} sets {skipped:?}, which settings-schema.json lacks: regenerate the settings \
+             exports (scripts/cmux-next/regenerate-settings-exports-linux.sh OUT)"
+        );
+    }
+}
+
 #[test]
 fn every_look_installs_as_one_layer_and_comes_off_leaving_yours() {
-    for name in addons() {
+    for name in whole_looks() {
         let home = tempfile::tempdir().unwrap();
         let config = |path: &str| home.path().join("config").join(path);
         fs::create_dir_all(config("")).unwrap();
