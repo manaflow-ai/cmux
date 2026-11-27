@@ -28,6 +28,7 @@ unknown is left alone. The attachment lasts until reboot or `detach`; vm-net-syn
 from __future__ import annotations
 
 import ctypes
+import functools
 import gzip
 import os
 import platform
@@ -66,7 +67,9 @@ def hz_in(text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+@functools.cache
 def kernel_hz() -> int | None:
+    """Read once per run: the hz_measured() fallback sleeps 0.3 s and is noisy, so every caller gets one answer."""
     rel = os.uname().release
     for path in ("/boot/config-" + rel, "/lib/modules/%s/config" % rel, "/lib/modules/%s/build/.config" % rel):
         try:

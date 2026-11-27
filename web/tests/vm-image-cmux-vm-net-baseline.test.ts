@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   GAI_CONF,
@@ -80,5 +80,26 @@ describe("netBaselineProblems", () => {
   test("no IPv6-first gai.conf fails, and empty output names every piece", () => {
     expect(netBaselineProblems(LIVE.replace("gai=ipv6-first", "gai=default"))[0]).toContain(GAI_CONF);
     expect(netBaselineProblems("")).toHaveLength(2);
+  });
+});
+
+describe("the bake and smoke scripts use the net baseline", () => {
+  const src = (name: string) => readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image", name), "utf8");
+
+  test("bake.ts writes every baseline file and runs the bake command", () => {
+    const bake = src("bake.ts");
+    expect(bake).toContain("for (const f of netBaselineFiles()) await writeGuestFile(");
+    expect(bake).toContain("netBaselineBakeCommand()");
+  });
+
+  test("smoke.ts runs the smoke command and fails on its problems", () => {
+    const smoke = src("smoke.ts");
+    expect(smoke).toContain("run(vm, netBaselineSmokeCommand()");
+    expect(smoke).toContain("netBaselineProblems(out.stdout)");
+    expect(smoke).toMatch(/await netBaselineChecks\(/);
+  });
+
+  test("syn_retry.py reads HZ once per run", () => {
+    expect(readFileSync(path.join(NET_BASELINE_DIR, "syn_retry.py"), "utf8")).toMatch(/@functools\.cache\ndef kernel_hz\(/);
   });
 });
