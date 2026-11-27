@@ -1,0 +1,225 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46006969957",
+  "recorded_at": "2026-11-27T13:39:59Z",
+  "reason": "cmux-tui 7137d739ec08 changes the image's cmux-tui (pinned 57d4fce38ea8)",
+  "dry_run": false,
+  "cmux_tui": "7137d739ec08b4d9728491363992d2dfed9063e3",
+  "fixes": [
+    {
+      "sha": "b3869a89b93a55e248d4e0f8c2e0b0a8d3e8f3f6",
+      "mergedAt": "2026-11-27T12:42:40Z",
+      "subject": "acpmux: harness magic checkpoints keeps the folder at each turn end (RFD 0158 §7) (#60368)"
+    },
+    {
+      "sha": "a7a94151a9af272d8fe4cc7bbcf57e8d8e32443f",
+      "mergedAt": "2026-11-27T12:41:22Z",
+      "subject": "acpmux: urgent-steer watch runs on the hub's scope (spawn-owner ratchet base red) (#58165)"
+    },
+    {
+      "sha": "dcae2d1b6374fd729bc16f21c6a9b12eb6918336",
+      "mergedAt": "2026-11-27T12:32:38Z",
+      "subject": "cmux-config: backdrop switching, favorites and contrast ops (swift-out settings, backdrop A) (#57215)"
+    },
+    {
+      "sha": "5b8cbd9d8581845a00a37dfdae36278b605ad375",
+      "mergedAt": "2026-11-27T12:28:39Z",
+      "subject": "Validate catalog commands in headless customization checks (#60996)"
+    },
+    {
+      "sha": "ec6bc9709c5027091078995e5cfcc62bb6a93236",
+      "mergedAt": "2026-11-27T12:28:01Z",
+      "subject": "acpmux: two daemons that both run WireGuard find the route themselves (#58807)"
+    },
+    {
+      "sha": "236ffd76424d92946ea54cd12726f0c3475853e5",
+      "mergedAt": "2026-11-27T12:26:53Z",
+      "subject": "acpmux: a take-over keeps a move its client was midway through copying (#58512)"
+    },
+    {
+      "sha": "76aee190a99f7967c67c4e960edf6cb2fc008f69",
+      "mergedAt": "2026-11-27T12:25:06Z",
+      "subject": "test(glass): GlassTextContrastTests, the detector for #50499's unreadable Clear Glass (on the #51377 revert) (#51313)"
+    },
+    {
+      "sha": "ee24d8066b9a017d409ea7973610bbca92ded810",
+      "mergedAt": "2026-11-27T12:23:46Z",
+      "subject": "cmux-team-messaging: RFD 0170 phase 4 team customization and Open in cmux handoff (#61504)"
+    },
+    {
+      "sha": "3617816680a3248e00fea0daf4f5b4ef21f23c22",
+      "mergedAt": "2026-11-27T12:23:36Z",
+      "subject": "cmux-config: port Swift settings tests for sessions, chrome placement, quit, hibernation (#57432)"
+    },
+    {
+      "sha": "79dd1029d3e5598dc1ca0a37370d8b9721adf787",
+      "mergedAt": "2026-11-27T12:23:07Z",
+      "subject": "link: one identify per move, one base check per pull (#61336)"
+    },
+    {
+      "sha": "ecbc7fb1fff1479122b7d8d7456ba0028435abb9",
+      "mergedAt": "2026-11-27T12:23:04Z",
+      "subject": "acpmux: hold carrier circuits by machine name (RFD 0056 part 4) (#61349)"
+    },
+    {
+      "sha": "b7fa262b9056f5573c837a1cc70e0f384a396fbf",
+      "mergedAt": "2026-11-27T12:21:43Z",
+      "subject": "cmux-feed-core: a view builds each item once (json! deep-copied every entry); view stress rows (#45065)"
+    },
+    {
+      "sha": "7428c184d3858b4e1c1e268e2b1ecd45d9701261",
+      "mergedAt": "2026-11-27T12:15:26Z",
+      "subject": "History: actor on visits, Mine / Agents / All filter (RFD 0125 D5) (#56401)"
+    },
+    {
+      "sha": "32f1e804ff323337757f5cb193c994839679ed12",
+      "mergedAt": "2026-11-27T12:14:05Z",
+      "subject": "WIP: automatic checkpoint (sweep: owner session gone) (#60476)"
+    },
+    {
+      "sha": "46c3c8e2a0227b10d79ae009f2a5233e4871db28",
+      "mergedAt": "2026-11-27T12:12:42Z",
+      "subject": "cmux-wg: the send gate counts bytes the pacer holds, so an echo never queues behind a bulk backlog (lte typing spikes) (#61446)"
+    },
+    {
+      "sha": "47879d572133a1d1443677f4dd1a5b64c67dfc2c",
+      "mergedAt": "2026-11-27T12:11:54Z",
+      "subject": "cmux-config: editor import, classic migration and renamed keys as import.*/migrate.* ops (Settings swift-out, import step A) (#57251)"
+    },
+    {
+      "sha": "ed9194bfb55e37e14a72805dfe584e8d6d38de4a",
+      "mergedAt": "2026-11-27T12:11:28Z",
+      "subject": "acpmux: tell the parent when a lane's session ends (RFD 0177 piece 5, exit records) (#60258)"
+    },
+    {
+      "sha": "9cdfb6307d1a7d7f405040fcc91e12ea783682d2",
+      "mergedAt": "2026-11-27T12:08:12Z",
+      "subject": "acpmux: is the capped daemon's heap live data or mimalloc's retention (allocator A/B bench, dhat dump on request) (#57621)"
+    },
+    {
+      "sha": "fdd5c94e1da3357d33d64e9fbf346430466eb4c1",
+      "mergedAt": "2026-11-27T12:07:39Z",
+      "subject": "cmux host git-cache: a stopped fetch leaves no partial pack behind (#59934)"
+    },
+    {
+      "sha": "696c220d073811c882e2d3b06f3e7a05bce8fe80",
+      "mergedAt": "2026-11-27T12:06:52Z",
+      "subject": "cmux-wg: default tunnel MTU fits a 1460 path; resend GSO batches refused as too large (carries #60277) (#61009)"
+    },
+    {
+      "sha": "9b844df51987c1c7968df2189a8a6d03870b6a62",
+      "mergedAt": "2026-11-27T12:05:29Z",
+      "subject": "projection: no git swap whose .git link fs-v1 would refuse (Bring Back fs.permission_denied) (#61012)"
+    },
+    {
+      "sha": "c30e2d730545f6b757263dde3a447e855eb332a0",
+      "mergedAt": "2026-11-27T12:03:28Z",
+      "subject": "cmux-focus-core: the creation input hold in Rust (CreationInputBuffer step A) (#57644)"
+    },
+    {
+      "sha": "e5efe6cb221e064fe323f6b4a8358b77576eafb5",
+      "mergedAt": "2026-11-27T12:03:26Z",
+      "subject": "acpmux: repair remaining lib source invariants (#60900)"
+    },
+    {
+      "sha": "6a389f96f8547c5dcb8c0c2c7b0d7ad22fa0c4ae",
+      "mergedAt": "2026-11-27T12:02:12Z",
+      "subject": "Share: Share… only where the app can share; a role change keeps access (#60671)"
+    },
+    {
+      "sha": "ffb8b39710092d0baf2d4c9d3ba26c355fc47d37",
+      "mergedAt": "2026-11-27T12:01:55Z",
+      "subject": "cmux-config: section reads for ColorTransition, ThemeEdits, ComputerUse, BrowserHibernation, AgentPane (why-swift part 2) (#57451)"
+    },
+    {
+      "sha": "668af493f06da6abfa402b859f04e087116bdf34",
+      "mergedAt": "2026-11-27T12:01:38Z",
+      "subject": "acpmux: deterministic carrier drop sweep at every frame offset; chaos rows record drop point, acked seq, replay range (#60522)"
+    },
+    {
+      "sha": "4f1c0a2ba705ce1794c0467b18a2d918798bd072",
+      "mergedAt": "2026-11-27T12:01:26Z",
+      "subject": "acpmux: a forward read seeks into its first segment, not from its start (#57763)"
+    },
+    {
+      "sha": "c990883b611395ffbb8acb0cdb307cec7f5983a8",
+      "mergedAt": "2026-11-27T12:00:54Z",
+      "subject": "share: a chat's link shares follow it between Mac and Cloud (#54235)"
+    },
+    {
+      "sha": "0aa4c5feb588f4797d6f3e2e9caccc9da54bafc9",
+      "mergedAt": "2026-11-27T11:59:38Z",
+      "subject": "cmux-host updater: an idle machine stops polling the channel so its VM can pause (#61293)"
+    },
+    {
+      "sha": "809b3cfbff9ec14e7221434b08ed793612bdd054",
+      "mergedAt": "2026-11-27T11:58:51Z",
+      "subject": "acpmux: a same-account joined machine needs no Control grant; the person's Off still wins (#51936)"
+    },
+    {
+      "sha": "63a1fdc745f75618ef41d04788b96943c617638b",
+      "mergedAt": "2026-11-27T11:58:39Z",
+      "subject": "relay: a dialer-side standby socket skips the connect and upgrade on a redial (default off) (#61054)"
+    },
+    {
+      "sha": "15ca67cc7727a52ee48d8ac60302b13ea1fae418",
+      "mergedAt": "2026-11-27T11:57:40Z",
+      "subject": "cmux-config: browser.siteEngines as one rule the app and the daemon ask (site_engines.*), step A (#57071)"
+    },
+    {
+      "sha": "26b390fc7a68b0b1a3fb2aa831bbcdce8b7acfda",
+      "mergedAt": "2026-11-27T11:56:33Z",
+      "subject": "Drop-target rules move to Rust (step A): cmux-layout-reducer drop_rules, drop_* ops (#57042)"
+    },
+    {
+      "sha": "68d0266dc54f6a0cc6a0bd0d4757362f24d24ee2",
+      "mergedAt": "2026-11-27T11:50:24Z",
+      "subject": "chat index: one transcript write merges only the chats it touched (10 ms -> 0.1 ms at 20k chats) (#61545)"
+    },
+    {
+      "sha": "3a7e1a6bc8c3542c95559c009e9f5b4289f517d5",
+      "mergedAt": "2026-11-27T11:49:38Z",
+      "subject": "ci: name unix-only acpmux code on the PR; fix the Windows errors #54573 left (#57708)"
+    },
+    {
+      "sha": "421202de78a6f697d37082bff21e1699a3f4b19c",
+      "mergedAt": "2026-11-27T11:48:33Z",
+      "subject": "acpmux cli: history upkeep commands out of run/extra.rs (101 KB -> 95 KB) (#58592)"
+    },
+    {
+      "sha": "9c4535649b763e953edffeb319a1c829b51c7998",
+      "mergedAt": "2026-11-27T11:47:09Z",
+      "subject": "acpmux: exec router — PATH shims route heavy commands from any process to a run VM; acpmux exec trace (#56787)"
+    },
+    {
+      "sha": "1f9801b6d11ba8dd466d7ac6a55901ebe97c8bb7",
+      "mergedAt": "2026-11-27T11:45:49Z",
+      "subject": "build: keep release proc-macros unstripped so Xcode 27.2 hosts can load them (#61371)"
+    },
+    {
+      "sha": "51f552a0af27804286ac640921b91c6373af1719",
+      "mergedAt": "2026-11-27T11:38:44Z",
+      "subject": "holder: end an orphan's terminals once its token file is gone (pty exhaustion) (#61131)"
+    },
+    {
+      "sha": "4dbaa78f754e9253737e3974f4311e07a89a35d2",
+      "mergedAt": "2026-11-27T11:36:10Z",
+      "subject": "Agent chat: a draft's attachments are kept with its text in acpmux, and come back in place after every state change (#51093)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T13:39:59Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
