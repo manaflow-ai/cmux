@@ -22,6 +22,12 @@
       "title" : "Composer Look",
       "type" : "string"
     },
+    "agentPane.composerPlaceholder" : {
+      "default" : "",
+      "description" : "The text shown in an empty message box. Empty uses cmux's own.",
+      "title" : "Message Box Placeholder",
+      "type" : "string"
+    },
     "agentPane.composerRing" : {
       "default" : "context",
       "description" : "What the ring at the end of the composer shows.",
@@ -389,12 +395,19 @@
       "title" : "Pop In Sent Prompts",
       "type" : "boolean"
     },
+    "agentPane.display.sendScrollsToTop" : {
+      "default" : false,
+      "description" : "A prompt you send moves to the top of the chat, with room below it for the reply.",
+      "title" : "Scroll Sent Prompts to Top",
+      "type" : "boolean"
+    },
     "agentPane.display.sessionInfo.placement" : {
       "default" : "overlay",
       "description" : "Push narrows the chat; Overlay covers it.",
       "enum" : [
         "push",
-        "overlay"
+        "overlay",
+        "inline"
       ],
       "title" : "Session Info",
       "type" : "string"
@@ -413,6 +426,17 @@
         "custom"
       ],
       "title" : "Working Status Verbs",
+      "type" : "string"
+    },
+    "agentPane.display.streaming" : {
+      "default" : "words",
+      "description" : "How an agent's reply text appears as it arrives.",
+      "enum" : [
+        "words",
+        "lines",
+        "instant"
+      ],
+      "title" : "Reply Streaming",
       "type" : "string"
     },
     "agentPane.display.subagentOf" : {
@@ -2318,6 +2342,18 @@
       "title" : "Highlight Color",
       "type" : "string"
     },
+    "appearance.homeCardStyle" : {
+      "default" : "standard",
+      "description" : "How the cards on Home and the New Tab page draw: today's, flat, raised, or glass.",
+      "enum" : [
+        "standard",
+        "flat",
+        "raised",
+        "glass"
+      ],
+      "title" : "Home Cards",
+      "type" : "string"
+    },
     "appearance.hue" : {
       "default" : 0.5,
       "description" : "Shift the tint color around the hue wheel.",
@@ -3157,6 +3193,18 @@
         "subtleTone"
       ],
       "title" : "Title Area",
+      "type" : "string"
+    },
+    "appearance.toolbarButtonStyle" : {
+      "default" : "standard",
+      "description" : "How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass.",
+      "enum" : [
+        "standard",
+        "plain",
+        "grouped",
+        "glass"
+      ],
+      "title" : "Top Right Buttons",
       "type" : "string"
     },
     "appearance.twoTone" : {
@@ -4526,6 +4574,12 @@
       "title" : "App Font in Native Chrome",
       "type" : "boolean"
     },
+    "experiments.appsTier" : {
+      "default" : false,
+      "description" : "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar.",
+      "title" : "Publish Previews as Apps",
+      "type" : "boolean"
+    },
     "experiments.appStoreFeatures" : {
       "default" : false,
       "description" : "The App Store gets a Features tab where built-in features turn on and off.",
@@ -4544,6 +4598,12 @@
       "title" : "Browser Profile Card",
       "type" : "boolean"
     },
+    "experiments.chatInstantUnderLoad" : {
+      "default" : false,
+      "description" : "While you type or a reply streams, wait for a pause before saving the chat list new tabs show.",
+      "title" : "Prioritize Chat Input",
+      "type" : "boolean"
+    },
     "experiments.chatWidgets" : {
       "default" : false,
       "description" : "Installed extensions can show a card under a finished tool call in agent chat.",
@@ -4554,6 +4614,12 @@
       "default" : false,
       "description" : "Cloud machine cards show disk use as a bar split into system, project and caches.",
       "title" : "Cloud Disk Bar",
+      "type" : "boolean"
+    },
+    "experiments.cloudToggle" : {
+      "default" : false,
+      "description" : "A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on.",
+      "title" : "Cloud Toggle",
       "type" : "boolean"
     },
     "experiments.composerButtonsVisible" : {
@@ -4578,6 +4644,12 @@
       "default" : false,
       "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
       "title" : "Composer Refresh",
+      "type" : "boolean"
+    },
+    "experiments.eventsAsToolCalls" : {
+      "default" : false,
+      "description" : "A rule cmux pushes into a chat shows as cmux's line, never as your own message.",
+      "title" : "Harness Events Read by Origin",
       "type" : "boolean"
     },
     "experiments.expandedEditsEstimate" : {
@@ -4716,6 +4788,12 @@
       "default" : false,
       "description" : "Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context.",
       "title" : "Transcript Work Log",
+      "type" : "boolean"
+    },
+    "experiments.writtenHTMLOpenBeside" : {
+      "default" : false,
+      "description" : "A web page the agent writes gets an Open beside chat button that shows the real page, with its styles and images, in a tab.",
+      "title" : "Open Written HTML Beside the Chat",
       "type" : "boolean"
     },
     "feed.agentPermissionPrompts" : {
@@ -6705,6 +6783,16 @@
       "title" : "Priority Status Words",
       "type" : "boolean"
     },
+    "sidebar.profileMenu.style" : {
+      "default" : "app",
+      "description" : "What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out.",
+      "enum" : [
+        "app",
+        "account"
+      ],
+      "title" : "Profile Menu",
+      "type" : "string"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",
@@ -6898,6 +6986,11 @@
       "minimum" : 0.1,
       "title" : "Top Sections Height",
       "type" : "number"
+    },
+    "sidebar.workspaceListApp" : {
+      "description" : "The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed.",
+      "title" : "Workspace List Extension",
+      "type" : "string"
     },
     "sidebar.workspaceRow.agent.agentStatus" : {
       "description" : "sidebar.workspaceRow.agent.agentStatus",
