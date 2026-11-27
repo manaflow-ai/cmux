@@ -13,18 +13,21 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
     case invite(account: String, role: String)
     /// `{op:"uninvite", account}`: the account leaves every share of this chat.
     case uninvite(account: String)
+    /// `{op:"approve", account, role}`: an account that asked for access is invited as `role` (`view`
+    /// when absent) on every share of this chat it asked on.
+    case approve(account: String, role: String)
+    /// `{op:"decline", account}`: its requests on this chat are declined (it is not told).
+    case decline(account: String)
     /// `{op:"revoke", shareId}`: one share of this chat stops working.
     case revoke(shareId: String)
     /// `{op:"manage"}`: Settings at its Shared links card.
     case manage
 
-    static let roles: Set<String> = ["view", "talk"]
-
     /// A link or an invite shows the chat to someone new: only the person's click makes one.
     public var needsGesture: Bool {
         switch self {
-        case .link, .invite: true
-        case .state, .uninvite, .revoke, .manage: false
+        case .link, .invite, .approve: true
+        case .state, .uninvite, .decline, .revoke, .manage: false
         }
     }
 
@@ -35,22 +38,28 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
             let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             return value.isEmpty || value.utf8.count > limit ? nil : value
         }
-        func role(_ fallback: String?) -> String? {
+        func role(_ allowed: Set<String>, default fallback: String? = nil) -> String? {
             guard params?["role"] != nil else { return fallback }
-            return (params?["role"] as? String).map { $0.lowercased() }.flatMap { Self.roles.contains($0) ? $0 : nil }
+            return (params?["role"] as? String).map { $0.lowercased() }.flatMap { allowed.contains($0) ? $0 : nil }
         }
         switch params?["op"] as? String {
         case "state": self = .state
         case "manage": self = .manage
         case "link":
-            guard let role = role("view") else { return nil }
+            guard let role = role(["view", "talk"], default: "view") else { return nil }
             self = .link(role: role)
         case "invite":
-            guard let account = text("account", limit: 320), let role = role(nil) else { return nil }
+            guard let account = text("account", limit: 320), let role = role(["view", "talk", "drive"]) else { return nil }
             self = .invite(account: account, role: role)
         case "uninvite":
             guard let account = text("account", limit: 320) else { return nil }
             self = .uninvite(account: account)
+        case "approve":
+            guard let account = text("account", limit: 320), let role = role(["view", "talk"], default: "view") else { return nil }
+            self = .approve(account: account, role: role)
+        case "decline":
+            guard let account = text("account", limit: 320) else { return nil }
+            self = .decline(account: account)
         case "revoke":
             guard let shareId = text("shareId", limit: 128) else { return nil }
             self = .revoke(shareId: shareId)

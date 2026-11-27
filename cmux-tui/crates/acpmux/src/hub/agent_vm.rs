@@ -205,7 +205,7 @@ mod group_tests {
             one_parent_refusal("vm-1", "agent", true, [root.clone()]).is_none(),
             "a sub-session start"
         );
-        assert!(one_parent_refusal("big-red", "own", false, [root]).is_none(), "own machines");
+        assert!(one_parent_refusal("my-vm", "own", false, [root]).is_none(), "own machines");
         assert!(one_parent_refusal("vm-1", "agent", false, []).is_none(), "the first parent");
     }
 

@@ -70,8 +70,7 @@
 #   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment), its
 #                   customize/ folder (CMUX_CUSTOMIZE_DIR: local/customize, the folder its daemon watches), and
 #                   its debug-tunables.json (CMUX_NEXT_DEBUG_TUNABLES_FILE) with Live web reload on, so it
-#                   loads its web overlay. A copy of cmux NEXT DEV cannot: the app reads web-dev.json
-#                   only under DEV's own bundle id (WebDevOverride.isAvailable); a nightly's copy can.
+#                   loads its web overlay (every build reads web-dev.json, under any bundle id).
 #   web-overlay/    its web overlay (CMUX_WEB_OVERLAY_DIR), web-slot/ its dev server state
 #   live-code/      with --live-code, the folder its live code watcher reads (CMUX_LIVE_CODE_DIR)
 # A side instance starts signed out with fresh settings; its own sign-in survives a remake through
@@ -488,6 +487,10 @@ PY
         echo "$name: no park display (see above); its windows open behind your app instead (--shown)" >&2
       fi
     fi
+    # A driver's downloads folder (DownloadsFolder: Debug and bench builds read it; Release ignores it): a
+    # copy under test never writes the account's ~/Downloads, whose first write waits on macOS's access
+    # prompt, a prompt nobody answers on a fleet Mac (browser-auth-webkit.sh, as kit_downloads.py).
+    [[ -n "${CMUX_NEXT_DOWNLOADS_DIR:-}" ]] && open_args+=(--env CMUX_NEXT_DOWNLOADS_DIR="$CMUX_NEXT_DOWNLOADS_DIR")
     if ! open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
     exe="$app/Contents/MacOS/$("$buddy" -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
     launched=""

@@ -151,3 +151,13 @@ fn a_lost_link_is_retryable_and_a_peer_refusal_keeps_its_code() {
     );
     assert_eq!(refused.data.unwrap()["code"], "computer_use_remote_denied");
 }
+
+#[test]
+fn only_the_persons_own_daemon_counts_as_their_own_machine_for_control() {
+    use crate::machine_record::Requester;
+    assert_eq!(requester(ConnAuth::PeerToken), Requester::OwnMachine);
+    assert_eq!(requester(ConnAuth::CarrierOwner), Requester::OwnMachine);
+    // A paired client credential may be anyone's the person gave it to: it still needs a grant.
+    assert_eq!(requester(ConnAuth::Device), Requester::Other);
+    assert_eq!(requester(ConnAuth::CarrierTeam), Requester::Other);
+}

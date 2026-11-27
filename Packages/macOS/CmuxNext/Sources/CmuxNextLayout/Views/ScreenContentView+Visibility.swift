@@ -70,10 +70,13 @@ extension ScreenContentView {
 
     // MARK: Visibility and hit testing
 
-    /// Panes whose displayed frame intersects the viewport.
+    /// Panes whose displayed frame intersects the viewport, and the panes a change took out that still show.
     func visiblePanes() -> Set<PaneID> {
-        // A held snap's departed panes still show until it does (`ScreenContentView+SnapFrame`).
-        var result = Set(frameInput.snapDeparted)
+        // A held snap's departed panes still show until it does (`ScreenContentView+SnapFrame`), and a change that moves
+        // its panes keeps the ones it took out shown under the panes that take their room until the motion's end (a
+        // zoom's covered panes, a close's): their content draws on there. Reported hidden from the frame that showed the
+        // zoom, a covered browser's page went blank beside its tab strip and toolbar (`PaneCommitMotionTests+Presence`).
+        var result = Set(frameInput.snapDeparted).union(context.retiredShown(of: screenID))
         let uncovered = uncoveredRect
         for (pane, frame) in paneFrames {
             // A strip pane wholly under a docked column is hidden.

@@ -69,6 +69,7 @@ pub(super) fn transcript_rows_range(
             }
             (show_system || !is_system_noise(it))
                 && !matches!(it, Item::TurnEnd { stop } if stop == "end_turn")
+                && !(matches!(it, Item::Error { .. }) && crate::turn_fold::superseded_error(t, i))
         })
         .collect();
     // An ended turn the person steered right before its end reads its work, the steer, then the
@@ -200,6 +201,11 @@ pub(super) fn transcript_rows_range(
     // When a turn's work is collapsed, rendering resumes at this item (the
     // turn's final reply, or the next user message).
     let mut reopen_at: Option<usize> = None;
+    // Under a closed fold: what stays in sight anyway (a substantive reply, the error) and what
+    // folds though it comes after the final reply (calls and notes trailing it). GUI parity:
+    // cmux#42279, #42466, #41774, #41537 (`crate::turn_fold`).
+    let mut kept: std::collections::HashSet<usize> = Default::default();
+    let mut trailing: std::collections::HashSet<usize> = Default::default();
     while k < vis.len() {
         let i = vis[k];
         if reopen_at == Some(i) {
@@ -291,8 +297,29 @@ pub(super) fn transcript_rows_range(
                 {
                     None
                 } else {
-                    (k..next_pos).rev().find(|&p| matches!(t.items[vis[p]], Item::Assistant { .. }))
+                    // The last reply with words in it: an empty message is not the answer.
+                    (k..next_pos).rev().find(
+                        |&p| matches!(vis.get(p).and_then(|&j| t.items.get(j)), Some(Item::Assistant { text }) if !text.trim().is_empty()),
+                    )
                 };
+                // A turn that ended on an error reads "Failed after", not "Worked for" (cmux#44475):
+                // its last drawn row before the next prompt is the error.
+                // Read off the items, not `vis`: a card a later turn cleared still failed.
+                let failed = !turn_live
+                    && t.items
+                        .get(i + 1..next_user)
+                        .unwrap_or_default()
+                        .iter()
+                        .rev()
+                        .find(|x| {
+                            !matches!(
+                                x,
+                                Item::TurnEnd { .. }
+                                    | Item::Status { .. }
+                                    | Item::User { queued: true, .. }
+                            )
+                        })
+                        .is_some_and(|x| matches!(x, Item::Error { .. }));
                 let work_end = final_reply.unwrap_or(next_pos);
                 let work: Vec<usize> = vis[k..work_end].to_vec();
                 let mut blocks = 0usize;
@@ -366,9 +393,11 @@ pub(super) fn transcript_rows_range(
                         .collect::<std::collections::HashSet<_>>()
                         .len();
                     let mut label = match span {
-                        Some((start, Some(end))) => {
-                            format!("Worked for {}", duration_label(end.saturating_sub(start)))
-                        }
+                        Some((start, Some(end))) => format!(
+                            "{} {}",
+                            if failed { "Failed after" } else { "Worked for" },
+                            duration_label(end.saturating_sub(start))
+                        ),
                         Some((start, None))
                             if t.turn_times.last().map(|x| x.0 == i).unwrap_or(false)
                                 && t.status != "ready"
@@ -379,6 +408,7 @@ pub(super) fn transcript_rows_range(
                                 duration_label(now_ms().saturating_sub(start))
                             )
                         }
+                        _ if failed => "Failed".to_owned(),
                         _ => "Worked".to_owned(),
                     };
                     if tools > 0 {
@@ -479,16 +509,49 @@ pub(super) fn transcript_rows_range(
                     if !open {
                         turn_open = false;
                         reopen_at = vis.get(work_end).copied();
+                        kept = work
+                            .iter()
+                            .copied()
+                            .filter(|&j| match t.items.get(j) {
+                                Some(Item::Error { .. }) => true,
+                                Some(Item::Assistant { text }) => {
+                                    crate::turn_fold::is_takeaway(text)
+                                }
+                                _ => false,
+                            })
+                            .collect();
+                        trailing = final_reply
+                            .map(|f| {
+                                vis.get(f + 1..next_pos)
+                                    .unwrap_or_default()
+                                    .iter()
+                                    .copied()
+                                    .filter(|&j| match t.items.get(j) {
+                                        Some(
+                                            Item::Tool { .. }
+                                            | Item::Permission { decided: Some(_), .. }
+                                            | Item::Thought { .. },
+                                        ) => true,
+                                        Some(Item::Status { .. }) => !show_system,
+                                        Some(Item::Assistant { text }) => text.trim().is_empty(),
+                                        _ => false,
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
                     }
                 }
                 continue;
             }
             it if group(it) => {
                 let start_k = k;
-                while k < vis.len() && group(&t.items[vis[k]]) {
+                while let Some(&j) = vis.get(k)
+                    && t.items.get(j).is_some_and(|x| group(x))
+                    && trailing.contains(&j) == trailing.contains(&i)
+                {
                     k += 1;
                 }
-                if !turn_open {
+                if !turn_open || trailing.contains(&i) {
                     continue;
                 }
                 let members = &vis[start_k..k];
@@ -549,7 +612,7 @@ pub(super) fn transcript_rows_range(
             }
             _ => {
                 k += 1;
-                if !turn_open {
+                if (!turn_open && !kept.contains(&i)) || trailing.contains(&i) {
                     continue;
                 }
                 spacer(&mut rows, i, after_user_block);
@@ -657,8 +720,14 @@ pub(super) fn transcript_rows_range(
                         let inner = cw.saturating_sub(6);
                         let mut body: Vec<Row> = Vec::new();
                         let calm = held == Some(i);
-                        // A usage limit that names its reset leads with when (cmux#52296).
-                        let reset = if calm { None } else { crate::usage_reset::note(text) };
+                        // A usage limit that names its reset leads with when (cmux#52296); any
+                        // other failure a rule knows leads with the GUI's plain sentence (#41975).
+                        let reset = if calm {
+                            None
+                        } else {
+                            crate::usage_reset::note(text)
+                                .or_else(|| crate::failure_copy::sentence_for(text, None))
+                        };
                         let mut first = 1;
                         if calm {
                             let note =
@@ -870,7 +939,14 @@ pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
         Some((_, start, None)) => duration_label(now_ms().saturating_sub(*start)).to_string(),
         _ => "…".to_owned(),
     };
-    let mut label = format!("Working ({elapsed} · Esc to interrupt)");
+    // A /compact reads as one from its first frame (cmux#55784).
+    let verb = if crate::live_line::compacting(t) { "Compacting conversation" } else { "Working" };
+    let mut label = format!("{verb} ({elapsed} · Esc to interrupt)");
+    // Silent and idle, it names what it waits on (cmux#50146).
+    if let Some(wait) = crate::live_line::waiting(t, now_ms()) {
+        label.push_str(" · ");
+        label.push_str(&wait);
+    }
     if let Some(activity) = t.activity.as_deref().filter(|s| !s.is_empty()) {
         label.push_str(" · ");
         label.push_str(activity);
@@ -978,5 +1054,71 @@ mod late_steer_tests {
         assert_eq!(order(&t), vec![0, 1, 2]);
         let at = drawn_at(&t, &["fix it", "Worked", "Fixed it"]);
         assert!(at.windows(2).all(|w| w[0] < w[1]), "{at:?}");
+    }
+
+    fn drawn(t: &Transcript) -> String {
+        transcript_rows(t, 80, false, false, &Default::default(), &Chrome::dark())
+            .iter()
+            .map(|r| r.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn a_turn_that_died_on_an_error_reads_failed_after() {
+        // cmux#44475: a 429 that ended the turn is not work.
+        let mut t = transcript(
+            vec![
+                user("fix it", false),
+                tool("a.rs"),
+                Item::Error { text: "API Error: 429 Too Many Requests".into() },
+            ],
+            "ready",
+        );
+        t.turn_times = vec![(0, 1_000, Some(16_000))];
+        let out = drawn(&t);
+        assert!(out.contains("Failed after 15s"), "{out}");
+        assert!(!out.contains("Worked for"), "{out}");
+        // The error stays in sight under the closed fold.
+        assert!(out.contains("429 Too Many Requests"), "{out}");
+        // A turn that recovered and answered still worked.
+        t.items.push(said("Done after a retry."));
+        let out = drawn(&t);
+        assert!(out.contains("Worked for 15s"), "{out}");
+    }
+
+    #[test]
+    fn a_substantive_reply_stays_out_of_the_closed_fold() {
+        // cmux#42279: an answer, then a tool and a short receipt; the answer stays in sight.
+        let t = transcript(
+            vec![
+                user("why is it slow", false),
+                tool("a.rs"),
+                said("The cache is stale, so every read misses."),
+                said("Let me check the logs."),
+                tool("b.rs"),
+                said("I sent it"),
+            ],
+            "ready",
+        );
+        let out = drawn(&t);
+        assert!(out.contains("The cache is stale"), "{out}");
+        assert!(!out.contains("Let me check the logs"), "narration folds: {out}");
+        assert!(!out.contains("Read b.rs"), "{out}");
+        assert!(out.contains("I sent it"), "{out}");
+    }
+
+    #[test]
+    fn calls_after_the_final_reply_fold_with_the_work() {
+        // cmux#41774, #41537: a finished call and an empty message after the answer fold;
+        // the answer is the last reply with words.
+        let t = transcript(
+            vec![user("fix it", false), tool("a.rs"), said("Fixed it"), tool("b.rs"), said("  ")],
+            "ready",
+        );
+        let out = drawn(&t);
+        assert!(out.contains("Fixed it"), "{out}");
+        assert!(!out.contains("Read b.rs"), "{out}");
+        assert!(!out.contains("Read a.rs"), "{out}");
     }
 }
