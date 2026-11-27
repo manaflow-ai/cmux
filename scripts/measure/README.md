@@ -368,6 +368,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `projection.sh` | Projection window of a published build: shows a change within 5 s. | hq#7149 L10 | 2026-11-05 | active |
 | `closed-kit-census.py` | Per webviews directory: the closed kit's doors left open (raw elements, `style`, `className` in product .tsx) and raw px, hex and rgb(a) literals, fewest doors first: which directory closes next. | RFD 0040 | 2026-11-24 | active |
 | `closed-kit-raw-values.sh` | Hand-set values that type-check in the first closed webviews directory (15 probes, `open` or `closed`), and `tsc -p tsconfig.closed.json` cold and incremental. The follow rate is `bun run gallery:perturb` in webviews. | RFD 0040 | 2026-11-23 | active |
+| `ci140-heads-per-pr` | Runner minutes per merged PR on cmux PR heads, from the timing feed: (a) heads that ran CI per merged PR, (b) minutes by PR state (merged, closed unmerged, draft, open), (c) minutes after a newer head was pushed and not cancelled, (d) minutes on same-tree, empty or wip heads. | goal ci-min-per-pr-140 | 2026-11-27 | active |
 
 No script is marked `duplicate of`: the A/B wrappers (`*-ab.sh`) and the `.py` drivers reuse their base script on purpose, and no other pair clearly measures the same thing the same way.
 
