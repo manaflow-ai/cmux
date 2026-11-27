@@ -1574,8 +1574,20 @@ mod proxy;
 use media::{media, media_range};
 pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
-    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
+    TRANSFER_FIELD, abort_transferred_chat_shares, close_chat_shares, close_listed_chat_shares,
+    close_unlisted_chat_shares, detach_transferred_chat_shares, finish_transferred_chat_shares,
+    freeze_transferred_chat_shares, open_chat_shares, reconcile_transferred_chat_shares,
+    stage_transferred_chat_shares,
 };
+
+#[cfg(test)]
+pub(crate) fn export_transferred_chat_shares(mux: &Mux, session: &str) -> Option<Value> {
+    mux.control_clients
+        .agent_sessions
+        .link_shares
+        .export_for_transfer(mux.session_state_directory().as_deref(), session)
+}
+
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;
@@ -1991,11 +2003,21 @@ fn refuse_with_data(
 
 /// The text of `refusal` with `data`: the generic `refused` names `data.reason` (acpmux's code)
 /// and a bad request `data.field` (the param, [`bad_field`]), so a reader of the error alone sees
-/// why; every other refusal's text is its own.
+/// why; every other refusal's text is its own. A start's `refused` also names `data.step`, the
+/// phase acpmux refused in (`agent_session_start` `StartTimings::at`).
 fn refusal_text(refusal: Refusal, data: &Value) -> String {
     let text = |key: &str| data.get(key).and_then(Value::as_str);
     match (refusal, text("reason"), text("field")) {
-        (Refusal::Refused, Some(reason), _) => format!("{} ({reason})", refusal.message()),
+        (Refusal::Refused, reason, _) if text("step").is_some() || reason.is_some() => {
+            let mut out = refusal.message().to_string();
+            if let Some(reason) = reason {
+                out.push_str(&format!(" ({reason})"));
+            }
+            if let Some(step) = text("step") {
+                out.push_str(&format!(" at {step}"));
+            }
+            out
+        }
         (Refusal::BadRequest, _, Some(field)) => format!("{} (field: {field})", refusal.message()),
         _ => refusal.message().to_string(),
     }

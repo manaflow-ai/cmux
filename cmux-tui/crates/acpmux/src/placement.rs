@@ -45,10 +45,20 @@
 
 pub(crate) mod command_sampler;
 pub(crate) mod command_shadow;
+pub mod exec_conformance;
+pub mod exec_conformance_report;
+pub mod exec_conformance_tree;
+pub mod exec_router;
 pub(crate) mod move_targets;
+pub mod reach;
 pub mod run_vm;
+pub mod run_vm_env;
+pub mod run_vm_rows;
+pub mod run_vm_shell;
+pub mod run_vm_tree;
 pub mod sub_fork;
 pub mod sub_fork_run;
+pub mod sub_fork_wire;
 pub mod work_place;
 pub mod work_wire;
 
@@ -109,7 +119,8 @@ pub fn placed(verdict: &Value) -> Option<String> {
 /// One host to weigh: its name, whether it is this machine, its last
 /// health reading (`_acpmux/host_health` fields, or null), and when that
 /// reading arrived (ms on this machine's clock; `None` when unknown). The
-/// weighing ignores `health_at`; the shadow verdict reads it (`shadow_admission.rs`).
+/// weighing reads `unreachable`, which `peer_at` derives from `health_at` and the failures
+/// recorded (`reach.rs`); the shadow verdict reads `health_at` too (`shadow_admission.rs`).
 /// `via_hub`: a machine only the mesh hub lists (`mesh_book_hosts`), which no link asks
 /// for health, so its resources stay unknown whatever its build.
 #[derive(Clone, Debug)]
@@ -119,14 +130,26 @@ pub struct Candidate {
     pub health: Value,
     pub health_at: Option<u64>,
     pub via_hub: bool,
+    /// Why it cannot be reached now (`reach.rs`): a stale reading, a failed health read, or a
+    /// transfer to it that failed within the cooldown. Such a host takes no work, even as the
+    /// overloaded fallback.
+    pub unreachable: Option<String>,
 }
 
 impl Candidate {
     /// A connected peer from its `Hub::peers` row (`peer.rs` `summary`): its
     /// name, its last reading and `healthAt`. `None` for a row with no name.
     pub fn peer(row: &Value) -> Option<Self> {
+        Self::peer_at(row, crate::store::now_ms(), &reach::Failures::load())
+    }
+
+    /// [`Candidate::peer`] at `now` (ms), with the transfer failures `failures` recorded.
+    pub fn peer_at(row: &Value, now: u64, failures: &reach::Failures) -> Option<Self> {
+        let name = row.get("name")?.as_str()?;
+        let unreachable = reach::row_unreachable(row, now).or_else(|| failures.failure(name, now));
         Some(Self {
-            name: row.get("name")?.as_str()?.to_owned(),
+            unreachable,
+            name: name.to_owned(),
             local: false,
             health: row.get("health").cloned().unwrap_or(Value::Null),
             health_at: row.get("healthAt").and_then(Value::as_u64),
@@ -428,7 +451,7 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
     }
     let lanes = machine.get("lanes");
     // A machine that is never a lane host (`lanes.lane_host` false): a person's own box, no
-    // override (Leo, 2026-11-27, of big-red: "then please don't rely on big-red").
+    // override (Leo, 2026-11-27, of a personal machine: "then please don't rely on" it).
     if lanes.and_then(|l| l.get("lane_host")) == Some(&Value::Bool(false)) {
         let why = lanes.and_then(|l| l.get("lane_host_why")).and_then(Value::as_str);
         return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
@@ -633,7 +656,7 @@ pub fn fold_role_holders(registry: &mut Value) {
     let mut roles: Vec<&String> = holders.keys().collect();
     roles.sort();
     for role in roles {
-        let Some(list) = holders[role].as_array() else { continue };
+        let Some(list) = holders.get(role).and_then(Value::as_array) else { continue };
         for host in list.iter().filter_map(Value::as_str) {
             let Some(m) = machines.get_mut(host).and_then(Value::as_object_mut) else { continue };
             let entry = m.entry("roles").or_insert_with(|| json!([]));
@@ -782,6 +805,12 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     };
     // A held host takes no new work, even when no other host has room.
     if let Some(why) = &lanes.held {
+        w.refused = Some(why.clone());
+        return w;
+    }
+    // A host the transport cannot reach now takes nothing: a pick there fails at the copy or the
+    // start, and the work lands wherever the caller falls back to (`reach.rs`).
+    if let Some(why) = &c.unreachable {
         w.refused = Some(why.clone());
         return w;
     }
