@@ -46,6 +46,7 @@
     {"id": "mcpServers", "note": "Settings > MCP Servers: the services the person connected for their agents (a connect card in a chat, or a Chief), from the Mac's one store of connections (docs/chief-mcp-hub.md), with Sign In and Remove; `cmux.settings.mcp.*`, which the app runs through the bundled `optchat-chief integrations --json`. Deep link: #/settings/mcpServers."},
     {"id": "worktreeSetup", "note": "Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay."},
     {"id": "cloudModels", "note": "Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey."},
+    {"id": "cloudCompute", "note": "Settings > Cloud > Compute (Labs labs.teamCompute, off by default: the card draws nothing and reads nothing): the team's monthly Cloud allotment and each member's use, the Ledger layout of ComputeCard, read-only while the app serves only `cmux.settings.cloud.allotment.get` (the Cloud app server's cloud.allotment.get)."},
     {"id": "customizeChecklist", "note": "Settings > Customize: every customization one click away (Leo 2026-11-22: \"it should just be as easy as a click toggle\"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize."},
     {"id": "developerTokens", "note": "Settings > Developer: cmux API tokens (cmux platform /v1/tokens): personal tokens with New Token and Revoke, and for a person who manages the team, Team Tokens (CI, not tied to a person) and GitHub Actions (allowed repositories sign in with GitHub's identity token, no stored secret) with a copyable workflow. A new token is shown once with Copy and the lines to paste; `cmux.settings.tokens.*`, from the bundled `cmux token ... --json`. Deep link: #/settings/developer."},
     {"id": "integrationsHub", "note": "Settings > Integrations: the integrations hub (cmux platform /v1/hub): linked Stripe and GitHub accounts with Remove, Link Stripe (a pasted restricted key) and Link GitHub, the approvals waiting for the person with Allow, Deny and Don't ask again, the rules with Add and Remove, the pause switch and recent audit rows; `cmux.settings.hub.*`, from the bundled `cmux hub overview --json` (cmux-tui cli/hub.rs shapes every string). An approval is answered only here, never by the CLI. Deep link: #/settings/integrations."},
@@ -203,9 +204,9 @@
           "symbol": "sidebar.left",
           "groups": [
             {"group": "settings.group.sidebar", "note": "Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384)."},
-            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) and Sidebar Side are claimed here so the Sidebar card stays under it too.", "keys": [
+            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf), Sidebar Side and Workspace List Extension (cmux.sidebar/1, which swaps the whole list) are claimed here so the Sidebar card stays under it too.", "keys": [
               "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient",
-              "sidebar.floatOnHover", "sidebar.side", "sidebar.folderlessUngrouped"
+              "sidebar.floatOnHover", "sidebar.side", "sidebar.folderlessUngrouped", "sidebar.workspaceListApp"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
@@ -283,7 +284,7 @@
           "note": "How the agent chat looks and reads. Agents keeps what the agents may do.",
           "groups": [
             {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "note": "Unread Banner is here, not in Chat Layout, so Chat Layout stays under max_rows_per_card.", "keys": [
-              "agentPane.display.detail", "agentPane.display.sendPop", "agentPane.display.compactShortTurns",
+              "agentPane.display.detail", "agentPane.display.sendPop", "agentPane.display.sendScrollsToTop", "agentPane.display.compactShortTurns",
               "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
               "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton", "agentPane.display.thinking.glyphSize",
@@ -446,7 +447,7 @@
           "groups": [
             {"group": "settings.group.cloudWorkspaces"}
           ],
-          "lead": ["cloudModels", "cloudEnvironments"]
+          "lead": ["cloudModels", "cloudEnvironments", "cloudCompute"]
         },
         {
           "id": "keys",
