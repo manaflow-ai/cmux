@@ -49,6 +49,12 @@ if "--suite=launch-check" in sys.argv:
     if _flag("--json"):
         rest += ["--json", _flag("--json")]
     os.execv(sys.executable, [sys.executable, suite] + rest)
+# `--suite=scale-fixture`: 1,100 workspaces, 5 Chiefs and a 160 KB cmux.json; fails on a main-thread block over
+# 250 ms in the sidebar flush, scroll and switch flows (scripts/cmux-next/scale-fixture-bench.py). Before the GUI
+# check: with no GUI session it passes with a warning itself (fail open), as its PR check needs.
+if "--suite=scale-fixture" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scale-fixture-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=scale-fixture"])
 # Every other suite but pane-bench (package tests, no window) needs this account's GUI login session on the console:
 # without it the app never opens its socket (bench_launch.py). Say so at once instead of after a launch timeout (the
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.

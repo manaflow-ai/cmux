@@ -1,4 +1,5 @@
 import CmuxNextAgentActivity
+import CmuxNextAgentLanes
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextLayout
@@ -61,9 +62,8 @@ extension AppControl {
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugHomeAPI.handle(call.params, services: services)
             }.withDeadline(.fixed(.seconds(30))),
-            .mainActor("debug.home.sidebar_fixture") { [weak services] call in
-                .value(services.map { DebugHomeSidebarFixture.handle(call.params, services: $0) } ?? .null)
-            },
+            .mainActor("debug.home.sidebar_fixture") { [weak services] call in .value(services.map { DebugHomeSidebarFixture.handle(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.scale_fixture") { [weak services] call in .value(JSONValue(foundation: SidebarScaleFixture.handle(json: (try? JSONEncoder().encode(call.params)) ?? Data(), localHost: services?.agentTabs.localHost, workspaces: services?.daemon.store.workspaces ?? [])) ?? .null) }, // main-actor-ok: DEBUG bench fixture (scripts/cmux-next/scale-fixture-bench.py)
             // Fixture Chief subagents under the sidebar's top Chief row (captures of their rows).
             .mainActor("debug.chief.subagent_fixture") { call in .value(.number(Double((try? AgentLaneStore.chief.applyDebugChiefSubagents(json: JSONEncoder().encode(call.params))) ?? -1))) }, // main-actor-ok: DEBUG fixture params, a few rows
             .mainActor("debug.tab_drag") { [weak services] _ in .value(services.map { DebugTabDrag.report(services: $0) } ?? .null) },

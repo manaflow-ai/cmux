@@ -968,6 +968,10 @@ path = "tests/test_sans_io_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_scale_fixture_bench.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_screen_sharing_helper_release.py"
 lane = "linux-guard"
 

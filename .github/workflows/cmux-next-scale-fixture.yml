@@ -1,0 +1,120 @@
+name: cmux-next scale fixture
+
+# The app at a heavy person's scale, on a fleet GUI Mac, for a change to the sidebar, its rows or Chief pictures.
+# Leo, 2026-11-27: "Scale fixtures. Seed one profile with about 1,000 workspaces, several Chiefs and a big
+# cmux.json, run the sidebar and switch flows, and fail if the main thread is blocked for more than ~250 ms. This
+# is the test that would have caught Lawrence's beach ball." (cmux#59531: 2-6 s hangs at 1,100 workspaces.)
+#
+# scripts/cmux-next/scale-fixture-bench.py, through the allowlisted scripts/measure/split-spring.sh
+# (--suite=scale-fixture): 1,100 workspaces, 5 Chiefs owning their chats, a 160 KB cmux.json, then the row
+# flush, sidebar scroll and workspace switch flows, timed by the app's own main-thread watchdog (debug.hangs).
+#
+# Fail open: no gateway, no client, no free GUI Mac, an infra error or a run that measured nothing warns and
+# passes. Only a `fail` verdict (a flow's main-thread gap over 250 ms, with the watchdog proven live by a probe
+# stall and the rows proven to ask for Chief avatars) fails the job. A `blind` verdict warns.
+# Gated by path until the relevance map (docs/benches/relevance-map.toml) drives it.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping*"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarBridge*"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeService*"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugScaleFixture.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefFaces*"
+      - "cmux-tui/crates/cmux-home-rules/**"
+      - "scripts/cmux-next/scale-fixture-bench.py"
+      - "tests/test_scale_fixture_bench.py"
+      - ".github/workflows/cmux-next-scale-fixture.yml"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "commit sha (40 hex) to measure"
+        required: true
+      workspaces:
+        description: "workspaces to seed"
+        default: "1100"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-scale-fixture-${{ github.event.pull_request.number || inputs.ref }}
+  cancel-in-progress: true
+
+env:
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  harness:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            scripts/cmux-next
+            tests
+      - name: The scale fixture's verdict and config (tests/test_scale_fixture_bench.py)
+        run: python3 -I tests/test_scale_fixture_bench.py
+
+  measure:
+    needs: harness
+    # Same-repo pull requests only: a fork's head never reaches a fleet Mac.
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
+    timeout-minutes: 90
+    permissions: {}
+    steps:
+      # No checkout: the gateway runner takes only thin cmux-ci clients. The Mac checks the sha out itself.
+      - name: Scale fixture on a fleet GUI Mac
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || inputs.ref }}
+          WORKSPACES: ${{ inputs.workspaces || '1100' }}
+        run: |
+          set -uo pipefail
+          warn() { echo "::warning title=Scale fixture (fail open)::$1"; echo "scale fixture: not measured: $1" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          [[ -x "$client" ]] || warn "$client is not installed on runner $RUNNER_NAME"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Scale fixture::'$SHA' is not a 40-hex sha"; exit 1; }
+          [[ "$WORKSPACES" =~ ^[0-9]+$ ]] || { echo "::error title=Scale fixture::workspaces must be a whole number"; exit 1; }
+          out="$RUNNER_TEMP/scale-fixture"
+          mkdir -p "$out"
+          "$client" run --class exclusive --measurement --label measure --display \
+            --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 4800 \
+            --key "scale-fixture-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --artifact artifacts/split-spring/report.json \
+            --arg=--suite=scale-fixture --arg="--workspaces=$WORKSPACES" 2>&1 | tee "$out/run.log"
+          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/run.log" | head -1)"
+          [[ -n "$step" ]] || warn "no fleet step started (no free GUI Mac or controller error)"
+          "$client" artifact "$step" "$out/report.json" || "$client" artifact --failed "$step" "$out/report.json" || true
+          [[ -s "$out/report.json" ]] || warn "fleet step $step returned no report (build or infra failure)"
+          python3 - "$out/report.json" <<'PY'
+          import json, sys
+          r = json.load(open(sys.argv[1]))
+          v, reasons = r.get("verdict", "missing"), r.get("reasons") or []
+          rows = "".join(f"| {k} | {(f.get('max_gap_ms') or 0):.0f} | {(f.get('max_ms') or 0):.0f} | {f.get('count') or 0} |\n"
+                         for k, f in (r.get("flows") or {}).items())
+          with open(__import__("os").environ["GITHUB_STEP_SUMMARY"], "a") as s:
+              s.write(f"## scale fixture: {v}\n\n{'; '.join(reasons)}\n\n| flow | max gap ms | max hang ms | hangs |\n|---|---|---|---|\n{rows}")
+          print(json.dumps({"verdict": v, "reasons": reasons}))
+          if v == "fail":
+              print(f"::error title=Scale fixture::main thread blocked past budget: {'; '.join(reasons)}")
+              sys.exit(1)
+          if v != "pass":
+              print(f"::warning title=Scale fixture (fail open)::{v}: {'; '.join(reasons)}")
+          PY
+      - name: Upload the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scale-fixture-${{ github.run_id }}
+          path: ${{ runner.temp }}/scale-fixture/
+          if-no-files-found: warn
+          retention-days: 14
