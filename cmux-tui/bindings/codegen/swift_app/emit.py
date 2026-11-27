@@ -26,7 +26,8 @@ properties with a type and default, not on the wire) and per field the request k
 Swift expression: the field decodes leniently, missing means the default), `optional: true`, `lenient: true`
 (a value of the wrong shape reads as missing, so a newer daemon's value never fails the parent), `when` (a
 Swift condition on properties read before it; false reads nil), `prefer` (a wire key read first, this field's
-own key the fallback; the preferred key is omitted from the struct). Encoding is always synthesized; decoding is synthesized unless a
+own key the fallback; the preferred key is omitted from the struct). A schema string constrained to `decimal uint64`
+that the binding types `UInt64` reads leniently as that decimal string or, from an older daemon, a number. Encoding is always synthesized; decoding is synthesized unless a
 property uses one of these read options.
 """
 
@@ -206,10 +207,13 @@ class _Field:
     when: str | None = None
     # A wire key read first (`prefer`), this field's own key the fallback: a newer daemon's spelling.
     prefer: str | None = None
+    # A `decimal uint64` string the app reads as UInt64: a decimal string, or a number from an older daemon.
+    decimal: bool = False
 
     @property
     def custom_read(self) -> bool:
-        return self.default is not None or self.lenient or self.when is not None or self.prefer is not None
+        return (self.default is not None or self.lenient or self.when is not None or self.prefer is not None
+                or self.decimal)
 
     @property
     def declared_type(self) -> str:
@@ -361,8 +365,11 @@ class _Renderer:
                 lenient=bool(override.get("lenient")),
                 when=override.get("when"),
                 prefer=override.get("prefer"),
+                decimal=swift_type == "UInt64" and _is_decimal_string(spec),
             ))
             made = result[-1]
+            if made.decimal and (made.prefer is not None or (not made.optional and made.default is None)):
+                raise BindingError(f"{where}.{wire}: a decimal string read as UInt64 needs an optional field or a default")
             if made.lenient and not made.optional and made.default is None:
                 raise BindingError(f"{where}.{wire}: lenient needs an optional field or a default")
             if made.when is not None and not made.optional:
@@ -582,11 +589,27 @@ class _Renderer:
         return out
 
 
+def _is_decimal_string(spec: Mapping[str, Any]) -> bool:
+    """A schema string field whose constraint says it carries a decimal uint64 (a revision, as on tabs)."""
+    return spec["type"] == {"kind": "scalar", "name": "string"} and any(
+        isinstance(item, Mapping) and item.get("format") == "decimal uint64" for item in spec.get("constraints", ())
+    )
+
+
 def _read_expression(item: _Field) -> str:
     """The Swift expression `init(from:)` assigns to one read-type property."""
     if not item.on_wire:
         return str(item.default)
     key = f".{_bare(item.name)}"
+    if item.decimal:
+        text = f"((try? container.decodeIfPresent(String.self, forKey: {key})) ?? nil).flatMap {{ UInt64($0) }}"
+        number = f"((try? container.decodeIfPresent(UInt64.self, forKey: {key})) ?? nil)"
+        expression = f"{text} ?? {number}"
+        if item.default is not None:
+            expression = f"({expression}) ?? {item.default}"
+        if item.when is not None:
+            expression = f"{item.when} ? ({expression}) : nil"
+        return expression
     if not item.optional and item.default is None and item.prefer is None:
         return f"try container.decode({item.swift_type}.self, forKey: {key})"
     keys = ([f".{_bare(swift_name(item.prefer))}"] if item.prefer is not None else []) + [key]

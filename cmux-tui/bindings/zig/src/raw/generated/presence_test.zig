@@ -377,6 +377,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.Workspace, "short_id");
     try expectExplicitNullRejected(protocol.Workspace, "unread_count");
     try expectExplicitNullRejected(protocol.WorkspaceFirstTabBrowser, "activate");
+    try expectExplicitNullRejected(protocol.WorkspaceGroup, "pinned");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "changed");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "closed_ids");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "first_tab");

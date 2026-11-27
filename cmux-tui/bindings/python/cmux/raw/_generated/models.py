@@ -2670,6 +2670,10 @@ class WorkspaceGroup:
     id: str
     index: int
     name: str
+    icon: Union[str, None, MissingType] = field(default=MISSING)
+    pinned: Union[bool, MissingType] = field(default=MISSING)
+    profile: Union[str, None, MissingType] = field(default=MISSING)
+    top_index: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

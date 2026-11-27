@@ -12629,6 +12629,46 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "profile": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "profiles-v1: the room of a personal group, in list-personal's groups; list-workspaces leaves it out."
+    },
+    "top_index": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "personal-mixed-order-v1: the personal workspace index the group shows right before, in list-personal's groups; null after every loose workspace."
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "workspace-group-icon-v1: the group's icon (one emoji, an SF Symbol name or a stored image), in list-personal's groups."
+    },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "workspace-group-pin-v1: a pinned group stays as an empty saved group when its workspaces close, in list-personal's groups."
     }
    },
    "additional_properties": false

@@ -19644,9 +19644,17 @@ func (value WorkspaceFirstTab) AsBrowser() (WorkspaceFirstTabBrowser, bool) {
 type WorkspaceGroup struct {
 	Collapsed bool                     `json:"collapsed"`
 	Color     RequiredNullable[string] `json:"-"`
-	ID        string                   `json:"id"`
-	Index     uint64                   `json:"index"`
-	Name      string                   `json:"name"`
+	// workspace-group-icon-v1: the group's icon (one emoji, an SF Symbol name or a stored image), in list-personal's groups.
+	Icon  Presence[string] `json:"-"`
+	ID    string           `json:"id"`
+	Index uint64           `json:"index"`
+	Name  string           `json:"name"`
+	// workspace-group-pin-v1: a pinned group stays as an empty saved group when its workspaces close, in list-personal's groups.
+	Pinned *bool `json:"pinned,omitempty"`
+	// profiles-v1: the room of a personal group, in list-personal's groups; list-workspaces leaves it out.
+	Profile Presence[string] `json:"-"`
+	// personal-mixed-order-v1: the personal workspace index the group shows right before, in list-personal's groups; null after every loose workspace.
+	TopIndex Presence[uint64] `json:"-"`
 }
 
 func (value WorkspaceGroup) MarshalJSON() ([]byte, error) {
@@ -19672,6 +19680,42 @@ func (value WorkspaceGroup) MarshalJSON() ([]byte, error) {
 		}
 		object["color"] = encodedField
 	}
+	if value.Icon.IsAbsent() {
+		delete(object, "icon")
+	} else if value.Icon.IsNull() {
+		object["icon"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Icon.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode WorkspaceGroup.Icon: %w", err)
+		}
+		object["icon"] = encodedField
+	}
+	if value.Profile.IsAbsent() {
+		delete(object, "profile")
+	} else if value.Profile.IsNull() {
+		object["profile"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Profile.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode WorkspaceGroup.Profile: %w", err)
+		}
+		object["profile"] = encodedField
+	}
+	if value.TopIndex.IsAbsent() {
+		delete(object, "top_index")
+	} else if value.TopIndex.IsNull() {
+		object["top_index"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TopIndex.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode WorkspaceGroup.TopIndex: %w", err)
+		}
+		object["top_index"] = encodedField
+	}
 	return json.Marshal(object)
 }
 
@@ -19680,11 +19724,15 @@ func (value *WorkspaceGroup) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode WorkspaceGroup: expected object")
 	}
 	var fields struct {
-		Collapsed *bool                    `json:"collapsed"`
-		Color     RequiredNullable[string] `json:"color"`
-		ID        *string                  `json:"id"`
-		Index     *uint64                  `json:"index"`
-		Name      *string                  `json:"name"`
+		Collapsed *bool                     `json:"collapsed"`
+		Color     RequiredNullable[string]  `json:"color"`
+		Icon      Presence[string]          `json:"icon"`
+		ID        *string                   `json:"id"`
+		Index     *uint64                   `json:"index"`
+		Name      *string                   `json:"name"`
+		Pinned    optionalNonNullJSON[bool] `json:"pinned"`
+		Profile   Presence[string]          `json:"profile"`
+		TopIndex  Presence[uint64]          `json:"top_index"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode WorkspaceGroup: %w", err)
@@ -19699,6 +19747,7 @@ func (value *WorkspaceGroup) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode WorkspaceGroup: required field color is missing")
 	}
 	decoded.Color = fields.Color
+	decoded.Icon = fields.Icon
 	if fields.ID == nil {
 		return fmt.Errorf("decode WorkspaceGroup: required field id is missing or null")
 	}
@@ -19711,6 +19760,14 @@ func (value *WorkspaceGroup) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode WorkspaceGroup: required field name is missing or null")
 	}
 	decoded.Name = *fields.Name
+	if fields.Pinned.null {
+		return fmt.Errorf("decode WorkspaceGroup: non-nullable field pinned is null")
+	}
+	if fields.Pinned.set {
+		decoded.Pinned = &fields.Pinned.value
+	}
+	decoded.Profile = fields.Profile
+	decoded.TopIndex = fields.TopIndex
 	*value = WorkspaceGroup(decoded)
 	return nil
 }

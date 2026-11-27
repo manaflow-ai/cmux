@@ -388,6 +388,17 @@ class ReadTypeTests(unittest.TestCase):
         self.assertIn(
             "zoomedPane = ((try? container.decodeIfPresent(PaneID.self, forKey: .zoomedPane)) ?? nil)", source)
 
+    def test_a_decimal_uint64_string_reads_as_uint64_or_a_bare_number(self) -> None:
+        document = layout_document()
+        document["types"]["ZoomPaneResult"]["fields"]["revision"] = _field(
+            {"kind": "scalar", "name": "string"}, required=False, constraints=[{"format": "decimal uint64"}])
+        files = rendered(document, read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"revision": {"type": "UInt64", "default": "0"}}}}))
+        self.assertIn(
+            "revision = (((try? container.decodeIfPresent(String.self, forKey: .revision)) ?? nil)"
+            ".flatMap { UInt64($0) } ?? ((try? container.decodeIfPresent(UInt64.self, forKey: .revision)) ?? nil))"
+            " ?? 0", files["Layout/ZoomState.generated.swift"])
+
     def test_when_reads_a_field_only_under_its_condition(self) -> None:
         files = rendered(bindings=read_bindings({"ZoomState": {
             "type": "ZoomPaneResult", "fields": {"zoomed_pane": {"when": "zoomed", "lenient": True}}}}))
