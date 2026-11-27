@@ -1,0 +1,124 @@
+ci-step rip-cr-apps-settings-37608b57faa09a06eba0dde5169787b25713a795: scripts/cmux-next/regenerate-settings-exports.sh settings-exports.patch at 37608b57faa09a06eba0dde5169787b25713a795: exit 1
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:15: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |               `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+macro expansion #expect:3:33: error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+    |  |                                 `- error: cannot convert value of type 'String' to expected element type 'JSONValue?'
+ci-step rip-cr-apps-settings-37608b57faa09a06eba0dde5169787b25713a795 exited 1
