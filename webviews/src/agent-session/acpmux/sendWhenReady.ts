@@ -9,6 +9,11 @@ import { hostIsReconnecting, hostRefusedTooLarge, nextRetryDelay } from "./hostR
 /// The first wait before a held send asks again; each next wait doubles up to 2 s (`nextRetryDelay`).
 export const SEND_RETRY_FIRST_MS = 250;
 
+/// A failed send that goes again by itself (direct.ts `resendItself`) first waits this long, then
+/// twice as long each time, up to SELF_RESEND_MAX_MS, with no last try.
+export const SELF_RESEND_FIRST_MS = 1000;
+export const SELF_RESEND_MAX_MS = 30_000;
+
 /// Whether a failed send may go again on its own: the pane had no connection to acpmux, so the
 /// frame never left it (`native.not_connected`), and acpmux comes back by itself. Only such a frame
 /// goes again: a frame that reached the app spent the send's gesture ticket (the native relay
@@ -101,6 +106,54 @@ export const sendsHeldForHost = {
     };
   },
 };
+
+/// The page's chat client went with its connection (pane/paneSnapshot.ts `onLost`) and the pane is
+/// looking for the next one: the page's actions (`window.cmuxAcpmuxActions`) are gone meanwhile.
+/// A `chat.send` made then went to the app, which has no such action, and its refusal put the
+/// prompt back in the composer, unsent, for the person to send again. Now it waits for the next
+/// client (`whenPageClientBack`) and goes on it once, under the id that client gives it, while the
+/// composer says "Sending when ready" (`sendsHeldForHost`). The pane never gives up on its own
+/// agent service, so the wait has no deadline; it ends unsent only when the pane itself goes.
+let clientAway = false;
+const clientWaiters = new Set<{ back: () => void; gone: (error: Error) => void }>();
+
+export const pageClientLink = {
+  /// The page's client was lost: sends wait for the next one.
+  lost(): void {
+    clientAway = true;
+  },
+  /// A client connected and installed the page's actions: the sends that waited go now.
+  back(): void {
+    clientAway = false;
+    const waiting = [...clientWaiters];
+    clientWaiters.clear();
+    for (const waiter of waiting) waiter.back();
+  },
+  /// The pane went (unmounted): no client comes, so what waited fails and goes back to its composer.
+  ended(): void {
+    clientAway = false;
+    const waiting = [...clientWaiters];
+    clientWaiters.clear();
+    // l10n-allow: never shown; the sender reads only that it failed and puts the prompt back.
+    for (const waiter of waiting) waiter.gone(new Error("pane closed"));
+  },
+  away(): boolean {
+    return clientAway;
+  },
+};
+
+/// Runs `send` now, or, while the page's client is away (`pageClientLink`), once the next one is
+/// back. It is held meanwhile, as any send waiting for acpmux is (`sendsHeldForHost`).
+export async function whenPageClientBack<T>(send: () => Promise<T>): Promise<T> {
+  if (!clientAway) return send();
+  const unhold = sendsHeldForHost.hold();
+  try {
+    await new Promise<void>((back, gone) => clientWaiters.add({ back, gone }));
+  } finally {
+    unhold();
+  }
+  return send();
+}
 
 /// The prompts sent straight to the chat that acpmux has not taken (or refused) yet, and the wait for
 /// the last of them: a prompt sent meanwhile goes after it, never before (`sendInTurn`). `noAcpmux`:

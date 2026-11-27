@@ -1065,6 +1065,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/history/read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/surgery",
       "params": true,
       "result": true
@@ -1258,6 +1264,20 @@
       "params": {
         "$ref": "#/types/ArchiveParams"
       },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/undelete",
+      "params": {
+        "$ref": "#/types/UndeleteParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/deleted",
+      "params": true,
       "result": true
     },
     {
@@ -3638,6 +3658,13 @@
             "null"
           ]
         },
+        "hold": {
+          "description": "The hold of a chat whose rows come from the row store (`attach-hold-v1`,\n`server/requests.rs` `hold_attach_filter`): no page and no log read, only the exact\npage-state `kinds` streamed live; needs `eventStream: true`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "kinds": {
           "anyOf": [
             {
@@ -5245,6 +5272,7 @@
         "cancelFork": true,
         "cancelToken": true,
         "expectRevision": true,
+        "grace": true,
         "ifIdle": true,
         "purge": true,
         "sessionId": true
@@ -10388,6 +10416,16 @@
         "sessionId",
         "on"
       ],
+      "type": "object"
+    },
+    "UndeleteParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
       "type": "object"
     },
     "UsageParams": {

@@ -650,6 +650,34 @@
           }
         },
         {
+          "key": "cloud.useMyGitHubLogin",
+          "name": "useMyGitHubLogin",
+          "note": "Cloud starts use the cmux GitHub App by default. Only an explicit opt-in carries this Mac's personal GitHub CLI login.",
+          "title": {
+            "key": "settings.cloud.useMyGitHubLogin",
+            "text": "Use My GitHub Login on Cloud Machines"
+          },
+          "help": {
+            "key": "settings.cloud.useMyGitHubLogin.help",
+            "text": "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "github",
+            "gh",
+            "login",
+            "git",
+            "clone",
+            "push",
+            "token",
+            "repository",
+            "sign in",
+            "account"
+          ]
+        },
+        {
           "key": "cloud.defaultImage",
           "name": "defaultImage",
           "note": "The Cloud environment (image) a new Cloud chat boots from when the chat names none: `auto` (the default; cloud.startChat sends no environment and the platform derives one from the repository) or one of the account's Cloud environment ids (`cloud.environment.list`). Replaces the composer's Environment chip (PR 51769). Auto reuses the person's own Cloud machine for a new chat; a named environment makes a new machine per chat, as a machine boots in its image only when made (cmux-tui start_chat_cli.rs `reusable`). The chat page follows it (AgentPaneDisplaySetting.followedAppPaths; webviews chatCloudEnvironment.ts); Settings draws it as a menu of Auto and the environments (webviews settings editors/DefaultImageEditor.tsx).",
@@ -728,6 +756,32 @@
             "restore",
             "turn",
             "back",
+            "machine"
+          ]
+        },
+        {
+          "key": "cloud.addFolderLive",
+          "name": "addFolderLive",
+          "note": "Add folder in a Cloud chat's Sources (Leo, 2026-11-25: \"mostly just the one you selected, right? then you can add more folders and files/select more as you go potentially\"): a Mac folder is copied read-only to the chat's machine and joins the chat's folders between turns, and an agent's access-request card in any Cloud chat lands its folder the same way. On by default (Leo, 2026-11-25: \"it doesnt work if it's not \\\"on by default\\\"\"); this switch turns it off.",
+          "title": {
+            "key": "settings.cloud.addFolderLive",
+            "text": "Add Folders to Running Cloud Chats"
+          },
+          "help": {
+            "key": "settings.cloud.addFolderLive.help",
+            "text": "Sources shows Add Folder, and a folder an agent asks for joins its chat. Copies are read-only; secret files never go."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "cloud",
+            "folder",
+            "add",
+            "sources",
+            "share",
+            "access",
+            "directory",
+            "attach",
             "machine"
           ]
         },
