@@ -22,6 +22,7 @@ use serde_json::{Map, Value, json};
 use super::{OpError, string};
 use crate::domains::Domains;
 use crate::keypath::key_path;
+use crate::migrations::renamed;
 use crate::schema::{self, Kind, NumberRange, Row, Schema};
 use crate::value::value_at;
 
@@ -994,13 +995,21 @@ fn updates(read: &mut Read) {
     let members = read.object("updates");
     let field = |key: &str| members.and_then(|m| m.get(key)).cloned();
     read.choice_of(field("channel").as_ref(), "channel", "updates.channel");
+    // While `updates.automatic` is unset it reads the three toggles it replaced
+    // (retired-keys.json), then this build's default.
+    let automatic = field("automatic");
+    let legacy = automatic
+        .is_none()
+        .then(|| renamed::legacy_value(&["updates".to_owned(), "automatic".to_owned()], read.root))
+        .flatten();
+    match legacy {
+        Some(old) => read.set("automatic", old),
+        None => read.choice_of(automatic.as_ref(), "automatic", "updates.automatic"),
+    }
     for (name, key) in [
-        ("checkAutomatically", "checkAutomatically"),
-        ("downloadAutomatically", "downloadAutomatically"),
         ("oneClickInstall", "oneClickInstall"),
         ("whatsNewInstall", "whatsNewInstall"),
         ("installOnQuit", "installOnQuit"),
-        ("installWhenIdle", "installWhenIdle"),
         ("liveWebReload", "liveWebReload"),
         ("showWhatsNew", "showWhatsNew"),
     ] {
@@ -1488,6 +1497,24 @@ mod tests {
             json!({"sidebar": {"color": "#112233", "opacity": 0.5}})
         );
         assert_eq!(messages(&answer).len(), 3);
+    }
+
+    #[test]
+    fn updates_automatic_reads_its_old_toggles_while_unset() {
+        let automatic = |updates: Value| {
+            read("updates", json!({ "updates": updates }))["values"]["automatic"].clone()
+        };
+        assert_eq!(automatic(json!({"installWhenIdle": true})), json!("idle"));
+        assert_eq!(automatic(json!({"checkAutomatically": false})), json!("off"));
+        assert_eq!(
+            automatic(json!({"automatic": "notify", "checkAutomatically": false})),
+            json!("notify")
+        );
+        let bad = read(
+            "updates",
+            json!({"updates": {"automatic": "sometimes", "installWhenIdle": true}}),
+        );
+        assert_eq!(messages(&bad)[0].0, "updates.automatic");
     }
 
     #[test]
