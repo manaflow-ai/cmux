@@ -49,7 +49,8 @@ SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-night
 VISUAL_GATE = {"route-visual-gate-nightly"}
 LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
-                   "check-nightly-app-store-shelf", "report-nightly-shelf-red", "published-build"}
+                   "check-nightly-app-store-shelf", "published-build",
+                   "check-nightly-webviews", "early-nightly-webviews"}
 # RFD 0021: the essential ones (test_nightly_owned_minis_only.NIGHTLY_PINNED_JOBS) take the nightly's reserved Linux
 # label on a first push, schedule or dispatch attempt, and cmux-linux on a rerun or loop retry, in this mode too.
 PINNED_LINUX = "cmux-gcp-nightly-x64"
@@ -63,9 +64,11 @@ REPAIR_JIT = "cmux-gcp-repair-jit-x64"
 NIGHTLY_CALLER = "manaflow-ai/cmux/.github/workflows/nightly.yml@refs/heads/nightly-next"
 
 
-def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, first: bool = False) -> str:
+def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, first: bool = False) -> str | list[str]:
     if name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next":
         return EPHEMERAL  # classic and RC: their rate-limit waits must not hold the mini
+    if name == "nightly-next-deltas":
+        return [SIGN, MINI]  # both trusted signing and the declared one-mini label
     if name in SIGNING:
         return SIGN
     if name == "build-nightly-app":
