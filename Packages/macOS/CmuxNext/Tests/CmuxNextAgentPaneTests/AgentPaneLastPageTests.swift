@@ -29,6 +29,23 @@ struct AgentPaneLastPageTests {
         #expect(images.lastPage("tab_chat") == nil)
     }
 
+    /// infinite-tabs-flat: a released chat keeps a dormant record in memory and its frame in a file, not the frame's
+    /// bytes (100 hidden chats held 50 to 200 MB of encoded pictures in the app). Its pane still gets it, once.
+    @Test func aHeldFrameLeavesMemoryForAFileAndItsPaneStillGetsIt() async throws {
+        let images = AgentPaneLaunchImages(directory: nil)
+        #expect(await images.hold("tab_chat", try Self.frame(), size: NSSize(width: 4, height: 4), appearance: nil))
+        await images.heldFramesSettled()
+        let held = images.heldFrameCounts
+        #expect(held.count == 1 && held.bytes > 0)
+        #expect(held.memoryBytes == 0)  // written: only the record stays
+        #expect(images.lastPage("tab_chat") != nil)
+        let shown = try #require(images.take("tab_chat", size: NSSize(width: 4, height: 4)))
+        #expect(shown.size == NSSize(width: 4, height: 4))
+        #expect(images.take("tab_chat") == nil)  // handed out once
+        await images.heldFramesSettled()
+        #expect(images.heldFrameCounts.count == 0 && images.heldFrameCounts.bytes == 0)  // its file went with it
+    }
+
     @Test func aHeldFrameInTheOtherLookIsNotTheLastPage() async throws {
         let images = AgentPaneLaunchImages(directory: nil)
         #expect(await images.hold("tab_chat", try Self.frame(), size: NSSize(width: 4, height: 4), appearance: .darkAqua))

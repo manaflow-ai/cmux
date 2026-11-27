@@ -177,6 +177,21 @@ impl Hub {
         let deadline = tokio::time::Instant::now() + req.timeout;
         let (name, profile) = self.completion_harness(req.harness.as_deref()).await?;
         let recipe = recipes::recipe_for(&name, &profile)?;
+        // A request that names no model, on Claude Code: the text model the person chose
+        // (`agents.titles.model`, `model_settings.rs`), else the small model as before.
+        let chosen = if req.model.is_none() && recipe == Recipe::Claude {
+            tokio::task::spawn_blocking(crate::model_settings::text_model).await.ok().flatten()
+        } else {
+            None
+        };
+        let with_model;
+        let req = match chosen {
+            Some(model) => {
+                with_model = Request { model: Some(model), ..req.clone() };
+                &with_model
+            }
+            None => req,
+        };
         let reply = self
             .complete_with(&name, &profile, recipe, req, deadline, ModelFallback::HarnessDefault)
             .await;

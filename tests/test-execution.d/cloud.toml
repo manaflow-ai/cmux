@@ -13,13 +13,11 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Run python3 
 
 [[test]]
 path = "tests/test_cloud_chat_proof.py"
-lane = "manual"
-reason = "Run by hand when cloud-chat-proof.py changes, as its failure-evidence sibling is: python3 tests/test_cloud_chat_proof.py (mocked launcher, auth and Cloud API; no app, no machine)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cloud_chat_proof_failure_evidence.py"
-lane = "manual"
-reason = "Run by hand when cloud-chat-proof.py changes: python3 tests/test_cloud_chat_proof_failure_evidence.py (fake app CLI and log tool, no app)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cloud_composer_journey.py"
@@ -30,9 +28,18 @@ path = "tests/test_cloud_display_catalog.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_cloud_first_byte.py"
+lane = "manual"
+reason = "cmux-ci test -- python3 -m unittest -v tests/test_cloud_first_byte.py; subprocess stream, deadline, Git overlap and parallel duress fixtures, no model or app needed."
+
+[[test]]
 path = "tests/test_cloud_golden_path_receipt.py"
 lane = "manual"
 reason = "Run by hand when scripts/cmux-next/cloud_golden_path_receipt.py changes: TMPDIR=/dev/shm python3 -m unittest tests/test_cloud_golden_path_receipt.py (fixtures only, no app, no machine; under 1 s). Kept manual under the 2026-10-23 no-new-CI rule, since lifted."
+
+[[test]]
+path = "tests/test_cloud_login_action.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cloud_pair_proof.py"
@@ -42,13 +49,3 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Guardrails o
 [[test]]
 path = "tests/test_cloud_vm_attach_retry_script.py"
 lane = "legacy"
-
-[[test]]
-path = "tests/test_pair_e2e_build_space.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_build_space.py"
-
-[[test]]
-path = "tests/test_pair_e2e_signin_session.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_signin_session.py"
