@@ -53,6 +53,7 @@ public final class SettingsHistoryPage: PageProvider {
         guard Self.ops.contains(op) else { throw PageError.unknownOp(op) }
         if op == "cmux.settings.history" {
             guard let data = try await read() else { throw PageError.unknownOp(op) }
+            // main-actor-ok: one settings history row's JSON (a few hundred bytes)
             return try JSONDecoder().decode(JSONValue.self, from: data)
         }
         let writer = self.writer(context)
@@ -77,11 +78,13 @@ public final class SettingsHistoryPage: PageProvider {
         let answer: Data?
         do {
             answer = try await write("settings." + op.dropFirst("cmux.settings.".count),
+                                    // main-actor-ok: one settings history row's fields (a few hundred bytes)
                                     JSONEncoder().encode(JSONValue.object(fields)), key)
         } catch {
             throw PageError.failed(error, code: "cmux.settings.history_refused")
         }
         guard let answer else { throw PageError.unknownOp(op) }
+        // main-actor-ok: the daemon's one-row write answer (a few hundred bytes)
         let written = try JSONDecoder().decode(JSONValue.self, from: answer)
         // The page reads the scope next; this load makes it current, as reset_all does.
         await settings.reload()
