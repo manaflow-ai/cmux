@@ -32,7 +32,7 @@ on:
         type: string
         default: ""
       only:
-        description: "probe: the job id the suite runs alone (empty: the whole suite)."
+        description: "probe: the job id the suite runs alone (empty: the whole suite; lone-NAME: a red job with no id, run with only the suite's ungated jobs)."
         type: string
         default: ""
       sha:
@@ -63,13 +63,29 @@ on:
         description: "probe: flake-aware confirm run (red-N at the culprit, green-N at its parent) before a revert."
         type: string
         default: ""
+      step:
+        description: "probe: the origin red's failing step names (|-joined); a probe failing on other steps is a different red."
+        type: string
+        default: ""
+      reuse:
+        description: "probe: an earlier run of this same probe whose verdict this run reads instead of running the suite again (empty: the plan looks for one)."
+        type: string
+        default: ""
+      states:
+        description: "probe: gallery-health's red states on the origin run (entry#variant, comma-joined), the only ones the probe renders (empty: the whole render)."
+        type: string
+        default: ""
+      states_key:
+        description: "probe: a short hash of states, for the run's title (post_merge_batch.py Probe.states_key)."
+        type: string
+        default: ""
   push:
     branches:
       - lane/post-merge-drill-*
 
 run-name: >-
   ${{ inputs.mode == 'probe'
-      && format('probe {0} {1} at {2}{3}', inputs.suite, inputs.only || 'all', inputs.sha, inputs.confirm && format(' confirm {0}', inputs.confirm) || '')
+      && format('probe {0} {1} at {2}{3}{4}', inputs.suite, inputs.only || 'all', inputs.sha, inputs.confirm && format(' confirm {0}', inputs.confirm) || '', inputs.states_key && format(' states {0}', inputs.states_key) || '')
       || format('batch {0}', inputs.reason || github.event_name) }}
 
 permissions: {}
@@ -87,6 +103,9 @@ jobs:
   plan:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
+    # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
+    # finds no key and the reads fall back to GITHUB_TOKEN.
+    environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
     permissions:
       actions: read
       contents: read
@@ -95,6 +114,8 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
       base: ${{ steps.plan.outputs.base }}
+      reuse: ${{ steps.plan.outputs.reuse }}
+      states: ${{ steps.plan.outputs.states }}
     steps:
       # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
@@ -159,13 +180,19 @@ jobs:
           GH_READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           MODE: ${{ inputs.mode || 'batch' }}
           SUITE: ${{ inputs.suite }}
+          JOB: ${{ inputs.job }}
           ONLY: ${{ inputs.only }}
           PROBE_SHA: ${{ inputs.sha }}
           GOOD: ${{ inputs.good }}
+          PIECES: ${{ inputs.pieces }}
+          CONFIRM: ${{ inputs.confirm }}
+          REUSE: ${{ inputs.reuse }}
+          STATES: ${{ inputs.states }}
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 scripts/ci/post_merge_batch.py plan --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
-            --suite "$SUITE" --only "$ONLY" --probe-sha "$PROBE_SHA" --good "$GOOD"
+            --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" --good "$GOOD" --pieces "$PIECES" --confirm "$CONFIRM" \
+            --reuse "$REUSE" --states "$STATES"
 
   # One caller job per suite in .github/post-merge-batch.json; its name is the suite key.
   drill:
@@ -203,6 +230,7 @@ jobs:
     if: contains(needs.plan.outputs.suites, ' swift-acpmux-protocol ')
     uses: ./.github/workflows/swift-acpmux-protocol.yml
     with:
+      check: acpmux
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
     permissions:
@@ -237,6 +265,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
 
   tip-test-compile:
     needs: plan
@@ -250,7 +279,8 @@ jobs:
       contents: read
       issues: write
 
-  # The fast tier's full run (note-559): a pull request runs only the entries its change reaches.
+  # The fast tier's full run of its cargo and script entries (note-559): a pull request runs only the entries its
+  # change reaches. Its Swift entries run in pr-pipeline-mac (ci/steps.toml mac-fast-tier).
   fast-tier:
     needs: plan
     if: contains(needs.plan.outputs.suites, ' fast-tier ')
@@ -286,12 +316,41 @@ jobs:
       id-token: write
       actions: read
 
+  # pr-pipeline.yml's mac job (the fast tier's Swift suites, every one once routed) and ios job (the kit and the
+  # reliability matrix's phone cells), which pull requests no longer route: each runs the steps the window's changed
+  # paths reach (base..sha), on pr-pipeline.yml's machines. They replace the push runs of cmux-next-ios-kit.yml and
+  # ios-reliability-matrix.yml and the fast-tier suite's Swift leg.
+  pr-pipeline-mac:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' pr-pipeline-mac ')
+    uses: ./.github/workflows/cmux-next-pr-pipeline-mac-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      base: ${{ needs.plan.outputs.base }}
+    permissions:
+      contents: read
+      id-token: write
+
+  pr-pipeline-ios:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' pr-pipeline-ios ')
+    uses: ./.github/workflows/cmux-next-pr-pipeline-ios-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      base: ${{ needs.plan.outputs.base }}
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+
   # A web type check red with no machine fix (fixit-compile, ci-web.yml's fixit_nofix) on a batch run of the base:
   # fixit-handoff.yml names the culprit and pushes its revert when clear, else opens the revert's own pull request,
   # without waiting for this run's bisect. A job of its own that only dispatches; the suites stay read-only.
   fixit-handoff:
     needs: [plan, web]
-    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' && inputs.mode != 'probe' && needs.web.outputs.fixit_nofix == 'true' }}
+    if: ${{ !cancelled() && (vars.FIXIT_HANDOFF || '1') != '0' && github.ref_name == 'feat-cmux-next' && inputs.mode != 'probe' && needs.web.outputs.fixit_nofix == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -315,6 +374,8 @@ jobs:
       # Judged against the last judged batch's head (a probe: its known-good commit), so only a red new since
       # then fails; the standing reds are listed by name in its summary.
       base: ${{ needs.plan.outputs.base }}
+      # A bisect probe renders only its origin run's red states: one shard, not ~22 (empty: the whole render).
+      states: ${{ needs.plan.outputs.states }}
     permissions:
       contents: read
 
@@ -335,6 +396,8 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+      # The clippy job lints the members this window's change reaches, not the whole workspace.
+      base: ${{ needs.plan.outputs.base }}
     # R2 write secrets: the batch saves the base's acpmux test log there for pull requests.
     secrets:
       CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
@@ -346,13 +409,26 @@ jobs:
       contents: read
       statuses: read
 
+  ghosttykit-release-check:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' ghosttykit-release-check ')
+    uses: ./.github/workflows/ghosttykit-release-check.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, gallery-health, cmux-tui-sdks, cmux-tui-spec]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec, ghosttykit-release-check]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
+    # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
+    # finds no key and the reads fall back to GITHUB_TOKEN.
+    environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
     permissions:
       actions: write
       contents: read
@@ -420,6 +496,17 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
           permission-contents: read
+      # Each red gallery-health shard's red states (gallery-health.yml "Name the red states for a bisect probe"):
+      # the batch judge sends them with the bisect's probes, which then render only those.
+      - name: Download gallery-health's red states
+        if: ${{ inputs.mode != 'probe' && contains(needs.plan.outputs.suites, ' gallery-health ') && needs.gallery-health.result == 'failure' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: gallery-reds-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/gallery-reds
       - name: Judge the run
         id: judge
         env:
@@ -437,10 +524,16 @@ jobs:
           TRIES: ${{ inputs.tries }}
           PIECES: ${{ inputs.pieces }}
           CONFIRM: ${{ inputs.confirm }}
+          STEP: ${{ inputs.step }}
+          # The plan's pick (an earlier run of this probe with a verdict), else the dispatch's own.
+          REUSE: ${{ needs.plan.outputs.reuse || inputs.reuse }}
+          STATES: ${{ inputs.states }}
+          GALLERY_REDS_DIR: ${{ runner.temp }}/gallery-reds
         run: |
           python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \
-            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES" --confirm "$CONFIRM"
+            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES" --confirm "$CONFIRM" \
+            --step "$STEP" --reuse "$REUSE" --states "$STATES" --reds-dir "$GALLERY_REDS_DIR"
       # The next batch starts as this one ends when the base has piled up NEXT_POST_MERGE_EVERY_MERGES merges since
       # this run's commit, so batches follow merges, not the 30-minute cron alone. It runs after a successful
       # judge only, and never fails it: a red here would make this batch read as untested.

@@ -76,7 +76,19 @@ APP_VISUAL = ("Packages/macOS/", "Packages/Shared/", "Native/", "Resources/", "A
 # Under a visual root, still nothing a user sees: tests, fixtures, benches, docs, copy (Leo's tier 0 keeps copy fast).
 NOT_VISUAL = ("*/Tests/*", "*Tests.swift", "*/test/*", "*/tests/*", "*/__tests__/*", "*.test.*", "*.spec.*",
               "*/bench/*", "*.bench.*", "*/fixtures/*", "*.md", "*.xcstrings", "*.strings", "*/dev-server/*",
-              "Resources/Info.plist", "*.entitlements")
+              "Resources/Info.plist", "*.entitlements", "Packages/macOS/CmuxNext/app-ffi-pin.json")
+# app-ffi-pin.json is the release bot's FFI pin roll (app-ffi-release.yml): its Rust already merged in the PRs that
+# changed it (Rust is not visual here; hot-verify looks at it on that PR), and no look can run on the roll itself
+# (hot-verify needs a build for an xcframework), so the bot's pin PR stayed pending: cmux#60965 from 14:56Z 11-27,
+# the FFI pin 600 min behind main. The pin PR's Package.swift imports only PackageDescription.
+# A Swift file whose every import is one of these has no way to draw (no SwiftUI, AppKit, CoreGraphics, Metal, WebKit,
+# GhosttyKit or a Cmux module that might re-export them), so changing it changes no pixels. A file with no import at
+# all, an unread one, or one that dropped a UI import (its base text is checked too) stays visual.
+NON_UI_IMPORTS = frozenset({"Foundation", "Combine", "os", "OSLog", "Darwin", "Dispatch", "Observation", "CryptoKit",
+                            "Security", "Network", "XCTest", "Testing", "PackageDescription", "Synchronization",
+                            "System", "UniformTypeIdentifiers", "SwiftData", "RegexBuilder", "Accelerate"})
+SWIFT_IMPORT = re.compile(r"^[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*import[ \t]+(?:\w+[ \t]+)?(?P<mod>[A-Za-z_]\w*)",
+                          re.M)
 NEW_UI_EXT = (".tsx", ".css", ".swift")
 SWIFT_VIEW = re.compile(r":\s*(?:some\s+)?(?:View|NSView|NSViewController|NSWindowController|NSPanel)\b|"
                         r"\bvar body:\s*some View\b")
@@ -101,9 +113,31 @@ def kind(path: str) -> str:
     return ""
 
 
-def affects(paths) -> str:
-    """'' when PATHS change nothing a user sees; 'web' when only webviews; 'app' when any Swift, resource or asset."""
-    kinds = {kind(p) for p in paths} - {""}
+def swift_draws(texts) -> bool:
+    """Whether Swift TEXTS (a file's head and base text) can change pixels: no import, or any import outside
+    NON_UI_IMPORTS."""
+    for text in texts:
+        mods = {m.group("mod") for m in SWIFT_IMPORT.finditer(re.sub(r"/\*.*?\*/", "", text, flags=re.S))}
+        if not mods or not mods <= NON_UI_IMPORTS:
+            return True
+    return False
+
+
+def affects(paths, read=None) -> str:
+    """'' when PATHS change nothing a user sees; 'web' when only webviews; 'app' when any Swift that can draw, resource
+    or asset. READ(path) gives a Swift file's texts (head and base, whichever exist) or raises OSError (unread = draws);
+    without READ every Swift file under a visual root counts."""
+    kinds = set()
+    for p in paths:
+        k = kind(p)
+        if k == "app" and read is not None and p.endswith(".swift"):
+            try:
+                if not swift_draws(read(p)):
+                    continue
+            except OSError:
+                pass
+        kinds.add(k)
+    kinds -= {""}
     return "app" if "app" in kinds else ("web" if kinds else "")
 
 
@@ -371,11 +405,27 @@ def show(path: str) -> str:
         raise OSError(str(e)) from e
 
 
+def show_both(path: str) -> list[str]:
+    """PATH's texts at HEAD and at its first parent, whichever exist; OSError when neither is readable."""
+    out = []
+    for rev in ("HEAD", "HEAD^1"):
+        try:
+            out.append(subprocess.run(["git", "show", f"{rev}:{path}"], check=True, capture_output=True, text=True,
+                                      errors="replace", timeout=60).stdout)
+        except subprocess.CalledProcessError:
+            continue  # absent at that rev: added or deleted
+        except subprocess.TimeoutExpired as e:
+            raise OSError(str(e)) from e
+    if not out:
+        raise OSError(path)
+    return out
+
+
 def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple[str, str]:
     if os.environ.get("CI_UI_PROOF", "").strip() == "0":
         return verdict("", "", {}, [], pr, off=True)
     files = changed_files()
-    need = "app" if files is None else affects(files)
+    need = "app" if files is None else affects(files, read=show_both)
     if not need:
         return verdict(need, "", {}, [], pr)
     body = (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
@@ -475,15 +525,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "gate":
         repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", ""), os.environ.get("SHA", "")
-        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+        tokens = proof_record.read_tokens()
         bots = [b for b in os.environ.get("PROOF_RECORD_BOTS", proof_record.DEFAULT_BOTS).split(",") if b]
-        if not (repo and pr and sha and token):
+        if not (repo and pr and sha and tokens):
             print("error\tUI proof not read: REPO, PR, SHA and GH_TOKEN are needed")
             return 0
         try:
-            state, desc = gate_now(repo, pr, sha, token, bots)
+            state, desc = proof_record.with_tokens(lambda token: gate_now(repo, pr, sha, token, bots), tokens)
         except Exception as e:  # noqa: BLE001 - unread is an error state, never a pass
-            state, desc = "error", f"UI proof not read ({type(e).__name__}): rerun this job"
+            state, desc = "error", f"UI proof not read ({proof_record.read_error(e)}): see job log"
         print(f"{state}\t{desc}")
         return 0
     if args.cmd == "record":

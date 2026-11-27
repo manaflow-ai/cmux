@@ -31,6 +31,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -44,6 +45,15 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO_ROOT / "cmux-next-ios" / "FlowSuite"))
 import proof_record  # noqa: E402
 import select_flows  # noqa: E402
+
+# The loop runs from the PR's checkout, so a head older than a fix to the loop runs the old loop. Merging the base
+# into the head (merge_base_first) brings the fix, but only onto disk; the old code is still the one running and
+# posting. cmux#57582's head predated #62103, so its proof named a fleet host and public-body-guard refused it.
+# TOOL holds the loop's files as this process loaded them; when the merge changes one, main() re-executes the merged
+# loop, which then verifies and posts.
+TOOL = (HERE / "ios_verify.py", HERE / "proof_record.py", Path(select_flows.__file__).resolve())
+TOOL_LOADED = {f: f.read_bytes() for f in TOOL}
+REEXEC_HEAD = "CMUX_IOS_VERIFY_MERGED_HEAD"
 
 SUITE = "ios-flows"
 SIM_SCRIPT = "scripts/ci/cmux-next-ios-sim.sh"
@@ -110,9 +120,17 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
-def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
+def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
+    """Identify one simulator submission, keeping its head, shard and worker visible in fleet logs."""
+    shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
+    workload = json.dumps([head, SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}-{digest}"
+
+
+def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", f"ios-verify-{pr}-{step['mode']}-{step['worker']}", "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr, strict, attempt), "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     if strict:
@@ -183,36 +201,78 @@ def compare(shots: list[Path], base: dict[str, Path]) -> list[dict]:
     return out
 
 
+NIGHTLY_TAG = os.environ.get("CMUX_IOS_VERIFY_NIGHTLY_TAG", "nightly-next")
+
+
+def search_prs(repo: str, q: str) -> list[dict]:
+    """Issue search for REPO. On a lane VM the broker refuses `gh pr list --search`; `lane-gh call search_issues` is
+    its route. Elsewhere, `gh api search/issues`. Each item: number and pull_request.merged_at."""
+    if shutil.which("lane-gh"):
+        out = sh("lane-gh", "call", "search_issues", repo, json.dumps({"q": q, "per_page": 30}), "--field", "items",
+                 check=False)
+        try:
+            return json.loads(out) if out.strip().startswith("[") else []
+        except ValueError:
+            return []
+    got = gh_json("api", "-X", "GET", "search/issues", "-f", f"q=repo:{repo} {q}", "-f", "per_page=30")
+    return (got or {}).get("items") or []
+
+
+def nightly_sha() -> str | None:
+    """The commit the NIGHTLY Leo runs was built from: the NIGHTLY_TAG tag (fetched fresh)."""
+    git("fetch", "-q", "--no-tags", "origin", f"+refs/tags/{NIGHTLY_TAG}:refs/tags/{NIGHTLY_TAG}", check=False)
+    return git("rev-parse", "-q", "--verify", f"refs/tags/{NIGHTLY_TAG}^{{commit}}", check=False) or None
+
+
+def in_nightly(sha: str | None, nightly: str | None) -> bool:
+    if not (sha and nightly):
+        return False
+    git("fetch", "-q", "--no-tags", "origin", sha, check=False)
+    return subprocess.run(["git", "-C", str(REPO_ROOT), "merge-base", "--is-ancestor", sha, nightly]).returncode == 0
+
+
 def baseline(repo: str, base_ref: str, work: Path) -> tuple[dict | None, dict[str, Path]]:
-    """The newest passing ios-flows proof on a PR merged into BASE_REF, and its screenshots."""
+    """The screens to diff against: the newest passing ios-flows proof on a PR merged into BASE_REF whose merge commit
+    is in the NIGHTLY (NIGHTLY_TAG), so a diff reads as against NIGHTLY. With none in the NIGHTLY yet, the newest
+    merged proof, labelled source "merged" so Tier 1 can tell; none at all is no baseline."""
+    nightly = nightly_sha()
     try:
-        prs = gh_json("pr", "list", "--repo", repo, "--base", base_ref, "--state", "merged", "--limit", "15",
-                      "--search", f"\"{proof_record.KIND} {SUITE}\" in:comments", "--json", "number,mergeCommit")
+        items = search_prs(repo, f"is:pr is:merged base:{base_ref} \"{proof_record.KIND} {SUITE}\" in:comments")
     except SystemExit:
         return None, {}
-    for p in prs or []:
+    fallback: tuple[dict | None, dict[str, Path]] = (None, {})
+    for item in items[:15]:
+        number = item["number"]
         try:
-            comments = gh_json("api", f"repos/{repo}/issues/{p['number']}/comments?per_page=100")
+            merge = (gh_json("api", f"repos/{repo}/pulls/{number}") or {}).get("merge_commit_sha")
+            comments = gh_json("api", f"repos/{repo}/issues/{number}/comments?per_page=100")
         except SystemExit:
+            continue
+        nightly_hit = in_nightly(merge, nightly)
+        if fallback[0] and not nightly_hit:
             continue
         recs = [r for c in comments if proof_record.trusted(c, proof_record.DEFAULT_BOTS.split(","))
                 for r in [proof_record.parse(c.get("body") or "")] if r and r["verdict"] == "pass"]
         for r in reversed(recs):
-            for run in r["runs"]:
-                if run.get("step") and run.get("mode") == "test":
-                    shots = [s for s in fetch(run["step"], work / f"base-{p['number']}") if s.suffix == ".png"]
-                    if shots:
-                        meta = {"source": "newest passing proof merged into " + base_ref, "pr": p["number"],
-                                "sha": r["head_sha"], "merge_commit": (p.get("mergeCommit") or {}).get("oid"),
-                                "step": run["step"]}
-                        return meta, {s.name: s for s in shots}
-    return None, {}
+            run = next((x for x in r["runs"] if x.get("step") and x.get("mode") == "test"), None)
+            shots = [s for s in fetch(run["step"], work / f"base-{number}") if s.suffix == ".png"] if run else []
+            if not shots:
+                continue
+            meta = {"source": "nightly" if nightly_hit else "merged", "nightly_tag": NIGHTLY_TAG,
+                    "nightly_sha": nightly, "pr": number, "sha": r["head_sha"], "merge_commit": merge,
+                    "step": run["step"]}
+            if nightly_hit:
+                return meta, {s.name: s for s in shots}
+            fallback = (meta, {s.name: s for s in shots})
+            break
+    return fallback
 
 
 def visual(captures: list[dict], base_meta: dict | None, video: str | None) -> dict:
     """What Tier 1 (land-judge, visual changes) checks: real-sim screens diffed against the last green build."""
     changed = [c["name"] for c in captures if c["verdict"] in ("changed", "new", "missing")]
     return {"screens": sum(1 for c in captures if c["verdict"] != "missing"), "baselined": base_meta is not None,
+            "baseline_source": (base_meta or {}).get("source", "none"),
             "changed": changed, "video": bool(video), "diffed": base_meta is not None and bool(captures)}
 
 
@@ -269,13 +329,20 @@ def rerun_gate(repo: str, sha: str) -> str:
     return "gate job has not run yet: it reads the proof when it does"
 
 
+def public_runs(runs: list[dict]) -> list[dict]:
+    """RUNS as the posted record holds them: no output tail and no worker. The record is PR text, and a public repo's
+    PR text names no fleet host (public-body-guard refused the proof on cmux#61688 for naming two); no gate reads the
+    worker, and the step id still leads to it. The worker stays in this run's stderr."""
+    return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
+
+
 def summary_md(record: dict) -> str:
     t = record["timing"]
     lines = [f"**`cmux ios verify`** at `{record['head_sha'][:10]}`: **{record['verdict']}**"
              f" ({len(record['selection']['flows'])} flows, push to proof {t.get('push_to_proof_s')} s)", "",
-             "| run | worker | result | s |", "|---|---|---|---|"]
+             "| run | result | s |", "|---|---|---|"]
     for r in record["runs"]:
-        lines.append(f"| {r['name']} | {r.get('worker', '')} | {r['result']} | {r.get('seconds', '')} |")
+        lines.append(f"| {r['name']} | {r['result']} | {r.get('seconds', '')} |")
     changed = [c["name"] for c in record.get("captures", []) if c["verdict"] in ("changed", "new", "missing")]
     b = record.get("baseline")
     lines += ["", f"Screens: {len(record.get('captures', []))}, " +
@@ -284,6 +351,18 @@ def summary_md(record: dict) -> str:
     if record.get("merged_base"):
         lines.append(f"The base was merged into the head first ({record['base_sha'][:10]}).")
     return "\n".join(lines)
+
+
+def tool_changed() -> bool:
+    """Whether the loop's files on disk differ from the ones this process loaded."""
+    return any(not f.exists() or f.read_bytes() != TOOL_LOADED[f] for f in TOOL)
+
+
+def reexec(head: str, argv: list[str]) -> None:
+    """Run the merged loop in place of this one, at HEAD (already merged and pushed), so the merged code posts."""
+    print(f"ios verify: merging the base changed the loop; running the merged loop at {head[:10]}", file=sys.stderr)
+    os.execve(sys.executable, [sys.executable, "-I", str(HERE / "ios_verify.py"), *argv],
+              {**os.environ, REEXEC_HEAD: head})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -295,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pair-e2e", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--no-merge-base", action="store_true")
     ap.add_argument("--pin-strict", action="store_true", help="never fall back off the named workers")
+    ap.add_argument("--attempt", default="1", help="use a new attempt ID to rerun an identical failed simulator step")
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
@@ -304,11 +384,15 @@ def main(argv: list[str] | None = None) -> int:
     view = pr_view(a.pr, a.repo)
     repo = a.repo or view["url"].split("github.com/")[1].rsplit("/pull/", 1)[0]
     merged = False
-    if a.no_merge_base or a.plan:
+    if os.environ.get(REEXEC_HEAD):
+        head, merged = os.environ[REEXEC_HEAD], True
+    elif a.no_merge_base or a.plan:
         git("fetch", "-q", "origin", view["baseRefName"], check=False)
         head = view["headRefOid"]
     else:
         head, merged = merge_base_first(view)
+        if merged and tool_changed():
+            reexec(head, sys.argv[1:] if argv is None else argv)
     base_sha = git("merge-base", f"origin/{view['baseRefName']}", head)
     manifest = json.loads(select_flows.MANIFEST.read_text())
     changed = select_flows.changed_from_git(base_sha, head)
@@ -321,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
             print("not iOS-affecting: cmux/ios-fast passes without a proof", file=sys.stderr)
         return 0
     with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict) for s in steps]
+        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt) for s in steps]
         futs += [pool.submit(run_script, s) for s in selection["scripts"]]
         runs = [f.result() for f in futs]
     runs += delegated(selection)
@@ -343,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
         "pr": int(view["number"]), "head_sha": head, "base_ref": view["baseRefName"], "base_sha": base_sha,
         "merged_base": merged,
         "selection": {k: selection[k] for k in ("flows", "kit", "ui", "swift", "scripts", "compile")},
-        "runs": [{k: v for k, v in r.items() if k != "tail"} for r in runs],
+        "runs": public_runs(runs),
         "captures": captures, "baseline": base_meta, "video": video,
         "visual": visual(captures, base_meta, video),
         "verdict": "fail" if any(r["result"] in ("fail", "error") for r in runs) else "pass",
@@ -353,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     for r in runs:
         if r["result"] in ("fail", "error"):
-            print(f"FAIL {r['name']}:\n{r.get('tail', '')}\n", file=sys.stderr)
+            print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
     body = proof_record.render(record, summary_md(record))
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
