@@ -132,6 +132,8 @@ mod code_mode;
 mod codex_app_server;
 mod command;
 mod completion;
+#[cfg(unix)]
+mod env_command;
 mod intent;
 #[cfg(unix)]
 mod key_broker;
@@ -679,6 +681,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "computer-use",
     "chat",
     "vm",
+    "env",
     "customize",
     "agent-config",
     "move",
@@ -1140,6 +1143,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| env_command::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| cloud_provider::run_if_requested(args))
