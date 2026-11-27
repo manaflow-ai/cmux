@@ -26,14 +26,20 @@ public struct ClassicFolderItemsMove: Sendable {
     /// Files only NEXT writes in classic's `~/.config/cmux`, moved to ``BuildStatePaths/configDirectory``
     /// (`~/.config/cmux-next`) once, with no link: the settings file and what lives beside it, the
     /// Cloud secrets and keys indexes (names only), the host budget, `cmux vm`'s config and the web-dev
-    /// overlay file. Classic's own files there (`cmux.json`, `settings.json`, `dock.json`, `sidebars`,
-    /// `env`, ...) are never touched.
+    /// overlay file, and acpmux's turn rules (`turn-rules.json`, read beside the settings file). Classic's own
+    /// files there (`cmux.json`, `settings.json`, `dock.json`, `sidebars`, `env`, ...) are never touched.
     static let configFiles = ["cmux-next.json", "keybindings.json", "cloud-secrets.json", "keys.json", "host-budget.json",
-                              "vm.json", "web-dev.json"]
+                              "vm.json", "web-dev.json", "turn-rules.json"]
     /// Folders only NEXT writes in classic's `~/.config/cmux`, moved the same way. The GitHub feed's
     /// worktrees keep a link, since git records each worktree's path.
     static let configFolders = ["automations", "customize", "commands", "themes", "agent-pane", "diff", "harnesses",
                                 "screen-host", "github-worktrees"]
+    /// Folders whose entries move one by one, each only while nothing has its new name: acpmux's `routes`, the
+    /// person's model connections (`claude-token.toml`, `chatgpt.toml`, API keys), which it reads beside the
+    /// settings file (`routes::places`). Left behind, every connection made before the move vanishes from
+    /// Settings > Cloud and each new Cloud chat is refused "No Cloud connection serves claude yet"; merged, a
+    /// connection added in `cmux-next` after the move does not strand the older ones.
+    static let configMergedFolders = ["routes"]
     /// Files classic cmux may also read in `~/.config/cmux` (cmux-tui's config): copied once, never moved.
     static let configCopies = ["cmux-tui.json"]
     /// The one item classic cmux installs in the shared `~/.config/cmux/skills` (its Cloud skill): every
@@ -153,6 +159,19 @@ public struct ClassicFolderItemsMove: Sendable {
                 outcomes[name] = .moved
             } catch {
                 outcomes[name] = logged(.kept("copy: \(error.localizedDescription)"), old: from)
+            }
+        }
+        for folder in configMergedFolders {
+            let from = old.appending(path: folder, directoryHint: .isDirectory)
+            guard isFolder(from) else { continue }
+            for name in ((try? FileManager.checked.contentsOfDirectory(atPath: from.path)) ?? []).sorted() {
+                let item = from.appending(path: name), to = new.appending(path: "\(folder)/\(name)")
+                guard lstat(item.path, &info) == 0 else { continue }
+                switch info.st_mode & S_IFMT {
+                case S_IFDIR: outcomes["\(folder)/\(name)"] = logged(StateFolderMove.move(old: item, new: to, link: false), old: item)
+                case S_IFREG: outcomes["\(folder)/\(name)"] = logged(moveExclusive(old: item, new: to), old: item)
+                default: continue
+                }
             }
         }
         let skills = old.appending(path: "skills", directoryHint: .isDirectory)
