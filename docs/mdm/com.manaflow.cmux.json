@@ -8351,6 +8351,12 @@
       "title" : "Web UI Updates",
       "type" : "string"
     },
+    "updates.webCas" : {
+      "default" : false,
+      "description" : "Web UI updates download only what changed, or the whole update when that fails.",
+      "title" : "Fetch Web UI Updates by Chunks",
+      "type" : "boolean"
+    },
     "updates.whatsNewInstall" : {
       "default" : false,
       "description" : "An Install button for each version listed in What's New.",
