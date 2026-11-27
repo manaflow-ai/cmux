@@ -10335,7 +10335,7 @@ export class AcpmuxDirectClient {
       // The event at attach's own lastSeq may be newer than the options it names (acpmux numbers the
       // event before it writes them): only events before it are history.
       if (!Array.isArray(update.configOptions) || (event.seq && event.seq < this.configSeq)) return;
-      this.summary = { ...this.summary, configOptions: update.configOptions };
+      this.summary = { ...this.summary, configOptions: update.configOptions, pendingEffort: undefined };
       if (event.seq) this.configSeq = event.seq;
       return;
     }
@@ -12102,6 +12102,7 @@ export class AcpmuxDirectClient {
           // What Claude Code's last init line said it runs on (version, model id, route, folder).
           ...(start ? { sessionStart: start } : {}),
           effort: effort?.currentValue,
+          pendingEffort: text(summary.pendingEffort),
           // `audio` only while the picked model hears it (takesAudio).
           promptCapabilities: summary.agentCapabilities?.promptCapabilities && {
             ...summary.agentCapabilities.promptCapabilities,
@@ -17031,7 +17032,7 @@ export class AcpmuxDirectClient {
     // `summary` is the selected chat's: during a hold that is already the next chat, not the one acted on.
     if (generation !== this.selectionGeneration || sessionId !== this.selectedSessionId) return;
     if (!Array.isArray(result?.configOptions)) return;
-    this.summary = { ...this.summary, configOptions: result.configOptions };
+    this.summary = { ...this.summary, configOptions: result.configOptions, pendingEffort: undefined };
     this.emit();
   }
   /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it.

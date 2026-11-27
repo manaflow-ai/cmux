@@ -316,6 +316,10 @@ pub struct SessionSummary {
     /// The harness's current reasoning effort, when it reports one.
     /// Additive for older clients and peers.
     pub effort: Option<String>,
+    /// The resolved effort this new chat will start on, until the harness reports its options.
+    /// Unlike a viewer's remembered chip, this is the owning daemon's answer (also for peers).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_effort: Option<String>,
     pub policy: Option<String>,
     #[schemars(with = "Enforcement")]
     pub enforcement: Value,

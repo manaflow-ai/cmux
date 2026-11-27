@@ -108,7 +108,7 @@ function snapshot(sessionId: string, effort?: string, harness = "claude"): Acpmu
       model: MODEL,
       cwd: FOLDER,
       turnCount: 0,
-      ...(effort ? { configOptions: options(effort) } : {}),
+      ...(effort ? { configOptions: options(effort) } : sessionId ? { pendingEffort: "medium" } : {}),
     },
   } as AcpmuxSnapshot;
 }
@@ -171,6 +171,7 @@ test("a session reporting options without effort stops showing the cached effort
     const settled = snapshot("attached");
     settled.summary = {
       ...settled.summary!,
+      pendingEffort: undefined,
       configOptions: [
         {
           id: "model",
@@ -187,7 +188,13 @@ test("a session reporting options without effort stops showing the cached effort
   expect(result[1]).toEqual({ model: "Opus 5.5", effort: "", compact: "" });
 });
 test("a peer session never borrows this Mac's remembered effort", async () => {
-  const result = await frames(() => [{ ...snapshot("peer-attached"), origin: "peer" }]);
+  const result = await frames(() => [
+    {
+      ...snapshot("peer-attached"),
+      origin: "peer",
+      summary: { ...snapshot("peer-attached").summary!, pendingEffort: undefined },
+    },
+  ]);
   expect(result[0]?.effort).toBe("");
 });
 
@@ -195,7 +202,10 @@ test("a nondefault last-used effort is present before the catalog replies", asyn
   const result = await frames(() => {
     const confirmed = snapshot("attached", "high");
     confirmed.catalog[0]!.start!.effort = "high";
-    const attached = { ...confirmed, summary: { ...confirmed.summary!, configOptions: undefined } };
+    const attached = {
+      ...confirmed,
+      summary: { ...confirmed.summary!, configOptions: undefined, pendingEffort: "high" },
+    };
     return [newTabStart(emptySnapshot(), [], "claude", FOLDER).snapshot, attached, confirmed];
   }, "high");
   expect(result).toEqual(Array(3).fill({ model: "Opus 5.5", effort: "High", compact: "" }));
@@ -209,4 +219,15 @@ test("an explicit harness switch uses the target start effort, not the previous 
   });
   expect(result[0]).toEqual(MEDIUM);
   expect(result.slice(1).map((face) => face.effort)).toEqual(["High", "High"]);
+});
+
+test("a peer uses its owning daemon's pending effort instead of this viewer's cache", async () => {
+  const result = await frames(() => [
+    {
+      ...snapshot("peer-attached"),
+      origin: "peer",
+      summary: { ...snapshot("peer-attached").summary!, pendingEffort: "high" },
+    },
+  ]);
+  expect(result[0]).toEqual({ model: "Opus 5.5", effort: "High", compact: "" });
 });

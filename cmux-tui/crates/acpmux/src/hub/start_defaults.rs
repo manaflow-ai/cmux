@@ -63,6 +63,16 @@ pub(super) fn model_applied(session: &Session, model: &str) {
     applied.effort = None;
 }
 
+/// An attaching new chat already has an authoritative start effort. Keep that answer in
+/// its first listed/attached summary until any options arrive, including an empty list.
+/// No config read on the render path; the create resolved the value before publishing it.
+pub(super) fn pending_effort(session: &Session, meta: &SessionMeta) -> Option<String> {
+    if meta.turn_count != 0 || meta.config_options.is_some() {
+        return None;
+    }
+    session.pending_start_effort.get().cloned()
+}
+
 /// Env keys that choose a harness's main model (not a background or
 /// subagent model such as `ANTHROPIC_SMALL_FAST_MODEL`).
 const MAIN_MODEL_ENV: [&str; 5] =
@@ -444,4 +454,43 @@ pub(super) fn offers(reported: &[String], curated: &[String], model: &str) -> bo
         return true;
     }
     reported.iter().any(|r| names(r, model))
+}
+
+#[cfg(test)]
+mod pending_effort_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn pending_effort_summary_carries_only_the_owning_sessions_start_value() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "pending-effort", "name": "pending-effort",
+            "harness": "claude", "cwd": "/tmp", "status": "starting", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+        // A restored session has no new-start promise, even when it has never had a turn.
+        assert!(hub.session_summary(&session).get("pendingEffort").is_none());
+        session.pending_start_effort.set("high".into()).unwrap();
+        assert_eq!(hub.session_summary(&session)["pendingEffort"], "high");
+        assert_eq!(hub.session_detail(&session)["pendingEffort"], "high");
+        // A remote-origin session carries its own answer; no viewer's cache participates.
+        session.meta.lock().unwrap().remote_origin = true;
+        assert_eq!(hub.session_summary(&session)["pendingEffort"], "high");
+        // Any reported options end the promise, even when no effort option is offered.
+        session.meta.lock().unwrap().config_options = Some(Arc::new(json!([])));
+        assert!(hub.session_summary(&session).get("pendingEffort").is_none());
+        session.meta.lock().unwrap().config_options = Some(Arc::new(json!([{
+            "id": "effort", "currentValue": "low", "options": [{"value": "low"}]
+        }])));
+        let settled = hub.session_summary(&session);
+        assert!(settled.get("pendingEffort").is_none());
+        assert_eq!(settled["effort"], "low");
+        // A later restart with options temporarily absent cannot revive a first-start label.
+        let mut meta = session.meta.lock().unwrap();
+        meta.config_options = None;
+        meta.turn_count = 1;
+        drop(meta);
+        assert!(hub.session_summary(&session).get("pendingEffort").is_none());
+    }
 }
