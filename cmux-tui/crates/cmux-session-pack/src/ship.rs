@@ -165,7 +165,12 @@ pub fn unbundle(store: &Store, input: &mut dyn Read, lacking: Lacking) -> Result
     Ok(Some(manifest))
 }
 
-fn read_bounded(input: &mut dyn Read, len: u32, max: usize, what: &str) -> Result<Vec<u8>> {
+pub(crate) fn read_bounded(
+    input: &mut dyn Read,
+    len: u32,
+    max: usize,
+    what: &str,
+) -> Result<Vec<u8>> {
     let len = len as usize;
     if len > max {
         return Err(format!("a {what} of {len} bytes is over the {max} byte limit").into());
