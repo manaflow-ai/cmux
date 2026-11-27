@@ -1,5 +1,5 @@
 public import CMUXAuthCore
-import CmuxNextCloud
+public import CmuxNextCloud
 public import Foundation
 
 /// "Pair Another Machine…" over the cmux cloud: `server.pair.invite` (origin user) through the API
