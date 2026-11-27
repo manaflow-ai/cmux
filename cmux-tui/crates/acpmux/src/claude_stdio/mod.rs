@@ -309,6 +309,10 @@ mod elicitation_tests;
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod dedupe;
+/// Whether dedupe is on now, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use dedupe::enabled as dedupe_enabled;
+#[cfg(test)]
+pub(crate) use dedupe::enabled_with as dedupe_enabled_with;
 mod dedupe_shell;
 #[cfg(test)]
 mod dedupe_tests;
@@ -323,6 +327,8 @@ mod inbound;
 #[cfg(test)]
 mod initialize_tests;
 mod path_rules;
+/// The feature name and its gate, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use path_rules::{FEATURE as PATH_RULES_FEATURE, enabled as path_rules_enabled};
 #[cfg(test)]
 mod path_rules_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).

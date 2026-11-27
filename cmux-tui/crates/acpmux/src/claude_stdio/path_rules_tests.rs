@@ -178,5 +178,5 @@ fn the_turns_counts_name_the_feature() {
     let c = Counters { fired: 2, said_chars: 90, deferred: 1 };
     assert_eq!(c.to_json(), json!({"fired": 2, "saidChars": 90, "deferred": 1}));
     assert_eq!(path_rules::FEATURE, "pathRules");
-    assert!(crate::hub::harness_magic::FEATURES.contains(&path_rules::FEATURE));
+    assert!(crate::hub::harness_magic::FEATURES.iter().any(|f| f.name == path_rules::FEATURE));
 }

@@ -212,6 +212,11 @@ export const PAGES = {
       },
       // Settings > Integrations > Connections: the shared connect card and All connections.
       { file: "webviews/src/pages/shared/connect/Localizable.xcstrings" },
+      {
+        // Settings > Accounts' GitHub CLI fallback, for hosts that predate the localized state fields.
+        file: `${sources}/CmuxNextAccounts/Resources/GitHubConnection.xcstrings`,
+        keys: (all) => all.filter((key) => ["github.cliSignIn", "github.cliSignInDetail"].includes(key)),
+      },
     ],
   },
   history: {
@@ -353,17 +358,6 @@ export const PAGES = {
       {
         file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
         keys: (all) => all.filter((key) => !key.startsWith("refusal.") && !key.startsWith("approver.")),
-      },
-    ],
-  },
-  // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
-  // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
-  machines: {
-    out: "webviews/src/pages/machines/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("machines.") || key.startsWith("addMachine.step.")),
       },
     ],
   },

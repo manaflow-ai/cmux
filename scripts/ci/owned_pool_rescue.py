@@ -324,11 +324,6 @@ UNRESCUED_WORKFLOW_PATHS = {
         "a manual feat-cmux-next journey (lane broker dispatch, nothing gates on it): its one job takes the "
         "declared macos_26 pool, or the owned side label only while CI_BLACKSMITH_MACOS is off (note-350), so a "
         "stuck or refused job ends at its 90-minute timeout and the dispatcher re-dispatches it",
-    ".github/workflows/cloud-chat-proof.yml":
-        "watched by this copy's SIDE_WORKFLOW_PATHS, but main's copy, the one workflow_run runs, does not list it "
-        "while main takes no merges: until it does, both proof jobs take the owned gui pool (glaeda-gui-std) only on "
-        "attempt 1 while CI_PR_POOL_OWNED is 1, and a person's re-run takes pick-proof-runner's Blacksmith macOS 26 "
-        "label or the declared macos_26 pool",
     ".github/workflows/first-user-journey-ios.yml":
         "feat-cmux-next only (main's copy only dispatches it), nightly and manual, no pull request: the walk takes "
         "the screenshots lane's pick (an owned simulator mini when CI_IOS_OWNED allows) on attempt 1 and "

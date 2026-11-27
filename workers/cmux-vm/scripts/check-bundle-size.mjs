@@ -23,7 +23,9 @@ import { gzipSync } from "node:zlib";
 // over 454.4 KiB when measured alone in CI); no dependency was added.
 // Dated API versions (src/api-version.ts, the Cmux-Api-Version pin) measured 460.6 KiB in CI; no dependency was
 // added.
-const BUDGET_GZIP_BYTES = 463 * 1024; // 298 KiB at S1
+// Whole-tree search and the paused-read replica Durable Object (src/replica/, RFD 0144 piece 2) measured 469.2 KiB
+// locally; no dependency was added.
+const BUDGET_GZIP_BYTES = 472 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

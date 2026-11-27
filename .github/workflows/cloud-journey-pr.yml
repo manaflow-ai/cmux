@@ -103,7 +103,7 @@ jobs:
     outputs:
       base_red: ${{ steps.decide.outputs.base_red }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Only the script, into its own folder: a full checkout took past 3 minutes on a cold runner (run
@@ -111,10 +111,22 @@ jobs:
           # pool VM; the next job's checkout removes this folder as untracked.
           path: .base-red-src
           sparse-checkout: scripts/ci
+      - name: Mint a read token with its own quota
+        id: base-red-token
+        # The repository's GITHUB_TOKEN quota answers 403 under load; this app token is read when it does.
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
       - name: Red on the base right now?
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_FALLBACK: ${{ steps.base-red-token.outputs.token }}
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow backend.yml --job "journey-staging" >> "$GITHUB_OUTPUT"
 
   # On a pull request only with `full-ci` (the label, or CI_PR_JOURNEY_FULL_CI_ONLY=0 for every land-tier head):
@@ -134,7 +146,7 @@ jobs:
       pull-requests: read
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -310,7 +322,7 @@ jobs:
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false

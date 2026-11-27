@@ -102,6 +102,9 @@ impl Translator {
                         }
                         let blocks =
                             p.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
+                        // The files the hub's prefetch attached are in the context from now
+                        // on: a later Read of them is stubbed (dedupe.rs, RFD 0160).
+                        self.dedupe_prefetch(&blocks).await;
                         let content: Vec<Value> = blocks
                             .iter()
                             .map(|b| match b.get("type").and_then(Value::as_str) {
