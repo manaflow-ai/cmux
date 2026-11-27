@@ -172,6 +172,7 @@ import {
   sendsHeldForHost,
   untilHostAnswers,
   pageClientLink,
+  paneSends,
 } from "../sendWhenReady";
 import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
@@ -3099,7 +3100,6 @@ export function paneSnapshotEffect({
           setSnapshot(refused);
           setHostError(undefined);
           setHostErrorShown(false);
-          setRelinkingSince(undefined);
           setAwaitsChat(false);
           return;
         }
