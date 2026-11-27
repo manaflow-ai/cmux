@@ -3,7 +3,9 @@ name: Migrate journey (PR CLI on staging)
 # `cmux migrate` end to end (hq RFD 0168, scripts/cmux-next/migrate-journey-ci.sh): this pull request's
 # cmux-tui reads real public repos (a devcontainer, a compose file), then `migrate apply --headless` moves
 # each to a new staging machine through `cloud journey --repo` with the model stub and deletes it after.
-# The job summary and results.jsonl give each repo's result and time to its first working chat.
+# The job summary, results.jsonl and verdict.json give each case's result and time to its first working chat.
+# The cases run side by side inside a budget that ends before timeout-minutes, so the job always ends with the
+# script's verdict (pass, red, or exit 4 when staging capacity stopped every case), never a cancellation.
 #
 # Leo, 2026-11-24: "we ought to be able to have good migration capabilities all around for people of all
 # stages any and all levels of technical sophistication and teams and organizations of any size and demand
@@ -53,8 +55,20 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
+    # The workspace crates build unoptimized with line tables, as cloud-journey-pr.yml's `seed` does: equal profile
+    # env gives an equal R2 key (scripts/cmux-next/cloud-journey-cargo-key.sh), so the restore below hits.
+    # tests/test_ci_relay_journey_build_cache.py keeps the two in step.
+    env:
+      CARGO_PROFILE_DEV_OPT_LEVEL: "0"
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: "0"
     timeout-minutes: 50
     steps:
+      # The script's budget: every apply ends by this, 4 minutes inside timeout-minutes (50) for the artifact
+      # upload, so the verdict is the script's and never a cancellation (run 45899973376 was cancelled at 50 min
+      # with two cases still unrun). tests/test_migrate_journey_verdict.py checks the margin.
+      - name: Set the journey's deadline
+        run: echo "MIGRATE_JOURNEY_END_BY=$(( $(date +%s) + 46 * 60 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -91,6 +105,39 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
+      # The compiled dependencies come from R2 (public reads, no credentials), seeded by cloud-journey-pr.yml's
+      # `seed` on feat-cmux-next; a miss or a slow restore builds cold as before. The cold build was 13m58s at
+      # opt-level 1 (run 45899973376); cloud journey's warm one is 8m02s for two binaries (run 45914273747).
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-cloud-journey-pr-wall
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') }}
+        continue-on-error: true
+        run: bash scripts/cmux-next/cloud-journey-cargo-key.sh >> "$GITHUB_OUTPUT"
+      - name: Restore the cargo build from R2
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+      - name: Restore the cargo registry from R2
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
       - name: Build this pull request's Linux cmux-tui
         id: build-cmux-tui
         working-directory: cmux-tui
