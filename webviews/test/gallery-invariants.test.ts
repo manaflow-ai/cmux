@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import {
+  CHEVRON_GAP_MIN,
   COLUMN_REACH,
+  HIT_MIN,
+  longestMs,
+  smallHitTarget,
+  tightChevronGap,
   iconGutterGaps,
   leadEdge,
   offColumn,
@@ -81,4 +86,33 @@ test("a menu mixing icon and icon-less action rows has an empty icon gutter; all
       { label: "Hide", icon: true, toggle: false },
     ]),
   ).toEqual([]);
+});
+
+test("the guideline numbers are the layout grid's and the motion scale's tokens", async () => {
+  const grid = (await import("../../schemas/layout-grid/layout-grid.json")).default.metrics;
+  const pt = (name: string) => grid.find((metric: { name: string }) => metric.name === name)?.pt;
+  expect(CHEVRON_GAP_MIN).toBe(pt("chevron-gap"));
+  expect(HIT_MIN).toBe(pt("hit-min"));
+});
+
+test("a chevron within 4 px of its label is too close; 4 and more is not", () => {
+  expect(tightChevronGap(0)).toBe(true);
+  expect(tightChevronGap(-2)).toBe(true);
+  expect(tightChevronGap(3)).toBe(true);
+  expect(tightChevronGap(4)).toBe(false);
+  expect(tightChevronGap(5)).toBe(false);
+});
+
+test("a clickable icon under 24 px either way is too small", () => {
+  expect(smallHitTarget(22, 22)).toBe(true);
+  expect(smallHitTarget(28, 20)).toBe(true);
+  expect(smallHitTarget(24, 24)).toBe(false);
+  expect(smallHitTarget(28, 28)).toBe(false);
+});
+
+test("the longest finite duration of a computed list, loops skipped", () => {
+  expect(longestMs("0.08s, 0.24s")).toBe(240);
+  expect(longestMs("120ms")).toBe(120);
+  expect(longestMs("0s")).toBe(0);
+  expect(longestMs("0.08s, 2s", new Set([1]))).toBe(80);
 });

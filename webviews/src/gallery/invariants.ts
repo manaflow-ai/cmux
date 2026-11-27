@@ -20,6 +20,12 @@
 //                icons every action row has one; a row without one starts its text an empty icon slot
 //                in (Leo, 2026-11-22: "some bullshit left indent that indents for literally nothing.
 //                either get rid of the indent or give it an icon"). Toggle rows mark the slot with their check.
+//   chevron-gap  docs/cmux-next/ui-guidelines.md (Leo, 2026-11-27, "these chevrons are too close dont we have any
+//                guidelines for these yet?"): a chevron's ink is at least `--grid-chevron-gap` (4) from the label beside it.
+//   hit-target   the same doc: a clickable icon, chevron or icon-only button is at least `--grid-hit-min` (24) square.
+//   motion-max   the same doc and plans/cmux-next/motion.md: no timed transition or animation runs past the
+//                scale's ceiling (`large`, 240 ms); hover, pressed and focus fills on a control run at most `micro` (120);
+//                anything leaving runs at most `quick` (80), never longer than it took to arrive.
 // A rule reads only what the stage shows; a state with no transcript or menu has nothing to check.
 // The pure checks are here (unit tested); `collectInvariants` measures the live page.
 
@@ -33,6 +39,14 @@ export const COLUMN_REACH = 8;
 export const CENTER_SLACK = 1.01;
 /** The spare width a menu's fullest row may have: two 15 px insets, three 6-12 px gaps and slack. */
 export const MENU_SPARE_MAX = 112;
+/** `--grid-chevron-gap`: the least ink-to-ink space between a label and its chevron (layout-grid.json). */
+export const CHEVRON_GAP_MIN = 4;
+/** `--grid-hit-min`: the least side of a clickable icon, chevron or icon-only button (layout-grid.json). */
+export const HIT_MIN = 24;
+/** The motion scale's steps (schemas/motion-scale/motion-scale.json): the ceiling, the control feedback and the exit. */
+export const MOTION_MAX_MS = 240;
+export const MOTION_CONTROL_MAX_MS = 120;
+export const MOTION_EXIT_MAX_MS = 80;
 /** The 16 px icon box of transcript rows (chat-transcript.md, `--cv-glyph-slot`). */
 const GLYPH_SLOT = 16;
 
@@ -324,7 +338,190 @@ function menuViolations(doc: Document): Violation[] {
   return violations;
 }
 
+// ---- Chevrons, hit targets and motion ----
+
+/** The ink gap between a chevron and a label beside it, or a hit box under the minimum. Pure, for the unit tests. */
+export function tightChevronGap(gap: number, min = CHEVRON_GAP_MIN): boolean {
+  return gap < min - EDGE_SLACK;
+}
+
+export function smallHitTarget(width: number, height: number, min = HIT_MIN): boolean {
+  return width < min - EDGE_SLACK || height < min - EDGE_SLACK;
+}
+
+/** The longest finite duration in a computed `transition-duration` or `animation-duration` list, in ms. */
+export function longestMs(list: string, skipIndexes: ReadonlySet<number> = new Set()): number {
+  return Math.max(
+    0,
+    ...list.split(",").map((part, index) => {
+      if (skipIndexes.has(index)) return 0;
+      const text = part.trim();
+      return text.endsWith("ms") ? parseFloat(text) : text.endsWith("s") ? parseFloat(text) * 1000 : 0;
+    }),
+  );
+}
+
+const CHEVRON_CLASS = /chevron|caret|disclosure-arrow/i;
+const CONTROL = "button, a[href], summary, [role='button'], [role='combobox'], [role='tab'], [aria-haspopup]";
+const EXIT_STATE =
+  ".is-leaving, .is-exiting, .is-closing, .is-out, [data-state='closed'], [data-leaving], [data-exiting], [data-closing]";
+
+function classOf(element: Element): string {
+  const raw = element.getAttribute("class") ?? "";
+  return raw.trim().split(/\s+/).filter(Boolean).slice(0, 2).join(".");
+}
+
+/** A selector-like name that survives copy edits: tag and first classes, up the controls' ancestry. */
+function describe(element: Element): string {
+  const one = (node: Element) => `${node.tagName.toLowerCase()}${classOf(node) ? `.${classOf(node)}` : ""}`;
+  const parent = element.parentElement;
+  return parent && parent !== element.ownerDocument.body ? `${one(parent)} > ${one(element)}` : one(element);
+}
+
+function isChevron(element: Element): boolean {
+  if (element.closest("[aria-hidden='true'] [aria-hidden='true']")) return false;
+  const icon = element.getAttribute("data-icon") ?? "";
+  const named = CHEVRON_CLASS.test(element.getAttribute("class") ?? "") || /^chevron/i.test(icon);
+  if (!named) return false;
+  // A wrapper that holds the svg is not the chevron; the svg is.
+  return element.localName === "svg" || !element.querySelector("svg");
+}
+
+/** The ink of a chevron: an svg's path boxes (their stroke's half-width added), else its own box. */
+function chevronInk(element: Element): Rect | null {
+  if (element.localName !== "svg") {
+    const rect = element.getBoundingClientRect();
+    return visible(rect) ? rect : null;
+  }
+  const svg = element as SVGSVGElement;
+  const box = svg.getBoundingClientRect();
+  if (!visible(box)) return null;
+  const view = svg.viewBox?.baseVal;
+  const unit = view && view.width ? box.width / view.width : 1;
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (const shape of svg.querySelectorAll("path, polyline, line")) {
+    const rect = shape.getBoundingClientRect();
+    if (!visible(rect) && rect.width + rect.height === 0) continue;
+    const stroke = getComputedStyle(shape).stroke;
+    const pad = stroke && stroke !== "none" ? (parseFloat(getComputedStyle(shape).strokeWidth) || 0) * unit * 0.5 : 0;
+    left = Math.min(left, rect.left - pad);
+    right = Math.max(right, rect.right + pad);
+    top = Math.min(top, rect.top - pad);
+    bottom = Math.max(bottom, rect.bottom + pad);
+  }
+  if (!Number.isFinite(left)) return box;
+  return { left, right, top, bottom, width: right - left, height: bottom - top };
+}
+
+/** Text a chevron sits against: the control's own labels, or its parent's when the chevron stands outside it. */
+function neighbours(chevron: Element): Rect[] {
+  const control = chevron.closest(CONTROL);
+  const scope = control ?? chevron.parentElement;
+  if (!scope) return [];
+  const rects = textRects(scope);
+  // A chevron beside, not inside, its label: the parent's text, less anything inside another control.
+  return rects.filter((rect) => rect.width > 0);
+}
+
+function chevronViolations(doc: Document): Violation[] {
+  const violations: Violation[] = [];
+  const rtl = doc.documentElement.dir === "rtl" || getComputedStyle(doc.body).direction === "rtl";
+  for (const chevron of doc.querySelectorAll("svg, [class], [data-icon]")) {
+    if (!isChevron(chevron) || chevron.closest("[hidden], [inert]")) continue;
+    const ink = chevronInk(chevron);
+    if (!ink || getComputedStyle(chevron).visibility === "hidden") continue;
+    const middle = (ink.top + ink.bottom) / 2;
+    const beside = neighbours(chevron).filter((rect) => rect.top < middle && rect.bottom > middle);
+    // Before the chevron (its start side) and after it; only a label close enough to read as its label counts.
+    const before = beside.filter((rect) => (rtl ? rect.left >= ink.right - 1 : rect.right <= ink.left + 1));
+    const after = beside.filter((rect) => (rtl ? rect.right <= ink.left + 1 : rect.left >= ink.right - 1));
+    const gaps = [
+      before.length ? Math.min(...before.map((rect) => (rtl ? rect.left - ink.right : ink.left - rect.right))) : null,
+      after.length ? Math.min(...after.map((rect) => (rtl ? ink.left - rect.right : rect.left - ink.right))) : null,
+    ].filter((gap): gap is number => gap !== null && gap <= 16);
+    const gap = gaps.length ? Math.min(...gaps) : null;
+    if (gap !== null && tightChevronGap(gap))
+      violations.push({
+        rule: "chevron-gap",
+        key: `chevron-gap:${describe(chevron.closest(CONTROL) ?? chevron)}`,
+        detail: `${describe(chevron)}: ${fmt(gap)} px of ink between the chevron and its label, at least ${CHEVRON_GAP_MIN} (--grid-chevron-gap)`,
+      });
+  }
+  return violations;
+}
+
+function hitTargetViolations(doc: Document): Violation[] {
+  const violations: Violation[] = [];
+  for (const control of doc.querySelectorAll(CONTROL)) {
+    if (control.closest("[hidden], [inert]") || (control as HTMLElement).dataset.hitExempt !== undefined) continue;
+    if ((control as HTMLButtonElement).disabled) continue;
+    const rect = control.getBoundingClientRect();
+    if (!visible(rect) || getComputedStyle(control).visibility === "hidden") continue;
+    // A control that is a mark and no label: icon-only, or a bare chevron (text rects: none).
+    const marks = [...control.querySelectorAll("svg, img")].filter((mark) => visible(mark.getBoundingClientRect()));
+    const labelled = textRects(control).length > 0 || control.getAttribute("href") !== null;
+    if (marks.length === 0 || (labelled && !marks.some(isChevron))) continue;
+    if (labelled) {
+      // A labelled control with a chevron is a trigger: its height is the hit target; width follows its label.
+      if (rect.height < HIT_MIN - EDGE_SLACK)
+        violations.push({
+          rule: "hit-target",
+          key: `hit-target:${describe(control)}`,
+          detail: `${describe(control)}: ${fmt(rect.width)} x ${fmt(rect.height)} px, ${HIT_MIN} px high at least (--grid-hit-min)`,
+        });
+      continue;
+    }
+    if (smallHitTarget(rect.width, rect.height))
+      violations.push({
+        rule: "hit-target",
+        key: `hit-target:${describe(control)}`,
+        detail: `${describe(control)}: ${fmt(rect.width)} x ${fmt(rect.height)} px, ${HIT_MIN} x ${HIT_MIN} at least (--grid-hit-min)`,
+      });
+  }
+  return violations;
+}
+
+function motionViolations(doc: Document): Violation[] {
+  const violations: Violation[] = [];
+  const seen = new Set<string>();
+  const push = (rule: string, element: Element, detail: string) => {
+    const key = `${rule}:${describe(element)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    violations.push({ rule, key, detail: `${describe(element)}: ${detail}` });
+  };
+  for (const element of doc.body.querySelectorAll("*")) {
+    const style = getComputedStyle(element);
+    const transition = longestMs(style.transitionDuration);
+    const looping = new Set(
+      style.animationIterationCount.split(",").flatMap((count, index) => (count.trim() === "infinite" ? [index] : [])),
+    );
+    const animation = longestMs(style.animationDuration, looping);
+    const longest = Math.max(transition, animation);
+    if (longest > MOTION_MAX_MS)
+      push("motion-max", element, `${fmt(longest)} ms, the scale ends at ${MOTION_MAX_MS} (--cmux-motion-large)`);
+    else if (transition > MOTION_CONTROL_MAX_MS && element.matches(CONTROL))
+      push(
+        "motion-max",
+        element,
+        `${fmt(transition)} ms on a control, hover and press fills take at most ${MOTION_CONTROL_MAX_MS} (--cmux-motion-micro)`,
+      );
+    if (longest > MOTION_EXIT_MAX_MS && element.matches(EXIT_STATE))
+      push("motion-exit", element, `leaves in ${fmt(longest)} ms, at most ${MOTION_EXIT_MAX_MS} (--cmux-motion-quick)`);
+  }
+  return violations;
+}
+
 /** Every invariant the stage breaks now, sorted by key. */
 export function collectInvariants(doc: Document = document): Violation[] {
-  return [...transcriptViolations(doc), ...menuViolations(doc)].sort((a, b) => a.key.localeCompare(b.key));
+  return [
+    ...transcriptViolations(doc),
+    ...menuViolations(doc),
+    ...chevronViolations(doc),
+    ...hitTargetViolations(doc),
+    ...motionViolations(doc),
+  ].sort((a, b) => a.key.localeCompare(b.key));
 }
