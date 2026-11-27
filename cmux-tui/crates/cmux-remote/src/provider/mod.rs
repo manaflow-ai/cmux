@@ -13,6 +13,7 @@ mod iroh_config;
 mod machine_pipe;
 #[cfg(unix)]
 pub mod overlay;
+mod proxied;
 mod relay;
 pub(crate) mod socks;
 mod ssh;
