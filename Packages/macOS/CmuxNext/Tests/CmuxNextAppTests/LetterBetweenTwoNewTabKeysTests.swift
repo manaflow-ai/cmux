@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextControl
 @testable import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextFocusUI

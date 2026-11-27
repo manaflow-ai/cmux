@@ -45,6 +45,11 @@ extension TabContentCache {
     /// The pane presenting `key`, if any.
     func presenter(of key: String) -> (any SurfacePresenter)? { ledger.owner(of: key).flatMap { presenters[$0]?.value } }
 
+    /// A selection may have withdrawn the tab while its pane still keeps the view until first paint.
+    func lastPresenter(of key: String) -> (any SurfacePresenter)? {
+        presenter(of: key) ?? withdrawnBy[key]?.value
+    }
+
     func isRendering(_ key: String) -> Bool { ledger.isRendering(key) }
 
     /// `key`'s content phase (`debug.surfaces`, hibernation, the tab strip).

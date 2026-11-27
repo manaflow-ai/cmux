@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextControl
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextTabs

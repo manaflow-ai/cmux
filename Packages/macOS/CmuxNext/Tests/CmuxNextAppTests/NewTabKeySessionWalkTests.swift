@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextControl
 import CmuxNextBrowser
 import CmuxNextBrowserCore
 import CmuxNextCompat
