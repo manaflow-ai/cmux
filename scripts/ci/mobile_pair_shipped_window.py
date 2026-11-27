@@ -9,6 +9,7 @@ with the PR phone; 'dial' means a shipped phone source paired with the PR Mac.
 from __future__ import annotations
 
 import argparse
+import io
 import hashlib
 import json
 import os
@@ -21,6 +22,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+import zipfile
 
 DEFAULT_REGISTRY = Path(__file__).with_name("mobile_pair_shipped_window.json")
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -43,9 +45,12 @@ def validate_entry(entry):
         raise ValueError("publication needs a full source SHA")
     if not isinstance(entry.get("release_id"), str) or not entry["release_id"].strip():
         raise ValueError("publication needs a release ID")
-    timestamp(entry.get("published_at"))
     proof = entry.get("evidence", {})
-    if not isinstance(proof, dict) or proof.get("kind") != EVIDENCE[entry["platform"]]:
+    available = entry["platform"] == "ios" and isinstance(proof, dict) and proof.get("kind") == "testflight-available"
+    timestamp(entry.get("uploaded_at") if available else entry.get("published_at"))
+    if available and (proof.get("internal_build_state") != "IN_BETA_TESTING" or not proof.get("asc_build_id")):
+        raise ValueError("iOS publication needs an available INTERNAL build")
+    if not isinstance(proof, dict) or (not available and proof.get("kind") != EVIDENCE[entry["platform"]]):
         raise ValueError("compilation/upload-only is not publication evidence")
     url = proof.get("url", "")
     if not isinstance(url, str) or not url.startswith("https://"):
@@ -89,11 +94,15 @@ def resolve(registry, count=3):
     rows = []
     selected = []
     for platform, role in (("ios", "dial"), ("mac", "host")):
-        releases = sorted(
-            (r for r in registry["releases"] if r["platform"] == platform),
-            key=lambda r: (timestamp(r["published_at"]), r["release_id"]),
-            reverse=True,
-        )[:count]
+        releases = [r for r in registry["releases"] if r["platform"] == platform]
+        ordered = [r for r in releases if "window_order" in r]
+        if ordered:
+            if len(ordered) != len(releases) or sorted(r["window_order"] for r in ordered) != list(range(len(releases))):
+                raise ValueError("authority order must cover the complete platform window")
+            releases.sort(key=lambda r: r["window_order"])
+        else:
+            releases.sort(key=lambda r: (timestamp(r["published_at"]), r["release_id"]), reverse=True)
+        releases = releases[:count]
         if len(releases) != count:
             raise ValueError(f"{platform}: need {count} published releases, found {len(releases)}")
         selected.extend(releases)
@@ -116,7 +125,9 @@ APPCAST = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 REPO = "manaflow-ai/cmux"
 CMUX_NS = "{https://cmux.com/xml-namespaces/cmux}"
 SPARKLE_NS = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
-IOS_TITLE = re.compile(r"cmux-next-ios INTERNAL ([0-9a-f]{40})(?: \(submittable\))?$")
+IOS_SNAPSHOT_WORKFLOW = ".github/workflows/ios-publication-snapshot.yml"
+IOS_SNAPSHOT_BRANCH = "rc/cnx-ios-builder"
+IOS_SNAPSHOT_REF = f"{REPO}/{IOS_SNAPSHOT_WORKFLOW}@refs/heads/{IOS_SNAPSHOT_BRANCH}"
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -129,7 +140,7 @@ class PublicationReader:
     def __init__(self, token=None):
         self.token = token
 
-    def read(self, url, authenticated=False):
+    def read_bytes(self, url, authenticated=False):
         if not url.startswith("https://"):
             raise ValueError("publication receipt URL must use HTTPS")
         headers = {"User-Agent": "phone-compatibility-window/1"}
@@ -145,13 +156,16 @@ class PublicationReader:
             with opener.open(request, timeout=30) as response:
                 data = response.read(10_000_001)
         except urllib.error.HTTPError as error:
-            if error.code == 302 and authenticated and url.endswith("/logs"):
-                # Signed log URLs are fetched without the GitHub bearer token.
-                return self.read(error.headers["Location"])
+            if error.code == 302 and authenticated and url.endswith("/zip"):
+                # Signed artifact URLs are fetched without the GitHub bearer token.
+                return self.read_bytes(error.headers["Location"])
             raise
         if len(data) > 10_000_000:
             raise ValueError("publication response exceeds 10 MB bound")
-        return data.decode("utf-8")
+        return data
+
+    def read(self, url, authenticated=False):
+        return self.read_bytes(url, authenticated).decode("utf-8")
 
     def api(self, path, **query):
         url = f"https://api.github.com/repos/{REPO}/{path}"
@@ -159,9 +173,9 @@ class PublicationReader:
             url += "?" + urllib.parse.urlencode(query)
         return json.loads(self.read(url, authenticated=True))
 
-    def log(self, job_id):
-        return self.read(f"https://api.github.com/repos/{REPO}/actions/jobs/{job_id}/logs",
-                         authenticated=True)
+    def artifact(self, artifact_id):
+        return self.read_bytes(f"https://api.github.com/repos/{REPO}/actions/artifacts/{artifact_id}/zip",
+                               authenticated=True)
 
 
 def receipt(platform, sha, release_id, published_at, url):
@@ -188,131 +202,109 @@ def appcast_receipts(text):
     return releases, previous
 
 
-def ios_receipt(run, job, log):
-    title = IOS_TITLE.fullmatch(run.get("display_title", ""))
-    builds = re.findall(r"==> wait for App Store Connect to process ([0-9]+)", log)
-    processed = re.findall(r"- Uploaded to cmux INTERNAL at ([0-9TZ:.-]+); processed\.", log)
-    if not title or len(set(builds)) != 1 or not processed:
-        raise ValueError(f"iOS run {run['id']}: no processed TestFlight build receipt")
-    result = receipt("ios", title[1], builds[0], processed[-1],
-                     f"https://github.com/{REPO}/actions/runs/{run['id']}/job/{job['id']}")
-    if run.get("run_attempt"):
-        result["evidence"]["run_attempt"] = run["run_attempt"]
-    return result
+def mac_publication_window(text, count):
+    """History is committed atomically with the live feed, never inferred from runs."""
+    root = ET.fromstring(text)
+    histories = root.findall("./channel/" + CMUX_NS + "publicationHistory")
+    if len(histories) != 1 or histories[0].get("schemaVersion") != "1":
+        raise ValueError("NIGHTLY feed needs publisher-owned publication history")
+    nodes = list(histories[0])
+    if not count <= len(nodes) <= 3:
+        raise ValueError(f"NIGHTLY publication history needs {count} releases (maximum 3)")
+    releases = []
+    for node in nodes:
+        if node.tag != CMUX_NS + "publication":
+            raise ValueError("unknown NIGHTLY publication history record")
+        releases.append(receipt(
+            "mac", node.get("sourceCommit"), node.get("build"),
+            parsedate_to_datetime(node.get("pubDate", "")).isoformat(), node.get("enclosure"),
+        ))
+    validate_registry({"schema_version": 1, "releases": releases})
+    live, _ = appcast_receipts(text)
+    if live[0]["release_id"] != releases[0]["release_id"]:
+        raise ValueError("NIGHTLY history does not start at the live publication")
+    indexed = {r["release_id"]: r for r in releases}
+    for item in live:
+        prior = indexed.get(item["release_id"])
+        if prior is None or prior["sha"] != item["sha"]:
+            raise ValueError("NIGHTLY history conflicts with the live feed")
+    return [dict(entry, window_order=index) for index, entry in enumerate(releases[:count])]
 
 
-def mac_receipt(run, job, log, expected_sha):
-    sources = re.findall(r"(?m)^.*?Z source_sha=([0-9a-f]{40})\s*$", log)
-    builds = re.findall(r"the live feed's newest build is ([0-9]+), the build this run published", log)
-    published = re.search(
-        r"(?m)^([0-9TZ:.-]+) the live feed's newest build is ([0-9]+), the build this run published",
-        log,
-    )
-    if not sources or sources[-1] != expected_sha or not builds or not published:
-        raise ValueError(f"Mac run {run['id']}: no matching live-feed publication receipt")
-    return receipt("mac", expected_sha, builds[-1], published[1],
-                   f"https://github.com/{REPO}/actions/runs/{run['id']}/job/{job['id']}")
+def ios_publication_window(snapshot, count):
+    """Validate the fresh ASC available-build window without inventing publication times."""
+    if snapshot.get("schema_version") != 1 or snapshot.get("status") != "complete":
+        raise ValueError("iOS publication snapshot is not complete")
+    timestamp(snapshot.get("generated_at"))
+    releases = snapshot.get("releases")
+    if not isinstance(releases, list) or not count <= len(releases) <= 3:
+        raise ValueError(f"iOS publication snapshot needs {count} available releases (maximum 3)")
+    validate_registry({"schema_version": 1, "releases": releases})
+    dates = []
+    for entry in releases:
+        if entry["platform"] != "ios" or entry["evidence"]["kind"] != "testflight-available":
+            raise ValueError("iOS snapshot needs authoritative available-build receipts")
+        dates.append(timestamp(entry["uploaded_at"]))
+    if dates != sorted(dates, reverse=True):
+        raise ValueError("iOS snapshot must retain App Store Connect uploadedDate order")
+    return [dict(entry, window_order=index) for index, entry in enumerate(releases[:count])]
 
 
-def successful_step(job, name):
-    return job.get("conclusion") == "success" and any(
-        step.get("name") == name and step.get("conclusion") == "success"
-        for step in job.get("steps", [])
-    )
+def trusted_ios_snapshot(reader, *, producer_run, producer_sha, request_id, head_sha):
+    """Authenticate immutable artifact provenance before trusting any JSON claims."""
+    if not str(producer_run).isdigit() or not SHA.fullmatch(producer_sha) or not SHA.fullmatch(head_sha):
+        raise ValueError("snapshot needs exact producer run, workflow SHA and request head")
+    if not re.fullmatch(r"[0-9]+:[0-9]+", request_id):
+        raise ValueError("snapshot request must be gate run-id:attempt")
+    run = reader.api(f"actions/runs/{producer_run}")
+    if (str(run.get("id")) != str(producer_run) or run.get("event") != "workflow_dispatch"
+            or run.get("path") != IOS_SNAPSHOT_WORKFLOW or run.get("head_branch") != IOS_SNAPSHOT_BRANCH
+            or run.get("head_sha") != producer_sha or run.get("conclusion") != "success"
+            or run.get("status") != "completed" or run.get("repository", {}).get("full_name") != REPO):
+        raise ValueError("snapshot producer is not the successful exact protected workflow")
+    response = reader.api(f"actions/runs/{producer_run}/artifacts", per_page=100)
+    artifacts = response.get("artifacts", [])
+    if response.get("total_count") != len(artifacts) or len(artifacts) > 100:
+        raise ValueError("snapshot artifact list exceeds its bound")
+    name = "ios-publication-snapshot-" + request_id.replace(":", "-")
+    matches = [a for a in artifacts if a.get("name") == name]
+    if len(matches) != 1 or matches[0].get("expired") is not False:
+        raise ValueError("snapshot needs one unexpired request-bound artifact")
+    artifact = matches[0]
+    if not isinstance(artifact.get("size_in_bytes"), int) or not 0 < artifact["size_in_bytes"] <= 1_000_000:
+        raise ValueError("snapshot artifact exceeds its size bound")
+    archive = reader.artifact(artifact["id"])
+    if len(archive) > 1_000_000:
+        raise ValueError("snapshot archive exceeds its size bound")
+    with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+        members = zipped.infolist()
+        if len(members) != 1 or members[0].filename != "ios-publication.json" or members[0].file_size > 100_000:
+            raise ValueError("snapshot archive has unexpected contents")
+        snapshot = json.loads(zipped.read(members[0]))
+    expected = {"repository": REPO, "head_sha": head_sha, "request_id": request_id}
+    producer = snapshot.get("producer", {})
+    if (snapshot.get("request") != expected or str(producer.get("run_id")) != str(producer_run)
+            or str(producer.get("run_attempt")) != str(run.get("run_attempt"))
+            or producer.get("workflow_sha") != producer_sha or producer.get("workflow_ref") != IOS_SNAPSHOT_REF):
+        raise ValueError("snapshot is not bound to this request and authenticated producer")
+    if snapshot.get("app_id") != "6791408425" or snapshot.get("order") != "uploadedDate-desc":
+        raise ValueError("snapshot must describe the INTERNAL available-build order")
+    return snapshot
 
 
-def refresh(registry, reader, count=3):
-    """Refresh releases; existing receipts save log/API reads, never mask failures.
+def refresh(registry, reader, count=3, *, producer_run, producer_sha, request_id, head_sha):
+    """Bounded authority reads; cache/run samples never prove shipped ordering.
 
-    The appcast's oldest sinceCommit identifies its predecessor, which still
-    needs a publication receipt. At most 20 iOS runs and 20 historical Mac runs
-    are inspected. Exhaustion, unavailable logs and rate limits fail closed.
+    iOS is a fresh secret-free artifact from an exact protected ASC query. Mac
+    history shares the appcast publication CAS. No PR source receives ASC keys.
     """
     validate_registry(registry)
     if not 1 <= count <= 3:
         raise ValueError("live refresh supports a window of 1 to 3 releases")
-    mac, previous = appcast_receipts(reader.read(APPCAST))
-    mac.sort(key=lambda r: timestamp(r["published_at"]), reverse=True)
-    mac = mac[:count]
-    if len(mac) < count:
-        oldest = mac[-1]
-        predecessor = previous[oldest["release_id"]]
-        if not SHA.fullmatch(predecessor):
-            raise ValueError("NIGHTLY feed does not identify the preceding source")
-        history = sorted(
-            (r for r in registry["releases"]
-             if r["platform"] == "mac"
-             and timestamp(r["published_at"]) < timestamp(oldest["published_at"])),
-            key=lambda r: timestamp(r["published_at"]), reverse=True,
-        )
-        # A persisted window is a contiguous publication snapshot. It may fill
-        # a short feed only when its newest older source is the feed's named
-        # predecessor; unrelated/stale history must never fill the gap.
-        if history and history[0]["sha"] == predecessor:
-            mac.extend(history[:count - len(mac)])
-        if len(mac) < count:
-            # A one-item appcast needs two predecessors. Read one bounded run
-            # snapshot and use actual publication receipts, not run conclusions.
-            # Older runs may finish publishing out of order, so collect the
-            # bounded snapshot before sorting by publication time.
-            runs = reader.api(
-                "actions/workflows/nightly.yml/runs", branch="nightly-next",
-                status="completed", per_page=20,
-                created="<=" + timestamp(oldest["published_at"]).isoformat(),
-            )["workflow_runs"]
-            candidates = {r["release_id"]: r for r in mac
-                          if timestamp(r["published_at"]) < timestamp(oldest["published_at"])}
-            for run in runs[:20]:
-                jobs = reader.api(f"actions/runs/{run['id']}/jobs", per_page=100)["jobs"]
-                job = next((j for j in jobs if j["name"] == "published-build" and
-                            successful_step(j, "Read the published build back from the live feed")), None)
-                if not job:
-                    continue
-                log = reader.log(job["id"])
-                sources = re.findall(r"(?m)^.*?Z source_sha=([0-9a-f]{40})\s*$", log)
-                if not sources:
-                    raise ValueError(f"Mac run {run['id']}: no published source receipt")
-                candidate = mac_receipt(run, job, log, sources[-1])
-                if timestamp(candidate["published_at"]) >= timestamp(oldest["published_at"]):
-                    continue
-                prior = candidates.get(candidate["release_id"])
-                if prior and prior["sha"] != candidate["sha"]:
-                    raise ValueError("historical release ID has conflicting source receipts")
-                candidates[candidate["release_id"]] = candidate
-            history = sorted(candidates.values(),
-                             key=lambda r: timestamp(r["published_at"]), reverse=True)
-            if not history or history[0]["sha"] != predecessor:
-                raise ValueError("NIGHTLY history does not confirm the feed's preceding source")
-            mac = [r for r in mac if timestamp(r["published_at"]) >= timestamp(oldest["published_at"])]
-            mac.extend(history[:count - len(mac)])
-
-    ios = []
-    runs = reader.api("actions/workflows/ios-internal-nightly.yml/runs",
-                      branch="rc/cnx-ios-builder", status="completed", per_page=20)["workflow_runs"]
-    for run in runs[:20]:
-        title = IOS_TITLE.fullmatch(run.get("display_title", ""))
-        if not title:
-            continue
-        prefix = f"https://github.com/{REPO}/actions/runs/{run['id']}/job/"
-        known = next((r for r in registry["releases"] if r["platform"] == "ios"
-                      and r["sha"] == title[1] and r["evidence"]["url"].startswith(prefix)
-                      and run.get("run_attempt") is not None
-                      and r["evidence"].get("run_attempt") == run["run_attempt"]), None)
-        if known:
-            ios.append(known)
-        else:
-            attempt = f"attempts/{run['run_attempt']}/" if run.get("run_attempt") else ""
-            jobs = reader.api(f"actions/runs/{run['id']}/{attempt}jobs", per_page=100)["jobs"]
-            job = next((j for j in jobs if j["name"] == "Sign, validate, upload to cmux INTERNAL"
-                        and successful_step(j, "Sign, validate, upload")), None)
-            if not job:
-                continue
-            ios.append(ios_receipt(run, job, reader.log(job["id"])))
-    # GitHub lists runs by creation time, while a rerun can publish much later.
-    # Inspect the whole bounded snapshot before selecting publication order.
-    ios.sort(key=lambda r: timestamp(r["published_at"]), reverse=True)
-    ios = ios[:count]
-    # Discard unselected old entries: stale seed records cannot fill a live gap.
+    mac = mac_publication_window(reader.read(APPCAST), count)
+    snapshot = trusted_ios_snapshot(reader, producer_run=producer_run, producer_sha=producer_sha,
+                                    request_id=request_id, head_sha=head_sha)
+    ios = ios_publication_window(snapshot, count)
     result = {"schema_version": 1, "releases": ios + mac}
     resolve(result, count)
     return result
@@ -329,6 +321,8 @@ def main(argv=None):
                 command.add_argument("--github-output", type=Path)
             else:
                 command.add_argument("--output", type=Path, required=True)
+                for option in ("producer-run", "producer-sha", "request-id", "head-sha"):
+                    command.add_argument("--" + option, required=True)
         else:
             command.add_argument("--receipt", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -338,7 +332,9 @@ def main(argv=None):
             result = record(registry, json.loads(args.receipt.read_text()))
             args.registry.write_text(json.dumps(result, indent=2) + "\n")
         elif args.command == "refresh":
-            result = refresh(registry, PublicationReader(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")), args.count)
+            result = refresh(registry, PublicationReader(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")), args.count,
+                             producer_run=args.producer_run, producer_sha=args.producer_sha,
+                             request_id=args.request_id, head_sha=args.head_sha)
             args.output.write_text(json.dumps(result, indent=2) + "\n")
         else:
             result = resolve(registry, args.count)
@@ -347,7 +343,7 @@ def main(argv=None):
                     output.write("matrix=" + json.dumps({"include": result["include"]}, separators=(",", ":")) + "\n")
                     output.write("fingerprint=" + result["fingerprint"] + "\n")
         print(json.dumps(result, sort_keys=True))
-    except (OSError, ValueError, TypeError, KeyError, ET.ParseError) as error:
+    except (OSError, ValueError, TypeError, KeyError, ET.ParseError, zipfile.BadZipFile) as error:
         parser.exit(1, f"shipped-window: {error}\n")
 
 
