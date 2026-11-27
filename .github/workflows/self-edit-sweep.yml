@@ -1,0 +1,57 @@
+name: self-edit sweep
+
+# A workflow sweep does not start a journey whose own .yml is the only path that reached it (scripts/ci/self_edit_sweep.py).
+# A heavy journey or lab lists its own workflow file in `on: pull_request: paths:`; a fleet-wide mechanical sweep that
+# edits dozens of workflow files (an actions/checkout repin, retention-days, runs-on pools) started every journey it
+# touched, 40 to 86 runner-minutes each, on every push: 1,121 of the gated journeys' 1,904 pull request job-minutes on
+# 2026-11-26 20:00-22:30Z. Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."
+#
+# Each gated workflow calls this as a job only on a pull request with at least 10 changed files and no `full-ci`
+# label, so a smaller pull request (a journey's own logic change) never starts it; its heavy jobs then run unless
+# this answers run=false. A failed or skipped call answers nothing, and the heavy jobs run.
+on:
+  workflow_call:
+    inputs:
+      workflow:
+        description: "The calling workflow's file, .github/workflows/X.yml"
+        type: string
+        required: true
+    outputs:
+      run:
+        description: "false: a sweep reaches the caller only through workflow files; anything else runs it"
+        value: ${{ jobs.decide.outputs.run }}
+
+permissions: {}
+
+jobs:
+  decide:
+    name: decide
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      # The merge commit and the base tip, as pr-router.yml's route job reads them: the changed paths come from the
+      # two trees; a same-repo runner reads the git mirror. Only the decider and the caller's workflow are checked out.
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
+          sparse-checkout: |
+            scripts/ci/self_edit_sweep.py
+            scripts/ci/workflow_paths_cover_inputs.py
+            scripts/ci/gh_expressions.py
+            ${{ inputs.workflow }}
+          sparse-checkout-cone-mode: false
+
+      - name: Decide
+        id: decide
+        env:
+          WORKFLOW: ${{ inputs.workflow }}
+          # 0 turns the rule off: every gated workflow runs on its path filter alone, as before.
+          CI_SELF_EDIT_SWEEP_SKIP: ${{ vars.CI_SELF_EDIT_SWEEP_SKIP || '1' }}
+        run: python3 -I scripts/ci/self_edit_sweep.py decide --workflow "$WORKFLOW"

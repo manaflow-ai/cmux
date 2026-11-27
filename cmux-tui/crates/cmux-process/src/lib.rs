@@ -47,7 +47,8 @@
 //!
 //! [`Command::spawn_owned`] starts a child that dies with this process
 //! (even by SIGKILL) and with its handle, its descendants too; a
-//! [`ChildGroup`] gives the same to a `std` or `tokio` command.
+//! [`ChildGroup`] gives the same to a `std` or `tokio` command, and a
+//! [`GroupTether`] to a child that leads a group of its own.
 
 mod child;
 mod command;
@@ -62,6 +63,6 @@ pub use child::{Child, DROP_GRACE};
 pub use command::Command;
 #[cfg(unix)]
 pub use exec::exec_replace;
-pub use group::{ChildGroup, GRACE, OwnedChild};
+pub use group::{ChildGroup, GRACE, GroupTether, OwnedChild};
 pub use std::process::{ExitStatus, Output};
 pub use stdio::Stdio;

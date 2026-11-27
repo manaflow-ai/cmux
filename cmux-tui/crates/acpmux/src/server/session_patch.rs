@@ -48,9 +48,28 @@ pub const CAPABILITY_V2: &str = "session-changed-delta-v2";
 /// What a client that also reads version 2 sends as `sessionChangedDelta`.
 pub const VERSION: u64 = 2;
 
-/// The chats whose last row one connection keeps the shape of; past it, one is let go and its
-/// next change goes out whole.
+/// The chats whose last row a peer daemon's link keeps the shape of; past it, the one sent
+/// longest ago is let go and its next change goes out whole. A link holds as many
+/// (`peer_row_patch.rs`), so the two sides let the same rows go.
 pub(crate) const MAX_ROWS: usize = 256;
+
+/// The same bound for a connection on this machine (the app's agent pane, the phone host, a
+/// script): it holds every row it hears, so this daemon keeps the shapes of up to this many.
+/// With 256 a watcher of a busy fleet never settled: one idle app's 370 chats that changed within two
+/// minutes let a row go on almost every change, and the row it let went out whole on its next
+/// change, so an idle app's two pane sockets took about 53 KB/s each of `session_changed`
+/// (2026-11-27, `wsbucket.py`: 254 whole rows and 309 patches in 30 s). A shape is a few KB of
+/// hashes (`Shape`), so 4096 rows cost a connection on the order of 10 MB, bounded.
+pub(crate) const LOCAL_MAX_ROWS: usize = 4096;
+
+/// The bound for a connection that reads text raw (this machine's) or masked (a peer's link).
+pub(crate) fn bound(raw_text: bool) -> usize {
+    if raw_text { LOCAL_MAX_ROWS } else { MAX_ROWS }
+}
+
+/// The row field a change row leaves out when it has not changed (`views::CENSUS_LEAVES_OUT`,
+/// the time breakdown): left out, the reader keeps what it holds, so a patch never removes it.
+const KEPT_WHEN_LEFT_OUT: &str = crate::hub::views::CENSUS_LEAVES_OUT;
 
 /// A value as hashes: what a row was, without holding the row.
 #[derive(Debug)]
@@ -162,12 +181,17 @@ struct Sent {
     shape: Shape,
     /// The client asked for it whole (`resync`): the next change goes whole, numbered on.
     resend: bool,
+    /// When it was last sent, in [`SentRows::stamps`]: the row sent longest ago goes first.
+    used: u64,
 }
 
 /// Per connection: whether it asked for patches, and the shape of each chat's last row it heard.
 #[derive(Debug, Default)]
 pub(crate) struct SentRows {
     rows: HashMap<String, Sent>,
+    /// The most rows it keeps ([`bound`]); 0 is [`MAX_ROWS`].
+    bound: usize,
+    stamps: u64,
 }
 
 /// What one row change sends a connection.
@@ -179,27 +203,65 @@ pub(crate) enum Change {
 }
 
 impl SentRows {
+    /// Keeps up to `bound` chats' rows ([`bound`]).
+    pub(crate) fn bounded(bound: usize) -> Self {
+        Self { bound, ..Self::default() }
+    }
+
+    fn limit(&self) -> usize {
+        if self.bound == 0 { MAX_ROWS } else { self.bound }
+    }
+
     /// The change of `session`'s row to `row` (`full`: the row with its tools), and what this
     /// connection holds of it from now on.
     pub(crate) fn change(&mut self, session: &str, full: bool, row: &Value) -> Change {
         let shape = shape_of(row);
+        self.stamps += 1;
+        let used = self.stamps;
         if let Some(sent) = self.rows.get_mut(session)
             && sent.full == full
             && !sent.resend
         {
+            // A change row that does not owe its time breakdown leaves it out, and its reader
+            // keeps the one it holds (`time_breakdown::State::row_snapshot`,
+            // `PeerRow::keeping_time_breakdown`). Diffed as a removal, it went out as
+            // `"timeBreakdown": null` and the next turn's chart, held nowhere here, went out
+            // whole: up to 512 spans, about 47 KB, every turn of a running chat, 80% of what a
+            // peer's link carried under load (transport pair matrix, duress, 2026-11-25). The
+            // held chart stays held, so the next one splices onto it.
+            let mut shape = shape;
+            if let (Shape::Object(held), Shape::Object(now)) = (&mut sent.shape, &mut shape)
+                && !now.contains_key(KEPT_WHEN_LEFT_OUT)
+                && let Some(chart) = held.remove(KEPT_WHEN_LEFT_OUT)
+            {
+                let patch = diff(&sent.shape, row);
+                now.insert(KEPT_WHEN_LEFT_OUT.to_owned(), chart);
+                sent.row_seq += 1;
+                sent.shape = shape;
+                sent.used = used;
+                return Change::Patch {
+                    patch: patch.unwrap_or_else(|| json!({})),
+                    row_seq: sent.row_seq,
+                };
+            }
             let patch = diff(&sent.shape, row).unwrap_or_else(|| json!({}));
             sent.row_seq += 1;
             sent.shape = shape;
+            sent.used = used;
             return Change::Patch { patch, row_seq: sent.row_seq };
         }
         let row_seq = self.rows.get(session).map_or(1, |sent| sent.row_seq + 1);
-        if self.rows.len() >= MAX_ROWS
+        // The row sent longest ago goes, never any row: a HashMap's first key let go a row that
+        // was just sent as often as an idle one, so a watcher past the bound kept hearing busy
+        // chats whole. A scan, only when a chat past the bound is first heard.
+        if self.rows.len() >= self.limit()
             && !self.rows.contains_key(session)
-            && let Some(gone) = self.rows.keys().next().cloned()
+            && let Some(gone) =
+                self.rows.iter().min_by_key(|(_, sent)| sent.used).map(|(k, _)| k.clone())
         {
             self.rows.remove(&gone);
         }
-        self.rows.insert(session.to_owned(), Sent { full, row_seq, shape, resend: false });
+        self.rows.insert(session.to_owned(), Sent { full, row_seq, shape, resend: false, used });
         Change::Whole { row_seq }
     }
 
@@ -338,143 +400,5 @@ pub(crate) fn apply(target: &mut Value, patch: &Value) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn apply(target: &mut Value, patch: &Value) {
-        assert!(super::apply(target, patch), "{patch} applies to {target}");
-    }
-
-    fn roundtrip(old: Value, new: Value) -> Value {
-        let mut rows = SentRows::default();
-        assert!(matches!(rows.change("s", true, &old), Change::Whole { row_seq: 1 }));
-        let Change::Patch { patch, row_seq } = rows.change("s", true, &new) else {
-            panic!("a second row of the same kind is a patch")
-        };
-        assert_eq!(row_seq, 2);
-        let mut held = old;
-        apply(&mut held, &patch);
-        assert_eq!(strip_nulls(held), strip_nulls(new), "patch {patch}");
-        patch
-    }
-
-    /// Absent and null are the same row.
-    fn strip_nulls(v: Value) -> Value {
-        match v {
-            Value::Object(o) => Value::Object(
-                o.into_iter()
-                    .filter(|(_, v)| !v.is_null())
-                    .map(|(k, v)| (k, strip_nulls(v)))
-                    .collect(),
-            ),
-            Value::Array(a) => Value::Array(a.into_iter().map(strip_nulls).collect()),
-            v => v,
-        }
-    }
-
-    fn spans(range: std::ops::Range<u64>, open_end: u64) -> Vec<Value> {
-        range
-            .map(|i| json!({"turnSeq": i, "turnId": format!("t{i}"), "category": "model", "startAt": i * 10, "endAt": if i == open_end { i * 10 + 7 } else { i * 10 + 5 }}))
-            .collect()
-    }
-
-    #[test]
-    fn a_patch_takes_the_held_row_to_the_new_one() {
-        roundtrip(json!({"a": 1, "b": {"c": "x", "d": [1, 2]}}), json!({"a": 2, "b": {"c": "x"}}));
-        roundtrip(json!({"a": null}), json!({"a": {"b": null, "c": 1}}));
-        roundtrip(json!({"a": [1, 2, 3]}), json!({"a": "now a string"}));
-        roundtrip(json!({"a": "x"}), json!({"a": ["x", {"y": null}]}));
-        roundtrip(json!({"a": [1, 2, 3, 4, 5]}), json!({"a": [5, 4, 3]}));
-        roundtrip(json!({"a": 1}), json!({}));
-        let same = roundtrip(json!({"a": 1, "b": null}), json!({"a": 1}));
-        assert_eq!(same, json!({}));
-    }
-
-    /// The breakdown's spans as a running turn moves them: the open span's end moves, and a full
-    /// window drops its oldest when a new one starts. Only the moved items go out.
-    #[test]
-    fn spans_go_out_as_a_splice() {
-        let old = json!({"timeBreakdown": {"totalMs": 1, "spans": spans(0..512, 511)}});
-        let mut grown = spans(0..512, 999);
-        grown[511]["endAt"] = json!(511 * 10 + 9);
-        let new = json!({"timeBreakdown": {"totalMs": 2, "spans": grown}});
-        let patch = roundtrip(old.clone(), new);
-        assert_eq!(patch["timeBreakdown"]["spans"]["$splice"][1], 511, "{patch}");
-        assert!(patch.to_string().len() < 300, "{patch}");
-
-        let slid = json!({"timeBreakdown": {"totalMs": 2, "spans": spans(1..513, 512)}});
-        let patch = roundtrip(old, slid);
-        assert_eq!(patch["timeBreakdown"]["spans"]["$splice"][0], 1, "{patch}");
-        assert!(patch.to_string().len() < 400, "{patch}");
-    }
-
-    #[test]
-    fn a_new_kind_of_row_or_a_forgotten_one_goes_out_whole() {
-        let mut rows = SentRows::default();
-        assert!(matches!(rows.change("s", false, &json!({"a": 1})), Change::Whole { row_seq: 1 }));
-        assert!(matches!(rows.change("s", true, &json!({"a": 1})), Change::Whole { row_seq: 2 }));
-        assert!(matches!(
-            rows.change("s", true, &json!({"a": 2})),
-            Change::Patch { row_seq: 3, .. }
-        ));
-        // A resync: whole, numbered on; patches after it.
-        rows.resend("s");
-        assert!(matches!(rows.change("s", true, &json!({"a": 2})), Change::Whole { row_seq: 4 }));
-        assert!(matches!(
-            rows.change("s", true, &json!({"a": 3})),
-            Change::Patch { row_seq: 5, .. }
-        ));
-        rows.forget("s");
-        assert!(matches!(rows.change("s", true, &json!({"a": 2})), Change::Whole { row_seq: 1 }));
-        for i in 0..MAX_ROWS + 10 {
-            rows.change(&format!("c{i}"), true, &json!({}));
-        }
-        assert!(rows.rows.len() <= MAX_ROWS);
-    }
-    /// A client asks with `true` (version 1) or a version; a daemon before version 2 took only
-    /// `true`, so a link's `2` reads there as not asking.
-    #[test]
-    fn a_client_asks_with_true_or_a_version() {
-        assert!(allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": true}}})));
-        assert!(allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": VERSION}}})));
-        assert!(!allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": false}}})));
-        assert!(!allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": 0}}})));
-        assert!(!allowed(&json!({})));
-    }
-
-    /// A splice that does not fit the held array is refused, not a panic: the client reads the
-    /// row whole instead.
-    #[test]
-    fn a_patch_that_does_not_fit_is_refused() {
-        let mut held = json!({"a": [1, 2]});
-        assert!(!super::apply(&mut held, &json!({"a": {"$splice": [1, 5, []]}})));
-        let mut held = json!({"a": 1});
-        assert!(!super::apply(&mut held, &json!({"a": {"$splice": [0, 0, []]}})));
-        let mut held = json!({"a": [1]});
-        assert!(!super::apply(&mut held, &json!({"a": {"$splice": ["x", 0, []]}})));
-    }
-
-    /// A peer reads rows masked: the patches between two masked rows take the masked old row to
-    /// the masked new one, and never carry the secret the raw row has.
-    #[test]
-    fn a_masked_rows_patch_takes_the_masked_row_on_and_carries_no_secret() {
-        let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
-        let row = |title: &str, prompt: &str| {
-            json!({"sessionId": "s", "harness": "claude", "lastSeq": 1, "title": title,
-                   "lastPrompt": prompt, "status": "running"})
-        };
-        let old = row("plain", "hello");
-        let new = row(&format!("fix {token}"), &format!("use {token} now"));
-        let masked = |v: &Value| crate::server::peer_text::masked_row(v).unwrap_or(v.clone());
-        let mut rows = SentRows::default();
-        assert!(matches!(rows.change("s", true, &masked(&old)), Change::Whole { row_seq: 1 }));
-        let Change::Patch { patch, .. } = rows.change("s", true, &masked(&new)) else {
-            panic!("a patch")
-        };
-        assert!(!patch.to_string().contains(&token), "{patch}");
-        let mut held = masked(&old);
-        apply(&mut held, &patch);
-        assert_eq!(held, masked(&new));
-        assert_ne!(held["title"], new["title"], "the title is masked");
-    }
-}
+#[path = "session_patch_tests.rs"]
+mod tests;

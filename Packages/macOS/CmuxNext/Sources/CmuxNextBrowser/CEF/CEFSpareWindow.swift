@@ -161,6 +161,8 @@ final class CEFSpareWindow {
         let blank = CEFTab(id: .random(), profile: profile, host: spare, runtime: runtime)
         spare.placeholder = blank
         spare.freezesPlaceholder = true
+        // The cmux pages' window: the next page takes the placeholder's browser (`CEFPaneHost.adoptPlaceholder`).
+        spare.adoptablePlaceholder = offTheRecord
         spare.add(blank)
         spare.ensureCreated(blank)
         guard spare.isLive || spare.isCreatingWindow else {
@@ -491,10 +493,15 @@ extension CEFPaneHost {
             if let browser = tab.browserID { self.lastActivated = browser }
             self.removed(blank)
             blank.close()
-            for parked in self.runtime.spareWindowServing(self.key)?.takeParked() ?? []
-            where self.runtime.tabsByBrowser[parked.browser] == nil && !self.runtime.orphans.ledger.isClosed(parked.browser) {
-                self.adoptChromiumTab(browser: parked.browser, disposition: parked.disposition, bounds: parked.bounds)
-            }
+            self.adoptParkedTabs()
+        }
+    }
+
+    /// Tabs Chromium put into the spare's window before it was taken (`CEFSpareWindow.park`) join this pane.
+    func adoptParkedTabs() {
+        for parked in runtime.spareWindowServing(key)?.takeParked() ?? []
+        where runtime.tabsByBrowser[parked.browser] == nil && !runtime.orphans.ledger.isClosed(parked.browser) {
+            adoptChromiumTab(browser: parked.browser, disposition: parked.disposition, bounds: parked.bounds)
         }
     }
 }

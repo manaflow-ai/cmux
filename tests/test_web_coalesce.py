@@ -683,27 +683,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("web-lint", self.lint["jobs"])
         self.assertEqual(self.lint["concurrency"]["group"], "cmux-next-web-lint-${{ github.sha }}")
         self.assertNotIn("web-lint", self.web["jobs"])
-        self.assertNotIn("needs", self.lint["jobs"]["web-lint"])
+        # #53869 (Leo, 11-24): push runs coalesce to one per 30-minute window, so web-lint needs `coalesce` only.
+        self.assertEqual(self.lint["jobs"]["web-lint"].get("needs"), "coalesce")
 
     def test_every_push_typechecks_the_whole_webviews_tree(self):
         # cmux#49052 (2026-11-22): a rename elsewhere broke webviews' types, and the range lint skips webviews on a
         # push that did not change it. Leo: "Every push to main gets a webview type check, so a break shows up on the
-        # status board within minutes." One job per push (no needs, no path routing, no step condition), whose name
-        # base-red-watch keys its push reds by and does not ignore.
-        on = self.lint.get("on", self.lint.get(True))
-        self.assertNotIn("paths", on["push"])
-        self.assertNotIn("paths-ignore", on["push"])
-        self.assertIs(self.lint["concurrency"]["cancel-in-progress"], False)
-        job = self.lint["jobs"]["webviews-typecheck"]
-        self.assertEqual(job["name"], "webviews typecheck (whole tree)")
-        self.assertNotIn("needs", job)
-        self.assertNotIn("if", job)
-        self.assertLessEqual(job["timeout-minutes"], 10)
-        for step in job["steps"]:
-            self.assertNotIn("if", step, step.get("name"))
-            self.assertNotIn("continue-on-error", step, step.get("name"))
-        check = next(s for s in job["steps"] if s.get("name") == "Typecheck webviews")
-        self.assertEqual((check["working-directory"], check["run"].strip()), ("webviews", "bun run typecheck"))
+        # status board within minutes." #54107 (CI v2 step 5) moved the whole-tree check out of
+        # cmux-next-web-lint.yml into the step table's `webviews-typecheck`, which runs on the merge commit.
+        self.assertNotIn("webviews-typecheck", self.lint["jobs"])
+        import tomllib  # noqa: PLC0415
+        step = tomllib.loads((ROOT / "ci/steps.toml").read_text())["step"]["webviews-typecheck"]
+        self.assertEqual(step["title"], "Webviews typecheck (whole tree)")
+        self.assertNotEqual(step.get("blocks"), False)
+        self.assertIn("webviews/**", step["inputs"])
+        self.assertIn("cd webviews", step["run"])
+        self.assertIn("bun run typecheck", step["run"])
         scripts = json.loads((ROOT / "webviews/package.json").read_text())["scripts"]
         self.assertIn("vp check", scripts["typecheck"])
 
@@ -733,7 +728,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard"])
         self.assertTrue(base["if"].startswith("${{ github.event_name == 'pull_request'"))
         self.assertTrue(ci_web["jobs"]["react-apps-base-early"]["if"].startswith(
-            "${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')"))
+            "${{ github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))"))
 
 
 if __name__ == "__main__":

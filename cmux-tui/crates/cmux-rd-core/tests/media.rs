@@ -24,6 +24,7 @@ fn body(frame: u32, len: usize, keyframe: bool) -> FrameBody {
     FrameBody {
         t_capture_us: u64::from(frame) * 16_667,
         ref_frame: if keyframe { REF_NONE } else { frame - 1 },
+        ltr_token: None,
         access_unit: (0..len).map(|i| (i as u32 ^ frame) as u8).collect(),
     }
 }
@@ -180,7 +181,8 @@ fn recovery_frame_referencing_the_last_released_frame_is_released() {
     };
     assert_eq!(send(&mut r, &mut p, 1, body(1, 100, true), flags::KEYFRAME, 0, false).len(), 1);
     assert!(send(&mut r, &mut p, 2, body(2, 100, false), 0, 1, true).is_empty());
-    let recovery = FrameBody { t_capture_us: 3, ref_frame: 1, access_unit: vec![1, 2, 3] };
+    let recovery =
+        FrameBody { t_capture_us: 3, ref_frame: 1, ltr_token: None, access_unit: vec![1, 2, 3] };
     let released = send(&mut r, &mut p, 3, recovery, flags::RECOVERY, 20_000, false);
     assert_eq!(released.iter().map(|f| f.frame).collect::<Vec<_>>(), vec![3]);
 }
@@ -366,6 +368,7 @@ fn tile_frames_are_standalone_and_keep_their_video_reference() {
         let b = FrameBody {
             t_capture_us: now,
             ref_frame: video_frame,
+            ltr_token: None,
             access_unit: vec![frame as u8; len],
         };
         let out = p.packetize(frame, flags::TILE, &b, 1).expect("packetize");

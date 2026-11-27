@@ -57,7 +57,8 @@ impl Manifest {
             check_path(path)?;
             let mut chunks = Vec::new();
             for (at, len) in cdc::chunks(bytes) {
-                let piece = &bytes[at..at + len];
+                let end = at.checked_add(len).ok_or("chunk offset overflow")?;
+                let piece = bytes.get(at..end).ok_or("chunk outside file")?;
                 let id = Id::of(piece);
                 if seen.insert(id) {
                     chunk(id, piece)?;
@@ -127,7 +128,7 @@ impl Manifest {
 }
 
 /// Refuse a path that could leave the tree.
-fn check_path(path: &str) -> Result<()> {
+pub(crate) fn check_path(path: &str) -> Result<()> {
     let bad = path.is_empty()
         || path.starts_with('/')
         || path.contains('\\')

@@ -150,10 +150,35 @@ pub(crate) fn run_host_parser(
         let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
         replies.send(responses, |bytes| write_to_pty(&parser_host.writer, bytes));
     };
-    while let Ok(command) = parser_command_receiver.recv() {
+    let mut qos = cmux_interactivity::Follower::new();
+    // A command taken off the queue while coalescing Output that was not
+    // Output: it runs next, in its place in the order.
+    let mut carried: Option<ParserCommand> = None;
+    // Output frames joined into one parse (reused across chunks).
+    let mut joined: Vec<u8> = Vec::new();
+    while let Some(command) = carried.take().or_else(|| parser_command_receiver.recv().ok()) {
+        if matches!(command, ParserCommand::Resize(_)) {
+            cmux_interactivity::note(cmux_interactivity::InteractionKind::Drag);
+        }
+        qos.follow(super::host_start::host_work_class());
         match command {
             ParserCommand::Output { frame, source_cursor, accounted_bytes } => {
-                let bytes = frame.payload.as_slice();
+                // A flood queues Output frames faster than one parse a frame
+                // takes them: the ones already queued join this one, so a
+                // backlog is one terminal lock, one metadata walk and one
+                // `vt_write` (its per-call cost is a third of a 16 KiB
+                // frame's parse) instead of one each. It never waits for a
+                // frame, so an echo goes out as before (goal
+                // terminal-throughput, G6).
+                let (source_cursor, accounted_bytes, bytes) = coalesce_queued_parser_output(
+                    &parser_command_receiver,
+                    &mut carried,
+                    &mut joined,
+                    &frame,
+                    source_cursor,
+                    accounted_bytes,
+                );
+                let bytes = bytes.unwrap_or(frame.payload.as_slice());
                 let title = {
                     let mut term = parser_host.term.lock().recover_poison();
                     // A legacy client joins only under this lock (its
@@ -305,4 +330,66 @@ pub(crate) fn run_host_parser(
             }
         }
     }
+}
+
+/// The most bytes [`coalesce_queued_parser_output`] joins into one parse:
+/// as the daemon mirror's `OUTPUT_COALESCE_BYTES`.
+pub(crate) const HOST_PARSER_COALESCE_BYTES: usize = 64 * 1024;
+
+/// [`HOST_PARSER_COALESCE_BYTES`], unless `CMUX_HOST_PARSER_COALESCE_BYTES`
+/// names another bound (0 parses one frame at a time, as before G6), so the
+/// stage bench compares both on one binary and one machine.
+fn host_parser_coalesce_bytes() -> usize {
+    static BYTES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *BYTES.get_or_init(|| {
+        std::env::var("CMUX_HOST_PARSER_COALESCE_BYTES")
+            .ok()
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(HOST_PARSER_COALESCE_BYTES)
+    })
+}
+
+/// Joins the Output commands already queued behind `frame` (up to
+/// [`HOST_PARSER_COALESCE_BYTES`]) into `joined`. Returns the last joined
+/// source cursor, the accounted bytes of every joined command, and the joined
+/// bytes (`None` when nothing joined: parse `frame` itself, no copy). The
+/// first command that is not Output, or would pass the bound, goes to
+/// `carried` and runs next. It never waits.
+fn coalesce_queued_parser_output<'a>(
+    receiver: &Receiver<ParserCommand>,
+    carried: &mut Option<ParserCommand>,
+    joined: &'a mut Vec<u8>,
+    frame: &Frame,
+    mut source_cursor: u64,
+    mut accounted_bytes: usize,
+) -> (u64, usize, Option<&'a [u8]>) {
+    joined.clear();
+    let bound = host_parser_coalesce_bytes();
+    let mut total = frame.payload.len();
+    while total < bound
+        && let Ok(next) = receiver.try_recv()
+    {
+        match next {
+            ParserCommand::Output {
+                frame: more,
+                source_cursor: more_cursor,
+                accounted_bytes: more_accounted,
+            } if total.saturating_add(more.payload.len()) <= bound => {
+                if joined.is_empty() {
+                    joined.reserve(bound);
+                    joined.extend_from_slice(&frame.payload);
+                }
+                joined.extend_from_slice(&more.payload);
+                total = total.saturating_add(more.payload.len());
+                source_cursor = more_cursor;
+                accounted_bytes = accounted_bytes.saturating_add(more_accounted);
+            }
+            other => {
+                *carried = Some(other);
+                break;
+            }
+        }
+    }
+    let bytes = (!joined.is_empty()).then_some(joined.as_slice());
+    (source_cursor, accounted_bytes, bytes)
 }
