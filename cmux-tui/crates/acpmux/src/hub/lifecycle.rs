@@ -328,6 +328,9 @@ impl Hub {
             .filter(|_| profile.kind == crate::config::HarnessKind::ClaudeStdio)
             .filter(|e| crate::claude_stdio::takes_effort_at_spawn(e));
         meta.workspace_id = workspace_id;
+        // Its Sources, then the folders every new chat gets (`agents.additionalDirectories`).
+        let additional_directories =
+            super::additional_dirs::with_settings(additional_directories, remote);
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
         // Claude Code (stdio) takes it as a Stop hook, Codex (codex-acp) as its goal
@@ -727,7 +730,7 @@ impl Hub {
         }
         Err(super::subsession_guard::refusal(
             "start.starter_changing",
-            "session/new refused: the session that started this one kept changing its permissions while it started; start it again".into(),
+            "session/new refused: the session that started this one kept changing its permissions while it started, so this one did not start".into(),
             json!({"starter": starter}),
         ))
     }
