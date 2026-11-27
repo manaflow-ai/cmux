@@ -11,6 +11,7 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
+import { writeScrollTop } from "../conversation/scrollController";
 import { useCountedRender } from "../perfRender";
 import { useT, type StringKey } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
@@ -26,9 +27,9 @@ import {
   highlightBubble,
   MOTION_SCROLL_EVENT,
   reducedMotion,
-  scrollRunning,
   settleScroll,
   stopScroll,
+  scrollRunning,
 } from "./scrollMotion";
 import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
 import { wheelPixels } from "../wheelPassThrough";
@@ -48,6 +49,7 @@ import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import { tickRanges } from "./tickWindow";
+import { drawTicksAfterPaint } from "./ticksFrame";
 import { RailRows, tickRows, turnRows } from "./railRows";
 import { PromptHeads } from "../promptHeads";
 import { useThreadMinimapArm, setRailShow, useRailControl, useRailShow } from "../chatDisplay";
@@ -894,6 +896,7 @@ function ThreadMinimapView({
       event.preventDefault();
       event.stopPropagation();
       railBrowsing.current = { sessionId: live.current.sessionId };
+      // scroll-writer-ok: the prompt rail's own list, not the transcript.
       target.scrollTop += wheelPixels(event, target.clientHeight);
     };
     node.addEventListener("wheel", wheel, { capture: true, passive: false });
@@ -1193,7 +1196,7 @@ function ThreadMinimapView({
         );
       if (how === "scrub" || how === "click" || !row || reducedMotion()) {
         stopScroll(node);
-        node.scrollTop = to;
+        writeScrollTop(node, to, "minimap");
         if (how !== "scrub") settle();
       } else if (how === "step")
         animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
@@ -1360,6 +1363,7 @@ function ThreadMinimapView({
         const room = Math.max(0, turns.length * rowPitch - height);
         const next = Math.max(0, Math.min(room, scrolled + moved));
         if (next !== scrolled) {
+          // scroll-writer-ok: the prompt rail's own list, not the transcript.
           node.scrollTop = next;
           listOffset.current = next;
           moved -= next - scrolled;
@@ -1461,6 +1465,7 @@ function ThreadMinimapView({
     if (!overflow) {
       railBrowsing.current = undefined;
       if (listOffset.current === 0) return;
+      // scroll-writer-ok: the prompt rail's own list, not the transcript.
       node.scrollTop = 0;
       listOffset.current = 0;
       setListTop(0);
@@ -1496,6 +1501,9 @@ function ThreadMinimapView({
     }
     restTimer.cancel();
     const place = () => {
+      // A wheel over the rail between this commit and the frame is the person
+      // browsing it: their offset wins, as it did when the commit placed the list itself.
+      if (railBrowsing.current && railBrowsing.current.sessionId === sessionId) return;
       const current = listOffset.current;
       const next = railScrollTop(
         { first: onScreen.first, last: onScreen.last },
@@ -1505,6 +1513,7 @@ function ThreadMinimapView({
         rowPitch,
       );
       if (Math.abs(next - current) < 0.5) return;
+      // scroll-writer-ok: the prompt rail's own list, not the transcript.
       node.scrollTop = next;
       // railScrollTop keeps it inside the list's room, so the list takes it as it is.
       listOffset.current = next;
@@ -1653,9 +1662,19 @@ function ThreadMinimapView({
     [held.focused, held.hovered, reveal, showCard ? held.card : undefined, domFocused],
     rowPitch,
   );
-  const drawnKey = drawn.join(" ");
+  /// A chat's ticks draw after its first paint, not in the open's commit: that commit drew about 180
+  /// ticks with the transcript's newest message and the next about 200 more (bench/chat-open.bench.ts
+  /// PROFILE=1), so the open waited on the rail. Until the frame after a chat's first commit, the list
+  /// is one spacer as tall as every row, so the rail keeps its size and nothing moves when they come.
+  const [ticksFor, setTicksFor] = useState<{ sessionId?: string } | undefined>(undefined);
+  const ticksDrawn = ticksFor !== undefined && ticksFor.sessionId === sessionId;
+  useEffect(() => {
+    if (ticksDrawn) return;
+    return drawTicksAfterPaint(() => setTicksFor({ sessionId }));
+  }, [ticksDrawn, sessionId]);
+  const drawnKey = ticksDrawn ? `drawn ${drawn.join(" ")}` : "none";
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed on the ranges' contents, not the new array.
-  const ranges = useMemo(() => drawn, [drawnKey]);
+  const ranges = useMemo(() => (ticksDrawn ? drawn : NO_RANGES), [drawnKey]);
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose: it keeps the rows' keys as of this commit, and its setState calls run only when the ticks moved a row.
   useLayoutEffect(() => {
     // Reading the page's focus lays nothing out.
@@ -2127,8 +2146,18 @@ const TickList = memo(function TickList({
     const after = tail === undefined ? -1 : (ticks.keyIndex(tail) ?? -1);
     const pending = new Set(initial ? [] : entrance!.pending);
     if (!initial && (after >= 0 || entrance!.ticks.length === 0)) {
-      for (let index = Math.max(ticks.pendingCount, after + 1); index < ticks.length; index++)
-        pending.add(ticks.at(index)!.key);
+      // Only the newest prompts can still enter: past PENDING_ENTRANCES newer ones, a prompt no
+      // longer just arrived, so it draws in place.
+      const start = Math.max(ticks.pendingCount, after + 1, ticks.length - PENDING_ENTRANCES);
+      for (let index = start; index < ticks.length; index++) pending.add(ticks.at(index)!.key);
+    }
+    // A prompt that was never drawn (a hidden chat, a rail scrolled up while the chat grows) left
+    // its key here for good: the set grew with every prompt the chat gained, and was copied whole
+    // on each new one (Leo, 2026-11-14: "memory and cpu staying flat on infinite chats"). The
+    // oldest go first, so the set and its copy stay PENDING_ENTRANCES at most.
+    for (const key of pending) {
+      if (pending.size <= PENDING_ENTRANCES) break;
+      pending.delete(key);
     }
     entrance = { sessionId, ticks, pending };
   }
@@ -2195,6 +2224,9 @@ const TickList = memo(function TickList({
     );
   }
 });
+
+/// No rows drawn: a chat's list before its first paint (ThreadMinimapView `ticksDrawn`).
+const NO_RANGES: ReadonlyArray<readonly [number, number]> = [];
 
 /// The rows not drawn, as one block as tall as they are.
 function Spacer({ rows, pitch }: { rows: number; pitch: number }) {
@@ -2311,6 +2343,9 @@ const Tick = memo(function Tick({
 }, tickPropsEqual);
 
 const MOUNT_ONLY = new Set(["place", "entering"]);
+
+/// The most prompts that wait to enter on the rail at once (TickList `pending`): the newest ones.
+const PENDING_ENTRANCES = 64;
 
 /// A tick's props as `memo` compares them, but for `place` and `entering`, which only its mount reads.
 function tickPropsEqual(was: Readonly<Record<string, unknown>>, next: Readonly<Record<string, unknown>>): boolean {

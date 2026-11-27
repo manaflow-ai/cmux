@@ -52,16 +52,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           sparse-checkout-cone-mode: false
 
       # This short-lived read is used immediately to make the sticky issue's UTC history the daily marker.
