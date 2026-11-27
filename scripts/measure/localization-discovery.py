@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Measure Swift discovery work with growing excluded dependency trees.
 
-cmux-ci run -- python3 scripts/measure/localization-discovery.py --excluded 2000
+cmux-ci run --class exclusive --measurement --ref SHA \
+  --script scripts/measure/localization-discovery.py --arg=--excluded --arg=2000
 Registered: scripts/bench/cmux-bench localization-discovery --build local --host anywhere
 The baseline retains the old rglob/filter algorithm. Timings describe this fixture,
 not the full localization check; directory_reads is the deterministic work counter.
