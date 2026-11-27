@@ -115,9 +115,9 @@ extension CEFSparePageSuites {
             #expect(SpareSpy.log.isEmpty, "a loading placeholder is not frozen")
             runtime.handle(.loadingState(browser: placeholderBrowser, loading: false, canGoBack: false, canGoForward: false))
             #expect(stopped == 1, "the loading completion callback fires once")
-            #expect(SpareSpy.log == ["freeze \\(placeholderBrowser)"], "the settled event freezes it exactly once")
+            #expect(SpareSpy.log == ["freeze \(placeholderBrowser)"], "the settled event freezes it exactly once")
             runtime.handle(.loadingState(browser: placeholderBrowser, loading: false, canGoBack: false, canGoForward: false))
-            #expect(SpareSpy.log == ["freeze \\(page)"], "duplicate settled events do not refreeze")
+            #expect(SpareSpy.log == ["freeze \(placeholderBrowser)"], "duplicate settled events do not refreeze")
         }
 
         /// A tab that restores its history needs a browser with no committed entries of its own:
