@@ -126,6 +126,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `action-trace.sh` | Each user action's spans (launch, send to first token paint, chat switch, new chat) against its speed-of-light floor, from the daemon's Chrome trace (`CMUX_TRACE_FILE`): the trace JSON and one `ACTION-GAP name dur_us floor_us gap_us` line per span; `--burn=N` for duress. | Leo 2026-11-25, speed of light | 2026-11-25 | active |
 | `pane-compile-cef.sh` | Whether the agent pane's ES-module code cache is consumed on a reload in cmux NEXT's CEF, its compiles and FCP (`--build-at=SHA` per arm). | - | 2026-11-23 | active |
 | `pane-compile-cef-ab.sh` | Both arms of the pane-compile A/B (`--before=SHA --after=SHA`) built and measured in one step on one Mac, interleaved; `ab.json` holds each arm's medians. | - | 2026-11-26 | active |
+| `composer-typing-ab.sh` | Composer-typing bench (`composer-typing.bench.ts --arms`), PR head vs its base rebuilt from a reverse patch, interleaved on one `cmux-ci test` runner with a fix' noise floor. | cmux#59968 | 2026-11-27 | active |
 | `right-pane-open.sh` | Click to first content for every right-side open of a chat. | - | 2026-11-07 | active |
 | `fork-open.sh` | Fork Conversation to a usable fork, for every Fork To destination. | - | 2026-11-07 | active |
 | `close-flash.sh` | Close Window and close-key commit time in an active app. | - | 2026-11-01 | active |
@@ -370,6 +371,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `projection.sh` | Projection window of a published build: shows a change within 5 s. | hq#7149 L10 | 2026-11-05 | active |
 | `closed-kit-census.py` | Per webviews directory: the closed kit's doors left open (raw elements, `style`, `className` in product .tsx) and raw px, hex and rgb(a) literals, fewest doors first: which directory closes next. | RFD 0040 | 2026-11-24 | active |
 | `closed-kit-raw-values.sh` | Hand-set values that type-check in the first closed webviews directory (15 probes, `open` or `closed`), and `tsc -p tsconfig.closed.json` cold and incremental. The follow rate is `bun run gallery:perturb` in webviews. | RFD 0040 | 2026-11-23 | active |
+| `ci140-heads-per-pr` | Runner minutes per merged PR on cmux PR heads, from the timing feed: (a) heads that ran CI per merged PR, (b) minutes by PR state (merged, closed unmerged, draft, open), (c) minutes after a newer head was pushed and not cancelled, (d) minutes on same-tree, empty or wip heads. | goal ci-min-per-pr-140 | 2026-11-27 | active |
 
 No script is marked `duplicate of`: the A/B wrappers (`*-ab.sh`) and the `.py` drivers reuse their base script on purpose, and no other pair clearly measures the same thing the same way.
 
