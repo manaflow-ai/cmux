@@ -981,3 +981,28 @@ fn dev_build_own_classic_import_never_reads_the_persons_classic() {
         "the DEV build wrote a ledger beside the person's classic data"
     );
 }
+
+/// First-run findings, new row (clean macOS 26 VM, no classic cmux ever installed): cmux NEXT
+/// NIGHTLY's first launch asked "Import from classic cmux?". NIGHTLY shares classic nightly's
+/// bundle id, so the preferences file it had just written itself
+/// (`~/Library/Preferences/com.cmuxterm.app.nightly.plist`) read as classic settings. This app's
+/// own preferences file is never a sign of classic; another channel's still is.
+#[test]
+fn this_apps_own_preferences_file_is_not_classic_settings() {
+    let mux = Mux::new_for_test("classic-import-own-prefs", SurfaceOptions::default());
+    let home = home(false);
+    let mut places = home.places();
+    places.config_home = home.0.join("classic-xdg");
+    let prefs = home.0.join("Library/Preferences");
+    std::fs::create_dir_all(&prefs).unwrap();
+    let nightly = "com.cmuxterm.app.nightly";
+    std::fs::write(prefs.join(format!("{nightly}.plist")), b"bplist00").unwrap();
+
+    let probe = mux.classic_import_probe(Some(&places), nightly, Mode::Automatic).unwrap();
+    assert_eq!(probe["available"], false, "{probe}");
+    assert_eq!(probe["decision"]["reason"], "no_classic_session", "{probe}");
+
+    std::fs::write(prefs.join("com.cmuxterm.app.plist"), b"bplist00").unwrap();
+    let probe = mux.classic_import_probe(Some(&places), nightly, Mode::Automatic).unwrap();
+    assert_eq!(probe["available"], true, "classic stable's settings still count: {probe}");
+}
