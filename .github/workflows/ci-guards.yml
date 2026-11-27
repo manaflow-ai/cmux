@@ -1858,7 +1858,7 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_write_token_jit_label.py
 
-      - name: Validate secret-bearing jobs lead with the secret JIT label
+      - name: Validate secret-bearing jobs lead with a JIT label
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_secret_jobs_secret_jit.py
 

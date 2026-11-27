@@ -2475,6 +2475,10 @@ path = "tests/test_ci_write_token_jit_label.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_secret_jobs_secret_jit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_language_boundaries_spends_no_rest.py"
 lane = "linux-guard"
 

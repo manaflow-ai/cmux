@@ -719,9 +719,10 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
 
     assert "SDK_RELEASE_APP_PRIVATE_KEY" not in revalidate_tags
     assert "actions/create-github-app-token@" not in revalidate_tags
-    # It holds the release App key: it names the secret one-job JIT label as a literal, so no variable can move it
-    # (tests/test_ci_secret_jobs_secret_jit.py).
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}" in cut_tags
+    # It holds the release App key: LINUX_RUNNER moves it only among the Blacksmith Linux sizes
+    # the expression names (test_ci_fork_runner_routing.py).
+    # It leads with the secret one-job JIT label (tests/test_ci_secret_jobs_secret_jit.py).
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
     assert "actions/checkout@" not in cut_tags
     assert "actions/download-artifact@" not in cut_tags
     assert "actions/setup-node@" not in cut_tags
