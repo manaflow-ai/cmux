@@ -115,6 +115,46 @@ public struct CloudCLICall: Sendable {
         return answer.ok ? nil : (answer.error?.code ?? answer.error?.kind ?? "transport", answer.error?.message ?? "")
     }
 
+    /// One Artifacts page read (`path`: `/v1/artifacts/tree`, `history` or `file`, and its `query`) of cmux-platform: the
+    /// cmux-cloud-api crate's `artifacts.read` (`artifacts.rs`) on this Mac's daemon at `socket`, which checks `args`,
+    /// sends the bearer only to the platform origin, follows no redirect, keeps no cache or cookie and stops at 60 s.
+    /// The platform's answer for every status; signed out, a 401. Throws when there is no platform origin, no
+    /// daemon, or the call fails.
+    @MainActor
+    public func artifactsRead(path: String, query: [URLQueryItem], signedIn auth: CloudAuth,
+                              socket: String) async throws -> ArtifactsAnswer {
+        guard auth.configuration.artifactsAPIBaseURL() != nil else { throw CloudCallRefusal(code: "no_platform", message: "") }
+        guard auth.isSignedIn else { return ArtifactsAnswer(status: 401, body: Data(), size: 0) }
+        struct Answer: Decodable, Sendable {
+            struct Body: Decodable, Sendable {
+                var status: Int
+                var content_type: String?
+                var commit: String?
+                var size: Int
+                var body_base64: String?
+            }
+            struct Failure: Decodable, Sendable { var kind: String?; var code: String?; var message: String? }
+            var ok: Bool
+            var body: Body?
+            var error: Failure?
+        }
+        // The route is the path's last segment; each query value goes whole (Rust encodes and checks it), limit as a number.
+        var call: [String: any Sendable] = ["route": String(path.split(separator: "/").last ?? "")]
+        for item in query {
+            guard let value = item.value else { continue }
+            call[item.name] = item.name == "limit" ? (Int(value) ?? 0) : value
+        }
+        // The Rust read stops at 60 s; this outlasts it so its own answer comes back.
+        let line = await cloudAPI("artifacts.read", args: call, signedIn: auth, socket: socket, timeout: .seconds(75))
+        guard let answer = await Self.answer(Answer.self, from: line) else { throw CloudCallRefusal(code: "transport", message: "") }
+        guard answer.ok, let body = answer.body else {
+            if answer.error?.kind == "not_signed_in" { return ArtifactsAnswer(status: 401, body: Data(), size: 0) }
+            throw CloudCallRefusal(code: answer.error?.code ?? answer.error?.kind ?? "transport", message: answer.error?.message ?? "")
+        }
+        let bytes = body.body_base64.flatMap { Data(base64Encoded: $0) } ?? Data()
+        return ArtifactsAnswer(status: body.status, body: bytes, size: body.size, contentType: body.content_type, commit: body.commit)
+    }
+
     /// A Chief on its own Cloud machine (New Chief's "On its own Cloud machine"): the cmux-cloud-api crate's
     /// `machine.chief_start` on this Mac's daemon at `socket` makes the machine sized for a Chief, pairs it, places the
     /// Chief on it, keeps it from idle-pausing and starts its host. `key` names this one start: the same key again
@@ -233,6 +273,17 @@ public struct CloudCLICall: Sendable {
 public nonisolated struct CloudCallRefusal: Error, Hashable, Sendable {
     public var code: String
     public var message: String
+}
+
+/// The platform's answer to ``CloudCLICall/artifactsRead(path:query:signedIn:socket:)``: `body` is empty when the
+/// daemon left a body over its limit out; `size` is the body's length either way.
+public nonisolated struct ArtifactsAnswer: Sendable {
+    public var status: Int
+    public var body: Data
+    public var size: Int
+    public var contentType: String?
+    /// `X-Artifacts-Commit`.
+    public var commit: String?
 }
 
 /// The cmux daemon's Cloud calls (cmux-tui `cloud.<call>`) through the bundled cmux's `cmux cloud api` (cmux-tui
