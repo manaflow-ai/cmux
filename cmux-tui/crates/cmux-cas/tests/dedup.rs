@@ -12,7 +12,6 @@ fn noise(seed: u64, n: usize) -> Vec<u8> {
         .collect()
 }
 
-#[cfg(unix)]
 #[test]
 fn shared_chunks_are_counted_once_and_attributed_to_both_roots() {
     let a = tempfile::tempdir().unwrap();
@@ -25,6 +24,7 @@ fn shared_chunks_are_counted_once_and_attributed_to_both_roots() {
     shifted.extend_from_slice(&common);
     std::fs::write(b.path().join("z"), &shifted).unwrap();
     std::fs::write(a.path().join("own"), noise(2, 1 << 20)).unwrap();
+    #[cfg(unix)]
     std::os::unix::fs::symlink(a.path().join("x"), a.path().join("link")).unwrap();
 
     let r = measure(
