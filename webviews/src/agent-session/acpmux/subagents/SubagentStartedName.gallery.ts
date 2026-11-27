@@ -45,7 +45,7 @@ export default agentPaneEntry({
   title: "A start line's name is cut only when the line runs short",
   area: "Agent pane",
   height: 260,
-  widths: { leo: 664, narrow: 360 },
+  widths: { narrow: 360, normal: 664 },
   anchors: [{ selector: ".acpmux-composer" }],
   covers: ["agent-session/acpmux/subagents/SubagentStartedLine.css"],
   variants: {
