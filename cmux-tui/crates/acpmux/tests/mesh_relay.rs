@@ -472,6 +472,26 @@ async fn only_a_relayed_message_leased_again_waited() {
     relay.stop().await;
 }
 
+/// The owner's own terminal send (`acpmux send HOST/CHAT` naming no session, program or
+/// address) over the relay runs on its first lease, as a link carries it: own-machines-e2e
+/// relay-udp-blocked sent one with UDP blocked, and since #58035 it sat in the idle chat's inbox
+/// as an FYI and never ran.
+#[tokio::test]
+async fn an_unnamed_senders_first_lease_wakes_the_chat() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut owner = message("msg-owner", "dep-land", Kind::Prompt);
+    owner.from.name = None;
+    fake.lease(owner);
+    fake.until("the ack", |s| !s.acked("msg-owner").is_empty()).await;
+    let got = delivered_provenance(&mut local, &session, "msg-owner").await;
+    assert_eq!(got[acpmux::prompt_provenance::WAITED], true, "{got}");
+    relay.stop().await;
+}
+
 /// A message no session sent (the lane-gh broker's `acpmux send`, a shell outside acpmux) names
 /// the machine the hub proved, verified: it read "a session on HOST (self-declared,
 /// unauthenticated)" though the hub had authenticated HOST's daemon, and every receiver asked the

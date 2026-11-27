@@ -1178,6 +1178,19 @@ fn clip(mut ack: Ack) -> Ack {
     ack
 }
 
+/// Whether a relayed message names the session, program or team address that sent it: another
+/// agent's message, whose first lease is no wait, so an FYI waits for its notice (#58035). One
+/// that names none is the owner's own terminal send (`cli/sender.rs`), which a link carries as
+/// the person's prompt and runs; over the relay it has no lease attempt, so its `resend` wakes
+/// the chat as it did before #58035. With the attempt, `acpmux send HOST/CHAT` with UDP blocked
+/// (no link, the relay only) sat in B's inbox as an FYI and never ran (own-machines-e2e
+/// relay-udp-blocked, runs 45941853114 and 45945132201).
+fn named_sender(from: &crate::mesh::Sender) -> bool {
+    [&from.session_id, &from.name, &from.team_address]
+        .into_iter()
+        .any(|f| f.as_deref().is_some_and(|v| !v.trim().is_empty()))
+}
+
 /// How a relayed message names its sender to the session: `HOST/SESSION`, one line, within
 /// `fromAgent`'s length. Never empty: a message from another machine is never the person's.
 ///
@@ -1353,8 +1366,9 @@ pub async fn deliver(
             "steer": !team && message.mode == Mode::Now,
             "promptId": prompt_id,
             "resend": true,
-            // Only a lease after the first waited (`prompt_provenance::resend_waited`).
-            (crate::prompt_provenance::LEASE_ATTEMPT): message.attempt,
+            // Only a lease after the first waited (`prompt_provenance::resend_waited`), and only
+            // for another agent's message ([`named_sender`]).
+            (crate::prompt_provenance::LEASE_ATTEMPT): named_sender(&message.from).then_some(message.attempt),
             "fromAgent": from_name,
             "teamMessage": team,
             "startWork": message.start_work,
