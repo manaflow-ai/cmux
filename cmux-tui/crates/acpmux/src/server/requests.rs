@@ -2871,6 +2871,11 @@ async fn dispatch_request_with_identity(
         method::SESSION_DELETE => {
             let s = hub.resolve(session_key(&params)?)?;
             let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            // `grace: true`: kept 7 days, restorable (`hub/soft_delete.rs`); else gone now.
+            if crate::hub::soft_delete::asks_grace(&params) {
+                let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
+                return heap(|| hub.soft_delete(&s, condition, why)).await;
+            }
             heap(|| hub.kill_why(&s, true, why)).await?;
             Ok(json!({}))
         }
@@ -3506,6 +3511,9 @@ async fn dispatch_request_with_identity(
                 })
                 .await
         }
+        // A deleted chat back inside its grace, and the deleted chats (`hub/soft_delete.rs`).
+        method::MUX_UNDELETE => hub.undelete(session_key(&params)?),
+        method::MUX_DELETED => Ok(hub.deleted_chats()),
         // A true archive: the chat's log goes into one compressed file (`hub/cold_archive.rs`).
         method::MUX_COLD_ARCHIVE => {
             // Local only, as `_acpmux/retention` (`server/worktrees.rs`): it rewrites the disk.
@@ -3874,6 +3882,7 @@ async fn dispatch_request_with_identity(
                         quiet_hidden,
                         left_out: 0,
                         left_from: 0,
+                        stream_sent: 0,
                     },
                 );
                 let detail = hub.session_detail(&s);
@@ -3934,6 +3943,7 @@ async fn dispatch_request_with_identity(
                     quiet_hidden,
                     left_out: 0,
                     left_from: 0,
+                    stream_sent: 0,
                 },
             );
             let settled_key = match settled {
@@ -4234,6 +4244,11 @@ async fn dispatch_request_with_identity(
             // Who asked, and the `reason`/`outcome` it gave (`close_why.rs`): recorded, never
             // refused.
             let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            // A delete that asks for the grace keeps the chat 7 days, restorable
+            // (`hub/soft_delete.rs`); one that does not is gone now, as before.
+            if purge && crate::hub::soft_delete::asks_grace(&params) {
+                return heap(|| hub.soft_delete(&s, condition, why)).await;
+            }
             heap(|| hub.stop_why(&s, purge, condition, why)).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
