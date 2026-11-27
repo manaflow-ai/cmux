@@ -214,7 +214,7 @@ jobs:
       !cancelled() && needs.parity-key.outputs.hit != 'true' &&
       github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' &&
       (inputs.screens || startsWith(github.ref_name, 'lane/ios-sim-linux-screen-parity'))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     continue-on-error: true
     timeout-minutes: 75  # the step may run 3600 s after its queue wait
     steps:
@@ -224,8 +224,13 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             cmux-next-ios/verify/screen-parity
+            .github/actions/fleet-client
             .gitmodules
           sparse-checkout-cone-mode: false
+      # Only the fleet client runs here; the shots render on a fleet simulator Mac (#59069).
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
       - name: Take the shots on the fleet
         env:
           REF: ${{ inputs.ref || github.sha }}
