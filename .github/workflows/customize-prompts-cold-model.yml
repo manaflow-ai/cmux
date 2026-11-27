@@ -22,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  attestations: read
 
 concurrency:
   group: customize-prompts-cold-model
@@ -50,13 +51,45 @@ jobs:
           # The tree helper selects the Linux musl target and fetches its
           # matching app host. The app-bundle installer is macOS-only and
           # cannot run on this Ubuntu job.
-          CMUX_TUI_TREE_WAIT_SECONDS=1800 \
-            CMUX_TUI_TREE_PUBLISHER_SHA="$head" \
-            scripts/cmux-next/pin-cmux-tui.sh fetch
+          export CMUX_TUI_TREE_WAIT_SECONDS=1800 CMUX_TUI_TREE_PUBLISHER_SHA="$head"
+          case "$(uname -m)" in
+            x86_64|amd64) export CMUX_TUI_TREE_TARGET=x86_64-unknown-linux-musl ;;
+            aarch64|arm64) export CMUX_TUI_TREE_TARGET=aarch64-unknown-linux-musl ;;
+            *) echo "unsupported Linux architecture" >&2; exit 1 ;;
+          esac
+          resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"
+          commit="$(awk -F= '$1 == "commit" { print $2 }' <<<"$resolved")"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          manifest="$RUNNER_TEMP/cmux-tui-manifest.json"
+          curl --fail --silent --show-error --location --connect-timeout 15 --max-time 60 \
+            "https://files.cmux.com/cmux-tui/$commit/manifest.json" -o "$manifest"
+          digest="$(sha256sum "$manifest" | cut -d' ' -f1)"
+          attest=(--repo manaflow-ai/cmux \
+            --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml \
+            --source-digest "$commit")
+          # Verify provenance before running either downloaded executable.
+          if curl --fail --silent --show-error --location --connect-timeout 15 --max-time 60 \
+            "https://files.cmux.com/cmux-tui-attestations/sha256-$digest.sigstore.json" -o "$manifest.sigstore.json"; then
+            gh attestation verify "$manifest" --bundle "$manifest.sigstore.json" "${attest[@]}"
+          else
+            gh attestation verify "$manifest" "${attest[@]}"
+          fi
+          scripts/cmux-next/pin-cmux-tui.sh fetch
           client="$(scripts/cmux-next/pin-cmux-tui.sh path)"
           app_host="$(scripts/cmux-next/pin-cmux-tui.sh app-host-path)"
           [[ -x "$client" ]]
           [[ -x "$app_host" ]]
+          python3 - "$manifest" "$commit" "$CMUX_TUI_TREE_TARGET" "$client" "$app_host" <<'PYVERIFY'
+          import hashlib, json, pathlib, sys
+          manifest, commit, target, client, app_host = sys.argv[1:]
+          data = json.loads(pathlib.Path(manifest).read_text())
+          if data.get("commit") != commit:
+              raise SystemExit("manifest publication commit mismatch")
+          for name, path in (("cmux-tui", client), ("cmux-tui-app-host", app_host)):
+              actual = hashlib.file_digest(open(path, "rb"), "sha256").hexdigest()
+              if data.get("binaries", {}).get(f"{name}-{target}") != actual:
+                  raise SystemExit(f"{name} does not match the attested manifest")
+          PYVERIFY
           bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
           mkdir -p "$bundle/Contents/Resources/bin"
           install -m 755 "$client" "$bundle/Contents/Resources/bin/cmux"
