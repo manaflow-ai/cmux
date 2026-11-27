@@ -43,7 +43,30 @@
 //! Without a registry (acpmux outside the fleet) every connected peer is a
 //! candidate and the defaults below size it.
 
+pub(crate) mod command_sampler;
+pub(crate) mod command_shadow;
 pub(crate) mod move_targets;
+pub mod run_vm;
+pub mod sub_fork;
+pub mod sub_fork_run;
+pub mod work_place;
+pub mod work_wire;
+
+/// AutoCloud's hidden settings key (RFD 0144), off unless the settings file says `true`.
+pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
+
+/// Whether the AutoCloud key is on in the settings file now, read straight from the file each
+/// call. A missing or unreadable file, or anything but a literal `true`, is off. Every RFD 0144
+/// placer (the command placer's shadow, sub-agent forks) reads the key through this one helper.
+pub fn auto_cloud_on() -> bool {
+    use crate::user_settings::{self, Settings};
+    matches!(user_settings::read(), Settings::Parsed(doc) if auto_cloud_in(&doc))
+}
+
+/// Whether a parsed settings document turns AutoCloud on (`true` only, never a truthy string).
+pub fn auto_cloud_in(doc: &Value) -> bool {
+    crate::user_settings::value(doc, AUTO_CLOUD_KEY) == Some(Value::Bool(true))
+}
 
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -319,7 +342,7 @@ pub fn only_outdated(row: &Value) -> bool {
     if let Some(o) = row.as_object_mut() {
         o.remove("outdated");
     }
-    peer_down(&row).is_none()
+    link_down(&row).is_none()
 }
 
 /// The one command that refreshes the outdated peer `name`'s build (`cli/peer_status.rs`).
@@ -337,7 +360,7 @@ pub fn last_resort(registry: Option<&Value>, name: &str) -> bool {
 }
 
 /// The registry's entry for `name`, by name or alias (`canonical`).
-fn machine<'a>(registry: Option<&'a Value>, name: &str) -> Option<&'a Value> {
+pub(crate) fn machine<'a>(registry: Option<&'a Value>, name: &str) -> Option<&'a Value> {
     let machines = registry?.get("machines")?.as_object()?;
     let want = canonical(name);
     machines.iter().find(|(n, m)| machine_names(n, m).contains(&want)).map(|(_, m)| m)
@@ -459,7 +482,7 @@ const STOPPED: [&str; 6] = ["idle-stopped", "stopped", "paused", "retired", "res
 /// moment says nothing about whether the VM stays up, and a start forwarded to it was refused
 /// with only an ssh hint. Deleting the status line, as the registry asks once it is started for
 /// good, lets it take work again.
-fn stopped(machine: &Value) -> Option<String> {
+pub(crate) fn stopped(machine: &Value) -> Option<String> {
     let status = machine.get("status")?.as_str()?.trim().to_ascii_lowercase();
     let word = STOPPED.iter().find(|w| status.starts_with(**w))?;
     Some(format!("{word} (its fleet-registry.json status)"))
@@ -469,24 +492,32 @@ fn stopped(machine: &Value) -> Option<String> {
 /// Both its `connected` flag and its live `state` must say up (`degraded` is slow, not gone), so
 /// a flag left set while the link reconnects never makes it one. `None`: it is a candidate.
 ///
-/// A machine only the mesh hub lists (`via: "hub"`, `mesh_book_hosts`) is never one, whatever its
-/// row says: a session is started on a peer over its link (`new --machine HOST`), and this
-/// daemon has none to it, so a pick of it fails with `no peer "HOST"` and nothing starts. That
-/// is what a lane VM at its lane cap hit on 2026-11-20 (`new --machine auto` picked
-/// gcp-codex-swarm-01, which it reached only through the hub). It is listed as passed over with
-/// why, and the pick goes to a host the work can start on.
+/// A machine only the mesh hub lists (`via: "hub"`, `mesh_book_hosts`) is one: its health comes
+/// through the hub (`hub/hub_health.rs`), and a session placed there starts through the hub's
+/// start relay (`server/mesh_control_send.rs` `start_through_hub`), as `acpmux session start
+/// --machine` does. Until 2026-11-24 it never was (a pick of it failed with `no peer "HOST"`),
+/// and on a lane VM, where every fleet host was hub-only, `machine pick` refused them all. A
+/// caller that needs a direct link (a move over ssh, the app's machine list) asks [`link_down`].
 pub fn peer_down(row: &Value) -> Option<String> {
     if row.get("outdated").and_then(Value::as_bool) == Some(true) {
         return Some("outdated peer build (stale disk copy)".into());
-    }
-    if row.get("via").and_then(Value::as_str) == Some("hub") {
-        let name = row.get("name").and_then(Value::as_str).unwrap_or("HOST");
-        return Some(hub_only(name));
     }
     let state = row.get("state").and_then(Value::as_str);
     let flag = row.get("connected").and_then(Value::as_bool) == Some(true);
     let up = flag && state.is_none_or(|s| matches!(s, "connected" | "degraded"));
     (!up).then(|| format!("not connected ({})", state.unwrap_or("down")))
+}
+
+/// [`peer_down`] for a caller that reaches the machine over a direct link only: a machine only
+/// the mesh hub lists is never one ([`hub_only`] says why).
+pub fn link_down(row: &Value) -> Option<String> {
+    if row.get("via").and_then(Value::as_str) == Some("hub")
+        && row.get("outdated").and_then(Value::as_bool) != Some(true)
+    {
+        let name = row.get("name").and_then(Value::as_str).unwrap_or("HOST");
+        return Some(hub_only(name));
+    }
+    peer_down(row)
 }
 
 /// Why a machine only the mesh hub reaches takes no placed work, and the two ways to start there.
@@ -573,7 +604,37 @@ pub fn registry_path() -> Option<PathBuf> {
 }
 
 pub fn load_registry() -> Option<Value> {
-    serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()
+    let mut registry: Value =
+        serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()?;
+    fold_role_holders(&mut registry);
+    Some(registry)
+}
+
+/// Folds the registry's top-level `role_holders` (`{role: [host, ...]}`) into each machine's
+/// `roles`: a machine's roles are its own `roles` array plus every role whose holder list names
+/// it (by machine name), appended in sorted role order without duplicates. A holder that is no
+/// machine is ignored. Idempotent.
+pub fn fold_role_holders(registry: &mut Value) {
+    let Some(holders) = registry.get("role_holders").and_then(Value::as_object).cloned() else {
+        return;
+    };
+    let Some(machines) = registry.get_mut("machines").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let mut roles: Vec<&String> = holders.keys().collect();
+    roles.sort();
+    for role in roles {
+        let Some(list) = holders[role].as_array() else { continue };
+        for host in list.iter().filter_map(Value::as_str) {
+            let Some(m) = machines.get_mut(host).and_then(Value::as_object_mut) else { continue };
+            let entry = m.entry("roles").or_insert_with(|| json!([]));
+            if let Some(arr) = entry.as_array_mut() {
+                if !arr.iter().any(|r| r.as_str() == Some(role)) {
+                    arr.push(json!(role));
+                }
+            }
+        }
+    }
 }
 
 /// The providers `lane_place.placement_preference` may name besides machine names.
@@ -645,6 +706,11 @@ struct Weighed {
     /// Its lanes against its cap (`Lanes::cap_state`).
     cap: CapState,
     why: String,
+    /// Free RAM in bytes from the reading: the new-chat chip's "This Mac: 12 GB free".
+    ram_free: Option<f64>,
+    /// Its AutoCloud enrollment block from the reading (`autocloud_enroll.rs`), as it said it;
+    /// null from a machine on an older build: `place_mode`'s enrolled tier.
+    auto_cloud: Value,
 }
 
 impl Weighed {
@@ -665,8 +731,9 @@ fn unknown(c: &Candidate) -> String {
         )
     } else if c.via_hub {
         format!(
-            "resources unknown: only the mesh hub reaches it, and the hub carries no host health; \
-             a direct link reads it (`acpmux machine add {name}`)"
+            "resources unknown: only the mesh hub reaches it, and it has not answered a health \
+             read through the hub yet (one is asked at each placement; `acpmux machine add \
+             {name}` links it directly)"
         )
     } else {
         "resources unknown: no health reading yet (one comes within a minute of connecting)".into()
@@ -697,6 +764,8 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         unknown: !known,
         cap: CapState::Unknown,
         why: String::new(),
+        ram_free: None,
+        auto_cloud: h.get("autoCloud").cloned().unwrap_or(Value::Null),
     };
     let Some(lanes) = lanes else {
         w.refused = Some("not a lane host (no lanes entry in fleet-registry.json)".into());
@@ -714,6 +783,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     let mut parts = Vec::new();
     let mut rooms = Vec::new();
     if let Some(free) = reading(h, "/ram/freeBytes") {
+        w.ram_free = Some(free);
         parts.push(format!("{:.0} GB RAM free", free / GB));
         rooms.push(("RAM", (free / GB - lanes.reserved_gb) / lanes.per_lane_gb));
     }
@@ -785,7 +855,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
 /// takes it anyway), "why": TEXT, "room": LANES|null (the pick's), "localOver": TEXT|null (why
 /// this machine is over its budget, room or swap), "work": "agent"|"build", "tier": {index, of}|null (the
 /// pick's placement_preference tier, 1 best), "hosts": [{name, local, ok, room, rank, tier,
-/// live, why, refused}]}`.
+/// live, why, ramFree, refused}]}`.
 pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> Value {
     let hosts = lane_hosts(registry);
     let lanes_of = |name: &str| -> Option<Lanes> {
@@ -911,6 +981,10 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "tier": w.tier.as_ref().map(|(at, of)| json!({"index": at.saturating_add(1), "of": of})),
             "live": w.live,
             "why": w.why,
+            // Free RAM in bytes (null without a reading): place_mode's chip.
+            "ramFree": w.ram_free,
+            // Its AutoCloud enrollment (null: an older build, not enrolled): `place_mode`.
+            "autoCloud": w.auto_cloud,
             "refused": w.refused,
             // Refused only for room, load or swap: it may still take work (`overloaded`).
             "load": w.load,

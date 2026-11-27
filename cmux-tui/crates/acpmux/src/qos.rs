@@ -12,7 +12,7 @@
 //! | Tier | Who | macOS | Linux |
 //! |---|---|---|---|
 //! | [`Tier::Serving`] | the daemon | unchanged: acknowledged replies wait on the event journal's sync, so its disk I/O stays at the default tier ([`enter_daemon`]) | unchanged |
-//! | [`Tier::AgentStart`] | agent hosts and their harnesses | disk I/O at `IOPOL_UTILITY`; CPU while the harness starts: the daemon's (unchanged); once its session's start is over: the harness and what it started at nice +11 (priority 20, as the utility clamp), or background class (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
+//! | [`Tier::AgentStart`] | agent hosts and their harnesses | the host's disk I/O at `IOPOL_UTILITY`; its harness back at the default disk tier ([`default_disk_io`]) and the daemon's CPU priority, as a shell in a terminal runs: a `normal` harness (the default) stays at the terminal's class, a `dynamic` one (opt-in) goes to background class only while the Mac is contended, and a `background` one (opt-in) stays there once its start is over (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
 //! | [`Tier::Agent`] | background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
 //! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O at the background class's tier), then back | unchanged |
 //! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (its CPU; its disk I/O stays at the daemon's default tier), then back | unchanged |
@@ -32,9 +32,13 @@
 //! Leo's Mac at load average 125 to 256, waking an agent took 10 to 82 s, and one start ran out
 //! its 90 s with 1.8 s of CPU used, its host and harness under the utility clamp and below every
 //! default-priority process on the machine. An agent host therefore starts at the daemon's CPU
-//! priority (its disk I/O still at utility) and spawns its harness there; once the session's start is over (its `initialize` and
-//! `session/new` or `session/load` answered), the daemon lowers the running harness
-//! ([`AGENT_NICE`], `cpu_class::CpuClass::enter`): its builds and tests still run below the app.
+//! priority (its disk I/O still at utility) and spawns its harness there, at the default disk tier.
+//! An agent's turns are work a person waits on too (2026-11-24: over 130 sessions on one Mac, a
+//! NEXT agent's tests took 37 s at the median against 11 s in a terminal, and its slowest builds
+//! 220 s against 52 s; one 1-commit rebase took 87 minutes at 0% CPU, waiting on a throttled
+//! disk). The default `normal` class keeps the terminal's CPU class and normal disk I/O. An
+//! opt-in `dynamic` class temporarily adds background class only while the host is contended. A
+//! `background` session's harness stays lowered once its start is over.
 //!
 //! macOS gives no call that clamps a running process, and a thread's QoS does
 //! not survive exec into another program (a probe on a fleet mini: a child's
@@ -72,8 +76,9 @@ pub enum Tier {
     Serving,
     /// Agent work: background-task runners and every tool they run.
     Agent,
-    /// Agent hosts: the daemon's tier while their harness starts (a person waits on a start),
-    /// [`Tier::Agent`]'s once its session's start is over (`cpu_class::CpuClass::enter`).
+    /// Agent hosts: the daemon's CPU tier, disk I/O at utility. Their harnesses run at the
+    /// daemon's tier and the default disk tier; a `dynamic` session's harness goes to background
+    /// class while contended and a `background` session stays there (`cpu_class::CpuClass::enter`).
     AgentStart,
     /// Work nobody waits for: sweeps, retention, cleanup.
     Background,
@@ -140,6 +145,15 @@ pub fn at_least_default_nice() {
             libc::setpriority(libc::PRIO_PROCESS, 0, 0);
         }
     }
+}
+
+/// This process's disk I/O back at the default tier (macOS; elsewhere nothing), as a shell in a
+/// terminal has it: a harness takes it between fork and exec (`cpu_class::start_at_normal`), so
+/// it and every tool its turns run do not inherit its agent host's `IOPOL_UTILITY`, which the
+/// kernel throttles behind any default-tier disk work on the machine. Async-signal-safe: one
+/// syscall on the calling process.
+pub fn default_disk_io() {
+    imp::disk_default();
 }
 
 /// The daemon's tier: acknowledged replies wait on the event journal's sync, so the daemon keeps
@@ -253,6 +267,7 @@ mod imp {
     const IOPOL_TYPE_DISK: libc::c_int = 0;
     const IOPOL_SCOPE_PROCESS: libc::c_int = 0;
     const IOPOL_SCOPE_THREAD: libc::c_int = 1;
+    const IOPOL_IMPORTANT: libc::c_int = 1;
     const IOPOL_UTILITY: libc::c_int = 4;
     const PRIO_DARWIN_BG: libc::c_int = 0x1000;
     const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
@@ -278,6 +293,13 @@ mod imp {
         if unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_UTILITY) } != 0 {
             tracing::debug!("setiopolicy_np: {}", std::io::Error::last_os_error());
         }
+    }
+
+    /// The process's disk I/O at `IOPOL_IMPORTANT`, the tier a process starts at
+    /// ([`super::default_disk_io`]). No logging: it runs between fork and exec.
+    pub(super) fn disk_default() {
+        // SAFETY: plain syscall wrapper with constant arguments, async-signal-safe.
+        unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_IMPORTANT) };
     }
 
     /// This process's scheduler base priority (`proc_pidinfo` `PROC_PIDTASKINFO`): 31 at the
@@ -482,6 +504,7 @@ mod imp {
 #[cfg(target_os = "linux")]
 mod imp {
     pub(super) fn disk_utility() {}
+    pub(super) fn disk_default() {}
     pub(super) fn thread_disk_utility() {}
 
     /// nice +5: inherited by everything the process starts. Not undone (an
@@ -518,6 +541,7 @@ mod imp {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod imp {
     pub(super) fn disk_utility() {}
+    pub(super) fn disk_default() {}
     pub(super) fn thread_disk_utility() {}
     pub(super) fn clamp_cpu_utility() {}
     pub(super) fn process_background() {

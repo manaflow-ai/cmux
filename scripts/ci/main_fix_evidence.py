@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 import json
+import os
 import re
 import subprocess
 import sys
@@ -38,30 +39,73 @@ MAX_OUTPUT = 256 * 1024 * 1024
 MAX_ANCESTOR_DEPTH = 100
 MAX_ANCESTOR_NODES = 500
 PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
+# A red that refuses the exception. For the newest check run of a name, every one of these: that is the verdict for
+# the name and nothing else speaks for it. For an older same-named sibling -- another workflow's job of that name, or
+# an earlier run of the same workflow (check_runs_at) -- only the two that are a verdict a job actually reached.
+# `cancelled` and `stale` are what concurrency does to a superseded run, and a `startup_failure` attempt ran no job
+# at all, so none of them is a result anybody must explain. (Only a sibling is read that way. check_runs_at keeps the
+# highest id per check suite and reads no conclusion, so a `startup_failure` that is the newest of its name is still
+# that name's verdict and still refuses.) Reading them as reds
+# would refuse nearly every real head: 8375182a4233 had three runs of each workflow, and three names whose newest was
+# green over a `cancelled` sibling (`language-boundaries`, `pr-capture-check, ...`, `risk evidence`).
+VERDICT_REDS = {"failure", "timed_out"}
+ALL_REDS = VERDICT_REDS | {"cancelled", "action_required", "startup_failure", "stale"}
 
 
 class Refused(RuntimeError):
     """Evidence is insufficient to merge."""
 
 
+class Unread(Refused):
+    """A read that never happened: the request passed its deadline, its answer was over the size cap, or `gh` itself
+    failed. It is not a verdict on anything -- nothing was compared -- so a caller that judges a red must retry rather
+    than record a refusal. A Refused, so gh-merge-green keeps refusing to merge on one (`not green:`, exit 1); callers
+    that can tell them apart catch Unread first (scripts/ci/base_red_excuse.py's UnreadRead, exit 3, which land-judge
+    reads as "not judged, a retry" instead of red_not_excused)."""
+
+
+def read_name(args: list[str]) -> str:
+    """The read, short enough to print in a refusal. `gh api <route>` is that route; anything else is its words,
+    capped at 200 characters -- `run view <run> --repo R --job <job> --log`, which is the read most likely to be
+    the slow one. A GraphQL body is compressed to its operation name: `-f query=...` is thousands of characters and
+    every caller sends the same handful of queries, so the name alone identifies it.
+    Without this a timeout said only "GitHub evidence request exceeded 90 seconds", so which of the ~60 reads
+    base_red_excuse makes had spent the 90 s was a guess (leo-workspace#9276, #9153, #8643, 2026-11-24)."""
+    if len(args) >= 2 and args[0] == "api" and args[1] != "graphql" and not args[1].startswith("-"):
+        return f"gh api {args[1][:200]}"
+    kept = []
+    for word in args:
+        if word in ("-f", "--field", "-F", "--raw-field"):
+            continue  # the flag itself says nothing; its value is kept below
+        if word.startswith("query="):
+            found = re.search(r"\b(?:query|mutation)\s+(\w+)", word)
+            kept.append(f"query={found.group(1)}" if found else "query=...")
+            continue
+        kept.append(word)
+    return ("gh " + " ".join(kept))[:200]
+
+
 class GitHub:
-    def run(self, args: list[str]) -> str:
+    def run(self, args: list[str], *, repo: str | None = None) -> str:
         # Disk and memory are bounded per command; neither logs nor receipts are
         # kept. A long API call has a deadline instead of an observation loop.
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-            process = subprocess.Popen(["gh", *args], stdout=output, stderr=errors)
+            env = {**os.environ, "GH_REPO": repo} if repo else None
+            process = subprocess.Popen(["gh", *args], stdout=output, stderr=errors, env=env)
             try:
                 process.wait(timeout=90)
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-                raise Refused("GitHub evidence request exceeded 90 seconds") from None
+                raise Unread(f"GitHub evidence request exceeded 90 seconds: {read_name(args)}") from None
             if output.tell() > MAX_OUTPUT or errors.tell() > MAX_OUTPUT:
-                raise Refused(f"GitHub evidence exceeds the {MAX_OUTPUT // (1024 * 1024)} MiB limit")
+                raise Unread(f"GitHub evidence exceeds the {MAX_OUTPUT // (1024 * 1024)} MiB limit: "
+                             f"{read_name(args)}")
             output.seek(0)
             errors.seek(0)
             if process.returncode:
-                raise Refused("GitHub evidence request failed: " + errors.read(2000).decode(errors="replace"))
+                raise Unread(f"GitHub evidence request failed: {read_name(args)}: "
+                             + errors.read(2000).decode(errors="replace"))
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = gh_pages.PER_PAGE):
@@ -71,28 +115,41 @@ class GitHub:
         try:
             return gh_pages.pages(lambda url: json.loads(self.run(["api", url])), route, per_page=per_page)
         except gh_pages.PageCapError as error:
-            raise Refused(str(error)) from None
+            raise Unread(str(error)) from None
 
     def log(self, repo: str, job: dict) -> str:
         return self.run(["run", "view", str(job["run_id"]), "--repo", repo,
                          "--job", str(job["id"]), "--log"])
 
 
-def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
-    """The newest check run of each name on SHA: its last real attempt. Every attempt is read (filter=all), since
-    GitHub's default lists only each check suite's newest attempt, and one that ended in startup_failure ran no
-    jobs, so a red before it vanished from that list (cmux#35906, 2026-11-05). Such an attempt is no result: the
-    newest check run of a name is the last attempt that ran it, red or green."""
-    checks = {}
+def check_runs_at(repo: str, sha: str, github: GitHub) -> dict:
+    """Every check run of each name on SHA, newest first: one per check suite, its last real attempt. Every attempt is
+    read (filter=all), since GitHub's default lists only each check suite's newest attempt, and one that ended in
+    startup_failure ran no jobs, so a red before it vanished from that list (cmux#35906, 2026-11-05). Such an attempt
+    is no result: the newest check run of a name is the last attempt that ran it, red or green.
+    A name is several check runs whenever several workflows have a job of that name -- three were named `tests` at
+    hq#17005's head -- so they are kept apart by check suite, the run each belongs to (base_red_excuse's named_check
+    tells them apart by its workflow). Keying by name alone kept the highest id and read the name as that one check run, so a
+    caller naming another of them was answered about a check it had not asked about (2026-11-21)."""
+    newest: dict[tuple, dict] = {}
     for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
         for check in page["check_runs"]:
             # A third-party app cannot provide compile or test evidence.
             if check.get("app", {}).get("slug") != "github-actions":
                 continue
-            previous = checks.get(check["name"], {})
-            if check["id"] > previous.get("id", -1):
-                checks[check["name"]] = check
-    return checks
+            key = (check["name"], (check.get("check_suite") or {}).get("id"))
+            if check["id"] > newest.get(key, {}).get("id", -1):
+                newest[key] = check
+    by_name: dict[str, list[dict]] = {}
+    for check in sorted(newest.values(), key=lambda found: found["id"], reverse=True):
+        by_name.setdefault(check["name"], []).append(check)
+    return by_name
+
+
+def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
+    """The newest check run of each name on SHA (check_runs_at), for a caller that asks only that. A caller that must
+    not answer about a sibling of the name reads check_runs_at itself."""
+    return {name: found[0] for name, found in check_runs_at(repo, sha, github).items()}
 
 
 def _parent_shas(repo: str, sha: str, github: GitHub) -> list[str]:
@@ -189,7 +246,12 @@ def validate(repo: str, number: int, github: GitHub) -> str:
     head, base = pr["head"]["sha"], pr["base"]["sha"]
     if pr["base"]["ref"] != "feat-cmux-next":
         raise Refused("--main-fix compile evidence is defined for feat-cmux-next only; use normal green merging for other bases")
-    checks = latest_checks(repo, head, github)
+    at_head = check_runs_at(repo, head, github)
+    # The newest of each name for the build and web-validation reads below; the sweep over every failed check at the
+    # end reads at_head itself, since a red whose same-named sibling in another workflow is newer and green must not
+    # go unexplained -- this caller's whole job (hq#17005's class, in the one reader that grants the exception).
+    # A sibling is held to VERDICT_REDS only, so a run concurrency superseded does not refuse a merge.
+    checks = {name: found[0] for name, found in at_head.items()}
     jobs = {}
     audit = [f"--main-fix evidence for head `{head}`, base `{base}`:"]
     for name, build in BUILDS.items():
@@ -258,13 +320,20 @@ def validate(repo: str, number: int, github: GitHub) -> str:
         matched = True
     # A completed ci-status failure may aggregate the proven Swift test red;
     # unrelated failures still refuse the exception.
-    for name, check in checks.items():
-        if check.get("conclusion") in {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}:
-            if name == SWIFT and matched:
+    for name, found in at_head.items():
+        for check in found:
+            # The waiver the base matching earned belongs to the check run it examined -- the newest of the name --
+            # and not to a sibling whose own job was never compared with the base.
+            newest = check["id"] == found[0]["id"]
+            if check.get("conclusion") not in (ALL_REDS if newest else VERDICT_REDS):
                 continue
-            if name == "ci-status" and matched and check.get("conclusion") == "failure":
+            if name == SWIFT and matched and newest:
                 continue
-            raise Refused(f"{name}: failed check has no same-base test match")
+            if name == "ci-status" and matched and newest and check.get("conclusion") == "failure":
+                continue
+            raise Refused(f"{name}: failed check has no same-base test match" if newest else
+                          f"{name}: failed check has no same-base test match (check run {check['id']}, "
+                          f"{check.get('conclusion')}, a same-named sibling of the newest {found[0]['id']})")
     status = checks.get("ci-status", {})
     if not completed_success(status) and not (matched and status.get("status") == "completed" and status.get("conclusion") == "failure"):
         raise Refused("ci-status must complete on the exact head")

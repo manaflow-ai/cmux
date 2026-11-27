@@ -47,6 +47,8 @@ MACOS_CROSS = ROOT / "scripts" / "ci" / "macos-cross.sh"
 STICKY = "useblacksmith/stickydisk@"
 SHIPPED = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin")
 NEXT_PUSH = "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'"
+# The pool darwin leg runs on the trees cmux-next dispatches, not only pushes (which skip it).
+NEXT_TREE = "(github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next'"
 
 
 def steps() -> list[dict]:
@@ -141,7 +143,9 @@ class FatWarmWiring(unittest.TestCase):
         restore = re.search(r"machine-channel-warm-target\.sh restore\b", run)
         self.assertTrue(restore, f"{build['name']}: restores the warm target")
         self.assertLess(restore.start(), run.index(before), f"{build['name']}: restore before the build")
-        self.assertIn(disk, run, f"{build['name']}: uses the fat disk {disk}")
+        # The disk path sits in the run, or in an env value the restore reads (WARM_DISK: a pool
+        # runner's own directory, else the sticky disk's mount point).
+        self.assertIn(disk, run + str(build.get("env", {})), f"{build['name']}: uses the fat disk {disk}")
         # record prunes top-level entries of an over-bound disk: run on the build step's exit it
         # removed target/<triple> before "Stage binary" read it (runs 44240874997, 44243309941).
         self.assertNotRegex(run, r"\brecord\b", f"{build['name']}: never records (prunes) itself")
@@ -353,6 +357,146 @@ class ToolchainStamp(unittest.TestCase):
         out = self.warm("restore", None)
         self.assertTrue(triple.exists(), out)
         self.assertTrue(host.exists(), out)
+
+
+class PoolRunnerWarmTarget(ToolchainStamp):
+    """On a cmux-runner-pool-* runner (no sticky disk, HOME kept) the darwin leg's warm target is
+    the runner slot's own directory: bounded, seeded from R2, removed when the host is short of disk."""
+
+    STAMP = "clang 19 / zig 0.17 / sdk 26.5"
+
+    def setUp(self) -> None:
+        super().setUp()
+        (self.tmp / "bin" / "mountpoint").write_text("#!/bin/sh\nexit 1\n")
+        self.env["HOME"] = str(self.tmp / "home")
+        self.env["RUNNER_NAME"] = "cmux-runner-pool-e1c-0137-3"
+        self.disk = Path(self.pool_dir())
+
+    def pool_dir(self, **env: str) -> str:
+        out = subprocess.run(
+            ["bash", str(self.repo / "scripts/ci/machine-channel-warm-target.sh"), "pool-dir", "aarch64-apple-darwin"],
+            env={**self.env, **env}, capture_output=True, text=True, check=True,
+        )
+        return out.stdout.strip()
+
+    def test_pool_dir_is_the_runner_slots_own_under_home(self) -> None:
+        self.assertEqual(
+            str(self.disk),
+            f"{self.tmp}/home/.cache/cmux-next-ci/cmux-tui-fat-warm/cmux-runner-pool-e1c-0137-3/aarch64-apple-darwin",
+        )
+        self.assertNotEqual(self.pool_dir(RUNNER_NAME="cmux-runner-pool-e1c-0137-2"), str(self.disk))
+        self.assertEqual(self.pool_dir(RUNNER_NAME="blacksmith-16vcpu-ubuntu-2404"), "")
+
+    def test_a_recorded_pool_tree_is_a_hit_and_probes_as_one(self) -> None:
+        self.assertEqual(self.warm("probe", self.STAMP).strip(), "miss")
+        obj = self.build_once(self.STAMP)
+        self.assertEqual(self.warm("probe", self.STAMP).strip(), "hit")
+        self.assertEqual(self.warm("probe", "clang 20").strip(), "miss")
+        out = self.warm("restore", self.STAMP)
+        self.assertIn("warm target: hit", out)
+        self.assertTrue(obj.exists())
+        self.assertEqual(os.readlink(self.repo / "cmux-tui" / "target"), str(self.disk / "target"))
+
+    def test_a_path_outside_the_slot_is_never_used_without_a_mount(self) -> None:
+        self.disk = self.tmp / "elsewhere"
+        out = self.warm("restore", self.STAMP)
+        self.assertIn("no sticky disk mounted", out)
+        self.assertFalse((self.repo / "cmux-tui" / "target").exists())
+
+    def test_the_first_job_seeds_the_tree_from_the_r2_restore(self) -> None:
+        restored = self.repo / "cmux-tui" / "target" / "release" / "deps" / "libdep.rlib"
+        restored.parent.mkdir(parents=True)
+        restored.write_text("from r2\n")
+        self.env["MACHINE_CHANNEL_WARM_SEED_EXACT"] = "true"
+        out = self.warm("restore", self.STAMP)
+        self.assertIn("seeded", out)
+        self.assertTrue((self.repo / "cmux-tui" / "target").is_symlink())
+        self.assertTrue((self.disk / "target" / "release" / "deps" / "libdep.rlib").exists())
+
+    def test_a_prefix_r2_restore_seeds_nothing_another_toolchain_built(self) -> None:
+        restored = self.repo / "cmux-tui" / "target" / "release" / "deps" / "libdep.rlib"
+        restored.parent.mkdir(parents=True)
+        restored.write_text("maybe another toolchain\n")
+        out = self.warm("restore", self.STAMP)
+        self.assertIn("toolchain changed", out)
+        self.assertFalse((self.disk / "target" / "release" / "deps" / "libdep.rlib").exists())
+
+    def test_a_host_short_of_disk_removes_the_tree_and_builds_cold(self) -> None:
+        obj = self.build_once(self.STAMP)
+        self.env["MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES"] = str(1 << 62)
+        out = self.warm("restore", self.STAMP)
+        self.assertIn("pool host has", out)
+        self.assertFalse(obj.exists())
+        self.assertFalse((self.repo / "cmux-tui" / "target").exists())
+
+    def test_record_keeps_the_tree_for_later_readers_and_release_drops_it(self) -> None:
+        # Job 140189679068: record removed the tree on a host short of disk, so the workspace
+        # delta's pack and the R2 dependency save after it found a dangling cmux-tui/target.
+        self.warm("restore", self.STAMP)
+        link = self.repo / "cmux-tui" / "target"
+        obj = link / "release" / "obj.o"
+        obj.parent.mkdir(parents=True)
+        obj.write_text("built\n")
+        self.env["MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES"] = str(1 << 62)
+        out = self.warm("record", self.STAMP)
+        self.assertIn("warm target: recorded", out)
+        self.assertNotIn("pool tree removed", out)
+        self.assertTrue(obj.exists(), "a step after record still reads the tree through the link")
+        out = self.warm("release", self.STAMP)
+        self.assertIn("pool tree removed at the end of the job", out)
+        self.assertFalse((self.disk / "target" / "release" / "obj.o").exists())
+        self.assertFalse(link.is_symlink() or link.exists())
+
+    def test_release_keeps_the_tree_on_a_host_with_room(self) -> None:
+        obj = self.build_once(self.STAMP)
+        out = self.warm("release", self.STAMP)
+        self.assertNotIn("pool tree removed", out)
+        self.assertTrue(obj.exists())
+
+    def test_release_never_touches_a_sticky_disk(self) -> None:
+        self.disk = self.tmp / "elsewhere"
+        (self.disk / "target").mkdir(parents=True)
+        self.env["MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES"] = str(1 << 62)
+        self.warm("release", self.STAMP)
+        self.assertTrue((self.disk / "target").exists())
+
+    def test_release_runs_after_every_reader_of_the_target(self) -> None:
+        names = [s.get("name") for s in steps()]
+        release = step("Release the pool warm target")
+        self.assertEqual(names[-1], "Release the pool warm target", "nothing after it may read cmux-tui/target")
+        for reader in ("Record the warm target", "Pack the workspace delta", "Save the workspace delta to R2",
+                       "Strip the workspace's own output before the R2 save", "Save the cargo build to R2"):
+            self.assertLess(names.index(reader), names.index("Release the pool warm target"), reader)
+        self.assertIn("always()", str(release["if"]))
+        self.assertIn("steps.pool-warm-darwin.outputs.disk", str(release["env"]["POOL_DISK"]))
+        self.assertIn('release "$POOL_DISK"', str(release["run"]))
+
+    def test_record_bounds_a_pool_tree_tighter(self) -> None:
+        self.env["MACHINE_CHANNEL_WARM_POOL_MAX_BYTES"] = "450000"
+        self.build_once(self.STAMP)
+        self.env.pop("MACHINE_CHANNEL_WARM_POOL_MAX_BYTES")
+        self.warm("restore", self.STAMP)
+        self.env["MACHINE_CHANNEL_WARM_POOL_MAX_BYTES"] = "450000"
+        out = self.warm("record", self.STAMP)
+        self.assertIn("warm target: prune bound 450000 bytes", out)
+
+    def test_workflow_routes_the_pool_darwin_leg_to_its_own_tree(self) -> None:
+        locate = step("Locate the pool warm target (feat-cmux-next, fat, aarch64 macOS on Linux)")
+        cond = str(locate["if"])
+        for part in ("startsWith(runner.name, 'cmux-runner-pool-')", "matrix.target == 'aarch64-apple-darwin'", NEXT_TREE, "inputs.lto != 'thin'"):
+            self.assertIn(part, cond)
+        self.assertIn("pool-dir", str(locate["run"]))
+        self.assertIn("probe", str(locate["run"]))
+        stamp = str(step("Build the macOS binaries on Linux (no Apple SDK)")["env"]["MACHINE_CHANNEL_WARM_TOOLCHAIN"])
+        self.assertEqual(str(locate["env"]["MACHINE_CHANNEL_WARM_TOOLCHAIN"]), stamp)
+        self.assertIn("steps.pool-warm-darwin.outputs.hit != 'true'", str(step("Key the cargo build in R2")["if"]))
+        build = step("Build the macOS binaries on Linux (no Apple SDK)")
+        self.assertIn("steps.pool-warm-darwin.outputs.disk", str(build["env"]["WARM_DISK"]))
+        self.assertIn("steps.r2-cargo-target.outputs.cache-hit == 'true'", str(build["env"]["MACHINE_CHANNEL_WARM_SEED_EXACT"]))
+        self.assertIn('restore "$WARM_DISK"', str(build["run"]))
+        record = step("Record the warm target")
+        self.assertIn("steps.pool-warm-darwin.outputs.disk", str(record["env"]["POOL_DISK"]))
+        self.assertIn("${POOL_DISK:-", str(record["run"]))
 
 
 if __name__ == "__main__":

@@ -7,8 +7,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
-import { sendEntries, toolGroups } from "./toolGroups";
-import { AcpmuxSendLine } from "./SentMessageLine";
+import { sendEntries, toolGroups, type SentEntry } from "./toolGroups";
+import { AcpmuxSendLine, sentPageMatches } from "./SentMessageLine";
 import { ToolRows } from "./TurnRows";
 import { configureSentLook } from "./sentMessageLineModel";
 import { configureMessageLineLook } from "./messageLineLook";
@@ -16,6 +16,7 @@ import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { shownText } from "../../../../test/support/factsCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -104,7 +105,7 @@ const listed = (...entries: Partial<AcpmuxSessionEntry>[]) => {
 const rowOf = (container: ParentNode, at = 0) => [...container.querySelectorAll<HTMLElement>(".cv-sent-msg")][at]!;
 const lineText = (row: HTMLElement) =>
   [...row.querySelector(":scope > .cv-agentmsg__line")!.children]
-    .map((part) => part.textContent!.trim())
+    .map((part) => shownText(part).trim())
     .filter(Boolean)
     .join(" ");
 const toggleOf = (row: HTMLElement) =>
@@ -389,4 +390,16 @@ test("the default keeps the chip, the count and the first line on one line; stac
   } finally {
     await act(async () => configureMessageLineLook("single"));
   }
+});
+
+test("Find in a paged tag send mounts one row for the text every recipient shares, and a recipient's own row for its name", () => {
+  const item = { id: "tag-send", tool: bash("acpmux send --tag crew -") } as unknown as AcpmuxActivity;
+  const sent = (target: string, text: string) =>
+    ({ type: "send", item, send: { target, text, state: "sent" } }) as unknown as SentEntry;
+  const tag = Array.from({ length: 1025 }, (_, at) => sent(`peer-${at}`, "hello crew"));
+  expect(sentPageMatches(tag, { needle: "hello" })).toEqual([0]);
+  expect(sentPageMatches(tag, { needle: "peer-1024" })).toEqual([1024]);
+  // A batch whose messages say different things still finds each one.
+  const batch = [sent("a", "hello one"), sent("b", "hello two"), sent("c", "bye")];
+  expect(sentPageMatches(batch, { needle: "hello" })).toEqual([0, 1]);
 });

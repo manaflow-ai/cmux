@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "permission.reach" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يجيب cmux فقط عمّا يطلبه الوكيل. ولا يعزل الوكيل في بيئة معزولة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux odgovara samo na ono što agent traži. Ne izoluje agenta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux svarer kun på det, agenten spørger om. Den isolerer ikke agenten."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux beantwortet nur, was der Agent fragt. Den Agenten isoliert cmux nicht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux answers only what the agent asks it. It does not sandbox the agent."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux solo responde lo que el agente le pide. No aísla al agente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ne répond qu'à ce que l'agent lui demande. Il n'isole pas l'agent."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux risponde solo a ciò che l'agente chiede. Non isola l'agente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux はエージェントが尋ねたことにだけ応答します。エージェントをサンドボックス化はしません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ឆ្លើយតែអ្វីដែលភ្នាក់ងារសួរប៉ុណ្ណោះ។ វាមិនដាក់ភ្នាក់ងារក្នុងប្រអប់ការពារទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux는 에이전트가 묻는 것에만 답합니다. 에이전트를 샌드박스로 격리하지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux svarer bare på det agenten spør om. Den isolerer ikke agenten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux odpowiada tylko na to, o co pyta agent. Nie izoluje agenta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O cmux responde apenas ao que o agente pede. Ele não isola o agente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux отвечает только на то, о чём спрашивает агент. Он не изолирует агента."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ตอบเฉพาะสิ่งที่เอเจนต์ถามเท่านั้น และไม่ได้แยกเอเจนต์ไว้ในแซนด์บ็อกซ์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux yalnızca ajanın sorduklarını yanıtlar. Ajanı yalıtmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux відповідає лише на те, про що питає агент. Він не ізолює агента."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux chỉ trả lời những gì tác nhân hỏi. Nó không cô lập tác nhân."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 只回应代理提出的请求，不会将代理放入沙盒。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 只回應代理提出的請求，不會將代理放入沙箱。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

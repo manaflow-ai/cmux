@@ -24,6 +24,14 @@ public extension Metrics {
         return min(((side * 8 / 28) * 2).rounded() / 2, side / 2)
     }
 
+    /// The corner of a toolbar icon button's hover, pressed and active fill on a button `side` points tall: a look's
+    /// `appearance.metrics.toolbarButtonCornerRadius` (Claude's header buttons sit on a rounded square), at most a
+    /// circle; unset, ``buttonCornerRadius(proportionalTo:)``, today's.
+    static func toolbarButtonCornerRadius(side: CGFloat) -> CGFloat {
+        guard let radius = lookOverride(.toolbarButtonCornerRadius) else { return buttonCornerRadius(proportionalTo: side) }
+        return min(radius, side / 2)
+    }
+
     /// The corner of a button nested `inset` points inside a rounded shape whose corner is the button corner
     /// (a segmented control's segment, a chip in a pill): ``buttonCornerRadius`` less the inset, the
     /// concentric rule (inner = outer - inset), so the gap between the two corners stays even.

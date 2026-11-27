@@ -45,7 +45,7 @@ export const { signal, computed, effect, onCleanup, untrack } = g
 export const {
   VStack, HStack, ZStack, LazyVStack, Group, ForEach, Reorderable,
   Text, Icon, Image, Button, Menu, Spacer, Divider, Row, Badge, EmptyState, Panel,
-  Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle, Line
+  Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle, Line, Particles
 } = g
 
 /** Gradient fills for `.background(...)` and a shape's `.fill(...)`: 2 to 8 stops (tones or
@@ -60,6 +60,22 @@ export type View = CmuxView
 export type Signal<T> = CmuxSignal<T>
 export type Gradient = CmuxGradient
 export type Fill = CmuxFill
+
+/** Motion props (`.animation`, `.loop`, `.transition`, `Particles`, ...): declared in the scene, run by cmux's renderer at display rate. */
+export type Motion = CmuxMotion
+export type Loop = CmuxLoop
+export type LoopEffect = CmuxLoopEffect
+export type Transition = CmuxTransition
+export type TimedTransition = CmuxTimedTransition
+export type Offset = CmuxOffset
+export type Glow = CmuxGlow
+export type LinearGradient = CmuxLinearGradient
+export type Trim = CmuxTrim
+export type ParticlePreset = CmuxParticlePreset
+export type ParticlesProps = CmuxParticlesProps
+export type ParticleChoreography = CmuxParticleChoreography
+export type ChoreographyTrigger = CmuxChoreographyTrigger
+export type ChoreographyEase = CmuxChoreographyEase
 
 // ---------------------------------------------------------------------------------------------
 // Places. Export the result under the name the manifest gives the place's `export`.
@@ -78,8 +94,35 @@ export function section(render: (context: MountContext) => View): (context: Moun
   return render
 }
 
-/** A pane (`cmux.pane/1`): a tab kind the person opens from the palette or an op. Same scene DSL as a section. */
-export function pane(render: (context: MountContext) => View): (context: MountContext) => View {
+/**
+ * The whole workspace list (`cmux.sidebar/1`), drawn in place of the built-in one once the person
+ * names the extension in `sidebar.workspaceListApp`. The built-in list stays the fallback: cmux
+ * draws it while this one loads, fails or is removed. examples/extensions/workspace-list is the
+ * built-in list rebuilt on this SDK, to copy and change.
+ *
+ *     // cmux-app.json: "implements": { "cmux.sidebar/1": { "export": "renderSidebar", "title": "Workspaces" } }
+ *     export const renderSidebar = sidebar(() => VStack([...]))
+ */
+export function sidebar(render: (context: MountContext) => View): (context: MountContext) => View {
+  return render
+}
+
+/**
+ * A pane's context (`cmux.pane/1`): `args` from `cmux.app.openPane(args)` (null when the person opened
+ * it), `close(result)` to answer that open, `onOpen(fn)` and `onClose(fn)`.
+ */
+export type PaneContext = CmuxPaneContext
+/** What `cmux.app.openPane` resolves with. */
+export type PaneResult<T = unknown> = CmuxPaneResult<T>
+
+/**
+ * A pane (`cmux.pane/1`): a tab kind the person opens from the palette or an op. Same scene DSL as a
+ * section. Another view of the extension opens it with arguments and waits for its result:
+ *
+ *     const { result, dismissed } = await cmux.app.openPane({ id: "issue-42" })
+ *     export const renderPane = pane((ctx) => Button("Pick", () => ctx.close({ picked: ctx.args?.id })))
+ */
+export function pane(render: (context: PaneContext) => View): (context: PaneContext) => View {
   return render
 }
 
@@ -87,7 +130,7 @@ export function pane(render: (context: MountContext) => View): (context: MountCo
 export type NewTabContext = { surface: "newTab"; cwd?: string }
 
 /**
- * A whole New Tab page (`cmux.newtab/1`): the scene is the page's body, in place of cmux's own page.
+ * A New Tab view (`cmux.newtab/1`): the scene draws in a slot over cmux's own composer, never in its place.
  * It shows only once the person picks the extension (`cmux settings set tabs.newTabApp <id>`); when
  * it is hidden, disabled or its render fails, cmux draws its own page. Open the tab the person asks
  * for with `cmux.actions.run` from a click (scope `actions:run`).

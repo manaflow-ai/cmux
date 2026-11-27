@@ -157,11 +157,14 @@ pub static ACTIONS: &[Action] = &[
         default_shortcut: Some(Shortcut { key: "`", modifiers: CTRL }),
         category: "tab",
         symbol: "terminal",
-        surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
+        surfaces: PALETTE | KEYBOARD | MENU | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "create", 0).folder("new"), Placement::at("newTab", "create", 0)], ..SurfacePlan::DEFAULT },
         arguments: &[args::CWD.optional(), args::KEEP.optional()],
         targets: &["tab"],
         cli_name: "tab new-terminal",
+        // In File so a person who has never used Ctrl-` can find a terminal: Cmd-T opens a chat
+        // (the persona walk, hq docs/dogfood/personas/runs/2026-11-26/P0).
+        main_menu: Some("file"),
         starts_terminal: true,
         opens_workspace_content: true,
         ..Action::DEFAULT
@@ -203,6 +206,7 @@ pub static ACTIONS: &[Action] = &[
         targets: &["pane"],
         cli_name: "tab new-mac-screen",
         main_menu: Some("file"),
+        description: Some("Opens a Screen Sharing tab. --device takes one of your devices by name (its Computer Name, matched without case; `mac-mini` also finds \"Mac Mini\") or by device id; an unknown or ambiguous name fails with your devices listed as name (id). Without --device it opens the Screen Sharing home page. From the CLI or an agent the tab waits at its Connect button: only a person's click connects."),
         ..Action::DEFAULT
     },
     Action {
@@ -494,7 +498,7 @@ pub static ACTIONS: &[Action] = &[
         category: "tab",
         symbol: "arrow.left",
         surfaces: KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "move", 409).folder("move")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "tab move-left",
         main_menu: Some("file"),
@@ -509,7 +513,7 @@ pub static ACTIONS: &[Action] = &[
         category: "tab",
         symbol: "arrow.right",
         surfaces: KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "move", 410).folder("move")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "tab move-right",
         main_menu: Some("file"),

@@ -91,6 +91,7 @@ struct Entry {
     stamp: kind_heads::DirStamp,
     list: SegmentList,
     cut_pending: bool,
+    sealed: bool,
     bytes: usize,
 }
 
@@ -119,22 +120,26 @@ impl SegmentTable {
         }
     }
 
-    pub(super) fn list(&self, id: &str, dir: &Path) -> Result<(SegmentList, bool)> {
+    /// The segments, whether a cut's intent is beside them, and whether a segment zstd'd in
+    /// place with no plain one of its name is (`store/sealed_segments.rs`).
+    pub(super) fn list(&self, id: &str, dir: &Path) -> Result<(SegmentList, bool, bool)> {
         let stamp = kind_heads::dir_stamp(dir, std::time::SystemTime::now()).ok().flatten();
         if let Some(stamp) = stamp {
             let table = self.table.lock_or_recover();
             if let Some(entry) = table.entries.get(id).filter(|entry| entry.stamp == stamp) {
-                return Ok((entry.list.clone(), entry.cut_pending));
+                return Ok((entry.list.clone(), entry.cut_pending, entry.sealed));
             }
         }
         // No table lock is held during filesystem work, rehydration, or cut recovery.
         #[cfg(test)]
         self.listings.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut out = Vec::new();
+        let mut cold = Vec::new();
         let mut cut_pending = false;
+        let mut sealed = Vec::new();
         let Ok(rd) = std::fs::read_dir(dir) else {
             self.forget(id);
-            return Ok((SegmentList::default(), false));
+            return Ok((SegmentList::default(), false, false));
         };
         for entry in rd {
             let entry = entry?;
@@ -145,9 +150,27 @@ impl SegmentTable {
                 && let Ok(index) = stem.parse::<u32>()
             {
                 out.push((index, entry.path()));
+            } else if let Some(index) = super::cold_segments::idx_index(&name) {
+                cold.push(index);
+            } else if let Some(plain) = sealed_segments::plain_name(&name) {
+                sealed.push(plain.to_owned());
+            }
+        }
+        // A sealed segment that went cold (`store/cold_segments.rs`) reads from its archive once
+        // only its index is left: while its `.ndjson` is there, that is the segment.
+        if !cold.is_empty()
+            && let Some(session) = dir.parent()
+        {
+            for index in cold {
+                if !out.iter().any(|(i, _)| *i == index) {
+                    out.push((index, super::cold_segments::zst_path(session, index)));
+                }
             }
         }
         out.sort();
+        let sealed = sealed.iter().any(|plain| {
+            !out.iter().any(|(_, path)| path.file_name().is_some_and(|f| f == plain.as_str()))
+        });
         let bytes = out.iter().fold(id.len(), |bytes, (_, path)| {
             bytes.saturating_add(std::mem::size_of::<(u32, PathBuf)>() + path.as_os_str().len())
         });
@@ -166,13 +189,14 @@ impl SegmentTable {
                 table.bytes = 0;
             }
             table.bytes += bytes;
-            table
-                .entries
-                .insert(id.to_owned(), Entry { stamp, list: list.clone(), cut_pending, bytes });
+            table.entries.insert(
+                id.to_owned(),
+                Entry { stamp, list: list.clone(), cut_pending, sealed, bytes },
+            );
         } else {
             self.forget(id);
         }
-        Ok((list, cut_pending))
+        Ok((list, cut_pending, sealed))
     }
 }
 

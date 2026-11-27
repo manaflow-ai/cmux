@@ -7,6 +7,7 @@ import { HIGHLIGHT_EASING, HIGHLIGHT_MS } from "./model";
 import { railOwnsWheel } from "./railWheel";
 import { userScrollIntent } from "../conversation/userScroll";
 import { holdMomentum } from "./momentumHold";
+import { writeScrollBy, writeScrollTop } from "../conversation/scrollController";
 
 const running = new WeakMap<HTMLElement, () => void>();
 
@@ -81,7 +82,7 @@ export function animateScroll(
       const externalDelta = node.scrollTop - last;
       if (Math.abs(externalDelta) > 0.5) from += externalDelta;
       const next = from + (target() - from) * progress;
-      node.scrollTop = next;
+      writeScrollTop(node, next, "glide");
       last = next;
     },
     then,
@@ -118,7 +119,7 @@ export function animateScrollBy(
       // so WebKit cannot floor a fractional tail past the target and bounce back. The live
       // offset (including the row-id anchor's own corrections) is never rounded or replaced.
       const next = Math.round(distance * progress);
-      node.scrollTop += toEnd ? left() * fraction : next - done;
+      writeScrollBy(node, toEnd ? left() * fraction : next - done, "glide");
       done = next;
       previous = progress;
     },
@@ -213,7 +214,13 @@ export function settleScroll(
   node: HTMLElement,
   offset: () => number | undefined,
   frames: number,
-  options: { explicit?: boolean } = {},
+  options: {
+    explicit?: boolean;
+    /// How far to scroll while `offset` has not measured yet (its row not drawn): the landing as the
+    /// layout has it now. Its moves never count toward settling, so the settle runs on until the row
+    /// is drawn and measured, or its frames run out.
+    unmeasured?: () => number | undefined;
+  } = {},
 ): void {
   const intent = userScrollIntent(node);
   if (intent.isHeld() && !options.explicit) return;
@@ -222,6 +229,9 @@ export function settleScroll(
   let frame = 0;
   let left = frames;
   let steady = 0;
+  /// Whether `offset` has measured once: from then on its row's own place is the landing, and a
+  /// frame it cannot measure (the row remounting under a prepend) moves nothing.
+  let measured = false;
   const page = node.ownerDocument.defaultView ?? window;
   let unsubscribeIntent: (() => void) | undefined;
   const end = () => {
@@ -236,15 +246,23 @@ export function settleScroll(
   unsubscribeIntent = intent.subscribe(end);
   const step = () => {
     // A scroller with no layout (hidden, or a DOM without one) has nothing to measure.
-    const by = node.clientHeight > 0 ? offset() : undefined;
-    if (by !== undefined) {
+    const laidOut = node.clientHeight > 0;
+    const by = laidOut ? offset() : undefined;
+    if (by !== undefined) measured = true;
+    // Only before the row is first measured, and only in a scroller with layout to scroll in.
+    const estimate =
+      laidOut && by === undefined && !measured && node.scrollHeight > node.clientHeight
+        ? options.unmeasured?.()
+        : undefined;
+    const move = by ?? estimate;
+    if (move !== undefined && Number.isFinite(move)) {
       const max = Math.max(0, node.scrollHeight - node.clientHeight);
-      const to = Math.max(0, Math.min(max, node.scrollTop + by));
+      const to = Math.max(0, Math.min(max, node.scrollTop + move));
       if (Math.abs(to - node.scrollTop) > 0.5) {
-        node.scrollTop = to;
+        writeScrollTop(node, to, "glide");
         announceScroll(node);
         steady = 0;
-      } else steady += 1;
+      } else if (by !== undefined) steady += 1;
     }
     left -= 1;
     if (steady >= 3 || left <= 0) end();

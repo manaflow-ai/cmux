@@ -342,10 +342,25 @@ await requireBrowserLane("code-restore-highlighted-browser.test.ts", async () =>
         await route.continue();
       });
       const p = await context.newPage();
+      const errors: string[] = [];
+      p.on("pageerror", (error) => errors.push(error.message));
       await installPaintedFrames(p);
       await watch(p, LATE_MS);
       await p.goto(url());
-      await p.waitForFunction(() => (window as any).__codeState?.swapMs > 0, null, { timeout: 60_000 });
+      try {
+        await p.waitForFunction(() => (window as any).__codeState?.swapMs > 0, null, { timeout: 60_000 });
+      } catch (error) {
+        console.error("relaunch did not hand over", {
+          errors,
+          asked: Object.fromEntries(asked),
+          page: await p.evaluate(() => ({
+            state: (window as any).__codeState,
+            text: document.getElementById("root")?.textContent?.slice(0, 2000),
+            snapshot: !!document.querySelector("cmux-chat-snapshot"),
+          })),
+        });
+        throw error;
+      }
       // Two and a half seconds of frames after the copy went.
       await p.waitForFunction(() => performance.now() - (window as any).__codeState.swapMs > 2_500, null, {
         timeout: 30_000,

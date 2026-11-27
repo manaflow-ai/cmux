@@ -13,7 +13,11 @@ use super::{Command, MessageWriter, Mux, Response, send_response};
 use crate::resource::TerminalPublicId;
 
 const DEADLINE: Duration = Duration::from_secs(5);
-const CAPACITY: usize = 16;
+/// The longest terminal list one subscribe carries (input validation of one request).
+const MAX_TERMINALS: usize = 256;
+/// Each open request's waiter is a thread that sleeps in `recv_timeout` for at most
+/// [`DEADLINE`]; a small stack keeps its cost constant, so the count is not capped.
+const WAIT_STACK_BYTES: usize = 128 * 1024;
 
 struct Subscriber {
     terminals: HashSet<String>,
@@ -43,15 +47,11 @@ impl URLRequests {
         terminals: Vec<String>,
         writer: MessageWriter,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(terminals.len() <= 256, "too many URL opener terminals");
+        anyhow::ensure!(terminals.len() <= MAX_TERMINALS, "too many URL opener terminals");
         for terminal in &terminals {
             TerminalPublicId::parse(terminal.clone())?;
         }
         let mut state = self.0.lock().recover_poison();
-        anyhow::ensure!(
-            state.subscribers.len() < CAPACITY || state.subscribers.contains_key(&client),
-            "too many URL opener clients"
-        );
         state
             .subscribers
             .insert(client, Subscriber { terminals: terminals.into_iter().collect(), writer });
@@ -61,9 +61,6 @@ impl URLRequests {
     fn prepare(&self, terminal: &str, url: &str) -> Option<(String, mpsc::Receiver<bool>)> {
         let (id, writer, receiver) = {
             let mut state = self.0.lock().recover_poison();
-            if state.pending.len() >= CAPACITY {
-                return None;
-            }
             let mut candidates = state.subscribers.iter().filter(|(_, subscriber)| {
                 subscriber.terminals.contains(terminal) && subscriber.writer.is_open()
             });
@@ -161,7 +158,7 @@ pub(super) fn handle(
     }
 }
 
-fn validate_url(raw: &str) -> bool {
+pub(super) fn validate_url(raw: &str) -> bool {
     raw.len() <= 16_384
         && !raw.chars().any(|c| c.is_control() || c.is_whitespace())
         && url::Url::parse(raw)
@@ -190,11 +187,14 @@ pub(super) fn start(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let cleanup_id = request_id.clone();
-    let spawned = std::thread::Builder::new().name("mux-url-open".into()).spawn(move || {
-        let opened = receiver.recv_timeout(DEADLINE).unwrap_or(false);
-        worker_mux.control_clients.url_opens.cancel(&request_id);
-        respond(&worker_writer, worker_id, opened);
-    });
+    let spawned = std::thread::Builder::new()
+        .name("mux-url-open".into())
+        .stack_size(WAIT_STACK_BYTES)
+        .spawn(move || {
+            let opened = receiver.recv_timeout(DEADLINE).unwrap_or(false);
+            worker_mux.control_clients.url_opens.cancel(&request_id);
+            respond(&worker_writer, worker_id, opened);
+        });
     if spawned.is_err() {
         mux.control_clients.url_opens.cancel(&cleanup_id);
         return respond(writer, id, false);

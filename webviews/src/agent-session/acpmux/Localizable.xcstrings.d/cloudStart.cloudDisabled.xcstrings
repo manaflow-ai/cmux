@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "cloudStart.cloudDisabled" : {
+      "comment" : "Agent pane: Cloud start card. A Cloud start the app refused because its Cloud services are off or Cloud is not allowed here (code cloud_disabled); Run on This Mac follows it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud is off in this app right now, so this chat can't start on a Cloud machine."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud متوقف في هذا التطبيق الآن، لذا لا يمكن بدء هذه الدردشة على جهاز Cloud."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud je trenutno isključen u ovoj aplikaciji, pa se ovaj chat ne može pokrenuti na Cloud mašini."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud er slået fra i denne app lige nu, så denne chat kan ikke starte på en Cloud-maskine."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud ist in dieser App gerade ausgeschaltet, daher kann dieser Chat nicht auf einer Cloud-Maschine starten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud está desactivado en esta app ahora mismo, así que este chat no puede iniciarse en una máquina de Cloud."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud est désactivé dans cette app pour le moment : ce chat ne peut pas démarrer sur une machine Cloud."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud è disattivato in questa app al momento, quindi questa chat non può avviarsi su una macchina Cloud."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在このアプリでは Cloud がオフのため、このチャットを Cloud マシンで開始できません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud ត្រូវបានបិទនៅក្នុងកម្មវិធីនេះឥឡូវនេះ ដូច្នេះការជជែកនេះមិនអាចចាប់ផ្តើមលើម៉ាស៊ីន Cloud បានទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "지금 이 앱에서 Cloud가 꺼져 있어 이 채팅을 Cloud 머신에서 시작할 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud er slått av i denne appen akkurat nå, så denne chatten kan ikke starte på en Cloud-maskin."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud jest teraz wyłączony w tej aplikacji, więc ten czat nie może wystartować na maszynie Cloud."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Cloud está desativado neste app agora, então este chat não pode começar em uma máquina do Cloud."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud сейчас отключён в этом приложении, поэтому этот чат нельзя запустить на машине Cloud."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ตอนนี้ Cloud ปิดอยู่ในแอปนี้ จึงเริ่มแชทนี้บนเครื่อง Cloud ไม่ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud şu anda bu uygulamada kapalı, bu yüzden bu sohbet bir Cloud makinesinde başlatılamıyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud зараз вимкнено в цьому застосунку, тож цей чат не можна запустити на машині Cloud."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud hiện đang tắt trong ứng dụng này, nên không thể bắt đầu cuộc trò chuyện này trên máy Cloud."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此应用当前已关闭 Cloud，因此无法在 Cloud 机器上开始此聊天。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 App 目前已關閉 Cloud，因此無法在 Cloud 機器上開始這個聊天。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

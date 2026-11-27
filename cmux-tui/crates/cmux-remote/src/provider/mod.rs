@@ -13,10 +13,12 @@ mod iroh_config;
 mod machine_pipe;
 #[cfg(unix)]
 pub mod overlay;
+mod proxied;
 mod relay;
 pub(crate) mod socks;
 mod ssh;
 mod stream;
+pub mod tailnet;
 #[cfg(unix)]
 mod unix;
 mod websocket;
@@ -37,7 +39,7 @@ use crate::observability::TransportSnapshot;
 pub use dial::WireGuardDialer;
 pub use dial::{
     DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, PER_ADDRESS_CONNECT_TIMEOUT,
-    SocksDialer, resolve_dial_target,
+    SocksDialer, TailnetDialer, resolve_dial_target,
 };
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
@@ -48,7 +50,8 @@ pub use iroh_config::{
 };
 #[cfg(unix)]
 pub use machine_pipe::{
-    MACHINE_PIPE_METHOD, MachinePipeDialer, machine_pipe_reply, machine_pipe_request,
+    MACHINE_PIPE_METHOD, MachinePipeDialer, TERMINAL_REFUSALS, machine_pipe_reply,
+    machine_pipe_request,
 };
 pub use relay::{
     BoundCredential, RegistrationState, RelayClientConfig, RelayCredentialSource,
@@ -61,6 +64,10 @@ pub use ssh::{
     SshProvider, SshProviderConfig, one_line, ssh_stderr_of,
 };
 pub use stream::LengthDelimitedLink;
+pub use tailnet::{
+    LocalApiTailnetHints, NoTailnetHints, PeerPath, TailnetCarrierMode, TailnetHints,
+    add_candidates, hints_for_mode,
+};
 #[cfg(unix)]
 pub use unix::UnixProvider;
 pub(crate) use websocket::DisplaySeconds;
@@ -115,6 +122,12 @@ impl ProviderCapabilities {
         carrier_encryption: true,
     };
 }
+
+/// Routing hint (local, never sent) marking a dial as a warm standby: a provider whose groups
+/// share per-peer path state (iroh keeps one selected path per peer per endpoint) dials it on a
+/// socket apart from the one carrying the peer's live link, so a path that dies under the link
+/// is not the standby's too. Value `1`; providers without shared state ignore it.
+pub const ROUTING_STANDBY: &str = "cmux_standby";
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ConnectRequest {
@@ -185,6 +198,27 @@ pub trait LinkGroup: Send + Sync {
     }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError>;
     async fn close(&self) -> Result<(), ProviderError>;
+    /// Whether the group is known to be closed, read from local state with no round trip (a
+    /// held QUIC connection the far end or an idle timeout closed). `false` for a group that
+    /// cannot tell, such as one that opens its socket with each link.
+    fn is_closed(&self) -> bool {
+        false
+    }
+    /// Asks the far end to keep this group open while it carries nothing, for a standby: the lease
+    /// granted, or None where the provider or the far end has no hold (the standby is redialed).
+    async fn hold(&self) -> Option<std::time::Duration> {
+        None
+    }
+
+    /// Resolves when the group closes (never, for a group that cannot tell): a warm standby
+    /// held unused re-arms when it goes, instead of being found dead when it is needed.
+    async fn wait_closed(&self) {
+        std::future::pending::<()>().await;
+    }
+    /// Drops the carrier of a link that just failed, keeping the group: its next `open` dials
+    /// fresh instead of opening a stream on a connection that waits out its idle timeout on a
+    /// dead path. A no-op for a group that opens its socket with each link.
+    fn abandon(&self) {}
 }
 
 /// Returns an endpoint label safe for diagnostics and user-facing status.

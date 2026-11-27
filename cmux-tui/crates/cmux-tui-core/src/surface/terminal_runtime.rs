@@ -357,12 +357,17 @@ pub struct PtyTerminalRuntime {
     /// interval, then closes journal capture before it inserts the final
     /// journal barrier.
     pub(super) reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The reader let go of its first thread's handle when it parked (a
+    /// quiet holder terminal): that thread has ended, and an unjoined
+    /// handle keeps its whole stack mapped for as long as the tab lives.
+    /// Shutdown then waits on `reader_completion` alone.
+    pub(super) reader_detached: AtomicBool,
     pub(super) reader_completion: Arc<ReaderCompletion>,
     /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
     /// as the reader so the child wait cannot outlive terminal teardown.
     pub(super) reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     pub(super) reaper_completion: Arc<ReaderCompletion>,
-    pub(super) term: RankedMutex<Box<Terminal>>,
+    pub(super) term: TerminalMirror,
     pub(super) stream_progress: Box<TerminalStreamProgress>,
     /// Generic metadata parsed from raw PTY output. This field has no agent
     /// or roster knowledge, so userland plugins can consume it through the

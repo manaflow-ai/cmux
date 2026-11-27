@@ -18,8 +18,12 @@ iroh-transport = ["dep:iroh"]
 wireguard-transport = ["dep:cmux-wg"]
 
 [dependencies]
+cmux-braid-carrier.workspace = true
+cmux-braid-path.workspace = true
 cmux-json.workspace = true
+cmux-braid-session.workspace = true
 cmux-deadline = { workspace = true, features = ["tokio"] }
+cmux-process.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
@@ -27,10 +31,18 @@ bytes.workspace = true
 cmux-pty.workspace = true
 cmux-link.workspace = true
 cmux-netwatch.workspace = true
+# The system proxy (PAC on macOS, the environment elsewhere) for the relay and `wss` routes, and the
+# inspected-TLS mark (src/provider/proxied.rs).
+cmux-proxy.workspace = true
 cmux-remote-protocol.workspace = true
 # The signed Linux release file an unbundled build's pin comes from (ssh_artifacts).
 cmux-signed-envelope.workspace = true
-cmux-tui-core.workspace = true
+# tailscaled's LocalAPI path hints for the opt-in tailnet carrier (provider/tailnet.rs).
+cmux-tailnet-local.workspace = true
+# The terminal host's wire and keepalive, and accept backoff, without cmux-tui-core: a
+# cmux-tui-core edit then rebuilds neither this crate nor acpmux (its hub carrier uses it).
+cmux-terminal-host-protocol.workspace = true
+cmux-tui-util.workspace = true
 cmux-unix-socket.workspace = true
 cmux-wg = { workspace = true, optional = true }
 diffy.workspace = true
