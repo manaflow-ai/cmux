@@ -230,6 +230,32 @@
    ],
    "affects_why": "swift-logic-delta.py --gate counts swift_logic_lines + mirror_lines (swift-logic-lines.py) at the base and the merge commit: it reads only Swift files, the class table plans/cmux-next/swift-logic-classes.tsv and its own counter. A change touching none of them moves neither number. Before: the 400 feat-cmux-next merges to 2026-11-25T23Z added 3,334 lines in 43 PRs, none asked why.",
    "skip_docs_only": true
+  },
+  "transcript-replay-perf-report.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "affects": [
+    "webviews/src/agent-session/**",
+    "webviews/bench/transcript-replay*",
+    "webviews/bench/browsers.ts",
+    "webviews/bench/godFixture.ts",
+    "webviews/bench/perfRow.ts",
+    "webviews/bench/replayLogs.ts",
+    "webviews/bench/stability.ts",
+    "webviews/bench/support/sharedBuilds.ts",
+    "webviews/test/support/foldFrameReport.ts",
+    "webviews/test/support/paintedFrames.ts",
+    "scripts/measure/replay-under-load.sh",
+    "webviews/bench/replay-under-load*",
+    "scripts/ci/transcript_replay_report.py",
+    ".github/workflows/transcript-replay-perf-report.yml"
+   ],
+   "affects_why": "webviews/bench/transcript-replay-ab.sh replays the long chat into the agent pane built from webviews/src/agent-session (and what it imports) at the merge base and the head, with the head's bench and its imports (browsers, godFixture, perfRow, replayLogs, stability, support/sharedBuilds, test/support foldFrameReport and paintedFrames); the duress reading runs scripts/measure/replay-under-load.sh and its bench; the summary is scripts/ci/transcript_replay_report.py. A change touching none of them moves no number in the report.",
+   "skip_docs_only": true
   }
  }
 }

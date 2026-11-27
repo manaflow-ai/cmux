@@ -385,6 +385,14 @@ jobs:
     permissions:
       contents: read
 
+  transcript-replay-perf-report:
+    name: transcript-replay perf report
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'transcript-replay-perf-report.yml') }}
+    uses: ./.github/workflows/transcript-replay-perf-report.yml
+    permissions:
+      contents: read
+
   screen-share-drop-gate:
     name: screen share drop gate
     # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
