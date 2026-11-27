@@ -1,13 +1,12 @@
-import CmuxEgress
 public import CMUXAuthCore
 import CmuxNextCloud
 public import Foundation
 
 /// "Pair Another Machine…" over the cmux cloud: `server.pair.invite` (origin user) through the API
 /// Worker as the signed-in user, and the invite's watch socket (`GET /v1/pair/invite/wait?invite=CODE`,
-/// subprotocols `cmux.pair-invite.v1, watch.<secret>`). The socket pushes every change; nothing
-/// polls. Preview and approve are Add Server's own. The App supplies the Worker call, the team and
-/// the refusal texts.
+/// subprotocols `cmux.pair-invite.v1, watch.<secret>`), which the bundled `cmux` opens in Rust
+/// (`cmux cloud pair-invite-watch`). The socket pushes every change; nothing polls. Preview and approve are
+/// Add Server's own. The App supplies the Worker call, the team, the refusal texts and the bundled `cmux`.
 extension PairInviteService {
     /// The refusal texts the invite shows (the App's refusal catalog).
     public nonisolated struct CloudTexts: Sendable {
@@ -32,10 +31,20 @@ extension PairInviteService {
     ///   - apiBaseURL: The API Worker the socket opens on.
     ///   - buildSpace: The build's cloud data space (`CloudConfiguration.buildSpace`), on the socket's upgrade as on
     ///     every other Worker request; a misconfigured dev build opens no socket.
+    ///   - cli: The bundled `cmux`, which runs the watch (`cmux cloud pair-invite-watch`).
     @MainActor
     public static func cloud(team: @escaping @MainActor @Sendable () async throws -> String?,
                              call: @escaping @MainActor @Sendable (_ path: String, _ body: [String: Any]) async throws -> Any?,
-                             texts: CloudTexts, apiBaseURL: URL, buildSpace: CMUXBuildSpaceState) -> PairInviteService {
+                             texts: CloudTexts, apiBaseURL: URL, buildSpace: CMUXBuildSpaceState, cli: CloudCLICall) -> PairInviteService {
+        cloud(team: team, call: call, texts: texts, apiBaseURL: apiBaseURL, buildSpace: buildSpace, lines: cli.lines(timeout: watchLimit))
+    }
+
+    /// ``cloud(team:call:texts:apiBaseURL:buildSpace:cli:)`` over any line stream (a test's fake `cmux`).
+    @MainActor
+    static func cloud(team: @escaping @MainActor @Sendable () async throws -> String?,
+                      call: @escaping @MainActor @Sendable (_ path: String, _ body: [String: Any]) async throws -> Any?,
+                      texts: CloudTexts, apiBaseURL: URL, buildSpace: CMUXBuildSpaceState,
+                      lines: @escaping CloudCLICall.Lines) -> PairInviteService {
         PairInviteService(
             mint: { @MainActor in
                 do {
@@ -61,74 +70,64 @@ extension PairInviteService {
                 }
             },
             watch: { invite in
-                let request = try? Self.watchRequest(apiBaseURL, invite: invite, buildSpace: buildSpace)
-                return AsyncStream(bufferingPolicy: .bufferingNewest(16)) { continuation in
+                AsyncStream(bufferingPolicy: .bufferingNewest(16)) { continuation in
                     // A misconfigured dev build's refusal: the watch reads as lost, never as nightly's socket.
-                    guard let request else {
+                    guard let environment = try? Self.watchEnvironment(buildSpace),
+                          let stdin = Self.watchRequest(apiBaseURL, invite: invite) else {
                         continuation.yield(.lost)
                         continuation.finish()
                         return
                     }
-                    // task-owner: the invite's watch socket; ends when the socket closes or the stream's consumer stops.
-                    let task = Task { await Self.watch(request, invite: invite, into: continuation) }
+                    // task-owner: the invite's watch child; ends when its socket closes or the stream's consumer stops.
+                    let task = Task { await Self.watch(lines, stdin: stdin, environment: environment, invite: invite, into: continuation) }
                     continuation.onTermination = { _ in task.cancel() }
                 }
             })
     }
 
-    /// `wss://…/v1/pair/invite/wait?invite=CODE` on the API Worker (`ws://` for a local http one).
-    nonisolated static func watchURL(_ base: URL, invite: String) -> URL {
-        var components = URLComponents(url: base.appendingPathComponent("v1/pair/invite/wait"), resolvingAgainstBaseURL: false)
-            ?? URLComponents()
-        components.scheme = components.scheme == "http" ? "ws" : "wss"
-        components.queryItems = [URLQueryItem(name: "invite", value: invite)]
-        return components.url ?? base
+    /// The watch child's arguments: `cmux cloud pair-invite-watch` (cmux-tui `cli/cloud_pair_invite_watch.rs`), which
+    /// opens the socket in Rust.
+    nonisolated static let watchArguments = ["cloud", "pair-invite-watch"]
+
+    /// The longest one watch runs: an invite lives ten minutes; the Worker closes the socket at its expiry.
+    nonisolated static let watchLimit: Duration = .seconds(30 * 60)
+
+    /// The watch child's stdin: `{api, invite, secret}` (the secret never goes in argv).
+    nonisolated static func watchRequest(_ base: URL, invite: PairInvite) -> Data? {
+        try? JSONSerialization.data(withJSONObject: ["api": base.absoluteString, "invite": invite.code, "secret": invite.watchSecret])
     }
 
-    /// The watch socket's upgrade: ``watchURL(_:invite:)``, the subprotocols (`cmux.pair-invite.v1, watch.<secret>`)
-    /// and the build space's header; throws ``CMUXBuildSpaceError`` for a misconfigured dev build.
-    nonisolated static func watchRequest(_ base: URL, invite: PairInvite, buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
-        var request = URLRequest(url: watchURL(base, invite: invite.code))
-        request.setValue(PairInviteFrame.protocols(secret: invite.watchSecret).joined(separator: ", "),
-                         forHTTPHeaderField: "Sec-WebSocket-Protocol")
-        try buildSpace.apply(to: &request)
-        return request
+    /// The app's environment with this build's `CMUX_BUILD_SPACE` (the Rust socket's build space header); throws
+    /// ``CMUXBuildSpaceError`` for a misconfigured dev build, which opens no socket.
+    nonisolated static func watchEnvironment(_ buildSpace: CMUXBuildSpaceState) throws -> [String: String] {
+        _ = try buildSpace.headers()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_BUILD_SPACE"] = buildSpace.childEnvironmentValue
+        return environment
     }
 
-    /// One socket for one invite: each text frame decoded and yielded, then one last frame saying why
-    /// it closed (``PairInviteFrame/expired`` at the code's expiry, else ``PairInviteFrame/lost``).
-    /// Event driven: each turn awaits the next frame; a closed socket throws and ends it.
-    nonisolated private static func watch(_ request: URLRequest, invite: PairInvite, into continuation: AsyncStream<PairInviteFrame>.Continuation) async {
-        let task = CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxNextServer.PairInviteService+Cloud"), with: request, site: "CmuxNextServer.PairInviteService+Cloud")
-        task.maximumMessageSize = 64 << 10
-        task.resume()
-        defer {
-            task.cancel(with: .goingAway, reason: nil)
-            continuation.finish()
-        }
-        // receive() ignores task cancellation: the handler closes the socket, so a stopped watch yields nothing more.
-        await withTaskCancellationHandler {
-            // wakeup-allow: each turn awaits the next pushed frame; a closed socket throws and ends the loop.
-            while !Task.isCancelled {
-                let message: URLSessionWebSocketTask.Message
-                do {
-                    message = try await task.receive()
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    continuation.yield(closed(task.closeCode.rawValue, invite: invite, now: Date()))
-                    return
-                }
-                let data: Data
-                switch message {
-                case let .string(text): data = Data(text.utf8)
-                case let .data(bytes): data = bytes
-                @unknown default: continue
-                }
-                if let frame = PairInviteFrame.decode(data) { continuation.yield(frame) }
+    /// One child for one invite: each frame line decoded and yielded, then one last frame saying why the socket
+    /// closed (``PairInviteFrame/expired`` at the code's expiry, else ``PairInviteFrame/lost``), from the child's
+    /// `{"closed": CODE}` line or, when it printed none, from its exit. Event driven: the child prints what the socket pushes.
+    nonisolated static func watch(_ lines: CloudCLICall.Lines, stdin: Data, environment: [String: String], invite: PairInvite,
+                                  into continuation: AsyncStream<PairInviteFrame>.Continuation) async {
+        await lines(watchArguments, stdin, environment) { line in
+            if let close = closeCode(line) {
+                continuation.yield(closed(close, invite: invite, now: Date()))
+                continuation.finish()
+            } else if let frame = PairInviteFrame.decode(line) {
+                continuation.yield(frame)
             }
-        } onCancel: {
-            task.cancel(with: .goingAway, reason: nil)
         }
+        if !Task.isCancelled { continuation.yield(closed(-1, invite: invite, now: Date())) }
+        continuation.finish()
+    }
+
+    /// The child's last line, `{"closed": CODE|null}`: the code, -1 for none; nil for any other line.
+    nonisolated static func closeCode(_ line: Data) -> Int? {
+        guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+              let value = object["closed"] else { return nil }
+        return (value as? NSNumber).map(\.intValue) ?? -1
     }
 
     /// Why the socket closed: the Worker's 4408 at expiry, or a close at about the code's expiry

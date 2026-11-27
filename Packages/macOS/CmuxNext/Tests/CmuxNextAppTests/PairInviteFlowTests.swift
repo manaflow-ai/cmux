@@ -79,12 +79,7 @@ import Testing
         #expect(PairInviteFrame.protocols(secret: "abc") == ["cmux.pair-invite.v1", "watch.abc"])
     }
 
-    @Test func theSocketOpensOnTheWorkerAndReadsItsClose() {
-        let base = URL(string: "https://api.cmux.example")!
-        #expect(PairInviteService.watchURL(base, invite: "ABCDE12345").absoluteString
-            == "wss://api.cmux.example/v1/pair/invite/wait?invite=ABCDE12345")
-        #expect(PairInviteService.watchURL(URL(string: "http://localhost:8787")!, invite: "ABCDE12345").absoluteString
-            == "ws://localhost:8787/v1/pair/invite/wait?invite=ABCDE12345")
+    @Test func theSocketsCloseReadsAsExpiredOrLost() {
         let invite = PairInvite(code: "ABCDE12345", expiresAt: Date(timeIntervalSince1970: 1000), watchSecret: "w")
         #expect(PairInviteService.closed(4408, invite: invite, now: Date(timeIntervalSince1970: 100)) == .expired)
         #expect(PairInviteService.closed(0, invite: invite, now: Date(timeIntervalSince1970: 995)) == .expired,
