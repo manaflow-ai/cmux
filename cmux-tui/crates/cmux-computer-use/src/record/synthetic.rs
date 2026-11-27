@@ -64,7 +64,7 @@ impl FrameEncoder for SyntheticEncoder {
                 frame.width, frame.height, self.width, self.height
             ));
         }
-        let painted = frame.rgba.chunks_exact(4).filter(|p| p[..3] == PAINT).count();
+        let painted = frame.rgba.chunks_exact(4).filter(|p| p.starts_with(&PAINT)).count();
         let first = frame.rgba.get(..3).unwrap_or(&[0, 0, 0]);
         let mut unit = Vec::with_capacity(64);
         let key = force_key || self.index == 0;
@@ -96,8 +96,13 @@ pub fn stats(sample: &[u8]) -> Option<Stats> {
     let len = u32::from_be_bytes(sample.get(..4)?.try_into().ok()?) as usize;
     let nal = sample.get(4..4 + len)?;
     let body = nal.get(1..)?;
-    let bytes: Vec<u8> =
-        body.chunks_exact(2).map(|pair| ((pair[0] & 0x0f) << 4) | (pair[1] & 0x0f)).collect();
+    let bytes: Vec<u8> = body
+        .chunks_exact(2)
+        .filter_map(|pair| match *pair {
+            [hi, lo] => Some(((hi & 0x0f) << 4) | (lo & 0x0f)),
+            _ => None,
+        })
+        .collect();
     let word = |at: usize| -> Option<u32> {
         Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
     };

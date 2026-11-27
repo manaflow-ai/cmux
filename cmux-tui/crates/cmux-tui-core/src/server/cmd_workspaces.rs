@@ -61,11 +61,8 @@ pub(super) fn list_workspaces(
 ) -> anyhow::Result<Value> {
     // `after` pages only with `limit` (`list-workspaces-page-v1`).
     let after = if limit.is_some() { after.unwrap_or(0) } else { 0 };
-    // A client that sends no `known` holds no tree and asks no second time: its reply reads each
-    // stale git HEAD itself (git_heads.rs). A `known` request leaves them to the refresh.
-    if known.is_none() {
-        mux.read_stale_git_heads();
-    }
+    // Each form of the request draws the git HEADs from the cache, stale or not, and never waits on
+    // a read of one: the watch of the HEAD files keeps them current (git_heads.rs).
     // A remote device that must not see some workspaces (#31210) is answered
     // from the ones it may see: its page, `total` and revision say nothing of
     // the others, all read with one view of them.
@@ -111,8 +108,6 @@ pub(super) fn list_workspaces_text(
     writer: &super::MessageWriter,
 ) -> anyhow::Result<super::tree_reply_text::TreeReply> {
     let lines_written_before_read = writer.lines_written();
-    // This is a request with no `known`: see `list_workspaces`.
-    mux.read_stale_git_heads();
     let text = super::tree_reply_text::list_workspaces_reply_text(
         mux,
         &writer.render_service,
@@ -238,6 +233,7 @@ pub(super) fn set_workspace_metadata(
     title: Option<Option<String>>,
     pinned: Option<bool>,
     marked_unread: Option<bool>,
+    keep_awake: Option<bool>,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
@@ -248,6 +244,7 @@ pub(super) fn set_workspace_metadata(
         title,
         pinned,
         marked_unread,
+        keep_awake,
         ..Default::default()
     };
     let result = mux.set_workspace_metadata(
@@ -269,6 +266,7 @@ pub(super) fn set_workspace_metadata(
         "title": record.title,
         "pinned": record.pinned,
         "marked_unread": record.marked_unread,
+        "keep_awake": record.keep_awake,
         "workspace_revision": result.revision,
         "changed": result.changed,
         "replayed": result.replayed,

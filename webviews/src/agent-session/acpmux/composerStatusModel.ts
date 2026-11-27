@@ -89,6 +89,7 @@ const WORDS: Record<string, StringKey> = {
   "status.stuck.spawnFailed": "status.stuck.spawnFailed",
   "status.harnessSandbox.failing": "status.harnessSandbox.failing",
   "status.queuePaused.paused": "status.queuePaused.paused",
+  "status.queuePaused.why": "status.queuePaused.why",
   "status.agentService.reconnecting": "status.agentService.reconnecting",
   "status.restoringSessions.restoring": "status.restoringSessions.restoring",
   "status.sendsHeld.held": "status.sendsHeld.held",
@@ -175,6 +176,18 @@ export function readComposerStatus(value: unknown): ComposerStatus | undefined {
     items: raw.items.flatMap((item) => readStatusItem(item) ?? []),
     facts: raw.facts.flatMap((fact) => readFact(fact) ?? []),
   };
+}
+
+/// A paused queue's item names why: the error its failed turn ended with (queuePause.ts), the pane's
+/// to know (the turn's row carries it). The queue's own paused note said it before it moved into the
+/// dot (RFD 0128), so the dot says no less. No reason: the item as acpmux sent it.
+export function withPauseReason(items: readonly StatusItem[], reason: string | undefined): StatusItem[] {
+  if (!reason) return [...items];
+  return items.map((item) =>
+    item.kind === "queuePaused" && item.words === "status.queuePaused.paused"
+      ? { ...item, words: "status.queuePaused.why", subject: reason }
+      : item,
+  );
 }
 
 const RANK: Record<StatusLevel, number> = { info: 0, attention: 1, problem: 2 };

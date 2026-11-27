@@ -287,15 +287,16 @@ function checkSuggestionSurface(ctx: PlayContext): void {
   const box = view.getComputedStyle(ctx.document.querySelector(".nt-box")!);
   const popover = ctx.document.querySelector(".nt-popover")!;
   const list = view.getComputedStyle(popover);
+  // An opaque window paints only the card solid with no blur; its popups read the shared transient material
+  // (cmux#57406, glass-levels.test.ts), so there the tint and blur differ and the rest still match.
+  const opaque = !ctx.document.documentElement.hasAttribute("data-cmux-see-through");
+  const material = opaque ? [] : ["--glass-tint", "--glass-backdrop", "background-color", "backdrop-filter"];
   for (const property of [
-    "--glass-tint",
-    "--glass-backdrop",
+    ...material,
     "--glass-opaque",
     "--glass-edge",
     "--glass-elevation",
-    "background-color",
     "background-image",
-    "backdrop-filter",
     "border-width",
     "border-color",
     "box-shadow",

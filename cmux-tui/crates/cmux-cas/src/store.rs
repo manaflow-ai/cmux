@@ -86,6 +86,12 @@ impl Store {
         self.put_file(id, file)
     }
 
+    /// The chunk file of `id` as stored (compressed), to send to a peer that checks it with
+    /// [`Store::receive`]. Not checked here: the receiver checks every file it takes.
+    pub fn file(&self, id: &Id) -> Result<Vec<u8>> {
+        Ok(std::fs::read(self.path(id))?)
+    }
+
     fn put_file(&self, id: &Id, file: &[u8]) -> Result<()> {
         let path = self.path(id);
         if path.is_file() {

@@ -67,6 +67,9 @@ stress_pid=$!
 sleep 10
 # Runnable threads on our CPUs while the replay runs: every 5 s, the threads of this run's process tree in state R,
 # over nproc. /proc/loadavg is the host's, which on a --cores run also counts what the rest of the VM runs.
+# A thread is ours when its CPU list is this run's, read from this shell: a caller may pin the run to any CPUs (the
+# VM sensor pins to the quietest ones, e.g. 3,5,9-14), and a fixed 0-(n-1) then matched nothing and read 0.0.
+allowed="$(sed -n 's/^Cpus_allowed_list:[[:space:]]*//p' /proc/$$/status)"
 (
   while :; do
     r=0
@@ -75,7 +78,7 @@ sleep 10
       rest="${line##*) }"
       [ "${rest:0:1}" = "R" ] || continue
       pid="${task#/proc/}"; pid="${pid%%/*}"
-      grep -qs "^Cpus_allowed_list:[[:space:]]*0-$((n - 1))\$" "/proc/$pid/status" && r=$((r + 1))
+      grep -qsxF "Cpus_allowed_list:	$allowed" "/proc/$pid/status" && r=$((r + 1))
     done
     echo "$r" >>"$work/runnable"
     sleep 5
@@ -98,6 +101,9 @@ fi
 if [ "$profile" -eq 1 ]; then
   cat "$work/bench.log"
 else
+  # A failed build's log ends on stack frames (a Babel error ends on gensync frames, 2026-11-26), so its cause line,
+  # the bench's "FAILED:" line, goes first.
+  [ "$status" -ne 0 ] && grep -m1 -F 'replay-under-load: FAILED:' "$work/bench.log" | cut -c1-600 >&2
   tail -3 "$work/bench.log"
 fi
 python3 -I - "$work" "$out" "$n" "$stressors" "$load1" "$status" "$(git rev-parse HEAD)" "$(hostname -s)" \
@@ -108,7 +114,13 @@ n, stressors, load1 = int(n), int(stressors), float(load1)
 try:
     bench = json.load(open(os.path.join(work, "bench.json")))
 except (OSError, ValueError):
-    bench = {"error": (open(os.path.join(work, "bench.log"), errors="replace").read()[-800:] or "no bench output")}
+    log = open(os.path.join(work, "bench.log"), errors="replace").read()
+    # The cause first: the bench's FAILED line (or the first line naming an error), then the log's tail.
+    lines = [line.strip() for line in log.splitlines() if line.strip()]
+    cause = next((l for l in lines if l.startswith("replay-under-load: FAILED:")), "") or next(
+        (l for l in lines if "Error" in l and not l.startswith("at ")), "")
+    tail = log[-500:]
+    bench = {"error": ((cause[:400] + " ... " + tail) if cause and cause not in tail else log[-800:]) or "no bench output"}
 try:
     samples = [int(x) for x in open(os.path.join(work, "runnable")).read().split()]
 except (OSError, ValueError):

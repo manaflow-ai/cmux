@@ -453,10 +453,22 @@ describe("auto-roll settle", () => {
   });
 
   test("a cancelled, timed out or failed deploy rolls back while the image is still first at the tip", () => {
-    for (const deploy of ["cancelled", "failure", "skipped", ""]) expect(settle(roll({ deploy, product: "" })).outcome).toBe("rollback");
+    for (const deploy of ["cancelled", "failure", ""]) expect(settle(roll({ deploy, product: "" })).outcome).toBe("rollback");
+    expect(settle(roll({ deploy: "skipped", product: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
     expect(settle(roll({ product: "failure" })).outcome).toBe("rollback");
     // A green create that booted some other image proves nothing about this one.
     expect(settle(roll({ bootImage: previous })).outcome).toBe("rollback");
+  });
+
+  test("a roll whose production deploy never ran (check red first) is deployed again, at most ROLLBACK_DEPLOYS deploys", () => {
+    // 6fde033d-45743286480-3, 2026-11-26: the check job's checkout hung, deploy-production was skipped, and the image
+    // was rolled back with production never having booted it.
+    for (let attempt = 1; attempt < ROLLBACK_DEPLOYS; attempt++) {
+      expect(settle(roll({ deploy: "skipped", product: "", bootImage: "", deployedFirst: image, attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
+    }
+    expect(settle(roll({ deploy: "skipped", product: "", bootImage: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
+    // Gone from both lists already: nothing to deploy again.
+    expect(settle(roll({ deploy: "skipped", product: "", tipHas: false })).outcome).toBe("superseded");
   });
 
   test("a failed roll a newer roll sits above still rolls back; only an image gone from both lists is superseded", () => {
@@ -555,6 +567,8 @@ describe("auto-roll workflows", () => {
     expect(retry.if).toBe("steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'retry'");
     expect(retry.run).toContain("-f action=deploy-production");
     expect(retry.run).toContain('-f image_rollback_attempt="$NEXT"');
+    expect(retry.run).toContain('-f image_roll_redeploy="$redeploy"');
+    expect(read).toContain('if [ "$IN_REDEPLOY" = true ]; then kind=roll; fi');
     expect(settleJob.permissions).toMatchObject({ actions: "write" });
   });
 
@@ -587,17 +601,17 @@ describe("auto-roll workflows", () => {
   });
 
   // Roll 44282278310 (2026-11-18): with vars.LINUX_RUNNER on a 16-vCPU Blacksmith size, plan queued 41 min and
-  // promote 20+ min for that size, each a minute of work. Only the bake needs the big runner.
-  test("the roll's control jobs take the 4-vCPU pool, never LINUX_RUNNER; the bake keeps it", () => {
+  // promote 20+ min for that size, each a minute of work. Only the bake needs the big runner. Since #53974 froze
+  // CI_DEPLOY_SKIP_FLEET to its value, each control job takes the one-job deploy JIT label by literal (#47946).
+  test("the roll's control jobs take the one-job deploy JIT label, never LINUX_RUNNER or a size pool; the bake keeps its label", () => {
     const roll = load("cloud-vm-image-roll.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     for (const job of ["platform-readiness", "plan", "promote", "report"]) {
       const runsOn = roll.jobs[job]!["runs-on"]!;
       expect(runsOn).not.toContain("vars.LINUX_RUNNER");
-      expect(runsOn).toMatch(/\|\| fromJSON\(vars\.RUNNER_POOLS\)\.linux_4 }}$/);
-      // report holds a contents: write token, so it reads only the ephemeral linux_4 pool, never linux_8 (whose first
-      // member is a persistent owned label): #51925, tests/test_ci_ephemeral_pool_readers.py.
-      if (job === "report") expect(runsOn).not.toContain("linux_8");
-      else expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
+      expect(runsOn).toBe("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}");
+      // report holds a contents: write token, so it runs only on a one-job VM, never a pool whose member is a
+      // persistent owned label (linux_8): #51925, tests/test_ci_ephemeral_pool_readers.py.
+      expect(runsOn).not.toContain("RUNNER_POOLS");
     }
     const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     // The bake takes the one Linux label (scripts/ci/one_linux_label.py), never a size.
@@ -781,6 +795,69 @@ describe("auto-roll scripts", () => {
       const missing = await plan(full, tip);
       expect(missing.status).not.toBe(0);
       expect(missing.stderr).toMatch(/not in this checkout/);
+    }), 60_000);
+
+  // 2026-11-26: push rolls kept the lock's cmux-tui 99de33e5 (13:23Z) while builds to 97bd0527 were published, so the
+  // 16:52Z push roll promoted the stale build again and NOW's Cloud image lag sat past its bound.
+  test("a push roll pins the newest published build only when it is on the tip, newer and different", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string, file?: string) => {
+        if (file) {
+          mkdirSync(path.dirname(path.join(full, file)), { recursive: true });
+          writeFileSync(path.join(full, file), msg);
+          await git(full, "add", file);
+        }
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const older = await commitOf("older");
+      const pinned = await commitOf("pinned");
+      const newer = await commitOf("newer");
+      const before = await commitOf("before");
+      await commitOf("image change", "images/cmux-vm/x.txt");
+      await git(full, "checkout", "-q", "-b", "lane", before);
+      const offTip = await commitOf("lane build");
+      await git(full, "checkout", "-q", "feat-cmux-next");
+      const tip = (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const fakeBin = path.join(dir, "bin");
+      mkdirSync(fakeBin);
+      const realBun = (await runChildOk("bash", ["-c", "command -v bun"], { env: process.env })).stdout.trim();
+      // files.cmux.com's latest manifest, as pin-cmux-tui.ts --latest prints it; LATEST=fail answers like a 503.
+      writeFileSync(
+        path.join(fakeBin, "bun"),
+        `#!/usr/bin/env bash\ncase "\${1:-}" in *pin-cmux-tui.ts)\n  [ "$LATEST" = fail ] && { echo "latest/manifest.json: 503" >&2; exit 1; }\n  printf '{"commit":"%s","unchanged":%s}' "$LATEST" "\${UNCHANGED:-false}"; exit 0;;\nesac\nexec ${realBun} "$@"\n`,
+      );
+      await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const plan = async (latest: string, unchanged = "false") => {
+        const out = await runChildOk(path.join(fakeBin, "bun"), [script, "plan", "--event", "push", "--commit", tip, "--before", before, "--tip", "HEAD", "--lock", lock, "--repo", full], {
+          env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: latest, UNCHANGED: unchanged },
+        });
+        return JSON.parse(out.stdout) as { roll: boolean; reason: string; pin: string; cmuxTui: string };
+      };
+
+      const fresh = await plan(newer);
+      expect(fresh.roll).toBe(true);
+      expect(fresh.pin).toBe(newer);
+      expect(fresh.cmuxTui).toBe(newer);
+      expect(fresh.reason).toMatch(/newest published build/);
+      for (const [latest, unchanged, why] of [
+        [older, "false", /not newer/],
+        [pinned, "false", /carries the pinned binaries/],
+        [newer, "true", /carries the pinned binaries/],
+        [offTip, "false", /not on HEAD/],
+        ["fail", "false", /unreadable: .*503/],
+      ] as const) {
+        const kept = await plan(latest, unchanged);
+        expect(kept.roll).toBe(true);
+        expect(kept.pin).toBe("");
+        expect(kept.cmuxTui).toBe(pinned);
+        expect(kept.reason).toMatch(why);
+      }
     }), 60_000);
 
   // Roll 44191283358's re-run (attempt 2) promoted cmux-tui 6c776483 at 2026-11-18 04:53Z over roll 44224051230's

@@ -6,7 +6,7 @@ import { type CloudSignIn, type LoginAgent, LoginStepError } from "./cloudAgentL
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
-import { startFailureView } from "./startFailure";
+import { startFailureClearsByItself, startFailureView } from "./startFailure";
 import { SwitchNotice } from "./SwitchNotice";
 
 /// `share`: how the fixture's Share with Me answers (a team admin's share, or the creator-or-admin refusal).
@@ -143,6 +143,8 @@ function GallerySwitchNotice({
           ...(code && { code }),
           ...(signInExpired && { signInExpired }),
         }}
+        // A start that only lost the line to acpmux is started again by the pane (App.tsx useAutoRetry).
+        stillTrying={startFailureClearsByItself(code)}
         onRetry={() => setRan("retry")}
         onAction={(action) => {
           setRan(action);
@@ -332,6 +334,10 @@ export default componentEntry<Props>({
     "route-unavailable-alternative-hint": {
       props: { error: ROUTER_WORDS, alternative: "route-hint" },
       note: "Alternative, not shipped: the shipped sentence plus a 'pick another agent' line. Rejected: a second line that repeats what Retry and the composer's agent picker already offer, and the card grows a row.",
+    },
+    "service-unreachable-still-trying": {
+      props: { error: "The connection to acpmux closed.", code: "transport.closed" },
+      note: "A start that never reached the agent because the line to acpmux dropped: the pane starts it again on its own, with no card and no Retry (Leo, 2026-11-22). Only past 25 s, this one quiet line.",
     },
     plain: {
       props: { error: "build-box did not start the agent in time. Try again." },
