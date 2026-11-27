@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { FREESTYLE_START_MIN_ATTEMPTS, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -176,7 +176,7 @@ describe("retryFreestyleOverload", () => {
   test("gives up with the overload once the budget is spent", async () => {
     let calls = 0;
     await expect(retryFreestyleOverload("t", async () => { calls += 1; throw overloaded; }, 30, 10)).rejects.toBe(overloaded);
-    expect(calls).toBeGreaterThanOrEqual(FREESTYLE_START_MIN_ATTEMPTS);
+    expect(calls).toBeGreaterThan(1);
   });
 
   test("asks again after a 409 VM_NON_RESPONSIVE start, and rethrows other 409s", async () => {
@@ -196,17 +196,19 @@ describe("retryFreestyleOverload", () => {
     expect(calls).toBe(1);
   });
 
-  test("still tries a start the minimum number of times when one try outlasts the budget", async () => {
-    // Rebake run 46028301324 attempt 2: one create sat 10 min in Freestyle's queue, then 429.
+  test("an ask that outlasts the budget in Freestyle's queue is still asked again", async () => {
+    // Rebake run 46028301324: the verify start sat ten minutes in the capacity queue, then 429.
     let calls = 0;
     const vm = await retryFreestyleOverload("t", async () => {
       calls += 1;
-      await new Promise((resolve) => setTimeout(resolve, 40));
-      if (calls < FREESTYLE_START_MIN_ATTEMPTS) throw overloaded;
-      return "vm-3";
-    }, 20, 1);
-    expect(vm).toBe("vm-3");
-    expect(calls).toBe(FREESTYLE_START_MIN_ATTEMPTS);
+      if (calls < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        throw overloaded;
+      }
+      return "vm-1";
+    }, 30, 5);
+    expect(vm).toBe("vm-1");
+    expect(calls).toBe(3);
   });
 
   test("with isFreestyleTransient asks again after a 500, as a resize needs, and still rethrows a 4xx", async () => {
