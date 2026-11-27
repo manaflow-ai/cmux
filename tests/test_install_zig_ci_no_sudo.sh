@@ -448,4 +448,60 @@ if ! grep -Fxq "CMUX_ZIG=$EXPECTED_DEFAULT_INSTALL_ROOT/zig" "$DEFAULT_GITHUB_EN
   exit 1
 fi
 
-echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, validates sudo lib_dir, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, keeps the classic system zig, and handles missing RUNNER_TEMP"
+# ZIG_KEEP_DIR: the first force-local install keeps the verified tree at the version-pinned path, and
+# a later job reuses it with no download (a failing curl stands in for the network) and no extraction.
+KEEP_DIR="$TMP_DIR/keep"
+KEEP_ENV_FILE="$TMP_DIR/keep-github-env"
+KEEP_OUTPUT_FILE="$TMP_DIR/keep-output"
+run_keep() {
+  PATH="$BIN_DIR:/usr/bin:/bin" \
+    RUNNER_TEMP="$TMP_DIR/keep-runner-temp-$1" \
+    GITHUB_PATH="$TMP_DIR/keep-github-path" \
+    GITHUB_ENV="$KEEP_ENV_FILE" \
+    FAKE_ZIG_VERSION="0.0.0" \
+    ZIG_REQUIRED="$ZIG_REQUIRED" \
+    ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+    ZIG_FORCE_LOCAL_INSTALL=1 \
+    ZIG_PUBLISH_ENV=CMUX_VT_ZIG \
+    ZIG_KEEP_DIR="$KEEP_DIR" \
+    ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+    "$SCRIPT" > "$KEEP_OUTPUT_FILE" 2>&1
+}
+mkdir -p "$TMP_DIR/keep-runner-temp-1" "$TMP_DIR/keep-runner-temp-2" "$TMP_DIR/keep-runner-temp-3"
+run_keep 1 || { cat "$KEEP_OUTPUT_FILE"; echo "FAIL: the first ZIG_KEEP_DIR install failed" >&2; exit 1; }
+EXPECTED_KEEP_ROOT="$(canonical_install_root "$KEEP_DIR/$ZIG_NAME")"
+if [ ! -x "$KEEP_DIR/$ZIG_NAME/zig" ] || ! grep -Fq "kept zig $ZIG_REQUIRED at" "$KEEP_OUTPUT_FILE" ||
+   [ "$(cat "$KEEP_DIR/$ZIG_NAME/.cmux-zig-tarball-sha256")" != "$ARCHIVE_SHA256" ] ||
+   ! grep -Fxq "CMUX_VT_ZIG=$EXPECTED_KEEP_ROOT/zig" "$KEEP_ENV_FILE"; then
+  cat "$KEEP_OUTPUT_FILE"
+  echo "FAIL: a ZIG_KEEP_DIR install did not keep and publish the verified tree at its pinned path" >&2
+  exit 1
+fi
+mv "$BIN_DIR/curl" "$BIN_DIR/curl.ok"
+printf '#!/usr/bin/env bash\necho "curl called: $*" >&2\nexit 7\n' > "$BIN_DIR/curl"
+chmod +x "$BIN_DIR/curl"
+: > "$KEEP_ENV_FILE"
+run_keep 2 || { cat "$KEEP_OUTPUT_FILE"; echo "FAIL: a kept Zig did not answer with the network down" >&2; exit 1; }
+if ! grep -Fq "already kept at" "$KEEP_OUTPUT_FILE" || grep -Fq "Installing verified" "$KEEP_OUTPUT_FILE" ||
+   ! grep -Fxq "CMUX_VT_ZIG=$EXPECTED_KEEP_ROOT/zig" "$KEEP_ENV_FILE"; then
+  cat "$KEEP_OUTPUT_FILE"
+  echo "FAIL: a later job did not reuse the kept Zig without downloading" >&2
+  exit 1
+fi
+# A kept tree from another tarball (its marker names another SHA-256) is never reused.
+printf 'not-the-pinned-sha\n' > "$KEEP_DIR/$ZIG_NAME/.cmux-zig-tarball-sha256"
+if run_keep 3 || grep -Fq "already kept at" "$KEEP_OUTPUT_FILE"; then
+  cat "$KEEP_OUTPUT_FILE"
+  echo "FAIL: a kept Zig whose marker names another tarball was reused" >&2
+  exit 1
+fi
+mv -f "$BIN_DIR/curl.ok" "$BIN_DIR/curl"
+run_keep 3 || { cat "$KEEP_OUTPUT_FILE"; echo "FAIL: a stale kept Zig was not replaced" >&2; exit 1; }
+if [ "$(cat "$KEEP_DIR/$ZIG_NAME/.cmux-zig-tarball-sha256")" != "$ARCHIVE_SHA256" ] ||
+   ls -a "$KEEP_DIR" | grep -q "^\.$ZIG_NAME\."; then
+  cat "$KEEP_OUTPUT_FILE"
+  echo "FAIL: a stale kept Zig was not replaced cleanly" >&2
+  exit 1
+fi
+
+echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, validates sudo lib_dir, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, keeps the classic system zig, and handles missing RUNNER_TEMP, and keeps and reuses a ZIG_KEEP_DIR install"
