@@ -78,11 +78,28 @@ test("rows sort by the last 14 days' use and carry their detail and notes", () =
     "Sam",
   ]);
   const [leo, , austin] = model.rows;
-  expect(leo).toEqual({ member: "Leo", detail: "13 of 14 days, Chief Max", month: "$96", share: "32%", note: "" });
+  expect(leo).toEqual({
+    member: "Leo",
+    name: "Leo",
+    detail: "13 of 14 days, Chief Max",
+    month: "$96",
+    share: "32%",
+    note: "",
+  });
   expect(austin!.detail).toBe("11 of 14 days");
   expect(austin!.note).toBe("passed allotment 4x, could use Chief Plus: +$40");
   expect(model.rows.at(-1)!.note).toBe("unused");
   expect(model.spares).toMatchObject({ member: "Warm spares", detail: "ours", month: "$0" });
+});
+
+test("members print with the view's display names, by id where it has none", () => {
+  const view = { ...mockAllotments.proposalUp, names: { Austin: "Austin Example", Leo: "" } };
+  const model = computeModel(view, en);
+  const austin = model.rows.find((row) => row.member === "Austin")!;
+  expect(austin.name).toBe("Austin Example");
+  expect(model.rows.find((row) => row.member === "Leo")!.name).toBe("Leo");
+  expect(model.sentence).toBe("Austin Example passed the allotment 4 times: scaling up costs $40 a month.");
+  expect(model.meter.segments.find((segment) => segment.member === "Austin")!.name).toBe("Austin Example");
 });
 
 test("the meter cuts the month into member segments with ticks at the allotment and the cap", () => {

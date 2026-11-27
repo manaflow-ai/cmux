@@ -269,7 +269,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
     /// none (cellular stayed "satisfied" through the outage). While down, 30% of dials
     /// and presence attempts hang to their timeout (25 s, 10 s), the rest fail fast.
     /// Presence notices the outage 0 to 20 s in (ping interval plus timeout) and retries
-    /// on ``PresenceListener/retryDelay(afterFailures:)``; its hello after the outage
+    /// on ``PresenceTiming/retryDelay(afterFailures:)``; its hello after the outage
     /// redials the links (`LiveCoordinator.presenceReturned`).
     ///
     /// `before`: the old backoff (1, 2, 4, 8, 15, 30) and no presence redial. `after`:
@@ -304,25 +304,42 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
             let noticed = flap.lost + flap.detect
             guard noticed < flap.back else { return nil } // never noticed: never down
             var failures = 1
-            var at = noticed + PresenceListener.retryDelay(afterFailures: failures)
+            var at = noticed + PresenceTiming.retryDelay(afterFailures: failures)
             while at < flap.back {
-                at += hangs(at, 2) ? PresenceListener.helloTimeout : .milliseconds(100)
+                at += hangs(at, 2) ? PresenceTiming.helloTimeout : .milliseconds(100)
                 failures += 1
-                at += PresenceListener.retryDelay(afterFailures: failures)
+                at += PresenceTiming.retryDelay(afterFailures: failures)
             }
             let hello = at + helloTime
-            return hello - noticed >= PresenceListener.outageMin ? hello : nil
+            return hello - noticed >= PresenceTiming.outageMin ? hello : nil
+        }
+
+        /// When the network-return watch (Rust `net_return`, `LiveCoordinator.updateNetworkReturnWatch`)
+        /// sees `flap`'s network back: it starts as the link drops and connects to the service every
+        /// beat; the first beat at or after the return gets through one round trip later.
+        let returnBeat: Duration = .seconds(1)
+        let returnRTT: Duration = .milliseconds(100)
+        func probeBack(_ flap: (lost: Duration, back: Duration, path: Bool, detect: Duration)) -> Duration {
+            var beat = flap.lost
+            while beat < flap.back { beat += returnBeat }
+            return beat + returnRTT
         }
 
         var summary: [String: [String: Double]] = [:]
-        for variant in ["before", "after"] {
+        // before: the old backoff, no presence signal; after: today's backoff and presence's
+        // return; probe: that and the network-return watch.
+        for variant in ["before", "after", "probe"] {
             var external: [(Duration, LinkMachine.Event)] = [(.zero, .target(studio))]
             for flap in flaps {
                 external.append((flap.lost, .linkDropped(generation: Timeline.currentLink, reason: "network lost")))
                 if flap.path {
                     external.append((flap.back + LinkController.networkSettle, .networkChanged))
-                } else if variant == "after", let hello = presenceBack(flap) {
-                    external.append((hello, .networkChanged))
+                    continue
+                }
+                let hello = variant == "before" ? nil : presenceBack(flap)
+                let probe = variant == "probe" ? probeBack(flap) : nil
+                if let first = [hello, probe].compactMap({ $0 }).min() {
+                    external.append((first, .networkChanged))
                 }
             }
             var timeline = Timeline()
@@ -356,6 +373,11 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         #expect((after["p50_ms"] ?? .infinity) < (before["p50_ms"] ?? 0), "no path change, p50: after \(after) vs before \(before)")
         #expect((after["p95_ms"] ?? .infinity) < (before["p95_ms"] ?? 0), "no path change, p95: after \(after) vs before \(before)")
         #expect((after["max_ms"] ?? .infinity) <= 30_000, "no path change, worst: \(after)")
+        // The network-return watch: a return with no path change reconnects within a beat, a
+        // round trip and a dial, like a path change.
+        let probe = summary["probe_no_path"] ?? [:]
+        #expect((probe["max_ms"] ?? .infinity) <= 2000, "no path change with the return watch, worst: \(probe)")
+        #expect((probe["p95_ms"] ?? .infinity) < (after["p95_ms"] ?? 0), "return watch p95: \(probe) vs \(after)")
     }
 
     /// Wi-Fi to cellular: the link drops when the old path dies; one redial
@@ -734,7 +756,12 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
     /// gone): minting a token fails with 401. The person must be asked to
     /// sign in again, not shown "Reconnecting…" forever.
     @MainActor @Test func cellPairingRevokedToken() async throws {
+        #if os(Linux)
+        struct RefusedToken: LinkServiceFailure { let status = 401 }
+        let failure = RefusedToken()
+        #else
         let failure = LiveAPI.Failure(status: 401, code: "unauthorized", message: "refresh token revoked")
+        #endif
         let dialer = ScriptedDialer(outcomes: [.connect])
         let controller = ScriptedDialer.controller(dialer) { _ in throw failure }
         defer { controller.send(.target(nil)) }
