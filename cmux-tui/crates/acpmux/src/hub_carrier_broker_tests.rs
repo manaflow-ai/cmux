@@ -178,11 +178,7 @@ mod stream {
     }
 
     /// One request through the budget: the answer line and how long it took.
-    async fn ask(
-        socket: &Path,
-        budget: &Arc<Budget>,
-        line: &str,
-    ) -> (serde_json::Value, Duration) {
+    async fn ask(socket: &Path, budget: &Arc<Budget>, line: &str) -> (serde_json::Value, Duration) {
         let began = Instant::now();
         let (mut client, server) = tokio::io::duplex(PIPE_BYTES);
         tokio::spawn(serve(server, socket.to_path_buf(), "m".into(), budget.clone()));
@@ -218,9 +214,7 @@ mod stream {
         let held: Vec<_> = (0..2)
             .map(|i| {
                 let (socket, budget) = (socket.clone(), budget.clone());
-                tokio::spawn(
-                    async move { ask(&socket, &budget, &push(&format!("l{i}"))).await },
-                )
+                tokio::spawn(async move { ask(&socket, &budget, &push(&format!("l{i}"))).await })
             })
             .collect();
         // Both bulk slots are taken once the broker's workers are.
@@ -259,9 +253,7 @@ mod stream {
             let budget = Budget::new(limits);
             for i in 0..8 {
                 let (socket, budget) = (socket.clone(), budget.clone());
-                tokio::spawn(
-                    async move { ask(&socket, &budget, &push(&format!("l{i}"))).await },
-                );
+                tokio::spawn(async move { ask(&socket, &budget, &push(&format!("l{i}"))).await });
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
             let freed = tokio::spawn(async move {
