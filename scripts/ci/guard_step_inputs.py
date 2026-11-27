@@ -96,6 +96,40 @@ PATH_TOKEN = re.compile(r"[A-Za-z0-9_.@+${}*-]+(?:/[A-Za-z0-9_.@+${}*<>-]*)+|[A-
 JS_IMPORT = re.compile(r"""(?:\bfrom\s+|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)["']([^"']+)["']""", re.M)
 JS_JOIN = re.compile(r"(?<![\w.$])(?:path\.)?(?:join|resolve)\(|\bpath\.(?:join|resolve)\(")
 GLOB_CHARS = re.compile(r"[*?\[{$<]")
+# A source's own statement of what it reads, for reads its text cannot show (a git ls-files it filters, a walk of
+# the root, a path it builds): `# guard-inputs: PATTERN...` (or `//`), one or more lines. A pattern is a file, a
+# folder (`scripts/ci/`), or a glob (`**/*.sh`, `.github/workflows/*.yml`). The selection then follows the source as
+# usual (its imports, the files it names and runs) and adds the patterns, in place of running it on every change;
+# --verify runs it traced and fails on a file it opens or a folder it lists outside them.
+DECLARED = re.compile(r"^[ \t]*(?:#|//)[ \t]*guard-inputs:(.*)$", re.M)
+
+
+def declared_inputs(text: str) -> list[str] | None:
+    found = [word for match in DECLARED.finditer(text) for word in match.group(1).split()]
+    return found if found else None
+
+
+@functools.lru_cache(maxsize=None)
+def glob_regex(pattern: str) -> re.Pattern:
+    """A declared glob as a regular expression over tree paths: `**/` any folders, `*` and `?` within one name."""
+    out, i = [], 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+        elif pattern.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif pattern[i] == "*":
+            out.append("[^/]*")
+            i += 1
+        elif pattern[i] == "?":
+            out.append("[^/]")
+            i += 1
+        else:
+            out.append(re.escape(pattern[i]))
+            i += 1
+    return re.compile("".join(out))
 # A command a step may be made of and still have its inputs read: the runner, then files and flags.
 RUNNERS = (
     ("python3", "-m", "unittest"), ("python3",), ("bash",), ("sh",), ("node", "--test"), ("node",),
@@ -114,13 +148,18 @@ class Inputs:
     data: set[str] = field(default_factory=set)  # read as data only: a path a Python source names but never runs
     folders: set[str] = field(default_factory=set)  # every path under one is an input
     modules: set[str] = field(default_factory=set)  # Python module stems: a changed or deleted <stem>.py anywhere
+    patterns: set[str] = field(default_factory=set)  # declared globs (`**/*.sh`): every path one matches is an input
     whole: str = ""  # why the step reads the whole tree; empty when its inputs are the sets above
     runs_named: bool = False  # it runs a tree path built from a variable: any code file it names may run
+    declared: bool = False  # a source it reaches declares its reads (`# guard-inputs:`) where the text cannot show them
+    opaque: str = ""  # why no declaration can stand for this source's reads: it starts a tool or runs code it builds
 
     def reaches(self, path: str) -> bool:
         if self.whole or path in self.files:
             return True
         if any(path.startswith(folder + "/") for folder in self.folders):
+            return True
+        if any(glob_regex(pattern).fullmatch(path) for pattern in self.patterns):
             return True
         name = path.rsplit("/", 1)[-1]
         return name.endswith(".py") and name[:-3] in self.modules
@@ -192,6 +231,8 @@ class Tree:
                 return inputs
             inputs.folders |= found.folders
             inputs.modules |= found.modules
+            inputs.patterns |= found.patterns
+            inputs.declared |= found.declared
             for data in sorted(found.data - seen_data):  # a workflow or a registry names more files a test reads
                 seen_data.add(data)  # still followed as code if another source imports or runs it
                 inputs.files.add(data)
@@ -227,9 +268,10 @@ class Tree:
             if current in self.files:  # tracked but unreadable here: what it reaches is unknown, so it runs
                 found.whole = f"cannot read {current} (not UTF-8 or not readable)"
             return found  # a file the change deletes: the path itself is the input
+        declared = declared_inputs(text)
         if current.endswith(".py") or text.startswith(("#!/usr/bin/env python", "#!/usr/bin/python")):
             found.whole = self.python(current, text, found, changed)
-            return found
+            return self.declare(current, declared, found, changed)
         code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(("#", "//")))
         marker = GIT_OR_BASE.search(code) or SHELL_WALK.search(code)
         if marker:
@@ -239,6 +281,25 @@ class Tree:
             self.javascript(current, code, found, changed)
         for token in PATH_TOKEN.findall(code):  # a shell script runs what it names
             self.place(token, str(Path(current).parent), found, changed)
+        return found
+
+    def declare(self, current: str, declared: list[str] | None, found: Inputs, changed: frozenset[str]) -> Inputs:
+        """FOUND with a Python source's declared reads in place of its whole-tree verdict (declared_inputs). Only
+        reads --verify can see stand declared: the process's own opens, listings and git calls in the tree. A tool it
+        starts or code it builds reads what no trace of it shows, so that verdict stays."""
+        if declared is None or not found.whole or found.opaque or found.whole.startswith(f"{current} does not parse"):
+            return found
+        found.whole, found.declared = "", True
+        for pattern in declared:
+            pattern = pattern.removeprefix("./")
+            stem = pattern.removesuffix("/**").rstrip("/")
+            if pattern in ("**", "**/*") or not stem:
+                found.whole = f"{current} declares every path"
+            elif not GLOB_CHARS.search(stem):
+                (found.folders if stem in self.folders or pattern.endswith("/") or pattern.endswith("/**")
+                 else found.files).add(stem)
+            else:
+                found.patterns.add(pattern)
         return found
 
     def is_script(self, path: str) -> bool:
@@ -261,17 +322,19 @@ class Tree:
         nodes = list(ast.walk(tree))
         # Paths and git commands live in strings: its strings, one a line, less comments and docstrings.
         code = "\n".join(n.value for n in nodes if isinstance(n, ast.Constant) and isinstance(n.value, str))
+        # Every whole-tree read is noted, the first one kept, and the rest of the file still read: a source that
+        # declares its reads (declared_inputs) keeps its imports and named files as inputs.
+        whole = ""
         marker = GIT_OR_BASE.search(code)
         if marker:
-            return f"{path} reads more of the tree than it names ({marker.group(0).strip()!r})"
+            whole = f"{path} reads more of the tree than it names ({marker.group(0).strip()!r})"
         words = {n.value for n in nodes if isinstance(n, ast.Constant) and isinstance(n.value, str)}
         verbs = sorted(words & GIT_READS)
         if verbs and ("git" in words or any(dotted(n) == "git" for n in nodes if isinstance(n, ast.Call))):
-            return f"{path} reads git ({verbs[0]!r}, through a git helper)"
+            whole = whole or f"{path} reads git ({verbs[0]!r}, through a git helper)"
         source = PythonSource(path, nodes)
         walked, why = source.walks(nodes)
-        if why:
-            return why
+        whole = whole or why
         found.folders |= walked
         parent = str(Path(path).parent)
         # Every path the source names, as written or built (`ROOT / "scripts" / "ci" / "x.py"`, an assigned
@@ -292,24 +355,24 @@ class Tree:
                     or isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "joinpath"):
                 # where() joins an f-string's constant parts only: its runtime parts decide
                 if (isinstance(node, ast.JoinedStr) or source.where(node) is UNKNOWN) and runtime_part(node) and source.rooted(node):
-                    return f"{path}:{node.lineno} reads {ast.unparse(node)[:50]!r}, a tree file it names at runtime"
+                    whole = whole or f"{path}:{node.lineno} reads {ast.unparse(node)[:50]!r}, a tree file it names at runtime"
             if isinstance(node, (ast.BinOp, ast.Call)):
                 place = source.where(node)
                 if place and place[0] == REPO_ROOT and place[1]:
                     self.place(place[1], "", named, changed)
                 elif place is UNKNOWN and isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
                     if source.rooted(node):  # ROOT / name / ...: a file of the root named at runtime
-                        return f"{path}:{node.lineno} reads {ast.unparse(node)[:50]!r}, a tree file it names at runtime"
+                        whole = whole or f"{path}:{node.lineno} reads {ast.unparse(node)[:50]!r}, a tree file it names at runtime"
                 elif place is UNKNOWN and isinstance(node, ast.Call) and dotted(node.func) in JOINS and len(node.args) > 1:
                     # os.path.join(root, "cmux-tui", "Cargo.toml") with an unknown root: the constant tail, from the root
                     tail = [a.value for a in node.args[1:] if isinstance(a, ast.Constant) and isinstance(a.value, str)]
                     if len(tail) == len(node.args) - 1:
                         self.place("/".join(tail), "", named, changed)
                     elif source.rooted(node.args[0]):  # os.path.join(ROOT, name, ...): named at runtime
-                        return f"{path}:{node.lineno} reads {ast.unparse(node)[:50]!r}, a tree file it names at runtime"
+                        whole = whole or f"{path}:{node.lineno} reads {ast.unparse(node)[:50]!r}, a tree file it names at runtime"
         executed = self.executed(source, nodes, changed)
-        if executed.whole:
-            return executed.whole
+        found.opaque = executed.whole
+        whole = executed.whole or whole
         run = executed.files
         if executed.runs_named:
             run |= {f for f in named.files if f.endswith(CODE_SUFFIXES)}
@@ -332,7 +395,11 @@ class Tree:
             elif isinstance(node, ast.Call):
                 callee = dotted(node.func)
                 if callee.endswith(("import_module", "__import__")):
-                    dynamic = True
+                    first = node.args[0] if node.args else None
+                    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                        names.add(first.value)  # __import__("re"): that module, named
+                    else:
+                        dynamic = True
                 if callee in ("sys.path.insert", "sys.path.append") and node.args:
                     place = source.where(node.args[-1])
                     if place and place[0] == REPO_ROOT:
@@ -354,7 +421,7 @@ class Tree:
                 found.files.update(hits)
             elif len(parts) == 1 or name.rpartition(".")[0] not in names:
                 found.files.update(self.by_stem.get(parts[-1], ()))  # a sys.path this file builds at runtime
-        return ""
+        return whole
 
     def executed(self, source: PythonSource, nodes: list[ast.AST], changed: frozenset[str]) -> Inputs:
         """The tree files a Python source runs or loads (`files`): what a subprocess call, a command list
@@ -875,6 +942,8 @@ def step_inputs(tree: Tree, run: str, working_directory: str | None, changed: fr
         inputs.files |= reached.files
         inputs.folders |= reached.folders
         inputs.modules |= reached.modules
+        inputs.patterns |= reached.patterns
+        inputs.declared |= reached.declared
     return inputs
 
 
@@ -986,7 +1055,7 @@ def escapes(inputs: Inputs, trace: str, root: Path) -> list[str]:
                     found.add(f"runs {' '.join(argv[:4])}")
             continue
         if not value.startswith(prefix):
-            if kind == "list" and value == str(root):
+            if kind == "list" and value == str(root) and not inputs.declared:
                 found.add("lists the tree's root")
             continue
         rel = value[len(prefix):]
@@ -1064,7 +1133,8 @@ def main(argv: list[str]) -> int:
             return 2
         inputs = inputs_of(tree, match[0])
         print(json.dumps({"whole": inputs.whole, "files": sorted(inputs.files), "folders": sorted(inputs.folders),
-                          "modules": sorted(inputs.modules)}, indent=2))
+                          "modules": sorted(inputs.modules), "patterns": sorted(inputs.patterns),
+                          "declared": inputs.declared}, indent=2))
         return 0
     if not args.base:
         parser.error("--base or --inputs")
