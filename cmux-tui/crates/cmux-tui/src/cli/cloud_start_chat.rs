@@ -86,6 +86,7 @@ const TAKES_VALUE: &[&str] = &[
     "--cwd",
     "--from-folder",
     "--environment",
+    "--provider",
     "--account",
     "--name",
     "--target",
@@ -125,6 +126,8 @@ pub(super) struct Request {
     /// `--environment ID|NAME`: the Cloud environment (`env_…`, or its name) a new machine boots in
     /// (`cloud new-machine --environment`).
     pub environment: Option<String>,
+    /// `--provider gcp|freestyle`: the infrastructure provider for a new machine.
+    pub provider: Option<String>,
     /// `--account user:ID|team:ID` (or `user:ID|personal`, `cmux_cloud_api::sandbox::account_scope`):
     /// nothing starts unless the app is signed in to that account, and the prompt goes only to a
     /// machine that account's list shows. The daemon's sandboxed Runs pass the Run's own.
@@ -254,6 +257,7 @@ pub(super) fn send_existing(
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         account: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait,
@@ -369,6 +373,7 @@ pub(super) fn wait_on(
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait: true,
         timeout: timeout.min(MAX_TIMEOUT),
@@ -555,6 +560,7 @@ pub(super) fn parse(
     let mut cwd = None;
     let mut from_folder = None;
     let mut environment = None;
+    let mut provider = None;
     let mut account = None;
     let mut name = None;
     let mut target = None;
@@ -595,6 +601,7 @@ pub(super) fn parse(
             "--cwd" => cwd = Some(value()?),
             "--from-folder" => from_folder = Some(value()?),
             "--environment" => environment = Some(value()?),
+            "--provider" => provider = Some(provider_word(&value()?)?),
             "--account" => account = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
@@ -698,6 +705,7 @@ pub(super) fn parse(
         cwd,
         from_folder,
         environment,
+        provider,
         account,
         machine,
         wait,
@@ -726,6 +734,15 @@ pub(super) fn setting_word(flag: &str, word: &str) -> Result<String, UsageError>
     } else {
         let example = if flag == "--effort" { "low, medium, high, xhigh or max" } else { "plan" };
         Err(UsageError::new(format!("{flag} {word:?}: a value such as {example}")))
+    }
+}
+
+/// `--provider` is deliberately a closed choice: the platform's start-chat providers are
+/// `gcp` and `freestyle`, and passing another value would otherwise silently select the default.
+pub(super) fn provider_word(word: &str) -> Result<String, UsageError> {
+    match word.trim() {
+        "gcp" | "freestyle" => Ok(word.trim().to_owned()),
+        value => Err(UsageError::new(format!("--provider {value:?}: use gcp or freestyle"))),
     }
 }
 
@@ -1053,6 +1070,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
         request.environment.as_ref().filter(|_| !matches!(machine, Machine::Target(_)))
     {
         words.push(format!("--environment {}", shell_quote(environment)));
+    }
+    if let Some(provider) = &request.provider {
+        words.push(format!("--provider {}", shell_quote(provider)));
     }
     if request.agent != "claude" {
         words.push(format!("--agent {}", request.agent));
@@ -1831,6 +1851,9 @@ fn steps(
         Machine::New => {}
     }
     start.extend(["--agent".to_owned(), request.agent.clone()]);
+    if let Some(provider) = &request.provider {
+        start.extend(["--provider".to_owned(), provider.clone()]);
+    }
     if let Some(model) = &request.model {
         start.extend(["--model".to_owned(), model.clone()]);
     }
@@ -2365,6 +2388,7 @@ pub(super) fn send(
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         account: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait: false,
@@ -3204,6 +3228,9 @@ fn new_machine(
     args.push(name.clone());
     if let Some(environment) = environment {
         args.extend(["--environment".to_owned(), environment.to_owned()]);
+    }
+    if let Some(provider) = &request.provider {
+        args.extend(["--provider".to_owned(), provider.clone()]);
     }
     if request.no_focus {
         args.push("--no-focus".to_owned());

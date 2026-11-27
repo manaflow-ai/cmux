@@ -36,6 +36,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{GUEST_PRELUDE, GlobalArgs, Ran, Runner, link_wait};
@@ -110,7 +111,7 @@ impl Row {
 pub(super) trait Cloud {
     fn list(&mut self) -> Result<Vec<Row>, Value>;
     fn get(&mut self, machine: &str) -> Result<Row, Value>;
-    fn create(&mut self, name: &str, key: &str) -> Result<Row, Value>;
+    fn create(&mut self, name: &str, key: &str, provider: Option<&str>) -> Result<Row, Value>;
     fn start(&mut self, machine: &str, key: &str) -> Result<Row, Value>;
     fn pause(&mut self, machine: &str, key: &str) -> Result<Row, Value>;
     /// Deleted, or already gone.
@@ -298,7 +299,7 @@ impl DirectRunner<'_> {
                 }
                 None => {
                     let key = self.cloud.new_key();
-                    let row = self.cloud.create(name, &key)?;
+                    let row = self.cloud.create(name, &key, flag(args, "--provider"))?;
                     let origin =
                         self.cloud.last_create().unwrap_or_else(|| json!({"from": "unknown"}));
                     (row, origin)
@@ -582,9 +583,29 @@ impl cmux_cloud_wire::Op for CreateWhole {
     const RISK: &'static str = <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::RISK;
     const PRINCIPALS: &'static [cmux_cloud_wire::WirePrincipal] =
         <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::PRINCIPALS;
-    type Params = cmux_cloud_wire::CloudMachineCreateParams;
+    type Params = DirectCreateParams;
     type Result = Value;
     type Error = <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::Error;
+}
+
+/// The generated catalog predates the provider extension. Keep the wire shape local until the
+/// catalog is regenerated; serde preserves the backend's optional field without changing the
+/// shared generated protocol types.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct DirectCreateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    size: cmux_cloud_wire::CloudMachineSize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    image: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    from_snapshot: Option<cmux_cloud_wire::SnapshotId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin: Option<cmux_cloud_wire::CloudMachineOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ttl_seconds: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
 }
 
 fn row_of(machine: cmux_cloud_wire::CloudMachine) -> Row {
@@ -705,10 +726,10 @@ impl Cloud for Api {
             .map(row_of)
     }
 
-    fn create(&mut self, name: &str, key: &str) -> Result<Row, Value> {
-        use cmux_cloud_wire::{CloudMachineCreateParams, CloudMachineSize};
+    fn create(&mut self, name: &str, key: &str, provider: Option<&str>) -> Result<Row, Value> {
+        use cmux_cloud_wire::CloudMachineSize;
         let (cpu, memory_mb, disk_mb) = super::super::cloud_journey::start_size_from_env();
-        let params = CloudMachineCreateParams {
+        let params = DirectCreateParams {
             name: Some(name.to_owned()),
             size: CloudMachineSize {
                 cpu: Some(cpu),
@@ -719,6 +740,7 @@ impl Cloud for Api {
             from_snapshot: None,
             origin: None,
             ttl_seconds: None,
+            provider: provider.map(str::to_owned),
         };
         let whole = self.call::<CreateWhole>(params, Some(key))?;
         self.last_create = Some(spare_origin(&whole));
