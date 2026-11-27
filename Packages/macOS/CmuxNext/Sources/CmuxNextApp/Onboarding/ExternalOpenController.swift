@@ -87,6 +87,9 @@ final class ExternalOpenController {
         perform(.attachImages(urls, from: source))
     }
 
+    /// Capture Screenshot to Chat and `chat.capture.toChat`: a screenshot into this route (``CaptureToChat``).
+    var captureToChat: CaptureToChat { CaptureToChat(route: chatAttach) { [weak self] in self?.attachToChat($0, from: $1) } }
+
     /// Finder service "New cmux Tab Here" with the selected paths.
     func newTabHere(_ paths: [String]) {
         for path in paths { perform(router.newTabHere(path)) }
@@ -179,12 +182,12 @@ final class ExternalOpenController {
         }
     }
 
-    /// A window installed its content, or a workspace made for the queue was created: run what waited for one.
+    /// A window installed its content, or a workspace made for the queue was created: run what waited for one. No pane yet (Home shown as a top page)
+    /// shows the made workspace, whose first pane's mount runs it; else an open waited for the next door's `perform` (screenshot-into-chat "late").
     func flush() {
-        guard !pending.isEmpty, services.windows.active?.focusedPane != nil else { return }
-        let routes = pending
-        pending = []
-        routes.forEach(perform)
+        guard !pending.isEmpty, let controller = services.windows.active else { return }
+        guard controller.focusedPane != nil else { return _ = controller.showOpenableWorkspace() }
+        let routes = pending; pending = []; routes.forEach(perform)
     }
 
     private func deliver(_ route: ExternalOpenRoute, to pane: PaneController) {

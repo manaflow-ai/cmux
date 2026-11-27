@@ -3,7 +3,7 @@ name: CI
 # The guard watcher receives this title before dispatch jobs start. Keep a
 # compact, versioned fingerprint here so it can distinguish equivalent PR
 # coverage from a fuller manual request.
-run-name: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}', github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha, github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', github.event_name != 'pull_request' && 'full' || ((vars.CI_PULL_REQUEST_SUITE || 'compile-only') != 'compile-only' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'full' || 'compile-only') }}
+run-name: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}', github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha, github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', github.event_name != 'pull_request' && 'full' || ((vars.CI_PULL_REQUEST_SUITE || 'compile-only') != 'compile-only' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) && 'full' || 'compile-only') }}
 
 on:
   # Run the router for every pull request that changes more than prose. The
@@ -147,8 +147,13 @@ jobs:
       # Empty until the base revision of the router knows this area, so the
       # consumers below read a missing value as "not routed".
       swift_packages: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages || 'false') }}
-      web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.detect.outputs.web) }}
-      agent_session_web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.detect.outputs.agent_session_web) }}
+      # A run that is not a pull request on feat-cmux-next (the hourly full tier's dispatch, next_line.sh) routes web
+      # off: the post-merge batch already runs ci-web.yml's every job on the tip (.github/post-merge-batch.json `web`),
+      # and the hourly copy ran the same eight react-apps-check shards about 37 min each, ten minutes after the batch's
+      # (runs 45971503699 and 45972762730, 2026-11-27): about 7.1k runner-min a day. Leo: "de facto, im asking for 99%
+      # fewer minutes of ci time, period."
+      web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none' || (github.event_name != 'pull_request' && steps.line.outputs.next_line == 'true')) && 'false' || (steps.detect.outputs.web) }}
+      agent_session_web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none' || (github.event_name != 'pull_request' && steps.line.outputs.next_line == 'true')) && 'false' || (steps.detect.outputs.agent_session_web) }}
       release_build: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.release_build || steps.detect.outputs.release_build) }}
       owned_head_repos: ${{ steps.owned-head-repos.outputs.repos }}
       linux_guard_tests: ${{ steps.linux_guards.outputs.linux_guard_tests }}
@@ -165,7 +170,7 @@ jobs:
       # download and GitHub stalls). It still runs when the PR changes the pin, under full-ci,
       # on main PRs, and every feat-cmux-next push and nightly still downloads and checks the
       # pinned archive (cmux-next.yml, nightly.yml, seed-derived-data.yml).
-      ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && !contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
+      ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
@@ -247,7 +252,7 @@ jobs:
       # widens the sparse set to the table's full patterns first (_tree_is_complete), so
       # a changed CI helper sees the tree it always saw. Unsure, it fails open.
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
           filter: blob:none
@@ -299,6 +304,13 @@ jobs:
           # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
           # rule); 0 turns that off.
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
+          CI_CONTENT_BASE_MERGE: ${{ vars.CI_CONTENT_BASE_MERGE || '1' }}
+          # A full-ci or ready-to-land label on a head that only merges the base onto a head whose full run passed
+          # carries that run; one with reds reruns only what was not green (head_tier.py's full-ci base merge carry
+          # rule); 0 turns that off.
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          # Heavy jobs run only on the event that hands a head to land (head_tier.py's heavy-at-land rule); 0 turns that off.
+          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: if [ -f scripts/ci/head_tier.py ]; then python3 -I scripts/ci/head_tier.py; fi
@@ -315,7 +327,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+          REF_NAME: ${{ github.ref_name }}
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA" "$REF_NAME")" >> "$GITHUB_OUTPUT"
 
       - name: Reject superseded manual dispatch before routing
         if: github.event_name == 'workflow_dispatch'
@@ -391,7 +404,7 @@ jobs:
           # the base were 37% of PR runner-minutes, and ci.yml a quarter of
           # those (docs in cmuxterm-hq: docs/ci/idle-pr-heads-2026-11-21.md).
           # full-ci routes as usual; CI_DRAFT_BASE_MERGE_SKIP=0 turns it off.
-          DRAFT_BASE_MERGE: ${{ github.event.pull_request.draft == true && steps.delta.outputs.base_sha != '' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && (vars.CI_DRAFT_BASE_MERGE_SKIP || '1') != '0' }}
+          DRAFT_BASE_MERGE: ${{ github.event.pull_request.draft == true && steps.delta.outputs.base_sha != '' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && (vars.CI_DRAFT_BASE_MERGE_SKIP || '1') != '0' }}
         run: |
           set -euo pipefail
           emit_all_areas() {
@@ -1219,7 +1232,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -1230,7 +1243,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+          REF_NAME: ${{ github.ref_name }}
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA" "$REF_NAME")" >> "$GITHUB_OUTPUT"
 
       - name: Run the fast guard tests
         if: steps.line.outputs.next_line != 'true'
@@ -1249,7 +1263,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # HEAD^1 is the diff base lint-feature-flags uses to fail an expired
@@ -1263,7 +1277,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+          REF_NAME: ${{ github.ref_name }}
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA" "$REF_NAME")" >> "$GITHUB_OUTPUT"
 
       - name: Run the contributor static preflight
         if: steps.line.outputs.next_line != 'true'
@@ -1303,7 +1318,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -1351,7 +1366,7 @@ jobs:
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' remote-daemon ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
-      native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+      native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
 
   web:
     # Beside static-preflight for the same reason as guards.
@@ -1365,6 +1380,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
     uses: ./.github/workflows/ci-web.yml
     with:
       web: ${{ needs.changes.outputs.web }}
@@ -1594,7 +1610,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the exact pull-request head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
@@ -1837,7 +1853,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout the readout script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
