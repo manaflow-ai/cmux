@@ -106,7 +106,13 @@ fn a_launcher_brings_its_own_sign_in_and_route() {
         launcher(&argv(&["sr", "claude", "proxy"])),
         Some(("Subrouter account pool (sr claude proxy)", "Subrouter (sr claude proxy)"))
     );
+    // The wrapper a harness profile runs (cmux#63167): `claude-sr2` execs `sr2 claude`.
+    assert_eq!(
+        launcher(&argv(&["/Users/me/.local/bin/claude-sr2"])),
+        Some(("SR2 token (sr2 claude)", "SR2 (sr2 claude)"))
+    );
     assert_eq!(launcher(&argv(&["claude"])), None);
+    assert_eq!(launcher(&argv(&["/opt/homebrew/bin/claude"])), None);
 }
 
 #[test]

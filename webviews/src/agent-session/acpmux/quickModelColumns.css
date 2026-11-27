@@ -146,20 +146,15 @@
     inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
 
-/* The account card: under the avatar, over the columns. */
+/* The account card: a strip under the search row, in the flow over the rail and the models. They move
+   down and stay whole; drawn over them, it hid the checked model (cmux#63167). It never widens the
+   menu: the columns set its width. */
 .acpmux-cols-card {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: var(--ds-space-1);
-  z-index: var(--layer-raised);
-  /* Its frame follows Text Size as the names in it do (--ui-px, ui/popupSurface.css). */
-  width: calc(250 * var(--ui-px, 1px));
-  max-width: var(--available-width, calc(100vw - 24px));
+  contain: inline-size;
+  min-width: 0;
   overflow: hidden;
-  border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
-  --glass-elevation: var(--ui-popup-drop, var(--elevation-2));
 }
-.acpmux-cols-card-head { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-3); }
+.acpmux-cols-card-head { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-2) var(--ds-space-3); }
 .acpmux-cols-card-who { display: flex; flex-direction: column; min-width: 0; }
 .acpmux-cols-card-name { color: var(--agent-text); font-weight: 600; }
 .acpmux-cols-card-who > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -167,7 +162,9 @@
 .acpmux-cols-card-list { padding: var(--ds-space-1); }
 /* The other accounts scroll inside the card: a long list never runs past the window. */
 .acpmux-cols-card-list:has(> .acpmux-cols-caption) {
-  max-height: max(96px, min(240px, calc(var(--available-height, 480px) - 160px)));
+  /* The card takes its height from the lists under it: a long list of accounts scrolls, so the
+     models keep room to show. */
+  max-height: max(64px, min(160px, calc(var(--available-height, 480px) - 320px)));
   overflow-y: auto;
   overscroll-behavior: contain;
 }

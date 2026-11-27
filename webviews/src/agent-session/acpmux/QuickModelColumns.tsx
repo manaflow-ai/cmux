@@ -30,7 +30,7 @@ import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
 import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
-import { useChatAccounts, type ChatAccount } from "./chatAccounts";
+import { signInName, useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
 import { droppedOrder, orderTabs, setModelPickerOrder, useModelPickerOrder } from "./modelPickerOrder";
 import { startRailDrag } from "./railReorder";
@@ -441,6 +441,14 @@ function Columns({
     sizeHold.current = observer;
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
+  // The account card opens over the lists in the flow and takes its height from them: the checked
+  // model scrolls back into view if the shorter list hid it (cmux#63167).
+  useLayoutEffect(() => {
+    if (!profileOpen) return;
+    modelsList.current
+      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [profileOpen]);
   // A search or a tab removes rows: the rows that stay would jump up to their new slots in one frame.
   // A row that moves a short way (two rows at most) keeps its old place for the frame it lands and
   // glides to the new one on one clock (a CSS keyframe, see quickModelColumns.css). A row that moves
@@ -1245,6 +1253,9 @@ function Columns({
   const activeAccount = onChatTab
     ? accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active)
     : undefined;
+  // No route bound on the chat's own harness: the sign-in acpmux reports its agent runs on (SR2, a
+  // subscription, an API key), never a "CLI login" a launcher harness does not have (cmux#63167).
+  const signIn = onChatTab && !activeAccount ? signInName(menu.signIn) : undefined;
   const signedOut = (!!owner?.note && !!owner.logIn) || (onChatTab && !!auth && canSessionLogin(auth.verdict));
   const authNote = auth ? authText(auth.verdict, t) : undefined;
   // No harness (an empty Starred tab) or one this Mac does not have: no account, so the corner draws
@@ -1256,7 +1267,9 @@ function Columns({
     ? undefined
     : onChatTab && activeAccount
       ? faceOf(activeAccount, t("picker.harnessLogin"))
-      : (routeFace ?? faceOf(undefined, t("picker.harnessLogin")));
+      : signIn
+        ? faceOf(undefined, signIn)
+        : (routeFace ?? faceOf(undefined, t("picker.harnessLogin")));
   const ownerName = ownerTab?.name ?? owner?.name ?? "";
   // The tab's brand mark when its routes are other products (Gemini for Antigravity, Lucas
   // 2026-11-25), else the route's own.
@@ -1269,12 +1282,15 @@ function Columns({
     ? t("picker.notSignedIn")
     : onChatTab && activeAccount
       ? activeAccount.name
-      : routes.length > 1 && owner
-        ? owner.name
-        : login;
+      : (signIn ?? (routes.length > 1 && owner ? owner.name : login));
+  // The harness the account is for by its own name ("Claude Code (sr2 internal)"), not its tab's
+  // ("Claude Code"), unless the name above already is it.
+  const accountHarness = owner && faceName !== owner.name ? owner.name : ownerName;
   const faceDetail = signedOut
     ? t("picker.signInToUse", { harness: ownerName })
-    : [onChatTab && activeAccount ? kindLabel(activeAccount.kind) : undefined, ownerName].filter(Boolean).join(" · ");
+    : [onChatTab && activeAccount ? kindLabel(activeAccount.kind) : undefined, accountHarness]
+        .filter(Boolean)
+        .join(" · ");
   const chatChoices = (accounts.list?.accounts ?? []).filter(
     (choice) =>
       choice.kind === "direct-subscription" ||
@@ -1353,14 +1369,14 @@ function Columns({
   const canSignIn = signedOut && (!!owner?.logIn || (onChatTab && !!auth?.onLogin));
 
   const card = profileOpen && (
-    <InlineCard
-      className="acpmux-cols-card ui-glass ui-glass-floats ui-glass-transient"
-      label={`${ownerName} · ${t("picker.account")}`}
-    >
+    <InlineCard className="acpmux-cols-card" label={`${ownerName} · ${t("picker.account")}`}>
       <div className="acpmux-cols-card-head">
-        <Avatar face={face} size={40} {...(badge ? { badge } : {})} />
+        <Avatar face={face} size={32} {...(badge ? { badge } : {})} />
         <span className="acpmux-cols-card-who">
-          <span className="acpmux-cols-card-name">{faceName}</span>
+          {/* tooltip-allow: a reported sign-in names where it came from ("SR2 token (sr2 claude)") */}
+          <span className="acpmux-cols-card-name" title={signIn ? menu.signIn : undefined}>
+            {faceName}
+          </span>
           <span className="acpmux-cols-detail">{faceDetail}</span>
         </span>
       </div>
@@ -1667,7 +1683,7 @@ function Columns({
           // from the search field (a caption, a note, a gap), except on a column's scroll bar.
           onPointerDown={(event) => {
             const target = event.target as Element;
-            if (profileOpen && !target.closest?.(".acpmux-cols-corner")) setProfileOpen(false);
+            if (profileOpen && !target.closest?.(".acpmux-cols-corner, .acpmux-cols-card")) setProfileOpen(false);
             if (
               target !== field.current &&
               !target.classList?.contains("acpmux-cols-list") &&
@@ -1703,7 +1719,6 @@ function Columns({
                     <Avatar face={face} size={24} {...(badge ? { badge } : {})} />
                   </button>
                 )}
-                {card}
               </span>
               <SearchIcon size={14} />
               <input
@@ -1726,6 +1741,15 @@ function Columns({
             </div>
             <div className="acpmux-cols-strips">
               <hr className="acpmux-cols-sep" />
+              {/* The account card opens here, in the flow over the rail and the models: they move down
+                  and stay whole, never under it (cmux#63167: drawn over the list, it hid the checked
+                  model). */}
+              {card && (
+                <>
+                  {card}
+                  <hr className="acpmux-cols-sep" />
+                </>
+              )}
               {/* The chat's own readiness (an expired login, a route that needs sign-in, an unreachable
               machine), whatever tab or search shows: the avatar is the account, not the readiness. */}
               {auth && authNote && (

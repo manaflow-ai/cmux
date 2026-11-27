@@ -36,6 +36,11 @@ export type QuickMenu = {
   };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
+  /// How the chat's agent signs in, as acpmux reports it (the session's `authSource`, as `/status`
+  /// shows it): "SR2 token (sr2 claude)", "Claude subscription (keychain)". The Account row and card
+  /// name it while no account route is bound, in place of a "CLI login" the harness may not have
+  /// (cmux#63167: a chat on SR2 showed "CLI login · Claude Code"). Absent when acpmux reports none.
+  signIn?: string;
   /// The chat's harness picks its own model (the Chief, `picksOwnModel`): the menu says so in place
   /// of its model list, and offers no More models, refresh or account.
   ownModel?: boolean;

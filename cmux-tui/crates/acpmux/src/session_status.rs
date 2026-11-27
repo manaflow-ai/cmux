@@ -54,6 +54,10 @@ fn launcher(argv: &[String]) -> Option<(&'static str, &'static str)> {
         Some("sr2") if argv.get(1).is_some_and(|a| a.starts_with("claude")) => {
             Some(("SR2 token (sr2 claude)", "SR2 (sr2 claude)"))
         }
+        // The `claude-sr2` wrapper (`~/.local/bin/claude-sr2`, a harness profile's command) execs
+        // `sr2 claude`: read as Claude's own keychain login, the composer's account card named a
+        // chat on SR2 "Claude subscription" (cmux#63167).
+        Some("claude-sr2") => Some(("SR2 token (sr2 claude)", "SR2 (sr2 claude)")),
         _ if crate::config::is_subrouter_proxy(argv) => {
             Some(("Subrouter account pool (sr claude proxy)", "Subrouter (sr claude proxy)"))
         }
