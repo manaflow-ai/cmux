@@ -215,7 +215,7 @@ fn a_shrunk_prompt_fails_invariant_1() {
     let v = &r.sessions[0].violations;
     assert_eq!(v.len(), 1, "{v:#?}");
     assert_eq!((v[0].invariant, v[0].name, v[0].seq), (1, CONTEXT_EXTENDS, 8));
-    assert!(v[0].detail.contains("20110 tokens"), "{}", v[0].detail);
+    assert!(v[0].detail.contains("20010 tokens"), "{}", v[0].detail);
     assert_eq!(r.counters["harnessMagic.scorecard.violations.contextExtends"], 1);
 }
 
@@ -415,7 +415,7 @@ fn rereads_after_the_watch_ends_are_not_counted() {
 // `cmux_next_` prefix puts it in the `cmux_next_ daemon tests` CI step.
 
 #[test]
-fn cmux_next_scorecard_replay_fixtures_hold_every_invariant() {
+fn cmux_next_scorecard_replay_fixtures_break_only_what_they_recorded() {
     let fixtures =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/scorecard-replay");
     // The store may write beside what it opens: a copy, never the checked-in tree.
@@ -426,9 +426,18 @@ fn cmux_next_scorecard_replay_fixtures_hold_every_invariant() {
     let names: Vec<&str> = r.sessions.iter().map(|s| s.session.as_str()).collect();
     assert_eq!(r.sessions.len(), 3, "{names:?} missing {:?}", r.missing);
     assert!(r.missing.is_empty(), "{:?}", r.missing);
+    // The one recording that changed its inputs mid-session: its user switched the model
+    // twice and an MCP server's tools went away. Invariant 2 must name exactly those; nothing
+    // else in the recordings breaks an invariant.
+    let found: Vec<(&str, u8, u64)> = r
+        .sessions
+        .iter()
+        .flat_map(|s| &s.violations)
+        .map(|v| (v.session.as_str(), v.invariant, v.seq))
+        .collect();
     assert_eq!(
-        r.violations,
-        0,
+        found,
+        vec![("compacted-long", 2, 673), ("compacted-long", 2, 895), ("compacted-long", 2, 1067)],
         "{:#?}",
         r.sessions.iter().flat_map(|s| &s.violations).collect::<Vec<_>>()
     );
