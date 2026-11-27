@@ -98,7 +98,7 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Download the Mac-built references
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: "*-apple-darwin"
           path: ${{ runner.temp }}/macos-cross/ref
@@ -184,13 +184,13 @@ jobs:
           /usr/bin/arch -x86_64 /usr/bin/uname -m | grep -qx x86_64
 
       - name: Download the Linux-built macOS binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: macos-cross-binaries
           path: ${{ runner.temp }}/linux
 
       - name: Download the Mac-built references
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: "*-x86_64-apple-darwin"
           path: ${{ runner.temp }}/mac
