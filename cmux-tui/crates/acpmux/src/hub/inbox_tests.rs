@@ -39,6 +39,7 @@ fn item(
         class,
         report: false,
         waited: false,
+        gather: false,
         at,
         within: None,
         text: text.to_owned(),
