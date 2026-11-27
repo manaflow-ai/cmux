@@ -165,7 +165,10 @@ pub(super) async fn write_link<S>(
     S: Sink<Frame> + Unpin,
 {
     let mut streak = 0;
-    let mut pings = tokio::time::interval(super::ws_read_ahead::PING_EVERY);
+    let mut pings = tokio::time::interval_at(
+        tokio::time::Instant::now() + super::ws_read_ahead::PING_EVERY,
+        super::ws_read_ahead::PING_EVERY,
+    );
     pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tokio::select! {
         biased;
