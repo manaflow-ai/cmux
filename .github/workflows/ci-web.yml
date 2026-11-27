@@ -1363,6 +1363,10 @@ jobs:
             exec ./scripts/build-webviews-app.sh --check --skip-typecheck
           fi
           ./scripts/check-webviews-bun-version.sh
+          # A pull request installs the head bundles (react-apps-head-bundles) instead of building them, so nothing
+          # else installs webviews' dependencies here; the engines step runs ./node_modules/.bin/playwright and the
+          # tests run from node_modules (exit 127 on every shard of #59756's first ready-to-land run, 46077486759).
+          (cd webviews && bun install --frozen-lockfile)
           (cd webviews && bun run verify:tanstack-router)
 
       # All shards install the producer's immutable same-run output, verified against this checkout's source key.
