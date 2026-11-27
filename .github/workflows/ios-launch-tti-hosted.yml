@@ -89,7 +89,7 @@ jobs:
                 case "$seen" in *" $pid "*) continue ;; esac
                 seen="$seen$pid "
                 echo "$pid $(date +%s.%N)" >> "$S/pids.txt"
-                sample "$pid" 8 1 -mayDie -file "$S/sample-$pid.txt" > /dev/null 2>&1 &
+                ( sleep 2; sample "$pid" 7 1 -mayDie -file "$S/sample-$pid.txt" > /dev/null 2>&1 ) &  # after dyld: sample reads the image list once, at attach (run 46009355400 had none)
               done
               sleep 0.02
             done
