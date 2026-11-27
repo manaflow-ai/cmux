@@ -419,6 +419,7 @@ cloud.newWorkspacesInCloud
 cloud.turnCheckpoints
 cloud.useMyClaudeLoginOnMyCloudMachines
 cloud.useMyCodexLoginOnMyCloudMachines
+cloud.useMyGitHubLogin
 computerUse.allowForeground
 computerUse.allowOwnMachines
 computerUse.cursorTag
