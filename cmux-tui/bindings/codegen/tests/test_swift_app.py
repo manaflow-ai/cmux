@@ -663,6 +663,14 @@ class FlattenAndWhenTrueTests(unittest.TestCase):
         self.assertIn("before: Bool = false", source)
         self.assertIn("        if before { try container.encode(true, forKey: .before) }\n", source)
 
+    def test_encode_when_gates_an_optional_field_on_a_prior_property(self) -> None:
+        source = self.source(fields={"before": {"encode": "when_true"}, "label": {"encode_when": "before"}})
+        self.assertIn("        if before { try container.encodeIfPresent(label, forKey: .label) }\n", source)
+
+    def test_encode_when_requires_a_non_empty_string(self) -> None:
+        with self.assertRaises(BindingError):
+            self.source(fields={"before": {"encode": "when_true"}, "label": {"encode_when": ""}})
+
     def test_bad_flatten_and_when_true_bindings_are_refused(self) -> None:
         cases = {
             "unregistered type": {"flatten": {"options": {"type": "Nope"}}},

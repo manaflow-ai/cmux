@@ -2302,6 +2302,9 @@
             "end_terminals": {
               "encode": "when_true"
             },
+            "reason": {
+              "encode_when": "endTerminals"
+            },
             "if_empty": {
               "encode": "when_true"
             }

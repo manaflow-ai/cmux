@@ -80,7 +80,7 @@ _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation", "flatten",
 })
-_FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update"})
+_FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "encode_when", "update"})
 _ENCODE_MODES = {"always": True, "if_present": False}
 WHEN_TRUE = "when_true"
 _FLATTEN_TYPE_KEYS = frozenset({"$comment", "wire", "encode"})
@@ -216,6 +216,8 @@ class _Field:
     prefer: str | None = None
     # An optional boolean encoded only when true (the daemon default is false).
     when_true: bool = False
+    # Encode this field only when a preceding request property is enabled.
+    encode_when: str | None = None
     # A flattened value encoded into the request object.
     flat: str | None = None
 
@@ -248,7 +250,10 @@ class _Field:
         if self.when_true:
             return f"        if {self.name} {{ try container.encode(true, forKey: .{_bare(self.name)}) }}"
         method = "encode" if self.always_encoded or self.update else "encodeIfPresent"
-        return f"        try container.{method}({self.name}, forKey: .{_bare(self.name)})"
+        statement = f"try container.{method}({self.name}, forKey: .{_bare(self.name)})"
+        if self.encode_when is not None:
+            return f"        if {self.encode_when} {{ {statement} }}"
+        return f"        {statement}"
 
     def coding_key(self) -> str:
         return f"case {self.name}" + ("" if _bare(self.name) == self.wire else f" = {json.dumps(self.wire)}")
@@ -408,6 +413,9 @@ class _Renderer:
                 default = override.get("default", "false" if when_true else None)
                 if default is not None and (not isinstance(default, str) or not default):
                     raise BindingError(f"{where}.{wire}: default is a Swift expression")
+                encode_when = override.get("encode_when")
+                if encode_when is not None and (not isinstance(encode_when, str) or not encode_when.strip()):
+                    raise BindingError(f"{where}.{wire}: encode_when is a non-empty Swift condition")
             doc = list(override.get("doc") or ([spec["description"]] if spec.get("description") else []))
             doc += _constraint_lines(spec.get("constraints", ()))
             if spec.get("capability") and read:
@@ -434,6 +442,7 @@ class _Renderer:
                 prefer=override.get("prefer"),
                 update=update,
                 when_true=when_true if not read else False,
+                encode_when=encode_when if not read else None,
             ))
             made = result[-1]
             if made.lenient and not made.optional and made.default is None:
