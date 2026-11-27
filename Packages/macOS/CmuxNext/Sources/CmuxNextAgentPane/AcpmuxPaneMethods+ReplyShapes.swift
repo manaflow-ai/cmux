@@ -19,6 +19,7 @@ nonisolated extension AcpmuxPaneMethods {
 
     /// The URL schemes a `.scheme` field may report; any other scheme is dropped.
     static let reportedSchemes: Set<String> = ["ssh", "ws", "wss"]
+    private static let uriPunctuation: Set<UInt8> = Set("-._~!$&'()*+,;=".utf8)
 
     /// `value` cut to `shape`: nil when it does not fit (a list keeps only the items that fit).
     static func filtered(_ value: Any, to shape: ReplyShape) -> Any? {
@@ -188,7 +189,7 @@ nonisolated extension AcpmuxPaneMethods {
                 let after = bytes.index(after: next)
                 guard after < bytes.endIndex, isASCIIHex(bytes[next]), isASCIIHex(bytes[after]) else { return false }
                 index = bytes.index(after: after)
-            } else if isASCIIDigit(byte) || isASCIIAlpha(byte) || Array("-._~!$&'()*+,;=").contains(byte) || extra.contains(byte) {
+            } else if isASCIIDigit(byte) || isASCIIAlpha(byte) || uriPunctuation.contains(byte) || extra.contains(byte) {
                 index = bytes.index(after: index)
             } else {
                 return false
