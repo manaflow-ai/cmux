@@ -177,9 +177,14 @@ BROWSER_PAGE = (b"<!doctype html><html><head><meta charset=utf-8><title>tti page
 # launch kept the daemon that held the session or started a new one. hq run 45746889291's round 2 typed its key 1.2 s
 # before daemon_connected and the key never reached the pty; these say which of the two that launch was.
 FIRST_KEY_PREFIX = "terminal.first_key."
+# The app's own steps before the first frame (main.*, dfl.*, window.*, services.*, launch.*, app.*, frame.*) and stage
+# 0's (launch_shell.*): the terminal round's input_ms is the first frame plus about 26 ms (hq run 45924325260: probe
+# typed 603.1, echo 628.8), so the gap from did_finish_launching (199) to the first frame (601) is the whole number,
+# and without these the line could not say which step of it was slow or whether stage 0 showed.
 KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.", "after_open.",
-                      "daemon.", FIRST_KEY_PREFIX)
-KEPT_MARKS_MAX = 120  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
+                      "daemon.", FIRST_KEY_PREFIX, "main.", "dfl.", "window.", "services.", "launch.", "app.",
+                      "frame.", "launch_shell.", "layout_cache.")
+KEPT_MARKS_MAX = 200  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
 
 
 def kept_marks(marks: dict) -> dict:
