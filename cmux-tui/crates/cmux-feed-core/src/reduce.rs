@@ -149,14 +149,22 @@ impl Feed {
         let outcome = match target {
             Some(index) => {
                 let item = Arc::make_mut(&mut self.items[index]);
-                item.title = notice.title;
-                item.body = notice.body;
-                item.level = notice.level;
-                item.source = notice.source;
-                item.actor = notice.actor;
-                item.context = notice.context;
-                item.updated_at_ms = notice.at_ms.max(item.updated_at_ms);
-                item.count = item.count.saturating_add(1);
+                // A program's own notice (OSC 9/777/7501) for the event its agent's hook just
+                // posted is the same event told twice (Claude Code reports both): the hook's
+                // text, which names the agent and carries its details, stays.
+                let echo = is_terminal_echo(item, &notice);
+                if !echo {
+                    item.title = notice.title;
+                    item.body = notice.body;
+                    item.level = notice.level;
+                    item.source = notice.source;
+                    item.actor = notice.actor;
+                    item.context = notice.context;
+                    item.count = item.count.saturating_add(1);
+                    // An echo leaves the time alone: the window stays measured from the
+                    // agent's own notice, so a program's frequent notices cannot hold it open.
+                    item.updated_at_ms = notice.at_ms.max(item.updated_at_ms);
+                }
                 item.aliases.push(notice.dedupe_key);
                 if item.aliases.len() > MAX_ALIASES {
                     let excess = item.aliases.len() - MAX_ALIASES;
@@ -399,6 +407,18 @@ fn refuse_unowned(item: &Item) -> Result<(), FeedError> {
     }
 }
 
+/// How long after an agent's notice a program's own notice on the same terminal is taken
+/// for the same event (the phone's Feed uses the same window, `TerminalFeed.echoWindow`).
+pub const ECHO_WINDOW_MS: u64 = 10_000;
+
+/// Whether `notice`, a terminal program's own notice, repeats the agent notice `item` stands
+/// for: the same terminal (the caller's coalescing target), within [`ECHO_WINDOW_MS`].
+fn is_terminal_echo(item: &Item, notice: &Notice) -> bool {
+    item.source == "agent"
+        && notice.source == "terminal"
+        && notice.at_ms.abs_diff(item.updated_at_ms) <= ECHO_WINDOW_MS
+}
+
 fn validate_notice(notice: &Notice) -> Result<(), FeedError> {
     if notice.id.is_empty() || notice.id.len() > 128 {
         return Err(FeedError::Invalid("item id must be 1 to 128 bytes".into()));
@@ -408,3 +428,7 @@ fn validate_notice(notice: &Notice) -> Result<(), FeedError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "reduce_echo_tests.rs"]
+mod echo_tests;

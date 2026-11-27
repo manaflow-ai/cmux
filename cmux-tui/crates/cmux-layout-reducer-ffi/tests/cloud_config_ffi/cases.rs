@@ -61,6 +61,32 @@ fn the_configuration_is_made_from_the_runtime_selection() {
 }
 
 #[test]
+fn the_sign_in_screen_backend_label_answers_here() {
+    let (code, production) =
+        call(c"cloud_config_backend_label", &json!({"backend": {"kind": "production"}}));
+    assert_eq!(code, OK);
+    assert_eq!(production, json!({"kind": "production", "title": "cmux.com", "detail": null}));
+    let (_, development) = call(
+        c"cloud_config_backend_label",
+        &json!({"backend": {"kind": "development", "url": "https://dev-abc.cmux.dev"}}),
+    );
+    assert_eq!(
+        development,
+        json!({"kind": "development", "title": "Development backend", "detail": "dev-abc.cmux.dev"})
+    );
+    let (_, local) = call(
+        c"cloud_config_backend_label",
+        &json!({"backend": {"kind": "localOnly", "url": "http://localhost:3777"}}),
+    );
+    assert_eq!(
+        local,
+        json!({"kind": "local", "title": "Local backend", "detail": "localhost:3777"})
+    );
+    let (code, _) = call(c"cloud_config_backend_label", &json!({"backend": {"kind": "elsewhere"}}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
 fn the_install_token_lease_answers_here() {
     let (code, renew) = call(
         c"cloud_auth_install_token_lease",
@@ -92,7 +118,7 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         launch["signIn"],
         json!({"devAuth": true, "autoLogin": true, "replacesSession": false, "memoryOnly": false})
     );
-    assert_eq!(launch["paths"][0], "/h/.config/cmux/dev-account");
+    assert_eq!(launch["paths"][0], cmux_cloud_config::auth::dev_account_path("/h"));
     let (_, login) = call(
         c"cloud_auth_launch_login",
         &json!({"signIn": launch["signIn"], "reads": {"environment": {}, "home": "/h", "files": {}}}),
@@ -105,6 +131,26 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"window": "automatic", "defaultBrowser": "com.apple.Safari"}),
     );
     assert_eq!(window["opensDefaultBrowser"], false);
+    let (_, window) = call(
+        c"cloud_auth_sign_in_window",
+        &json!({"window": "inApp", "defaultBrowser": "com.microsoft.edgemac"}),
+    );
+    assert_eq!(window["opensDefaultBrowser"], true);
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "automatic", "defaultBrowser": "com.microsoft.edgemac", "inApp": true}),
+    );
+    assert_eq!(place["place"], "inApp");
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "automatic", "defaultBrowser": "com.microsoft.edgemac"}),
+    );
+    assert_eq!(place["place"], "defaultBrowser");
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "popup", "defaultBrowser": null, "inApp": true}),
+    );
+    assert_eq!(place["place"], "popup");
     let (_, scope) = call(
         c"cloud_auth_creation_scope",
         &json!({"previous": [null, null], "current": ["u", null]}),
@@ -192,7 +238,7 @@ fn launch_sign_in_and_identity_rules_answer_here() {
 fn auth_rules_answer_from_what_the_app_read() {
     let (_, paths) =
         call(c"cloud_auth_credential_paths", &json!({"environment": {}, "home": "/h"}));
-    assert_eq!(paths["paths"][0], "/h/.config/cmux/dev-account");
+    assert_eq!(paths["paths"][0], cmux_cloud_config::auth::dev_account_path("/h"));
     let (_, decision) =
         call(c"cloud_auth_credentials", &json!({"environment": {}, "home": "/h", "files": {}}));
     assert_eq!(decision, json!({"credentials": null, "refusal": {"kind": "noDeclaredAccount"}}));
@@ -294,6 +340,43 @@ fn the_device_list_answers_here() {
 }
 
 #[test]
+fn the_device_list_groups_by_machine_id_first() {
+    let (code, listed) = call(
+        c"cloud_identity_device_list",
+        &json!({"this": {"id": "nightly", "machineId": "m1"},
+                "devices": [{"id": "dev", "name": "Renamed", "platform": "macos", "machineId": "m1"},
+                            {"id": "mini", "name": "Desk Mac", "platform": "macos", "machineId": "m2"},
+                            {"id": "old", "name": "Laptop", "platform": "macos", "machineId": null}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        listed,
+        json!({"thisDevice": ["nightly", "dev"],
+               "others": [{"id": "mini", "ids": ["mini"]}, {"id": "old", "ids": ["old"]}]})
+    );
+}
+
+#[test]
+fn the_device_discovery_answers_here() {
+    let (code, finding) = call(
+        c"cloud_identity_device_discovery",
+        &json!({"status": "ready", "connection": "connecting", "listed": false, "shown": 0}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(finding, json!({"state": "finding"}));
+    let (_, failed) = call(
+        c"cloud_identity_device_discovery",
+        &json!({"status": "ready", "connection": "connected", "listError": "HTTP 500", "shown": 0}),
+    );
+    assert_eq!(failed, json!({"state": "failed", "reason": "list", "detail": "HTTP 500"}));
+    let (_, none) = call(
+        c"cloud_identity_device_discovery",
+        &json!({"status": "ready", "connection": "connected", "listed": true, "shown": 0}),
+    );
+    assert_eq!(none, json!({"state": "none"}));
+}
+
+#[test]
 fn an_unknown_op_or_a_bad_request_is_refused() {
     assert_eq!(call(c"cloud_config_nope", &json!({})).0, ERR_INVALID);
     assert_eq!(call(c"cloud_config_from_selection", &json!({"isDebugBuild": "no"})).0, ERR_INVALID);
@@ -315,4 +398,41 @@ fn capture_auth_invalid_lease_refuses_before_platform_io() {
     assert_eq!(reply["result"]["code"], "invalid_lease");
     assert_eq!(reply["result"]["ok"], false);
     assert_eq!(reply["result"]["verifiedAbsent"], false);
+}
+
+#[test]
+fn the_no_callback_sign_in_answers_here() {
+    let project = json!({"stackBaseUrl": "https://api.stack-auth.com", "projectId": "p", "publishableClientKey": "k"});
+    let (code, start) = call(c"cloud_auth_cli_sign_in_start", &project);
+    assert_eq!(code, OK);
+    assert_eq!(start["call"]["url"], "https://api.stack-auth.com/api/v1/auth/cli");
+    assert_eq!(start["pollIntervalMs"], 2_000);
+    let (_, started) = call(
+        c"cloud_auth_cli_sign_in_read_start",
+        &json!({"status": 200, "body": r#"{"polling_code":"pc","login_code":"lc","expires_at":"x"}"#,
+                "authWebOrigin": "https://cmux.com"}),
+    );
+    assert_eq!(started["kind"], "started");
+    assert_eq!(started["confirmUrl"], "https://cmux.com/handler/cli-auth-confirm?login_code=lc");
+    let (_, poll) =
+        call(c"cloud_auth_cli_sign_in_poll", &json!({"project": project, "pollingCode": "pc"}));
+    assert_eq!(poll["call"]["url"], "https://api.stack-auth.com/api/v1/auth/cli/poll");
+    let (_, polled) = call(
+        c"cloud_auth_cli_sign_in_read_poll",
+        &json!({"status": 200, "body": r#"{"status":"success","refresh_token":"rt"}"#}),
+    );
+    assert_eq!(polled, json!({"kind": "signedIn", "refreshToken": "rt"}));
+    let (_, token) =
+        call(c"cloud_auth_cli_sign_in_token", &json!({"project": project, "refreshToken": "rt"}));
+    assert_eq!(
+        token["call"]["url"],
+        "https://api.stack-auth.com/api/v1/auth/sessions/current/refresh"
+    );
+    let (_, tokens) = call(
+        c"cloud_auth_cli_sign_in_read_token",
+        &json!({"status": 200, "body": r#"{"access_token":"at"}"#, "refreshToken": "rt"}),
+    );
+    assert_eq!(tokens, json!({"kind": "tokens", "accessToken": "at", "refreshToken": "rt"}));
+    let (code, _) = call(c"cloud_auth_cli_sign_in_read_poll", &json!({"status": "x"}));
+    assert_eq!(code, ERR_INVALID);
 }

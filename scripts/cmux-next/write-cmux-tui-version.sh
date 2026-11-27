@@ -9,6 +9,9 @@
 # (write-daemon-capabilities.sh). Not required: a nightly ships the newest
 # published tree, which can predate `capabilities`; then the bundle has none.
 #
+# CMUX_TUI_TREE_FROM ("<commit> <commits> <hours>", nightly.yml's tree_from): the app's own commit's tree
+# was not published, so it bundles this older commit's tree (older-tree-for-tip.sh); recorded as tree_from=.
+#
 # Usage: write-cmux-tui-version.sh <app> <commit> [<tree-key>]
 set -euo pipefail
 app="${1:?usage: write-cmux-tui-version.sh <app> <commit>}"
@@ -30,6 +33,7 @@ version_line="$("$bin" --version 2>/dev/null | head -n 1 || true)"
   printf 'run=\n'
   printf 'url=https://files.cmux.com/cmux-tui/%s/manifest.json\n' "$commit"
   printf 'version=%s\n' "$version_line"
+  [[ -z "${CMUX_TUI_TREE_FROM:-}" ]] || printf 'tree_from=%s\n' "$CMUX_TUI_TREE_FROM"
 } > "$bin.version"
 echo "cmux-tui.version: $commit${key:+ (tree $key)} ($(lipo -archs "$bin"))"
 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-daemon-capabilities.sh" "$app/Contents/Resources/bin"

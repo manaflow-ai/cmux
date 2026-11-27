@@ -5,10 +5,11 @@
 // fill, the New Tab box's and the chat composer's alike, is no longer a gray slab darker than the
 // page ("same bg kinda weird"; Leo 10-14): in a light theme it is the page lifted toward white,
 // lighter than the page; in a dark theme a small step lighter than the page. Both are solid. The New
-// Tab box's drop shadow is the shared --elevation-1 in a light theme and none in a dark one
-// (cg-design-judge, 10-14). The chat composer is the shared glass material (glass.css, "GLASS
-// MATERIAL"; Leo 2026-11-05 on the Dock: "the glass is a pretty big deal"), whose soft two-step
-// depth shows over a wallpaper in a dark theme too.
+// Tab box's drop shadow is the popups' --elevation-2, as the chat composer's material depth is (one
+// material family, Leo 2026-11-21; before, --elevation-1 in a light theme and none in a dark one,
+// cg-design-judge 10-14). The chat composer is the shared glass material (glass.css, "GLASS
+// MATERIAL"; Leo 2026-11-05 on the Dock: "the glass is a pretty big deal"), whose depth shows over a
+// wallpaper in a dark theme too.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -68,6 +69,11 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         root.setProperty("--agent-text", theme === "dark" ? "rgb(236, 236, 236)" : "rgb(20, 20, 20)");
         root.setProperty("--agent-page-bg", "transparent");
         root.setProperty("--agent-accent", "rgb(0, 122, 255)");
+        // The card's ring eases on box-shadow (composerStates.css, HOVER GLASS RING): these reads
+        // judge the looks a state comes to rest in, so the eases run in no time, as the host's
+        // zero motion tokens run them.
+        root.setProperty("--agent-motion-in", "0ms");
+        root.setProperty("--agent-motion-out", "0ms");
       },
       { page: pages[theme], theme },
     );
@@ -297,6 +303,16 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     test(`${theme}: suggestions resolve the composer's surface in every background mode`, async () => {
       const page = await open(2, theme);
       try {
+        // The page's tree: New Tab's composer sits in `.nt-screen`, whose rule gives the box and the
+        // suggestions one rim hairline (`--cmux-hairline` over the composer zoom, newtab/screen.css;
+        // CMUX-652). The harness draws the composer bare, so it moves under a screen as the page has it.
+        await page.evaluate(() => {
+          const composer = document.getElementById("newtab")!.closest(".nt-composer")!;
+          const screen = document.createElement("div");
+          screen.className = "nt-screen";
+          composer.replaceWith(screen);
+          screen.append(composer);
+        });
         for (const seeThrough of [false, true])
           for (const [glass, lens] of [
             ["plain", false],
@@ -339,10 +355,19 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
                       "opacity",
                     ];
                     return ["newtab", "popover"].map((id) => {
-                      const style = getComputedStyle(document.getElementById(id)!);
-                      return Object.fromEntries(
+                      const element = document.getElementById(id)!;
+                      const style = getComputedStyle(element);
+                      const found = Object.fromEntries(
                         properties.map((property) => [property, style.getPropertyValue(property).trim()]),
                       );
+                      // The ring as drawn: its raw text differs where the suggestions keep one device pixel
+                      // through the composer's zoom (screen.css: calc(var(--nt-device-hairline) / zoom)).
+                      const probe = document.createElement("div");
+                      probe.style.boxShadow = "var(--acpmux-card-ring)";
+                      element.append(probe);
+                      found["--acpmux-card-ring"] = getComputedStyle(probe).boxShadow;
+                      probe.remove();
+                      return found;
                     });
                   });
                   const where = JSON.stringify({ theme, seeThrough, glass, lens, reduced, borders, focused });
@@ -390,10 +415,14 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     });
   }
   for (const theme of ["dark", "light"] as const) {
-    test(`${theme}: New Tab casts ${theme === "light" ? "--elevation-1" : "no shadow"}, the chat composer the composer's quieter depth`, async () => {
+    // One material family (Leo 2026-11-21: "our shitty multi layer glass + web view"): New Tab's box and the
+    // chat composer cast the popups' one drop, --elevation-2, in both themes. Before: New Tab --elevation-1
+    // in light and none in dark, the chat composer a two-step depth of its own.
+    test(`${theme}: New Tab and the chat composer cast the popups' --elevation-2`, async () => {
       const page = await open(2, theme);
       const result = await page.evaluate(() => {
-        // The drop layers of a computed box-shadow (inset rims left out), and --elevation-1's own.
+        // The drop layers of a computed box-shadow (inset rims and the hover band's transparent rings
+        // at rest left out), and --elevation-1's own.
         const drops = (shadow: string) => {
           const entries: string[] = [];
           let depth = 0;
@@ -408,10 +437,13 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
             }
           }
           entries.push(shadow.slice(start).trim());
-          return entries.filter((entry) => entry !== "none" && !/\binset\b/.test(entry));
+          return entries.filter(
+            (entry) =>
+              entry !== "none" && !/\binset\b/.test(entry) && !/^rgba\(0, 0, 0, 0\) 0px 0px 0px [\d.]+px$/.test(entry),
+          );
         };
         const probe = document.createElement("div");
-        probe.style.boxShadow = "var(--elevation-1)";
+        probe.style.boxShadow = "var(--elevation-2)";
         document.body.append(probe);
         const elevation = drops(getComputedStyle(probe).boxShadow);
         probe.style.boxShadow = "var(--glass-material-depth-composer)";
@@ -420,13 +452,10 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         const of = (id: string) => drops(getComputedStyle(document.getElementById(id)!).boxShadow);
         return { elevation, depth, newtab: of("newtab"), composer: of("composer") };
       });
-      expect(result.elevation.length, "--elevation-1 resolves").toBe(1);
-      if (theme === "light") expect(result.newtab, "newtab casts --elevation-1").toEqual(result.elevation);
-      else
-        for (const layer of result.newtab)
-          expect(layer, "newtab casts no visible shadow").toMatch(/^(?:rgba\(0, 0, 0, 0\)|transparent)|0px 0px 0px/);
-      expect(result.depth.length, "the composer's depth resolves to two layers").toBe(2);
-      expect(result.composer, "the chat composer casts the composer's quieter depth").toEqual(result.depth);
+      expect(result.elevation.length, "--elevation-2 resolves").toBe(1);
+      expect(result.newtab, "newtab casts --elevation-2").toEqual(result.elevation);
+      expect(result.depth, "the composer's depth is --elevation-2").toEqual(result.elevation);
+      expect(result.composer, "the chat composer casts --elevation-2").toEqual(result.elevation);
       await page.close();
     });
   }

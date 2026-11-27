@@ -68,6 +68,10 @@ pub struct JudgeAsk {
 /// blocks (the brain calls it on a thread of its own).
 pub trait ReactionJudge: Send + Sync {
     fn judge(&self, ask: &JudgeAsk) -> Result<String, String>;
+    /// `judge` and what the call cost in dollars, when the route says.
+    fn judge_priced(&self, ask: &JudgeAsk) -> Result<(String, Option<f64>), String> {
+        self.judge(ask).map(|t| (t, None))
+    }
 }
 
 /// The settings in force for one decision.

@@ -27,6 +27,11 @@ extension SidebarBridge {
             if !services.windows.reslotCreates(ids.map(\.rawValue), at: position, in: state.id, sections: model.sections) { resync() }
             return
         }
+        // A chat dropped on another machine moves there (``ChatMoveDrop``); a refused move or any other row there snaps back.
+        if let moved = ChatMoveDrop(host: services).drop(intent) {
+            if !moved { resync() }
+            return
+        }
         if CloudCreationRows.handle(intent, bridge: self, state: state) || services.sidebarDoc.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
@@ -59,6 +64,15 @@ extension SidebarBridge {
         case let .selectTab(_, tab): revealPinnedTab(tab.rawValue) // shown in this window (cmux#37371)
         // The tab strip's close for that tab, on whichever machine holds it (the palette's Close Tab).
         case let .closeTab(_, tab): PaletteSourcesBridge.TabSource(services: services).closeTab(id: tab.rawValue)
+        // A hover card port row: the workspace's own daemon opens it in a browser tab there (`workspace.open_url`).
+        case let .openPort(id, url, _):
+            guard !model.isPlaceholder(id), let (workspace, daemon) = services.machines.workspace(id: id.rawValue),
+                  let resource = workspace.resourceID?.rawValue else { return }
+            let capability = WorkspaceOpenURLClient.capability
+            guard daemon.supports(capability) else { return services.registry.refuse(daemon.missingCapabilityMessage(capability)) }
+            model.apply(.select(id))
+            services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
+            command("workspace.open_url", on: daemon, for: intent) { c in try await WorkspaceOpenURLClient(c).open(url, inWorkspace: resource) }
         case .reorder(let ids, let position):
             // A pending edit, as on the personal path: each command's echo shows no step between.
             SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.edits.add(intent), bridge: self)
@@ -87,10 +101,8 @@ extension SidebarBridge {
             let daemon = plan == .onMachine ? named : plan == .onWindow ? own : plan == .cloudChat ? services.machines.local : nil // cloudChat: here (cmux#46021)
             let slot = group.map { NewWorkspacePlacements.rule(for: state.id, in: services.windows).slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
             services.windows.newWorkspace(in: state, on: daemon, at: slot, picksCloud: plan == .cloudChat)
-        case .viewScreen, .shareScreen:
-            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) {
-                services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane)
-            }
+        case .viewScreen, .shareScreen: // the header's screen button and its menu's View Screen (SidebarScreenIntentActions.bindViewScreen)
+            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) { services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane) }
         case .setColor(let ids, let color):
             model.apply(intent)
             for (daemon, key) in keys(ids) {

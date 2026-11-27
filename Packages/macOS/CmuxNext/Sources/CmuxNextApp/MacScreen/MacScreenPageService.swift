@@ -112,11 +112,11 @@ final class MacScreenPageService: InternalPageProvider {
     func open(_ record: MacScreenRecord, in pane: PaneController, focus: Bool, byPerson: Bool,
               created: (@MainActor () -> Void)? = nil) -> String {
         let key = LocalPageTab.makeKey(.macScreen)
-        pages.prepare(key, record: record, byPerson: byPerson)
+        pages.prepareOpen(key, record: record, byPerson: byPerson)
         guard let services else { return key }
         let window = services.windowController(showing: pane)
-        var onCreated: (@MainActor (SurfaceID) -> Void)?
-        if let created { onCreated = { _ in created() } }
+        let made = pages.whenCreated(key, focus: focus, then: created)
+        let onCreated: (@MainActor (SurfaceID) -> Void)? = if let made { { (_: SurfaceID) in made() } } else { nil }
         if let window, services.pages.openStoreTab(.macScreen, in: pane, window: window, focus: focus, key: key,
                                                    created: onCreated) != nil {
             return key
@@ -125,8 +125,22 @@ final class MacScreenPageService: InternalPageProvider {
                             window: window, key: key)
         pane.apply(pane.snapshot())
         if focus { services.pages.reveal(key, in: pane) }
-        created?()
+        made?()
         return key
+    }
+
+    /// Opens `record`'s tab unselected in `model`, a pane no window shows: nothing is selected, focused or raised,
+    /// and the screen connects unseen, so an agent's probe needs no idle person (as `file.open` into a parked pane).
+    func open(_ record: MacScreenRecord, parkedIn model: PaneModel, byPerson: Bool) {
+        let key = LocalPageTab.makeKey(.macScreen)
+        pages.prepareOpen(key, record: record, byPerson: byPerson)
+        guard let services else { return }
+        let made = pages.whenCreated(key, focus: false, then: nil), daemon = services.daemon(for: model)
+        if let window = services.windows.active ?? services.windows.controllersActingFirst.first,
+           services.pages.openStoreTab(.macScreen, in: model, of: daemon, services: services, controller: nil, window: window,
+                                       focus: false, key: key, created: { _ in made?() }) != nil { return }
+        services.pages.open(.macScreen, in: model.id, of: daemon.store, key: key)
+        made?()
     }
 
     /// A Mac Screen address (`cmux://mac-screen…`) typed in a browser's
@@ -156,7 +170,7 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), work: services.work)
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain), work: services.work)
         pages.useActions(of: services.registry, isPersonEvent: services.personInput.isPerson)
         // SECURITY: a joined Mac serves only what its person allowed here (with the model gone, nothing),
         // and a session stops once that no longer allows it.
@@ -165,6 +179,7 @@ extension AppServices {
         consent.changed = { [weak consent, weak host = pages.hubHost] in
             host?.consentChanged { consent?.macScreenPermits($0) ?? false }
         }
+        pages.deviceSetup.runner = MacScreenDeviceSetup.runner(daemon: services.daemon)
         return pages
     }
 
@@ -191,13 +206,13 @@ extension AppServices {
     }
 
     func registerMacScreenDebug(on router: ControlRouter?) {
-        macScreenPages.registerControl(on: router) { [weak self] record, key in self?.openDebugMacScreen(record, pane: key, byPerson: false) ?? "no pane" }
+        macScreenPages.registerControl(on: router) { [weak self] record, key in self.map { $0.openDebugMacScreen(record, pane: key, byPerson: false) } ?? "no pane" }
     }
 
     var cmuxRemoteActions: CmuxRemoteActionEnvironment {
-        CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub },
-                                    window: { [weak self] in self?.windows.active?.window },
-                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") })
+        CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub }, window: { [weak self] in self?.windows.active?.window },
+                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") }, shareConsent: .setting({ [weak self] in self?.settings },
+                                    ownJoin: CmuxRemoteOwnJoin(last: { [weak self] in self?.joinConsent.ownsJoin(self?.cloud.auth) ?? false }, now: { [weak self] in await self?.joinConsent.readOwnJoin(self?.cloud.auth) ?? false })))
     }
 
     /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen
@@ -252,7 +267,7 @@ extension AppServices {
     /// `debug.device_hub` (DEV builds).
     func registerDeviceHubDebug(on router: ControlRouter?) {
         macScreenPages.registerDeviceHubDebug(on: router, settings: deviceHub.settingsModel) { [weak self] record, key in
-            self?.openDebugMacScreen(record, pane: key, byPerson: true) ?? "no pane"
+            self.map { $0.openDebugMacScreen(record, pane: key, byPerson: true) } ?? "no pane"
         }
     }
 

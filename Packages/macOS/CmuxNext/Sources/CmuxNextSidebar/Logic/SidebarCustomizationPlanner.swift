@@ -7,7 +7,7 @@ import Foundation
 /// which rows survive, their order, and valid group targets; this type only
 /// copies the returned ids into the existing document projection.
 struct SidebarCustomizationPlanner {
-    private struct Reply: Decodable {
+    struct Reply: Decodable {
         var sectionOrder: [String]
         var hiddenSections: [String]
         var hiddenWorkspaces: [String]
@@ -22,6 +22,19 @@ struct SidebarCustomizationPlanner {
             case workspaceGroups = "workspace_groups"
             case workspaceOrders = "workspace_orders"
             case selectionSpared = "selection_spared"
+        }
+
+        /// The linked FFI is a pin (`app-ffi-pin.json`) that can predate this Swift: a field Rust added later is
+        /// optional here, or every reply from the older pin fails to decode and no setting applies. A reply with no
+        /// `selection_spared` says nothing about the selection, so the next selection change projects again.
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            sectionOrder = try values.decode([String].self, forKey: .sectionOrder)
+            hiddenSections = try values.decode([String].self, forKey: .hiddenSections)
+            hiddenWorkspaces = try values.decode([String].self, forKey: .hiddenWorkspaces)
+            workspaceGroups = try values.decode([String: String].self, forKey: .workspaceGroups)
+            workspaceOrders = try values.decode([String: Int].self, forKey: .workspaceOrders)
+            selectionSpared = try values.decodeIfPresent(Bool.self, forKey: .selectionSpared) ?? true
         }
     }
 

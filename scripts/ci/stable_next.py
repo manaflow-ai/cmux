@@ -24,7 +24,7 @@ segment, and only the cmux NEXT classification accepts ring-tagged items. Every 
       pulled from the cmux NEXT feed, a build pulled from the stable feed, and a fail verdict.
   published-tonight --stable STABLE.xml --night-start ISO
       published=true|false: whether the stable feed's newest item was published since night_start.
-  merge-feed --new NEW.xml [--live LIVE.xml] --out OUT.xml [--keep N]
+  merge-feed --new NEW.xml [--live LIVE.xml] --out OUT.xml --source-sha SHA [--keep N]
       The stable feed after publishing NEW's one item: that item, tagged cmux-next-stable, then the
       live feed's items below its build, newest first, KEEP (3) items in all, so a rollback always
       has earlier stable builds to serve. Refuses when the live feed already has this build or a newer.
@@ -67,6 +67,9 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 STABLE_CHANNEL = "cmux-next-stable"
@@ -145,8 +148,9 @@ def notes_published(source: str, build: int) -> bool:
     last = None
     for attempt in range(3):  # a transient 5xx or timeout must not fail plan (it counts toward the night's 3 failures)
         try:
-            with urllib.request.urlopen(request, timeout=30):
-                return True
+            # The whole call ends in 30 s, not each socket wait (tests/test_ci_no_bare_urlopen.py).
+            deadline_http.request(request, 30, raise_errors=True)
+            return True
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return False
@@ -167,8 +171,8 @@ def read_verdict(source: str | None, build: int) -> str | None:
         # The feed's CDN refuses Python's default user agent (403).
         request = urllib.request.Request(f"{source.rstrip('/')}/{build}.json", headers={"User-Agent": "cmux-stable-next/1"})
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.load(response).get("verdict")
+            _, body, _ = deadline_http.request(request, 30, raise_errors=True)
+            return json.loads(body).get("verdict")
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return None
@@ -287,12 +291,27 @@ def set_channel(item: str, channel: str) -> str:
     return item.replace("<item>", f"<item>\n            <sparkle:channel>{channel}</sparkle:channel>", 1)
 
 
-def merge_feed(new: str, live: str | None, keep: int = KEEP) -> str:
+SOURCE_TAG = re.compile(r"<cmux:sourceCommit(?:\s[^>]*)?>\s*[0-9a-fA-F]{7,40}\s*</cmux:sourceCommit>")
+
+
+def set_source(item: str, source: str) -> str:
+    """Stamp the build's source commit on the new stable item, as the nightly writer does."""
+    if not re.fullmatch(r"[0-9a-f]{40}", source):
+        raise Refused(f"the stable item needs a full lowercase source commit, got {source!r}")
+    tag = f'<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">{source}</cmux:sourceCommit>'
+    if SOURCE_TAG.search(item):
+        return SOURCE_TAG.sub(tag, item, count=1)
+    return item.replace("</item>", f"    {tag}\n        </item>", 1)
+
+
+def merge_feed(new: str, live: str | None, keep: int = KEEP, source: str | None = None) -> str:
     fresh = items(new)
     if len(fresh) != 1:
         raise Refused(f"the new feed must hold exactly one item, it holds {len(fresh)}")
     match, build = fresh[0]
     item = set_channel(match.group(0).strip("\n"), STABLE_CHANNEL)
+    if source is not None:
+        item = set_source(item, source)
     kept = []
     if live:
         older = []
@@ -422,8 +441,9 @@ def sentry_new_crashes(release: str, org: str, project: str, token: str) -> list
     params = urllib.parse.urlencode({"project": project, "query": query, "statsPeriod": "14d", "limit": 25})
     request = urllib.request.Request(f"https://sentry.io/api/0/organizations/{org}/issues/?{params}",
                                      headers={"Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.load(response)
+    # user-agent: sentry.io's API, no CDN of ours
+    _, body, _ = deadline_http.request(request, 60, raise_errors=True)
+    return json.loads(body)
 
 
 # main ---------------------------------------------------------------------------------------------
@@ -465,6 +485,8 @@ def main(argv: list[str]) -> int:
     m.add_argument("--live")
     m.add_argument("--out", required=True)
     m.add_argument("--keep", type=int, default=KEEP)
+    m.add_argument("--source-sha", required=True,
+                   help="the build's full source commit, stamped as the new item's cmux:sourceCommit")
     r = sub.add_parser("rollback")
     r.add_argument("--live", required=True)
     r.add_argument("--out", required=True)
@@ -508,7 +530,8 @@ def main(argv: list[str]) -> int:
             out({"published": "true" if published_tonight(read_optional(args.stable), start) else "false"},
                 github_output)
         elif args.command == "merge-feed":
-            merged = merge_feed(Path(args.new).read_text(encoding="utf-8"), read_optional(args.live), args.keep)
+            merged = merge_feed(Path(args.new).read_text(encoding="utf-8"), read_optional(args.live), args.keep,
+                                args.source_sha.lower())
             Path(args.out).write_text(merged, encoding="utf-8")
             print(f"stable feed: {', '.join(str(b) for _, b in items(merged))}")
         elif args.command == "rollback":

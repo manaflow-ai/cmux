@@ -2038,6 +2038,13 @@ fn every_test_wait_on_a_hold_is_bounded() {
             "the page's reader drains the served connection's output: it ends when the \
              connection drops `output`, and no test waits on it",
         ),
+        (
+            "server/outbox.rs",
+            "out_rx",
+            "not test code: the scan reads every `outbox.rs` as a test file because \
+             `stress/mod.rs` declares `#[cfg(test)] mod outbox;`. `attempt_once` awaits it in a \
+             `select!` against `sleep_until(quiet.end())`, which bounds it",
+        ),
     ];
     fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
         let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
@@ -3289,4 +3296,53 @@ fn journal_store_forwards_every_local_store_override() {
     let stale: Vec<&&str> =
         DEFAULT_STANDS.iter().filter(|m| forwarded.iter().any(|f| f == *m)).collect();
     assert!(stale.is_empty(), "forwarded now, take them out of DEFAULT_STANDS: {stale:?}");
+}
+
+/// A held tool output body (`Store::keep_held`) is kept beside the chat's log, replaced, listed
+/// and removed, through the journal store and through the local store under it. A deleted chat's
+/// folder is not made again for one, and a name that is no slot is refused.
+#[test]
+fn held_bodies_are_kept_replaced_and_removed_beside_the_log() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(41);
+    let journaled = open(home.path(), &journal);
+    let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let local = LocalStore::new(root.path().join("sessions"), 1 << 20)
+        .unwrap_or_else(|e| panic!("open the local store: {e:#}"));
+    for store in [journaled.as_ref(), &local as &dyn Store] {
+        store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+        assert!(store.kept_held(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_empty());
+        let keep = |slot: &str, held: Option<&[u8]>| {
+            store.keep_held(CHAT, slot, held).unwrap_or_else(|e| panic!("keep {slot}: {e:#}"))
+        };
+        let kept = || {
+            let mut kept = store.kept_held(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+            kept.sort();
+            kept
+        };
+        keep("00ff", Some(&b"one"[..]));
+        keep("00ff", Some(&b"two"[..]));
+        keep("abcd", Some(&b"three"[..]));
+        let both =
+            vec![("00ff".to_owned(), b"two".to_vec()), ("abcd".to_owned(), b"three".to_vec())];
+        assert_eq!(kept(), both);
+        // A copy a write left behind is no slot's.
+        let dir = store.session_path(CHAT).unwrap_or_else(|| panic!("no folder")).join("held");
+        std::fs::write(dir.join("00ff.tmp-1"), b"partial").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(kept(), both);
+        keep("00ff", None);
+        keep("00ff", None);
+        assert_eq!(kept(), vec![("abcd".to_owned(), b"three".to_vec())]);
+        for bad in ["", "../parked", "ABCD", "00ff.json", "ab/cd"] {
+            assert!(store.keep_held(CHAT, bad, Some(&b"x"[..])).is_err(), "{bad:?} was kept");
+            assert!(store.keep_held(CHAT, bad, None).is_err(), "{bad:?} was removed");
+        }
+        store.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+        assert!(
+            store.keep_held(CHAT, "abcd", Some(&b"again"[..])).is_err(),
+            "kept for a deleted chat"
+        );
+        assert!(!store.session_path(CHAT).unwrap_or_else(|| panic!("no path")).exists());
+        assert!(store.kept_held(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_empty());
+    }
 }

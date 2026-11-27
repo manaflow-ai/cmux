@@ -200,7 +200,7 @@ export default componentEntry<{ look?: Look }>({
   load: async () => SceneGradients,
   variants: {
     "weather-day": {
-      note: "A medium weather tile on a linear sky gradient with multicolor symbols in the hourly strip (one-color glyphs such as the sun in their color, layered ones in the tint).",
+      note: "A medium weather tile on a linear sky gradient with multicolor symbols in the hourly strip (sun yellow, rain blue).",
       props: { look: "weather-day" },
       play: ready,
     },

@@ -37,11 +37,23 @@ extension AgentPaneModel {
 
     /// The file a page's `file.open` may open for `target`, or the refusal: under a root
     /// (``AgentPaneFileOpen/resolve(_:roots:)``), a type the target may show, and a real user
-    /// gesture in the pane, spent by this open (page script cannot make one).
+    /// gesture in the pane, spent by this open (page script cannot make one). With
+    /// `experiments.writtenHTMLOpenBeside` on (off by default), an HTML file also opens in a tab as the
+    /// rendered page (``AgentPaneFileOpen/opensAsPageOnClick(_:)``): the gesture makes it the person's
+    /// click, as `cmux file open` already renders it for an agent.
     func checkedFileOpen(_ path: String, target: AgentPaneFileTarget) -> Result<URL, AgentPaneTransportError> {
         AgentPaneFileOpen.resolve(path, roots: fileOpenRoots()).flatMap { url in
-            guard target == .editor || AgentPaneFileOpen.showsInTab(url) else { return .failure(.pathInvalid) }
+            guard target != .tab || AgentPaneFileOpen.showsInTab(url) || opensWrittenPageBeside(url) else {
+                return .failure(.pathInvalid)
+            }
             return transport.gestures.consume() ? .success(url) : .failure(.gestureRequired)
         }
+    }
+
+    /// Whether the written-HTML card's Open beside may open `url` in a tab: the
+    /// `experiments.writtenHTMLOpenBeside` switch is on and the file is an HTML page
+    /// (docs/design/next-rich-output.md, plan item 5).
+    func opensWrittenPageBeside(_ url: URL) -> Bool {
+        experiments[AgentPaneFileOpen.writtenHTMLOpenBesideSwitch] == true && AgentPaneFileOpen.opensAsPageOnClick(url)
     }
 }

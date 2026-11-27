@@ -100,6 +100,35 @@ class CargoLocksTests(unittest.TestCase):
         self.assertEqual(self.git("status", "--porcelain").split(), ["M", "ffi/Cargo.lock"])
         self.assertEqual(self.locks("check").returncode, 0)
 
+    def drop_crate_b(self):
+        """b leaves core's workspace and its directory goes; core's lock still lists it (cmux#57348: cmux-coderouter
+        stayed in cmux-tui/Cargo.lock after its crate was deleted, and `cargo update --locked` passed)."""
+        self.write("core/Cargo.toml", '[workspace]\nmembers = ["a"]\nresolver = "2"\n')
+        self.git("rm", "-rq", "core/b")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "drop b")
+
+    def test_a_lock_entry_for_a_crate_no_manifest_names_is_stale(self):
+        self.drop_crate_b()
+        self.assertIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("stale: core/Cargo.lock: does not match its manifests (lists packages its manifests no "
+                      "longer resolve: b 0.1.0)", result.stdout)
+        self.assertNotIn("ffi/Cargo.lock", result.stdout)
+
+    def test_fix_drops_the_orphaned_entry(self):
+        self.drop_crate_b()
+
+        fixed = self.locks("fix")
+
+        self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
+        self.assertIn("fixed: core/Cargo.lock", fixed.stdout)
+        self.assertNotIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())
+        self.assertEqual(self.locks("check").returncode, 0)
+
     def test_fix_with_nothing_stale_changes_nothing(self):
         fixed = self.locks("fix")
 
@@ -225,7 +254,7 @@ class BusyFixture(unittest.TestCase):
                 self.most_running = max(self.most_running, self.running)
         try:
             if not offline:
-                time.sleep(0.02)
+                time.sleep(0.02)  # sleep-ok: a resolve that takes a moment, the window a parallel resolve would overlap in
             kind = self.behaviour[root]
             if kind == "stale-hang":
                 # Stale under --locked; the rewrite `fix` runs (no --locked) hangs for its whole limit.

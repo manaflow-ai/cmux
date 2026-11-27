@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { revisionChanges, type ChiefEditorService } from "./chiefEditing";
 import type { HomeChief, HomeChiefRevision } from "./types";
+import { intl } from "../../ui/intl";
 
 export function ChiefHistory({
   service,
@@ -43,7 +44,7 @@ export function ChiefHistory({
     };
   }, [service, chief.id]);
   const stamp = useMemo(
-    () => new Intl.DateTimeFormat(strings.language, { dateStyle: "medium", timeStyle: "short" }),
+    () => intl.DateTimeFormat(strings.language, { dateStyle: "medium", timeStyle: "short" }),
     [strings.language],
   );
   const list = revisions ?? [];

@@ -31,6 +31,12 @@ fn native(root: &Path, name: &str, acpmux: &Path) -> Machine {
     fs::create_dir_all(dir.join("home")).unwrap();
     fs::create_dir_all(dir.join("acpmux")).unwrap();
     fs::write(dir.join("acpmux/config.json"), "{\"harnesses\":{}}").unwrap();
+    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+    fs::set_permissions(
+        dir.join("acpmux/config.json"),
+        <fs::Permissions as PermissionsExt>::from_mode(0o600),
+    )
+    .unwrap();
     let machine = Machine {
         socket: dir.join("mux.sock"),
         session: format!("inventory-refresh-{name}"),

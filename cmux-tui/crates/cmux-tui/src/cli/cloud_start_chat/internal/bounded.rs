@@ -65,8 +65,19 @@ pub(in crate::cli::cloud_start_chat) fn kill_steps() {
 /// grandchild that may hold its output pipes open) is killed then, and its output is read by `until` at the latest.
 /// The group is killed before the step's leader is reaped, so the kill never reaches a reused id.
 pub(in crate::cli::cloud_start_chat) fn output_by(
-    mut command: cmux_process::Command,
+    command: cmux_process::Command,
     until: Instant,
+) -> Ran {
+    output_by_unless(command, until, &mut || None)
+}
+
+/// [`output_by`], whose `until` may move: when it comes with the step still running, `later` is asked, on this
+/// thread, and a later instant it names is the step's new `until` (asked again when that one comes). `None`, or an
+/// instant already past, ends the step there as [`output_by`] does. The caller bounds what `later` names.
+pub(in crate::cli::cloud_start_chat) fn output_by_unless(
+    mut command: cmux_process::Command,
+    mut until: Instant,
+    later: &mut dyn FnMut() -> Option<Instant>,
 ) -> Ran {
     if Instant::now() >= until {
         return ran_past_deadline();
@@ -110,6 +121,13 @@ pub(in crate::cli::cloud_start_chat) fn output_by(
             end_group(&mut child);
         }
         let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero()
+            && !exited
+            && let Some(moved) = later().filter(|moved| *moved > Instant::now())
+        {
+            until = moved;
+            continue;
+        }
         if left.is_zero() || pipes.iter().all(|pipe| pipe.ended) {
             break;
         }
@@ -294,101 +312,5 @@ pub(in crate::cli::cloud_start_chat) fn read_by(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A stdin that never ends (a pipe nobody closes) stops the prompt's read at the deadline; one that ends is read
-    /// whole. Without the bound the drill waited on such a stdin past any `--timeout`.
-    #[test]
-    fn a_stdin_read_stops_at_the_deadline() {
-        use std::io::Write as _;
-        // A pipe nobody closes: its reader never sees an end.
-        let (reader, writer) = std::io::pipe().unwrap();
-        let began = Instant::now();
-        assert!(read_by(&reader, began + Duration::from_millis(200)).is_err());
-        assert!(began.elapsed() < Duration::from_secs(5), "{:?}", began.elapsed());
-        // One that ends is read whole.
-        let (reader, mut writer_two) = std::io::pipe().unwrap();
-        writer_two.write_all(b"count").unwrap();
-        drop(writer_two);
-        let read = read_by(&reader, began + Duration::from_secs(5));
-        assert_eq!(read, Ok("count".to_owned()));
-        drop(writer);
-    }
-
-    /// A bounded step that answers at once answers its own output and exit, on every Unix the drill runs on (the
-    /// production drill runs on macOS): never `--timeout ran out` with the deadline far off.
-    #[cfg(unix)]
-    #[test]
-    fn a_bounded_step_that_answers_at_once_answers_its_output() {
-        // Many short steps in a row: the window between a step's pipes ending (its exit event) and its zombie
-        // (macOS posts `NOTE_EXIT` first) is short, so one step alone may miss it.
-        let began = Instant::now();
-        for round in 0..100 {
-            let mut command = cmux_process::Command::new("sh");
-            command.arg("-c").arg("echo hi; echo there >&2; exit 3");
-            let ran = output_by(command, began + Duration::from_secs(60));
-            assert_eq!(
-                (ran.code, ran.stdout.as_str(), ran.stderr.as_str()),
-                (3, "hi\n", "there\n"),
-                "step {round}, after {:?}",
-                began.elapsed()
-            );
-        }
-        assert!(began.elapsed() < Duration::from_secs(30), "{:?}", began.elapsed());
-    }
-
-    /// The marker a re-run of this test binary reads to be the child that ignores `SIGCHLD`.
-    #[cfg(unix)]
-    const IGNORED_SIGCHLD_CHILD: &str = "CMUX_TEST_BOUNDED_IGNORED_SIGCHLD_CHILD";
-
-    /// A drill started with `SIGCHLD` ignored (inherited across exec from whatever ran it) still answers a bounded
-    /// step's own output: the system then reaps the step behind the runner's back, and a wait that cannot see its
-    /// exit is not a deadline. Run in a child process of its own (this test binary again), so the ignored `SIGCHLD`
-    /// touches no other test.
-    #[cfg(unix)]
-    #[test]
-    fn a_bounded_step_under_an_ignored_sigchld_answers_its_output() {
-        if std::env::var_os(IGNORED_SIGCHLD_CHILD).is_some() {
-            // SAFETY: `signal` with SIG_IGN installs no handler code; this process is this one test.
-            unsafe {
-                libc::signal(libc::SIGCHLD, libc::SIG_IGN);
-            }
-            let mut command = cmux_process::Command::new("sh");
-            command.arg("-c").arg("echo hi; exit 3");
-            let began = Instant::now();
-            let ran = output_by(command, began + Duration::from_secs(30));
-            assert_eq!((ran.code, ran.stdout.as_str()), (3, "hi\n"), "{}", ran.stderr);
-            assert!(began.elapsed() < Duration::from_secs(10), "{:?}", began.elapsed());
-            return;
-        }
-        let output = cmux_process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "cli::cloud_start_chat::internal::bounded::tests::a_bounded_step_under_an_ignored_sigchld_answers_its_output",
-                "--nocapture",
-            ])
-            .env(IGNORED_SIGCHLD_CHILD, "1")
-            .output()
-            .unwrap();
-        let said = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            output.status.success(),
-            "the child with SIGCHLD ignored failed: {}: {said}",
-            output.status
-        );
-        // A name that matched no test would pass with 0 run.
-        assert!(said.contains("1 passed"), "the child ran no test: {said}");
-    }
-
-    /// Under a second left after the kill grace and the dispatch margin, no remote script is sent; otherwise the
-    /// machine's `timeout` holds those whole seconds, the script quoted whole.
-    #[test]
-    fn a_remote_script_holds_the_seconds_left() {
-        assert_eq!(remote_script("true", Duration::from_millis(3_999)), None);
-        assert_eq!(
-            remote_script("echo a b", Duration::from_millis(5_900)).as_deref(),
-            Some("timeout -k 1 2 sh -c 'echo a b'")
-        );
-    }
-}
+#[path = "bounded_tests.rs"]
+mod tests;

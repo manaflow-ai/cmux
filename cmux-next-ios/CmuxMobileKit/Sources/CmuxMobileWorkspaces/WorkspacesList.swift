@@ -1,7 +1,11 @@
 #if os(iOS)
+#if DEBUG
+import CmuxMobileAgentChat
+#endif
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
+import Observation
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -24,6 +28,8 @@ public struct WorkspacesList: View {
     let creator: WorkspaceCreator
     /// Pushes a workspace (the new one, right after a tap).
     let open: (Workspace) -> Void
+    /// The last workspace visited, kept when the user backs out to this list.
+    let rememberedWorkspaceID: String?
     /// The signed-in account, for "sign in as …" in the empty state.
     var accountEmail: String?
     /// Links a Mac (live only): a Mac whose list the phone does not have.
@@ -38,14 +44,23 @@ public struct WorkspacesList: View {
     var switchTeam: ((String) -> Void)?
     /// Opens Settings → Account (the empty state, when no Mac uses this account).
     var openAccount: (() -> Void)?
+    /// Told whether a Mac's panel (one Mac's recovery, or every Mac offline) is on the page: the
+    /// shell then hides its floating "Mac offline" chip, which the panel already says, with its
+    /// Retry (cmux#52200 walk: the chip sat over the panel's icon).
+    var macPanelShown: ((Bool) -> Void)?
     @State private var filter: MacFilter
-    /// Reloads the failed team/Mac discovery, not just already-connected workspaces.
+    /// Reloads the failed team/Mac discovery, not just already-connected workspaces. The page
+    /// runs it on its own (``AutoRetry``) while the first load has failed; it never asks.
     var retryLoad: (() async -> Void)?
+    /// Retries a failed first load on its own: placeholders first, the failure page (no button)
+    /// only past the quiet bound.
+    @State private var autoRetry = AutoRetry()
     @State private var query = ""
     /// Offline Macs whose rows are unfolded (this session).
     @State private var unfolded: Set<String> = []
-    /// A refresh has taken long enough to say so.
-    @State private var showsUpdating = false
+    /// The page's placeholder rows showed in this load: the list's own (below Mac lines) take
+    /// over from them at once.
+    @State private var placeholdersShown = false
     /// The offline workspace whose tap is being explained.
     @State private var unavailable: Workspace?
     @State private var renaming: Workspace?
@@ -55,8 +70,6 @@ public struct WorkspacesList: View {
     @State private var bulkClosing: BulkClose?
     /// Set Icon…: the workspace whose icon picker is open.
     @State private var iconPicking: Workspace?
-    /// New Task…: the task composer is open.
-    @State private var composingTask = false
     /// New Workspace Group…: the Mac it goes on (one name field with the other group names).
     @State private var newGroupOnMac: String?
     /// Group by None / Group by Folder (this iPhone's view of the list).
@@ -77,6 +90,9 @@ public struct WorkspacesList: View {
     @State private var listControl = WorkspacesListControl()
     /// Settings → Compact Workspace List.
     @AppStorage(CmuxMobilePreferences.Key.compactWorkspaceList) private var compactList = false
+    /// Settings → Needs You Look (the Mac's `notifications.attention.mark`): badge, or a glow until opened.
+    @AppStorage(CmuxMobilePreferences.Key.attentionMark) private var attentionMarkRaw = AttentionMarkLook.default.rawValue
+    private var attentionMark: AttentionMarkLook { AttentionMarkLook(stored: attentionMarkRaw) }
     /// Each row's frame in the list (read on demand, never drawn from).
     @State var rowFrames = RowFrames()
     /// The inbox, built once per change of what it reads.
@@ -90,16 +106,24 @@ public struct WorkspacesList: View {
     @State private var revealedRequest: Int?
     /// The list is on screen (not under a pushed workspace page): a reveal waits for it.
     @State private var isShown = false
+    /// The remembered row was scrolled to (or found hidden): once per launch.
+    @State private var restoredLastWorkspace = false
+    /// The row the person comes back to: its selection fill shows as the list shows again and
+    /// fades out, as UIKit's lists clear it; no row stays drawn as selected (``ReturnHighlight``).
+    @State private var returnHighlight = ReturnHighlight()
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, linking: MacLinking? = nil,
                 refresh: (() async -> Void)? = nil, retryLoad: (() async -> Void)? = nil,
                 switchTeam: ((String) -> Void)? = nil, openAccount: (() -> Void)? = nil,
-                filter: MacFilter = MacFilter(),
+                filter: MacFilter = MacFilter(), macPanelShown: ((Bool) -> Void)? = nil,
+                rememberedWorkspaceID: String? = nil,
                 open: @escaping (Workspace) -> Void) {
+        self.macPanelShown = macPanelShown
         self.store = store
         self.creator = creator
         self.accountEmail = accountEmail
+        self.rememberedWorkspaceID = rememberedWorkspaceID
         self.reconnect = reconnect
         self.linking = linking
         self.refresh = refresh
@@ -110,8 +134,8 @@ public struct WorkspacesList: View {
         self.open = open
     }
 
-    /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`).
-    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
+    /// The listed Macs: every cmux build as its own Mac (`MacRoster`).
+    private var macs: [MacDevice] { macText.roster(store.activeTeam).visible }
     /// A remembered Mac that is no longer listed reads as All Macs.
     var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
     private var scopedMac: MacDevice? { scope.macID.flatMap { id in macs.first { $0.id == id } } }
@@ -156,9 +180,6 @@ public struct WorkspacesList: View {
         store.tracksMacData ? WorkspaceInbox.ListState(store.macDataPhase(macID)) : .live
     }
 
-    /// Refreshing: the team is loading, or the linked Mac's list has not arrived.
-    private var isRefreshing: Bool { store.teamDataState == .loading || inbox.isUpdating }
-
     /// The page's one state for the team's data (CMUX-49): first load, the list, no Mac, or failed.
     private var launchState: WorkspacesLaunchState {
         WorkspacesLaunchState.resolve(team: store.teamDataState, hasMacs: !macs.isEmpty,
@@ -168,12 +189,19 @@ public struct WorkspacesList: View {
     /// The list's own placeholder rows fill the page (Macs known, no rows yet).
     private var listShowsPlaceholder: Bool { inbox.isLoading && inbox.folds.isEmpty }
 
+    /// The page shows placeholder rows over everything: the team's first load, or no Mac line yet.
+    private var pageShowsPlaceholder: Bool {
+        if case .firstLoad = launchState { return true }
+        return listShowsPlaceholder
+    }
+
     public var body: some View {
         groupDialogs(page)
     }
 
     private var page: some View {
         content
+            .autoRetry(autoRetry, failing: firstLoadFailed && retryLoad != nil) { await retryFirstLoad() }
             .navigationTitle("Workspaces")
             .navigationSubtitle(subtitle)
             // The toolbar from plain values in a view of its own: SwiftUI skips it
@@ -185,14 +213,10 @@ public struct WorkspacesList: View {
             .onChange(of: scope.macToLink(in: macs), initial: true) { _, id in
                 if let id { linking?.link(id) }
             }
-            .task(id: isRefreshing) {
-                // Say "Updating…" only when a refresh is slow, not on every one.
-                guard isRefreshing else {
-                    showsUpdating = false
-                    return
-                }
-                try? await Task.sleep(for: .seconds(1.5))
-                if !Task.isCancelled { showsUpdating = true }
+            // Set when the page's placeholders show; kept while this load lasts, so the list's
+            // own placeholder rows that replace them (a Mac line arrived) skip their show delay.
+            .onChange(of: pageShowsPlaceholder || inbox.isLoading, initial: true) { _, loading in
+                placeholdersShown = loading && (placeholdersShown || pageShowsPlaceholder)
             }
             .alert(unavailableTitle, isPresented: isPresented($unavailable), presenting: unavailable) { _ in
                 Button("OK", role: .cancel) {}
@@ -202,24 +226,9 @@ public struct WorkspacesList: View {
             .sheet(item: $iconPicking) { ws in
                 WorkspaceIconPicker(workspace: ws) { icon in creator.setIcon(ws, icon) }
             }
-            #if DEBUG
-            // `-cmux-mobile-open-new-task`: New Task opens at launch (its captures at Accessibility sizes).
-            .task {
-                guard CommandLine.arguments.contains("-cmux-mobile-open-new-task"), !DebugLaunch.openedNewTask,
-                      !creator.taskMacs.isEmpty else { return }
-                DebugLaunch.openedNewTask = true
-                composingTask = true
-            }
-            #endif
-            // Full screen, as classic's task composer: a prompt canvas with its controls above the keyboard.
-            .fullScreenCover(isPresented: $composingTask) {
-                TaskComposerScreen(creator: creator, sameNames: sameNames,
-                                   started: { made in startedTask(made) }, close: { composingTask = false })
-            }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .submitLabel(.done)
                 Button("Cancel", role: .cancel) {}
@@ -234,8 +243,7 @@ public struct WorkspacesList: View {
         view
             .alert("Move Workspace to New Group", isPresented: isPresented($newGroupFor), presenting: newGroupFor) { (ws: Workspace) in
                 TextField(MacWorkspaceGroup.newGroupName, text: $groupNameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Create") {
@@ -245,7 +253,6 @@ public struct WorkspacesList: View {
             }
             .alert("New Workspace Group", isPresented: isPresented($newGroupOnMac), presenting: newGroupOnMac) { (macID: String) in
                 TextField(MacWorkspaceGroup.newGroupName, text: $groupNameText)
-                    .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("workspaces.newGroup.name")
                 Button("Cancel", role: .cancel) {}
@@ -256,8 +263,7 @@ public struct WorkspacesList: View {
             }
             .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { (target: GroupTarget) in
                 TextField("Name", text: $groupNameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .submitLabel(.done)
                 Button("Cancel", role: .cancel) {}
@@ -288,23 +294,29 @@ public struct WorkspacesList: View {
         return "Its workspaces stay open on \(name)."
     }
 
-    /// Filtered: the Mac and its presence. Else "Updating…" for a slow
-    /// refresh, "2 need you", or with several Macs how many are online.
-    private var subtitle: String {
-        if let mac = scopedMac {
-            return "\(displayName(mac)) · " + RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
-        }
-        let state = launchState
-        // One loading indicator at a time: over the placeholder rows the page already says it loads.
-        if showsUpdating && isRefreshing && state.allowsUpdatingSubtitle && !listShowsPlaceholder { return "Updating…" }
-        // Rows are the last known only while none of their Macs is live (a live Mac's rows are current).
-        if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
-            return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
-        }
-        let waiting = inbox.needsYouCount
-        if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
-        if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
-        return ""
+    /// The header: a green or red dot and the name of the computer shown by default (the
+    /// filtered one, else the one the current workspace lives on), then "2 need you" when no
+    /// computer is chosen. No presence or link words, the dot says them (#55034), and never
+    /// "x of x Macs online" (Leo, 2026-11-24: "red dot green dot when you switch between your
+    /// computers' stuff ... i dont need to see the others"). A
+    /// refresh adds no words: the rows update in place, and a failed one retries on its own
+    /// (Leo, 2026-11-16: "this needs to shut up").
+    var header: ComputerDots.Header {
+        let workspaceMacID = rememberedWorkspaceID.flatMap { store.workspace(id: $0)?.macID }
+        let linkedMacID = linking.flatMap { linking in macs.first { linking.isLinkTarget($0.id) }?.id }
+        return ComputerDots.header(macs: macs, scopedMacID: scopedMac?.id, workspaceMacID: workspaceMacID, linkedMacID: linkedMacID,
+                                   needsYou: inbox.needsYouCount,
+                                   name: { displayName($0) }, reach: { store.macReachability($0) })
+    }
+
+    /// The header as the navigation subtitle: the dot, then its text.
+    private var subtitle: Text {
+        let header = header
+        guard let dot = header.dot else { return Text(verbatim: header.text) }
+        let circle = Text(Image(systemName: "circle.fill")).font(.system(size: 7))
+            .foregroundStyle(dot.isUp ? theme.colors.success.color : theme.colors.danger.color)
+            .accessibilityLabel(dot.isUp ? "online" : "offline")
+        return Text("\(circle) \(header.text)")
     }
 
     private func isPresented<T>(_ item: Binding<T?>) -> Binding<Bool> {
@@ -348,20 +360,14 @@ public struct WorkspacesList: View {
         create(tap.start, directory: tap.directory, on: macID)
     }
 
-    /// New Task…: opens the composer.
-    func startNewTask() { composingTask = true }
-
-    /// New Task started: one workspace opens at once; several stay in the list, each row
-    /// spinning until its Mac answers.
-    func startedTask(_ made: [Workspace]) {
-        guard made.count == 1, let workspace = made.first else { return }
-        open(workspace)
-    }
-
     /// Opens a workspace: a needs-you one on its waiting tab, else the tab left on screen
     /// there in this launch, else the active tab of its layout's top-left pane
     /// (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
+        LaunchMarks.shared.mark("workspace_row_tap")
+        #if DEBUG
+        OpenMarks.shared?.begin("workspace_row_tap")
+        #endif
         if status == .offline {
             theme.haptics.warning()
             unavailable = ws
@@ -371,22 +377,55 @@ public struct WorkspacesList: View {
             store.requestOpen(tabID: tab.id, in: ws.id)
         }
         store.markSeen(ws.id)
+        returnHighlight.opened(ws.id)
         // Its tabs come from its Mac: opening a workspace links that Mac.
         if let id = MacScope.macToLink(opening: ws, in: macs) { linking?.link(id) }
         open(ws)
     }
 
-    @ViewBuilder private var content: some View {
+    /// The placeholder rows show while the team loads (`firstLoad`) and then while the Macs'
+    /// lists load (`listShowsPlaceholder`). Both phases draw this one view in one place, so the
+    /// hand-off between them keeps it: two copies were two views, and the second started
+    /// hidden for its show delay, so the rows blinked out for a quarter second mid-load.
+    /// Never over rows the phone has listed before: a launch and a team switch draw the team's
+    /// cached rows (`LiveSnapshotStore`), so these show only on an install that never listed it.
+    private var showsSkeleton: Bool {
+        // A failed first load keeps its placeholders while it is retried on its own; the
+        // failure page shows only once it has lasted past the quiet bound.
+        if firstLoadFailed { return !autoRetry.isQuietLineShown }
+        return launchState.showsPlaceholderRows(hasMacs: !macs.isEmpty, listLoading: inbox.isLoading, hasMacLines: !inbox.folds.isEmpty)
+    }
+
+    /// The team's first load failed with nothing to show (retried on its own).
+    private var firstLoadFailed: Bool {
+        if case .failed = launchState { return true }
+        return false
+    }
+
+    private var content: some View {
+        ZStack {
+            launchContent
+            // placeholder-ok: nothing cached for this team (no list ever loaded); cached rows draw instead.
+            if showsSkeleton { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
+        }
+    }
+
+    @ViewBuilder private var launchContent: some View {
         switch launchState {
-        case .firstLoad(let offline):
-            skeleton(offline ? "Waiting for a connection…" : "Loading workspaces…")
+        case .firstLoad:
+            Color.clear
         case .failed(let offline):
-            EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
-                       message: offline ? "This iPhone is offline. Workspaces load when it's back online."
-                           : "cmux couldn't reach the service. It tries again on its own.",
-                       // The offline pill is status only: Retry stays here (the one on screen).
-                       retry: retryLoad == nil ? nil : retry)
-                .accessibilityIdentifier("workspaces.retry")
+            // Nothing to decide: the load is retried on its own (`autoRetry`), so the page says
+            // why it is still empty and offers no button. Before the quiet bound the
+            // placeholders show instead (`showsSkeleton`).
+            if autoRetry.isQuietLineShown {
+                EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
+                           message: offline ? "This iPhone is offline. Workspaces load when it's back online."
+                               : "cmux couldn't reach the service. It tries again on its own.")
+                    .accessibilityIdentifier("workspaces.loadFailed")
+            } else {
+                Color.clear
+            }
         case .noMacs, .content:
             if macs.isEmpty {
                 ConnectMacEmptyState(
@@ -405,9 +444,14 @@ public struct WorkspacesList: View {
 
     /// The first load's placeholder rows, captioned with what they wait for.
     private func skeleton(_ caption: LocalizedStringKey) -> some View {
-        ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption).padding(.top, 8) }
+        // placeholder-ok: only when `showsSkeleton`, a team this phone never listed. The rows sit
+        // where the list's rows will (no caption line pushing them down); what they wait for is
+        // their spoken label, and offline is the title's subtitle.
+        ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption, style: .plainList, captionPlacement: .spoken) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
+            .loadProbePlaceholder()
+            .placeholderBound("workspaces.skeleton", .milliseconds(2000))
     }
 
     /// The inbox as the UIKit list shows it: one collection view with a
@@ -421,9 +465,8 @@ public struct WorkspacesList: View {
             .ignoresSafeArea(.container, edges: .vertical)
             .overlay(alignment: .topLeading) { closeAnchor }
             .overlay {
-                if inbox.isLoading {
-                    if inbox.folds.isEmpty { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
-                } else if inbox.isEmpty {
+                // Loading with no Mac line yet: the page's one skeleton (`content`) covers the list.
+                if !inbox.isLoading, inbox.isEmpty {
                     emptyState
                 }
             }
@@ -440,11 +483,51 @@ public struct WorkspacesList: View {
                 guard let request, isShown else { return }
                 reveal(request.workspaceID)
             }
+            .onChange(of: store.activeWorkspaces.map(\.id)) { _, _ in
+                restoreLastWorkspace(inbox)
+            }
             .onAppear {
                 isShown = true
+                macPanelShown?(showsMacPanel)
                 if let request = store.revealRequest, request.id != revealedRequest { reveal(request.workspaceID) }
+                restoreLastWorkspace(inbox)
+                // Back from a workspace: its row shows the selection fill, then it fades out.
+                if returnHighlight.appeared() != nil { endReturnHighlight() }
             }
-            .onDisappear { isShown = false }
+            .onDisappear {
+                isShown = false
+                macPanelShown?(false)
+            }
+            .onChange(of: showsMacPanel, initial: true) { _, shown in macPanelShown?(shown) }
+    }
+
+    /// Once per launch, scrolls to the remembered row as soon as cached or live rows include it. Backing out of a
+    /// workspace keeps the list where it was, so only the first appearance scrolls. Only a row the list already
+    /// shows is a target: a restore never opens a collapsed group (that writes the Mac's sidebar), unfolds a Mac
+    /// or clears a search the user typed; the row is still marked when they get to it.
+    private func restoreLastWorkspace(_ inbox: WorkspaceInbox) {
+        guard isShown, !restoredLastWorkspace, query.isEmpty,
+              let workspaceID = LastOpenRestore.listTarget(savedWorkspaceID: rememberedWorkspaceID,
+                                                           workspaces: store.activeWorkspaces) else { return }
+        restoredLastWorkspace = true
+        guard listModel(inbox).items[WorkspacesListModel.rowID(workspaceID)] != nil else { return }
+        Task { @MainActor in
+            await Task.yield()
+            guard isShown else { return }
+            listControl.scrollTo(WorkspacesListModel.rowID(workspaceID), atTop: true, animated: false)
+            // Where you were, said once and briefly: the row's fill fades out as a pop's does.
+            returnHighlight.flash(workspaceID)
+            endReturnHighlight()
+        }
+    }
+
+    /// Fades the return highlight out after ``ReturnHighlight/hold`` (the row's fill animates
+    /// its own opacity), so the list never keeps a row drawn as selected.
+    private func endReturnHighlight() {
+        Task { @MainActor in
+            try? await Task.sleep(for: ReturnHighlight.hold)
+            returnHighlight.ended()
+        }
     }
 
     /// Everything the collection's model reads besides the inbox (named by its memo's build):
@@ -457,10 +540,13 @@ public struct WorkspacesList: View {
         var pending: Set<String>
         var tracks: Bool
         var compact: Bool
+        var attentionMark: AttentionMarkLook
         var grouping: WorkspaceListGrouping
         var unfolded: Set<String>
         var searching: Bool
         var scopeMacID: String?
+        /// The filtered Mac when its view shows what is wrong and Retry (``MacRecoveryHeader``).
+        var recoveryMacID: String?
         var typeSize: DynamicTypeSize
         var canReconnect: Bool
         var sameNames: MacNameDisambiguation
@@ -468,6 +554,8 @@ public struct WorkspacesList: View {
         /// listed Mac's groups as it lists them (a group made or deleted on the Mac), in Mac order only.
         var groupsRevision: Int
         var macGroups: [String: [MacWorkspaceGroup]]
+        /// The row the person just came back to (``ReturnHighlight``), while its fill shows.
+        var returningWorkspaceID: String?
     }
 
     /// Sections and items for the collection, built once per change of their input.
@@ -482,10 +570,12 @@ public struct WorkspacesList: View {
             }
         }
         let input = ListModelInput(inboxBuild: inboxMemo.builds, names: macNames(), rights: rights,
-                                   pending: store.pendingWorkspaceIDs, tracks: store.tracksMacData, compact: compactList,
+                                   pending: store.pendingWorkspaceIDs, tracks: store.tracksMacData, compact: compactList, attentionMark: attentionMark,
                                    grouping: grouping, unfolded: unfolded, searching: !query.isEmpty, scopeMacID: scope.macID,
+                                   recoveryMacID: scopedMac.flatMap { showsRecovery($0) ? $0.id : nil },
                                    typeSize: typeSize, canReconnect: reconnect != nil, sameNames: sameNames,
-                                   groupsRevision: creator.groupsRevision, macGroups: macGroups)
+                                   groupsRevision: creator.groupsRevision, macGroups: macGroups,
+                                   returningWorkspaceID: returnHighlight.flashing)
         return listMemo.value(input) { buildListModel(inbox, input) }
     }
 
@@ -506,10 +596,14 @@ public struct WorkspacesList: View {
         func rows(_ list: [Workspace]) -> [(String, WorkspacesListItem)] {
             list.map { ws in
                 let mac = rights[ws.macID] ?? .none
-                return (WorkspacesListModel.rowID(ws.id), .row(rowModel(ws, inbox, names, rights: mac, pending: pending, tracks: tracks)))
+                return (WorkspacesListModel.rowID(ws.id), .row(rowModel(ws, inbox, names, rights: mac, pending: pending,
+                                                                        tracks: tracks, isReturning: ws.id == input.returningWorkspaceID)))
             }
         }
-        if inbox.allAsleep && !input.searching { add("asleep", [("asleep", .asleep)]) }
+        if let id = input.recoveryMacID, !input.searching { add("recovery", [("recovery.\(id)", .recovery(id))]) }
+        // Every Mac offline: one panel. Over rows it heads the list; with no row the page's empty
+        // state is that same panel (never both: cmux#52200 walk drew two, one over the other).
+        if inbox.allAsleep && !input.searching && !inbox.isEmpty { add("asleep", [("asleep", .asleep)]) }
         if !inbox.needsYou.isEmpty { add("needs", [("title.needs", .title("Needs You"))] + rows(inbox.needsYou)) }
         if !inbox.pinned.isEmpty { add("pinned", [("title.pinned", .title("Pinned"))] + rows(inbox.pinned)) }
         if !inbox.recent.isEmpty {
@@ -556,6 +650,7 @@ public struct WorkspacesList: View {
         }
         // Loading with Mac lines shown: the placeholder rows go below them, never over
         // them (full verify D7, D11: an overlay drew over the lines and took their Connect taps).
+        // Only with no row at all (`isLoading`): a Mac whose rows are cached draws them, not this.
         if inbox.isLoading, !inbox.folds.isEmpty { add("loading", [("loading", .loading)]) }
         return model
     }
@@ -580,7 +675,9 @@ public struct WorkspacesList: View {
         case let .title(title):
             AnyView(SectionTitle(title: title))
         case .asleep:
-            AnyView(asleepHeader)
+            AnyView(OnMinute { now in allMacsPanel(now: now) })
+        case let .recovery(macID):
+            AnyView(OnMinute { now in recoveryPanel(macID, now: now) })
         case let .group(header):
             AnyView(groupHeader(header))
         case let .folder(header):
@@ -589,9 +686,16 @@ public struct WorkspacesList: View {
             // The line's "Last seen 4m ago" reads the minute clock in its own view: a tick redraws this line only.
             AnyView(OnMinute { now in foldLine(line.fold, now: now) })
         case .loading:
-            AnyView(SkeletonList(rows: 4, leadingSquare: nil)
+            // Its show delay keeps a quick load from flashing rows. Taking over from the page's
+            // rows, already on screen, it waited with nothing shown: the rows blinked out.
+            // placeholder-ok: no row of any Mac on screen was ever listed (cached rows replace it).
+            AnyView(SkeletonList(rows: 4, leadingSquare: nil,
+                                 delay: placeholdersShown ? .zero : theme.motion.skeletonDelay,
+                                 style: .plainList, captionPlacement: .spoken)
                 .allowsHitTesting(false)
-                .accessibilityIdentifier("workspaces.loading"))
+                .accessibilityIdentifier("workspaces.loading")
+                .loadProbePlaceholder()
+                .placeholderBound("workspaces.page.skeleton", .milliseconds(2000)))
         }
     }
 
@@ -636,7 +740,7 @@ public struct WorkspacesList: View {
     /// worked out once per pass: the same answers as `canManage`, `canArrange`
     /// and `canDuplicate` for this workspace.
     private func rowModel(_ ws: Workspace, _ inbox: WorkspaceInbox, _ names: [String: String], rights: WorkspaceCreator.MacRights,
-                          pending: Set<String>, tracks: Bool) -> WorkspaceRowModel {
+                          pending: Set<String>, tracks: Bool, isReturning: Bool) -> WorkspaceRowModel {
         let status = inbox.status(ws)
         let macName = names[ws.macID]
         let canManage = status != .offline && !pending.contains(ws.id) && rights.manage
@@ -646,7 +750,10 @@ public struct WorkspacesList: View {
                                  offlineMacName: status == .offline ? macName : nil, isStale: inbox.stale.contains(ws.id),
                                  tracksMacData: tracks, canManage: canManage, canArrange: canArrange,
                                  canDuplicate: canManage && !ws.isHome, canMoveUp: moves.up, canMoveDown: moves.down,
-                                 compact: compactList)
+                                 compact: compactList,
+                                 glows: WorkspaceRow.glows(status: status, look: attentionMark, seenAt: store.seenAt[ws.id],
+                                                           lastActivityAt: ws.lastActivityAt),
+                                 isReturning: isReturning)
     }
 
     /// A Mac workspace group's header, as its sidebar shows it: a tap folds or
@@ -803,6 +910,26 @@ public struct WorkspacesList: View {
         return parts.joined(separator: " · ")
     }
 
+    /// What a tap on a Mac's fold line does. `nil`: nothing to do (its rows
+    /// are open already, or there is no way to link it from here), so the line
+    /// is drawn as text, not as a disabled button: nothing on it is dimmed or
+    /// blocked while a link comes back (Leo, 2026-11-24: "the entire thing is
+    /// somehow grayed out and I can't interact with anything at all").
+    enum FoldTap: Equatable {
+        /// An offline Mac: unfold or fold its last-known rows in place.
+        case toggle
+        /// An online Mac this phone is not linked to, or whose dial failed: link it.
+        case reconnect
+    }
+
+    static func foldTap(_ reason: WorkspaceInbox.Fold.Reason, isForcedOpen: Bool, canReconnect: Bool) -> FoldTap? {
+        if isForcedOpen { return nil }
+        switch reason {
+        case .offline: return .toggle
+        case .notConnected, .failed: return canReconnect ? .reconnect : nil
+        }
+    }
+
     /// One line for an offline Mac ("MacBook Pro · Last seen 2h ago  3 ›"),
     /// unfolding its rows in place; or for an online Mac the phone is not
     /// linked to (live), linking it on a tap.
@@ -811,102 +938,124 @@ public struct WorkspacesList: View {
         let detail = switch fold.reason {
         case .offline: RelativeStamp(now: now).presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
         case .notConnected: "Not connected"
-        case .failed: "Can't connect"
+        case .failed: store.macReachability(fold.mac).statusText(now: now)
         }
-        return Button {
-            switch fold.reason {
-            case .offline:
-                theme.haptics.selection()
-                let opening = !unfolded.contains(fold.mac.id)
-                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) {
-                    if opening { unfolded.insert(fold.mac.id) } else { unfolded.remove(fold.mac.id) }
-                }
-                // Rows opening below the visible area: bring the first into view.
-                if opening, let first = fold.workspaces.first,
-                   (rowFrames.frame(of: "fold.\(fold.mac.id)")?.maxY ?? 0) + WorkspaceRow.minHeight > listControl.visibleBottom {
-                    Task { @MainActor in
-                        await Task.yield()
-                        listControl.scrollTo(WorkspacesListModel.rowID(first.id), atTop: false, animated: true)
-                    }
-                }
-            case .notConnected, .failed:
-                reconnect?(fold.mac.id)
+        let tap = Self.foldTap(fold.reason, isForcedOpen: fold.isForcedOpen, canReconnect: reconnect != nil)
+        return Group {
+            if let tap {
+                Button { runFoldTap(tap, fold) } label: { foldLabel(fold, detail: detail, isOpen: isOpen) }
+                    .buttonStyle(.cmuxPressFill)
+            } else {
+                foldLabel(fold, detail: detail, isOpen: isOpen)
+                    .accessibilityElement(children: .combine)
             }
-        } label: {
-            HStack(spacing: 0) {
-                // The glyph in the rows' gutter, the Mac's name at their titles' x.
-                Image(systemName: fold.reason == .offline ? "moon.zzz" : "bolt.horizontal.circle")
-                    .frame(width: gutter)
-                    .accessibilityHidden(true)
-                // The name with its tag capsule, as Settings → Devices shows it;
-                // the plain text form when the capsule line doesn't fit.
-                // At accessibility sizes: name (never broken mid-word), the tag
-                // on its own line, then the presence, as Devices does.
-                Group {
-                    if typeSize.isAccessibilitySize {
-                        VStack(alignment: .leading, spacing: 4) {
-                            UnbrokenText(fold.mac.name, style: .footnote, weight: .semibold)
-                            if let tag = sameNames.tag(for: fold.mac.id) { MacNameTag(tag) }
-                            UnbrokenText(detail, style: .footnote, weight: .semibold)
-                        }
-                    } else {
-                        ViewThatFits(in: .horizontal) {
-                            HStack(spacing: 6) {
-                                Text(fold.mac.name).lineLimit(1)
-                                if let tag = sameNames.tag(for: fold.mac.id) { MacNameTag(tag) }
-                                Text("· \(detail)").lineLimit(1)
-                            }
-                            Text("\(displayName(fold.mac)) · \(detail)")
-                                .lineLimit(3)
-                        }
-                    }
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("\(displayName(fold.mac)) · \(detail)"))
-                Spacer(minLength: 8)
-                if fold.reason != .offline {
-                    if reconnect != nil { Text(fold.reason == .notConnected ? "Connect" : "Retry") }
-                } else if !fold.isForcedOpen {
-                    Text("\(fold.workspaces.count)")
-                        .monospacedDigit()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .rotationEffect(.degrees(isOpen ? 90 : 0))
-                        .animation(theme.motion.snap.animation.unlessReduceMotion, value: isOpen)
-                        .padding(.leading, 6)
-                        .accessibilityHidden(true)
-                }
-            }
-            .font(theme.type.meta.weight(.semibold))
-            .foregroundStyle(theme.colors.label2)
-            .frame(minHeight: 32)
-            .contentShape(.rect)
         }
-        .buttonStyle(.cmuxPressFill)
-        .disabled(fold.isForcedOpen || (fold.reason != .offline && reconnect == nil))
         .accessibilityValue(fold.reason == .offline && !fold.isForcedOpen ? (isOpen ? "Expanded" : "Collapsed") : "")
         .background { FrameProbe(id: "fold.\(fold.mac.id)") { rowFrames.rows["fold.\(fold.mac.id)"] = WeakProbe(view: $0) } }
         .accessibilityIdentifier("workspaces.fold.\(fold.mac.id)")
     }
 
-    private var asleepHeader: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "moon.zzz")
-                .font(.system(size: 28))
-                .foregroundStyle(theme.colors.label)
-                .accessibilityHidden(true)
-            Text("Your Macs are asleep")
-                .font(theme.type.emptyTitle)
-                .foregroundStyle(theme.colors.label)
-            Text("Wake a Mac or open cmux on it to open its workspaces.")
-                .font(theme.type.rowSubtitle)
-                .foregroundStyle(theme.colors.label2)
-                .multilineTextAlignment(.center)
+    private func runFoldTap(_ tap: FoldTap, _ fold: WorkspaceInbox.Fold) {
+        switch tap {
+        case .toggle:
+            theme.haptics.selection()
+            let opening = !unfolded.contains(fold.mac.id)
+            withAnimation(theme.motion.smooth.animation.unlessReduceMotion) {
+                if opening { unfolded.insert(fold.mac.id) } else { unfolded.remove(fold.mac.id) }
+            }
+            // Rows opening below the visible area: bring the first into view.
+            if opening, let first = fold.workspaces.first,
+               (rowFrames.frame(of: "fold.\(fold.mac.id)")?.maxY ?? 0) + WorkspaceRow.minHeight > listControl.visibleBottom {
+                Task { @MainActor in
+                    await Task.yield()
+                    listControl.scrollTo(WorkspacesListModel.rowID(first.id), atTop: false, animated: true)
+                }
+            }
+        case .reconnect:
+            reconnect?(fold.mac.id)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
-        .accessibilityElement(children: .combine)
+    }
+
+    private func foldLabel(_ fold: WorkspaceInbox.Fold, detail: String, isOpen: Bool) -> some View {
+        HStack(spacing: 0) {
+            // The glyph in the rows' gutter, the Mac's name at their titles' x.
+            Image(systemName: fold.reason == .offline ? "moon.zzz" : "bolt.horizontal.circle")
+                .frame(width: gutter)
+                .accessibilityHidden(true)
+            // The name with its tag capsule, as Settings → Devices shows it;
+            // the plain text form when the capsule line doesn't fit.
+            // At accessibility sizes: name (never broken mid-word), the tag
+            // on its own line, then the presence, as Devices does.
+            Group {
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 4) {
+                        UnbrokenText(fold.mac.name, style: .footnote, weight: .semibold)
+                        if let tag = sameNames.tag(for: fold.mac.id) { MacNameTag(tag) }
+                        UnbrokenText(detail, style: .footnote, weight: .semibold)
+                    }
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) {
+                            Text(fold.mac.name).lineLimit(1)
+                            if let tag = sameNames.tag(for: fold.mac.id) { MacNameTag(tag) }
+                            Text("· \(detail)").lineLimit(1)
+                        }
+                        Text("\(displayName(fold.mac)) · \(detail)")
+                            .lineLimit(3)
+                    }
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("\(displayName(fold.mac)) · \(detail)"))
+            Spacer(minLength: 8)
+            if fold.reason != .offline {
+                // Connect moves this phone's link to a Mac it is not linked to (the person's choice);
+                // Retry redials a failed Mac, which re-asks the Mac's "Allow … to connect?" when it
+                // refused this phone (LiveCoordinator.retry(macID:)), so it waits for the person.
+                // retry-prompt-ok: links another Mac, or re-asks the Mac's Allow prompt (a side effect on the Mac)
+                if reconnect != nil { Text(fold.reason == .notConnected ? "Connect" : "Retry") }
+            } else if !fold.isForcedOpen {
+                Text("\(fold.workspaces.count)")
+                    .monospacedDigit()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    .animation(theme.motion.snap.animation.unlessReduceMotion, value: isOpen)
+                    .padding(.leading, 6)
+                    .accessibilityHidden(true)
+            }
+        }
+        .font(theme.type.meta.weight(.semibold))
+        .foregroundStyle(theme.colors.label2)
+        .frame(minHeight: 32)
+        .contentShape(.rect)
+    }
+
+    /// Every listed Mac is offline (All Macs): one state for all of them, with the newest
+    /// last-seen time and one Retry that tries every Mac (cmux#52200 walk, step 2, All Macs).
+    private func allMacsPanel(now: Date) -> some View {
+        let offline = macs.filter { !$0.isOnline }
+        let attempts = offline.compactMap { store.macRecovery[$0.id] }
+        return MacRecoveryPanel(
+            macName: offline.count == 1 ? offline.first.map(displayName) ?? "Your Mac" : "your Macs",
+            reach: .offline(lastSeenAt: offline.compactMap(\.lastSeenAt).max()),
+            attempt: MacRecoveryAttempt.combined(attempts),
+            now: now,
+            retry: reconnect.map { reconnect in {
+                theme.haptics.impactLight()
+                for mac in offline { reconnect(mac.id) }
+            } },
+            signIn: nil,
+            title: offline.count == 1 ? nil : "Your Macs are offline"
+        )
         .accessibilityIdentifier("workspaces.empty.asleep")
+    }
+
+    /// Whether the page shows a Mac's panel now (its recovery, or every Mac offline).
+    private var showsMacPanel: Bool {
+        guard query.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        if let mac = scopedMac { return showsRecovery(mac) }
+        return inbox.allAsleep && store.tracksMacData
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -923,6 +1072,8 @@ public struct WorkspacesList: View {
                 primary: { createTapStart(on: target.id) }
             )
             .accessibilityIdentifier("workspaces.empty.all")
+        } else if store.tracksMacData {
+            ScrollingPanel { OnMinute { now in allMacsPanel(now: now) } }
         } else {
             EmptyState(
                 symbol: "moon.zzz",
@@ -937,6 +1088,41 @@ public struct WorkspacesList: View {
     /// "can't take new workspaces" while the phone is still linking it.
     @ViewBuilder private func scopedEmptyState(_ mac: MacDevice) -> some View {
         let canCreate = target != nil
+        if showsRecovery(mac) {
+            // Scrolls: at the largest text sizes the panel is taller than the page, and its Retry
+            // must stay reachable above the tab bar (cmux#52200 walk, step 5).
+            ScrollingPanel { OnMinute { now in recoveryPanel(mac.id, now: now) } }
+                .accessibilityIdentifier("workspaces.empty.recovery")
+        } else {
+            scopedEmptyStateCases(mac, canCreate: canCreate)
+        }
+    }
+
+    /// Whether the Mac's view says what is wrong and offers Retry: a Mac the phone can't use
+    /// (``MacReachability/offersRetry``), signed out, or one whose Retry is under way or ended
+    /// without connecting. Live mode only: mock data has nothing to retry.
+    func showsRecovery(_ mac: MacDevice) -> Bool {
+        guard store.tracksMacData else { return false }
+        let reach = store.macReachability(mac)
+        if reach.offersRetry || reach == .authRequired { return true }
+        guard reach != .connected, let attempt = store.macRecovery[mac.id] else { return false }
+        return attempt.result != .connected
+    }
+
+    /// The Mac's state, its last-seen time, the Retry and its steps (cmux#52200).
+    private func recoveryPanel(_ macID: String, now: Date) -> some View {
+        let found = mac(macID)
+        return MacRecoveryPanel(
+            macName: found.map(displayName) ?? "Your Mac",
+            reach: found.map { store.macReachability($0) } ?? .offline(lastSeenAt: nil),
+            attempt: store.macRecovery[macID],
+            now: now,
+            retry: reconnect.map { reconnect in { theme.haptics.impactLight(); reconnect(macID) } },
+            signIn: openAccount
+        )
+    }
+
+    @ViewBuilder private func scopedEmptyStateCases(_ mac: MacDevice, canCreate: Bool) -> some View {
         switch MacEmptyState.resolve(isOnline: mac.isOnline, list: listState(mac.id), connection: store.macConnection[mac.id],
                                      tracksLive: store.tracksMacData, reach: linking?.reach(mac.id) ?? .none, canCreate: canCreate) {
         case .offline:
@@ -951,6 +1137,9 @@ public struct WorkspacesList: View {
                 symbol: "bolt.horizontal.circle",
                 title: "Can't connect to \(displayName(mac))",
                 message: "\(displayName(mac)) is online, but this iPhone can't reach it.",
+                // A redial re-asks the Mac's "Allow … to connect?" when it refused this phone
+                // (LiveCoordinator.retry(macID:)); the Mac's link redials on its own.
+                // retry-prompt-ok: re-asks the Mac's Allow prompt (a side effect on the Mac)
                 primaryTitle: reconnect == nil ? nil : "Retry",
                 primary: reconnect.map { reconnect in { reconnect(mac.id) } }
             )
@@ -960,6 +1149,7 @@ public struct WorkspacesList: View {
                 symbol: "link",
                 title: "\(displayName(mac)) isn't connected",
                 message: "Connect to this Mac to view its workspaces.",
+                // retry-prompt-ok: Connect links this phone to a Mac it is not linked to (the person's choice).
                 primaryTitle: reconnect == nil ? nil : "Connect",
                 primary: reconnect.map { reconnect in { reconnect(mac.id) } }
             )
@@ -972,15 +1162,13 @@ public struct WorkspacesList: View {
             )
             .accessibilityIdentifier("workspaces.empty.others-mac")
         case .connecting:
-            VStack(spacing: 12) {
-                CmuxSpinner()
-                Text("Connecting to \(displayName(mac))…")
-                    .font(theme.type.rowSubtitle)
-                    .foregroundStyle(theme.colors.label2)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("workspaces.empty.connecting")
+            // Nothing while the link comes up (Leo, 2026-11-23: "i dont wanna see connecting to
+            // cosmic-gray... with the spinner, i want it to just work"): the workspaces come with
+            // it, and a link that fails turns into the Retry state above.
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
+                .accessibilityIdentifier("workspaces.empty.connecting")
         case .empty(let canCreate):
             EmptyState(
                 symbol: "macwindow",
@@ -998,7 +1186,8 @@ public struct WorkspacesList: View {
         let macs = macs
         let entries = macs.count > 1 ? macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
                                                                            linkStatus: store.macLinkStatus, live: store.tracksMacData,
-                                                                           now: MinuteClock.shared.now)) : []
+                                                                           now: MinuteClock.shared.now, failure: store.macFailure,
+                                                                           phoneOffline: store.isOffline)) : []
         let filterValue = scopedMac.map { mac in
             [displayName(mac), entries.first { $0.id == mac.id }?.detail].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", ")
         } ?? "All Macs"
@@ -1009,8 +1198,7 @@ public struct WorkspacesList: View {
             tap: target.map { creator.tapStart(on: $0.id) },
             options: target.map { creator.options(on: $0.id) }, availableMacs: creator.availableMacs,
             grouping: grouping, canNewGroup: target.map { creator.canCreateGroup(on: $0.id) } ?? false,
-            agentDestinations: NewAgentChatDestination.all(creator),
-            canStartTask: !creator.taskMacs.isEmpty
+            agentDestinations: NewAgentChatDestination.all(creator)
         )
         return WorkspacesToolbar(model: model, host: self).equatable()
     }
@@ -1020,8 +1208,16 @@ public struct WorkspacesList: View {
         Binding(get: { scope == value }, set: { if $0 { select(value) } })
     }
 
-    func retry() async {
-        await retryLoad?()
+    /// One retry of the failed first load, returning once it has answered (``AutoRetry`` waits
+    /// for it): the reload marks the team loading, and the attempt ends when it is not, or after
+    /// 30 s. Offline, nothing is asked; the page waits for the network.
+    func retryFirstLoad() async {
+        guard let retryLoad, !store.isOffline else { return }
+        await retryLoad()
+        let store = store
+        await BoundedWait(.seconds(30)).run { @MainActor in
+            await BoundedWait.observing { store.teamDataState == .loading }
+        }
     }
 }
 
@@ -1034,7 +1230,7 @@ struct WorkspaceRowModel: Equatable {
     /// Named on idle rows when Recent mixes several Macs.
     var macName: String?
     var offlineMacName: String?
-    /// A last-known (cached) row, dimmed.
+    /// A last-known (cached) row: drawn and tappable as a live one; its agent state is not shown.
     var isStale: Bool
     var tracksMacData: Bool
     var canManage: Bool
@@ -1044,10 +1240,15 @@ struct WorkspaceRowModel: Equatable {
     var canMoveDown: Bool
     /// Settings → Compact Workspace List: the name line only.
     var compact = false
+    /// Settings → Needs You Look is Glow and the row waits unseen (`WorkspaceRow.glows`).
+    var glows = false
+    /// The workspace the person just came back from: its selection fill shows as the list
+    /// shows again, then fades out (``ReturnHighlight``). Never a lasting selected state.
+    var isReturning = false
 }
 
 /// One Workspaces row and what it carries: the tap, the press fill, the
-/// stale dimming, the menu (built when shown) and the accessibility actions.
+/// menu (built when shown) and the accessibility actions.
 /// Equal models skip the body; `host` only runs actions and is not compared.
 struct WorkspaceListRow: View, Equatable {
     let model: WorkspaceRowModel
@@ -1062,15 +1263,35 @@ struct WorkspaceListRow: View, Equatable {
             host.openWorkspace(ws, status: model.status)
         } label: {
             WorkspaceRow(workspace: ws, status: model.status, macName: model.macName, offlineMacName: model.offlineMacName,
-                         compact: model.compact)
+                         compact: model.compact, glows: model.glows)
+                .background {
+                    RoundedRectangle(cornerRadius: theme.metrics.selectedRowRadius, style: .continuous)
+                        .fill(theme.colors.fillSelected)
+                        .opacity(model.isReturning ? 1 : 0)
+                        // Off with a fade, as a UIKit list deselects the row you come back to;
+                        // on at once.
+                        .animation(model.isReturning ? nil : .easeOut(duration: ReturnHighlight.fade), value: model.isReturning)
+                        .padding(.horizontal, -theme.metrics.selectedRowInset)
+                }
         }
         // Not the List's cell highlight: it stuck on as a gray pill while a
         // swipe was under way. A press fill that ends when the touch moves.
         .buttonStyle(RowPressStyle())
-        // Last-known rows (live mode), dimmed until the Mac answers on this link.
-        .opacity(model.isStale ? 0.55 : 1)
-        .animation(theme.motion.smooth.animation.unlessReduceMotion, value: model.isStale)
+        // The layout-shift count (ios-placeholder-bounds suite): this row must not move once drawn.
+        .layoutShiftTracked("workspace.\(ws.id)")
+        // Last-known rows (live mode) draw at full strength and open while the Mac answers on this link:
+        // no dim while the phone reattaches (Leo, 2026-11-24: "the entire thing is somehow grayed out").
+        // No lasting selected trait either: a list in a navigation stack keeps no row selected
+        // after you come back (Apple HIG, Lists and tables), and a stuck "selected" row was the
+        // TestFlight report (Aziz, 2026-11-25).
         .onAppear {
+            #if DEBUG
+            // The list rig's seeded rows, not the mock ones shown before it seeds (LaunchTTIUITests).
+            let countsForLaunch = ListStressSettings.shared.countsListFrame(rowID: ws.id)
+            #else
+            let countsForLaunch = true
+            #endif
+            if countsForLaunch { LaunchMarks.shared.markNextFrame("workspaces_list_frame") }
             // verify/fast-connect.md: when a row is first on screen, cached or live.
             if model.tracksMacData {
                 ConnectTimeline.shared.mark(model.isStale ? "workspace_row_cached" : "workspace_row_live")
@@ -1121,10 +1342,8 @@ struct WorkspacesToolbar: View, Equatable {
         var grouping: WorkspaceListGrouping
         /// New Workspace Group… can make a group on the target Mac now.
         var canNewGroup: Bool
-        /// New Agent Chat on…: each Mac that starts agent chats from a phone, with its folders.
+        /// New Agent Chat ▸: each Mac that starts agent chats from a phone, with its folders.
         var agentDestinations: [NewAgentChatDestination] = []
-        /// New Task… can start agents on some Mac now.
-        var canStartTask = false
     }
 
     let model: Model
@@ -1148,8 +1367,6 @@ struct WorkspacesToolbar: View, Equatable {
                                        macs: model.availableMacs, canNewGroup: model.canNewGroup,
                                        newGroup: { if let id = model.target?.id { host.startNewEmptyGroup(on: id) } },
                                        agentDestinations: model.agentDestinations,
-                                       canStartTask: model.canStartTask,
-                                       newTask: { host.startNewTask() },
                                        createOn: { start, directory, macID in host.create(start, directory: directory, on: macID) }) { start, directory in
                         host.create(start, directory: directory, on: model.target?.id)
                     }
@@ -1159,8 +1376,7 @@ struct WorkspacesToolbar: View, Equatable {
     }
 }
 
-/// The Mac filter: All Macs, then each Mac (online first) with its presence
-/// (and the live link line) as the subtitle.
+/// The Mac filter: All Macs, then each Mac (online first) with a green or red dot.
 struct WorkspacesFilterMenu: View, Equatable {
     let model: WorkspacesToolbar.Model
     let host: WorkspacesList
@@ -1200,20 +1416,20 @@ struct WorkspacesFilterMenu: View, Equatable {
     @ViewBuilder private var macToggles: some View {
         Section {
             // Toggles, not an inline Picker: a Picker drops each Mac's
-            // presence subtitle. The chosen row shows the checkmark.
+            // dot. The chosen row shows the checkmark.
             Toggle(isOn: host.chosen(.all)) {
                 Label("All Macs", systemImage: "square.stack.3d.up")
             }
             .accessibilityIdentifier("workspaces.filter.all")
             ForEach(model.entries) { mac in
-                // A title and a subtitle Text directly in the label: a menu
-                // shows the second as the subtitle (not inside a Label).
+                // The Mac's name and a green (online) or red (offline) dot: no presence or link
+                // words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
+                // stuff"). The words stay for VoiceOver.
                 Toggle(isOn: host.chosen(.mac(mac.id))) {
                     Text(mac.title)
-                    Text(mac.detail)
-                    // The model has no Mac kind (laptop or desktop) yet.
-                    Image(systemName: "desktopcomputer")
+                    Image(uiImage: MacPresenceDot.image(online: mac.isOnline))
                 }
+                .accessibilityValue(Text(mac.detail))
                 .accessibilityIdentifier("workspaces.filter.\(mac.id)")
             }
         }
@@ -1402,35 +1618,48 @@ struct BulkClose: Identifiable {
 
 /// The Mac's workspace color swatch (its `GroupColor.swatch` hue, chroma and brightness).
 enum WorkspaceSwatch {
-    static func color(_ color: WorkspaceColor) -> Color {
-        let (hue, chroma) = color.hueAndChroma
-        return Color(UIColor { traits in
-            let dark = traits.userInterfaceStyle == .dark
-            return UIColor(hue: hue / 360, saturation: (dark ? 0.40 : 0.42) * chroma, brightness: dark ? 0.68 : 0.64, alpha: 1)
-        })
+    /// The Mac's vibrant group color (`GroupColor`), light or dark. It replaced a low-saturation
+    /// formula that the Mac dropped on 2026-11-06 for going brown and olive.
+    static func color(_ color: WorkspaceColor) -> Color { Color(uiColor: uiColor(color)) }
+
+    static func uiColor(_ color: WorkspaceColor) -> UIColor {
+        UIColor { traits in rgb(color.vibrant(dark: traits.userInterfaceStyle == .dark)) }
+    }
+
+    static func rgb(_ value: UInt32) -> UIColor {
+        UIColor(red: CGFloat(value >> 16 & 0xFF) / 255, green: CGFloat(value >> 8 & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
+
+    /// A stored `#RRGGBB` (or `#RRGGBBAA`) color's `0xRRGGBB`.
+    static func hex(_ stored: String?) -> UInt32? {
+        guard let stored, stored.hasPrefix("#"), stored.count >= 7 else { return nil }
+        return UInt32(stored.dropFirst().prefix(6), radix: 16)
     }
 
     /// A stored color: a palette name, or `#RRGGBB`.
     static func color(stored: String?) -> Color? {
         if let palette = WorkspaceColor(stored: stored) { return color(palette) }
-        guard let stored, stored.hasPrefix("#"), stored.count >= 7, let value = UInt32(stored.dropFirst().prefix(6), radix: 16) else { return nil }
-        return Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+        return hex(stored).map { Color(uiColor: rgb($0)) }
     }
 
     /// A menu icon: a filled circle in the color (menus draw images, not shapes).
     /// Drawn once per color: a menu lists nine of them.
     @MainActor static func image(_ color: WorkspaceColor) -> Image { Image(uiImage: uiImage(color)) }
 
-    /// The same circle for a UIKit menu, drawn once per color.
+    /// The same circle for a UIKit menu, drawn once per color, light and dark.
     @MainActor static func uiImage(_ color: WorkspaceColor) -> UIImage {
         if let image = images[color] { return image }
-        let (hue, chroma) = color.hueAndChroma
-        let fill = UIColor(hue: hue / 360, saturation: 0.42 * chroma, brightness: 0.64, alpha: 1)
         let size = CGSize(width: 16, height: 16)
-        let image = UIGraphicsImageRenderer(size: size).image { _ in
-            fill.setFill()
-            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
-        }.withRenderingMode(.alwaysOriginal)
+        func circle(dark: Bool) -> UIImage {
+            UIGraphicsImageRenderer(size: size).image { _ in
+                rgb(color.vibrant(dark: dark)).setFill()
+                UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
+            }.withRenderingMode(.alwaysOriginal)
+        }
+        let asset = UIImageAsset()
+        asset.register(circle(dark: false), with: UITraitCollection(userInterfaceStyle: .light))
+        asset.register(circle(dark: true), with: UITraitCollection(userInterfaceStyle: .dark))
+        let image = asset.image(with: UITraitCollection(userInterfaceStyle: .light))
         images[color] = image
         return image
     }
@@ -1461,6 +1690,9 @@ struct WorkspaceRow: View {
     var offlineMacName: String?
     /// The Mac's Compact Workspace List: one line (the status line goes; VoiceOver still reads it).
     var compact = false
+    /// Settings → Needs You Look is Glow and the row waits unseen: the gutter's dot goes
+    /// (keeping its room) and the row breathes a halo in its color (`WorkspaceRow+NeedsYouGlow`).
+    var glows = false
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The status gutter; the title, separators and section titles start after it.
     private var gutter: CGFloat { Self.textLeading(typeSize) }
@@ -1495,10 +1727,11 @@ struct WorkspaceRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             mark
+                .opacity(glows ? 0 : 1)
                 .frame(width: gutter)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + needsYouDisc / 2 }
                 .animation(theme.motion.snap.animation.unlessReduceMotion, value: status)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: CmuxMobileListRowMetrics.lineSpacing) {
                 // The time stays trailing on line 1, beside a name that wraps
                 // to two lines at accessibility sizes (no line of its own).
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1509,12 +1742,12 @@ struct WorkspaceRow: View {
                 if showsStatusLine {
                     StatusLine(workspace: workspace, status: status, macName: macName)
                         .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
-                        .opacity(status == .offline ? 0.6 : 1)
                 }
             }
         }
-        .frame(minHeight: showsStatusLine ? 40 : 32, alignment: .center)
+        .frame(minHeight: showsStatusLine ? CmuxMobileListRowMetrics.minHeight : CmuxMobileListRowMetrics.compactMinHeight, alignment: .center)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background { needsYouGlow }
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
@@ -1535,7 +1768,10 @@ struct WorkspaceRow: View {
             }
             Text(workspace.title)
                 .font(theme.type.rowTitle.weight(.semibold))
-                .foregroundStyle(status == .offline ? theme.colors.label3 : theme.colors.label)
+                // Full strength when its Mac is offline too: the row is the last-known copy and still opens
+                // (the tap says the Mac is offline). Leo, 2026-11-24, back from another app: "the entire thing
+                // is somehow grayed out and I can't interact with anything at all."
+                .foregroundStyle(theme.colors.label)
         }
     }
 
@@ -1875,12 +2111,9 @@ struct NewWorkspaceButton: View, Equatable {
     /// New Workspace Group… (the Mac's File menu row): an empty group on the target Mac.
     let canNewGroup: Bool
     let newGroup: () -> Void
-    /// New Agent Chat on…: the Macs it can start on, each with its folders (from the list).
+    /// New Agent Chat ▸: the Macs it can start on, each with its folders (from the list).
     var agentDestinations: [NewAgentChatDestination] = []
-    /// New Task… (the task composer): offered when some Mac can start agents now.
-    var canStartTask = false
-    var newTask: () -> Void = {}
-    /// Creates on a named Mac (New Agent Chat on…).
+    /// Creates on a named Mac (New Agent Chat ▸ a Mac ▸ a folder).
     var createOn: (NewWorkspaceStart, String?, String) -> Void = { _, _, _ in }
     let create: (NewWorkspaceStart, String?) -> Void
 
@@ -1888,7 +2121,7 @@ struct NewWorkspaceButton: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.target == b.target && a.showsMacPicker == b.showsMacPicker && a.sameNames == b.sameNames && a.recents == b.recents
             && a.tap == b.tap && a.options == b.options && a.macs == b.macs && a.canNewGroup == b.canNewGroup
-            && a.agentDestinations == b.agentDestinations && a.canStartTask == b.canStartTask
+            && a.agentDestinations == b.agentDestinations
     }
     /// Open Folder…: the typed path, and why the last one was refused.
     @State private var openingFolder = false
@@ -1932,75 +2165,39 @@ struct NewWorkspaceButton: View, Equatable {
         } ?? "")
     }
 
+    /// Long press: the other ways to start, in four short groups (2026-11-18 reorganize). New
+    /// Task… is not here: it is the floating button above the tab bar (`NewTaskFloatingButton`).
+    /// Each folder list appears once, inside a submenu, not as a page of rows.
     @ViewBuilder private var menu: some View {
-        if canStartTask {
-            // New Task…: a prompt, the agents that run it and where, in one sheet.
-            Section {
-                Button("New Task…", systemImage: "text.badge.plus") { newTask() }
-                    .accessibilityIdentifier("workspaces.newTask")
-            }
-        }
         if let mac = target, let options {
+            // 1. Start something new: an agent chat, a terminal, a browser.
             if macs.count > 1 || !showsMacPicker {
                 Section("On \(displayName(mac))") { starts(options) }
             } else {
                 Section { starts(options) }
             }
-            // Its own section near the top: it lists every Mac, not only the one named above.
-            if !agentDestinations.isEmpty {
-                Section { newAgentChatOn }
-            }
-            if !recents.isEmpty {
-                Section("Recent Directories") {
-                    ForEach(recents, id: \.self) { directory in
-                        Button {
-                            create(.terminal, directory)
-                        } label: {
-                            Label {
-                                Text(Self.folderName(directory))
-                                Text(directory)
-                            } icon: {
-                                Image(systemName: "folder")
-                            }
+            // 2. Open a place: a recent folder or a typed path.
+            if !recents.isEmpty || options.directories {
+                Section {
+                    if !recents.isEmpty { openRecent }
+                    if options.directories {
+                        // The Mac's Open Folder… (⌘O): a typed path, since a phone browses no Mac folders.
+                        Button("Open Folder…", systemImage: "folder.badge.plus") {
+                            folderText = ""
+                            openingFolder = true
                         }
+                        .accessibilityIdentifier("workspaces.openFolder")
                     }
                 }
             }
-            if options.agents.contains(""), !recents.isEmpty {
-                // The Mac's New Agent Chat over Home: a workspace whose only tab is the
-                // chat, in one of the Mac's workspace folders.
-                Section("New Agent Chat") {
-                    ForEach(recents, id: \.self) { directory in
-                        Button {
-                            create(.agent(""), directory)
-                        } label: {
-                            Label {
-                                Text(Self.folderName(directory))
-                                Text(directory)
-                            } icon: {
-                                Image(systemName: "sparkle")
-                            }
-                        }
-                        .accessibilityIdentifier("workspaces.newAgentChat.\(Self.folderName(directory))")
-                    }
-                }
-            }
+            // 3. Organize.
             if canNewGroup {
                 Section {
-                    Button("New Workspace Group…", systemImage: "folder.badge.plus") { newGroup() }
+                    Button("New Workspace Group…", systemImage: "rectangle.stack.badge.plus") { newGroup() }
                         .accessibilityIdentifier("workspaces.newGroup")
                 }
             }
-            if options.directories {
-                Section {
-                    // The Mac's Open Folder… (⌘O): a typed path, since a phone browses no Mac folders.
-                    Button("Open Folder…", systemImage: "folder.badge.plus") {
-                        folderText = ""
-                        openingFolder = true
-                    }
-                    .accessibilityIdentifier("workspaces.openFolder")
-                }
-            }
+            // 4. Where a tap creates.
             if showsMacPicker && macs.count > 1 {
                 Section {
                     Picker(selection: Binding(get: { mac.id }, set: { creator.prefer(macID: $0) })) {
@@ -2015,48 +2212,107 @@ struct NewWorkspaceButton: View, Equatable {
     }
 
     @ViewBuilder private func starts(_ options: WorkspaceCreationOptions) -> some View {
+        newAgentChat
         // A plain tap opens an agent chat; the terminal stays one item away.
         Button("New Terminal Workspace", systemImage: "apple.terminal") { create(.terminal, nil) }
             .accessibilityIdentifier("workspaces.newTerminal")
-        ForEach(options.agents.filter { !$0.isEmpty }, id: \.self) { harness in
+        let harnesses = options.agents.filter { !$0.isEmpty }
+        if harnesses.count == 1, let harness = harnesses.first {
             Button("New \(Self.agentName(harness)) Workspace", systemImage: "sparkle") { create(.agent(harness), nil) }
+                .accessibilityIdentifier("workspaces.newAgentWorkspace.\(harness)")
+        } else if harnesses.count > 1 {
+            Menu {
+                ForEach(harnesses, id: \.self) { harness in
+                    Button(Self.agentName(harness), systemImage: "sparkle") { create(.agent(harness), nil) }
+                        .accessibilityIdentifier("workspaces.newAgentWorkspace.\(harness)")
+                }
+            } label: {
+                Label("New Agent Workspace", systemImage: "sparkle")
+            }
+            .accessibilityIdentifier("workspaces.newAgentWorkspace")
         }
         if options.browser {
             Button("New Browser Workspace", systemImage: "globe") { create(.browser, nil) }
+                .accessibilityIdentifier("workspaces.newBrowser")
         }
     }
 
-    /// The Mac's New Agent Chat on…: pick the machine, then the place (one of its workspace
-    /// folders); acpmux on that Mac starts the chat there (`session/new {cwd}`). Beside New
-    /// Workspace, where the menu opens, not under its folder lists.
-    @ViewBuilder private var newAgentChatOn: some View {
-        if !agentDestinations.isEmpty {
+    /// New Agent Chat ▸: a workspace whose only tab is the agent chat, in one of the Mac's
+    /// workspace folders; acpmux on that Mac starts the chat there (`session/new {cwd}`). One
+    /// Mac lists its folders; several list each Mac (the target first), then its folders. It
+    /// replaces the old "New Agent Chat" folder section and "New Agent Chat on…", which listed
+    /// the same folders twice.
+    @ViewBuilder private var newAgentChat: some View {
+        let destinations = Self.ordered(agentDestinations, first: target?.id)
+        if destinations.count == 1, let only = destinations.first {
             Menu {
-                ForEach(agentDestinations) { destination in
+                agentFolders(only, idPrefix: "workspaces.newAgentChat")
+            } label: {
+                Label("New Agent Chat", systemImage: "bubble.left.and.bubble.right")
+            }
+            .accessibilityIdentifier("workspaces.newAgentChatOn")
+        } else if destinations.count > 1 {
+            Menu {
+                ForEach(destinations) { destination in
                     Menu {
-                        ForEach(destination.folders, id: \.self) { directory in
-                            Button {
-                                createOn(.agent(""), directory, destination.mac.id)
-                            } label: {
-                                Label {
-                                    Text(Self.folderName(directory))
-                                    Text(directory)
-                                } icon: {
-                                    Image(systemName: "folder")
-                                }
-                            }
-                            .accessibilityIdentifier("workspaces.newAgentChatOn.\(destination.mac.id).\(Self.folderName(directory))")
-                        }
+                        agentFolders(destination, idPrefix: "workspaces.newAgentChatOn.\(destination.mac.id)")
                     } label: {
                         Label(displayName(destination.mac), systemImage: "desktopcomputer")
                     }
                     .accessibilityIdentifier("workspaces.newAgentChatOn.\(destination.mac.id)")
                 }
             } label: {
-                Label("New Agent Chat on…", systemImage: "bubble.left.and.bubble.right")
+                Label("New Agent Chat", systemImage: "bubble.left.and.bubble.right")
             }
             .accessibilityIdentifier("workspaces.newAgentChatOn")
         }
+    }
+
+    @ViewBuilder private func agentFolders(_ destination: NewAgentChatDestination, idPrefix: String) -> some View {
+        ForEach(destination.folders, id: \.self) { directory in
+            Button {
+                createOn(.agent(""), directory, destination.mac.id)
+            } label: {
+                Label {
+                    Text(Self.folderName(directory))
+                    Text(directory)
+                } icon: {
+                    Image(systemName: "folder")
+                }
+            }
+            .accessibilityIdentifier("\(idPrefix).\(Self.folderName(directory))")
+        }
+    }
+
+    /// Open Recent ▸: the target Mac's workspace folders, each opened as a terminal workspace
+    /// there (`cd`), as the Mac's File ▸ Open Recent.
+    private var openRecent: some View {
+        Menu {
+            ForEach(recents, id: \.self) { directory in
+                Button {
+                    create(.terminal, directory)
+                } label: {
+                    Label {
+                        Text(Self.folderName(directory))
+                        Text(directory)
+                    } icon: {
+                        Image(systemName: "folder")
+                    }
+                }
+                .accessibilityIdentifier("workspaces.recent.\(Self.folderName(directory))")
+            }
+        } label: {
+            Label("Open Recent", systemImage: "clock.arrow.circlepath")
+        }
+        .accessibilityIdentifier("workspaces.openRecent")
+    }
+
+    /// `destinations` with the Mac `first` (the one a tap creates on) at the top, the rest in order.
+    static func ordered(_ destinations: [NewAgentChatDestination], first: String?) -> [NewAgentChatDestination] {
+        guard let first, let index = destinations.firstIndex(where: { $0.mac.id == first }), index > 0 else { return destinations }
+        var ordered = destinations
+        ordered.insert(ordered.remove(at: index), at: 0)
+        return ordered
     }
 
     static func agentName(_ harness: String) -> String {
@@ -2090,3 +2346,38 @@ final class DebugLaunch {
 #endif
 
 #endif
+
+/// The selection fill of the row you come back to, as UIKit's lists draw it in a navigation
+/// stack (`clearsSelectionOnViewWillAppear`): it shows as the list shows again and fades out,
+/// and no row stays drawn as selected. Aziz's TestFlight build (2026-11-25) kept the last
+/// visited row ("Browser Dogfood") filled for good after every pop: #53590 drew the fill on
+/// the remembered row for as long as it was remembered. The press itself is `RowPressStyle`.
+struct ReturnHighlight: Equatable {
+    /// How long the fill stays before it fades.
+    static let hold: Duration = .milliseconds(300)
+    /// How long the fade takes, in seconds.
+    static let fade: Double = 0.35
+
+    /// The workspace opened from this list: it flashes when the list shows again.
+    private(set) var opened: String?
+    /// The row drawing the fill now; nil once it faded.
+    private(set) var flashing: String?
+
+    /// A row was tapped and its workspace pushed.
+    mutating func opened(_ id: String) { opened = id }
+
+    /// The list shows again (a pop): the row opened from it flashes, once. Nil when nothing was
+    /// opened since the last appearance.
+    mutating func appeared() -> String? {
+        guard let id = opened else { return nil }
+        opened = nil
+        flashing = id
+        return id
+    }
+
+    /// A row flashes without a pop (the launch restore's "where you were").
+    mutating func flash(_ id: String) { flashing = id }
+
+    /// The fill fades: no row is drawn as selected.
+    mutating func ended() { flashing = nil }
+}

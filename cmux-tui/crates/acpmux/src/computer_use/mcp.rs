@@ -7,7 +7,8 @@
 //! (then each call says so). `tools/call` goes through [`Caller`]: a call id
 //! per request, the session key for the whole session, the endpoint from the
 //! cmux-tui daemon, and retries of the same call id across a worker restart.
-//! A worker result, refusals included, reaches the agent unchanged.
+//! A worker result, refusals included, reaches the agent unchanged, except a
+//! locked Mac, which becomes one typed state ([`super::locked`]).
 //!
 //! When the agent closes the pipe the server ends its session on the worker
 //! (`session/end`), which drops the session's approvals and cursor.
@@ -81,7 +82,7 @@ pub fn client_defers(params: &Value, primary: bool) -> bool {
 }
 
 /// What an agent that has its own Computer Use is told.
-pub const DEFER_INSTRUCTIONS: &str = "You have your own Computer Use (Codex Computer Use); use it for anything on this computer's screen. These cmux-computer-use tools are a second option: use them only when the person asks for cmux Computer Use (or names these tools), never by default. When the person does ask, work in the background as cmux Computer Use does: list_windows, then screenshot or get_ui_tree a window, then act on element ids or screenshot pixels.";
+pub const DEFER_INSTRUCTIONS: &str = "You have your own Computer Use (Codex Computer Use); use it for anything on this computer's screen. These cmux-computer-use tools are a second option: use them only when the person asks for cmux Computer Use (or names these tools), never by default. When the person does ask, work in the background as cmux Computer Use does: pass a known title or app name as window_id to get_ui_tree or screenshot, then act on element ids or screenshot pixels. Use list_windows for discovery.";
 
 /// The prefix of each tool's description for such an agent (also the folded
 /// `cu_*` tools of `cmux mcp serve` when its client is Codex).
@@ -226,7 +227,14 @@ pub fn call<D: Daemon>(caller: &Caller<D>, params: &Value) -> Value {
     }
     let name = params["name"].as_str().unwrap_or_default();
     let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-    caller.call(name, &arguments, &super::client::new_call_id()).to_mcp()
+    let machine =
+        arguments.get("machine").and_then(Value::as_str).map(str::trim).map(str::to_owned);
+    // A locked Mac answers as one typed state, not a generic tool error ([`super::locked`]), and
+    // names the person's machines that can take the call instead (read only when it was locked).
+    let outcome = caller.call(name, &arguments, &super::client::new_call_id());
+    super::locked::to_mcp_routed(outcome, || {
+        caller.routable_machines(machine.as_deref().filter(|m| !m.is_empty()))
+    })
 }
 
 #[cfg(test)]

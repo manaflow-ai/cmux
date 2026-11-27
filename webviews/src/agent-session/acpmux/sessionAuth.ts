@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { agentDisplayName } from "./agents";
 import { translate, type Translate } from "./i18n";
+import { providerName } from "./modelVariants";
+import { afterNextPaint } from "./afterNextPaint";
 /** The session/selected-route auth verdict from acpmux. Unknown is never a refusal. */
 export type SessionAuthState =
   | "ready"
@@ -10,6 +13,8 @@ export type SessionAuthState =
   | "peerUnreachable"
   | "unknown";
 export type SessionAuthSource = "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+/** Whose credential refused the chat: the agent's own login, a provider's API key, or the cmux account. */
+export type SessionAuthCredential = "login" | "apiKey" | "cmux";
 export type SessionAuth = {
   state: SessionAuthState;
   source: SessionAuthSource;
@@ -19,6 +24,9 @@ export type SessionAuth = {
   host?: string | null;
   routeId?: string | null;
   fromSessionId?: string | null;
+  credential?: SessionAuthCredential;
+  /** The provider id that issued a refused API key ("opencode-go"). */
+  provider?: string;
   login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
 };
 export const UNKNOWN_AUTH: SessionAuth = { state: "unknown", source: "none", evidenceAt: null };
@@ -60,6 +68,10 @@ export function readSessionAuth(reply: unknown): SessionAuth {
     ...(typeof row.fromSessionId === "string" || row.fromSessionId === null
       ? { fromSessionId: row.fromSessionId as string | null }
       : {}),
+    ...(row.credential === "login" || row.credential === "apiKey" || row.credential === "cmux"
+      ? { credential: row.credential }
+      : {}),
+    ...(typeof row.provider === "string" && row.provider ? { provider: row.provider } : {}),
     ...(login && (login.kind === "terminal" || login.kind === "route")
       ? {
           login: {
@@ -124,39 +136,79 @@ export function useRouteAuthSwitch(apply: (sessionId: string, routeId: string) =
 export function authBlocksSend(auth: SessionAuth | undefined): boolean {
   return auth?.state === "signedOut" || auth?.state === "expired" || auth?.state === "routeAuthNeeded";
 }
-export function authLoginText(auth: SessionAuth | undefined, t: Translate = translate): string {
-  return t(
-    auth?.state === "expired" ||
-      auth?.state === "routeAuthNeeded" ||
-      (auth?.state === "signedOut" && auth.source === "turn")
-      ? "turn.signInAgain"
-      : "harness.logIn",
-  );
+/// Who refused the chat, so the words name that party and the button offers the one fix that works
+/// (user, Nov 19: "hard to tell if cmux is signed out or the model provider is signed out"): the
+/// person's cmux account, a provider's API key (signing in again never renews one), a route by its
+/// name, else the agent's own login.
+export type AuthParty =
+  | { kind: "cmux" }
+  | { kind: "apiKey"; provider: string }
+  | { kind: "route"; route?: string }
+  | { kind: "login"; agent?: string };
+
+/// An answer that names no harness (or no route) keeps the plain words it always had: a name
+/// there would be a guess.
+export function authParty(auth: SessionAuth, t: Translate = translate): AuthParty {
+  const agent = auth.harness ? agentDisplayName(auth.harness) : undefined;
+  if (auth.credential === "cmux") return { kind: "cmux" };
+  if (auth.credential === "apiKey")
+    return { kind: "apiKey", provider: auth.provider ? providerName(auth.provider) : (agent ?? t("picker.model")) };
+  if (auth.state === "routeAuthNeeded") {
+    const route = auth.login?.routeId ?? auth.routeId ?? undefined;
+    return route ? { kind: "route", route } : { kind: "route" };
+  }
+  return agent ? { kind: "login", agent } : { kind: "login" };
 }
+
+/// The button (and the model chip's word) that fixes the refusal: "Replace key", "Sign in to cmux",
+/// "Sign in to Claude Code". It says what it does, the same wherever it shows.
+export function authLoginText(auth: SessionAuth | undefined, t: Translate = translate): string {
+  if (!auth) return t("harness.logIn");
+  const party = authParty(auth, t);
+  switch (party.kind) {
+    case "cmux":
+      return t("auth.fix.signInCmux");
+    case "apiKey":
+      return t("auth.fix.replaceKey");
+    case "route":
+      return party.route ? t("auth.fix.signInTo", { name: party.route }) : t("turn.signInAgain");
+    case "login":
+      if (party.agent) return t("auth.fix.signInTo", { name: party.agent });
+      return auth.state === "expired" || auth.source === "turn" ? t("turn.signInAgain") : t("harness.logIn");
+  }
+}
+
+/// One plain sentence that names who refused the chat and what fixes it. Never the daemon's
+/// `detail` (its diagnostic, with the agent's raw error), and never two messages joined.
 export function authText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
   if (!auth) return undefined;
-  const harness = auth.harness ?? t("picker.model");
+  const harness = auth.harness ? agentDisplayName(auth.harness) : t("picker.model");
+  if (auth.state === "routeUnreachable")
+    return t("turn.failure.unreachableVia", { harness, via: auth.routeId ?? t("picker.account") });
+  if (auth.state === "peerUnreachable")
+    return t("turn.failure.unreachableVia", { harness, via: auth.host ?? t("environment.host") });
+  if (!authBlocksSend(auth)) return undefined;
+  const party = authParty(auth, t);
+  const expired = auth.state === "expired";
   const label =
-    auth.state === "signedOut"
-      ? t("harness.signedOut", { agent: harness })
-      : auth.state === "expired"
-        ? t("turn.authExpired")
-        : auth.state === "routeAuthNeeded"
-          ? `${t("picker.account")} · ${authLoginText(auth, t)}`
-          : auth.state === "routeUnreachable"
-            ? t("turn.failure.unreachableVia", { harness, via: auth.routeId ?? t("picker.account") })
-            : auth.state === "peerUnreachable"
-              ? t("turn.failure.unreachableVia", { harness, via: auth.host ?? t("environment.host") })
-              : undefined;
-  if (!label) return undefined;
+    party.kind === "cmux"
+      ? t("auth.cmux.signedOut")
+      : party.kind === "apiKey"
+        ? t(expired ? "auth.key.expired" : "auth.key.refused", { provider: party.provider })
+        : party.kind === "route"
+          ? party.route
+            ? t("auth.route.signedOut", { name: party.route })
+            : t("turn.authExpired")
+          : party.agent
+            ? t(expired ? "auth.login.expired" : "auth.login.signedOut", { agent: party.agent })
+            : expired
+              ? t("turn.authExpired")
+              : t("harness.signedOut", { agent: harness });
+  // A chat on another machine signs in there: say where and what to run, as its own sentence.
   const host = auth.login?.host ?? auth.host;
-  const recovery =
-    auth.login?.kind === "terminal" && host && auth.login.command
-      ? `${t("picker.unavailable")} · ${host}: ${auth.login.command}`
-      : auth.login?.kind === "route"
-        ? `${t("picker.accountHint")} · ${auth.login.routeId ?? auth.routeId ?? ""}`
-        : undefined;
-  return [label, auth.detail, recovery].filter(Boolean).join(" · ");
+  if (auth.login?.kind === "terminal" && host && auth.login.command && party.kind !== "cmux")
+    return `${label} ${t("auth.runOnHost", { host, command: auth.login.command })}`;
+  return label;
 }
 
 /// The model chip's word before the model. A chat whose machine is down gets none: the link is the
@@ -172,17 +224,27 @@ export function authChipText(auth: SessionAuth | undefined, t: Translate = trans
 }
 
 export const canSessionLogin = (auth: SessionAuth | undefined): boolean =>
-  authBlocksSend(auth) &&
-  auth?.login?.kind === "terminal" &&
-  Boolean(auth.login.command) &&
-  (auth.login.host === undefined || auth.login.host === null) &&
-  auth.host === null;
+  (authBlocksSend(auth) && auth?.credential === "cmux") ||
+  (authBlocksSend(auth) &&
+    auth?.login?.kind === "terminal" &&
+    Boolean(auth.login.command) &&
+    (auth.login.host === undefined || auth.login.host === null) &&
+    auth.host === null);
 
+/// The fix the button runs, one path for every place it shows (the composer menu, the quick menu,
+/// `/login`): the app's own cmux sign-in for the cmux account, else the agent's login command in a
+/// terminal (for an API key, the agent's key entry, `opencode auth login`).
 export async function sessionLogin(
   auth: SessionAuth,
   open: (params: Record<string, unknown>) => Promise<unknown>,
   cwd?: string,
+  signInCmux?: () => Promise<unknown>,
 ): Promise<string | undefined> {
+  if (auth.credential === "cmux" && authBlocksSend(auth)) {
+    if (!signInCmux) return authText(auth);
+    await signInCmux();
+    return;
+  }
   const command = auth.login?.command;
   if (!command || !canSessionLogin(auth)) return authText(auth);
   await open({ kind: "terminal", text: command, ...(cwd ? { cwd } : {}), run: true });
@@ -210,6 +272,9 @@ export type SessionAuthQuery =
   | { target: { harness: string; host?: string; routeId?: string; cwd?: string } };
 export type ReadSessionAuth = (query: SessionAuthQuery, refresh?: boolean) => Promise<unknown>;
 
+/// How many chats' last sign-in answers a pane keeps (useSessionAuth `answered`).
+const ANSWERS_KEPT = 32;
+
 export function useSessionAuth(
   query: SessionAuthQuery | undefined,
   read: ReadSessionAuth | undefined,
@@ -228,42 +293,69 @@ export function useSessionAuth(
     refreshEpoch,
   });
   const [result, setResult] = useState<{ selection: typeof selection; auth: SessionAuth }>();
+  /// Each chat's last answer, so a chat shown again draws its sign-in state at once rather than
+  /// "Checking…": its probe still runs, and an answer that says the same thing renders nothing (a
+  /// chat switch rendered the whole pane once more for it before its first frame painted).
+  const answered = useRef<{ read: typeof read; byKey: Map<string, SessionAuth> }>({ read, byKey: new Map() });
+  if (answered.current.read !== read) answered.current = { read, byKey: new Map() };
+  const answerKey = JSON.stringify([key, epoch]);
+  const known = answered.current.byKey.get(answerKey);
   useEffect(() => {
     if (!read || !selected) return;
     let live = true;
     const selectionChanged = checked.current.selection !== selection;
     const probe =
       selectionChanged || checked.current.refresh !== refresh || checked.current.refreshEpoch !== refreshEpoch;
-    checked.current = { selection, refresh, refreshEpoch };
-    void read(selected, probe).then(
-      (reply) => {
-        if (!live) return;
-        const auth = readSessionAuth(reply);
-        const scopeMismatch =
-          ("sessionId" in selected && auth.fromSessionId && auth.fromSessionId !== selected.sessionId) ||
-          ("target" in selected &&
-            ((auth.harness !== undefined && auth.harness !== selected.target.harness) ||
-              (auth.host ?? undefined) !== selected.target.host ||
-              (selected.target.routeId !== undefined && auth.routeId !== selected.target.routeId)));
-        if (scopeMismatch) {
-          setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
-          return;
-        }
-        setResult({ selection, auth });
-      },
-      () => {
-        if (live)
-          setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
-      },
-    );
+    // A new selection reads its sign-in after the frame that draws it: a reply that came first (a
+    // local daemon answers at once) would render the pane again before that frame paints. What was
+    // checked is noted when the read goes out, so a run again before that frame (it cancels this
+    // read) still reads after the frame, and still fresh.
+    const ask = () => {
+      checked.current = { selection, refresh, refreshEpoch };
+      void read(selected, probe).then(
+        (reply) => {
+          if (!live) return;
+          const auth = readSessionAuth(reply);
+          const scopeMismatch =
+            ("sessionId" in selected && auth.fromSessionId && auth.fromSessionId !== selected.sessionId) ||
+            ("target" in selected &&
+              ((auth.harness !== undefined && auth.harness !== selected.target.harness) ||
+                (auth.host ?? undefined) !== selected.target.host ||
+                (selected.target.routeId !== undefined && auth.routeId !== selected.target.routeId)));
+          if (scopeMismatch) {
+            setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
+            return;
+          }
+          const kept = answered.current.byKey;
+          const before = kept.get(answerKey);
+          kept.delete(answerKey);
+          kept.set(answerKey, auth);
+          if (kept.size > ANSWERS_KEPT) kept.delete(kept.keys().next().value as string);
+          // The chat drawn from its last answer, and this one says the same: nothing changes on screen.
+          setResult((previous) =>
+            previous?.selection !== selection && before && JSON.stringify(before) === JSON.stringify(auth)
+              ? previous
+              : { selection, auth },
+          );
+        },
+        () => {
+          if (live)
+            setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
+        },
+      );
+    };
+    const cancel = selectionChanged ? afterNextPaint(ask) : (ask(), undefined);
     return () => {
       live = false;
+      cancel?.();
     };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- answerKey is key and epoch, which selection holds.
   }, [read, selected, selection, refresh, refreshEpoch, version]);
   const recheck = useCallback(() => setRefresh((n) => n + 1), []);
+  const current = result?.selection === selection ? result.auth : known;
   return {
-    auth: result?.selection === selection ? result.auth : UNKNOWN_AUTH,
-    pending: Boolean(read && selected) && result?.selection !== selection,
+    auth: current ?? UNKNOWN_AUTH,
+    pending: Boolean(read && selected) && current === undefined,
     recheck,
   };
 }

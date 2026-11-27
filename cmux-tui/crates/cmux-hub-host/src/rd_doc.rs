@@ -15,10 +15,21 @@ pub struct RdDocument {
     pub key: String,
     pub candidates: Vec<String>,
     pub display: Option<i64>,
+    /// Offer: the display to show by CGDirectDisplayID (a run's screen link); wins over `display`.
+    pub display_id: Option<u32>,
     pub max_width: Option<u32>,
     pub max_fps: Option<u32>,
+    /// Offer: the highest bitrate the stream may use, in kbit/s (nil: the host's own cap).
+    pub max_kbps: Option<u32>,
+    /// Offer: whether the stream shows the cursor (nil: it does, as it always has).
+    pub cursor: Option<bool>,
+    /// The screen-share profile the viewer asks for (`standard` or `ultra`, the person's
+    /// choice); the host runs standard when it is absent or unknown.
+    pub encode_profile: Option<String>,
     pub displays: Vec<(u32, u32)>,
     pub current_display: Option<usize>,
+    /// Answer: each display's CGDirectDisplayID, in `displays` order (macOS hosts).
+    pub display_ids: Vec<u32>,
 }
 
 impl RdDocument {
@@ -28,16 +39,32 @@ impl RdDocument {
         if let Some(d) = self.display {
             lines.push(format!("a=cmux-rd-display:{d}"));
         }
+        if let Some(id) = self.display_id {
+            lines.push(format!("a=cmux-rd-display-id:{id}"));
+        }
         if let Some(w) = self.max_width {
             lines.push(format!("a=cmux-rd-max-width:{w}"));
         }
         if let Some(f) = self.max_fps {
             lines.push(format!("a=cmux-rd-max-fps:{f}"));
         }
+        if let Some(k) = self.max_kbps {
+            lines.push(format!("a=cmux-rd-max-kbps:{k}"));
+        }
+        if let Some(c) = self.cursor {
+            lines.push(format!("a=cmux-rd-cursor:{}", u8::from(c)));
+        }
+        if let Some(p) = &self.encode_profile {
+            lines.push(format!("a=cmux-rd-encode-profile:{p}"));
+        }
         if !self.displays.is_empty() {
             let sizes: Vec<String> =
                 self.displays.iter().map(|(w, h)| format!("{w}x{h}")).collect();
             lines.push(format!("a=cmux-rd-displays:{}", sizes.join(",")));
+        }
+        if !self.display_ids.is_empty() {
+            let ids: Vec<String> = self.display_ids.iter().map(u32::to_string).collect();
+            lines.push(format!("a=cmux-rd-display-ids:{}", ids.join(",")));
         }
         if let Some(c) = self.current_display {
             lines.push(format!("a=cmux-rd-current:{c}"));
@@ -60,8 +87,21 @@ impl RdDocument {
                 "fingerprint" => key = value.strip_prefix(KEY_PREFIX).map(str::to_owned),
                 "cmux-rd-candidate" => doc.candidates.push(value.to_owned()),
                 "cmux-rd-display" => doc.display = value.parse().ok(),
+                "cmux-rd-display-id" => doc.display_id = value.parse().ok(),
+                "cmux-rd-display-ids" => {
+                    doc.display_ids = value.split(',').filter_map(|s| s.parse().ok()).collect();
+                }
                 "cmux-rd-max-width" => doc.max_width = value.parse().ok(),
                 "cmux-rd-max-fps" => doc.max_fps = value.parse().ok(),
+                "cmux-rd-max-kbps" => doc.max_kbps = value.parse().ok(),
+                "cmux-rd-cursor" => {
+                    doc.cursor = match value {
+                        "0" => Some(false),
+                        "1" => Some(true),
+                        _ => None,
+                    };
+                }
+                "cmux-rd-encode-profile" => doc.encode_profile = Some(value.to_owned()),
                 "cmux-rd-current" => doc.current_display = value.parse().ok(),
                 "cmux-rd-displays" => {
                     doc.displays = value
@@ -107,16 +147,37 @@ pub fn verify_fp_sig(sdp: &str, fp_sig: &str, session: &str, role: &str, peer_ke
     crate::hub::verify(peer_key, &fingerprint_message(session, role, &fingerprint), &sig)
 }
 
-/// One TURN relay as `cmux-rd serve` takes it.
+/// How a TURN relay is reached: `turn:` over UDP, `turn:..?transport=tcp`, or `turns:` (TLS).
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TurnTransport {
+    #[default]
+    Udp,
+    Tcp,
+    Tls,
+}
+
+impl TurnTransport {
+    pub fn is_udp(&self) -> bool {
+        *self == TurnTransport::Udp
+    }
+}
+
+/// One TURN relay as `cmux-rd serve` takes it. `transport` is left out for UDP, so a
+/// UDP relay reads as it always has.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Turn {
     pub addr: String,
     pub username: String,
     pub password: String,
+    #[serde(skip_serializing_if = "TurnTransport::is_udp")]
+    pub transport: TurnTransport,
 }
 
-/// The ticket's ICE servers (`[{urls, username?, credential?}]`) as STUN addresses and UDP
-/// TURN relays (the Mac's `MacScreenRdServers`; TCP TURN is not a carrier of the link).
+/// The ticket's ICE servers (`[{urls, username?, credential?}]`) as STUN addresses and
+/// TURN relays: every UDP relay first, then the TCP and TLS (`turns:`) ones, which are
+/// the only way through a network that blocks UDP. The link speaks UDP TURN, so callers
+/// hand it the UDP relays ([`udp_only`]) and carry the rest separately.
 pub fn servers(ice: &Value) -> (Vec<String>, Vec<Turn>) {
     let (mut stun, mut turn) = (Vec::new(), Vec::new());
     let address = |s: &str| {
@@ -141,24 +202,40 @@ pub fn servers(ice: &Value) -> (Vec<String>, Vec<Turn>) {
                 if !a.is_empty() && !stun.contains(&a) {
                     stun.push(a);
                 }
-            } else if let Some(host) = base.strip_prefix("turn:") {
+            } else if let Some((host, transport)) = base
+                .strip_prefix("turns:")
+                .map(|h| (h, TurnTransport::Tls))
+                .or_else(|| base.strip_prefix("turn:").map(|h| (h, TurnTransport::Udp)))
+            {
                 let (Some(user), Some(pass)) =
                     (server["username"].as_str(), server["credential"].as_str())
                 else {
                     continue;
                 };
-                if query.contains("transport=tcp") {
-                    continue;
-                }
-                let relay =
-                    Turn { addr: address(host), username: user.into(), password: pass.into() };
-                if !relay.addr.is_empty() && !turn.contains(&relay) {
+                let tcp = query.split('&').any(|q| q.eq_ignore_ascii_case("transport=tcp"));
+                let transport = match transport {
+                    TurnTransport::Udp if tcp => TurnTransport::Tcp,
+                    t => t,
+                };
+                let addr = match transport {
+                    TurnTransport::Tls if !host.contains(':') => format!("{host}:5349"),
+                    _ => address(host),
+                };
+                let relay = Turn { addr, username: user.into(), password: pass.into(), transport };
+                if !host.is_empty() && !turn.contains(&relay) {
                     turn.push(relay);
                 }
             }
         }
     }
+    // UDP first, then TCP, then TLS; the ticket's order within each.
+    turn.sort_by_key(|t| t.transport as u8);
     (stun, turn)
+}
+
+/// The UDP relays of [`servers`], the ones the link can allocate on today.
+pub fn udp_only(turn: &[Turn]) -> Vec<Turn> {
+    turn.iter().filter(|t| t.transport.is_udp()).cloned().collect()
 }
 
 /// Whether a link path kind goes through a relay (the hub's `path` report).
@@ -167,68 +244,5 @@ pub fn is_relayed(kind: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::identity::Device;
-    use serde_json::json;
-
-    const KEY: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
-
-    #[test]
-    fn documents_round_trip_like_the_mac() {
-        let doc = RdDocument {
-            key: KEY.into(),
-            candidates: vec!["host 10.0.0.2:5000".into()],
-            display: Some(1),
-            max_width: Some(1920),
-            max_fps: Some(60),
-            displays: vec![(2560, 1440)],
-            current_display: Some(0),
-        };
-        let text = doc.text();
-        assert!(text.starts_with("cmux.rd/1\r\na=fingerprint:cmux-rd-key 0011"));
-        assert_eq!(RdDocument::parse(&text), Some(doc));
-        assert_eq!(fingerprint_of(&text).as_deref(), Some(format!("cmux-rd-key {KEY}").as_str()));
-    }
-
-    #[test]
-    fn webrtc_offers_and_bad_keys_are_not_documents() {
-        assert!(RdDocument::parse("v=0\r\na=fingerprint:sha-256 AB:CD\r\n").is_none());
-        assert!(RdDocument::parse("cmux.rd/1\r\na=fingerprint:cmux-rd-key 1234\r\n").is_none());
-        assert!(RdDocument::parse("cmux.rd/1\r\n").is_none());
-    }
-
-    #[test]
-    fn fp_sig_verifies_only_for_the_peer_role_and_key() {
-        let viewer = Device::generate("viewer").unwrap().signer().unwrap();
-        let other = Device::generate("other").unwrap().signer().unwrap();
-        let sdp = RdDocument { key: KEY.into(), ..RdDocument::default() }.text();
-        let fp = fingerprint_of(&sdp).unwrap();
-        let sig = b64::encode(&viewer.sign(&fingerprint_message("sid", "viewer", &fp)).unwrap());
-        assert!(verify_fp_sig(&sdp, &sig, "sid", "viewer", &viewer.public_key()));
-        assert!(!verify_fp_sig(&sdp, &sig, "sid", "host", &viewer.public_key()));
-        assert!(!verify_fp_sig(&sdp, &sig, "other-sid", "viewer", &viewer.public_key()));
-        assert!(!verify_fp_sig(&sdp, &sig, "sid", "viewer", &other.public_key()));
-        let tampered = RdDocument { key: KEY.replace("00", "ff"), ..RdDocument::default() }.text();
-        assert!(!verify_fp_sig(&tampered, &sig, "sid", "viewer", &viewer.public_key()));
-    }
-
-    #[test]
-    fn ice_servers_become_stun_and_udp_turn() {
-        let ice = json!([
-            {"urls": ["stun:stun.example", "turn:turn.example:3478?transport=udp", "turn:turn.example:443?transport=tcp"],
-             "username": "u", "credential": "p"},
-            {"urls": "stun:stun.example:3478"}
-        ]);
-        let (stun, turn) = servers(&ice);
-        assert_eq!(stun, vec!["stun.example:3478"]);
-        assert_eq!(
-            turn,
-            vec![Turn {
-                addr: "turn.example:3478".into(),
-                username: "u".into(),
-                password: "p".into()
-            }]
-        );
-    }
-}
+#[path = "rd_doc_tests.rs"]
+mod tests;

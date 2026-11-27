@@ -10,8 +10,8 @@ import { siteSettings, siteData, certificateChain } from "../src/browser-chrome/
 const args = {};
 for (let index = 2; index < process.argv.length; index += 2) {
   const key = process.argv[index];
-  if (!["--out", "--samples"].includes(key) || process.argv[index + 1] === undefined)
-    throw new Error("usage: pages-size-open-bench.mjs --out ABSOLUTE_DIR [--samples N]");
+  if (!["--out", "--samples", "--pages"].includes(key) || process.argv[index + 1] === undefined)
+    throw new Error("usage: pages-size-open-bench.mjs --out ABSOLUTE_DIR [--samples N] [--pages A,B]");
   args[key.slice(2)] = process.argv[index + 1];
 }
 // Refuse malformed paths before touching the filesystem, even when invoked without the wrapper.
@@ -43,22 +43,19 @@ const pages = [
   "chief-views",
   "cloud",
   "cloud-progress",
-  "coderouter",
   "cookie-import",
   "debug-settings",
   "feed",
   "files",
+  "forum",
   "github",
   "glass-parity",
   "group-editor",
   "history",
   "home-channels",
-  "home-messages",
   "icon-picker",
-  "import-history",
   "keybindings",
   "machines",
-  "mobile-pairing",
   "onboarding",
   "passwords",
   "server-cards",
@@ -71,7 +68,11 @@ const pages = [
   "stats",
   "task-manager",
   "tasks",
+  "terminal-history",
 ];
+// `--pages A,B` times only those Pages (every Page is still built and its bytes counted).
+const measured = args.pages ? args.pages.split(",") : pages;
+for (const name of measured) if (!pages.includes(name)) throw new Error(`unknown page: ${name}`);
 // The existing check-bundle.mjs host fixtures, plus deterministic host data for pages without
 // a production ?mock provider. No production module or DOM is replaced by the fixture.
 const hostStates = {
@@ -79,10 +80,10 @@ const hostStates = {
   "site-data": siteData,
   certificate: certificateChain,
   "cookie-import": {
-    title: "Import Cookies",
+    title: "Import sign-ins from Google Chrome",
     importTitle: "Import…",
-    notNowTitle: "Not Now",
-    neverTitle: "Don't Show Again",
+    notNowTitle: "Not now",
+    neverTitle: "Never for Chrome",
   },
   "setup-card": {
     agents: [{ id: "codex", name: "Codex", state: "missing" }],
@@ -102,7 +103,7 @@ const hostStates = {
     ask: null,
   },
 };
-// chief-inspector is one of the 37 Pages, not the standalone inspector bundle. Its HTTP-only
+// chief-inspector is one of the Pages, not the standalone inspector bundle. Its HTTP-only
 // dev data adapter replaces the native bridge under this HTTP mount while retaining the real CSP.
 const chiefData = {
   "/api/status": {
@@ -158,7 +159,7 @@ for (const variant of variants) {
     .map((file) => file.path.split("/")[0])
     .sort();
   if (JSON.stringify(documents) !== JSON.stringify([...pages].sort()))
-    throw new Error(`${variant}: expected all 37 Pages, got ${documents.join(",")}`);
+    throw new Error(`${variant}: expected all ${pages.length} Pages, got ${documents.join(",")}`);
   const bytes = (prefix) =>
     files.filter((file) => file.path.startsWith(prefix)).reduce((sum, file) => sum + file.bytes, 0);
   sizes[variant] = {
@@ -170,7 +171,29 @@ for (const variant of variants) {
     files,
   };
 }
+// What a Page's document loads before its first frame: index.html, its stylesheet links, its
+// app.js and every chunk it modulepreloads (dynamic imports, which load later, are not counted).
+for (const variant of variants) {
+  const root = path.join(output, variant, "pages");
+  const size = (file) => sizes[variant].files.find((entry) => entry.path === file)?.bytes ?? 0;
+  sizes[variant].startupBytes = {};
+  for (const name of pages) {
+    const html = await readFile(path.join(root, name, "index.html"), "utf8");
+    const linked = [...html.matchAll(/<link rel="(?:modulepreload|stylesheet)" href="([^"]+)"/g)].map((match) =>
+      path.posix.normalize(path.posix.join(name, match[1])),
+    );
+    const files = [`${name}/index.html`, `${name}/app.js`, ...linked];
+    sizes[variant].startupBytes[name] = files.reduce((sum, file) => sum + size(file), 0);
+  }
+}
 await json("tree-bytes.json", sizes);
+for (const name of measured)
+  console.log(
+    JSON.stringify({
+      page: name,
+      startupBytes: Object.fromEntries(variants.map((variant) => [variant, sizes[variant].startupBytes[name]])),
+    }),
+  );
 console.log(
   JSON.stringify({
     bytes: {
@@ -380,7 +403,7 @@ try {
     cache: "fresh context every navigation; browser process and OS disk caches remain warm",
   });
   for (let round = 0; round < samples; round++)
-    for (const name of pages) {
+    for (const name of measured) {
       if (quarantine.has(name)) continue;
       for (const variant of round % 2 ? [...variants].reverse() : variants) {
         const context = await browser.newContext({
@@ -474,7 +497,7 @@ try {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));
   const percentile = (values, p) => (values.length ? values[Math.ceil(values.length * p) - 1] : null);
-  const timing = pages.map((name) => {
+  const timing = measured.map((name) => {
     const result = { page: name, quarantined: quarantine.has(name) };
     for (const variant of variants) {
       const rows = raw.filter((row) => row.page === name && row.variant === variant);

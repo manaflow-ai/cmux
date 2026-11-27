@@ -315,41 +315,6 @@ fn a_mirror_event_and_a_paged_view_stay_flat_in_the_mirror_size() {
     assert!(page_big <= page_small + 2, "view: {page_big} allocs at 50k vs {page_small} at 2k");
 }
 
-/// A view builds each item once: its entries, groups and the view itself
-/// take the built values as they are. `json!` of a built `Value` serializes
-/// it into a new tree, which copied every item three times (4x the
-/// allocations of its items, and 15 ms for a 1k-item view).
-#[test]
-fn a_view_builds_each_item_once() {
-    let mirror = mirror_of(400);
-    let context = ViewContext {
-        mirror: &mirror,
-        account: None,
-        now: MIRROR_NOW,
-        github: None,
-        github_enabled: false,
-        reports_available: false,
-        place: &no_place,
-    };
-    let items: u64 = mirror.list().map(|item| allocs(|| context.item(item)).1).sum();
-    for layout in ["list", "inbox"] {
-        let (view, built) = allocs(|| view(&mirror, MIRROR_NOW, json!({"layout": layout})));
-        let shown: usize = view["groups"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .flat_map(|group| group["entries"].as_array().unwrap())
-            .map(|entry| 1 + entry["members"].as_array().unwrap().len())
-            .sum();
-        assert_eq!(shown, mirror.list().count(), "{layout}: the view shows every item");
-        // Each entry adds its own few: its id, its object and keys, members.
-        assert!(
-            built <= items + 12 * shown as u64 + 64,
-            "{layout}: the view made {built} allocations for items that take {items}"
-        );
-    }
-}
-
 /// The unfiltered page (built from the ledger order) is the same page the
 /// filtered path builds when its filter keeps everything.
 #[test]

@@ -3,13 +3,15 @@
 swift-test, daemon-test and generated-files each ran their own `swift build --build-tests` of
 Packages/macOS/CmuxNext on a separate Mac (HQ#4724; 265-579 s of Mac time each, plus each job's
 setup). Path routing now names one job that checks the generated files (path_route's
-generated_host): daemon-test on a push it runs on, swift-test where it runs and builds, daemon-test
-on a pull request it runs on, and only otherwise the generated-files job's own build. The folded
+generated_host): the Linux generated-files job by default (Leo, 2026-11-25); with
+vars.CI_GENERATED_FILES_LINUX=0, swift-test where it runs and builds, else daemon-test where it runs, and only
+otherwise the generated-files job's own build. The folded
 verdict is its own check (generated-verdict), never the host's result."""
 
 from __future__ import annotations
 
 import itertools
+import json
 import math
 import os
 import re
@@ -121,6 +123,12 @@ class Expr:
             self.i += 1
             if tok == "cancelled":
                 return bool(self.ctx.get("cancelled"))
+            if tok == "fromJSON":
+                return json.loads(args[0])
+            if tok == "startsWith":
+                return str(args[0] or "").lower().startswith(str(args[1] or "").lower())
+            if tok == "format":
+                return args[0].format(*("" if a is None else a for a in args[1:]))
             if tok == "contains":
                 hay, needle = args
                 return needle in hay if isinstance(hay, (list, str)) else False
@@ -172,10 +180,11 @@ REPO = "manaflow-ai/cmux"
 NEXT = "refs/heads/feat-cmux-next"
 
 
-def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=()):
-    """path_route's own expression context: its route step, the tree probes and the marker upload."""
-    return {"github": {"event_name": event, "ref": ref,
-                       "event": {"pull_request": {"labels": [{"name": label} for label in labels]}}},
+def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=(), linux="0"):
+    """path_route's own expression context: its route step, the tree probes and the marker upload.
+    linux is vars.CI_GENERATED_FILES_LINUX: "0" is the Mac fallback mode the fold cases below cover."""
+    return {"vars": {"CI_GENERATED_FILES_LINUX": linux}, "github": {"event_name": event, "ref": ref,
+                       "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "labels": [{"name": label} for label in labels]}}},
             "steps": {"route": {"outputs": {"generated": generated, "swift": swift, "swift_targets": targets,
                                             "daemon": daemon}},
                       "tree": {"outputs": {"tree_state": tree}}, "tree-final": {"outputs": {}},
@@ -216,8 +225,11 @@ class GeneratedFoldTest(unittest.TestCase):
                              "${{ needs.path_route.outputs.generated_host == '%s' }}" % job_id)
             self.assertIn("steps.generated-files-verdict.outputs.verdict", self.jobs[job_id]["outputs"]["generated_files"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", self.generated["if"])
-        self.assertEqual(self.daemon["needs"], self.generated["needs"])
-        self.assertEqual(self.swift["needs"], self.generated["needs"])
+        # The Mac job alone also waits on its own deciders (the base-red excuse and the Linux run it falls back from).
+        own = {"generated-files-base-red", "generated-files-linux"}
+        shared = [job for job in self.generated["needs"] if job not in own]
+        self.assertEqual(self.daemon["needs"], shared)
+        self.assertEqual(self.swift["needs"], shared)
 
     def test_every_routed_run_builds_once_for_its_generated_files(self):
         """Evaluates path_route's generated_host and the four jobs' conditions over events, routes,
@@ -231,7 +243,7 @@ class GeneratedFoldTest(unittest.TestCase):
         swift_build_if = self.builders(self.swift)[0]["if"]
         events = [("push", NEXT), ("push", "refs/heads/main"),
                   ("pull_request", "refs/pull/1/merge"), ("workflow_dispatch", NEXT)]
-        cases = pr_single = 0
+        cases = 0
         for (event, ref), generated, swift, targets, daemon, tree, marker, web, current, fork, labels in itertools.product(
                 events, ("true", "false"), ("true", "false"), ("all", ""), ("true", "false"),
                 ("ready", "deferred", "failed", ""), ("", "failure"), ("success", "failure"), ("true", "false"),
@@ -243,7 +255,7 @@ class GeneratedFoldTest(unittest.TestCase):
                        "tree_state": tree_state, "generated_host": host}
             head = "someone/fork" if fork else REPO
             ctx = {"github": {"event_name": event, "ref": ref, "repository": REPO,
-                              "event": {"pull_request": {"head": {"repo": {"full_name": head}},
+                              "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "head": {"repo": {"full_name": head}},
                                                          "labels": [{"name": label} for label in labels]}}},
                    "inputs": {}, "cancelled": False,
                    "needs": {"path_route": {"outputs": outputs}, "web-bundles": {"result": web},
@@ -286,27 +298,25 @@ class GeneratedFoldTest(unittest.TestCase):
                 producers = sum(builds.values())
                 if gen_routed:
                     self.assertEqual(producers, max(1, builds["swift-test"] + builds["daemon-test"]))
-                if event == "pull_request" and gen_routed and builds["swift-test"] + builds["daemon-test"] == 1:
-                    self.assertEqual(producers, 1)
-                    pr_single += 1
+                # Since #57353 a pull request into feat-cmux-next runs neither Mac package suite, so
+                # path routing hosts its generated files on generated-files.
+                if event == "pull_request":
+                    self.assertFalse(builds["swift-test"] or builds["daemon-test"])
+                    if gen_routed:
+                        self.assertEqual(host, "generated-files")
             cases += 1
         self.assertEqual(cases, 4 * 2 * 2 * 2 * 2 * 4 * 2 * 2 * 2 * 2 * 2)
-        self.assertGreater(pr_single, 0)
 
     def test_a_pull_request_with_daemon_or_swift_and_generated_inputs_has_one_build_producer(self):
-        """HQ#4724's case, spelled out: before, swift-test (or daemon-test) and generated-files both built."""
+        """HQ#4724's case, spelled out: one build producer, never swift-test (or daemon-test) and generated-files both."""
         pr = ("pull_request", "refs/pull/1/merge")
-        # A pull request runs swift-test only with full-ci (2026-11-05), so without it the daemon tests
-        # or the generated-files job's own build check the generated files.
-        self.assertEqual(self.host(*pr, "true", "true", "all", "false", "", ""), "generated-files")
-        self.assertEqual(self.host(*pr, "true", "true", "all", "true", "ready", ""), "daemon-test")
-        self.assertEqual(self.host(*pr, "true", "true", "all", "false", "", "", ("full-ci",)), "swift-test")
-        self.assertEqual(self.host(*pr, "true", "false", "", "true", "ready", ""), "daemon-test")
-        self.assertEqual(self.host(*pr, "true", "true", "all", "true", "ready", "", ("full-ci",)), "swift-test")
-        # No targets: swift-test does not build, so the daemon tests or the job's own build check them.
-        self.assertEqual(self.host(*pr, "true", "true", "", "true", "ready", ""), "daemon-test")
-        self.assertEqual(self.host(*pr, "true", "true", "", "false", "", ""), "generated-files")
-        self.assertEqual(self.host(*pr, "true", "false", "", "true", "deferred", ""), "generated-files")
+        # Since #57353 a pull request into feat-cmux-next runs neither swift-test nor daemon-test, full-ci
+        # or not, so the generated-files job's own build checks its generated files.
+        for swift, targets, daemon, tree in (("true", "all", "false", ""), ("true", "all", "true", "ready"),
+                                             ("false", "", "true", "ready"), ("true", "", "true", "ready"),
+                                             ("true", "", "false", ""), ("false", "", "true", "deferred")):
+            for labels in ((), ("full-ci",)):
+                self.assertEqual(self.host(*pr, "true", swift, targets, daemon, tree, "", labels), "generated-files")
         self.assertEqual(self.host(*pr, "false", "true", "all", "true", "ready", ""), "none")
         # A push keeps daemon-test as its host (swift-test skips a feat-cmux-next push).
         self.assertEqual(self.host("push", NEXT, "true", "true", "all", "true", "ready", ""), "daemon-test")
@@ -315,6 +325,18 @@ class GeneratedFoldTest(unittest.TestCase):
         # A dispatch builds in swift-test, else in daemon-test.
         self.assertEqual(self.host("workflow_dispatch", NEXT, "true", "true", "all", "true", "ready", ""), "swift-test")
         self.assertEqual(self.host("workflow_dispatch", NEXT, "true", "false", "", "true", "ready", ""), "daemon-test")
+
+    def test_the_linux_job_checks_every_routed_run_unless_turned_off(self):
+        """Leo 2026-11-25: generated files run on Linux by default; daemon-test and swift-test fold them only with
+        vars.CI_GENERATED_FILES_LINUX=0 (the Mac fallback)."""
+        events = [("push", NEXT), ("push", "refs/heads/main"),
+                  ("pull_request", "refs/pull/1/merge"), ("workflow_dispatch", NEXT)]
+        for (event, ref), swift, targets, daemon, tree, labels, linux in itertools.product(
+                events, ("true", "false"), ("all", ""), ("true", "false"), ("ready", "deferred", ""),
+                ((), ("full-ci",)), (None, "", "1")):
+            with self.subTest(event=event, swift=swift, targets=targets, daemon=daemon, tree=tree, labels=labels, linux=linux):
+                self.assertEqual(self.host(event, ref, "true", swift, targets, daemon, tree, "", labels, linux), "generated-files")
+                self.assertEqual(self.host(event, ref, "false", swift, targets, daemon, tree, "", labels, linux), "none")
 
     def test_the_evaluator_follows_github_semantics(self):
         ctx = {"inputs": {}, "a": {"b": [{"n": "x"}, {"n": "y"}]}}
@@ -361,7 +383,10 @@ class GeneratedFoldTest(unittest.TestCase):
             self.assertIn(FOLD, give["if"])
             self.assertNotIn("exit 1", give["run"])
             self.assertNotIn("Fail on stale generated files", names)
-        self.assertIn(STALE, self.step(self.generated, "Fail on stale generated files")["run"])
+        # The Mac fallback's step runs the fleet job's verdict script (scripts/ci/cmux-next-steps/generated-files-linux.sh).
+        fail = self.step(self.generated, "Fail on stale generated files")["run"]
+        self.assertEqual(fail, "bash scripts/ci/cmux-next-steps/generated-files-linux.sh verdict")
+        self.assertIn(STALE, (ROOT / "scripts/ci/cmux-next-steps/generated-files-linux.sh").read_text())
 
     def test_the_verdict_job_fails_a_stale_file_or_a_missing_verdict(self):
         self.assertEqual(self.verdict["needs"], ["path_route", "swift-test", "daemon-test"])
@@ -379,7 +404,7 @@ class GeneratedFoldTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             summary, output = Path(temp) / "summary", Path(temp) / "output"
             summary.write_text(""); output.write_text("")
-            result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True,
+            result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True, cwd=ROOT,
                                     env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_OUTPUT": str(output),
                                          **env})
             return result, summary.read_text(), output.read_text()
@@ -425,7 +450,13 @@ class GeneratedFoldTest(unittest.TestCase):
                           self.step(self.swift, name)["if"])
         self.assertEqual(self.swift["outputs"]["generated_files"],
                          "${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}")
-        self.assertEqual(self.daemon["outputs"]["generated_files"], "${{ steps.generated-files-verdict.outputs.verdict }}")
+        # daemon-test reuses a pass too (docs/ci/cmux-next-workflow-notes/2026-11-25-daemon-reuse.md).
+        self.assertEqual(self.daemon["outputs"]["generated_files"], self.swift["outputs"]["generated_files"])
+        key = self.step(self.daemon, "Fingerprint this job's inputs")["run"]
+        self.assertIn('--extra "generated_base=$([[ "$CMUX_NEXT_FOLD_GENERATED" != true ]] || git rev-parse HEAD^1)"', key)
+        for name in ("Record this pass for the same inputs", "Save the pass"):
+            self.assertIn("(env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh')",
+                          self.step(self.daemon, name)["if"])
 
     def test_the_exports_cache_accepts_a_folded_push(self):
         cache = self.jobs["swift-exports-cache"]
@@ -463,6 +494,8 @@ class GeneratedFoldTest(unittest.TestCase):
         (repo / "Packages/macOS/CmuxNext/Package.swift").write_text("")
         bin_dir.mkdir()
         # A swift that refuses a --package-path that is not a package, as SwiftPM does.
+        (bin_dir / "uname").write_text("#!/bin/sh\necho Linux\n")
+        (bin_dir / "uname").chmod(0o755)
         (bin_dir / "swift").write_text(
             "#!/usr/bin/env bash\n"
             "args=(\"$@\"); for ((i = 0; i < ${#args[@]}; i++)); do\n"

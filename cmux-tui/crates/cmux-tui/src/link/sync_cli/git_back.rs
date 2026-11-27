@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, bail};
+use cmux_projection::git_swap::SWAP_MARKER;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
@@ -141,7 +142,28 @@ pub(super) fn plan(
     let vm = GitBase { head_ref: vm_ref, head: vm_head, staged: digest_file(&staged_path)? };
     // An older push recorded no git state: only an unchanged machine is safe.
     let base = manifest.git.clone().unwrap_or_else(|| here.clone());
+    let at = Decide { quarantine, staged_path, here, vm, base, recorded: manifest.git.is_some() };
+    decide(at, hooks)
+}
 
+/// What [`decide`] compares: the quarantine holding the machine's objects, the machine's staged
+/// entries (`ls-files --stage -z`) in `staged_path`, and the three git states. `recorded`: the
+/// base was recorded (not this Mac's state standing in for it).
+struct Decide {
+    quarantine: PathBuf,
+    staged_path: PathBuf,
+    here: GitBase,
+    vm: GitBase,
+    base: GitBase,
+    recorded: bool,
+}
+
+/// The three-way of HEAD and the staged changes (module docs).
+fn decide(
+    at: Decide,
+    hooks: &[String],
+) -> anyhow::Result<Result<Option<GitPlan>, Vec<GitConflict>>> {
+    let Decide { quarantine, staged_path, here, vm, base, recorded } = at;
     let mut conflicts = Vec::new();
     let mut settled = base.clone();
     let mut head = None;
@@ -206,7 +228,7 @@ pub(super) fn plan(
     if !conflicts.is_empty() {
         return Ok(Err(conflicts));
     }
-    if head.is_none() && staged.is_none() && settled == base && manifest.git.is_some() {
+    if head.is_none() && staged.is_none() && settled == base && recorded {
         return Ok(Ok(None));
     }
     Ok(Ok(Some(GitPlan { quarantine, local: here, head, staged, settled })))
@@ -275,32 +297,123 @@ impl GitPlan {
         if base_of(folder)? != self.local {
             bail!("this Mac's branch or staged changes changed during the pull");
         }
-        let zero = |id: &str| "0".repeat(id.len());
-        let move_ref = |new: &str, old: &str| {
-            let mut command = local(folder);
-            command.args(["update-ref", "-m", "cmux sync pull: bring back from the machine"]);
-            match &self.local.head_ref {
-                Some(name) => command.arg(name),
-                None => command.args(["--no-deref", "HEAD"]),
-            };
-            checked(command.args([new, old])).map(drop)
-        };
-        let old =
-            self.head.as_deref().map(|head| self.local.head.clone().unwrap_or_else(|| zero(head)));
-        if let (Some(head), Some(old)) = (&self.head, &old) {
-            move_ref(head, old).context("cannot move the branch")?;
+        // The index as it was, for [`Self::undo`], kept before anything moves.
+        if self.staged.is_some() {
+            let kept = self.quarantine.join("index-before");
+            match std::fs::copy(index_file(folder)?, &kept) {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(anyhow::Error::from(error).context("cannot keep the index"));
+                }
+            }
+        }
+        if let Some(head) = &self.head {
+            let old = self.local.head.clone().unwrap_or_else(|| "0".repeat(head.len()));
+            self.move_ref(folder, head, &old).context("cannot move the branch")?;
         }
         if let Some(staged) = &self.staged {
             let read = checked(local(folder).arg("read-tree").arg(format!("{staged}^{{tree}}")));
             if let Err(error) = read {
-                if let (Some(head), Some(old)) = (&self.head, &old) {
-                    let _ = move_ref(old, head);
+                if self.head.is_some() {
+                    let _ = self.unmove_ref(folder);
                 }
                 return Err(error.context("cannot stage the machine's changes"));
             }
         }
         Ok(self.head.is_some())
     }
+
+    /// Puts back what [`Self::commit`] moved: the index it replaced, then the branch, by
+    /// compare-and-swap (a branch moved again since stays). A pull of a folder of repositories
+    /// undoes the ones that moved when a later one can't.
+    pub(super) fn undo(&self, folder: &Path) -> anyhow::Result<()> {
+        if self.staged.is_some() {
+            let index = index_file(folder)?;
+            let kept = self.quarantine.join("index-before");
+            if kept.exists() {
+                let back = self.quarantine.join("index-back");
+                std::fs::copy(&kept, &back)?;
+                std::fs::rename(&back, &index).context("cannot put the index back")?;
+            } else {
+                std::fs::remove_file(&index).context("cannot put the index back")?;
+            }
+        }
+        if self.head.is_some() {
+            self.unmove_ref(folder).context("cannot move the branch back")?;
+        }
+        Ok(())
+    }
+
+    /// Moves HEAD's branch (or a detached HEAD) from `old` to `new`.
+    fn move_ref(&self, folder: &Path, new: &str, old: &str) -> anyhow::Result<()> {
+        let mut command = local(folder);
+        command.args(["update-ref", "-m", "cmux sync pull: bring back from the machine"]);
+        match &self.local.head_ref {
+            Some(name) => command.arg(name),
+            None => command.args(["--no-deref", "HEAD"]),
+        };
+        checked(command.args([new, old])).map(drop)
+    }
+
+    /// Moves the branch [`Self::commit`] moved back where it was: a branch that had no commit
+    /// goes again.
+    fn unmove_ref(&self, folder: &Path) -> anyhow::Result<()> {
+        let Some(head) = &self.head else { return Ok(()) };
+        match (&self.local.head, &self.local.head_ref) {
+            (Some(old), _) => self.move_ref(folder, old, head),
+            (None, Some(name)) => {
+                checked(local(folder).args(["update-ref", "-d"]).arg(name).arg(head)).map(drop)
+            }
+            (None, None) => bail!("a detached HEAD with no commit can't move back"),
+        }
+    }
+}
+
+/// The index file of the working copy at `folder`.
+fn index_file(folder: &Path) -> anyhow::Result<PathBuf> {
+    let path =
+        output(local(folder).args(["rev-parse", "--path-format=absolute", "--git-path", "index"]))?
+            .context("git gave no index path")?;
+    Ok(PathBuf::from(path.trim_end_matches('\n')))
+}
+
+/// The git state of each repository inside `folder` whose own files a listing of it holds
+/// (`paths`, relative to it: a `NAME/.git/HEAD` for the repository at `NAME`), by its folder: what
+/// a pull of a folder of repositories compares each one's branch and staged changes with (RFD
+/// 0007 hard case 12). Only a real `.git` folder at the top of its own working copy counts; the
+/// repositories are read a few at a time.
+pub(super) fn nested_bases<'a>(
+    folder: &Path,
+    paths: impl Iterator<Item = &'a String>,
+) -> std::collections::BTreeMap<String, GitBase> {
+    let dirs: Vec<&str> = paths
+        .filter_map(|path| path.strip_suffix("/.git/HEAD"))
+        .filter(|dir| !dir.split('/').any(names::is_dotgit))
+        .filter(|dir| {
+            std::fs::symlink_metadata(folder.join(dir).join(".git")).is_ok_and(|meta| meta.is_dir())
+        })
+        .collect();
+    let threads = std::thread::available_parallelism().map_or(4, std::num::NonZero::get).min(8);
+    let per = dirs.len().div_ceil(threads).max(1);
+    std::thread::scope(|scope| {
+        let parts: Vec<_> = dirs
+            .chunks(per)
+            .map(|part| {
+                scope.spawn(move || {
+                    part.iter()
+                        .filter_map(|dir| {
+                            let at = folder.join(dir);
+                            let own = matches!(super::local::GitDirs::of(&at), Ok(Some(_)));
+                            let base = base_of(&at).ok().filter(|_| own)?;
+                            Some(((*dir).to_owned(), base))
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        parts.into_iter().flat_map(|part| part.join().unwrap_or_default()).collect()
+    })
 }
 
 /// The machine's HEAD: its branch (None when detached) and commit (None on
@@ -309,7 +422,15 @@ pub(super) fn machine_head(
     remote: &mut Remote,
     remote_git: &str,
 ) -> anyhow::Result<(Option<String>, Option<String>)> {
-    let head = remote.read(&format!("{remote_git}/HEAD"))?.context("the machine has no HEAD")?;
+    head_from(&mut |relative| remote.read(&format!("{remote_git}/{relative}")))
+}
+
+/// A git folder's HEAD, its files read by `read` (a path relative to the git folder; None when
+/// missing): its branch (None when detached) and commit (None on a branch with no commit).
+fn head_from(
+    read: &mut dyn FnMut(&str) -> anyhow::Result<Option<Vec<u8>>>,
+) -> anyhow::Result<(Option<String>, Option<String>)> {
+    let head = read("HEAD")?.context("the machine has no HEAD")?;
     let head = String::from_utf8(head).context("the machine's HEAD is not text")?;
     let head = head.trim();
     let Some(name) = head.strip_prefix("ref:").map(str::trim) else {
@@ -329,11 +450,11 @@ pub(super) fn machine_head(
     if !plain {
         bail!("the machine's HEAD names {name}, not a branch");
     }
-    if let Some(loose) = remote.read(&format!("{remote_git}/{name}"))? {
+    if let Some(loose) = read(name)? {
         let loose = String::from_utf8(loose).context("the machine's branch is not text")?;
         return Ok((Some(name.to_string()), Some(object_id(loose.trim())?)));
     }
-    let packed = remote.read(&format!("{remote_git}/packed-refs"))?.unwrap_or_default();
+    let packed = read("packed-refs")?.unwrap_or_default();
     let packed = String::from_utf8_lossy(&packed);
     let commit = packed.lines().find_map(|line| {
         let (id, listed) = line.split_once(' ')?;
@@ -349,6 +470,121 @@ fn object_id(text: &str) -> anyhow::Result<String> {
         bail!("the machine's HEAD is not an object id");
     }
     Ok(text.to_string())
+}
+
+/// The git leg of Bring Back over a projected folder (RFD 0007, hard case 13): the machine's git
+/// files are what its upper layer holds under `.git` (copied to `machine_git`, a folder of this
+/// pull's own), the rest of its `.git` being this Mac's as the session started. So the machine's
+/// HEAD, branch and index are read from `machine_git` first, else from this Mac's git folder,
+/// and its objects are exactly the upper layer's (loose objects and packs, new on the machine).
+/// `base_known`: this Mac's HEAD, branch and index are as the manifest listed them, so this
+/// Mac's state is the session's base. When they are not, only a machine whose state equals this
+/// Mac's is safe; any other is a conflict. An index that differs only in stat data stages the
+/// same entries, so it is dropped (the staged digest compares entries, never stat data).
+pub(super) fn plan_from_layer(
+    at: &Where<'_>,
+    machine_git: &Path,
+    base_known: bool,
+    hooks: &[String],
+) -> anyhow::Result<Result<Option<GitPlan>, Vec<GitConflict>>> {
+    let Where { folder, common_dir, staging } = *at;
+    let here = base_of(folder)?;
+    let own_dir = local_git_dir(folder)?;
+    let machine_complete = machine_git.join(SWAP_MARKER).is_file();
+    let read_either = |relative: &str| -> anyhow::Result<Option<Vec<u8>>> {
+        let dirs: &[&Path] = if machine_complete {
+            &[machine_git]
+        } else {
+            &[machine_git, own_dir.as_path(), common_dir]
+        };
+        for dir in dirs {
+            match std::fs::read(dir.join(relative)) {
+                Ok(bytes) => return Ok(Some(bytes)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(None)
+    };
+    let (vm_ref, vm_head) = head_from(&mut |relative| read_either(relative))?;
+    let quarantine = staging.join("quarantine.git");
+    quarantined(&quarantine, common_dir)?;
+    copy_layer_objects(machine_git, &quarantine)?;
+    let vm_index = if machine_complete {
+        machine_git.join("index").is_file().then(|| machine_git.join("index"))
+    } else {
+        [machine_git.join("index"), own_dir.join("index")].into_iter().find(|path| path.is_file())
+    };
+    let staged_path = quarantine.join("machine-staged");
+    let staged_file = File::create(&staged_path)?;
+    let mut list = quarantine_git(&quarantine);
+    match &vm_index {
+        Some(index) => list.env("GIT_INDEX_FILE", index),
+        None => list.env("GIT_INDEX_FILE", quarantine.join("no-index")),
+    };
+    let vm_staged = list
+        .args(["ls-files", "--stage", "-z"])
+        .stdout(Stdio::from(staged_file))
+        .output()
+        .context("cannot run git")?;
+    if !vm_staged.status.success() {
+        let why = "cmux can't read the machine's staged changes";
+        return Ok(Err(vec![(".git/index".into(), why.into())]));
+    }
+    let vm = GitBase { head_ref: vm_ref, head: vm_head, staged: digest_file(&staged_path)? };
+    if !base_known {
+        if vm == here {
+            return Ok(Ok(None));
+        }
+        let why = "this Mac's branch or staged changes moved since the chat started, and the \
+                   machine's did too";
+        return Ok(Err(vec![(".git/HEAD".into(), why.into())]));
+    }
+    let base = here.clone();
+    decide(Decide { quarantine, staged_path, here, vm, base, recorded: true }, hooks)
+}
+
+/// The working copy's own git folder (a linked worktree's differs from the common one).
+fn local_git_dir(folder: &Path) -> anyhow::Result<PathBuf> {
+    let dir = checked(local(folder).args(["rev-parse", "--absolute-git-dir"]))?;
+    Ok(PathBuf::from(String::from_utf8_lossy(&dir).trim()))
+}
+
+/// Copies the loose objects and pack data under `machine_git/objects` into the quarantine (pack
+/// indexes are rebuilt by git, never taken).
+fn copy_layer_objects(machine_git: &Path, quarantine: &Path) -> anyhow::Result<()> {
+    let objects = machine_git.join("objects");
+    let Ok(top) = std::fs::read_dir(&objects) else { return Ok(()) };
+    for folder in top.filter_map(Result::ok) {
+        let Ok(name) = folder.file_name().into_string() else { continue };
+        let loose = name.len() == 2 && is_hex(&name);
+        if !(loose || name == "pack") || !folder.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        for file in std::fs::read_dir(folder.path())?.filter_map(Result::ok) {
+            let Ok(file_name) = file.file_name().into_string() else { continue };
+            let wanted = if loose {
+                matches!(file_name.len(), 38 | 62) && is_hex(&file_name)
+            } else {
+                file_name
+                    .strip_prefix("pack-")
+                    .and_then(|rest| rest.strip_suffix(".pack"))
+                    .is_some_and(|id| matches!(id.len(), 40 | 64) && is_hex(id))
+            };
+            if !wanted || !file.file_type().is_ok_and(|kind| kind.is_file()) {
+                continue;
+            }
+            let target = quarantine.join("objects").join(&name).join(&file_name);
+            std::fs::create_dir_all(target.parent().context("no parent")?)?;
+            std::fs::copy(file.path(), &target)?;
+            if !loose {
+                checked(quarantine_git(quarantine).arg("index-pack").arg(&target)).with_context(
+                    || format!("the machine's {name}/{file_name} is not a valid pack"),
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Makes the quarantine: an empty bare repository of this command's own,
@@ -368,6 +604,14 @@ pub(super) fn quarantined(quarantine: &Path, common_dir: &Path) -> anyhow::Resul
     let objects = objects.to_str().context("the repository's path is not UTF-8")?;
     std::fs::create_dir_all(quarantine.join("objects/info"))?;
     std::fs::write(quarantine.join("objects/info/alternates"), format!("{objects}\n"))?;
+    // A shallow clone's boundary: without it, an ancestry walk from the machine's commit runs
+    // past the oldest commit this Mac has, fails on the missing parent, and a plain commit on
+    // the machine reads as rewritten history.
+    match std::fs::read(common_dir.join("shallow")) {
+        Ok(shallow) => std::fs::write(quarantine.join("shallow"), shallow)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).context("cannot read the repository's shallow file"),
+    }
     Ok(())
 }
 
@@ -498,7 +742,11 @@ fn clean(mut command: Command) -> Command {
 
 /// The command's stdout, or an error with its stderr.
 pub(super) fn checked(command: &mut Command) -> anyhow::Result<Vec<u8>> {
-    let output = command.output().context("cannot run git")?;
+    let output = {
+        let name = crate::link::spans::git_name(command.get_args());
+        crate::link::spans::time(&name, || command.output())
+    }
+    .context("cannot run git")?;
     if !output.status.success() {
         bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());
     }
@@ -508,7 +756,11 @@ pub(super) fn checked(command: &mut Command) -> anyhow::Result<Vec<u8>> {
 /// The command's stdout as text; None when it exits 1 (a question answered
 /// "no"); an error otherwise.
 fn output(command: &mut Command) -> anyhow::Result<Option<String>> {
-    let output = command.output().context("cannot run git")?;
+    let output = {
+        let name = crate::link::spans::git_name(command.get_args());
+        crate::link::spans::time(&name, || command.output())
+    }
+    .context("cannot run git")?;
     match output.status.code() {
         Some(0) => Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned())),
         Some(1) => Ok(None),
@@ -528,8 +780,12 @@ fn digest_reader(reader: &mut dyn std::io::Read) -> anyhow::Result<String> {
 
 /// Redirect large index output straight to disk; only diagnostics are captured.
 fn checked_to_file(command: &mut Command, file: &File) -> anyhow::Result<()> {
-    let output =
-        command.stdout(Stdio::from(file.try_clone()?)).output().context("cannot run git")?;
+    command.stdout(Stdio::from(file.try_clone()?));
+    let output = {
+        let name = crate::link::spans::git_name(command.get_args());
+        crate::link::spans::time(&name, || command.output())
+    }
+    .context("cannot run git")?;
     if !output.status.success() {
         bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());
     }

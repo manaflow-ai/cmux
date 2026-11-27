@@ -38,7 +38,7 @@ import Testing
         #expect(failed.fields["error_code"] == .code("timeout"))
         #expect(failed.detail?.contains("timeout") == true)
         let waiting = try #require(records.last { $0.name == "phase" && $0.fields["phase"] == .code("waiting") })
-        #expect(waiting.fields["reason"] == .text("the Mac didn't answer in time"))
+        #expect(waiting.fields["reason"] == .text(LinkError.timeoutReason))
     }
 
     @Test func everyoneSeesTheFailureWithoutIdentifiers() async throws {

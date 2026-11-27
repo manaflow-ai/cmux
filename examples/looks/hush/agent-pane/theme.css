@@ -1,0 +1,47 @@
+/* Hush's chat: a quiet side panel. The prompt is a soft gray pill (the text at 6%, 18 px corners,
+   no edge), cards barely there (the text at 3% with a faint hairline), secondary text soft but
+   readable, and links in the quiet accent a step toward the text. Nothing in the transcript is
+   tinted in the accent but the links.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text, --agent-accent, --agent-page-bg), so it reads over Hush and Hush Dark
+   and over any theme of your own. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  --cv-user-bubble-edge: transparent;
+  --cv-user-bubble-radius: 18px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 3%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 72%, transparent);
+  /* Tool rows and "Worked for" draw --cv-activity-text (the stock 58% of the text): this look's muted
+     ink instead, so they hold 4.5:1 on its paper (golden-look-contrast-N.test.ts). */
+  --cv-activity-text: var(--cv-text-muted);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 67%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-accent) 76%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 76%, var(--agent-text));
+
+  /* Pending cmux#46846 (--menu-*): menus and popovers. Inert until it lands.
+     After the source's tab-group dropdown: a near-opaque panel in the page's own color with
+     generous 14 px corners and a 6 px inset, roomy 30 px rows, the highlighted row a soft gray
+     lift with 10 px corners (the source raises it white on a shadow; see the README's gaps),
+     shortcuts and section labels in the secondary text at regular-plus weight, separators inset
+     12 px, destructive rows in the theme's red (the default), and submenus that overlap their menu
+     by the inset. */
+  --menu-radius: 14px;
+  --menu-padding: 6px;
+  --menu-fill: color-mix(in srgb, var(--agent-page-bg) 96%, transparent);
+  --menu-border: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --menu-row-height: 30px;
+  --menu-hover-fill: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  --menu-hover-radius: 10px;
+  --menu-separator: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --menu-separator-inset: 12px;
+  --menu-label-color: color-mix(in srgb, var(--agent-text) 68%, transparent);
+  --menu-label-weight: 500;
+  --menu-label-size: var(--text-caption);
+  --menu-shortcut-color: color-mix(in srgb, var(--agent-text) 68%, transparent);
+  --menu-subtitle-color: color-mix(in srgb, var(--agent-text) 68%, transparent);
+  --menu-disabled-opacity: 0.4;
+  --menu-submenu-offset: -6px;
+  --menu-submenu-align-offset: -6px;
+}

@@ -81,7 +81,7 @@ fn grid_change_reaches_a_snapshot_viewer_as_a_snapshot() {
 #[test]
 fn stream_position_counts_output_and_grid_generations() {
     let position = SnapshotStreamPosition::default();
-    position.add_output(5);
+    position.add_output(&[0; 5]);
     position.observe_frame(&AttachFrame::OutputWithColors {
         output: vec![0; 7],
         colors: Box::default(),

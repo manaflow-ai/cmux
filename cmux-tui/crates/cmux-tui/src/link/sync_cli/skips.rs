@@ -10,6 +10,10 @@ use serde_json::{Value, json};
 /// Most skipped paths a summary lists; the counts cover the rest.
 pub(super) const LISTED: usize = 200;
 
+/// Most ignored paths named (they are collapsed to the top folder, but a project can have many);
+/// the `ignored` count covers the rest, so they never crowd out a secret in [`LISTED`].
+pub(super) const IGNORED_LISTED: usize = 50;
+
 /// Why a path was left out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Why {
@@ -39,6 +43,9 @@ pub(super) enum Why {
     NameNotUtf8,
     /// A dependency or build folder the project rebuilds on the machine.
     Heavy,
+    /// A path the folder's `.gitignore` (or git's other ignore rules) names; it
+    /// stays on this Mac.
+    Ignored,
     /// The name of the sync record itself.
     Reserved,
     /// A pull's merge with conflict markers, kept on this Mac.
@@ -61,6 +68,7 @@ impl Why {
             Self::Special => "special",
             Self::NameTooLong | Self::NameControl | Self::NameNotUtf8 => "name",
             Self::Heavy => "heavy",
+            Self::Ignored => "ignored",
             Self::Reserved | Self::ConflictMerge => "reserved",
         }
     }
@@ -83,6 +91,7 @@ impl Why {
             Self::NameControl => "a name Linux can't hold (control character)",
             Self::NameNotUtf8 => "a name Linux can't hold (not UTF-8)",
             Self::Heavy => "a heavy folder rebuilt on the machine",
+            Self::Ignored => "ignored (by .gitignore; stays on this Mac)",
             Self::Reserved => "the name of the sync record",
             Self::ConflictMerge => "a sync conflict's merge, kept on this Mac",
         }
@@ -98,17 +107,31 @@ pub(super) struct Skips {
     total: u64,
     counts: BTreeMap<&'static str, u64>,
     listed: Vec<(String, Why)>,
+    /// How many [`Why::Ignored`] paths were named.
+    ignored_named: usize,
 }
 
 impl Skips {
     pub(super) fn new(top: &Path) -> Self {
-        Self { top: top.to_path_buf(), total: 0, counts: BTreeMap::new(), listed: Vec::new() }
+        Self {
+            top: top.to_path_buf(),
+            total: 0,
+            counts: BTreeMap::new(),
+            listed: Vec::new(),
+            ignored_named: 0,
+        }
     }
 
     /// `path` (relative to the folder; a folder ends in `/`) was left out.
     pub(super) fn note(&mut self, path: &str, why: Why) {
         self.total += 1;
         *self.counts.entry(why.kind()).or_default() += 1;
+        if why == Why::Ignored {
+            if self.ignored_named >= IGNORED_LISTED {
+                return;
+            }
+            self.ignored_named += 1;
+        }
         if self.listed.len() < LISTED {
             self.listed.push((path.to_string(), why));
         }
@@ -330,65 +353,5 @@ pub(super) fn heavy_by(name: &str, mut has_file: impl FnMut(&str) -> bool) -> bo
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{LISTED, Skips, Why, heavy, secret};
-
-    /// The credential folders a copy leaves out at any depth are exactly the
-    /// ones the App refuses as a selected folder
-    /// (`AgentPaneCloudFolderRefusal.secretFolders`), read from its source.
-    #[test]
-    fn credential_folders_are_the_apps_secret_folders() {
-        let swift = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift",
-        );
-        let source = std::fs::read_to_string(&swift).unwrap();
-        let list = source
-            .split("public static let secretFolders = [")
-            .nth(1)
-            .and_then(|rest| rest.split(']').next())
-            .expect("secretFolders in AgentPaneCloudFolder.swift");
-        let apps: Vec<&str> = list.split('"').skip(1).step_by(2).collect();
-        assert!(!apps.is_empty());
-        assert_eq!(super::CREDENTIAL_FOLDERS, apps.as_slice());
-    }
-
-    #[test]
-    fn secrets_are_env_files_and_keys() {
-        for name in [".env", ".env.local", "id_rsa", "id_ed25519.pub", "cert.PEM", "a.p12", "x.key"]
-        {
-            assert!(secret(name).is_some(), "{name}");
-        }
-        for name in ["env.txt", "README.md", "keys.rs", "pem"] {
-            assert!(secret(name).is_none(), "{name}");
-        }
-    }
-
-    #[test]
-    fn ambiguous_heavy_names_need_the_file_that_makes_them_one() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(heavy(dir.path(), "node_modules"));
-        assert!(!heavy(dir.path(), "target"));
-        assert!(!heavy(dir.path(), "build"));
-        assert!(!heavy(dir.path(), "venv"));
-        std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
-        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
-        assert!(heavy(dir.path(), "target"));
-        assert!(heavy(dir.path(), "build"));
-        assert!(heavy(dir.path(), "dist"));
-        assert!(!heavy(dir.path(), "src"));
-    }
-
-    #[test]
-    fn every_skip_is_counted_and_the_first_ones_are_named() {
-        let mut skips = Skips::new(std::path::Path::new("/top"));
-        for index in 0..LISTED + 5 {
-            skips.note(&format!("f{index:04}"), Why::Special);
-        }
-        skips.note(".env", Why::EnvFile);
-        assert_eq!(skips.total(), LISTED as u64 + 6);
-        let (files, counts) = skips.json();
-        assert_eq!(files.as_array().unwrap().len(), LISTED);
-        assert_eq!(counts["special"], LISTED as u64 + 5);
-        assert_eq!(counts["secret"], 1);
-    }
-}
+#[path = "skips_tests.rs"]
+mod tests;
