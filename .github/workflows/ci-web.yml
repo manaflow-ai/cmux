@@ -450,6 +450,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ci-oops-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 3
           path: ${{ runner.temp }}/ci_oops.jsonl
 
   # The webviews type check, apart from the react-apps-check shards that build and test the same tree. Vite and

@@ -81,4 +81,4 @@ jobs:
           name: subscription-records-${{ inputs.mode }}
           path: out/subscription-records.*
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3

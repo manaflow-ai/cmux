@@ -161,7 +161,7 @@ jobs:
           name: web-test-junit-shard1-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/shard1/junit.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
       - name: Upload the web test JUnit report (shard 2)
         if: ${{ failure() && !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -169,7 +169,7 @@ jobs:
           name: web-test-junit-shard2-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/shard2/junit.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
       - name: Upload the web test JUnit report (shard 3)
         if: ${{ failure() && !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -177,7 +177,7 @@ jobs:
           name: web-test-junit-shard3-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/shard3/junit.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
       - name: Upload the web test JUnit report (shard 4)
         if: ${{ failure() && !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -185,7 +185,7 @@ jobs:
           name: web-test-junit-shard4-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/shard4/junit.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
 
   # The `web-browser` job: the browser suites (Playwright and real Chrome), on their own warm Linux VM so a
   # webview change never waits behind the linux job's guards, and a change that routes no browser step starts no
