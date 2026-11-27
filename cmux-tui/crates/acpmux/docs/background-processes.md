@@ -201,11 +201,19 @@ no background shell for it. Such a task, and one an agent starts with
   `lost`) logs the ended row; a daemon start watches every task still
   running and logs its row; each `process/list` first checks every row it
   holds as running against the folder, so an end while no daemon ran never
-  stays `running`. A row is logged only when it changed.
+  stays `running`, and gives a row to a task that runs with none. A row is
+  logged only when it changed, and put in the table only once the log took
+  it. Publishes are ordered per chat.
+- A wait moved with its chat (`server/bg_rearm.rs`) runs again as a new task
+  that keeps its call; the old task's row ends (`killed`, reason `moved`)
+  and gives the call up.
+- Its row's records are bookkeeping for the idle clock (`idle.rs`): they
+  start no idle period, as the task keeps no chat awake.
 - It outlives the harness and never keeps a chat awake: a harness exit loses
   none, and the idle checks count none.
-- `process/kill` stops it through its runner (`bg_stop`); `process/tail`
-  reads its spool (`bg_output`).
+- `process/kill` stops it through its runner (`bg_stop`), and refuses when
+  it still runs after the stop; `process/tail` reads its spool (`bg_output`),
+  in a Codex chat too.
 - A workflow's machine task (a stable id with its claim) is no row: its
   workflow shows it.
 
