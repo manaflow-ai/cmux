@@ -41,6 +41,16 @@ fn ms(start: Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1000.0
 }
 
+/// This thread's CPU time, ms. The status's own cost is timed by it, not by the wall clock: the
+/// lib suite runs this beside every other test, and a wall-clock time held the waits for a core
+/// (CI run 45641669048: 214.9 us/row, the same run's census list build 4.1 s).
+fn thread_cpu_ms() -> f64 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid timespec for the call to fill.
+    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    ts.tv_sec as f64 * 1000.0 + ts.tv_nsec as f64 / 1e6
+}
+
 #[test]
 fn composer_status_cost() {
     let hub = home();
@@ -61,17 +71,17 @@ fn composer_status_cost() {
 
     // The status alone, whole and census, on the same rows (the clones made before the clock).
     let mut whole = before.clone();
-    let start = Instant::now();
+    let start = thread_cpu_ms();
     for row in &mut whole {
         set_composer_status(row, true);
     }
-    let whole_ms = ms(start);
+    let whole_ms = thread_cpu_ms() - start;
     let mut cut = before.clone();
-    let start = Instant::now();
+    let start = thread_cpu_ms();
     for row in &mut cut {
         set_composer_status(row, false);
     }
-    let census_ms = ms(start);
+    let census_ms = thread_cpu_ms() - start;
     assert_eq!(cut, census, "the census form is what a list row carries");
 
     let serialize = |rows: &[Value]| {
@@ -104,7 +114,7 @@ fn composer_status_cost() {
     );
     assert_eq!(bytes(&before), bytes(&census), "a quiet census row carries no status");
     assert!(share(census_bytes) <= 2.0, "census rows grew {:.1}%", share(census_bytes));
-    // Loose, for a debug build on a loaded runner: the status is a fixed set of key reads.
+    // Loose, for a debug build: the status is a fixed set of key reads (CPU time, above).
     assert!(per_row_us(whole_ms) < 200.0, "{:.1} us/row", per_row_us(whole_ms));
 
     // The open chat's read (tools) still carries every fact.
