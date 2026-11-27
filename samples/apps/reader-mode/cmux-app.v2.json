@@ -5,8 +5,12 @@
   "name": { "en": "Reader Mode", "ja": "リーダーモード" },
   "version": "1.0.0",
   "description": {
-    "en": "Read the article of the focused browser tab as plain, readable text in a pane: title, byline, headings, paragraphs, lists, quotes and code.",
-    "ja": "フォーカス中のブラウザタブの記事を、読みやすいテキストとしてペインに表示します。"
+    "en": "Turn the article in your browser tab into clean, readable text in a tab of its own: title, byline, headings, lists, quotes and code. Its links and images stay one click away.",
+    "ja": "ブラウザタブの記事を、読みやすいテキストにして専用のタブに表示します。タイトル、著者、見出し、リスト、引用、コードを読みやすく並べ、リンクや画像もクリックひとつで開けます。"
+  },
+  "tagline": {
+    "en": "Read any article as clean text, without the clutter",
+    "ja": "記事を、余計なもののない読みやすいテキストで"
   },
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
@@ -25,9 +29,9 @@
     }
   },
   "scopes": {
-    "page:read": "Read the article text and links of the browser tab you are looking at.",
-    "actions:run": "Open the Reader pane, and open a link or image you click in a browser tab.",
-    "storage:local": "Keep the last article you read on this Mac, so the pane still shows it after a reload."
+    "page:read": "Read the article text and links of the browser tab you're looking at, when you ask.",
+    "actions:run": "Open the Reader tab, and open a link or image you click in a browser tab.",
+    "storage:local": "Keep the last article you read on this Mac, so it's still there after a reload."
   },
   "activation": ["onInterface:cmux.pane/1", "onOp:reader_mode.open"],
   "files": ["dist/", "catalog/"]

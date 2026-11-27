@@ -117,9 +117,96 @@ async fn matching_wait_includes_name_resolution_in_its_timeout() {
     .unwrap_err();
     server.abort();
     assert_eq!(crate::cli::errors::classify(&error).code, Code::Timeout);
+    assert!(error.to_string().contains("waiting for matching text"), "{error}");
     assert!(
         started.elapsed() < std::time::Duration::from_millis(1500),
         "name resolution reset the matching timeout: {:?}",
         started.elapsed()
     );
+}
+
+/// A deadline after successful lookup must not report a missing session. Exercise
+/// the real RPC path, including reply retrieval after the state wait succeeds.
+#[cfg(unix)]
+#[tokio::test]
+async fn wait_timeout_reports_the_stalled_phase() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    for (stalled_method, match_text, expected) in [
+        (method::MUX_INFO, false, "resolving session names"),
+        (method::MUX_WAIT, false, "waiting for the requested session state"),
+        (method::MUX_ATTACH, true, "waiting for matching text"),
+        (method::MUX_ATTACH, false, "reading session replies"),
+    ] {
+        let dir = cmux_unix_socket::short_test_dir("wait-phase");
+        let socket = dir.path().join("s");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let (reached, stalled) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read, mut write) = stream.into_split();
+            let mut lines = BufReader::new(read).lines();
+            while let Some(line) = lines.next_line().await.unwrap() {
+                let msg: Value = serde_json::from_str(&line).unwrap();
+                let Some(id) = msg.get("id") else { continue };
+                let method = msg["method"].as_str().unwrap();
+                if method == stalled_method {
+                    reached.send(()).unwrap();
+                    std::future::pending::<()>().await;
+                    return;
+                }
+                let result = match method {
+                    method::INITIALIZE => json!({}),
+                    method::MUX_INFO => json!({"sessionId": "s"}),
+                    method::MUX_WAIT => {
+                        let session = json!({"sessionId": "s", "name": "name", "status": "ready",
+                            "lastTurn": {"turnId": "t", "status": "completed"}});
+                        json!({"sessions": [session.clone()], "resolved": [session]})
+                    }
+                    other => panic!("unexpected request: {other}"),
+                };
+                let response = json!({"jsonrpc": "2.0", "id": id, "result": result});
+                write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+            }
+        });
+        let client = Client::connect(&socket).await.unwrap();
+        let error = wait(
+            client,
+            WaitOpts {
+                sessions: vec!["name".into()],
+                until: vec![],
+                all: false,
+                timeout: Some(1),
+                print: true,
+                notify: false,
+                matcher: match_text.then(|| Matcher::Text("absent".into())),
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+        server.abort();
+        stalled.await.expect("the request must reach the phase being tested");
+        assert_eq!(crate::cli::errors::classify(&error).code, Code::Timeout);
+        assert!(error.to_string().contains(expected), "expected {expected}: {error}");
+    }
+}
+
+/// The exit code reads a failed turn as `failed_turn` does: a failed `lastTurn` while a newer
+/// turn runs is the turn a pause or a daemon restart cut short, so `acpmux wait` exits 0, not 1
+/// (cmux pause-ab run 45869919450: `acp wait` exit 1 after a resume, the right reply written).
+#[test]
+fn the_exit_code_never_says_failed_while_a_newer_turn_runs() {
+    let failed = json!({"status": "ready", "turn": null, "pendingPermissions": 0,
+        "lastTurn": {"status": "failed", "errorText": "stalled"}});
+    assert_eq!(session_exit_code(&failed), 1);
+    let running = json!({"status": "running", "turn": {"turnId": "t2"}, "pendingPermissions": 0,
+        "lastTurn": {"status": "failed"}});
+    assert_eq!(failed_turn(&running), None);
+    assert_eq!(session_exit_code(&running), 0);
+    let asking = json!({"status": "waiting", "turn": {"turnId": "t2"}, "pendingPermissions": 1,
+        "lastTurn": {"status": "failed"}});
+    assert_eq!(session_exit_code(&asking), 2);
+    let done =
+        json!({"status": "ready", "pendingPermissions": 0, "lastTurn": {"status": "completed"}});
+    assert_eq!(session_exit_code(&done), 0);
 }

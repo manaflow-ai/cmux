@@ -45,19 +45,23 @@ mod cloud_conversations_backend;
 #[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
-mod coderouter_usage;
-#[cfg(unix)]
 #[cfg(unix)]
 mod codex_wrapper;
 #[cfg(not(target_os = "macos"))]
 mod computer_use_worker;
 mod config;
 mod daemon_build;
+#[cfg(unix)]
+mod dev_reaper;
+#[cfg(unix)]
+mod files_lister;
 mod headless;
 mod heap_profile;
 #[cfg(unix)]
 mod host_orphan_policy;
 mod local_actor;
+#[cfg(unix)]
+mod machine_identity;
 #[cfg(unix)]
 mod machine_secrets;
 #[cfg(unix)]
@@ -65,6 +69,8 @@ mod own_build_helpers;
 mod page_listener;
 mod private_mode;
 mod screen_detection_status;
+#[cfg(unix)]
+mod scroll_probe;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
@@ -137,6 +143,8 @@ mod sidebar_projection;
 mod sidebar_status;
 #[cfg(unix)]
 mod staged_update;
+/// The interactive client's UI-loop hang watchdog (sample, report, cancel, restart).
+mod ui_watchdog;
 // The staged swap probes builds through cmux-remote, a unix-only dependency:
 // elsewhere nothing is ever staged and no notice waits.
 #[cfg(not(unix))]
@@ -587,6 +595,51 @@ fn usage() -> String {
     usage_for(localization::catalog())
 }
 
+/// The startup options that run or configure the authenticated remote daemon,
+/// the ones `cmux remote --help` calls "explicit remote flags". A test checks
+/// this list against `parse_args_result`'s match arms, so it cannot drift.
+pub(crate) const REMOTE_START_OPTIONS: &[&str] = &[
+    "--remote",
+    "--remote-ws",
+    "--remote-ws-insecure-bind",
+    "--remote-ws-trusted-carrier",
+    "--remote-http",
+    "--remote-state-dir",
+    "--remote-link-socket",
+    "--remote-admin-socket",
+    "--remote-resume-lease-seconds",
+    "--relay",
+    "--relay-slot",
+    "--relay-ticket-file",
+    "--relay-ticket-command",
+    "--relay-ticket-command-arg",
+    "--carrier-grant-config",
+    "--iroh",
+    "--advertise",
+    "--remote-local-socket",
+];
+
+/// The START OPTIONS entries of usage.txt for [`REMOTE_START_OPTIONS`], each
+/// with its description lines, so `cmux daemon start --help` and the startup
+/// usage say the same thing.
+pub(crate) fn remote_start_options_help() -> String {
+    let mut out = String::new();
+    let mut keep = false;
+    for line in USAGE.lines() {
+        if let Some(entry) = line.strip_prefix("  -") {
+            let flag = format!("-{}", entry.split_whitespace().next().unwrap_or_default());
+            keep = REMOTE_START_OPTIONS.contains(&flag.as_str());
+        } else if !line.starts_with("   ") {
+            keep = false;
+        }
+        if keep {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Args {
     attach: bool,
@@ -634,6 +687,8 @@ struct Args {
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
+    /// `--freeing-idle-seconds`: the idle freeing timer on with this idle time (the bench).
+    freeing_idle: Option<std::time::Duration>,
     exit_with_pid: Option<local_owner::ExitWith>,
 }
 
@@ -747,6 +802,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_ready_fd: None,
         owner_install_key_fd: None,
         terminal_reap_grace: None,
+        freeing_idle: None,
         exit_with_pid: None,
     };
     let mut args = args.into_iter().peekable();
@@ -855,6 +911,18 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     return Err("--ws-allow-host needs a host name with no port".into());
                 }
                 out.ws_access.hosts.push(host);
+            }
+            "--freeing-idle-seconds" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--freeing-idle-seconds needs a value".to_string())?;
+                let seconds =
+                    value.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| {
+                        "--freeing-idle-seconds must be a positive integer".to_string()
+                    })?;
+                if out.freeing_idle.replace(std::time::Duration::from_secs(seconds)).is_some() {
+                    return Err("--freeing-idle-seconds may be supplied only once".into());
+                }
             }
             "--terminal-reap-grace-seconds" => {
                 let value = args
@@ -1031,7 +1099,14 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 if args.peek().is_some_and(|next| next == "--json") {
                     println!("{}", version_report_json());
                 } else {
-                    println!("cmux {}", version_string());
+                    let exe = std::env::current_exe()
+                        .ok()
+                        .and_then(|path| std::fs::canonicalize(path).ok());
+                    let app_commit = exe.as_deref().and_then(version_report::app_commit);
+                    println!(
+                        "{}",
+                        version_report::version_lines(&version_string(), app_commit.as_deref())
+                    );
                 }
                 client_log::exit(0);
             }
@@ -1568,6 +1643,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-resume-lease-seconds",
     "--remote-local-socket",
     "--terminal-reap-grace-seconds",
+    "--freeing-idle-seconds",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -1839,6 +1915,8 @@ pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statements of main: no other thread runs yet.
     unsafe {
         cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+        // macOS: malloc read its space-efficient mode at exec; children start without it (malloc_space.rs).
+        cmux_tui_platform::malloc_space::forget();
     }
     // The browser host and the app host are this binary under their own names
     // (links beside bin/cmux). They run before anything else here: the app
@@ -1862,6 +1940,8 @@ pub fn main() -> std::process::ExitCode {
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
     acpmux::hub::install_build(acpmux_build_id::build());
+    // acpmux is headless; its interactive commands open the terminal UI this binary links.
+    acpmux_tui::install();
     #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
     // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
@@ -1889,7 +1969,7 @@ pub fn main() -> std::process::ExitCode {
 }
 
 /// Runs the host argv[0]'s file name names (`cmux-browser-host`,
-/// `cmux-app-host`) and returns its exit code, or `None` when it names none.
+/// `cmux-app-host`, `cmux-mobile-host`) and returns its exit code, or `None` when it names none.
 #[cfg(unix)]
 fn run_folded_host() -> Option<i32> {
     let argv0 = std::env::args_os().next()?;
@@ -1898,6 +1978,11 @@ fn run_folded_host() -> Option<i32> {
     match name {
         "cmux-browser-host" => Some(cmux_browser_host::cli::run(args())),
         "cmux-app-host" => Some(cmux_app_host::entry::run(&args())),
+        // A tool the app downloads on first use (`tool_packs`): runs it in this process's place.
+        "cmux-mobile-host" => {
+            let exe = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+            cmux_tui_core::tool_packs::run_as(name, &exe)
+        }
         _ => None,
     }
 }
@@ -1990,13 +2075,59 @@ fn run_main() {
     cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
     // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux in
     // this process. It needs none of the mux's provider credentials or signal handlers.
+    // `cmux share screens|start|stop|move …`: the screen shares, read and changed by this
+    // machine's daemon device at the device hub (acpmux `share-host`), with no app needed.
+    // `cmux autocloud …`: cmux stripped to the essentials (RFD 0139), an agent chat on any
+    // machine in the terminal: sign in, readiness, the agent's stream, and a chat that survives
+    // a dropped link. Its links dial through this binary (`carrier dial`, `acp stdio`).
+    if raw_args.first().map(String::as_str) == Some("autocloud") {
+        discard_provider_secret_environment();
+        let args = std::iter::once(OsString::from("cmux autocloud"))
+            .chain(raw_args.iter().skip(1).map(OsString::from))
+            .collect();
+        client_log::exit(cmux_autocloud::run(args));
+    }
     #[cfg(unix)]
-    if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
+    if let Some(args) = cli::share_screen_args(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(acp::run_as(args, "cmux"));
+    }
+    #[cfg(unix)]
+    if let Some(head) = raw_args.first().map(String::as_str)
+        && (matches!(head, "acp" | "harness" | "chats" | "board" | "care")
+            || cli::agent_engine_requested(&raw_args)
+            || cli::TOP_LEVEL_ENGINE_VERBS.contains(&head))
+    {
         discard_provider_secret_environment();
         // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and
         // std::env::args() above already refused argv that is not UTF-8.
         let args = cli::acp_scope_args(&raw_args);
         client_log::exit(acp::run_scope(head, args));
+    }
+    #[cfg(unix)]
+    if let Some(args) = cli::agent_acp_scope_args(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(acp::run_as(args, "cmux agent"));
+    }
+    // Windows machine join installs the session engine as its own executable.
+    // Launch that binary so its daemon and agent hosts use the Windows install.
+    #[cfg(windows)]
+    if cli::agent_engine_requested(&raw_args) {
+        discard_provider_secret_environment();
+        let result = std::env::home_dir()
+            .ok_or_else(|| io::Error::other("cannot locate the Windows user profile"))
+            .and_then(|home| {
+                cmux_process::Command::new(home.join(".local/bin/acpmux.exe"))
+                    .args(cli::acp_scope_args(&raw_args))
+                    .status()
+            });
+        match result {
+            Ok(status) => client_log::exit(status.code().unwrap_or(1)),
+            Err(error) => {
+                eprintln!("cmux agent: cannot run the Windows session engine: {error}");
+                client_log::exit(1);
+            }
+        }
     }
     // `cmux host enable|serve|dial|…`: remote hosting, on every platform
     // (plans/cmux-next/remote-hosts.md). The other `host` verbs are the
@@ -2235,14 +2366,12 @@ fn relay_daemon_options(
     slots: Vec<String>,
     credentials: Vec<RelayCredentialArg>,
 ) -> anyhow::Result<Vec<remote_runtime::RelayDaemonOptions>> {
-    const MAX_DAEMON_RELAYS: usize = 4;
+    // Relay registrations are not capped by count: each is one tokio task holding one
+    // WebSocket to its relay, a constant cost.
     if endpoints.len() != slots.len() || endpoints.len() != credentials.len() {
         anyhow::bail!(
             "each relay registration needs one --relay, one --relay-slot, and one relay credential source"
         );
-    }
-    if endpoints.len() > MAX_DAEMON_RELAYS {
-        anyhow::bail!("a daemon supports at most {MAX_DAEMON_RELAYS} relay registrations");
     }
     endpoints
         .into_iter()
@@ -2719,6 +2848,10 @@ fn run_server(
     // source/working-tree checks keep local development installs untouched.
     let _plugin_auto_update = plugin_manager::start_auto_update();
     mux.configure_browser_host(&socket_path);
+    // The agent-share audit rows go to the host's own audit log (remote_host/config.rs).
+    if let Ok(dir) = remote_host::config::dir() {
+        cmux_tui_core::remote_host::set_agent_share_audit_dir(dir);
+    }
     mux.configure_remote_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
@@ -2733,6 +2866,9 @@ fn run_server(
             }
         });
     // `identify` answers from the attach below: announce the reaper first.
+    if let Some(idle) = args.freeing_idle {
+        mux.set_freeing_idle_override(idle);
+    }
     if let Some(grace) = args.terminal_reap_grace {
         mux.set_terminal_reap_grace(grace)?;
         mux.announce_terminal_reaper();
@@ -2850,6 +2986,7 @@ fn run_server(
         );
     }
     loopback_policy::install(&mux, loopback_forward_policy);
+    mux.start_terminal_warm_compact();
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]
@@ -2859,10 +2996,6 @@ fn run_server(
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
-    // Cloud VMs carry coderouter identity in their model-plane env; every
-    // other host resolves no source and gets no poller.
-    #[cfg(unix)]
-    let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
     #[cfg(unix)]
@@ -2992,10 +3125,6 @@ fn run_server(
     }
     if let Some(writer) = launch_snapshot_writer {
         writer.stop();
-    }
-    #[cfg(unix)]
-    if let Some(poller) = machine_usage_poller {
-        poller.stop();
     }
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();

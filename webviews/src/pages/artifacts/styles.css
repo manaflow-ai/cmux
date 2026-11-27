@@ -245,16 +245,3 @@ html[data-cmux-page="artifacts"] body { overflow: hidden; }
 }
 
 .artifacts-muted { color: var(--page-text-3); }
-
-.artifacts-retry {
-  height: var(--ds-control-compact);
-  padding: 0 var(--ds-space-3);
-  border: var(--cmux-hairline) solid var(--page-separator);
-  border-radius: var(--ds-radius-control);
-  background: var(--page-elevated);
-  color: var(--page-text);
-  font: inherit;
-  font-size: var(--text-detail);
-}
-
-.artifacts-retry:hover { background: var(--page-hover); }

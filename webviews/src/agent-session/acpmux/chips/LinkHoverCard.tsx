@@ -2,7 +2,8 @@
 // request chip and the pull request bars above the composer. Its head is one compact row: the
 // site's icon (a pull request's glyph in its state's colour) inline beside the title (the page
 // title cmux already has, else the host; a pull request's own title), then one quiet split button:
-// Open (a cmux tab) and its chevron, which offers the other browsers. A web link's address, with secret-looking values as •••
+// Open (a cmux tab) and its chevron, which offers the other browsers: plain controls on the card's
+// glass, never a framed capsule of their own (Leo 2026-11-22: "doubled up glass/wack looking glass"). A web link's address, with secret-looking values as •••
 // (linkDisplay.ts), sits under its title when it says more than the host already does; a pull
 // request has no address line, and adds its author, checks and files (PullRequestCard.tsx). Tight
 // spacing, no dividers, on the liquid glass (.ui-glass; styles.css .cv-link-preview; Leo
@@ -12,9 +13,13 @@
 // card's rect, so a 2 px rise rewrote the transcript's blur filter on every frame of the fade, and
 // the display compositor redrew the whole filtered transcript each time. It leaves with the
 // tooltip's short fade, which moves nothing. A menu opens on the click with no fade either.
+// A pull request's head also has a quiet Review left of Open (review from link, prReview.ts): a side
+// chat reviews it in its own worktree and leaves drafts in the diff viewer for the person to post.
+// Open keeps its place at the row's end.
 import { useEffect, type PointerEvent, type ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { OpenInMenu } from "../previewCard/OpenInMenu";
+import { callNative } from "../callNative";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { redactUrlText } from "./linkDisplay";
@@ -24,13 +29,15 @@ import type { HoverCard } from "./useHoverCard";
 import "./linkCard.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { chatUnderHoverCard, hoverCardGlass } from "../chatUnderGlass";
-import { linkHost } from "./linkHoverCardModel";
+import { linkHost, repeatsTitle } from "./linkHoverCardModel";
 import { githubItemRef } from "./pullRequestCardModel";
 import { prefetchPullRequest } from "./pullRequestStore";
-/// `href` with its secrets masked, unless it says no more than `host` (the head names the host).
-function addressBeyond(href: string, host: string): string | undefined {
+/// `href` with its secrets masked, unless it says no more than `host` or the head's `title` (the
+/// head names it already; Leo 2026-11-22, a card that printed its title twice).
+function addressBeyond(href: string, host: string, title: string): string | undefined {
   const address = redactUrlText(href);
-  return address.replace(/^[a-z][\w+.-]*:\/\//i, "").replace(/\/$/, "") === host ? undefined : address;
+  if (address.replace(/^[a-z][\w+.-]*:\/\//i, "").replace(/\/$/, "") === host) return undefined;
+  return repeatsTitle(title, address) ? undefined : address;
 }
 
 export function LinkHoverCard({
@@ -42,6 +49,7 @@ export function LinkHoverCard({
   siteTitle,
   pullRequest,
   side,
+  onOpenLink,
 }: {
   /// For the link's `aria-describedby` while the card shows.
   id?: string;
@@ -55,6 +63,8 @@ export function LinkHoverCard({
   /// A pull request link: what the page already knows about it.
   pullRequest?: KnownPullRequest;
   side?: "top" | "bottom";
+  /** Pages without the agent host keep the original link's navigation route. */
+  onOpenLink?: (url: string) => void;
 }) {
   const t = useT();
   // Read only: the link opens in the reader's own browser as a plain link; cmux's tabs are the owner's.
@@ -73,11 +83,21 @@ export function LinkHoverCard({
   }, [item, hover.intent]);
   // Any http(s) link opens in a cmux tab as a click on it does (`browser.openIn` with cmux's own id,
   // which spends the click's gesture); `browser.open` takes only a turn's local preview page.
-  const openInCmux = (url: string) => void callChipHost("browser.openIn", { url, browserId: "cmux" });
+  const openLink = onOpenLink ?? ((url: string) => void callChipHost("browser.openIn", { url, browserId: "cmux" }));
   const onOpen = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    openInCmux(href);
+    openLink(href);
+  };
+  // Not an issue's, and not a read-only transcript's: the side chat is the owner's. Only the agent
+  // pane serves `pr.review` (App.tsx's direct action); other pages that show this card (the
+  // changelog) have no chat to open it beside.
+  const reviewable =
+    !readOnly && githubItemRef(href)?.kind === "pull" && globalThis.window?.cmuxAcpmuxActions?.["pr.review"] != null;
+  const onReview = (event: PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void callNative("pr.review", { url: href }).catch(() => undefined);
   };
   const head = (title: string, glyph: ReactNode = mark, address?: string) => (
     <div className="cv-link-preview__head">
@@ -86,6 +106,11 @@ export function LinkHoverCard({
         <span className="cv-link-preview__site">{title}</span>
         {address && <span className="cv-link-preview__target">{address}</span>}
       </span>
+      {reviewable && (
+        <button type="button" className="cv-link-preview__open cv-link-preview__review" onClick={onReview}>
+          {t("prCard.review")}
+        </button>
+      )}
       {!readOnly && (
         // One split control (Leo 2026-11-07: "the open and open in, why don't we just combine both
         // of those?"): Open takes the click to a cmux tab, the chevron offers the other targets.
@@ -94,7 +119,7 @@ export function LinkHoverCard({
             {t("image.open")}
             <span aria-hidden="true">↗</span>
           </button>
-          <OpenInMenu url={href} onOpenInPane={openInCmux} onOpenChange={hover.menuChanged} chevron />
+          <OpenInMenu url={href} onOpenInPane={openLink} onOpenChange={hover.menuChanged} chevron />
         </span>
       )}
     </div>
@@ -123,7 +148,7 @@ export function LinkHoverCard({
         {pullRequest ? (
           <PullRequestCardBody url={href} known={pullRequest} open={hover.open} head={head} />
         ) : (
-          head(siteTitle ?? host, mark, addressBeyond(href, host))
+          head(siteTitle ?? host, mark, addressBeyond(href, host, siteTitle ?? host))
         )}
       </div>
     </AnchoredCard>

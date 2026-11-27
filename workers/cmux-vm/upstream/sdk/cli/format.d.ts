@@ -4,7 +4,7 @@ import type { ListTlsRulesResult, TlsEndpoint, TlsRuleData } from "../tls.js";
 import type { AccessTokenInfo, CreatedToken, IdentityData, IdentityInfo, ListIdentitiesResult, VmPermission } from "../identities.js";
 import type { DirEntry, FileStat, ListVmsResult, VmData } from "../vms/index.js";
 import type { ListSnapshotsResult, SnapshotCreated, SnapshotData } from "../vms/snapshots.js";
-import type { CreatedTunnel, ListTunnelsResult, TunnelData } from "../tunnel.js";
+import type { CreatedIkev2Tunnel, CreatedTunnel, ListTunnelsResult, TunnelData } from "../tunnel.js";
 import type { ListVpcsResult, VpcData } from "../vpc.js";
 /**
  * Render a VM. `timestamps` controls whether Created/Updated are shown at
@@ -39,7 +39,7 @@ export declare function renderVpc(vpc: VpcData, options?: {
 /** VPC output for update — no Created noise. */
 export declare function renderVpcAction(vpc: VpcData): string;
 export declare function renderVpcList(result: ListVpcsResult): string;
-export declare function renderTunnel(tunnel: TunnelData | CreatedTunnel): string;
+export declare function renderTunnel(tunnel: TunnelData | CreatedTunnel | CreatedIkev2Tunnel): string;
 export declare function renderTunnelList(result: ListTunnelsResult): string;
 export declare function renderDomainList(domains: DomainOwnership[]): string;
 export declare function renderVerification(v: DomainVerification): string;

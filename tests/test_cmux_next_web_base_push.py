@@ -7,6 +7,7 @@ request looks like a base red with no base run to compare it with (#20633 merged
 lint red beside the eager JS budget red). The scope job costs one small Linux job, so a push
 that touches no web path runs nothing else.
 """
+import json
 import os
 import subprocess
 import sys
@@ -25,22 +26,32 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next-web.yml"
 CI_WEB = ROOT / ".github/workflows/ci-web.yml"
+BATCH = ROOT / ".github/workflows/cmux-next-post-merge.yml"
+MANIFEST = ROOT / ".github/post-merge-batch.json"
 HELPER = ROOT / "scripts/ci/web_subareas.py"
 
 
 def test_every_feat_cmux_next_push_runs_the_web_checks() -> None:
+    # Since 2026-11-21 the base's web checks run in the post-merge batch tier: its `web` suite calls ci-web.yml on
+    # the tip after merges (the same 'web / ...' names), and cmux-next-web.yml runs only when dispatched.
+    batch = yaml.safe_load(BATCH.read_text())
+    web = batch["jobs"]["web"]
+    assert web["uses"] == "./.github/workflows/ci-web.yml"
+    assert web["with"] == {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}
+    suite = json.loads(MANIFEST.read_text())["suites"]["web"]
+    # No paths filter: every merge runs the suite and the scope job routes, so a web path list could only drift.
+    assert suite["workflow"] == "ci-web.yml" and suite["paths"] == [], suite
     doc = yaml.safe_load(WORKFLOW.read_text())
     on = doc.get("on", doc.get(True))
-    push = on.get("push") if isinstance(on, dict) else None
-    assert push is not None, "cmux-next-web.yml has no push trigger"
-    assert push.get("branches") == ["feat-cmux-next"], push
-    # No paths filter: the scope job routes, so a web path list here could only drift.
-    assert "paths" not in push and "paths-ignore" not in push, push
+    assert isinstance(on, dict) and "push" not in on and "workflow_dispatch" in on, on
     web = doc["jobs"]["web"]
     assert web["uses"] == "./.github/workflows/ci-web.yml"
-    # Coalesced (scripts/ci/web_coalesce.py): from the commit the last run tested, else the push's own base.
+    # Coalesced (scripts/ci/web_coalesce.py): from the commit the last run tested, else the push's own base. A
+    # dispatched tick (inputs.tick) coalesces as a push does, so it routes from that base too.
     assert web["needs"] == "coalesce"
-    assert web["with"].get("push_base") == "${{ github.event_name == 'push' && needs.coalesce.outputs.base || '' }}"
+    assert web["with"].get("push_base") == (
+        "${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.tick)"
+        " && needs.coalesce.outputs.base || '' }}"), web["with"].get("push_base")
 
 
 def test_ci_web_routes_from_the_push_base() -> None:
@@ -49,7 +60,8 @@ def test_ci_web_routes_from_the_push_base() -> None:
     assert on["workflow_call"]["inputs"]["push_base"]["required"] is False
     steps = doc["jobs"]["web-subarea-scope"]["steps"]
     scope = next(s for s in steps if s.get("id") == "scope")
-    assert scope["env"].get("WEB_SUBAREAS_BASE") == "${{ inputs.push_base }}"
+    # A post-merge batch call (inputs.sha set) routes every subarea, as a push base of `all` does.
+    assert scope["env"].get("WEB_SUBAREAS_BASE") == "${{ inputs.sha != '' && 'all' || inputs.push_base }}"
 
 
 def test_feat_cmux_next_pushes_run_the_cmux_next_checks_job() -> None:

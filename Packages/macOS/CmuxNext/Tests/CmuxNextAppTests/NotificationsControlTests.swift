@@ -104,6 +104,7 @@ import Testing
         let services = appServices()
         let router = makeReleaseRouter(services)
         let desktop = services.notifications.desktop
+        let before = (Date().timeIntervalSince1970 * 1000).rounded(.down)
         desktop.post(id: "older", title: "Claude finished", body: "first turn", surface: 3, workspace: nil, defaultSound: false)
         desktop.post(id: "newer", title: "Claude needs you", subtitle: "repo", body: "second turn", surface: 7, workspace: nil,
                      defaultSound: false, reply: true)
@@ -120,6 +121,11 @@ import Testing
         #expect(newest["approval"] == .bool(false))
         #expect(newest["category"] == .string(DesktopNotifier.replyCategory))
         #expect(newest["attachment"] == nil, "the release list carries no badge PNG: \(newest)")
+        // Stamped when posted, on the daemon's clock (Unix ms), so the probe times the app's hop from the stamps.
+        let stamps = banners.suffix(2).compactMap { $0.objectValue?["posted_at_ms"]?.doubleValue }
+        let after = (Date().timeIntervalSince1970 * 1000).rounded(.up)
+        #expect(stamps.count == 2 && stamps[0] <= stamps[1] && stamps.allSatisfy { (before...after).contains($0) },
+                "posted_at_ms \(stamps) not in \(before)...\(after)")
         #expect(answer.objectValue?["authorization"]?.stringValue != nil, "\(answer)")
         withExtendedLifetime(services) {}
     }
@@ -164,6 +170,27 @@ import Testing
             #expect(error.code == (params.isEmpty ? "invalid_params" : "not_found"), "\(params): \(error)")
         }
         #expect(opened == 0, "a refused open ran the banner click")
+        withExtendedLifetime(services) {}
+    }
+
+    /// A tab banner id this launch did not post looks in Notification Center (an earlier launch's banner);
+    /// with none delivered there (tests have no system center) it is still `not_found` and opens nothing.
+    @Test func anUnpostedTabBannerWithNoDeliveredBannerIsNotFound() async throws {
+        let services = appServices()
+        let router = makeReleaseRouter(services)
+        let desktop = services.notifications.desktop
+        var opened = 0
+        desktop.onOpen = { _, _ in opened += 1 }
+        desktop.onOpenTab = { _, _ in opened += 1 }
+
+        let result = await router.handle(ControlRequest(id: "1", method: "notifications.open",
+                                                        params: ["id": .string("cmux-notification-earlier-launch")]))
+        guard case .failure(let error) = result else {
+            Issue.record("notifications.open of an undelivered banner answered \(result)")
+            return
+        }
+        #expect(error.code == "not_found", "\(error)")
+        #expect(opened == 0, "an undelivered banner's open ran a click")
         withExtendedLifetime(services) {}
     }
 

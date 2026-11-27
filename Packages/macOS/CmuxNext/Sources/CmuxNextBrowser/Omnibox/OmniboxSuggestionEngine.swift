@@ -74,7 +74,7 @@ public final class OmniboxSuggestionEngine {
     /// pending intent), so an owner that answers late (H3) never shows them again.
     private(set) var pendingDeletes: Set<String> = []
 
-    public init(resolver: OmniboxResolver = OmniboxResolver(), providers: [any BrowserSuggestionProvider] = [], maxResults: Int = 8,
+    public init(resolver: OmniboxResolver = OmniboxResolver(), providers: [any BrowserSuggestionProvider] = [], maxResults: Int = 6,
                 history: (any OmniboxHistorySource)? = nil) {
         self.resolver = resolver
         self.providers = providers
@@ -220,6 +220,7 @@ public final class OmniboxSuggestionEngine {
         maxResults = configuration.maxRows
         sources = OmniboxSource.defaultOrder + (configuration.calculator ? [.calculator] : [])
         if display.showsFullURLs != configuration.showFullURLs { display.showsFullURLs = configuration.showFullURLs }
+        if display.quietIcons != configuration.quietIcons { display.quietIcons = configuration.quietIcons }
     }
 
     /// Enter loaded typed text as `url`.

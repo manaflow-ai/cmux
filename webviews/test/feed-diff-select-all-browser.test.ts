@@ -145,4 +145,35 @@ await requireBrowserLane("feed-diff-select-all-browser.test.ts", async () => {
         await browser.close();
       }
     });
+
+  // An empty line shows a space so it keeps its height; select-all copies the attachment's text, not
+  // that space: a diff that ends in a line end, with an empty line and lines of only spaces and tabs.
+  for (const [engine, type] of runs)
+    test(`${engine}: select-all copies a diff that ends in a line end, with empty and blank lines, byte for byte`, async () => {
+      const browser: Browser = await type.launch({ headless: true });
+      try {
+        const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+        if (engine === "chromium") await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+        const page = await context.newPage();
+        await gotoBenchPage(page, { ...served, url: `${served.url}#n=${N}&blank=1` });
+        await requireProductionReact(page, { dev: served.dev });
+        await page.waitForFunction(() => window.benchReady === true);
+        const diff = await page.evaluate(() => window.benchDiffText);
+        expect(diff.endsWith("\n")).toBe(true);
+        expect(diff.split("\n")).toContain("");
+        expect(diff.split("\n")).toContain(" \t ");
+        if (engine === "chromium") {
+          const box = (await page.locator(SCROLLER).boundingBox())!;
+          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+          await page.keyboard.press("Control+a");
+        } else await page.evaluate(() => document.execCommand("selectAll"));
+        const text = await copied(page, engine);
+        const copiedDiff = text.slice(text.indexOf(diff.slice(0, 40)));
+        expect(copiedDiff.length).toBe(diff.length);
+        expect(JSON.stringify(copiedDiff.slice(-8))).toBe(JSON.stringify(diff.slice(-8)));
+        expect(copiedDiff === diff).toBe(true);
+      } finally {
+        await browser.close();
+      }
+    });
 });

@@ -123,7 +123,10 @@ await requireBrowserLane("new-tab-no-chat-before-context.test.ts", async () => {
         const shown: Shown[] = [];
         w.__shown = shown;
         const read = () => {
-          const chat = document.querySelector(".acpmux-dock") !== null;
+          // Seen: a chat view a New Tab page keeps parked under it is laid out but visibility: hidden
+          // (App.tsx PARKED_STYLE).
+          const dock = document.querySelector(".acpmux-dock");
+          const chat = !!dock && dock.getClientRects().length > 0 && getComputedStyle(dock).visibility !== "hidden";
           const tab = document.querySelector(".nt-field") !== null;
           const screen = chat && tab ? "both" : chat ? "chat" : tab ? "newTab" : "none";
           const last = shown.at(-1);

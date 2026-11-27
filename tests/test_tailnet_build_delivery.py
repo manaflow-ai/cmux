@@ -4,6 +4,7 @@ import importlib.util
 import json
 import re
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
@@ -152,15 +153,59 @@ class ShippedAcpmuxCarriesItsFeaturesTests(unittest.TestCase):
             self.assertEqual(features.get(name), [f"acpmux/{name}"], name)
 
     def test_every_shipped_unix_acpmux_build_passes_the_shipping_features(self):
+        # The Mac-built macOS legs' cargo builds are in scripts/ci/cmux-tui-mac-cargo-builds.sh.
+        count = 0
+        for path in (self.WORKFLOW, ROOT / "scripts/ci/cmux-tui-mac-cargo-builds.sh"):
+            lines = path.read_text().splitlines()
+            builds = [(n, line) for n, line in enumerate(lines, 1)
+                      if re.search(r"-p acpmux(-standalone)? --bin", line) and "windows" not in line]
+            count += len(builds)
+            for n, line in builds:
+                text = line + (lines[n] if line.rstrip().endswith("\\") else "")
+                # A build may consume the shared shell variable or resolve the same
+                # feature flags inline.  Both paths execute the shipping-feature
+                # helper; require the inline form to name the standalone manifest so
+                # it cannot silently calculate flags for a different package.
+                has_shipping_features = (
+                    "acpmux_features" in text
+                    or re.search(
+                        r"acpmux-build-features\.sh\s+crates/acpmux-standalone/Cargo\.toml\s+\"\$t\"",
+                        text,
+                    )
+                )
+                self.assertTrue(has_shipping_features,
+                                f"{path.name}:{n} builds acpmux without its shipping features")
+        self.assertGreaterEqual(count, 3)
+        self.assertIn("acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml", self.WORKFLOW.read_text())
+
+    def test_grouped_and_inline_builds_resolve_shipping_feature_arguments(self):
+        # Execute the workflow's actual command construction, without running Cargo.
+        # The combined thin-LTO command must qualify features by package; the separate
+        # fat-LTO group can use the standalone package's unqualified features.
         lines = self.WORKFLOW.read_text().splitlines()
-        builds = [(n, line) for n, line in enumerate(lines, 1)
-                  if re.search(r"-p acpmux(-standalone)? --bin", line) and "windows" not in line]
-        self.assertGreaterEqual(len(builds), 3, builds)
-        for n, line in builds:
-            text = line + (lines[n] if line.rstrip().endswith("\\") else "")
-            self.assertIn("acpmux_features", text, f"{self.WORKFLOW.name}:{n} builds acpmux without its features")
-        script = "\n".join(lines)
-        self.assertIn("acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml", script)
+        assignments = [line.strip() for line in lines
+                       if line.strip().startswith('acpmux_features=')
+                       or (line.strip().startswith(('acpmux_group=(', 'lead+='))
+                           and '-p acpmux-standalone' in line)]
+        self.assertEqual(len(assignments), 3, "expected feature resolution and both build commands")
+        script = '\n'.join([
+            'set -euo pipefail', 't=$1', 'lead=""',
+            'zb() { echo cargo zigbuild; }', *assignments,
+            'printf "%s\\n" "${acpmux_group[1]}" "$lead"',
+        ])
+        for target in ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl",
+                       "x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"]:
+            with self.subTest(target=target):
+                commands = subprocess.check_output(
+                    ['bash', '-c', script, 'shipping-features', target],
+                    cwd=ROOT / 'cmux-tui', text=True, timeout=10).splitlines()
+                self.assertEqual(len(commands), 2)
+                required = ['hub-carrier']
+                if target.endswith('apple-darwin'):
+                    required.insert(0, 'tailnet')
+                for command, prefix in zip(commands, ['', 'acpmux-standalone/']):
+                    args = shlex.split(command)
+                    self.assertIn('--features=' + ','.join(prefix + name for name in required), args)
 
     def test_the_apps_acpmux_carries_the_hub_carrier(self):
         """The app's acpmux is the cmux binary (bin/acpmux aliases bin/cmux), which took acpmux with no features:

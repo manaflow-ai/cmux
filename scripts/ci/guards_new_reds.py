@@ -27,8 +27,10 @@ per replay. A red the first replay passed that another one fails by name is a wa
 change's: the base both passed and failed it. cmux#41254 (run 43006460063) was charged with the webkit stream-row
 overlap test because attempt 2's one base replay passed it (overlapFrames 0); attempt 3's failed it (overlapFrames 1).
 A file red without naming the test (a timeout) says nothing about it; a missing or unreadable file names nothing.
-Only a first replay that passed the test (by name, or its whole file) makes a later failure a flake: with no first
-result, or a first replay that timed out, the red stays the change's.
+Only a first replay that passed the test (by name, or its whole file) makes a later failure a flake. With no named
+first result (a first replay whose file timed out or failed without naming it), later replays that name the test
+red, every one that names it, make it red on the base too (kind `base`), as a first replay's named red does
+(cmux#50088); one that passes it, or names nothing, leaves it the change's.
 ci-web.yml replays the files of the reds a compare would still charge, at most two more times (its base_again).
 
 --new-files prints, one a line, the file of each red this compare would charge to the change (the part of a
@@ -40,6 +42,9 @@ retries a red file alone and counts its pass, but only while its retry budget la
 shard was never retried. #27710 (run 41525196343) went red on three gallery-frame timeouts its head shards had no
 budget left to retry; the base push after it merged passed all three. A file that fails again, or is missing from
 the re-run, stays the change's.
+
+A base result may name the files its replay never reached (`_cmux_unreached`, webviews_test_results.py
+--mark-unreached): a red in one of them has no base result (unknown), even in an otherwise finished replay.
 
 A file-level red (`FILE: false`: the file timed out, or failed without naming a test) that the base has no
 file-level entry for is red on the base too when every test the head names red in that file is red on the base,
@@ -97,6 +102,16 @@ def result_complete(path: str) -> bool:
     return bool(found.get("_cmux_complete", True)) if isinstance(found, dict) else False
 
 
+def unreached_files(path: str) -> set[str]:
+    """The files a cut replay never reached (webviews_test_results.py --mark-unreached): no base result for them."""
+    try:
+        found = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    listed = found.get("_cmux_unreached") if isinstance(found, dict) else None
+    return {str(file) for file in listed} if isinstance(listed, list) else set()
+
+
 def flaky_names(path: str) -> set[str]:
     try:
         return {line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()}
@@ -151,7 +166,9 @@ def load_failures(results: str) -> dict[str, list[str]] | None:
 
 # What a failure names, without what differs from run to run: temp paths, shas and hex ids, then every number.
 _TEMP = re.compile(r"(?:/tmp|/var/folders)/\S*|\btmp[\w-]{4,}")
-_HEX = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b")
+# An object's address (`<function f at 0x758be97b8360>`) differs in every process: "0x" glues it into one word, so the
+# sha pattern never matched it, and "Validate the Cloud chat proof script" read new on every pull request (11-26).
+_HEX = re.compile(r"\b0x[0-9a-fA-F]+\b|\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b")
 _NUMBER = re.compile(r"\d+")
 _NAME = re.compile(r"[A-Za-z_<][\w./<>:-]*")
 # A Python warning names nothing that failed, and comes and goes from run to run (hq#11346, cmux#43507: CPython's
@@ -233,9 +250,15 @@ def main(argv: list[str]) -> int:
         for step in red:
             print(red_step_line(label, "tip", step))
         print(f"{len(red)} {label.lower()} steps red at the tip")
+        if not result_complete(argv[0]):
+            # A run cut short (its caller's timeout) never finished every step: its greens are not a verdict.
+            print(f"::error title={label} run timed out::the guard run timed out after {len(head)} finished steps; "
+                  "the unfinished steps have no verdict")
+            return 1
         return 1 if red else 0
     base = load(argv[1])
     base_complete = result_complete(argv[1])
+    unreached = unreached_files(argv[1])
     if base is None:
         # Not on stdout under --new-files: ci-web.yml reads every stdout line there as a file to re-run.
         print(f"no base results in {argv[1]}: every red step is unresolved until the merge gate reads the base run",
@@ -248,6 +271,9 @@ def main(argv: list[str]) -> int:
         """Whether BASE has any result that can speak to STEP."""
         if step in base:
             return True
+        if test_file(step) in unreached:
+            # The replay was cut before this file: its absence is no verdict, so the red is unknown, not the change's.
+            return False
         if base_complete:
             # A completed replay that has no matching key means this step is new to the base checkout.
             return True
@@ -267,6 +293,18 @@ def main(argv: list[str]) -> int:
         return base[step] is True if step in base else base.get(test_file(step)) is True
 
     flapped = {step for step in comparable if first_passed(step) and any(found.get(step) is False for found in again)}
+    # A red the first replay gave no verdict on (its file timed out or failed without naming it) that the later
+    # replays name red, every one that names it, is red on the base too: the base failed it by name, as a first
+    # replay's named red says (cmux#50088, job 137410904472: feel-plan-tray.test.ts timed out on the first base
+    # replay, then both base replays failed "five drags in a row" with the head's own numbers, 8 px and 12 jumps,
+    # and the compare called it new). A replay that passes it, or names nothing for it, leaves it as it was.
+    def red_on_every_replay(step: str) -> bool:
+        named = [found[step] for found in again if step in found]
+        return bool(named) and not any(named)
+
+    red_again = {step for step in comparable
+                 if step not in base and not first_passed(step) and step not in flapped and red_on_every_replay(step)}
+    comparable = [step for step in comparable if step not in red_again]
     new = [step for step in comparable if step not in flaky and step not in flapped]
     flaked = [step for step in comparable if step in flaky or step in flapped]
     if new_files:
@@ -286,7 +324,8 @@ def main(argv: list[str]) -> int:
     passed_again = [step for step in new if passed_in_rerun(step)]
     new = [step for step in new if step not in passed_again]
     flaked = sorted(flaked + passed_again)
-    old = sorted(step for step, ok in head.items() if not ok and (base.get(step) is False or step in explained))
+    old = sorted(step for step, ok in head.items()
+                 if not ok and (base.get(step) is False or step in explained or step in red_again))
     # A step red on both sides is the base's only when its head failure names nothing the base's does not
     # (cmux#41458). With the runner's failure output on the head, a step either side has none for cannot be told
     # apart, and is the change's. Results with no failure output (webview tests, named one test a line) keep the name.

@@ -253,10 +253,11 @@ struct AgentShareTests {
         #expect(AgentShareInvites.sharesInviting("a@cmux.com", of: Self.session, in: shares).isEmpty, "a removed invitee is not invited")
     }
 
-    @Test func aRoleIsViewOrTalkAndTalkByDefault() {
+    @Test func aNamedInviteAcceptsDriveAndDefaultsToTalk() {
         #expect(AgentShareInvites.role(nil) == "talk")
         #expect(AgentShareInvites.role(" View ") == "view")
         #expect(AgentShareInvites.role("talk") == "talk")
+        #expect(AgentShareInvites.role("Drive") == "drive")
         #expect(AgentShareInvites.role("admin") == nil)
     }
 
@@ -286,6 +287,22 @@ struct AgentShareTests {
         #expect(missing.code == "share.not_invited" && missing.message.contains("@theo"))
         #expect(AgentShareStrings.failure(AgentShareDeclined(invite: true)).message == AgentShareStrings.inviteDeclined)
         #expect(AgentShareStrings.failure(AgentShareDeclined()).message == AgentShareStrings.declined)
+    }
+
+    /// The Invite People sheet never shows a CLI flag or the daemon's raw text: an unknown `share.*`
+    /// code reads the web Share dialog's generic line, a known one its own sentence.
+    @Test func theSheetSaysAFailureInThePersonsWords() {
+        func code(_ code: String) -> any Error {
+            DaemonError.command(cmd: "agent-session-share-invite-chat", message: "raw daemon text", code: code)
+        }
+        #expect(AgentShareStrings.sheetFailure(code("share.closed")) == AgentShareStrings.sheetGeneric)
+        #expect(AgentShareStrings.sheetFailure(code("share.invited")) == AgentShareStrings.alreadyInvited)
+        for known in ["share.limit", "share.room_unreachable", "share.room_refused"] {
+            let said = AgentShareStrings.sheetFailure(code(known))
+            #expect(said != "raw daemon text" && said != AgentShareStrings.sheetGeneric, "\(known)")
+        }
+        #expect(AgentShareStrings.sheetFailure(AgentShareRefusal(reason: AgentShareStrings.badRole)) == AgentShareStrings.sheetGeneric)
+        #expect(AgentShareStrings.sheetFailure(AgentShareBadAccount()) == AgentShareStrings.badAccount)
     }
 
     /// The sheet lists every account still invited on a live share of the chat, once (its latest
@@ -339,6 +356,8 @@ struct AgentShareTests {
         func rows() -> [AgentShareInviteRowView] { all(card).compactMap { $0 as? AgentShareInviteRowView } }
         func settle(until done: () -> Bool) async { for _ in 0..<200 where !done() { await Task.yield() } }
         #expect(!all(card).contains { String(describing: type(of: $0)).contains("NSHostingView") })
+        let drive = try #require(card.rolePopup.itemArray.first { $0.representedObject as? String == "drive" })
+        #expect(drive.isHidden)
         #expect(!card.inviteButton.isEnabled, "Invite is off with an empty field")
         await model.load()
         await settle { rows().count == 1 }
@@ -348,6 +367,12 @@ struct AgentShareTests {
         model.account = "@ana"
         await settle { card.inviteButton.isEnabled }
         #expect(card.inviteButton.isEnabled)
+        #expect(!drive.isHidden)
+        model.role = "drive"
+        await settle { card.status.stringValue == model.roleDetail }
+        #expect(card.status.stringValue == AgentShareStrings.inviteRoleLine("drive"))
+        model.account = "@bo"
+        #expect(model.role == "talk")
         shown.removePressed()
         await settle { !daemon.removed.isEmpty && rows().isEmpty }
         #expect(daemon.removed == ["@theo"])
@@ -563,5 +588,69 @@ struct AgentShareTests {
         let refusal = registry.capturingTypedRefusal { _ = registry.perform(AgentShareActions.invite, invocation: agent) }
         #expect(refusal?.reason == AgentShareStrings.needsAccount)
         #expect(host.shown.count == 1, "an agent's run opened the owner's sheet")
+    }
+
+    /// While the Invite People sheet is open it reads its rows again on every
+    /// `agent-session-share-changed` of its chat, with no timer: a guest who joins later shows
+    /// "In the chat now", and an expired share's invitee goes away. Another chat's change reads
+    /// nothing, changes that arrive during a read cost one more read, and closing the sheet stops it.
+    @Test func theOpenSheetReadsItsRowsAgainOnEveryChangeOfItsChat() async {
+        @MainActor final class Daemon {
+            var reads = 0
+            var stops = 0
+            var watcher: (@MainActor (String) -> Void)?
+            var shares = [AgentSessionShare(shareId: "s", state: "active", session: AgentShareTests.session, surface: 1,
+                                            invitees: [AgentSessionShareInvitee(account: "@theo", role: "talk", invitedAt: 1, state: "invited")])]
+        }
+        let daemon = Daemon()
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: {
+                daemon.reads += 1
+                await Task.yield()
+                return daemon.shares
+            },
+            invite: { _, _ in },
+            remove: { _ in },
+            changes: { changed in
+                daemon.watcher = changed
+                return {
+                    daemon.stops += 1
+                    daemon.watcher = nil
+                }
+            }))
+        func settle(until done: () -> Bool) async { for _ in 0..<200 where !done() { await Task.yield() } }
+        typealias Row = AgentShareInviteSheetModel.Row
+        await model.open()
+        #expect(daemon.reads == 1 && daemon.watcher != nil)
+        #expect(model.rows == [Row(account: "@theo", role: "talk", joined: false)])
+
+        daemon.shares[0].guests = [AgentSessionShareGuest(guestId: "g", name: "Theo", joinedAt: 2, state: "active", account: "@theo", role: "talk")]
+        daemon.watcher?(Self.session)
+        await settle { model.rows.first?.joined == true }
+        #expect(model.rows == [Row(account: "@theo", role: "talk", joined: true)], "a later join shows In the chat now")
+
+        await settle { false }
+        let reads = daemon.reads
+        daemon.watcher?("another-chat")
+        await settle { false }
+        #expect(daemon.reads == reads, "another chat's change reads nothing")
+
+        daemon.shares[0].state = "expired"
+        for _ in 0..<3 { daemon.watcher?(Self.session) }
+        await settle { model.rows.isEmpty }
+        await settle { false }
+        #expect(model.rows.isEmpty, "an expired share's invitee goes away")
+        #expect(daemon.reads - reads <= 2, "changes during a read cost one more read, not one each")
+
+        model.close()
+        model.close()
+        #expect(daemon.stops == 1 && daemon.watcher == nil, "closing the sheet stops it once")
+    }
+
+    /// The daemon's `agent-session-share-changed` names the chat's acpmux session.
+    @Test func theShareChangedEventNamesItsChat() {
+        let line = Data(#"{"event":"agent-session-share-changed","session":"acp_1"}"#.utf8)
+        #expect(DaemonEvent.decode(name: "agent-session-share-changed", line: line) == .agentSessionShareChanged(session: "acp_1"))
+        #expect(DaemonCapability.optional.contains("agent-session-share-events-v1"))
     }
 }

@@ -2,7 +2,7 @@
 
 These packages are used by the iPhone app, `cmux-next-ios/`. Its install, sign-in,
 pairing and fleet simulator rules are in [cmux-next-ios/CLAUDE.md](../../cmux-next-ios/CLAUDE.md)
-and the root [CLAUDE.md](../../CLAUDE.md#finishing-a-task). The classic app in `ios/` is retired.
+and the root [finishing a task](../../skills/cmux-dev-workflow/references/finishing-a-task.md). The classic app in `ios/` is retired.
 
 ## CmuxConversation and CmuxTabsKit live here
 

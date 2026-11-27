@@ -29,7 +29,7 @@ const LINE_ESTIMATE = 14;
 /** At least this many lines above and below the visible ones; else one viewport each side. */
 const MIN_OVERSCAN = 10;
 
-/** What a line shows and copies as: an empty line holds a space, so it keeps its height. */
+/** What a line shows: an empty line holds a space, so it keeps its height. It copies as itself. */
 export const shownLine = (line: string) => line || " ";
 
 /** A place in the lines: a line's index and a character in what it shows. */
@@ -38,11 +38,13 @@ export interface LinePoint {
   char: number;
 }
 
-/** The text of `lines` from `start` to `end` (its char may pass the line's end), as the browser copies rows. */
+/** The text of `lines` from `start` to `end` (its char may pass the line's end): the diff's own text,
+ *  so an empty line copies as nothing, not the space it shows. A char in an empty line's space is
+ *  past its end, and slices nothing. */
 export function copiedText(lines: readonly string[], start: LinePoint, end: LinePoint): string {
   const out: string[] = [];
   for (let at = start.line; at <= end.line && at < lines.length; at++)
-    out.push(shownLine(lines[at]!).slice(at === start.line ? start.char : 0, at === end.line ? end.char : undefined));
+    out.push(lines[at]!.slice(at === start.line ? start.char : 0, at === end.line ? end.char : undefined));
   return out.join("\n");
 }
 

@@ -60,6 +60,7 @@ async fn quiet_minute(n: usize) -> (u64, u64) {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
         hub.start_watch(&session);
     }
@@ -137,6 +138,7 @@ async fn a_watch_started_during_a_slow_wait_shows_lines_within_400_ms() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
         hub.start_watch(&session);
         file
@@ -214,6 +216,7 @@ async fn a_written_line_shows_from_its_file_event_before_any_timed_check() {
         offset: 0,
         codex_items: false,
         open: None,
+        ..Default::default()
     });
     hub.start_watch(&session);
     tokio::time::timeout(Duration::from_secs(5), async {

@@ -2,6 +2,7 @@ public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
 public import Observation
+import CmuxNextCompat
 
 /// Settings > MCP Servers: the services the person connected for their agents (on a connect card
 /// in a chat, or by a Chief), from the machine's one store of connections. The rows are the bundled
@@ -14,7 +15,7 @@ public import Observation
 @Observable
 public final class SettingsMcpServers: PageProvider {
     /// One saved server as `integrations --json list` reports it (optchat-chief `settings_row`).
-    struct Row: Equatable {
+    nonisolated struct Row: Equatable, Sendable {
         var name: String
         /// `remote` (a URL) or `local` (a command on this Mac).
         var kind: String
@@ -119,8 +120,9 @@ public final class SettingsMcpServers: PageProvider {
                 signIns.removeValue(forKey: name)?.cancel()
                 // No answer at all is a refusal with no words of its own.
                 let refusal: String?
-                if let reply = try? await runCLI(chief, ["integrations", "--json", "remove", name], await environment()) {
-                    refusal = Self.refusal(reply)
+                let env = await environment()
+                if let reply = try? await awaitConcurrently({ try await runCLI(chief, ["integrations", "--json", "remove", name], env) }) {
+                    refusal = await Self.refusal(reply)
                 } else {
                     refusal = ""
                 }
@@ -152,7 +154,7 @@ public final class SettingsMcpServers: PageProvider {
             // A sign-in prints two or three lines; the newest few are all that matter.
             let lines = AsyncStream<JSONValue>(bufferingPolicy: .bufferingNewest(16)) { continuation in
                 Task {
-                    _ = await stream(chief, ["integrations", "--json", "signin", name], environment) { continuation.yield($0) }
+                    _ = await awaitConcurrently({ await stream(chief, ["integrations", "--json", "signin", name], environment) { continuation.yield($0) } })
                     continuation.finish()
                 }
             }
@@ -206,10 +208,11 @@ public final class SettingsMcpServers: PageProvider {
         generation += 1
         let mine = generation
         loading = true
-        let reply = try? await runCLI(chief, ["integrations", "--json", "list"], await environment())
+        let env = await environment()
+        let reply = try? await awaitConcurrently({ try await runCLI(chief, ["integrations", "--json", "list"], env) })
         guard mine == generation else { return }
         loading = false
-        guard let reply, reply.0 == 0, var read = Self.rows(reply.1) else {
+        guard let reply, reply.0 == 0, var read = await Self.rows(reply.1) else {
             problem = "failed"
             return
         }
@@ -222,7 +225,8 @@ public final class SettingsMcpServers: PageProvider {
     }
 
     /// The `servers` of a list answer: the whole output, or its last line when something printed before it.
-    static func rows(_ data: Data) -> [Row]? {
+    /// Parsed off the main actor: the output grows with the person's servers.
+    @concurrent nonisolated static func rows(_ data: Data) async -> [Row]? {
         let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
         guard let value = (try? JSONValue.parse(data)) ?? (try? JSONValue.parse(last)),
               let servers = value["servers"]?.arrayValue else { return nil }
@@ -236,7 +240,7 @@ public final class SettingsMcpServers: PageProvider {
     }
 
     /// The CLI's refusal from a failed run's last line; nil when it succeeded.
-    static func refusal(_ reply: (Int32, Data, Data)) -> String? {
+    @concurrent nonisolated static func refusal(_ reply: (Int32, Data, Data)) async -> String? {
         guard reply.0 != 0 else { return nil }
         let last = String(data: reply.1, encoding: .utf8)?.split(separator: "\n").last.map(String.init) ?? ""
         return (try? JSONValue.parse(Data(last.utf8)))?["why"]?.stringValue ?? ""

@@ -34,8 +34,14 @@ public final class AgentPageRedraw {
     }
 
     /// The frame-then-task wait in the page; `done` runs after it (now when the page is gone).
-    private func probeFrame(_ done: @escaping @MainActor () -> Void) {
+    /// `size`: the size the page is laid out at now. A Chromium page learns a new size from its window a frame or more
+    /// after its view, so its next frame can still be one at the old size: it answers for a frame at `size`
+    /// (``PageWebView/afterFrame(at:_:)``).
+    private func probeFrame(at size: CGSize? = nil, _ done: @escaping @MainActor () -> Void) {
         let script = "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));"
+        if let page, let size, page.showsChromium, size.width > 0, size.height > 0 {
+            return page.afterFrame(at: size) { done() }
+        }
         if let page {
             // task-owner: one frame wait; ends with the page's answer
             Task { @MainActor [weak page] in
@@ -70,6 +76,7 @@ public final class AgentPageRedraw {
 
     /// From the pane's `layout()`: notes the size the page draws at, and answers ``when(_:_:)``.
     func laidOut(_ pane: NSView) {
+        askPictureAtNewSize(of: pane)
         // A hidden page follows the pane's size but draws nothing: its drawn size stays.
         guard pane.window != nil, !pane.bounds.isEmpty, !pane.isHiddenOrHasHiddenAncestor else { return }
         let size = pane.bounds.size
@@ -84,7 +91,7 @@ public final class AgentPageRedraw {
         generation &+= 1
         let generation = generation
         // One animation frame, then a task: it runs after that frame was rendered (PagePaintProbe).
-        probeFrame { [weak self] in
+        probeFrame(at: page?.frame.size) { [weak self] in
             guard let self, self.generation == generation else { return }
             self.probing = false
             self.finish()
@@ -111,6 +118,7 @@ public final class AgentPageRedraw {
         }
     }
 
+    var pictureAskedAt = CGSize.zero // the size the page's pane was last asked for its picture at (``askPictureAtNewSize(of:)``)
     /// A capture for the app's New Tab frame is on the way (one per page at a time).
     public var givesNewTabFrame = false {
         didSet {
