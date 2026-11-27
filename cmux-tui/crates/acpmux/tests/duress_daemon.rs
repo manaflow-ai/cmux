@@ -76,7 +76,10 @@
 //! fork storm at about 40 processes a second) and `peerscale` (the baseline at 1, 10, 20 and 40
 //! peers) and `peerburst` (40 ready peer links cut in one instant; the row's `peerBurst` counts
 //! the redials in the first 250 ms and second and how long until every link is open again) are
-//! named on purpose, never by default; `ACPMUX_DURESS_PEERS` sets the other legs' peer
+//! named on purpose, never by default, and so is `rfd0050` (RFD 0050 rule 7's drill: 90% of the
+//! cores busy, the host's RAM held to 90% used, the mesh hub and the relay listing answering after
+//! 100 s; rows `ls`, `send`, `send-far` and `daemon status`, `support/duress_rfd0050.rs`);
+//! `ACPMUX_DURESS_PEERS` sets the other legs' peer
 //! count (default 2). Every leg's row also carries the presence gap, link drops, peer links,
 //! frames on the wire, peer notice gauges, spawns per second and a tool call's cost
 //! (`support/duress_host150.rs`).
@@ -90,6 +93,9 @@ mod daemon_env;
 // host150, peerscale and the measures every leg's row gains (presence gap, links, notices, spawns).
 #[path = "support/duress_host150.rs"]
 mod host150;
+// RFD 0050 rule 7's drill: 90% CPU and RAM, the broker answering in 100 s.
+#[path = "support/duress_rfd0050.rs"]
+mod rfd0050;
 // The prompts go to tests/fake_agent.py; the knobs and the output folder hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_DURESS",
@@ -252,6 +258,8 @@ struct Stress {
     bigchat: bool,
     /// Leo's laptop: load 10 x cores, memory and swap pressure, 40 peers, a fork storm.
     host150: bool,
+    /// RFD 0050 rule 7: 90% CPU and RAM held, the broker answering in 100 s (`rfd0050`).
+    rfd0050: bool,
 }
 
 impl Stress {
@@ -279,6 +287,7 @@ impl Stress {
                 s = Stress { cpu: true, fork: true, disk: true, hubslow: true, peercut: true, ..s }
             }
             "host150" => s.host150 = true,
+            rfd0050::LEG => s.rfd0050 = true,
             // peerscaleN: the baseline at N peers (`host150::peers_for`).
             l if l.starts_with("peerscale") => {}
             // starved: the daemon pinned with its load, capped and far (`host150::starved`).
@@ -557,8 +566,12 @@ fn set_fsize(pid: u32, limit: u64) -> Result<(), String> {
 // The stub mesh hub.
 
 const HUB_OK: u8 = 0;
+/// The `rfd0050` leg's far send: a machine no peer is configured for, so it goes to the broker.
+const RFD0050_FAR: &str = "duress-far-host/duress-far";
 const HUB_503: u8 = 1;
 const HUB_SLOW: u8 = 2;
+/// Answers every request, after [`rfd0050::BROKER_SECS`].
+const HUB_LATE: u8 = 3;
 
 struct StubHub {
     port: u16,
@@ -648,10 +661,14 @@ fn serve_hub(
         let bare = path.split('?').next().unwrap_or("");
         let answered = match held {
             HUB_SLOW => "held",
+            HUB_LATE => "late",
             HUB_503 => "503",
             _ => "200",
         };
         *paths.lock().unwrap().entry(format!("{verb} {bare} {answered}")).or_default() += 1;
+        if held == HUB_LATE {
+            std::thread::sleep(Duration::from_secs(rfd0050::BROKER_SECS));
+        }
         let answer = match held {
             HUB_SLOW => {
                 std::thread::sleep(HUB_HOLD);
@@ -1406,9 +1423,11 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     });
     // The relay legs: the send relay's listing (`sendRelay.lsArgv`), which plain `acpmux ls`
     // runs (`cli/send_relay.rs` `relay_ls`), is a stub that sleeps or fails.
-    if stress.relay > 0 {
+    if stress.relay > 0 || stress.rfd0050 {
         let script = scratch.join("relay-ls.sh");
-        let body = if stress.relay == 1 {
+        let body = if stress.rfd0050 {
+            rfd0050::relay_ls_body()
+        } else if stress.relay == 1 {
             format!("#!/bin/sh\nsleep {RELAY_SLEEP_SECS}\necho '{{\"sessions\":[]}}'\n")
         } else {
             "#!/bin/sh\necho 'relay: listing failed' >&2\nexit 1\n".to_owned()
@@ -1420,7 +1439,9 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             json!({"argv": ["/bin/true"], "lsArgv": [script.display().to_string()]});
         stress_json_early.insert(
             "relayLs".into(),
-            json!(if stress.relay == 1 {
+            json!(if stress.rfd0050 {
+                format!("sleeps {}s", rfd0050::BROKER_SECS)
+            } else if stress.relay == 1 {
                 format!("sleeps {RELAY_SLEEP_SECS}s")
             } else {
                 "exits 1".into()
@@ -1621,6 +1642,40 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
         stress_json.insert("cpuLoops".into(), json!(count));
     }
+    // RFD 0050 rule 7: 90% of the cores busy, the host's RAM held to 90% used, the broker late.
+    let mut rfd_cpu0 = None;
+    if stress.rfd0050 {
+        let cap = k.cap + host150::extra_cap(name);
+        let loops = rfd0050::cpu_loops(cores());
+        match Stressor::spawn("rfd0050-cpu", &cpu_script(loops), cap) {
+            Ok(s) => stressors.push(s),
+            Err(e) => notes.push(format!("rfd0050 cpu: spawn failed: {e}")),
+        }
+        stress_json.insert("cpuLoops".into(), json!(loops));
+        stress_json.insert("memUsedPctBefore".into(), json!(rfd0050::mem_used_pct()));
+        match rfd0050::hog_bytes() {
+            Some(0) | None => notes.push("rfd0050 ram: no hog (already at 90% used)".into()),
+            Some(bytes) => match Stressor::spawn("rfd0050-ram", &rfd0050::hog_script(bytes), cap) {
+                Ok(s) => {
+                    stressors.push(s);
+                    stress_json.insert("ramHogMiB".into(), json!(bytes >> 20));
+                }
+                Err(e) => notes.push(format!("rfd0050 ram: spawn failed: {e}")),
+            },
+        }
+        hub.set(HUB_LATE);
+        stress_json.insert("brokerAnswersAfterSecs".into(), json!(rfd0050::BROKER_SECS));
+        // The hog touches its pages in 64 MiB steps: give it time to hold them.
+        let by = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < by
+            && rfd0050::mem_used_pct().is_some_and(|p| p < 88.0)
+            && stress_json.contains_key("ramHogMiB")
+        {
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        stress_json.insert("memUsedPctAtClock".into(), json!(rfd0050::mem_used_pct()));
+        rfd_cpu0 = rfd0050::cpu_jiffies();
+    }
     if stress.fork {
         match Stressor::spawn("fork", &fork_script(), k.cap) {
             Ok(s) => stressors.push(s),
@@ -1661,7 +1716,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     // Give the load a moment to build before the kills and the clock.
-    if stress.cpu || stress.fork {
+    if stress.cpu || stress.fork || stress.rfd0050 {
         std::thread::sleep(Duration::from_secs(3));
     }
     // host150's stressors and its wait for the load; peerscale's quiet span.
@@ -1718,7 +1773,8 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         external: external_key.clone(),
         killed_at,
     };
-    let until = killed_at + k.window;
+    let until =
+        killed_at + if stress.rfd0050 { k.window.max(rfd0050::WINDOW_MIN) } else { k.window };
     // Peers down on purpose: every one in peercut, the held one (peer00) in bigchat.
     let peer_names: Vec<String> = (0..peer_count).map(|p| format!("peer{p:02}")).collect();
     let cut_peers: BTreeSet<String> = if stress.peercut {
@@ -1801,7 +1857,18 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     ]
     .into_iter()
     .chain(
-        stress.bigchat.then_some([("status", "cli"), ("status", "socket")]).into_iter().flatten(),
+        (stress.bigchat || stress.rfd0050)
+            .then_some([("status", "cli"), ("status", "socket")])
+            .into_iter()
+            .flatten(),
+    )
+    // RFD 0050: a send the daemon hands to the late broker, beside the local one.
+    .chain(
+        stress
+            .rfd0050
+            .then_some([("send-far", "cli"), ("send-far", "socket")])
+            .into_iter()
+            .flatten(),
     )
     .chain(
         (!peer_targets.is_empty())
@@ -1846,7 +1913,10 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
                     "true" => run_plain("/bin/true", &[]),
                     "version" => cli.run(&["--version"]),
                     "ls" => cli.run(&["--json", "ls"]),
-                    "status" => cli.run(&["--json", "status"]),
+                    "status" => cli.run(&["--json", "daemon", "status"]),
+                    "send-far" => {
+                        cli.run(&["send", "--no-wait", RFD0050_FAR, &format!("duress {round}")])
+                    }
                     "send" => cli.run(&["send", "--no-wait", send_to, &format!("duress {round}")]),
                     "send-peer" => cli.run(&[
                         "send",
@@ -1868,6 +1938,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
                 let outcome = match op {
                     "register" => register_outcome(&r.code),
                     "send" if far_target.is_some() => send_outcome(&r),
+                    "send-far" => send_outcome(&r),
                     _ => r.code.clone(),
                 };
                 if op == "ls"
@@ -1881,6 +1952,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             } else {
                 let (op, send_to) = match (op, peer_to) {
                     ("send-peer", Some(t)) => ("send", t.as_str()),
+                    ("send-far", _) => ("send", RFD0050_FAR),
                     _ => (op, send_to),
                 };
                 let (took, outcome, listed) = socket_op(
@@ -1906,6 +1978,13 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     let _ = poller.join();
+    if stress.rfd0050 {
+        stress_json.insert(
+            "cpuBusyPct".into(),
+            json!(rfd0050::busy_pct(rfd_cpu0, rfd0050::cpu_jiffies())),
+        );
+        stress_json.insert("memUsedPctAtEnd".into(), json!(rfd0050::mem_used_pct()));
+    }
     let measures = host150::close(
         window_open,
         &extras,
@@ -1987,7 +2066,8 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     }
 
     let l = liveness.lock().unwrap();
-    let window_s = k.window.as_secs();
+    // The window the leg held, not the knob: `rfd0050` holds at least its `WINDOW_MIN`.
+    let window_s = until.saturating_duration_since(killed_at).as_secs();
     let gone = |g: Option<f64>, tracked: bool| -> Value {
         match (tracked, g) {
             (false, _) => json!("not tracked"),

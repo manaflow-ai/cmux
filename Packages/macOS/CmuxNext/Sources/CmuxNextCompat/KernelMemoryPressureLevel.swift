@@ -1,4 +1,6 @@
+#if canImport(Darwin)
 import Darwin
+#endif
 
 /// The kernel's memory pressure level right now (`kern.memorystatus_vm_pressure_level`), read once
 /// when something needs it at a single moment: when a page's content process ended, was the Mac
@@ -16,10 +18,14 @@ public struct KernelMemoryPressureLevel: Sendable {
 
     /// The current level; ``MemoryPressureLevel/normal`` when the kernel does not report one.
     public func read() -> MemoryPressureLevel {
+        #if canImport(Darwin)
         var raw: Int32 = 0
         var size = MemoryLayout<Int32>.size
         guard sysctlbyname("kern.memorystatus_vm_pressure_level", &raw, &size, nil, 0) == 0 else { return .normal }
         return Self.level(kernel: raw)
+        #else
+        return .normal // Linux has no memorystatus level (the Linux package jobs only)
+        #endif
     }
 
     /// Maps the kernel's value (`kVMPressureNormal` 1, `kVMPressureWarning` 2, `kVMPressureUrgent` 3,

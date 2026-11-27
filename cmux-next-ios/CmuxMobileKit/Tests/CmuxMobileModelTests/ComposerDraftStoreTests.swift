@@ -55,6 +55,22 @@ import Testing
         #expect(ComposerDraftStore(url: url).text(for: key) == nil)
     }
 
+    /// A send's removal is on disk without waiting: an app killed right after a send (the
+    /// LaunchTTI bench's terminate, a swipe-away) never brings the sent text back.
+    @Test func aSentDraftIsOffTheDiskAtOnce() {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let key = ComposerDraftStore.key(macID: "cosmic", tabID: "s7")
+        let store = ComposerDraftStore(url: url, writeDelay: .seconds(60))
+        store.save("~", for: key)
+        store.flush()
+        #expect(ComposerDraftStore(url: url).text(for: key) == "~")
+        store.save("", for: key)
+        // No flush: only what the writer already has (a kill now loses the pending wait).
+        ComposerDraftStore.waitForWriter()
+        #expect(ComposerDraftStore(url: url).text(for: key) == nil)
+    }
+
     @Test func oldAndExtraDraftsGo() {
         var clock = Date(timeIntervalSince1970: 1_000_000)
         let store = ComposerDraftStore(url: nil, now: { clock })

@@ -120,6 +120,7 @@ if [[ "$skip" != fixture ]]; then
     echo "BROWSER_AUTH fixture engine=$eng"
     engflag=(); [[ $eng == default ]] || engflag=(--engine "$eng")
     PATH="$work/bin:$PATH" python3 scripts/cmux-next/browser-auth-flows-live.py --socket "$sock" \
+      --app-pid "$(cat "$CMUX_SIDE_ROOT/$name/pid" 2>/dev/null || echo 0)" --diag-dir "$out/$eng" \
       ${engflag[@]+"${engflag[@]}"} 2>&1 | tee "$out/fixture-$eng.log"
     [[ ${PIPESTATUS[0]} -eq 0 ]] || status=1
   done
