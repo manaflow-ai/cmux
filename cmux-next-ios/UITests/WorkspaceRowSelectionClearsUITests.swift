@@ -48,6 +48,8 @@ final class WorkspaceRowSelectionClearsUITests: XCTestCase {
                           "r\(round): the workspace opened\n\(app.debugDescription)")
             goBack(app, swipe: swipe)
             XCTAssertTrue(row.waitForExistence(timeout: 15), "r\(round): back on the list\n\(app.debugDescription)")
+            // The return highlight itself, inside its 0.3 s hold: the frame a reviewer looks at for the flash.
+            attach(app, "r\(round)-return-flash-\(workspace)")
             // Past the return highlight's hold and fade (ReturnHighlight: 0.3 s + 0.35 s).
             Thread.sleep(forTimeInterval: 1.5)
             let selected = rows(app).allElementsBoundByIndex.filter { $0.exists && $0.isSelected }.map(\.identifier)
