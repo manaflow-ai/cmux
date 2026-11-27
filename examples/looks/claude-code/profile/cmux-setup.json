@@ -14,6 +14,8 @@
     // The look (claude-code/whole: theme, sidebar, transcript, composer).
     "appearance.themeFile": "claude-code-app",
     "sidebar.groupBy": "folder",
+    // The app lists chats with no project as plain rows, with no "No Folder" group header.
+    "sidebar.folderlessUngrouped": true,
     "sidebar.sessionTree": true,
     "sidebar.groupHeader.background": "sections",
     "sidebar.groupHeader.memberCount": false,
@@ -29,7 +31,16 @@
     // The app has no Home or App Store rows above its sessions: hide cmux's top section (Settings and the account stay in the bottom row).
     "sidebar.sections.hidden": ["sec_top"],
     "sidebar.controlsOnHover": true,
+    // The app's top rows: New session, Search, Artifacts, Customize (its More menu has no cmux action).
+    "sidebar.nav": [
+      "palette.newAgentChat | New session | plus",
+      "search.chats | Search | magnifyingglass",
+      "artifacts.show | Artifacts | square.stack.3d.up",
+      "customize.open | Customize | briefcase"
+    ],
     "appearance.metrics.sidebarWidth": 284,
+    // Proportions (parity table, proportions): the app's session rows read at 13 pt; cmux's chrome type is larger.
+    "appearance.metrics.chromeFontSize": 13,
     "tabs.hideLoneChatTab": true,
     "agentPane.display.presentation": "transcript",
     "agentPane.display.transcriptView": "normal",
@@ -39,9 +50,19 @@
     "agentPane.display.width": 800,
     "agentPane.display.minimap": "off",
     "agentPane.display.harnessPlacement": "compact",
+    // The app's model picker is a short menu (models, then effort), not a searchable list.
+    "agentPane.display.modelPickerStyle": "menu",
     "agentPane.showContextUsage": true,
     "agentPane.composerRing": "context",
+    // Claude's look: the computer, folder, mode and model chips sit in the quiet row under the box,
+    // outside it, as in the app. Pinned so a studio profile applied before does not keep its in-box row.
+    "agentPane.composerLook": "auto",
+    // The empty box keeps "Type / for commands", the app's own text (and cmux's).
+    "agentPane.composerPlaceholder": "",
     "sidebar.showNewWorkspaceChooser": true,
+    // The profile button opens the account menu, as the Claude Code app's: who is signed in, the teams to switch
+    // between, then Settings, Usage, Help and Sign Out.
+    "sidebar.profileMenu.style": "account",
     "tabs.newTabApp": "local/customize",
 
     // Feature sets (one line per feature look).
