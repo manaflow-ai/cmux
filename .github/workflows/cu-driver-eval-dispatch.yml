@@ -26,7 +26,7 @@ jobs:
   dispatch:
     if: github.repository == 'manaflow-ai/cmux'
     # It holds the cmux-bot App key, so no variable may move it (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     permissions:
       actions: write
       contents: read
