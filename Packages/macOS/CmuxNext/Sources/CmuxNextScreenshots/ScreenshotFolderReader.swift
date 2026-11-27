@@ -36,9 +36,35 @@ public nonisolated struct ScreenshotFolderReader: Sendable {
     /// - Parameter source: the source.
     /// - Returns: its files and folders.
     public func read(_ source: ScreenshotSource) async -> Result {
-        var result = Result(items: [], folders: [], readable: true)
-        result.readable = await read(source.folder, depth: 0, source: source, into: &result)
-        return result
+        // The walk (which folders, in what order, which entries) is Rust's; this lists each folder it names.
+        let walk = RustHandle(ScreenshotsFFI.bytes(source.folder.path) { cmux_screenshots_walk_new(source.rule.pointer, $0, $1) }) {
+            cmux_screenshots_walk_free($0)
+        }
+        var items: [FileGridItem] = []
+        while let path = ScreenshotsFFI.take(cmux_screenshots_walk_next(walk.pointer)) {
+            let folder = URL(fileURLWithPath: path, isDirectory: true)
+            guard let entries = try? await lister.list(folder) else {
+                cmux_screenshots_walk_listed(walk.pointer, false, nil, 0, nil)
+                continue
+            }
+            let kinds: [UInt32] = ScreenshotsFFI.strings(entries.map(\.name)) { names in
+                let raw = zip(entries, names).map { entry, name in
+                    CmuxScreenshotsEntry(kind: ScreenshotsFFI.raw(entry.kind), hidden: entry.isHidden, name: name.bytes,
+                                         name_len: name.count, system_kind: ScreenshotsFFI.systemKind(ofFileNamed: entry.name),
+                                         modified: entry.modified.timeIntervalSince1970)
+                }
+                var kinds = [UInt32](repeating: 0, count: raw.count)
+                cmux_screenshots_walk_listed(walk.pointer, true, raw, raw.count, &kinds)
+                return kinds
+            }
+            for (entry, raw) in zip(entries, kinds) {
+                guard let kind = ScreenshotsFFI.kind(raw) else { continue }
+                items.append(FileGridItem(url: entry.parent.appendingPathComponent(entry.name), kind: kind, size: entry.size,
+                                          modified: entry.modified, sourceID: source.id))
+            }
+        }
+        let found = ScreenshotsFFI.object(cmux_screenshots_walk_result(walk.pointer))
+        return Result(items: items, folders: found["folders"] as? [String] ?? [], readable: found["readable"] as? Bool ?? true)
     }
 
     /// The item for one changed path, or nil when it is gone or the rule leaves it out.
@@ -93,24 +119,5 @@ public nonisolated struct ScreenshotFolderReader: Sendable {
         }
         return FileGridItem(url: entry.parent.appendingPathComponent(entry.name), kind: kind, size: entry.size,
                             modified: entry.modified, sourceID: source.id)
-    }
-
-    /// Whether a listed entry is a folder the rule enters at this depth (a bundle such as Cap's `.cap` too).
-    static func enters(_ entry: FileEntry, depth: Int, rule: ScreenshotScanRule) -> Bool {
-        rule.enters(entryKind: ScreenshotsFFI.raw(entry.kind), hidden: entry.isHidden, name: entry.name, depth: depth)
-    }
-
-    /// Lists one folder into `result`; false when it could not be read.
-    private func read(_ folder: URL, depth: Int, source: ScreenshotSource, into result: inout Result) async -> Bool {
-        guard let entries = try? await lister.list(folder) else { return false }
-        result.folders.append(folder.path)
-        for entry in entries {
-            if Self.enters(entry, depth: depth, rule: source.rule) {
-                _ = await read(folder.appendingPathComponent(entry.name, isDirectory: true), depth: depth + 1, source: source, into: &result)
-            } else if let item = Self.item(entry, in: source) {
-                result.items.append(item)
-            }
-        }
-        return true
     }
 }
