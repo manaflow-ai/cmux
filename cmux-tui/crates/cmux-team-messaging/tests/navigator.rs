@@ -189,7 +189,7 @@ fn navigator_at_team_scale() {
         .collect();
     let unread: BTreeMap<String, u32> =
         threads.iter().step_by(4).map(|t| (t.id.clone(), 1)).collect();
-    let here: BTreeMap<String, Vec<cmux_team_messaging::presence::Participant>> = spaces
+    let here: BTreeMap<String, Vec<Participant>> = spaces
         .iter()
         .map(|s| {
             let live = s
