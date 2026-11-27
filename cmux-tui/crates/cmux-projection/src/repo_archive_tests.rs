@@ -117,7 +117,7 @@ fn an_archive_checks_out_the_branch_with_its_origin() {
     let (dir, fetched) = fixture.fetch("vm", None);
     assert_eq!(checked_out(&fetched), tip);
     assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "one");
-    assert_eq!(sh(&dir, &["remote", "get-url", "origin"]), URL);
+    assert_eq!(sh(&dir, &["config", "remote.origin.url"]), URL);
     assert_eq!(sh(&dir, &["rev-parse", "--abbrev-ref", "@{u}"]), "origin/main");
     assert_eq!(sh(&dir, &["rev-parse", "--is-shallow-repository"]), "true");
     assert_eq!(sh(&dir, &["status", "--porcelain"]), "");
