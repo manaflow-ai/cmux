@@ -17,6 +17,12 @@
 //! the old route: the cloud journey's stub chat got no reply, or a real model's (9 of 9 runs from
 //! 2026-11-26 00:20Z). So the endpoint env, Claude's settings keys that move the endpoint or the
 //! credential, and the own-or-team choice are in the fingerprint.
+//!
+//! So is the image's machine kind (`/etc/cmux/vm-kind`): the image launcher (`agent-auth.sh`) runs
+//! every agent in team mode while it reads anything but `owner`, and a cloned machine's boot resets
+//! it to `team` until the control plane's sync says `owner`. A Claude warmed in that window started
+//! on the team's route and, served after the flip, answered the cloud journey's stub chat with the
+//! team route's "No cmux inference gateway is online" (run 45952559474, 2026-11-27).
 
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
@@ -104,13 +110,19 @@ enum Reader {
     Stat,
     /// The agent's file in `codex_cloud_auth::CHOICE_DIR`: `own` or `team`. A route, not an account.
     Choice,
+    /// The image's machine kind ([`KIND_FILE`]): `owner` lets the image launcher run an agent on
+    /// its own login; any other kind runs it on the team's route. A route, not an account.
+    Kind,
 }
+
+/// The image's machine kind, under the root (`/` outside tests).
+const KIND_FILE: &str = "etc/cmux/vm-kind";
 
 impl Reader {
     /// Whether the file names the account the session runs under (the fingerprint's account
     /// part), rather than counting by presence or naming a route.
     fn names_account(self) -> bool {
-        !matches!(self, Reader::Stat | Reader::ClaudeSettings | Reader::Choice)
+        !matches!(self, Reader::Stat | Reader::ClaudeSettings | Reader::Choice | Reader::Kind)
     }
 }
 
@@ -118,6 +130,7 @@ fn files(
     family: &str,
     env: &dyn Fn(&str) -> Option<String>,
     home: &Path,
+    root: &Path,
 ) -> Vec<(PathBuf, Reader)> {
     let home = env("HOME")
         .filter(|value| !value.is_empty())
@@ -127,6 +140,8 @@ fn files(
     if !files.is_empty() {
         // The image's own-or-team choice (`agent_login.rs` `choose_own`, `cr use`).
         files.push((home.join(crate::codex_cloud_auth::CHOICE_DIR).join(family), Reader::Choice));
+        // The image launcher's own-or-team gate, read at each launch.
+        files.push((root.join(KIND_FILE), Reader::Kind));
     }
     files
 }
@@ -226,6 +241,17 @@ impl AuthCache {
         env: &dyn Fn(&str) -> Option<String>,
         home: &Path,
     ) -> (String, Option<String>) {
+        self.fingerprint_in(family, env, home, Path::new("/"))
+    }
+
+    /// [`Self::fingerprint_with`] with the machine's files ([`KIND_FILE`]) under `root`.
+    fn fingerprint_in(
+        &self,
+        family: &str,
+        env: &dyn Fn(&str) -> Option<String>,
+        home: &Path,
+        root: &Path,
+    ) -> (String, Option<String>) {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         let mut account = std::collections::hash_map::DefaultHasher::new();
         let mut named = false;
@@ -233,7 +259,7 @@ impl AuthCache {
         for k in AUTH_ENV.iter().chain(ROUTE_ENV) {
             (k, env(k)).hash(&mut h);
         }
-        for (path, reader) in files(family, env, home) {
+        for (path, reader) in files(family, env, home, root) {
             path.hash(&mut h);
             let part = self.file_part(&path, reader);
             part.hash(&mut h);
@@ -278,7 +304,7 @@ impl AuthCache {
 
 fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    if reader == Reader::Choice {
+    if matches!(reader, Reader::Choice | Reader::Kind) {
         String::from_utf8_lossy(bytes).trim().hash(&mut h);
         return h.finish() | 1;
     }
@@ -348,8 +374,8 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
             }
             ids.hash(&mut h);
         }
-        // Never parsed (`file_part` counts presence only); a choice is read above.
-        Reader::Stat | Reader::Choice => {}
+        // Never parsed (`file_part` counts presence only); a choice or kind is read above.
+        Reader::Stat | Reader::Choice | Reader::Kind => {}
     }
     h.finish() | 1
 }
