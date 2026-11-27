@@ -409,8 +409,13 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
   await run(vm, `chown -R ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${PROBE_DIR}`);
   await run(vm, `setsid python3 -m http.server ${PAGE_PORT} --bind 127.0.0.1 --directory ${PROBE_DIR}/www >${PROBE_DIR}/www.log 2>&1 < /dev/null & echo started`, 30_000, DEVBOX_WORK_USER);
   const C = `${CURRENT_BIN}/cmux-tui --session cloud`;
+  const started = Date.now();
   const ws = await run(vm, `${C} workspace name:${WORKSPACE} show >/dev/null 2>&1 || ${C} workspace create --name ${WORKSPACE} >/dev/null && echo ok`, 60_000, DEVBOX_WORK_USER);
-  check("daemon-terminal", ws.code === 0, ws.stdout.trim() || ws.stderr.slice(-300));
+  result.timings.daemonTerminalMs = Date.now() - started;
+  // Roll 45916909960: a clone's daemon left a request unanswered past the CLI's 10 s read bound (wire.rs), with no
+  // evidence of what it was doing: a failure keeps the daemon's own status beside the CLI's words.
+  const status = ws.code === 0 ? "" : (await run(vm, `timeout 20 ${C} daemon status 2>&1 | tail -15`, 30_000, DEVBOX_WORK_USER).catch((error) => ({ stdout: `unreadable: ${String(error).slice(0, 120)}` }))).stdout.trim().replace(/\s+/g, " ");
+  check("daemon-terminal", ws.code === 0, `${ws.stdout.trim() || ws.stderr.slice(-300)}${ws.code === 0 ? "" : ` (after ${result.timings.daemonTerminalMs} ms; daemon status: ${status.slice(-600) || "none"})`}`);
   return ws.code === 0;
 }
 
