@@ -330,6 +330,18 @@ class SharedWebArtifact(unittest.TestCase):
             self.assertTrue(downloads)
             self.assertTrue(all(step.get("with", {}).get("name") == "${{ inputs.web_bundle_artifact }}" for step in downloads))
 
+    def test_cache_restore_uses_the_saved_output_path(self) -> None:
+        """A cache hit must restore files, not only report that a key exists."""
+        text = CALLEE.read_text()
+        cache = job_block(text, "web")
+        restore = cache[cache.index("id: web-bundle-cache") :]
+        restore = restore[:restore.index("\n      - name: ", 1)]
+        self.assertIn("path: ${{ runner.temp }}/web-bundles-out", restore)
+        self.assertNotIn("lookup-only: true", restore)
+        save = text[text.index("- name: Cache the web bundles under this source key") :]
+        save = save[:save.index("\n      - name: ", 1)]
+        self.assertIn("path: ${{ runner.temp }}/web-bundles-out", save)
+
     def test_outage_is_not_hidden_by_rebuilding_or_switching_transport(self) -> None:
         import yaml
         for filename, job_name in (("cmux-next-compile-preflight.yml", "web"),

@@ -225,7 +225,7 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           # The same path string as the lookup: the GitHub cache's version hashes it.
-          path: web-bundles-out
+          path: ${{ runner.temp }}/web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 

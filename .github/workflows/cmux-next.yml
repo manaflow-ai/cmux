@@ -2144,7 +2144,7 @@ jobs:
   web-bundles:
     needs: path_route
     # Why: 2026-11-25-web-bundles-consumers.md
-    if: ${{ !cancelled() && (needs.path_route.result == 'success' && (inputs.dev_daily == true || inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(needs.path_route.outputs.labels, ',full-ci,')) && ((needs.path_route.outputs.swift == 'true' && !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) || (needs.path_route.outputs.daemon == 'true' && github.event.pull_request.base.ref != 'feat-cmux-next' && needs.path_route.outputs.tree_state == 'ready') || (needs.path_route.outputs.generated == 'true' && needs.path_route.outputs.generated_host == 'generated-files') || (needs.path_route.outputs.scheme == 'true' && (github.event_name != 'pull_request' || (github.event.pull_request.base.ref != 'feat-cmux-next' && contains(needs.path_route.outputs.labels, ',full-ci,')) || (github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(needs.path_route.outputs.labels, ',dev-build,')))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ !cancelled() && (needs.path_route.result == 'success' && (inputs.dev_daily == true || inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(needs.path_route.outputs.labels, ',full-ci,')) && ((needs.path_route.outputs.swift == 'true' && !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) || (needs.path_route.outputs.daemon == 'true' && github.event.pull_request.base.ref != 'feat-cmux-next' && needs.path_route.outputs.tree_state == 'ready') || (needs.path_route.outputs.generated == 'true' && needs.path_route.outputs.generated_host == 'generated-files')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next web bundles (source-keyed cache)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
@@ -4079,7 +4079,7 @@ jobs:
           path: web-bundles-out
 
       - name: Fail when the built web bundles could not be delivered
-        if: ${{ needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ github.event_name == 'pull_request' && needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
         run: |
           echo "::error::web-bundles completed but R2, GitHub cache, and the run artifact all missed; refusing a duplicate local build"
           exit 1
@@ -4089,7 +4089,7 @@ jobs:
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
-        if: ${{ needs.web-bundles.result == 'skipped' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ (github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped') && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
@@ -4528,7 +4528,7 @@ jobs:
           path: web-bundles-out
 
       - name: Fail when the built web bundles could not be delivered
-        if: ${{ needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ github.event_name == 'pull_request' && needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
         run: |
           echo "::error::web-bundles completed but R2, GitHub cache, and the run artifact all missed; refusing a duplicate local build"
           exit 1
@@ -4539,7 +4539,7 @@ jobs:
         run: scripts/cmux-next/build-web-bundles.sh --from "$GITHUB_WORKSPACE/web-bundles-out"
 
       - name: Build the web bundles
-        if: ${{ needs.web-bundles.result == 'skipped' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ (github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped') && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
         working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/build-web-bundles.sh
 
@@ -5190,7 +5190,7 @@ jobs:
           path: web-bundles-out
 
       - name: Fail when the built web bundles could not be delivered
-        if: ${{ needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ github.event_name == 'pull_request' && needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
         run: |
           echo "::error::web-bundles completed but R2, GitHub cache, and the run artifact all missed; refusing a duplicate local build"
           exit 1
@@ -5201,7 +5201,7 @@ jobs:
         run: scripts/cmux-next/build-web-bundles.sh --from "$GITHUB_WORKSPACE/web-bundles-out"
 
       - name: Build the web bundles
-        if: ${{ needs.web-bundles.result == 'skipped' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ (github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped') && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' && steps.reuse.outputs.hit != 'true' }}
         working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/build-web-bundles.sh
 
@@ -6109,7 +6109,7 @@ jobs:
 
       - name: Download the web bundles this run's bundle job built
         id: web-bundle-artifact
-        if: ${{ steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && needs.web-bundles.result == 'success' }}
+        if: ${{ steps.web-bundle-key.outputs.key != '' && steps.fleet-app.outputs.ok != 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && needs.web-bundles.result == 'success' }}
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -6117,7 +6117,7 @@ jobs:
           path: web-bundles-out
 
       - name: Fail when the built web bundles could not be delivered
-        if: ${{ needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' }}
+        if: ${{ github.event_name == 'pull_request' && steps.web-bundle-key.outputs.key != '' && steps.fleet-app.outputs.ok != 'true' && needs.web-bundles.result == 'success' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success' }}
         run: |
           echo "::error::web-bundles completed but R2, GitHub cache, and the run artifact all missed; refusing a duplicate local build"
           exit 1
@@ -6129,6 +6129,12 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
+      - name: Fail when restored web bundles could not be installed
+        if: ${{ github.event_name == 'pull_request' && steps.web-bundle-key.outputs.key != '' && steps.fleet-app.outputs.ok != 'true' && needs.web-bundles.result == 'success' && steps.web-bundles-from.outcome != 'success' }}
+        run: |
+          echo "::error::web-bundles were delivered but could not be installed; refusing to compile without them"
+          exit 1
+
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
         shell: bash
@@ -6137,7 +6143,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
-        if: ${{ needs.web-bundles.result == 'skipped' && ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
+        if: ${{ ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with: *bun-with
 
@@ -6161,7 +6167,7 @@ jobs:
           node-version: "24.22.1"
 
       - name: Build the web bundles
-        if: ${{ ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
+        if: ${{ (github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped') && ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Compile the cmux scheme
