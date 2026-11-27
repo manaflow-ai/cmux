@@ -45,7 +45,7 @@ pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
         Some("1" | "true" | "on" | "yes") => return true,
         _ => {}
     }
-    doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED)).and_then(Value::as_bool)
+    doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED)).and_then(|v| v.as_bool())
         == Some(true)
 }
 
@@ -72,7 +72,7 @@ pub(crate) fn routes_with(doc: Option<&Value>) -> Vec<(String, String)> {
     let mut routes: Vec<(String, String)> =
         DEFAULT_ROUTES.iter().map(|(k, m)| ((*k).to_owned(), (*m).to_owned())).collect();
     let set = doc.and_then(|d| crate::user_settings::value(d, SETTING_SUBAGENTS));
-    for (kind, model) in set.and_then(Value::as_object).into_iter().flatten() {
+    for (kind, model) in set.as_ref().and_then(Value::as_object).into_iter().flatten() {
         routes.retain(|(k, _)| k != kind);
         if let Some(model) = model.as_str().filter(|m| allowed_model(m)) {
             routes.push((kind.clone(), model.trim().to_owned()));
