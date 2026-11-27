@@ -199,7 +199,7 @@ sed -n '4p' "$TMP/upload.log" | grep -q -- '.json '
 : > "$TMP/upload.log"
 if TEST_PUBLIC_KEY="$pub" UPLOAD_LOG="$TMP/upload.log" UPLOAD_FAIL_ON=4 GITHUB_ACTIONS=true GITHUB_REF=refs/heads/nightly-next RELEASE_ENVIRONMENT=release-next \
   R2_ENDPOINT=https://account.r2.cloudflarestorage.com AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
-  python3 - "$SCRIPT" "$TMP" <<'PY'
+  python3 - "$SCRIPT" "$TMP" 2>"$TMP/upload.err" <<'PY'
 import importlib.util
 import os
 import pathlib
