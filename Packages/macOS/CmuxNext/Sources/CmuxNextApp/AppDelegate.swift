@@ -186,8 +186,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
-        AppActions.bind(services, laps: binderLaps)
+        AppActions.bind(services, laps: binderLaps, deferring: true)
         DebugTimings.markLaunch("dfl.app_actions") // AppActions.bind alone; dfl.bind adds the palette, Ghostty keybinds and terminal hooks
+        // The binders no first-frame view reads, once it is up: before HandlerCoverage.verify and the binding check below.
+        firstFrame.whenOpen { [weak services] in
+            guard let services else { return }
+            binderLaps.restart()
+            AppActions.bindDeferred(services, laps: binderLaps)
+            DebugTimings.markLaunch("dfl.app_actions_deferred")
+        }
         services.palette.bindRegistryActions()
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
         self.ghosttyKeybinds = ghosttyKeybinds
