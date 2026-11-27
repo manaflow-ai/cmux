@@ -123,7 +123,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
-        with: &request-tooling
+        with:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
@@ -137,7 +137,12 @@ jobs:
         if: steps.tooling.outcome == 'failure'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
-        with: *request-tooling
+        # The same inputs as the first try, written out: actionlint refuses a YAML alias for with.
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .tick-tooling
+          fetch-depth: 1
 
       # This job's gh calls, the promotion dispatch included, go out as the cmux-bot App, with
       # github.token as the fallback. Every workflow here shares github.token's budget; when
@@ -402,6 +407,15 @@ jobs:
               break
             fi
             git checkout -q --detach "$sha"
+            # A commit runs its own request-nightly-next.sh, so one older than a
+            # gate skips it: d5599c721e05 (2026-11-27 01:43Z tick) predated
+            # #60088's web bundle check, was promoted past 14 newer refusals,
+            # and its nightly failed on that exact red (run 45925107513). The
+            # gate's floor is this tick's: a commit without it is refused.
+            if ! grep -q '^web_bundles_green()' scripts/cmux-next/request-nightly-next.sh 2>/dev/null; then
+              echo "not promoting ${sha:0:12}: its request-nightly-next.sh predates the web bundle check (#60088), so its web bundles are unchecked" | tee -a "$refusals"
+              continue
+            fi
             if [[ -n "$dedupe" ]] && key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$sha" 2>/dev/null)" \
                && [[ "$key" =~ ^[0-9a-f]{40}$ ]]; then
               [[ "$asked_keys" != *" $key "* ]] || continue
@@ -475,7 +489,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
-        with: &unstick-tooling
+        with:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
@@ -488,7 +502,12 @@ jobs:
       - if: steps.tooling.outcome == 'failure'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
-        with: *unstick-tooling
+        # The same inputs as the first try, written out: actionlint refuses a YAML alias for with.
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .tick-tooling
+          fetch-depth: 1
 
       # This job's reads spend the cmux-bot App's budget, not the repository's GITHUB_TOKEN pool
       # (5,000 an hour for every workflow, which ran dry hourly on 2026-11-04 with this tick its

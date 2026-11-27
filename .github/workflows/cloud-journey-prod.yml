@@ -43,6 +43,10 @@ on:
     # 37 h). The six-hourly tick above stays the canary that finds the login's quota again after a reset.
     - cron: "47 1-5,7-11,13-17,19-23 * * *"
     - cron: "7,22,37,52 * * * *"
+    # Codex real on its own minute, not the Claude canary's :47: the two claimed one warm spare at once, so one of
+    # them created cold every six hours (2026-11-27 06:51Z: codex claimed in 4983 ms, claude made one in 17165 ms).
+    # :29 is the widest gap between the other claims (:22 and :37 Codex stub), so the pool has refilled before it.
+    - cron: "29 */6 * * *"
   workflow_dispatch:
     inputs:
       model:
@@ -101,13 +105,13 @@ jobs:
             crons: ["47 */6 * * *", "47 1-5,7-11,13-17,19-23 * * *"]
           - agent: codex
             model: real
-            crons: ["47 */6 * * *"]
+            crons: ["29 */6 * * *"]
           # Codex on the stub every 15 minutes: a fresh machine's Codex must have its code-mode host and make the
           # stub's tool call (2026-11-25: every Cloud Codex tool call failed to spawn the host).
           - agent: codex
             model: stub
             crons: ["7,22,37,52 * * * *"]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 75
     environment: cmux-next-cloud-journey
@@ -401,7 +405,7 @@ jobs:
   # (EMAIL_PASSWORD_MISMATCH), so the job stays out of it. It never targets the production API or checks out a PR head.
   preclaim:
     if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 60
     environment: cmux-next-vm-image-dev
     permissions:
