@@ -553,7 +553,11 @@ fn wrap_local_sandbox_command(
     let args: Vec<_> = cmd.as_std().get_args().map(|arg| arg.to_owned()).collect();
     let mut wrapped = crate::session_scope::command(sandbox_program, session, scope_env, false);
     wrapped.env_clear();
-    wrapped.args(sandbox_args).arg(program).args(args).envs(final_env.iter());
+    wrapped
+        .args(sandbox_args)
+        .arg(program)
+        .args(args)
+        .envs(final_env.iter().map(|(key, value)| (key, value)));
     wrapped
 }
 
