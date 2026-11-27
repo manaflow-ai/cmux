@@ -171,8 +171,25 @@ fn the_capability_is_advertised_with_an_acpmux_socket_and_a_host() {
     let listed = run(&mux, json!({"cmd":"identify"}))["capabilities"].clone();
     let credentials = json!(super::AGENT_TRANSFER_CREDENTIALS_CAPABILITY);
     assert!(listed.as_array().unwrap().contains(&credentials), "{listed}");
+    assert!(listed.as_array().unwrap().contains(&json!(super::AGENT_TRANSFER_SHARES_CAPABILITY)));
     mux.set_acpmux_socket(None);
     assert!(!advertised(&mux));
+}
+
+#[test]
+fn an_old_move_client_cannot_freeze_or_export_a_shared_chat() {
+    let fake = FakeAcpmux::start("xshares");
+    let home = Home::new("shares");
+    let mux = transfer_mux(&fake, "atx-shares", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xshares");
+    ok_data(&client.request(json!({"cmd":"agent-session-share-create", "surface":surface})));
+    let move_chat = json!({"cmd":"agent-transfer-begin", "surface":surface});
+    assert_code(&client.request(move_chat.clone()), "agent_transfer.shares_unsupported");
+    let mut supported = move_chat;
+    supported["checks_shares"] = json!(true);
+    let began = client.request(supported);
+    assert!(ok_data(&began)["manifest"][super::SHARE_MANIFEST_FIELD].is_array());
 }
 
 #[test]

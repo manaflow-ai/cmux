@@ -127,6 +127,10 @@ pub const AGENT_TRANSFER_CREDENTIALS_CAPABILITY: &str = "agent-transfer-credenti
 /// pump that lost its begin answer can prove the frozen move is its own and end it at once
 /// instead of waiting out the source's lease. An acpmux that keeps no token echoes none.
 pub const AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY: &str = "agent-transfer-begin-token-v1";
+/// The move client checks the receiving connection before sending hosted-room credentials.
+pub const AGENT_TRANSFER_SHARES_CAPABILITY: &str = "agent-transfer-shares-v1";
+/// Share records in the daemon manifest, carried only by a share-aware move client.
+pub const SHARE_MANIFEST_FIELD: &str = TRANSFER_FIELD;
 /// The optional bundle files this daemon's acpmux takes on a receive, by acpmux's own ids
 /// (acpmux `capabilities::OPTIONAL_BUNDLE_FILES`): a pump leaves out of a move to a machine each
 /// one its `identify` does not list, so an older machine image takes the chat without it
@@ -480,6 +484,9 @@ struct BeginParams {
     interrupt: bool,
     #[serde(default)]
     ask_first: bool,
+    /// The pump verifies the receiver can carry room shares before it sends the manifest.
+    #[serde(default)]
+    checks_shares: bool,
     /// The pump's own mark for this begin ([`AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY`]).
     #[serde(default)]
     begin_token: Option<String>,
@@ -571,6 +578,7 @@ enum Refusal {
     UnknownReceive,
     UnknownTransfer,
     Unguarded,
+    SharesUnsupported,
     Limit,
     Timeout,
     Refused,
@@ -593,6 +601,7 @@ impl Refusal {
             Self::UnknownReceive => "agent_transfer.unknown_receive",
             Self::UnknownTransfer => "agent_transfer.unknown_transfer",
             Self::Unguarded => "agent_transfer.unguarded",
+            Self::SharesUnsupported => "agent_transfer.shares_unsupported",
             Self::Limit => "agent_transfer.limit",
             Self::Timeout => "agent_transfer.timeout",
             Self::Refused => "agent_transfer.refused",
@@ -612,6 +621,7 @@ impl Refusal {
             Self::UnknownReceive => "no such receive on this daemon",
             Self::UnknownTransfer => "no such move on this daemon",
             Self::Unguarded => "acpmux did not apply the receive guard",
+            Self::SharesUnsupported => "update the move client to move a shared chat",
             Self::Limit => "too many chat moves at once",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
@@ -794,6 +804,7 @@ enum Prepared {
         tab: Option<String>,
         interrupt: bool,
         ask_first: bool,
+        checks_shares: bool,
         begin_token: Option<String>,
         /// The prepare it begins from, with its id.
         prefix: Option<(String, history_later::Prefix)>,
@@ -909,6 +920,7 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             tab,
             interrupt,
             ask_first,
+            checks_shares,
             begin_token,
             prepare_id,
         }) => {
@@ -926,7 +938,15 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             if AgentTransfers::full(&mut lock(&transfers.moves), MAX_MOVES, |m| m.touched) {
                 return Err(Refusal::Limit.into());
             }
-            Prepared::Begin { session, tab, interrupt, ask_first, begin_token, prefix }
+            Prepared::Begin {
+                session,
+                tab,
+                interrupt,
+                ask_first,
+                checks_shares,
+                begin_token,
+                prefix,
+            }
         }
         Verb::Read(ReadParams { transfer_id, path, offset, limit }) => {
             let limit = limit.unwrap_or(DEFAULT_READ);
@@ -1174,7 +1194,19 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
             }
             Ok(json!({"session": session}))
         }
-        Prepared::Begin { session, tab, interrupt, ask_first, begin_token, prefix } => {
+        Prepared::Begin {
+            session,
+            tab,
+            interrupt,
+            ask_first,
+            checks_shares,
+            begin_token,
+            prefix,
+        } => {
+            let shares = export_transferred_chat_shares(mux, &session);
+            if shares.is_some() && !checks_shares {
+                return Err(Refusal::SharesUnsupported.into());
+            }
             if ask_first {
                 ask_first::narrow(&call, &session)?;
             }
@@ -1205,7 +1237,7 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
                     return Err(failure);
                 }
             };
-            if let Some(shares) = export_transferred_chat_shares(mux, &source_session) {
+            if let Some(shares) = shares {
                 manifest.insert(TRANSFER_FIELD, shares);
             }
             let entry = Move {
