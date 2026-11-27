@@ -5784,7 +5784,7 @@
     "settings": "ការកំណត់ការវិភាគ"
   },
   "emailSignInCallback": {
-    "title": "Enter the code in the cmux app",
+    "title": "វាយលេខកូដនៅក្នុងកម្មវិធី cmux",
     "body": "ត្រឡប់ទៅកម្មវិធី cmux វិញ ហើយវាយលេខកូដ 6 តួពីអ៊ីមែលនេះ។ ការបើកតំណនេះមិនធ្វើឱ្យកម្មវិធីចូលទេ។",
     "browserPrompt": "ចង់ប្រើ cmux នៅក្នុងកម្មវិធីរុករកនេះជំនួសវិញឬ?",
     "browserSignIn": "ចូលនៅ cmux.com"

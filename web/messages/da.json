@@ -5783,7 +5783,7 @@
     "settings": "Analyseindstillinger"
   },
   "emailSignInCallback": {
-    "title": "Enter the code in the cmux app",
+    "title": "Indtast koden i cmux-appen",
     "body": "Gå tilbage til cmux-appen, og indtast koden på 6 tegn fra denne e-mail. At åbne dette link logger ikke appen ind.",
     "browserPrompt": "Vil du hellere bruge cmux i denne browser?",
     "browserSignIn": "Log ind på cmux.com"

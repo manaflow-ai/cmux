@@ -5784,7 +5784,7 @@
     "settings": "Analiz ayarları"
   },
   "emailSignInCallback": {
-    "title": "Enter the code in the cmux app",
+    "title": "Kodu cmux uygulamasına girin",
     "body": "cmux uygulamasına dönün ve bu e-postadaki 6 karakterlik kodu girin. Bu bağlantıyı açmak uygulamada oturum açmaz.",
     "browserPrompt": "cmux'ı bunun yerine bu tarayıcıda mı kullanmak istiyorsunuz?",
     "browserSignIn": "cmux.com'da oturum açın"
