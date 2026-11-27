@@ -223,6 +223,14 @@ run = "python3 tests/test_indexnow_notification.py"
 # granting none, and every cmux-next and cmux-tui artifacts run ended in startup_failure with 0 jobs until #56935
 # at 20:07Z (31 runs on the artifacts workflow alone; the Cloud channel stayed on an 18:56Z commit). Its tree fails
 # this step: "2 reusable-workflow permission mismatch(es) across 69 local call site(s)". Under a second, offline.
+[step.cargo-proc-macros-unstripped]
+job = "linux"
+timeout = 120
+title = "Cargo proc-macros unstripped"
+about = "every Cargo.toml whose release profile strips also sets `[profile.release.build-override] strip = false`, so Xcode 27's strip can't break proc-macro dylibs (rustc E0463)"
+inputs = ["**/Cargo.toml", "tests/test_cargo_proc_macros_unstripped.py"]
+run = "python3 tests/test_cargo_proc_macros_unstripped.py"
+
 [step.reusable-workflow-permissions]
 job = "linux"
 timeout = 120
@@ -243,11 +251,14 @@ run = "python3 tests/test_ci_reusable_workflow_permissions.py"
 job = "linux"
 timeout = 60
 title = "Compile preflight rules"
-about = "the compile preflight runs on every tier, never reports skipped, and names the bundler's errors"
+about = "the compile preflight runs on every tier, skips only heads no web bundle reads, and names the bundler's errors"
 inputs = [
   ".github/workflows/cmux-next-compile-preflight.yml",
   ".github/workflows/pr-router.yml",
   "scripts/ci/compile_preflight.py",
+  "scripts/ci/pr_router.json",
+  "scripts/ci/pr_router.py",
+  "scripts/ci/workflow_paths_cover_inputs.py",
   "scripts/cmux-next/web-bundle-key.py",
   "scripts/cmux-next/build-web-bundles.sh",
   "tests/test_ci_compile_preflight.py",
@@ -363,6 +374,7 @@ inputs = [
   "scripts/ci/ci_timing_readout.py",
   "scripts/ci/check_repo_variables.py",
   "scripts/ci/ios_fast_verdict.*",
+  "scripts/ci/ios_fast_dispatch.py",
   "scripts/ci/proof_record.py",
   "scripts/ci/ui_proof_verdict.py",
   "scripts/cmux-next/hot-verify.py",
@@ -375,6 +387,7 @@ inputs = [
   "tests/test_ci_timing_readout.py",
   "tests/test_ci_check_repo_variables.py",
   "tests/test_ci_ios_fast_verdict.py",
+  "tests/test_ci_ios_fast_dispatch.py",
   "tests/test_ci_routed_jobs_check_needs.py",
   "scripts/ci/cmux_next_pair_e2e.py",
   "tests/test_cmux_next_pair_e2e_guards.py",
@@ -384,6 +397,7 @@ status=0
 python3 tests/test_ci_timing_readout.py || status=1
 python3 tests/test_ci_check_repo_variables.py || status=1
 python3 tests/test_ci_ios_fast_verdict.py || status=1
+python3 tests/test_ci_ios_fast_dispatch.py || status=1
 python3 -I tests/test_ci_proof_record.py || status=1
 python3 -I tests/test_ci_ui_proof_verdict.py || status=1
 python3 tests/test_ci_routed_jobs_check_needs.py || status=1
@@ -1617,6 +1631,66 @@ python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md
   --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"
 '''
 
+# Leo, 2026-11-27: "like we can have fast retrieval of bench reference per product area". The relevance map
+# (docs/benches/relevance-map.toml) and `cmux-bench for-paths`: the prefix index agrees with the old scan on random
+# paths, a 2,000-path change resolves in under 1 s and stays flat at 10x the rules, each risky area of
+# docs/benches/coverage-map.md has a mapping, every template exists, and the generated units match the layout.
+[step.bench-relevance-map]
+job = "linux"
+timeout = 180
+title = "Bench relevance map"
+about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open"
+inputs = [
+  "docs/benches/*",
+  "docs/benches/templates/*",
+  "scripts/bench/cmux-bench",
+  "scripts/bench/benchlib/relevance.py",
+  "tests/test_bench_relevance_map.py",
+  "cmux-tui/crates/*/Cargo.toml",
+  "cmux-next-ios/rust/crates/*/Cargo.toml",
+  "Packages/*/*/Package.swift",
+]
+run = "python3 -I tests/test_bench_relevance_map.py"
+
+# What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
+# for them, in the advisory log, and the Linux benches those areas name (`run`), each against its area's budget_s.
+# Fail open: an unmapped path is a warning, a base with no for-paths, a broken map or a missing or failing bench is
+# a notice; only a measured result over budget_s turns this (non-blocking) check red.
+[step.bench-relevance]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "Benches and tests for these paths"
+about = "cmux-bench for-paths --run on the pull request's paths: areas, benches, targeted tests, check templates, and the areas' Linux benches against budget_s; unmapped paths warn"
+run = '''
+if ! grep -q "for-paths" scripts/bench/cmux-bench 2>/dev/null; then
+  echo "::notice::The base branch has no cmux-bench for-paths yet; nothing to report."
+  exit 0
+fi
+paths="${CI_PATHS_FILE:-$RUNNER_TEMP/paths.txt}"
+if [ ! -s "$paths" ]; then
+  echo "::notice::No changed-paths list; for-paths has nothing to read."
+  exit 0
+fi
+if ! grep -q -- "--run" scripts/bench/cmux-bench 2>/dev/null; then
+  python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown < "$paths" || echo "::notice::for-paths failed; fail open"
+  exit 0
+fi
+# --run also runs the benches the matched areas name (`run`) and exits 1 only on a measured result over the
+# area's budget_s. A missing or failing bench, a timeout with no budget, or a broken map warns and passes.
+set +e
+python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 < "$paths"
+code=$?
+set -e
+if [ "$code" -eq 1 ]; then
+  echo "::error::A bench for these paths is over its budget_s (docs/benches/relevance-map.toml); see the Bench runs above."
+  exit 1
+elif [ "$code" -ne 0 ]; then
+  echo "::notice::for-paths --run exited $code; fail open"
+fi
+'''
+
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
 # it. When git could not list the paths it reads the files API, into its own file: the other steps run
 # beside it and read paths.txt.
@@ -2297,12 +2371,18 @@ exit "$status"
 # feat-cmux-next push only. Leo's ask for it: "Every push to main gets a webview type check, so a break shows up on
 # the status board within minutes." A pull request now runs it on the merge commit, so the break shows before the
 # merge. The range lint beside it (`web lint (fast)`) is cmux-next-fast-gates.yml's, which pull requests already ran.
+# `nightly`: `webviews/**` is a whole-directory glob, so a pull request's --pr-scope route dropped this step and a
+# landing head of the affected tier ran no type check at all; cmux#61720 fixed the type errors that reached
+# feat-cmux-next that way (a duplicate import, a missing module) after the nightly's webview checks went red on them.
+# Naming the nightly's check keeps the whole route and starts it on the landing head (pr_router.py
+# nightly_gate_steps), about 2 min. Leo, 2026-11-25: "if checks fail, fix the checks or ignore and just merge".
 [step.webviews-typecheck]
 job = "linux"
 timeout = 360
 title = "Webviews typecheck (whole tree)"
 about = "the pre-push web lint hook's tests pass, webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
 needs = ["bun", "node"]
+nightly = ["nightly.yml:check-nightly-webviews:Webview checks on the build commit"]
 inputs = [
   "webviews/**",
   "scripts/web_lint_prepush.py",
@@ -3260,6 +3340,9 @@ alone = true
 title = "App Store shelf"
 about = "every App Store listing installs and shows something (the three cmux-tui shelf tests run and pass)"
 needs = ["rust", "zig"]
+# The nightly's shelf job runs the same script on the build commit; its red reds the run and files
+# report-nightly-shelf-red (it holds no publish since 2026-11-25). cmux#46903 reached it only through
+# `first-party-apps/**`, which --pr-scope left to the post-merge batch, so the nightly found it (fix cmux#61540).
 inputs = [
   ".github/workflows/app-store-shelf.yml",
   "first-party-apps/**",
@@ -3280,6 +3363,39 @@ export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
 export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC=""
 unset CMUX_ZIG ZIG
 bash scripts/ci/app-store-shelf-check.sh
+'''
+
+# The nightly's "Generate third-party notices (cmux-next)" generates the Rust notices from the tree and refuses a
+# crate whose license it does not accept: cmux#59540 added jpeg-encoder (IJG) and the nightly stopped there hours
+# after the merge. cmux-next-guards.yml's rust-notices-tree runs the same command only with full-ci, so a landing
+# head on the affected tier never ran it; this step does (pr_router.py nightly_gate_steps). The inputs are that
+# job's filter.
+[step.rust-notices]
+job = "linux"
+# cmux-next-guards.yml's rust-notices-tree bound (25 min) less its checkout; cargo metadata over every workspace.
+alone = true
+timeout = 1200
+title = "Rust third-party notices (as the nightly generates them)"
+about = "the third-party notices generate from this tree's Rust crates and Swift packages, every license accepted"
+needs = ["rust"]
+nightly = [
+  "nightly.yml:nightly-next-one:Generate third-party notices (cmux-next)",
+  "nightly.yml:build-nightly-app:Generate third-party notices (cmux-next)",
+]
+inputs = [
+  "**/Cargo.toml",
+  "**/Cargo.lock",
+  "scripts/cmux-next/remote-browser-host.pin.json",
+  "cmux-tui/build-support/notices/**",
+  "scripts/cmux-next/generate-third-party-notices.sh",
+  "scripts/cmux-next/notices/**",
+  "Packages/macOS/CmuxNext/Package.resolved",
+]
+run = '''
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+CMUX_NOTICES_ALLOW_CARGO=1 CMUX_NOTICES_CACHE="$RUNNER_TEMP/cmux-notices" \
+  ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+  --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 '''
 
 # cmux-vm-clients.yml's rust job; its sdk job is the step cmux-vm-sdk, and `inputs` is the filter the two jobs
@@ -3722,6 +3838,8 @@ inputs = [
   "scripts/ci/ios_macos_leg.py",
   "scripts/ci/ios_sim_udid.py",
   "scripts/ci/ios-sim-pool.sh",
+  # The pool phone runs it at this commit (ios-sim-pool.sh submit).
+  "scripts/ci/ios-sim-linux-test.sh",
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
   "cmux-tui/rust-toolchain.toml",
@@ -3745,9 +3863,11 @@ inputs = [
   "cmux-tui/crates/cmux-egress/**",
   "cmux-tui/crates/cmux-felt/**",
   "cmux-tui/crates/cmux-follow-cam/**",
+  "cmux-tui/crates/cmux-local-url/**",
   "cmux-tui/crates/cmux-mobile-core/**",
   "cmux-tui/crates/cmux-mobile-last-place/**",
   "cmux-tui/crates/cmux-process/**",
+  "cmux-tui/crates/cmux-proxy/**",
   "cmux-tui/crates/cmux-rd-core/**",
   "cmux-tui/crates/cmux-rd-ffi/**",
   "cmux-tui/crates/cmux-rd-link/**",

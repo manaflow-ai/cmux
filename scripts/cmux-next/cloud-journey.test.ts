@@ -22,6 +22,12 @@ import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-jo
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 import { platformVerdict, waitRunning } from "./cloud-journey";
+import { preclaimPhasesText } from "./cloud-journey";
+import { OWN_LOGIN_CHECK, preclaimInstallCommand } from "./cloud-journey";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("cloud journey", () => {
   test("a create stuck provisioning with no host waits for the platform's verdict and names it", async () => {
@@ -336,6 +342,28 @@ describe("cloud journey", () => {
     expect(md).not.toContain("install_secret");
   });
 
+  test("the preclaim install, cleanup and own-login check run as one exec", () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-"));
+    const run = (install: string, after = "") => {
+      const file = join(dir, "cred.json");
+      writeFileSync(file, "{}");
+      const r = spawnSync("bash", ["-c", preclaimInstallCommand(install, file, after)], { encoding: "utf8" });
+      return { code: r.status, out: r.stdout, left: existsSync(file) };
+    };
+    // A heredoc installer like loginPrograms' keeps its terminator on a line of its own.
+    expect(run("set -e\ncat <<'EOF'\ninstalled\nEOF", "echo own-login")).toEqual({ code: 0, out: "installed\nown-login\n", left: false });
+    // A refused install keeps its exit, removes the file, and skips the check.
+    expect(run("set -e\nfalse\necho never", "echo own-login")).toEqual({ code: 1, out: "", left: false });
+    expect(run("exit 3")).toEqual({ code: 3, out: "", left: false });
+    expect(OWN_LOGIN_CHECK).toContain("echo own-login");
+  });
+
+  test("the preclaim step names where its time went, phase by phase", () => {
+    expect(preclaimPhasesText(undefined)).toBe("");
+    expect(preclaimPhasesText({})).toBe("");
+    expect(preclaimPhasesText({ warm: 812, ready_wait: 6101, install: 2400 })).toBe("; phases: warm 812 ms, ready_wait 6101 ms, install 2400 ms");
+  });
+
   test("cold preclaim claims use the post-bind login fallback before chat", () => {
     expect(preclaimLoginMode(null, "cold-machine")).toBe("post-bind");
     expect(preclaimLoginMode("ready-spare", "ready-spare")).toBe("preclaim");
@@ -455,6 +483,10 @@ describe("cloud journey", () => {
     expect(capacityOnly([red("the machine did not take its first exec (vm_unavailable)")])).toBe(false);
     expect(capacityOnly([red("HTTP 429"), red("reply timed out")])).toBe(false);
     expect(capacityOnly([])).toBe(false);
+    // The journey's own capacity codes: a full team before the first create, a create refused at the cap.
+    expect(capacityOnly([red("cloud.quota.headroom quota_headroom:account-team used 5/5, need 2 (no room after 244 s, 17 reads)")])).toBe(true);
+    expect(capacityOnly([red("cloud.quota.exceeded: at the cap (no room after 60 s, 5 refusals)")])).toBe(true);
+    expect(capacityOnly([red("cloud.quota.headroom quota_headroom:t used 5/5, need 2"), red("reply timed out")])).toBe(false);
   });
   test("the login copy runs the Mac installer's own programs", () => {
     expect(swiftRawString('  static let x = #"""\n      a\n        b\n      """#', "x")).toBe("a\n  b");
@@ -1383,6 +1415,75 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(await provenLeak(entry, "ghs_token", g.get)).toBeNull();
     expect(g.calls.find((c) => c.url.startsWith("https://blob.example/"))!.auth).toBe("");
     expect(g.calls.filter((c) => c.url.startsWith("https://api.github.com/repos/manaflow-ai/cmux/")).every((c) => c.auth === "Bearer ghs_token")).toBe(true);
+  });
+
+  test("proof HTTP failures retain bounded, scrubbed diagnostics without retrying ordinary permission errors", async () => {
+    const token = "ghs_proof_secret";
+    let calls = 0;
+    const reason = await provenLeak(entry, token, async () => {
+      calls++;
+      return { status: 403, location: null, remaining: "7", text: token + " forbidden " + "x".repeat(400) };
+    });
+    expect(calls).toBe(1);
+    expect(reason).toContain("HTTP 403");
+    expect(reason).toContain("x-ratelimit-remaining=7");
+    expect(reason).toContain("[secret] forbidden");
+    expect(reason).not.toContain(token);
+    expect(Buffer.byteLength(JSON.parse(reason!.split("; body=")[1]))).toBe(200);
+  });
+
+  test("proof retries each GitHub API read once after its exhausted quota resets", async () => {
+    for (const suffix of ["/jobs/128746706182", "/runs/42485334511", "/jobs/128746706182/logs"]) {
+      for (const status of [403, 429]) {
+        const g = gh();
+        let calls = 0;
+        const sleeps: number[] = [];
+        const get = async (url: string, headers: Record<string, string>) => {
+          if (url.endsWith(suffix) && ++calls === 1) return {
+            status, location: null, remaining: "0", reset: "102", retryAfter: "3", text: "rate limit exceeded",
+          };
+          return g.get(url, headers);
+        };
+        expect(await provenLeak(entry, "ghs_token", get, {
+          now: () => 100_000, sleep: async (ms: number) => { sleeps.push(ms); },
+        })).toBeNull();
+        expect(calls).toBe(2);
+        expect(sleeps).toEqual([3000]);
+        expect(g.calls.find((c) => c.url.startsWith("https://blob.example/"))!.auth).toBe("");
+      }
+    }
+  });
+
+  test("proof retries are bounded and require an explicit exhausted quota and usable reset", async () => {
+    for (const over of [
+      { remaining: "0", reset: "102", expectedCalls: 2, expectedSleeps: [2000] },
+      { remaining: "0", reset: "500", expectedCalls: 1, expectedSleeps: [] },
+      { remaining: "0", reset: undefined, expectedCalls: 1, expectedSleeps: [] },
+      { remaining: undefined, reset: "102", expectedCalls: 1, expectedSleeps: [] },
+      { remaining: "1", reset: "102", expectedCalls: 1, expectedSleeps: [] },
+    ]) {
+      let calls = 0;
+      const sleeps: number[] = [];
+      const reason = await provenLeak(entry, "ghs_token", async () => {
+        calls++;
+        return { status: 403, location: null, text: "quota exhausted", ...over };
+      }, { now: () => 100_000, sleep: async (ms: number) => { sleeps.push(ms); } });
+      expect(reason).toContain("HTTP 403");
+      expect(reason).toContain("quota exhausted");
+      expect(calls).toBe(over.expectedCalls);
+      expect(sleeps).toEqual(over.expectedSleeps);
+    }
+  });
+
+  test("a successful quota retry still rejects an untrusted job", async () => {
+    const g = gh({ job: { name: "wake-echo" } });
+    let calls = 0;
+    const reason = await provenLeak(entry, "ghs_token", async (url, headers) => {
+      if (++calls === 1) return { status: 429, location: null, remaining: "0", retryAfter: "1", text: "quota" };
+      return g.get(url, headers);
+    }, { now: () => 100_000, sleep: async () => {} });
+    expect(reason).toContain("is not deploy-staging");
+    expect(calls).toBe(2);
   });
 
   test("a log a contributor's code could have written proves nothing, whatever it prints", async () => {
