@@ -858,8 +858,10 @@ describe("the default for every agent", () => {
   test("a machine with no CodeRouter origin starts claude on its own sign-in, never an empty team plane", async () => {
     // fs-firstsend-exercise (2026-10-31): a shell with only the OpenAI pair persisted that pair alone,
     // so no shell after it had an origin, and team-unknown left claude with no endpoint and no key
-    // ("Not logged in"). With no origin there is no team plane to choose.
+    // ("Not logged in"). With no origin there is no team plane to choose. The image's own file has no
+    // origin either: since #58230 a shell on the image's plane heals its origin from that file.
     const m = machine();
+    writeFileSync(m.modelPlane, `export OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
     const env = bootEnv(m);
     for (const name of ["CMUX_CODEROUTER_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]) delete env[name];
     const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.claude} --resume x`], { env });
@@ -874,6 +876,22 @@ describe("the default for every agent", () => {
     // Nothing asked CodeRouter: there was no origin to ask.
     const calls = existsSync(m.calls) ? readFileSync(m.calls, "utf8") : "";
     expect(calls).not.toContain("agent-access");
+  });
+
+  test("a shell on the image's plane without the origin takes it from the image's file (#58230)", async () => {
+    // cloud-claude-matrix 2026-11-25: a per-home model-plane.env that kept only the OpenAI pair hid the
+    // image's origin, so every agent with no sign-in had no model route.
+    const m = machine();
+    const env = bootEnv(m);
+    for (const name of ["CMUX_CODEROUTER_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]) delete env[name];
+    const result = await runChild("/bin/bash", ["-c", `. ${m.config}; printf '%s' "$CMUX_CODEROUTER_URL"`], { env });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(ORIGIN);
+    expect(readFileSync(path.join(m.home, ".config/cmux/model-plane.env"), "utf8")).toContain(ORIGIN);
+    // Another plane's base URL is the person's: no origin.
+    const other = await runChild("/bin/bash", ["-c", `. ${m.config}; printf '%s' "\${CMUX_CODEROUTER_URL-}"`],
+      { env: { ...env, OPENAI_BASE_URL: "https://api.example.test/v1" } });
+    expect(other.stdout).toBe("");
   });
 
   test("with no CodeRouter origin, a stale model-plane pair never reaches codex or opencode", async () => {

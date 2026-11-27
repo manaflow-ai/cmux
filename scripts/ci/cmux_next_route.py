@@ -180,6 +180,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-daemon-launch-core/",
     "cmux-tui/crates/cmux-update-prewarm-core/",
     "cmux-tui/crates/cmux-health-core/",
+    "cmux-tui/crates/cmux-sign-clone-sweep/",
     "cmux-tui/crates/cmux-launch-image/",
     "cmux-tui/crates/cmux-pane-pictures/",
     "cmux-tui/crates/cmux-chat-markdown/",
