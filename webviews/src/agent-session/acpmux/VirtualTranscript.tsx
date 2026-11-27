@@ -2322,7 +2322,7 @@ function TranscriptView({
   // them in the show (about 71 rows) was a 26 ms synchronous render ahead of the first frame back, which
   // then missed its vsync (settled-page bench PROFILE=1, workspace_switch idle; Leo, 2026-11-21:
   // "workspace switch ... reach a settled page ... within 2x of a derived bound").
-  const [revealing, setRevealing] = useState(false);
+  const [showingView, setShowingView] = useState(false);
   useEffect(() => {
     const node = ref.current;
     const doc = node?.ownerDocument ?? document;
@@ -2331,7 +2331,7 @@ function TranscriptView({
       rowsReleasedRef.current = released;
       flushSync(() => {
         setRowsReleased(released);
-        if (!released) setRevealing(true);
+        if (!released) setShowingView(true);
       });
     };
     const changed = () => {
@@ -4522,14 +4522,14 @@ function TranscriptView({
     };
   }, [deferHistory, sessionKey]);
   // A released transcript shown again mounts the rest once its first frame back has painted
-  // (`revealing`, HIDDEN RELEASE above): two frames, then a task, as `deferHistory` waits.
+  // (`showingView`, HIDDEN RELEASE above): two frames, then a task, as `deferHistory` waits.
   useEffect(() => {
-    if (!revealing) return;
+    if (!showingView) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let second: number | undefined;
     const first = requestAnimationFrame(() => {
       second = requestAnimationFrame(() => {
-        timer = setTimeout(() => setRevealing(false), 0);
+        timer = setTimeout(() => setShowingView(false), 0);
       });
     });
     return () => {
@@ -4537,7 +4537,7 @@ function TranscriptView({
       if (second !== undefined) cancelAnimationFrame(second);
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [revealing]);
+  }, [showingView]);
   const deferredWarmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt));
   const warmTop = deferredWarmTop ?? liveWarmAt;
   // Above the view the warm rows reach HISTORY_VIEWPORTS: history to scroll up into, built between
@@ -4553,11 +4553,11 @@ function TranscriptView({
   // nothing to scroll up into. A followed view is anchored at its end, so rows drawn above it at their
   // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
   const history =
-    renderFollowing && !deferHistory && !revealing
+    renderFollowing && !deferHistory && !showingView
       ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
       : undefined;
   const scrolledRanges = mergeRowRanges([
-    ...(deferHistory || revealing || warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...(deferHistory || showingView || warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
     ...(history ? [history] : []),
   ]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
