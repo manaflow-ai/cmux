@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "placeAuto.rule" : {
+      "comment" : "Agent pane: the one line that says what Auto does for a chat",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runs here; moves to its own Cloud VM during work if this Mac sleeps, runs low on power, memory or disk, you're away 10 min, or a turn runs 15 min. Back when you return and it's idle."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعمل هنا؛ وتنتقل إلى Cloud VM الخاصة بها أثناء العمل إذا نام هذا Mac، أو قلّت طاقة البطارية أو الذاكرة أو مساحة القرص، أو إذا كنت بعيدًا لمدة 10 دقائق، أو إذا استغرق دور واحد 15 دقيقة. تعود عند عودتك وعندما تكون خاملة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Radi ovdje; tokom rada prelazi na svoj Cloud VM ako ovaj Mac spava, ostane bez struje, memorije ili prostora na disku, ako ste odsutni 10 min ili ako tura traje 15 min. Vraća se kada se vratite i kada miruje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kører her; flytter til sin egen Cloud VM under arbejde, hvis denne Mac sover, har lav strøm, hukommelse eller diskplads, du har været væk i 10 min, eller en tur kører i 15 min. Vender tilbage, når du er tilbage, og den er inaktiv."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Läuft hier; wechselt während der Arbeit auf seine eigene Cloud VM, wenn dieser Mac in den Ruhezustand geht, wenig Akku, Speicher oder Speicherplatz hat, du 10 Min. weg bist oder ein Durchlauf 15 Min. dauert. Kehrt zurück, wenn du wieder da bist und er untätig ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se ejecuta aquí; durante el trabajo pasa a su propia Cloud VM si este Mac entra en reposo, tiene poca batería, memoria o espacio en disco, estás ausente 10 min o un turno dura 15 min. Vuelve cuando regresas y está inactivo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "S'exécute ici ; pendant le travail, passe sur sa propre Cloud VM si ce Mac se met en veille, manque de batterie, de mémoire ou d'espace disque, si vous êtes absent 10 min ou si un tour dure 15 min. Revient quand vous revenez et qu'il est inactif."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viene eseguita qui; durante il lavoro passa alla propria Cloud VM se questo Mac va in stop, ha poca batteria, memoria o spazio su disco, sei assente per 10 min o un turno dura 15 min. Torna quando riprendi e non è occupata."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ここで実行します。作業中に、この Mac がスリープする、バッテリー・メモリ・ディスクの空きが少なくなる、10 分間離席する、または 1 回のターンが 15 分続くと、専用の Cloud VM に移動します。戻ってアイドル状態になると戻ります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដំណើរការនៅទីនេះ; ផ្លាស់ទៅ Cloud VM របស់វាផ្ទាល់ក្នុងអំឡុងពេលធ្វើការ ប្រសិនបើ Mac នេះដេក ថាមពលថ្មទាប ការចងចាំ ឬទំហំឌីសទាប អ្នកមិននៅ 10 នាទី ឬវេនមួយដំណើរការ 15 នាទី។ ត្រឡប់មកវិញនៅពេលអ្នកត្រឡប់ និងនៅទំនេរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "여기서 실행됩니다. 작업 중 이 Mac이 절전 상태가 되거나, 배터리·메모리·디스크 공간이 부족하거나, 10분 동안 자리를 비우거나, 한 턴이 15분 동안 이어지면 자체 Cloud VM으로 이동합니다. 돌아와서 유휴 상태가 되면 다시 돌아옵니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kjører her; flytter til sin egen Cloud VM under arbeid hvis denne Macen sover, har lite strøm, minne eller diskplass, du har vært borte i 10 min, eller en tur kjører i 15 min. Kommer tilbake når du er tilbake og den er inaktiv."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Działa tutaj; podczas pracy przenosi się do własnej Cloud VM, gdy ten Mac przechodzi w uśpienie, ma mało baterii, pamięci lub miejsca na dysku, gdy jesteś nieobecny przez 10 min lub tura trwa 15 min. Wraca, gdy wrócisz i będzie bezczynny."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Roda aqui; durante o trabalho, passa para a própria Cloud VM se este Mac entrar em suspensão, ficar com pouca bateria, memória ou espaço em disco, você ficar ausente por 10 min ou um turno durar 15 min. Volta quando você retorna e ele está ocioso."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Работает здесь; во время работы переходит в собственную Cloud VM, если этот Mac засыпает, заряд, память или место на диске на исходе, вы отсутствуете 10 мин или ход длится 15 мин. Возвращается, когда вы вернётесь и чат простаивает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทำงานที่นี่ ระหว่างทำงานจะย้ายไปยัง Cloud VM ของตัวเองเมื่อ Mac เครื่องนี้เข้าสู่โหมดสลีป แบตเตอรี่ หน่วยความจำ หรือพื้นที่ดิสก์เหลือน้อย, คุณไม่อยู่ 10 นาที หรือรอบการทำงานนานถึง 15 นาที เมื่อคุณกลับมาและแชตว่าง จะกลับมาทำงานที่เดิม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Burada çalışır; iş sırasında bu Mac uykuya geçerse, pil, bellek ya da disk alanı azalırsa, 10 dk uzakta olursanız ya da bir tur 15 dk sürerse kendi Cloud VM'ine taşınır. Döndüğünüzde ve boşta olduğunda geri döner."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Працює тут; під час роботи переходить до власної Cloud VM, якщо цей Mac засинає, мало заряду, пам'яті або місця на диску, ви відсутні 10 хв або хід триває 15 хв. Повертається, коли ви повернетеся і чат простоює."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chạy tại đây; trong lúc làm việc sẽ chuyển sang Cloud VM riêng nếu Mac này ngủ, pin, bộ nhớ hoặc dung lượng đĩa thấp, bạn vắng mặt 10 phút, hoặc một lượt chạy kéo dài 15 phút. Quay lại khi bạn trở lại và cuộc trò chuyện rảnh."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在此运行；工作期间，若这台 Mac 休眠、电量、内存或磁盘空间不足、您离开 10 分钟，或某一轮运行 15 分钟，它会移至其专属的 Cloud VM。您返回且空闲时再移回。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在此執行；工作期間，若這台 Mac 進入睡眠、電量、記憶體或磁碟空間不足、您離開 10 分鐘，或某一輪執行 15 分鐘，它會移至其專屬的 Cloud VM。您返回且閒置時再移回。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

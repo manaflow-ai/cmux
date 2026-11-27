@@ -909,6 +909,11 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             if !Self.layoutGuideStalls, top < self.view.bounds.maxY - 40,
                self.view.keyboardLayoutGuide.layoutFrame.minY > top + 40 {
                 Self.layoutGuideStalls = true
+            }
+            // The latch is process-wide, so a page built before it flipped
+            // (any page but the first one to hear this notification) still
+            // rides the stalled guide: it switches here too.
+            if Self.layoutGuideStalls, self.keyboardPin?.isActive == true {
                 self.keyboardPin?.isActive = false
                 self.fallbackPin?.isActive = true
                 self.view.setNeedsLayout()

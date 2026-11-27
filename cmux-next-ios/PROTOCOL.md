@@ -2434,6 +2434,26 @@ versioned and updated both sides at once.
   stream; the viewer keeps the highest position it accepted and refuses an older one (`stale`), so a replay or
   a rolled-back source never replaces newer state. Equal is a harmless replay.
 
+### Host replica sealed state (RFD 0163 row 7, off by default)
+
+The host replica (`cmux-tui-cloud-conversations::host_replica`) can seal every session and chief snapshot it
+publishes, and every answer to `snapshot.request`, before the relay stores it. Off by default: nothing sets a
+seal yet, so frames are unchanged. With a seal, a frame's `state` is replaced by
+
+```json
+{"sealed":"cmux-relay-snapshot-v1","source":"<hex source key id>","to":{"<hex viewer key id>":"<base64 envelope>"}}
+```
+
+- One `cmux-relay-snapshot-v1` envelope per viewer, at position `(0, seq)` where `seq` is the frame's seq, on the
+  frame's stream. The relay stores the object opaquely and sees only key ids, sizes and positions.
+- Viewers: every device in the Mac's pairing store, the set that already authorizes readers, by the key
+  agreement key it proved at pairing (its `pushKey`, "Keys at pairing", counted only while the store still
+  pairs it with the identity key that signed it); the app refreshes the set on pair and unpair. A device that
+  gave no push key gets no envelope. 1 to 16 keys, duplicates collapse. Source: the Mac identity key.
+- A seal that fails to build refuses the lease; a frame that fails to seal is not sent (the replica stays
+  online and says why). `require_seal` (default off) refuses any lease without a seal, so the host never
+  publishes state in the clear. A renewal cannot add or drop the seal.
+
 ### Relay delta catch-up (RFD 0142 R9, relay serve behind `LINK_RELAY_CACHE`)
 
 A viewer that resumes after sleep asks the relay for the deltas it missed, so it catches up from the edge

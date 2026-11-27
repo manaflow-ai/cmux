@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chats.enabled.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show chats stored on this device. Nothing is uploaded."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إظهار المحادثات المخزنة على هذا الجهاز. لا يتم رفع أي شيء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikaži razgovore pohranjene na ovom uređaju. Ništa se ne otprema."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis chats gemt på denne enhed. Intet uploades."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem Gerät gespeicherte Chats anzeigen. Es wird nichts hochgeladen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra los chats guardados en este dispositivo. No se sube nada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher les discussions stockées sur cet appareil. Rien n’est envoyé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra le chat salvate su questo dispositivo. Non viene caricato nulla."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このデバイスに保存されたチャットを表示します。アップロードは行いません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញការជជែកដែលរក្សាទុកនៅលើឧបករណ៍នេះ។ គ្មានអ្វីត្រូវបានផ្ទុកឡើងទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 기기에 저장된 채팅을 표시합니다. 아무것도 업로드하지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis samtaler lagret på denne enheten. Ingenting lastes opp."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokaż czaty zapisane na tym urządzeniu. Nic nie jest przesyłane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra conversas salvas neste dispositivo. Nada é enviado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать чаты, сохранённые на этом устройстве. Ничего не загружается в сеть."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงแชตที่เก็บไว้ในอุปกรณ์นี้ ไม่มีการอัปโหลดข้อมูล"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu cihazda saklanan sohbetleri göster. Hiçbir şey yüklenmez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показувати чати, збережені на цьому пристрої. Нічого не надсилається."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiển thị các cuộc trò chuyện trên thiết bị này. Không tải lên bất cứ thứ gì."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示存储在此设备上的聊天。不会上传任何内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示儲存在此裝置上的聊天。不會上傳任何內容。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

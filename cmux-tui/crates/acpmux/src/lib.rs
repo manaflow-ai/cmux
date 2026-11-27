@@ -129,6 +129,7 @@ pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
 pub mod god_fixture;
+pub mod hypervisor;
 pub mod install_share;
 pub mod key_check;
 pub mod memory_follow;

@@ -2310,7 +2310,7 @@
       ],
       "packages": [],
       "reads": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d/",
         "Resources/theme-files/",
         "cmux-tui/crates/cmux-computer-use/src/policy.rs",
         "cmux-tui/crates/cmux-customize-recipes/recipes/",
@@ -2653,6 +2653,12 @@
     "SettingsSchemaPlugin": {
       "kind": "plugin",
       "path": "Packages/macOS/CmuxNext/Sources/SettingsSchemaPlugin",
+      "targets": [],
+      "packages": []
+    },
+    "StringCatalogsPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Sources/StringCatalogsPlugin",
       "targets": [],
       "packages": []
     }

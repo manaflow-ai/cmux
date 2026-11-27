@@ -90,9 +90,10 @@ mod tests {
     use serde_json::json;
 
     static GENERAL_SOURCE: &str = include_str!("../../../../schemas/settings/source/general.json");
-    static SETTINGS_WINDOW_STRINGS: &str = include_str!(
-        "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
-    );
+    /// The Settings window's string table: one `<key>.xcstrings` file per key, each a catalog of
+    /// that one key (scripts/cmux-next/string_catalogs.py), so it is read at test time.
+    const SETTINGS_WINDOW_STRINGS: &str =
+        "../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d";
 
     fn system(preferred: &[&str]) -> &'static str {
         resolve(None, preferred)
@@ -204,17 +205,28 @@ mod tests {
 
     #[test]
     fn shipped_matches_the_settings_window_catalog() {
-        let catalog: Value =
-            serde_json::from_str(SETTINGS_WINDOW_STRINGS).expect("Localizable.xcstrings parses");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(SETTINGS_WINDOW_STRINGS);
         let mut locales = std::collections::BTreeSet::new();
-        if let Some(source) = catalog["sourceLanguage"].as_str() {
-            locales.insert(source.to_string());
-        }
-        for entry in catalog["strings"].as_object().expect("strings").values() {
-            if let Some(localizations) = entry["localizations"].as_object() {
-                locales.extend(localizations.keys().cloned());
+        let mut entries = 0;
+        for file in std::fs::read_dir(&dir).expect("Localizable.xcstrings.d") {
+            let path = file.expect("an entry").path();
+            if path.extension().is_none_or(|ext| ext != "xcstrings") {
+                continue;
+            }
+            let catalog: Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).expect("readable"))
+                    .expect("an entry file parses");
+            if let Some(source) = catalog["sourceLanguage"].as_str() {
+                locales.insert(source.to_string());
+            }
+            for entry in catalog["strings"].as_object().expect("strings").values() {
+                entries += 1;
+                if let Some(localizations) = entry["localizations"].as_object() {
+                    locales.extend(localizations.keys().cloned());
+                }
             }
         }
+        assert!(entries > 1000, "the Settings window's table has its keys: {entries}");
         let shipped: std::collections::BTreeSet<String> =
             SHIPPED.iter().map(|(code, _)| code.to_string()).collect();
         assert_eq!(shipped, locales);

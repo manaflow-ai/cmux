@@ -206,6 +206,16 @@ public final class AgentPaneModel {
     /// The Set up Cloud card's way in, then the wait for a connection serving the family (``CloudSetup/setUp(_:family:)``);
     /// false when the wait ended without one. nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String) async -> Bool)?
+    /// Which families a Cloud chat can run now (``CloudSetup/serving()``); nil when Cloud is unavailable or nothing was read.
+    @ObservationIgnored public var onCloudSetupState: (@MainActor () async -> [String: Bool]?)?
+
+    /// Wires the app's Cloud first use (``CloudSetup``): the Set up Cloud card's way in (``onCloudSetUp``) and the model
+    /// picker's read of which families Cloud runs (``onCloudSetupState``); nil (Cloud unavailable) wires neither.
+    public func useCloudSetup(_ setup: CloudSetup?) {
+        guard let setup else { (onCloudSetUp, onCloudSetupState) = (nil, nil); return }
+        onCloudSetUp = { [weak setup] action, family in await setup?.setUp(action, family: family) ?? false }
+        onCloudSetupState = { [weak setup] in await setup?.serving() }
+    }
     /// Whether the app's Cloud account is signed in now (in another pane, window or Settings, say):
     /// a `cloud.signIn` then resumes without opening the browser. nil reads as not signed in.
     @ObservationIgnored public var onCloudSignedIn: (@MainActor () -> Bool)?
@@ -218,6 +228,8 @@ public final class AgentPaneModel {
     @ObservationIgnored var cloudSignInBrowser: Task<Bool, Never>?
     /// This pane's Set up Cloud wait while a `cloud.setUp` waits on it; `cloud.signInCancel` cancels it.
     @ObservationIgnored var cloudSetUpWait: Task<Bool, Never>?
+    /// The model picker's set up wait (`cloud.setUp` with no key), apart from the card's ``cloudSetUpWait``.
+    @ObservationIgnored var pickerSetUpWait: Task<Bool, Never>?
     /// The click a `cloud.signIn` kept once it signed in, for the page's one send again of that start
     /// (``AgentPaneModel/takeCloudSignInGrant(_:)``); `cloud.signInCancel` drops it.
     @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant)?
@@ -826,6 +838,8 @@ public final class AgentPaneModel {
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
         case .cloudSignIn(let key): return await signInToCloud(key: key)
         case .cloudSetUp(let key, let action, let family): return await setUpCloud(key: key, action: action, family: family)
+        // A read for the picker: no gesture, starts nothing.
+        case .cloudSetupState: return await cloudSetupState()
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's kept click.
         case .cloudSignInCancel(let expired): return cancelCloudSignIn(expired: expired)
         // Opens the plan's checkout in the browser on the person's click (one gesture).

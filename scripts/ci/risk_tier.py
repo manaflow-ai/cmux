@@ -1035,6 +1035,24 @@ def prefetch_blobs(repo_dir: str, base_sha: str, paths: list[str], timeout: floa
         pass
 
 
+def relaid_out(entries: list[dict]) -> frozenset[str]:
+    """Files this pull request deletes whole while it adds files in the directory that replaces them: a registry
+    split into one file per entry, `schemas/settings/source/agent-policy.json` into `.../agent-policy/<key>.json`
+    (scripts/ci/entry_logs.py ENTRY_DIRS) or `Localizable.xcstrings` into `Localizable.xcstrings.d/<key>.xcstrings`
+    (scripts/cmux-next/string_catalogs.py). Its lines move instead of going away, so deleting them takes nothing back
+    (cmux#56291 read as taking back 56 pull requests, 2026-11-25)."""
+    added = [e["filename"] for e in entries if e.get("status") == "added"]
+    moved = set()
+    for entry in entries:
+        if entry.get("status") != "removed":
+            continue
+        path = entry["filename"]
+        stem = path.rsplit(".", 1)[0] if "." in path.rsplit("/", 1)[-1] else path
+        if any(a.startswith(stem + "/") or a.startswith(path + ".d/") for a in added):
+            moved.add(path)
+    return frozenset(moved)
+
+
 def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                    now: float | None = None, unread: list[str] | None = None,
                    budget: float = REVERT_BUDGET_SECONDS) -> dict[int, list[str]]:
@@ -1047,6 +1065,8 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     cutoff = (now or time.time()) - RECENT_DAYS * 86400
     found: dict[int, list[str]] = {}
     added_anywhere = frozenset(line for e in entries for line in diff_lines(e.get("patch") or "")[1])
+    moved = relaid_out(entries)
+    entries = [e for e in entries if e["filename"] not in moved]
     deadline = time.monotonic() + budget
     blamed = [entry.get("previous_filename") or entry["filename"] for entry in entries[:MAX_BLAME_FILES]
               if deleted_ranges(entry.get("patch") or "") and entry.get("status") != "added"

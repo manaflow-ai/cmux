@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.push.branchNotFound" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم يعد الفرع موجودًا. حدّث لرؤية الحالة الحالية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grana više ne postoji. Osvježite da vidite trenutno stanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grenen findes ikke længere. Opdater for at se den aktuelle tilstand."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Branch existiert nicht mehr. Aktualisiere, um den aktuellen Stand zu sehen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The branch no longer exists. Refresh to see the current state."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La rama ya no existe. Actualiza para ver el estado actual."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La branche n’existe plus. Actualisez pour voir l’état actuel."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il ramo non esiste più. Aggiorna per vedere lo stato attuale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブランチが存在しません。更新して現在の状態を確認してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Branch លែងមានទៀតហើយ។ សូមផ្ទុកឡើងវិញដើម្បីមើលស្ថានភាពបច្ចុប្បន្ន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "브랜치가 더 이상 존재하지 않습니다. 새로 고쳐 현재 상태를 확인하십시오."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grenen finnes ikke lenger. Oppdater for å se gjeldende tilstand."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gałąź już nie istnieje. Odśwież, aby zobaczyć bieżący stan."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O branch não existe mais. Atualize para ver o estado atual."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ветка больше не существует. Обновите, чтобы увидеть текущее состояние."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แบรนช์ไม่มีอยู่แล้ว รีเฟรชเพื่อดูสถานะปัจจุบัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dal artık mevcut değil. Güncel durumu görmek için yenileyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Гілка більше не існує. Оновіть, щоб побачити поточний стан."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhánh không còn tồn tại. Làm mới để xem trạng thái hiện tại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分支已不存在。请刷新以查看当前状态。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分支已不存在。請重新整理以查看目前狀態。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

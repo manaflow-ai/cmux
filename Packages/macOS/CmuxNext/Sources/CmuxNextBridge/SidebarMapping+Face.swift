@@ -247,7 +247,6 @@ extension SidebarMapping {
         row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
-        row.startsInCloud = page?.startsInCloud ?? false
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
         // The chat the face picked: when it last changed what it does, its row's age (`SidebarWorkspace.rowAge`).

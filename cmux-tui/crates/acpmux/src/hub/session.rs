@@ -491,6 +491,20 @@ pub struct Session {
     /// of the same prompt id is answered as a duplicate, and that answer names the same kept
     /// message, so every send of one prompt id hears the one acceptance (`turns.rs`).
     pub(super) kept_messages: StdMutex<std::collections::VecDeque<(String, String, String)>>,
+    /// The acceptance each recent client prompt id's first run gave (its queue place, its turn,
+    /// its inbox receipt), newest last, at most `turns::KEPT_ACCEPTS`: a resend of the id answers
+    /// with it (`turns.rs`). Before, a resend whose first run had no turn yet (an inbox message
+    /// has none) heard a turnless duplicate the outbox could not count as taken, and waited for
+    /// the first run's end: every redelivery of an inbox message timed out, forever (2026-11-25).
+    pub(super) accepted_prompts:
+        StdMutex<std::collections::VecDeque<(String, usize, serde_json::Value)>>,
+    /// Pending first-run acceptances that fell out of the bounded receipt ring. They live only
+    /// while the matching prompt outcome is pending, so a burst cannot evict a live inbox receipt
+    /// and cannot grow this map after the prompt settles (`turns.rs`).
+    pub(super) pending_acceptances:
+        StdMutex<std::collections::HashMap<String, (usize, serde_json::Value)>>,
+    /// Bumped as a first run is accepted, for a resend waiting on it.
+    pub(super) accepted_seq: tokio::sync::watch::Sender<u64>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,

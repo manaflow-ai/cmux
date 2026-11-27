@@ -2171,8 +2171,8 @@ interface CmuxView {
   trim(v: Bindable<CmuxTrim | null>): this
   /** A host-run effect that repeats forever with no JS; `null` stops it. Stops under Reduce Motion. */
   loop(v: Bindable<CmuxLoop | null>): this
-  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size). */
-  transition(v: Bindable<CmuxTransition | null>): this
+  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size); `{kind, motion}` times it with a motion token, spring or timed curve. */
+  transition(v: Bindable<CmuxTransition | CmuxTimedTransition | null>): this
   /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
   clipped(v?: Bindable<boolean>): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
@@ -2193,6 +2193,8 @@ type CmuxLoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounc
 /** `period` in seconds; `amount` scales the effect's default amplitude. */
 type CmuxLoop = { effect: CmuxLoopEffect; period?: number; amount?: number }
 type CmuxTransition = "opacity" | "slide" | "scale" | "move" | "pop"
+/** A transition on its own timing: `motion` times the move and the fade, in and out (the bare kind keeps the renderer's springs). */
+type CmuxTimedTransition = { kind: CmuxTransition; motion?: CmuxMotion | null }
 type CmuxParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
 /** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. */
 /** A choreography curve: the Motion curves, a spring, or a cubic Bezier. A frame's `ease` shapes the segment that ends at it. */

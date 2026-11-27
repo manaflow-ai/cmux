@@ -34,6 +34,7 @@ import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
+import { cloudAgentPick } from "../cloudAgentPick";
 import { jumpSide } from "../jumpPlace";
 import { StyleSwitch } from "../newtab/StyleSwitch";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "../newtab/templates";
@@ -999,11 +1000,16 @@ export function drawPaneBody({
                               ...folder,
                               // The agent the Mode chip names and its pick: a harness with no
                               // Cloud start mode is left out, so the machine starts Claude.
-                              ...cloudSendAgent(
-                                snapshot.catalog.find((entry) => entry.id === harness)?.family,
-                                harness,
-                                model,
-                              ),
+                              // The agent picked for the machine (cloudAgentPick.ts), as the chips show it.
+                              ...(() => {
+                                const machine = cloudAgentPick();
+                                const agent = machine?.harness ?? harness;
+                                return cloudSendAgent(
+                                  snapshot.catalog.find((entry) => entry.id === agent)?.family,
+                                  agent,
+                                  machine ? machine.model : model,
+                                );
+                              })(),
                             },
                             true,
                           );

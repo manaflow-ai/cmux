@@ -213,7 +213,7 @@ impl Hub {
             }
             return tokio::sync::watch::channel(1).1;
         }
-        self.spawn_peer(name, pc, true).1
+        self.spawn_peer(name, pc, true, false).1
     }
 
     /// Run a peer under `name`, replacing any peer of that name; with
@@ -224,13 +224,15 @@ impl Hub {
         name: &str,
         pc: &crate::config::PeerConfig,
         cached: bool,
+        leased: bool,
     ) -> (u64, tokio::sync::watch::Receiver<u64>) {
-        let peer = crate::peer::Peer::new(
+        let peer = crate::peer::Peer::new_with_lease(
             name,
             &pc.url,
             pc.token.clone(),
             pc.peer_token.clone(),
             self.peer_notices.clone(),
+            leased,
         );
         if let Some(transport) = &self.wireguard
             && let Some(configured) = &pc.wireguard
@@ -630,14 +632,20 @@ impl Hub {
     }
 
     pub fn peers(&self) -> Vec<Value> {
-        // Read before `peers` is locked (lock order: `peer_leases`, then `peers`).
-        let leased: std::collections::HashSet<String> =
-            self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         // Released before the rows are counted, so this read takes `peers` and
         // `remote_sessions` separately and never in the reverse nested order.
         let (listed, brokers): (Vec<(String, Value)>, std::collections::HashSet<String>) = {
-            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-            let listed = peers.values().map(|p| (p.name.clone(), p.summary())).collect();
+            let peers = self.peers.load();
+            let listed = peers
+                .values()
+                .map(|p| {
+                    let mut summary = p.summary();
+                    if p.leased {
+                        summary.set("leased", Value::Bool(true));
+                    }
+                    (p.name.clone(), summary)
+                })
+                .collect();
             (listed, peers.values().filter(|p| p.github_broker()).map(|p| p.name.clone()).collect())
         };
         let counts = self.remote_sessions.read().peer_counts();
@@ -645,9 +653,6 @@ impl Hub {
             .into_iter()
             .map(|(name, mut s)| {
                 s.set("sessions", json!(counts.get(&name).copied().unwrap_or(0)));
-                if leased.contains(&name) {
-                    s.set("leased", Value::Bool(true));
-                }
                 if brokers.contains(&name) {
                     s.set("githubBroker", Value::Bool(true));
                 }
@@ -703,8 +708,7 @@ impl Hub {
 
     pub fn connected_peers(&self) -> Vec<Arc<crate::peer::Peer>> {
         self.peers
-            .lock()
-            .unwrap()
+            .load()
             .values()
             .filter(|p| p.connected.load(std::sync::atomic::Ordering::SeqCst))
             .cloned()
@@ -725,7 +729,7 @@ impl Hub {
     }
 
     pub(super) fn peer(&self, name: &str) -> Option<Arc<crate::peer::Peer>> {
-        self.peers.lock().unwrap().get(name).cloned()
+        self.peers.get(name)
     }
 
     /// Prefix a peer session's summary so it reads as `<peer>/<name>`. A display line the peer
@@ -826,13 +830,12 @@ impl Hub {
     /// The row transition after a continuous outage's grace has elapsed.
     pub(super) fn mark_peer_unreachable(&self, peer: &str, generation: u64) {
         let changed = {
-            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned()
-            else {
+            // The rows writer lock, then the registry with no lock (`peer_table.rs`).
+            let mut map = self.remote_sessions.write();
+            let Some(current) = self.peers.get(peer).filter(|p| p.generation == generation) else {
                 return;
             };
             let fence = current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire);
-            let mut map = self.remote_sessions.write();
             if current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire) != fence {
                 return;
             }
@@ -1050,13 +1053,14 @@ impl Hub {
                         let gone = old.into_values().collect::<Vec<_>>();
                         #[cfg(test)]
                         self.pause_after_peer_session_projection_for_test();
-                        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+                        // The rows writer lock, then the registry with no lock: a replacement or
+                        // removal publishes under (or before) this lock (`peer_table.rs`).
+                        let mut map = self.remote_sessions.write();
                         let Some(current) =
-                            peers.get(&peer).filter(|p| p.generation == generation).cloned()
+                            self.peers.get(&peer).filter(|p| p.generation == generation)
                         else {
                             return;
                         };
-                        let mut map = self.remote_sessions.write();
                         if current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire)
                             != epoch
                         {
@@ -1112,13 +1116,12 @@ impl Hub {
                         let removed = {
                             #[cfg(test)]
                             self.pause_after_peer_session_projection_for_test();
-                            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut map = self.remote_sessions.write();
                             let Some(current) =
-                                peers.get(&peer).filter(|p| p.generation == generation).cloned()
+                                self.peers.get(&peer).filter(|p| p.generation == generation)
                             else {
                                 return;
                             };
-                            let mut map = self.remote_sessions.write();
                             // An older list of this link must not bring it back.
                             current.purge_tombstones.purged(&mux_id);
                             let key = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
@@ -1182,13 +1185,12 @@ impl Hub {
                     {
                         #[cfg(test)]
                         self.pause_after_peer_session_projection_for_test();
-                        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+                        let mut map = self.remote_sessions.write();
                         let Some(current) =
-                            peers.get(&peer).filter(|p| p.generation == generation).cloned()
+                            self.peers.get(&peer).filter(|p| p.generation == generation)
                         else {
                             return;
                         };
-                        let mut map = self.remote_sessions.write();
                         current.purge_tombstones.changed(&mux_id);
                         let old_id = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
                         // Under the same key the row is replaced in place by the insert below
@@ -1549,8 +1551,7 @@ impl Hub {
         if instance == self.person.instance() {
             return PeerAskRun::Forged;
         }
-        let peers: Vec<_> =
-            self.peers.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        let peers: Vec<_> = self.peers.load().values().cloned().collect();
         let named = |p: &crate::peer::Peer| p.person_instance().as_deref() == Some(instance);
         if peers.iter().any(|p| p.name != peer && named(p)) {
             return PeerAskRun::Forged;
@@ -1761,12 +1762,10 @@ impl Hub {
         let writer = self.peer_cache_writer(peer);
         let removed = {
             let _writer = writer.lock().unwrap_or_else(|e| e.into_inner());
-            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(current) = peers.get(peer).filter(|p| p.generation == instance).cloned()
-            else {
+            let mut map = self.remote_sessions.write();
+            let Some(current) = self.peers.get(peer).filter(|p| p.generation == instance) else {
                 return;
             };
-            let mut map = self.remote_sessions.write();
             let created = |r: &RemoteSession| r.summary.created_at();
             let key = map
                 .find_mux(peer, mux)
@@ -1848,12 +1847,7 @@ impl Hub {
     /// Each peer's link state by its name: what a listed peer row says as `peerState`
     /// ([`listed_remote_row`]).
     pub(super) fn peer_link_states(&self) -> HashMap<String, &'static str> {
-        self.peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .map(|p| (p.name.clone(), p.state().as_str()))
-            .collect()
+        self.peers.load().values().map(|p| (p.name.clone(), p.state().as_str())).collect()
     }
 
     /// This daemon's own sessions' summaries, without retaining the JSON trees: each closed row

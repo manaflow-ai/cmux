@@ -2766,15 +2766,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextWakeups",
             ],
-            resources: [
-                .process("Localizable.xcstrings"),
-            ],
+            // Localizable.xcstrings.d is the Localizable table, one file per key: StringCatalogsPlugin builds the table.
+            exclude: ["Localizable.xcstrings.d"],
             swiftSettings: daemonSwiftSettings,
             // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
-            plugins: [.plugin(name: "SettingsSchemaPlugin")]
+            plugins: [.plugin(name: "SettingsSchemaPlugin"), .plugin(name: "StringCatalogsPlugin")]
         ),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
         .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
+        // Runs scripts/cmux-next/string_catalogs.py build-target: a target's <Table>.xcstrings.d directories (one file
+        // per key, so two PRs adding strings never conflict) into <Table>.xcstrings in its work directory.
+        .plugin(name: "StringCatalogsPlugin", capability: .buildTool()),
         .testTarget(
             name: "CmuxNextSettingsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2796,10 +2798,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
-            resources: [
-                .process("Localizable.xcstrings"),
-            ],
-            swiftSettings: uiSwiftSettings
+            // Localizable.xcstrings.d is the Localizable table, one file per key: StringCatalogsPlugin builds the table.
+            exclude: ["Localizable.xcstrings.d"],
+            swiftSettings: uiSwiftSettings,
+            plugins: [.plugin(name: "StringCatalogsPlugin")]
         ),
         .target(
             name: "CmuxNextControl",

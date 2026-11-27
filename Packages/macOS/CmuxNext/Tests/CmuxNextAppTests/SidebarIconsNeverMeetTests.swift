@@ -76,7 +76,7 @@ struct SidebarIconsNeverMeetTests {
             ("treeFold", row.treeFoldSlot.made), ("audio", row.audioSlot.made), ("drive", row.driveIndicator),
             ("rowBadge", row.rowBadge), ("unread", row.badge), ("activity", row.activity),
             ("agentMark", row.agentMarkVariant == .besideTitle ? nil : row.agentMark), ("keycap", row.keycap),
-            ("pullRequests", row.pullRequests), ("rollUp", row.rollUp), ("pinMark", row.pinMark), ("muted", row.mutedMark), ("cloud", row.cloudMark),
+            ("pullRequests", row.pullRequests), ("rollUp", row.rollUp), ("pinMark", row.pinMark), ("muted", row.mutedMark),
             ("presence", row.presenceDots), ("tabCount", row.tabCount),
         ]
         return icons.compactMap { name, view in
