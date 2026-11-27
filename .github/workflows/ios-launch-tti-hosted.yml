@@ -52,7 +52,7 @@ jobs:
             ref: 11cabf376882ec0bd3dec7ba56ab21a6e024936e
             buildfix: false
           - leg: base+both-fixes
-            ref: 11cabf376882ec0bd3dec7ba56ab21a6e024936e
+            ref: edabb86f3748eec650913dddab24d2577d3db762
             buildfix: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
