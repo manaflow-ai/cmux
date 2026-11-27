@@ -988,9 +988,14 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "refused": w.refused,
             // Refused only for room, load or swap: it may still take work (`overloaded`).
             "load": w.load,
+            // Its placement cost in dollars (RFD 0182 B7, `placement_cost.rs`); not yet ordered by.
+            "cost": cost::host_cost(registry, &w.name, w.local, work),
         })).collect::<Vec<_>>(),
     })
 }
+
+#[path = "placement_cost.rs"]
+mod cost;
 
 #[cfg(test)]
 #[path = "placement_tests.rs"]
