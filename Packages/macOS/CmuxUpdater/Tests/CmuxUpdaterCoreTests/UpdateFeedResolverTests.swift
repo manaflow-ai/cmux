@@ -21,9 +21,9 @@ import CmuxUpdaterCore
         let resolver = UpdateFeedResolver(fallbackFeedURL: "https://example.com/appcast.xml")
         for value in ["not a URL", "file:///tmp/appcast.xml", "https:///missing-host.xml"] {
             let resolution = resolver.resolve(infoFeedURL: value)
-            #expect(resolution.url == "https://example.com/appcast.xml", value)
-            #expect(resolution.usedFallback, value)
-            #expect(resolution.channel == .stable, value)
+            #expect(resolution.url == "https://example.com/appcast.xml")
+            #expect(resolution.usedFallback)
+            #expect(resolution.channel == .stable)
         }
     }
 
