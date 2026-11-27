@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 
 extension CloudMachineResourcePresentation {
     /// The localized usage detail for each capacity reading.
