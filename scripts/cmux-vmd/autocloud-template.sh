@@ -29,6 +29,10 @@ TOKEN_FILE="${TOKEN_FILE:-/etc/cmux-vmd/token}"
 IMAGE="${IMAGE:-autocloud}"
 VCPUS="${VCPUS:-2}"
 MEM_MIB="${MEM_MIB:-4096}"
+# The chat start size's disk (cloud-journey.ts CHAT_START_SIZE disk_mb / 1024; same test keeps them equal). cmux-vmd
+# copies each machine's disk from the template, so the template's disk is every clone's.
+DISK_GIB="${DISK_GIB:-20}"
+IMAGE_DIR="${IMAGE_DIR:-/var/lib/cmux-vmd/images/$IMAGE}"
 TEMPLATES="${TEMPLATES:-autocloud autocloud@2x4096}"
 # images/cmux-vm/inputs.lock.json basePackages."wireguard-tools" (tests/test_cmux_vmd_autocloud_template.py keeps them equal).
 WG_TOOLS_VERSION="1.0.20210914-1ubuntu4"
@@ -51,6 +55,15 @@ now_ms() { date +%s%3N; }
 
 for _ in $(seq 30); do curl -sf "$VMD/healthz" >/dev/null && break; sleep 1; done
 curl -sf "$VMD/healthz" >/dev/null || { echo "cmux-vmd does not answer at $VMD" >&2; exit 1; }
+
+# Grow the image's root disk to DISK_GIB, offline (sparse; a machine already made from it keeps its own copy).
+want=$(( DISK_GIB * 1024 * 1024 * 1024 ))
+have=$(sudo stat -c %s "$IMAGE_DIR/rootfs.ext4")
+if [ "$have" -lt "$want" ]; then
+  sudo truncate -s "$want" "$IMAGE_DIR/rootfs.ext4"
+  sudo e2fsck -pf "$IMAGE_DIR/rootfs.ext4" >/dev/null
+  sudo resize2fs "$IMAGE_DIR/rootfs.ext4" >/dev/null 2>&1
+fi
 
 t0=$(now_ms)
 created="$(api -X POST "$VMD/v1/machines" -d "$(jq -n --arg i "$IMAGE" --argjson c "$VCPUS" --argjson m "$MEM_MIB" \
@@ -123,6 +136,7 @@ step json-poster 'test -s /etc/ssl/certs/ca-certificates.crt && curl -sS -m 10 -
 # snapshot neither exists, as in the regular image; the clone's session host writes both when it binds.
 ids="\$(find /root/.local/state/cmux /home/cmux/.local/state/cmux -name identity.json 2>/dev/null)"
 step noise-key '! test -e /etc/cmux/daemon-layout && test -z "\$ids" && test -S "\$(head -n 1 /etc/cmux/daemon-socket)"' "a session identity or layout marker is baked in (\$ids), or the session host is down"
+step disk 'test \$(( \$(df -B1 --output=size / | tail -n 1) / 1073741824 )) -ge $(( DISK_GIB - 1 ))' "the root disk is under ${DISK_GIB} GiB"
 step updater '$HOST_CLI --help' "/opt/cmux/current/bin/cmux does not run"
 step clock 'test \$(( \$(date +%s) - $(date +%s) )) -le 30 && test \$(( $(date +%s) - \$(date +%s) )) -le 30' "guest clock is more than 30 s off the host's"
 exit \$fail
@@ -156,6 +170,7 @@ step() { if eval "\$2" >/dev/null 2>&1; then echo "ok \$1"; else echo "FAIL \$1:
 step fork-clock 'test \$(( \$(date +%s) - $(date +%s) )) -le 30 && test \$(( $(date +%s) - \$(date +%s) )) -le 30' "clone clock is more than 30 s off the host's (cmux-vmd set_clock on restore)"
 step fork-cmux-host 'systemctl is-active cmux-host' "cmux-host is not running in the clone"
 step fork-wg-key 'test -n "\$(wg genkey | wg pubkey)"' "no wg in the clone"
+step fork-disk 'test \$(( \$(df -B1 --output=size / | tail -n 1) / 1073741824 )) -ge $(( DISK_GIB - 1 ))' "the clone's root disk is under ${DISK_GIB} GiB"
 step fork-daemon-info 'test -S "\$(head -n 1 /etc/cmux/daemon-socket)" && test -s /etc/cmux/daemon.json' "the clone's daemon socket or daemon.json is missing"
 exit \$fail
 EOF
