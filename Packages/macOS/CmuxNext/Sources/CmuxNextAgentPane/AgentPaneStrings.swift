@@ -292,7 +292,7 @@ extension AgentPaneHostError {
         case .daemonRestarting:
             String(localized: "agentPane.error.daemonRestarting", defaultValue: "The agent service is restarting after an update. This chat connects when it's back.", bundle: .localizedModule)
         case .daemonStopped:
-            String(localized: "agentPane.error.daemonStopped", defaultValue: "The agent service stopped.", bundle: .localizedModule)
+            String(localized: "agentPane.error.daemonStopped", defaultValue: "cmux couldn't start its agent service. Quit and reopen cmux to try again.", bundle: .localizedModule)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Chief to start it.", bundle: .localizedModule)
         case .chiefStarting:

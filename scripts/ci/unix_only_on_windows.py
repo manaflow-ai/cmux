@@ -14,7 +14,10 @@ x86_64-pc-windows-gnu and names every use, in code that Windows still compiles, 
   - a dependency that Windows does not get: one listed only under a target that is not Windows
     (`[target.'cfg(unix)'.dependencies]`), an optional one no default feature turns on, or a path
     dependency whose crate root is `#![cfg(unix)]`;
-  - an item of a path dependency's crate root that is behind a cfg Windows does not set.
+  - an item of a path dependency's crate root that is behind a cfg Windows does not set;
+  - a module or item of the crate itself that is declared only under a cfg Windows does not set
+    (`#[cfg(unix)] mod hub;`), named by a path (`super::hub::x`, `crate::a::hub`, `use
+    super::{hub, ..}`, or bare `hub::x` / `f(` in the module that declares it).
 
 What counts as compiled on Windows: rustc's cfg set for x86_64-pc-windows-gnu (windows,
 target_os = "windows", target_env = "gnu", ...; an unset name is false, as in rustc), the crate's
@@ -49,7 +52,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LIBC_LIST = os.path.join(HERE, "libc_windows_gnu.txt")
 # The crates the Windows check builds whose own sources are scanned. acpmux first: every red of
 # the Windows check since 2026-11-21 was in it.
-DEFAULT_CRATES = ["cmux-tui/crates/acpmux", "cmux-tui/crates/cmux-fault"]  # cmux-fault: an acpmux dev-dependency that --all-targets builds
+DEFAULT_CRATES = [
+    "cmux-tui/crates/acpmux",
+    "cmux-tui/crates/cmux-fault",  # an acpmux dev-dependency that --all-targets builds
+    "cmux-tui/crates/cmux-tui-core",
+    "cmux-tui/crates/cmux-tui",
+]
 
 # rustc's cfg set for x86_64-pc-windows-gnu in a debug `cargo check` (`rustc --print cfg`).
 WINDOWS_CFG_NAMES = {"windows", "debug_assertions", "overflow_checks"}
@@ -64,6 +72,18 @@ WINDOWS_CFG_VALUES = {
     "target_has_atomic": {"8", "16", "32", "64", "ptr"},
     "panic": {"unwind"},
 }
+WINDOWS = (WINDOWS_CFG_NAMES, WINDOWS_CFG_VALUES)
+# The unix targets the crates also build for. An item a cfg takes out on Windows and on all of
+# these too (a `#[cfg(test)]` helper in the non-test pass) is no Windows-only break: a use of it
+# fails the Linux and macOS builds as well, so the crate-internal pass does not read it.
+_UNIX_COMMON = {"target_family": {"unix"}, "target_arch": {"x86_64", "aarch64"}, "target_pointer_width": {"64"},
+                "target_endian": {"little"}, "target_has_atomic": {"8", "16", "32", "64", "ptr"}, "panic": {"unwind"}}
+UNIX_TARGETS = (
+    ({"unix", "debug_assertions", "overflow_checks"}, {**_UNIX_COMMON, "target_os": {"linux"}, "target_env": {"gnu"},
+                                                       "target_vendor": {"unknown"}}),
+    ({"unix", "debug_assertions", "overflow_checks"}, {**_UNIX_COMMON, "target_os": {"macos"}, "target_env": {""},
+                                                       "target_vendor": {"apple"}}),
+)
 
 # Comments, strings and char literals become spaces (newlines kept), so offsets and lines match
 # the original text and nothing inside them reads as code.
@@ -76,11 +96,21 @@ STRIP_RE = re.compile(
     re.S,
 )
 CFG_ATTR_RE = re.compile(r"#\s*(!)?\s*\[\s*cfg\s*\(")
-TOKEN_RE = re.compile(r"->|=>|==|!=|<=|>=|<<|>>|[{}()\[\];,<>=]")
-NEXT_RE = re.compile(r"\s*(else\b|as\b|=>|\.|\?|[-+*/%&|^<>=!]|\S)")
+TOKEN_RE = re.compile(r"\bwhere\b|->|=>|==|!=|<=|>=|<<|>>|[{}()\[\];,<>=]")
+NEXT_RE = re.compile(r"\s*(else\b|as\b|if\b|=>|\.|\?|[-+*/%&|^<>=!]|\S)")
 MAIN_RE = re.compile(r"\bfn\s+main\s*\(")
 NO_MAIN_RE = re.compile(r"#!\[\s*(?:no_main|cfg_attr\s*\((.*?),\s*no_main\s*\))\s*\]", re.S)
 MOD_RE = re.compile(r"\bmod\s+(?:r#)?(\w+)\s*([;{])")
+# A module-level item's name (functions, types, constants); `mod` is MOD_RE's.
+ITEM_RE = re.compile(r"^[ \t]*(?:pub(?:\s*\([^)]*\))?\s+)?(?:(?:const|async|unsafe|extern(?:\s+\"\w+\")?)\s+)*"
+                     r"(?:fn|struct|enum|trait|type|const|static|union)\s+(?:r#)?(\w+)\b", re.M)
+# A `use` the module brings a name in with (a `#[cfg(not(unix))] pub use stub::{f, g};` arm).
+USE_RE = re.compile(r"^[ \t]*(?:pub(?:\s*\([^)]*\))?\s+)?use\s+([^;]*);", re.M)
+# A path that starts at the crate, the parent or this module.
+REL_RE = re.compile(r"\b(crate|super|self)\s*::")
+WORD_RE = re.compile(r"[A-Za-z_]\w*")
+SEG_RE = re.compile(r"\s*(?:r#)?(\w+)\s*(::)?")
+DECL_BEFORE_RE = re.compile(r"\b(?:fn|mod|struct|enum|trait|type|const|static|union|let|macro_rules!)\s*$")
 VIS_TAIL_RE = re.compile(r"\bpub\s*(?:\([^)]*\))?\s*$")
 PATH_ATTR_RE = re.compile(r'#\s*\[\s*path\s*=\s*"([^"]+)"\s*\]')
 ATTR_TAIL_RE = re.compile(r"(?:#\s*\[[^\]]*\]\s*)+$")
@@ -105,8 +135,9 @@ def _cfg_tokens(text: str) -> list[str]:
     return re.findall(r'"(?:\\.|[^"\\])*"|[A-Za-z_][\w]*|[(),=]', text)
 
 
-def eval_cfg(text: str, test: bool, features: set[str]) -> bool:
-    """Whether `text` (the inside of `cfg( ... )`) holds for x86_64-pc-windows-gnu."""
+def eval_cfg(text: str, test: bool, features: set[str], target: tuple = WINDOWS) -> bool:
+    """Whether `text` (the inside of `cfg( ... )`) holds for x86_64-pc-windows-gnu (or `target`)."""
+    cfg_names, cfg_values = target
     toks = _cfg_tokens(text)
     pos = 0
 
@@ -132,10 +163,10 @@ def eval_cfg(text: str, test: bool, features: set[str]) -> bool:
             pos += 2
             if name == "feature":
                 return value in features
-            return value in WINDOWS_CFG_VALUES.get(name, ())
+            return value in cfg_values.get(name, ())
         if name == "test":
             return test
-        return name in WINDOWS_CFG_NAMES
+        return name in cfg_names
 
     try:
         return pred()
@@ -164,8 +195,12 @@ def item_end(code: str, start: int) -> int:
     level = 0
     angle = 0
     track_angle = True
+    where = False  # in a `where` clause, whose commas list bounds, not items
     for m in TOKEN_RE.finditer(code, start):
         t = m.group()
+        if t == "where":
+            where = level == 0 or where
+            continue
         if t in "([{":
             level += 1
             continue
@@ -180,7 +215,8 @@ def item_end(code: str, start: int) -> int:
                 n = nxt.group(1)
                 if n in (";", ","):
                     return nxt.end()
-                if n in ("else", "as", "=>", ".", "?") or n in "-+*/%&|^<>=!":
+                # `if`: a match arm's guard (`#[cfg(unix)] E::A { .. } if f() => ...`).
+                if n in ("else", "as", "if", "=>", ".", "?") or n in "-+*/%&|^<>=!":
                     track_angle = False
                     continue
                 return m.end()
@@ -190,7 +226,7 @@ def item_end(code: str, start: int) -> int:
         if t == ";":
             return m.end()
         if t == ",":
-            if angle <= 0:
+            if angle <= 0 and not where:
                 return m.end()
             continue
         if not track_angle:
@@ -320,6 +356,11 @@ class Source:
     lines: list[int] = field(default_factory=list)
     cfgs: list[tuple[int, int, bool, str]] = field(default_factory=list)  # attr start, after attr, inner, predicate
     mods: list[re.Match] | None = None
+    words: set[str] | None = None  # the identifiers in code, for the crate-internal pass's name filters
+    # The crate-internal pass's matches, kept across the test and non-test passes.
+    items: list[tuple[int, str]] | None = None
+    uses: list[tuple[int, list[str]]] | None = None
+    rels: list[tuple[int, int, str]] | None = None
 
     @classmethod
     def load(cls, path: str, text: str) -> "Source":
@@ -336,11 +377,11 @@ class Source:
     def line_of(self, pos: int) -> int:
         return bisect.bisect_left(self.lines, pos) + 1
 
-    def dead_ranges(self, test: bool, features: set[str]) -> list[tuple[int, int]]:
+    def dead_ranges(self, test: bool, features: set[str], target: tuple = WINDOWS) -> list[tuple[int, int]]:
         ranges: list[tuple[int, int]] = []
         covered_to = -1
         for start, _after, inner, pred in self.cfgs:
-            if start < covered_to or eval_cfg(pred, test, features):
+            if start < covered_to or eval_cfg(pred, test, features, target):
                 continue
             if inner:
                 lo, hi = block_of(self.code, start)
@@ -598,12 +639,12 @@ def _led(why):
 def _patterns(crate: Crate, libc_ok: set[str]):
     out = [
         (("unix", "fd"), re.compile(r"std\s*::\s*os\s*::\s*(?:(unix|fd)\b|\{[^}]*?\b(unix|fd)\b)"),
-         _led(lambda m: f"`std::os::{m.group(1) or m.group(2)}` is unix-only")),
+         _led(lambda m: f"`std::os::{m.group(1) or m.group(2)}` is unix-only"), False),
         # `net::UnixStream` (tokio's, std's through std::os::unix): a bare `UnixStream` may be a
         # crate's own Windows stand-in (router_socket::UnixStream), so only the `net::` path counts.
         ("Unix", re.compile(r"net\s*::\s*(?:(Unix(?:Stream|Listener|Datagram))\b|\{[^}]*?\b(Unix(?:Stream|Listener|Datagram))\b)"),
          lambda m: (f"`net::{m.group(1) or m.group(2)}` is unix-only"
-                    if m.start() == 0 or not (m.string[m.start() - 1].isalnum() or m.string[m.start() - 1] == "_") else None)),
+                    if m.start() == 0 or not (m.string[m.start() - 1].isalnum() or m.string[m.start() - 1] == "_") else None), False),
     ]
     libc_re = re.compile(r"libc\s*::\s*(?:(\w+)|\{([^}]*)\})")
 
@@ -612,30 +653,145 @@ def _patterns(crate: Crate, libc_ok: set[str]):
         bad = [n for n in names if n not in libc_ok and n != "self"]
         return f"`libc::{', '.join(bad)}` is not in libc for windows-gnu" if bad else None
 
-    out.append(("libc", libc_re, _led(libc_why)))
+    out.append(("libc", libc_re, _led(libc_why), False))
     if crate.missing_crates:
         alt = "|".join(sorted(map(re.escape, crate.missing_crates), key=len, reverse=True))
         cre = re.compile(rf"({alt})\b(?=\s*(?:::|;|\s+as\b))")
         out.append((tuple(crate.missing_crates), cre,
-                    _led(lambda m: f"crate `{m.group(1)}` is not built for Windows ({crate.missing_crates[m.group(1)]})")))
+                    _led(lambda m: f"crate `{m.group(1)}` is not built for Windows ({crate.missing_crates[m.group(1)]})"), True))
     for ident, items in crate.missing_items.items():
         alt = "|".join(sorted(map(re.escape, items), key=len, reverse=True))
         ire = re.compile(rf"({re.escape(ident)})\s*::\s*(?:\{{[^}}]*?\b)?({alt})\b")
-        out.append((ident, ire, _led(lambda m, items=items: f"`{m.group(1)}::{m.group(2)}` is off on Windows ({items[m.group(2)]})")))
+        out.append((ident, ire, _led(lambda m, items=items: f"`{m.group(1)}::{m.group(2)}` is off on Windows ({items[m.group(2)]})"), True))
     return out
+
+
+def _brace_depths(code: str) -> tuple[list[int], list[int]]:
+    """Positions of `{` and `}` and the depth just after each, for depth_at."""
+    pos: list[int] = []
+    depth: list[int] = []
+    d = 0
+    for m in re.finditer(r"[{}]", code):
+        d += 1 if m.group() == "{" else -1
+        pos.append(m.start())
+        depth.append(d)
+    return pos, depth
+
+
+def _braces(cache: dict, src: "Source") -> tuple[list[int], list[int]]:
+    if src.path not in cache:
+        cache[src.path] = _brace_depths(src.code)
+    return cache[src.path]
+
+
+def _dead_items(src: "Source", dead: list[tuple[int, int]]) -> list[tuple[int, str]]:
+    """The module-level item names inside the dead ranges (only those are read)."""
+    if src.items is not None:
+        return [(at, n) for at, n in src.items if is_dead(dead, at)]
+    return [(m.start(1), m.group(1)) for lo, hi in dead for m in ITEM_RE.finditer(src.code, lo, hi)]
+
+
+def _depth_at(braces: tuple[list[int], list[int]], at: int) -> int:
+    i = bisect.bisect_left(braces[0], at) - 1
+    return braces[1][i] if i >= 0 else 0
+
+
+@dataclass
+class _Visit:
+    src: Source
+    dead: list[tuple[int, int]]
+    module: tuple  # (root, name, name, ...)
+    inline: list[tuple[int, int, str]]
+
+
+def _words(src: Source) -> set[str]:
+    if src.words is None:
+        src.words = set(WORD_RE.findall(src.code))
+    return src.words
+
+
+def _items(src: Source) -> list[tuple[int, str]]:
+    if src.items is None:
+        src.items = [(m.start(1), m.group(1)) for m in ITEM_RE.finditer(src.code)]
+    return src.items
+
+
+def _uses(src: Source) -> list[tuple[int, list[str]]]:
+    if src.uses is None:
+        src.uses = [(m.start(), re.findall(r"(\w+)\s*(?=[,}]|$)", m.group(1).strip()))
+                    for m in USE_RE.finditer(src.code)] if "use" in src.code else []
+    return src.uses
+
+
+def _rels(src: Source) -> list[tuple[int, int, str]]:
+    if src.rels is None:
+        src.rels = [(m.start(), m.end(), m.group(1)) for m in REL_RE.finditer(src.code)
+                    if _starts_path(src.code, m.start())]
+    return src.rels
+
+
+def _module_at(v: _Visit, at: int) -> tuple:
+    if not v.inline:
+        return v.module
+    return v.module + tuple(n for lo, hi, n in v.inline if lo < at < hi)
+
+
+def _path_groups(code: str, at: int) -> list[list[str]]:
+    """The paths that start at `at` (just after `crate::`, `super::` or `self::`): one, or each entry
+    of a `{a, b::c}` group (their leading segments; enough to resolve the module part)."""
+    segs: list[str] = []
+    while True:
+        m = SEG_RE.match(code, at)
+        if m and m.group(1) not in ("super", "self", "crate") or (m and m.group(1) == "super" and m.group(2)):
+            segs.append(m.group(1))
+            at = m.end()
+            if not m.group(2):
+                return [segs]
+            continue
+        rest = code[at:at + 1] if not m else ""
+        k = at
+        while k < len(code) and code[k].isspace():
+            k += 1
+        if k < len(code) and code[k] == "{":
+            close = _match_brace(code, k)
+            out = []
+            depth = 0
+            start = k + 1
+            for q in range(k + 1, close + 1):
+                c = code[q]
+                if c == "{":
+                    depth += 1
+                elif c == "}" and depth:
+                    depth -= 1
+                elif (c == "," and depth == 0) or q == close:
+                    entry = code[start:q]
+                    first = [x for x in re.findall(r"\w+", entry.split("{")[0]) if x != "as"]
+                    if first and first[0] not in ("self", "super", "crate"):
+                        parts = re.split(r"\s*::\s*", entry.split("{")[0].split(" as ")[0].strip())
+                        out.append(segs + [x for x in parts if x])
+                    start = q + 1
+            return out or [segs]
+        del rest
+        return [segs]
 
 
 def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, str]]:
     crate = load_crate(tree, crate_dir)
     pats = _patterns(crate, libc_ok)
     sources: dict[str, Source] = {}
-    hits: dict[str, list[tuple[int, str]]] = {}
+    hits: dict[str, list[tuple[int, str, str | None]]] = {}
     found: dict[tuple[str, int, str], None] = {}
+    braces: dict[str, tuple[list[int], list[int]]] = {}
     for test in (False, True):
         seen: set[str] = set()
-        todo = [(path, os.path.dirname(path), True) for path, test_only in crate.roots if test or not test_only]
+        visits: dict[str, _Visit] = {}
+        # Every module and module-level item, by its full path: declared live, or only under a cfg
+        # Windows does not set (with where that cfg is).
+        live_decl: set[tuple] = set()
+        dead_decl: dict[tuple, tuple[str, int]] = {}
+        todo = [(path, os.path.dirname(path), (path,)) for path, test_only in crate.roots if test or not test_only]
         while todo:
-            path, mod_dir, _ = todo.pop()
+            path, mod_dir, module = todo.pop()
             path = os.path.normpath(path)
             if path in seen:
                 continue
@@ -664,6 +820,26 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
             for m in src.mods:
                 if m.group(2) == "{" and not is_dead(dead, m.start()):
                     inline.append((m.end() - 1, _match_brace(src.code, m.end() - 1), m.group(1)))
+            v = visits[path] = _Visit(src, dead, module, inline)
+            on_unix = [src.dead_ranges(test, crate.features, t) for t in UNIX_TARGETS] if dead else []
+
+            def unix_live(at: int) -> bool:
+                return any(not is_dead(r, at) for r in on_unix)
+
+            for m in src.mods:
+                full = _module_at(v, m.start()) + (m.group(1),)
+                if is_dead(dead, m.start()):
+                    if unix_live(m.start()):
+                        dead_decl.setdefault(full, (path, src.line_of(m.start())))
+                else:
+                    live_decl.add(full)
+            # Items under a dead cfg first; the live ones only matter where a dead name comes up (below).
+            for at, name in _dead_items(src, dead):
+                if not unix_live(at):
+                    continue
+                here = _module_at(v, at)
+                if _depth_at(_braces(braces, src), at) == len(here) - len(module):  # not a method, a local or a field
+                    dead_decl.setdefault(here + (name,), (path, src.line_of(at)))
             for m in src.mods:
                 if m.group(2) != ";" or is_dead(dead, m.start()):
                     continue
@@ -673,31 +849,102 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                 attrs = ATTR_TAIL_RE.search(lead)
                 pa = PATH_ATTR_RE.search(attrs.group()) if attrs else None
                 here = os.path.dirname(path)
+                child = module + tuple(nest) + (name,)
                 if pa:
                     # A `#[path]` file reads its own `mod x;` as a mod.rs does: from its directory.
                     target = os.path.normpath(os.path.join(os.path.join(here, *nest) if nest else here, pa.group(1)))
-                    todo.append((target, os.path.dirname(target), True))
+                    todo.append((target, os.path.dirname(target), child))
                     continue
                 base = mod_dir if mod_dir is not None else os.path.splitext(path)[0]
                 base = os.path.join(base, *nest)
                 for cand in (os.path.join(base, name + ".rs"), os.path.join(base, name, "mod.rs")):
                     if tree.exists(cand):
                         child_dir = os.path.dirname(cand) if cand.endswith("mod.rs") else os.path.join(base, name)
-                        todo.append((cand, child_dir, True))
+                        todo.append((cand, child_dir, child))
                         break
             if path not in hits:
                 hits[path] = []
-                for need, rx, why in pats:
+                for need, rx, why, shadow in pats:
                     needs = (need,) if isinstance(need, str) else need
                     if not any(n in src.code for n in needs):
                         continue
                     for m in rx.finditer(src.code):
                         w = why(m)
                         if w:
-                            hits[path].append((m.start(), w))
-            for pos, w in hits[path]:
-                if not is_dead(dead, pos):
-                    found[(path, src.line_of(pos), w)] = None
+                            hits[path].append((m.start(), w, m.group(1) if shadow else None))
+        # A live declaration of the same path (a `#[cfg(not(unix))]` arm, a `use`) is in the same
+        # module, so in the file that declares the dead one: only those files are read again.
+        dead_items = {k[-1] for k in dead_decl if k not in live_decl}
+        dead_files = {wp for k, (wp, _wl) in dead_decl.items() if k not in live_decl}
+        for path in dead_files if dead_items else ():
+            v = visits[path]
+            src, dead, bd = v.src, v.dead, _braces(braces, v.src)
+            for at, names in _uses(src):
+                if names and not dead_items.isdisjoint(names) and not is_dead(dead, at):
+                    here = _module_at(v, at)
+                    live_decl.update(here + (name,) for name in names)
+            for at, name in _items(src):
+                if name not in dead_items or is_dead(dead, at):
+                    continue
+                here = _module_at(v, at)
+                if _depth_at(bd, at) == len(here) - len(v.module):
+                    live_decl.add(here + (name,))
+        off = {k: where for k, where in dead_decl.items() if k not in live_decl}
+        children: dict[tuple, set[str]] = {}
+        for k in off:
+            children.setdefault(k[:-1], set()).add(k[-1])
+        # A path can only name an item that is off if the file has that item's name in it.
+        off_names = {n for k in off for n in k[1:]}
+        for path, v in visits.items():
+            src, dead = v.src, v.dead
+            for pos, w, ident in hits[path]:
+                if is_dead(dead, pos):
+                    continue
+                # A module of the same name declared here is what the path names (`mod time;`).
+                if ident and _module_at(v, pos) + (ident,) in live_decl:
+                    continue
+                found[(path, src.line_of(pos), w)] = None
+            if not off or not any(n in src.code for n in off_names):
+                continue
+            for at, end, kind in _rels(src):
+                if is_dead(dead, at):
+                    continue
+                here = _module_at(v, at)
+                base = (here[0],) if kind == "crate" else here
+                if kind == "super":
+                    base = base[:-1]
+                for segs in _path_groups(src.code, end):
+                    cur = base
+                    for seg in segs:
+                        if seg == "super":
+                            cur = cur[:-1]
+                            continue
+                        cur = cur + (seg,)
+                        if cur in off:
+                            wp, wl = off[cur]
+                            found[(path, src.line_of(at), f"`{'::'.join(cur[1:])}` is declared only under a cfg Windows "
+                                   f"does not set ({wp}:{wl})")] = None
+                            break
+                        if cur not in live_decl:
+                            break
+            names = set()
+            for lo_mod in {v.module} | {_module_at(v, lo + 1) for lo, _hi, _n in v.inline}:
+                names |= children.get(lo_mod, set())
+            names &= _words(src) if names else set()
+            if not names:
+                continue
+            alt = "|".join(sorted(map(re.escape, names), key=len, reverse=True))
+            for m in re.finditer(rf"\b({alt})\b(?=\s*(?:::|\())", src.code):
+                at = m.start()
+                if not _starts_path(src.code, at) or is_dead(dead, at):
+                    continue
+                if DECL_BEFORE_RE.search(src.code, max(0, at - 16), at):
+                    continue
+                full = _module_at(v, at) + (m.group(1),)
+                if full in off:
+                    wp, wl = off[full]
+                    found[(path, src.line_of(at), f"`{m.group(1)}` is declared only under a cfg Windows "
+                           f"does not set ({wp}:{wl})")] = None
     return sorted(found)
 
 
