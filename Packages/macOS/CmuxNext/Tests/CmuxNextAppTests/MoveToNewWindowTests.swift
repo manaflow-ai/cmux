@@ -197,7 +197,7 @@ struct MoveToNewWindowTests {
                 let pane = try #require(workspace.screens.first?.panes.first)
                 chats.append((workspace, pane, try #require(pane.tabs.first)))
             }
-            func expectShown(_ chat: (workspace: WorkspaceModel, pane: PaneModel, tab: TabModel), sourceLocation: SourceLocation = #_sourceLocation) throws {
+            @MainActor func expectShown(_ chat: (workspace: WorkspaceModel, pane: PaneModel, tab: TabModel), sourceLocation: SourceLocation = #_sourceLocation) throws {
                 let window = try #require(services.windows.controller(for: try Self.window(ofTab: chat.tab.id, services)), sourceLocation: sourceLocation)
                 #expect(window.state.workspaceID == chat.workspace.id, sourceLocation: sourceLocation)
                 #expect(window.content?.workspace === chat.workspace, "the chat's workspace is not mounted in the click's turn", sourceLocation: sourceLocation)
