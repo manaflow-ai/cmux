@@ -42,6 +42,19 @@ pub fn work(clone: &Path) -> Result<Work, String> {
     if remotes.is_empty() {
         return Err("it has no remote to compare with".into());
     }
+    // Other worktrees and submodules may keep their only index or object
+    // database under this clone's .git; a branch bundle does not save those.
+    let worktrees = crate::git::user_git(clone, &["worktree", "list", "--porcelain", "-z"], LIMIT)?;
+    if worktrees.split(|byte| *byte == 0).filter(|field| field.starts_with(b"worktree ")).count()
+        != 1
+    {
+        return Err("it owns linked worktrees or their registration is unreadable".into());
+    }
+    match std::fs::symlink_metadata(clone.join(".git/modules")) {
+        Ok(_) => return Err("it has a submodule object store".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("cannot inspect submodule object stores: {error}")),
+    }
     // Bundles below retain branches and tags, not a detached HEAD.
     crate::git::user_git(clone, &["symbolic-ref", "--quiet", "HEAD"], LIMIT)
         .map_err(|_| "its HEAD is detached or unreadable; it stays".to_string())?;
