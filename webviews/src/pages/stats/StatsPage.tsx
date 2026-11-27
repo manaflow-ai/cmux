@@ -3,6 +3,7 @@
 // activity heatmap, the time of day, each agent's share, how turns ended and what needed you, then
 // the person's opt-in usage patterns (commands, splits, agents, connections; counts only).
 import { useSyncExternalStore } from "react";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import type { Strings } from "../shared/i18n";
 import { harnessName } from "./harnessNames";
 import {
@@ -25,6 +26,9 @@ import { intl } from "../../ui/intl";
 export function StatsPage({ store, strings }: { store: StatsStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { summary, range } = snapshot;
+  // A read that failed (acpmux starting or not answering) is read again on its own (Leo, 2026-11-22: a
+  // "try again" is a vacuous decision); only one that lasts the deadline says so, in one quiet line.
+  const { stillTrying } = useAutoRetry(snapshot.failed, () => void store.refresh(), { busy: snapshot.loading });
 
   if (snapshot.unavailable) return <p className="stats-message">{strings.t("stats.page.unavailable")}</p>;
 
@@ -48,12 +52,14 @@ export function StatsPage({ store, strings }: { store: StatsStore; strings: Stri
           ))}
         </fieldset>
       </header>
-      {snapshot.failed ? (
-        <p className="stats-message">{snapshot.failed.message ?? strings.t("stats.page.failed")}</p>
-      ) : !summary ? (
-        <p className="stats-message stats-muted">{strings.t("stats.page.loading")}</p>
-      ) : (
+      {/* The last summary stays while a failed read is asked again; past the deadline one quiet line says so. */}
+      {snapshot.failed && stillTrying ? (
+        <p className="stats-message stats-muted">{snapshot.failed.message ?? strings.t("stats.page.stillLoading")}</p>
+      ) : null}
+      {summary ? (
         <Summary summary={summary} strings={strings} />
+      ) : snapshot.failed && stillTrying ? null : (
+        <p className="stats-message stats-muted">{strings.t("stats.page.loading")}</p>
       )}
     </div>
   );

@@ -169,10 +169,17 @@ describe("withStartedSessions", () => {
     expect([...cache.keys()]).toEqual([`${STARTED_SESSIONS}-y`]);
   });
 
-  test("a running turn with only its card so far draws the card and the thinking line under it", () => {
+  // The person's turn draws its heading (Working for, then Worked for) from its first row (turns.ts
+  // `shapeLiveRows`, #51896). Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways so it disappearing means there's multiple problems".
+  test("a running turn with only its card so far draws its heading, the card and the thinking line under it", () => {
     const rows = withStartedSessions([row("u1", 10, "user")], [started("x", 20)]);
     const shown = turnView(rows, new Set(), { working: true });
-    expect(shown.map((r) => r.kind).filter((kind) => kind !== "date")).toEqual(["user", STARTED_SESSIONS, "thinking"]);
+    expect(shown.map((r) => r.kind).filter((kind) => kind !== "date")).toEqual([
+      "user",
+      "worked",
+      STARTED_SESSIONS,
+      "thinking",
+    ]);
   });
 
   test("a card after the running call leaves that call the live line's", () => {
