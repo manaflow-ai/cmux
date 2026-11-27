@@ -267,7 +267,9 @@
   }
   /* A request is two lines narrow: who on the first, the role, Approve and the x under it, so a
      long name or address keeps the width and the row keeps one height. */
-  .share-dialog {
+  /* The query container cannot query itself; set the row size on its sections so both
+     the requests band and the people band's remaining space inherit the narrow height. */
+  .share-dialog__section {
     --share-ask-row: calc(2 * var(--ds-control-primary) + var(--ds-space-2) + var(--ds-space-1));
   }
   .share-dialog__ask {
@@ -283,7 +285,11 @@
     justify-content: center;
   }
   .share-dialog__ask > .share-dialog__ask-role {
-    justify-self: start;
+    min-width: 0;
+    justify-self: stretch;
+  }
+  .share-dialog__ask-role > .ui-select-button {
+    width: 100%;
   }
   .share-dialog__person,
   .share-dialog__person-pick {
