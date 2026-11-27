@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -44,6 +45,25 @@ class MobilePairCacheTests(unittest.TestCase):
                 with self.subTest(key=key), self.assertRaises(BenchError):
                     BENCH.ingest(ctx, path)
                 self.assertFalse(ctx.rows)
+
+
+    def test_portable_timer_accounts_for_child_cpu_and_preserves_failure(self):
+        script = (BENCH_DIR.parents[1] / "scripts/measure/mobile-pair-skew-cache.sh").read_text()
+        timer = script.split("# BEGIN_PORTABLE_TIMING\n", 1)[1].split("# END_PORTABLE_TIMING", 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            timing = Path(directory) / "timing"
+            for status in (0, 7):
+                result = subprocess.run(
+                    [sys.executable, "-I", "-", str(timing), sys.executable, "-c",
+                     f"sum(i*i for i in range(1000000)); raise SystemExit({status})"],
+                    input=timer, text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, status, result.stderr)
+                wall, user, system = map(float, timing.read_text().split())
+                self.assertGreater(wall, 0)
+                self.assertGreater(user + system, 0)
+                self.assertGreaterEqual(user, 0)
+                self.assertGreaterEqual(system, 0)
 
     def test_incomplete_or_duplicate_window_is_rejected(self):
         text = FIXTURE.read_text()

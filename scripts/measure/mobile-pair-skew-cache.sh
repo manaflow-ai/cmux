@@ -6,7 +6,7 @@
 # CARGO_TARGET_DIR must already contain release outputs; no dependency-cold claim is made.
 # Import: scripts/bench/cmux-bench mobile-pair-cache --build local --host anywhere --import LOG
 set -euo pipefail
-[[ "$(uname -s)" == Linux ]] || { echo "This headless harness requires Linux and GNU time" >&2; exit 2; }
+[[ "$(uname -s)" == Linux ]] || { echo "This headless harness requires Linux" >&2; exit 2; }
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 [[ -d "${CARGO_TARGET_DIR:?set CARGO_TARGET_DIR to the existing Cargo cache}/release" ]] ||
   { echo "The Cargo release cache must already exist" >&2; exit 2; }
@@ -38,8 +38,22 @@ host_sha=$(git -C "$old" rev-parse HEAD)
 dial_sha=$(git -C "$head" rev-parse HEAD)
 for arm in binary-miss binary-hit; do
   status=0
-  /usr/bin/time -f '%e %U %S' -o "$work/$arm.time" \
-    bash "$root/scripts/ci/mobile-pair-skew.sh" "$old" "$head" > "$work/$arm.log" 2>&1 || status=$?
+  # Time only the pair invocation: source checkout above is outside this measurement.
+  python3 -I - "$work/$arm.time" bash "$root/scripts/ci/mobile-pair-skew.sh" "$old" "$head" \
+    > "$work/$arm.log" 2>&1 <<'TIME_PY' || status=$?
+# BEGIN_PORTABLE_TIMING
+import pathlib, resource, subprocess, sys, time
+before = resource.getrusage(resource.RUSAGE_CHILDREN)
+start = time.monotonic()
+result = subprocess.run(sys.argv[2:], check=False)
+wall = time.monotonic() - start
+after = resource.getrusage(resource.RUSAGE_CHILDREN)
+user = after.ru_utime - before.ru_utime
+system = after.ru_stime - before.ru_stime
+pathlib.Path(sys.argv[1]).write_text(f"{wall:.9f} {user:.9f} {system:.9f}\n")
+raise SystemExit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
+# END_PORTABLE_TIMING
+TIME_PY
   cat "$work/$arm.log"
   python3 -I - "$work/$arm.time" "$work/$arm.log" "$arm" "$status" "$host_sha" "$dial_sha" <<'PY'
 import json, math, pathlib, sys
