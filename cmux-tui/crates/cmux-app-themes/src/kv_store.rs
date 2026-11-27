@@ -41,12 +41,10 @@ pub fn classify(file: File<'_>) -> Classified {
         |complete, move_aside| Classified { entries: BTreeMap::new(), complete, move_aside };
     let text = match file {
         File::Missing => return empty(true, false),
-        File::Unreadable => return empty(false, false),
-        File::Read(text) => text,
+        File::Unreadable | File::Read(None) => return empty(false, false),
+        File::Read(Some(text)) => text.strip_prefix('\u{feff}').unwrap_or(text),
     };
-    let Some(serde_json::Value::Object(object)) =
-        text.and_then(|text| serde_json::from_str(text).ok())
-    else {
+    let Ok(serde_json::Value::Object(object)) = serde_json::from_str(text) else {
         return empty(true, true);
     };
     let entries: BTreeMap<String, String> = object
@@ -152,18 +150,20 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_file_is_kept() {
-        assert_eq!(
-            classify(File::Unreadable),
-            Classified { entries: map(&[]), complete: false, move_aside: false }
-        );
+    fn an_unreadable_or_undecoded_file_is_kept() {
+        for file in [File::Unreadable, File::Read(None)] {
+            assert_eq!(
+                classify(file),
+                Classified { entries: map(&[]), complete: false, move_aside: false }
+            );
+        }
     }
 
     #[test]
     fn a_file_that_is_no_json_object_moves_aside() {
-        for text in [Some("{"), Some("[1]"), Some("\"x\""), Some("3"), Some(""), None] {
+        for text in ["{", "[1]", "\"x\"", "3", "", "\u{feff}{"] {
             assert_eq!(
-                classify(File::Read(text)),
+                classify(File::Read(Some(text))),
                 Classified { entries: map(&[]), complete: true, move_aside: true }
             );
         }

@@ -411,6 +411,17 @@ mod tests {
         );
         assert_eq!(
             ask("app_themes_store_classify", json!({"exists": true})),
+            json!({"entries": {}, "complete": false, "moveAside": false})
+        );
+        assert_eq!(
+            ask(
+                "app_themes_store_classify",
+                json!({"exists": true, "text": "\u{feff}{\"m:t\":\"Nord\"}"})
+            ),
+            json!({"entries": {"m:t": "Nord"}, "complete": true, "moveAside": false})
+        );
+        assert_eq!(
+            ask("app_themes_store_classify", json!({"exists": true, "text": "{"})),
             json!({"entries": {}, "complete": true, "moveAside": true})
         );
         assert_eq!(
